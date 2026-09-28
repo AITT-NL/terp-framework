@@ -394,6 +394,46 @@ drawn as one.
   still checks, so they leave the attribute list. `searchPlaceholder` and `actions`, which are
   real text props elsewhere, stay.
 
+- **A generated app can unit-test a `ConfirmDialog`.** jsdom implements `<dialog>` but not
+  `showModal()` or `close()`, and `ConfirmDialog` — the one dialog an app may render, since the
+  boundary refuses a raw `<dialog>` — calls both. react-core polyfilled them in its own test
+  setup and the setup file the template ships did not, so the first app test that opened a
+  confirmation threw `showModal is not a function` from inside react-core.
+
+  The polyfill now ships once, from the package: `installDialogPolyfill()` at a new
+  `@terpjs/react-core/testing` subpath, which react-core's own setup and the template's
+  `frontend/vitest.setup.ts` both call (ADR 0155). A subpath rather than the root, so a test
+  helper cannot reach production code by extending an existing import and does not join the
+  component catalog. The boundary's deep-import rule refuses package internals, not a declared
+  export, and needed no change. The module imports nothing from the package, and
+  `markers.test.ts` now holds every code entry but the root to that: the stylesheet reaches the
+  page as a side effect of the component modules, so a second entry that reached one could
+  render it unstyled. An app rendered earlier receives the call with `copier update`; one whose
+  setup file has diverged adds the two lines react-core's README shows.
+
+  It also does more than the copy it replaces, which only toggled `open`. Escape now fires a
+  cancelable `cancel` at the topmost open modal and closes it unless that event is cancelled —
+  the event `ConfirmDialog` handles Escape through — so an app test that presses Escape sees
+  the dialog close, and a test of a pending dialog sees it stay. An Escape that a control
+  inside the dialog already took (a `Combobox` closing its option list) is left alone, and a
+  modal removed from the document is skipped, each as measured in Chromium. Focus movement and
+  the inert page behind a modal are not reproduced, and the function says so: those stay with
+  the Playwright suite.
+
+  `template-acceptance` drops a probe into every rendered variant that confirms, cancels and
+  escapes a `ConfirmDialog` flow, and runs the app's own `npm test` against the packed
+  tarballs — until now no step in this repository ran a generated app's frontend unit tests.
+
+- **A freshly generated app's CI is green before its first test exists.** The template
+  declares `vitest run` as the frontend `test` script and ships no test file of its own; the
+  first one arrives with the first `terp new module`. vitest answers an empty suite with
+  exit code 1, and `terp verify --profile full` passed that straight through. So a new
+  project's own CI failed at `frontend-tests` before anyone wrote a line, under a README
+  that calls a fresh checkout gate-green, and next to a docstring that already called the
+  state "mid-adoption, not broken". The check now reports it as a note naming
+  `terp new module`, with vitest's own words kept so a mistyped test glob stays visible.
+  A failing suite is still red.
+
 ### Upgrade notes
 
 - The dependency-check fix is in the template, so a newly generated project has it. An

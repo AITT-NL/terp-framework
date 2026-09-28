@@ -579,20 +579,31 @@ describe("data-terp markers", () => {
 
   it("injects the sheet from every module that owns a rule, or is reachable from one that does", () => {
     // Twelve marker-rendering modules never call injectTerpStyles and do not need to: the
-    // package publishes ONE entry point and declares no `sideEffects`, so importing anything
-    // from it loads every module and two dozen of them inject. That guarantee is a packaging
-    // property, and nothing asserted it — a `sideEffects: false` added for bundle size, plus
-    // tree-shaking, would remove it silently and the first symptom would be Markdown's blocks
-    // collapsing into one grid item. So the property itself is what this pins.
-    // One CODE entry point, which is the property. Data subpaths are allowed and do not
-    // weaken it: `./layout.manifest.json` is JSON a tool reads out of node_modules, no module
-    // imports it, and importing JSON loads no JavaScript at all — so there is still exactly one
-    // way into this package's modules. Asserted by extension rather than by key count, so that
-    // publishing a second entry point is what fails and publishing another data file is not.
+    // package publishes ONE entry point into its modules and declares no `sideEffects`, so
+    // importing anything from it loads every module and two dozen of them inject. That
+    // guarantee is a packaging property, and nothing asserted it — a `sideEffects: false`
+    // added for bundle size, plus tree-shaking, would remove it silently and the first
+    // symptom would be Markdown's blocks collapsing into one grid item. So the property
+    // itself is what this pins.
+    // One way into this package's MODULES, which is the property. Two kinds of subpath do not
+    // weaken it. Data: `./layout.manifest.json` is JSON a tool reads out of node_modules, no
+    // module imports it, and importing JSON loads no JavaScript at all. And a code subpath that
+    // imports nothing from this package — `./testing`, the test-setup polyfill (ADR 0155) —
+    // loads no component and no rule, so it cannot render anything without the sheet. Asserted
+    // by what each further code entry imports rather than by key count, so that publishing a
+    // second way into the components is what fails, and a self-contained module is not.
     const codeEntries = Object.entries(manifest.exports).filter(([, target]) =>
       /\.(ts|tsx|js|mjs|cjs)$/.test(target),
     );
-    expect(codeEntries).toEqual([[".", "./src/index.ts"]]);
+    expect(Object.fromEntries(codeEntries)["."]).toBe("./src/index.ts");
+    for (const [subpath, target] of codeEntries.filter(([key]) => key !== ".")) {
+      const text = sources[target.replace(/^\.\/src\//, "./")];
+      expect(text, `${subpath} points at ${target}, not a module in src/`).toBeDefined();
+      expect(
+        stripComments(text ?? ""),
+        `${subpath} imports from this package, which makes it a second way into its modules`,
+      ).not.toMatch(/(?:from|import)\s*\(?\s*["']\.{1,2}\//);
+    }
     expect(
       "sideEffects" in manifest,
       "declaring sideEffects would let a bundler drop the modules that inject the stylesheet",

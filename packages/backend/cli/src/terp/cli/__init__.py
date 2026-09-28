@@ -1791,6 +1791,12 @@ Frontend module screens (@terpjs/react-core)
   OpenAPI export) and unwrap(...) which throws a typed ApiError carrying code/status.
 - The one governed opt-out is a justified `// terp-allow-<rule>: <reason>` marker whose
   counts must exactly match the app's checked-in escape-hatch-budget.json (a ratchet).
+- Unit tests sit beside the code as src/**/*.test.tsx and run with
+  npm --prefix frontend test (vitest in jsdom; `terp verify` runs it too). jsdom has no
+  <dialog> modal API, so frontend/vitest.setup.ts calls installDialogPolyfill() from
+  @terpjs/react-core/testing: a test can open a ConfirmDialog and confirm it, cancel it or
+  press Escape. Focus and the inert page behind a modal are not emulated there; they
+  belong to the browser suite in conformance/.
 - Run the lint locally: npm --prefix frontend run lint (part of the gate).
 """,
     "dataview": """\

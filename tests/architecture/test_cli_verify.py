@@ -2402,6 +2402,39 @@ def test_verify_frontend_tests_only_skips_an_app_that_never_wired_a_suite(
     assert check["id"] == "frontend-tests" and check["ok"] is True
 
 
+def test_a_declared_suite_with_no_test_files_yet_is_a_note_not_a_red(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """A freshly generated app declares `vitest run` and has no test file until its first
+    module, and vitest answers that with exit code 1. The README calls that checkout
+    gate-green, so the check must too -- while keeping vitest's own words in the output."""
+    import terp.cli.verify as verify_module
+
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "package.json").write_text(
+        '{"scripts": {"test": "vitest run"}}', encoding="utf-8"
+    )
+    vitest_says = (
+        "No test files found, exiting with code 1\n"
+        "include: src/**/*.test.ts, src/**/*.test.tsx"
+    )
+    monkeypatch.setattr(verify_module, "_run_subprocess", lambda check, root: (1, vitest_says))
+
+    exit_code, output = verify_module._run_frontend_tests(tmp_path)
+
+    assert exit_code == 0
+    assert output.startswith(verify_module.NOTE_PREFIX)
+    assert "terp new module" in output
+    assert vitest_says in output
+
+    # A failing suite is still a red: only the empty one is excused.
+    monkeypatch.setattr(
+        verify_module, "_run_subprocess", lambda check, root: (1, "1 failed | 3 passed")
+    )
+    assert verify_module._run_frontend_tests(tmp_path) == (1, "1 failed | 3 passed")
+
+
 def test_frontend_tests_run_when_declared_and_name_a_missing_runner(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:

@@ -5,8 +5,9 @@ Stack A (React) of the Terp frontend contract: the provider/hooks that wire a tr
 **token-styled component surface** every app module composes its screens from.
 
 This README is the catalog of that surface. Everything listed here is exported from
-the package root (`import { … } from "@terpjs/react-core"`); each export also carries
-JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
+the package root (`import { … } from "@terpjs/react-core"`), except the test-setup helper
+under [Testing components](#testing-components), which has a subpath of its own; each export
+also carries JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
 `src/` or `dist/` — the boundary lint (`@terpjs/eslint-boundaries`) refuses it.
 
 ## Conventions (the lint enforces these)
@@ -284,5 +285,25 @@ file plus an explicit `afterEach(cleanup)` (the default environment is node). Ru
 npm run -w @terpjs/react-core typecheck && npm run -w @terpjs/react-core test
 ```
 
-`vitest.setup.ts` polyfills `HTMLDialogElement.showModal/close` (jsdom lacks them), so
-components may use the native `<dialog>` freely.
+jsdom has no `HTMLDialogElement.showModal/close`; `vitest.setup.ts` calls
+`installDialogPolyfill()` from `@terpjs/react-core/testing` to supply them, so components may
+use the native `<dialog>` freely.
+
+### Testing an app that uses these components
+
+A generated app's `frontend/vitest.setup.ts` installs the same polyfill, so an app's unit test
+can open a `ConfirmDialog`, click Confirm or Cancel, or press Escape
+(`fireEvent.keyDown(dialog, { key: "Escape" })`) and get what a browser would do — including
+a pending dialog refusing to close. An app whose setup file predates it, or has diverged from
+the template's, adds the call itself:
+
+```ts
+import { installDialogPolyfill } from "@terpjs/react-core/testing";
+
+installDialogPolyfill();
+```
+
+`@terpjs/react-core/testing` is for test setup only and is not re-exported from the package
+root, so none of it reaches a production bundle (ADR 0155). What the polyfill does not
+reproduce — focus moving into the dialog and back to its opener, the inert page behind it — is
+the Playwright suite's to test, in a real browser.
