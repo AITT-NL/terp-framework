@@ -1,12 +1,12 @@
-import { createContext, useCallback, useContext } from "react";
+import { createContext, useCallback, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
 
 import { useFormatDate } from "../format";
 import { injectTerpStyles } from "../styles";
 import { Menu, MenuItem } from "../ui/Menu";
-import { useUiText } from "../uiText";
-import type { ResolveUiText, UiText } from "../uiText";
-import { DEFAULT_DATA_VIEW_STRINGS, formatDataViewString } from "./types";
+import { useStrings, useUiText } from "../uiText";
+import type { ResolveUiText, TerpStrings, UiText } from "../uiText";
+import { formatDataViewString } from "./types";
 import type { DataViewStrings } from "./types";
 
 injectTerpStyles();
@@ -19,15 +19,77 @@ export interface DataViewTextApi {
   format: (text: UiText, values: Record<string, string | number>) => string;
 }
 
-const DataViewTextContext = createContext<DataViewTextApi>({
-  strings: DEFAULT_DATA_VIEW_STRINGS,
-  resolve: (text) => (typeof text === "string" ? text : text.message),
-  format: (text, values) =>
-    formatDataViewString(typeof text === "string" ? text : text.message, values),
-});
+/**
+ * The DataView's strings, read out of the framework table.
+ *
+ * They used to be a second table of English defaults that only the per-instance `strings` prop
+ * could change. A locale catalog is typed against `TerpStrings`, so it had nowhere to put a
+ * DataView translation, and the completeness check that refuses a half-translated shell walked
+ * a table these strings were not in: under a Dutch locale every DataView rendered its toolbar
+ * and footer in English, the framework's own admin screens included, with every gate green.
+ *
+ * Written out rather than derived from the key names, so a missing or misspelt key is a type
+ * error here and not an `undefined` on screen.
+ */
+function dataViewStrings(strings: TerpStrings): DataViewStrings {
+  return {
+    searchPlaceholder: strings.dataViewSearchPlaceholder,
+    clearSearch: strings.dataViewClearSearch,
+    clearFilters: strings.dataViewClearFilters,
+    viewOptions: strings.dataViewViewOptions,
+    columns: strings.dataViewColumns,
+    moveUp: strings.dataViewMoveUp,
+    moveDown: strings.dataViewMoveDown,
+    tableView: strings.dataViewTableView,
+    cardView: strings.dataViewCardView,
+    pageSize: strings.dataViewPageSize,
+    resultsRange: strings.dataViewResultsRange,
+    pageOf: strings.dataViewPageOf,
+    firstPage: strings.dataViewFirstPage,
+    previousPage: strings.dataViewPreviousPage,
+    nextPage: strings.dataViewNextPage,
+    lastPage: strings.dataViewLastPage,
+    selectAllPage: strings.dataViewSelectAllPage,
+    selectRow: strings.dataViewSelectRow,
+    selected: strings.dataViewSelected,
+    selectAllResults: strings.dataViewSelectAllResults,
+    clearSelection: strings.dataViewClearSelection,
+    moreActions: strings.dataViewMoreActions,
+    actions: strings.dataViewActions,
+    openRow: strings.dataViewOpenRow,
+    expandRow: strings.dataViewExpandRow,
+    collapseRow: strings.dataViewCollapseRow,
+    empty: strings.dataViewEmpty,
+    loading: strings.dataViewLoading,
+    refreshing: strings.dataViewRefreshing,
+    errorTitle: strings.dataViewErrorTitle,
+    resizeColumn: strings.dataViewResizeColumn,
+  };
+}
+
+/**
+ * A DataView's per-instance overrides, and nothing else.
+ *
+ * The context carries only what the instance said, never a finished set of strings, so there is
+ * no default value to go stale: a sub-component rendered on its own — a `DataViewPagination`
+ * outside any `DataView` — reads the active locale exactly as one inside does. The context's
+ * default used to BE a finished set, English strings and a resolver that ignored the locale, so
+ * a fix to the provider alone would have left every standalone part exactly as it was.
+ */
+const DataViewOverridesContext = createContext<Partial<DataViewStrings> | undefined>(undefined);
 
 export function useDataViewText(): DataViewTextApi {
-  return useContext(DataViewTextContext);
+  const overrides = useContext(DataViewOverridesContext);
+  const framework = useStrings();
+  const resolve = useUiText();
+  return useMemo<DataViewTextApi>(
+    () => ({
+      strings: { ...dataViewStrings(framework), ...overrides },
+      resolve,
+      format: (text, values) => formatDataViewString(resolve(text), values),
+    }),
+    [framework, overrides, resolve],
+  );
 }
 
 /**
@@ -66,14 +128,9 @@ export function DataViewTextProvider({
   overrides?: Partial<DataViewStrings>;
   children: ReactNode;
 }) {
-  const resolve = useUiText();
-  const strings: DataViewStrings = { ...DEFAULT_DATA_VIEW_STRINGS, ...overrides };
-  const api: DataViewTextApi = {
-    strings,
-    resolve,
-    format: (text, values) => formatDataViewString(resolve(text), values),
-  };
-  return <DataViewTextContext.Provider value={api}>{children}</DataViewTextContext.Provider>;
+  return (
+    <DataViewOverridesContext.Provider value={overrides}>{children}</DataViewOverridesContext.Provider>
+  );
 }
 
 /**

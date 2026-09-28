@@ -291,6 +291,35 @@
       "fg": "--color-neutral-300",
       "bg": "--color-neutral-50",
       "layer": "primitive"
+    },
+    {
+      "$comment": "A Meter's fill against its track, which is the graphical object SC 1.4.11 asks 3:1 of: the fill's extent IS the value, and a fill that blends into its track is a bar that says nothing. Four pairings for the four fills the sheet paints — the unbanded accent and the three band tones — each against the one track they sit in. The track itself is not held against the page: it is a recess whose end the printed value makes redundant, and WCAG sets no ratio for that. The fill is --color-fg-accent rather than --color-brand-primary on purpose, and this file is where that choice is enforced: the brand fill measures 1.98 to 2.66 against this track in the three dark themes, because it is a surface for light text rather than a mark on the app's own ground.",
+      "id": "meter-fill-on-track",
+      "label": "a meter's fill against its track",
+      "fg": "--color-fg-accent",
+      "bg": "--color-bg-inset",
+      "layer": "semantic"
+    },
+    {
+      "id": "meter-optimum-on-track",
+      "label": "a meter's fill in its optimum band, against its track",
+      "fg": "--color-status-success",
+      "bg": "--color-bg-inset",
+      "layer": "semantic"
+    },
+    {
+      "id": "meter-suboptimum-on-track",
+      "label": "a meter's fill in its suboptimum band, against its track",
+      "fg": "--color-status-warning",
+      "bg": "--color-bg-inset",
+      "layer": "semantic"
+    },
+    {
+      "id": "meter-even-less-good-on-track",
+      "label": "a meter's fill in its worst band, against its track",
+      "fg": "--color-status-danger",
+      "bg": "--color-bg-inset",
+      "layer": "semantic"
     }
   ]
 }

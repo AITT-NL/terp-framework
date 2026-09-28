@@ -420,7 +420,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · 🟡 partial
 
 ## Open work — queued, in order
 
-Three threads are in flight. Detail lives in the linked plan and ADRs; this is the
+The threads in flight follow. Detail lives in the linked plan and ADRs; this is the
 index, so nothing is tracked only in a commit message.
 
 All six phases are implemented; phase 6's terp-spec dependency pin bump awaits an
@@ -797,6 +797,41 @@ permission the control plane never declared, which makes ADR 0089's "can only ev
 permissions this app really enforces" stronger than the code guarantees; and nothing in
 the repository declared a named `Permission` at all before this thread, so the
 fine-grained half of the authorization model had no consumer.
+
+**A friction batch from app building** — reported from building apps on Terp and triaged
+against `main` on 2026-09-27. Each item is its own branch and pull request; this is the index.
+The two open design questions are proposals (ADR status *Proposed*) awaiting a decision, not
+fixes.
+
+- [ ] #117 — The 0.28.0 release notes named the application a batch came from. Rewritten to
+      the friction; the copy shipped inside `terp-core` and its vendored mirror follow.
+- [ ] #118 — A non-finite number (`NaN`, `Infinity`) in a JSON body is a 500, not a 422, and a
+      plain `float` field accepted `Infinity` outright (ADR 0152). **Recorded, not fixed:** a
+      `float` query or path parameter still accepts `inf`/`nan`; ADR 0152 says why.
+- [ ] #123 — `terp dev` dies on a cp1252 pipe before anything boots, and on Windows uvicorn's
+      reloader never restarts when `terp dev` is started from a tool rather than a console, so
+      the old code keeps answering. `terp dev` now owns the restart (ADR 0156), and answers on
+      the checkout's claimed ports instead of a fixed pair (ADR 0134 amendment).
+- [ ] #127 — On Windows a migration history past the 260-character path limit read as empty,
+      so `terp migrate upgrade` reported success and created nothing. It is refused now.
+- [ ] #121 — `terp inspect capabilities` described identity without the service accounts it
+      provides; installed capabilities now name the command that lists what the app holds.
+- [ ] #119 — DataView's strings sat outside `TerpStrings`, so `LOCALE_NL` never reached them,
+      and `<html lang>` never followed the active locale (ADR 0153). The platform's own error
+      wording had the same defect and is fixed with it.
+- [ ] #120 — A new project failed its own deptry check: the template's code, every scaffolded
+      module and every generated revision import the platform's stack undeclared.
+- [ ] #124 + terp-spec#36 — The translation lint read `columns="auto"` as copy, and never saw a
+      descriptor built by a helper function (ADR 0157, which reverses a deliberate allowance).
+      App code may not write the framework's `data-terp` markers either (ADR 0160). Merge the
+      spec PR first.
+- [ ] #126 — The template's conformance job could not start on a fresh app
+      (unassigned ports, a stale base URL) and its helpers only worked with an English
+      interface; template acceptance never started the generated stack (ADR 0154).
+- [ ] #122 — The template's test setup lacked the `<dialog>` polyfill react-core kept for itself
+      (ADR 0155), and a fresh app's CI was red at `frontend-tests` before its first test.
+- [ ] #125 — Decided: a `Meter` ships and charts wait for evidence under a fixed contract
+      (ADR 0158); navigation stays declared, records are reached from an overview (ADR 0159).
 
 ## Active execution track
 

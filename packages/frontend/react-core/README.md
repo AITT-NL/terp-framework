@@ -5,8 +5,9 @@ Stack A (React) of the Terp frontend contract: the provider/hooks that wire a tr
 **token-styled component surface** every app module composes its screens from.
 
 This README is the catalog of that surface. Everything listed here is exported from
-the package root (`import { … } from "@terpjs/react-core"`); each export also carries
-JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
+the package root (`import { … } from "@terpjs/react-core"`), except the test-setup helper
+under [Testing components](#testing-components), which has a subpath of its own; each export
+also carries JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
 `src/` or `dist/` — the boundary lint (`@terpjs/eslint-boundaries`) refuses it.
 
 ## Conventions (the lint enforces these)
@@ -55,7 +56,7 @@ JSDoc, so your editor shows the same guidance inline. **Never deep-import** from
 | `useSso`, `parseSsoCallback`, `fetchSsoAuthorizationUrl`, `completeSsoCallback` | The SSO login seam (ADR 0058): `useSso().begin(provider)` opens an OIDC flow; `TerpProvider` completes the `/auth/callback/{provider}` redirect landing into a normal session on boot. `renderTerpApp({ ssoProviders })` wires the buttons in one line. |
 | `RequireAuth` | Renders children only with a session; pairs with the router so the app mounts only when signed in. |
 | `ThemeProvider`, `ThemeToggle`, `useTheme` | Theming over the shipped palettes — `light`, `dark`, `midnight`, `twilight`, `contrast` — plus `system` to follow the OS preference. Applies `data-theme` on `<html>` (the token stylesheet carries every palette) and persists the choice. `defaultTheme` is how an app ships on a named theme — declare it in `layout-contract.json` so a tool can read and rewrite it, or pass the bootstrap option; both is refused. `renderTerpApp` mounts it for every app; the shell header uses an icon-only, token-themed `variant="inline"` menu. |
-| `LocaleProvider`, `defineAppLocales`, `LanguageSwitcher`, `useLocale`, `LOCALE_EN`, `LOCALE_NL` | The language seam over `UiTextProvider`: `defineAppLocales(i18n, frameworkCatalogs)` validates and merges checked-in app messages with framework chrome, the active locale persists, and the shell offers a picker. Pass `sourceLocale` with `locales`; missing/empty target messages, undocumented source copies, invalid locale selection and a non-English locale without a complete framework-string catalog throw rather than silently falling back. |
+| `LocaleProvider`, `defineAppLocales`, `LanguageSwitcher`, `useLocale`, `LOCALE_EN`, `LOCALE_NL` | The language seam over `UiTextProvider`: `defineAppLocales(i18n, frameworkCatalogs)` validates and merges checked-in app messages with framework chrome, the active locale persists, and the shell offers a picker. Pass `sourceLocale` with `locales`; missing/empty target messages, undocumented source copies, invalid locale selection and a non-English locale without a complete framework-string catalog throw rather than silently falling back. `<html lang>` follows the active locale from mount and across every switch. |
 | `UserMenu`, `userInitials` | The signed-in user's menu, pinned by `buildAppRouter` to the bottom of the sidebar: an initials avatar trigger opening the identity block, **Settings** (the built-in profile page) and sign-out. Collapses to the avatar in the icon rail. |
 | `ProfileView` | The built-in profile / settings page (`/profile`): the server-validated identity, theme + language preferences, and sign-out. |
 
@@ -201,7 +202,7 @@ marker, counted by the escape-hatch budget.
 | `LoadingState`, `InlineSpinner` | Full loading block (announces itself) / compact inline glyph. |
 | `EmptyState` | The standard "nothing here yet" block, with an `action` slot for the next step. |
 | `ErrorState`, `describeError` | Human-readable failure block for a caught error. |
-| `ErrorMessagesProvider`, `useErrorMessage`, `DEFAULT_ERROR_MESSAGES` | Map stable backend error codes to copy; falls back to the envelope `detail`. |
+| `ErrorMessagesProvider`, `useErrorMessage` | Map stable backend error codes to copy; falls back to the envelope `detail`. The platform's own codes are worded by the active locale (`errorCode*` in `TerpStrings`), and an app's map wins over them. |
 | `ToastProvider`, `useToast` | Transient success/error feedback (no toast library). |
 | `ConfirmDialog` | Accessible confirmation modal (native `<dialog>`); use before any destructive action. A modal is for a confirmation or an explicit post-action moment — an edit form or a detail view belongs in a routed page, or in an expanded row beside the thing it edits (ADR 0096 §4). |
 
@@ -220,6 +221,7 @@ marker, counted by the escape-hatch budget.
 | `Tabs` | In-page (non-routed) tab set with `tablist` / `tab` / `tabpanel` roles, arrow-key navigation, and controlled or uncontrolled value. |
 | `Avatar` | The initials tile: `from` (an email or a name) or explicit `initials`, and a closed `size` of `sm` (2rem, an account menu) or `md` (3.5rem, a profile header). `aria-hidden`, because the name it abbreviates is always rendered beside it. No `src`: `/me` carries no avatar URL, so an image slot would be a prop with nothing behind it. |
 | `Badge` | Small status pill: `<Badge tone="success">Synced</Badge>` (or `label="Synced"`); `tone`: neutral / info / success / warning / danger. |
+| `Meter` | One bounded value — a quota used, a score against its range — as a bar with the value printed beside it (ADR 0158). The bar **is** the native `<meter>` (`value`, `min` default 0, `max` default 1, and the optional `low` / `high` / `optimum` bands), styled from the sheet, so the browser draws the proportion and nothing renders an inline width. `label` is required and is the meter's **accessible name, not printed**: every place a quantity sits already has a visible caption — a `DetailList` term, a `Card` title, a `HubCard` title — so a meter goes inside one, and the standard layout contract refuses one loose in a body. `format` takes the `Intl.NumberFormatOptions` the `format` helpers take and defaults to a percentage, which is always the **share of the range** (`value={74} max={100}` prints `74%`, not Intl's `7,400%`); any other style prints the value itself, unclamped, so an overrun reads `120%` against a full bar. The printed copy is `aria-hidden` and handed to the element as `aria-valuetext`, so a screen reader hears it once — and so does a `HubCard` link whose stat is a meter. Bands are opt-in: with none the bar is one accent colour, and with any the fill takes success / warning / danger by region — reinforcing the printed value, never replacing words where the judgement matters. |
 | `Tooltip` | Accessible focus/hover tooltip that describes its trigger with `aria-describedby`. |
 | `Popover`, `Menu`, `MenuItem` | Shared anchored overlay and dropdown-menu primitives: body-portaled, viewport-aware panels that escape scroll/table clipping, with outside-click/Escape close, focus return, selected-item semantics, and roving keyboard navigation. |
 | `Alert` | Inline banner for persistent feedback (`tone`: neutral / info / success / warning / danger); warnings and danger announce as `alert`, others as `status`. |
@@ -272,7 +274,7 @@ single screen by claiming its path from an app module.
 
 | Export | Use |
 |---|---|
-| `UiTextProvider`, `Trans`, `useUiText`, `useStrings`, `resolveUiText`, `DEFAULT_STRINGS` | The `UiText` seam: descriptors for props, `Trans` for body copy, and framework strings through one resolver. `LocaleProvider` is the batteries-included catalog layer and refuses missing target-locale entries. |
+| `UiTextProvider`, `Trans`, `useUiText`, `useStrings`, `resolveUiText`, `DEFAULT_STRINGS` | The `UiText` seam: descriptors for props, `Trans` for body copy, and framework strings through one resolver. `LocaleProvider` is the batteries-included catalog layer and refuses missing target-locale entries. A packaged module's nav label is a `FrameworkText` (`{ framework: "admin" }`), which `useUiText` reads from the active `TerpStrings` rather than the app's messages. |
 
 ## Testing components
 
@@ -283,5 +285,25 @@ file plus an explicit `afterEach(cleanup)` (the default environment is node). Ru
 npm run -w @terpjs/react-core typecheck && npm run -w @terpjs/react-core test
 ```
 
-`vitest.setup.ts` polyfills `HTMLDialogElement.showModal/close` (jsdom lacks them), so
-components may use the native `<dialog>` freely.
+jsdom has no `HTMLDialogElement.showModal/close`; `vitest.setup.ts` calls
+`installDialogPolyfill()` from `@terpjs/react-core/testing` to supply them, so components may
+use the native `<dialog>` freely.
+
+### Testing an app that uses these components
+
+A generated app's `frontend/vitest.setup.ts` installs the same polyfill, so an app's unit test
+can open a `ConfirmDialog`, click Confirm or Cancel, or press Escape
+(`fireEvent.keyDown(dialog, { key: "Escape" })`) and get what a browser would do — including
+a pending dialog refusing to close. An app whose setup file predates it, or has diverged from
+the template's, adds the call itself:
+
+```ts
+import { installDialogPolyfill } from "@terpjs/react-core/testing";
+
+installDialogPolyfill();
+```
+
+`@terpjs/react-core/testing` is for test setup only and is not re-exported from the package
+root, so none of it reaches a production bundle (ADR 0155). What the polyfill does not
+reproduce — focus moving into the dialog and back to its opener, the inert page behind it — is
+the Playwright suite's to test, in a real browser.

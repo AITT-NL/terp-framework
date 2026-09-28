@@ -1829,9 +1829,14 @@ def _run_frontend_tests(root: pathlib.Path) -> tuple[int, str]:
     it then runs is the check.
 
     Skips with a note for an app with no frontend or no `test` script -- upgrading the
-    framework must not fail a gate for a seam the app never adopted -- and `npm test`'s
-    own "no test files found" is left to speak for itself, because an app that declares
-    the script and has written nothing yet is mid-adoption, not broken.
+    framework must not fail a gate for a seam the app never adopted -- and for an app
+    whose declared suite has no test files yet. That last one is every freshly generated
+    app: the template ships no screen of its own to test, the first test file arrives with
+    the first `terp new module`, and vitest answers an empty suite with exit code 1. This
+    sentence used to call that state "mid-adoption, not broken" while the code passed the
+    exit code straight through, so a new project's own CI was red before anyone wrote a
+    line, under a README that calls a fresh checkout gate-green. The note keeps vitest's
+    own words, so a glob that matches nothing by mistake is still visible, only not red.
     """
     manifest = root / "frontend" / "package.json"
     if not manifest.is_file():
@@ -1852,6 +1857,12 @@ def _run_frontend_tests(root: pathlib.Path) -> tuple[int, str]:
             "presentation logic without a live stack; see `terp guide frontend`)",
         )
     exit_code, output = _run_subprocess(_FRONTEND_TESTS, root)
+    if exit_code != 0 and "No test files found" in output:
+        return 0, (
+            f"{NOTE_PREFIX}the frontend suite has no test files yet - skipped, not failed "
+            "(`uv run terp new module <name>` scaffolds the first one beside its list "
+            "view)\n" + output
+        )
     if exit_code != 0 and "vitest" in output and "not found" in output.lower():
         output += (
             "\n  This app declares a frontend `test` script but its runner is not "

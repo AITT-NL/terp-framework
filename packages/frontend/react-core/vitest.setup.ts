@@ -5,6 +5,8 @@ import "@testing-library/jest-dom/vitest";
 
 import { configure } from "@testing-library/dom";
 
+import { installDialogPolyfill } from "@terpjs/react-core/testing";
+
 // `findBy*` and `waitFor` default to a 1000ms budget, and the component tests spend it on
 // a path that is not a render: a mocked fetch resolving, then the state it sets, then the
 // re-render that finally puts the text on screen. One second does not reliably cover that,
@@ -93,23 +95,8 @@ if (typeof window !== "undefined") {
   window.scrollTo = (() => {}) as typeof window.scrollTo;
 }
 
-
-// jsdom does not implement the native <dialog> modal API (showModal/close); polyfill just
-// enough for the ConfirmDialog tests: toggle the `open` property and fire the `close` event.
-if (typeof window !== "undefined" && typeof HTMLDialogElement !== "undefined") {
-  const proto = HTMLDialogElement.prototype as HTMLDialogElement & {
-    showModal?: () => void;
-    close?: () => void;
-  };
-  if (typeof proto.showModal !== "function") {
-    proto.showModal = function showModal(this: HTMLDialogElement) {
-      this.setAttribute("open", "");
-    };
-  }
-  if (typeof proto.close !== "function") {
-    proto.close = function close(this: HTMLDialogElement) {
-      this.removeAttribute("open");
-      this.dispatchEvent(new Event("close"));
-    };
-  }
-}
+// jsdom has no `showModal()` / `close()`, and ConfirmDialog calls both. The polyfill is the
+// one every generated app's setup file installs, imported through the same published subpath
+// rather than by relative path, so this suite also proves the export an app resolves exists.
+// A no-op in the node-environment files, which have no HTMLDialogElement.
+installDialogPolyfill();

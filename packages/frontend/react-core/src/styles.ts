@@ -4175,6 +4175,107 @@ button[data-terp="input"][data-placeholder="true"] {
   }
 }
 
+/* Meters ------------------------------------------------------------------- */
+/* A bar and the value printed beside it. inline-flex so a meter sits in a sentence or a
+   DetailList value as readily as in a stack, and it sets no colour and no size on the value:
+   the printed number is text in its row and reads at that row's ink and step, which is also
+   what keeps its contrast the row's own declared pairing rather than a new one. */
+[data-terp="meter"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-inline-size: 100%;
+}
+/* The bar is the native element, so the browser draws the proportion from its attributes and
+   nothing here needs a width that depends on the value. A fixed measure rather than a bar
+   that grows with its container, because meters are read against each other: two bars of
+   different lengths make a 60% and a 40% impossible to compare at a glance. 10rem is what the
+   narrowest hub card -- 16rem, less its padding -- holds beside a three-digit percentage
+   without shrinking; below that it shrinks, to a floor.
+
+   An inline-size and not a flex-basis, and that was measured rather than chosen: an
+   inline-flex root sizes itself from its items' own widths, and a meter's own width is the
+   element's intrinsic 5em. With the measure written as a basis the bar came out 70px in a
+   14px list and 80px in a 16px sentence -- a length set by the surrounding type.
+
+   The track is --color-bg-inset, a recess, and every fill below holds 3:1 against it in all
+   five themes -- declared in token-pairs.json, so the gate measures it rather than this
+   comment. */
+[data-terp="meter-bar"] {
+  appearance: none;
+  flex: 0 1 auto;
+  inline-size: 10rem;
+  min-inline-size: 4rem;
+  block-size: var(--space-2);
+  margin: 0;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-inset);
+}
+/* Blink draws the track and the fill as pseudo-elements, one per region, and this is the
+   block the screenshot lane sees; WebKit documents the same pseudo-elements, and no lane runs
+   it. Each engine's selectors are their own rules and must
+   stay that way: a selector list naming a pseudo-element the engine does not know is invalid
+   as a whole, and the engine drops the entire rule -- measured, the adopted sheet keeps every
+   rule here in Chromium and drops only the -moz ones below. */
+[data-terp="meter-bar"]::-webkit-meter-bar {
+  block-size: 100%;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-inset);
+}
+[data-terp="meter-bar"]::-webkit-meter-optimum-value,
+[data-terp="meter-bar"]::-webkit-meter-suboptimum-value,
+[data-terp="meter-bar"]::-webkit-meter-even-less-good-value {
+  border-radius: var(--radius-full);
+  background: var(--color-fg-accent);
+}
+/* The bands, keyed on the region Meter computes rather than on which pseudo-element the
+   engine chose. Unbanded, the browser still puts every value in its "optimum" region -- so
+   styling by the engine's choice would paint a bare quota in the success tone, a judgement
+   nobody made. The attribute is only stamped when a band is declared. */
+[data-terp="meter-bar"][data-region="optimum"]::-webkit-meter-optimum-value,
+[data-terp="meter-bar"][data-region="optimum"]::-webkit-meter-suboptimum-value,
+[data-terp="meter-bar"][data-region="optimum"]::-webkit-meter-even-less-good-value {
+  background: var(--color-status-success);
+}
+[data-terp="meter-bar"][data-region="suboptimum"]::-webkit-meter-optimum-value,
+[data-terp="meter-bar"][data-region="suboptimum"]::-webkit-meter-suboptimum-value,
+[data-terp="meter-bar"][data-region="suboptimum"]::-webkit-meter-even-less-good-value {
+  background: var(--color-status-warning);
+}
+[data-terp="meter-bar"][data-region="even-less-good"]::-webkit-meter-optimum-value,
+[data-terp="meter-bar"][data-region="even-less-good"]::-webkit-meter-suboptimum-value,
+[data-terp="meter-bar"][data-region="even-less-good"]::-webkit-meter-even-less-good-value {
+  background: var(--color-status-danger);
+}
+/* Gecko draws the element itself as the track and one ::-moz-meter-bar as the fill. NO LANE
+   SEES THESE: the workbench runs one browser, and that browser drops them. They are written
+   to Gecko's documented pseudo-element, unmeasured, and pinned in Meter.test.tsx so that at
+   least deleting or retoning one is noticed. */
+[data-terp="meter-bar"]::-moz-meter-bar {
+  border-radius: var(--radius-full);
+  background: var(--color-fg-accent);
+}
+[data-terp="meter-bar"][data-region="optimum"]::-moz-meter-bar {
+  background: var(--color-status-success);
+}
+[data-terp="meter-bar"][data-region="suboptimum"]::-moz-meter-bar {
+  background: var(--color-status-warning);
+}
+[data-terp="meter-bar"][data-region="even-less-good"]::-moz-meter-bar {
+  background: var(--color-status-danger);
+}
+/* The value is the root's BASELINE, which is what puts a meter on the line of the text around
+   it: the printed number sits on the baseline its label sits on, and the bar is centred on the
+   number. Without it the root takes its baseline from the bar, whose own is its bottom edge.
+   Tabular figures, so a value that changes does not change width and walk the row around. */
+[data-terp="meter-value"] {
+  align-self: baseline;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* Tooltips ----------------------------------------------------------------- */
 /* No display declaration here on purpose: the panel is hidden with the hidden
    attribute, and any author display would beat the UA's [hidden] rule and

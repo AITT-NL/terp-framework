@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { UiText } from "@terpjs/contract";
 
@@ -154,9 +154,12 @@ export function defineAppLocales(
 export const LOCALE_EN: LocaleCatalog = { label: "English" };
 
 /**
- * The built-in Dutch catalog: a complete translation of every framework string,
- * so `locales: { en: LOCALE_EN, nl: LOCALE_NL }` localises the whole chrome out
- * of the box (a completeness test pins it to the `TerpStrings` key set).
+ * The built-in Dutch catalog: a translation of every `TerpStrings` key, so
+ * `locales: { en: LOCALE_EN, nl: LOCALE_NL }` translates every string react-core
+ * reads from that table — the shell, the packaged admin area and its sidebar
+ * entry, every `DataView`'s toolbar and footer, and the wording for the platform's
+ * own error codes — with no catalog work in the app (a completeness test pins it to
+ * the `TerpStrings` key set).
  */
 export const LOCALE_NL: LocaleCatalog = {
   label: "Nederlands",
@@ -294,8 +297,51 @@ export const LOCALE_NL: LocaleCatalog = {
     targetColumn: "Doel",
     whenColumn: "Wanneer",
     details: "Details",
+    requestLabel: "Verzoek",
     saved: "Opgeslagen",
     requestFailed: "Het verzoek is mislukt. Probeer opnieuw.",
+    dataViewSearchPlaceholder: "Zoeken…",
+    dataViewClearSearch: "Zoekopdracht wissen",
+    dataViewClearFilters: "Filters wissen",
+    dataViewViewOptions: "Weergaveopties",
+    dataViewColumns: "Kolommen",
+    dataViewMoveUp: "Omhoog verplaatsen",
+    dataViewMoveDown: "Omlaag verplaatsen",
+    dataViewTableView: "Tabelweergave",
+    dataViewCardView: "Kaartweergave",
+    dataViewPageSize: "Rijen per pagina",
+    dataViewResultsRange: "{from}–{to} van {total} resultaten",
+    dataViewPageOf: "Pagina {page} van {pages}",
+    dataViewFirstPage: "Eerste pagina",
+    dataViewPreviousPage: "Vorige pagina",
+    dataViewNextPage: "Volgende pagina",
+    dataViewLastPage: "Laatste pagina",
+    dataViewSelectAllPage: "Alle rijen op deze pagina selecteren",
+    dataViewSelectRow: "Rij selecteren",
+    dataViewSelected: "{count} geselecteerd",
+    dataViewSelectAllResults: "Alle {total} resultaten selecteren",
+    dataViewClearSelection: "Selectie wissen",
+    dataViewMoreActions: "Meer acties",
+    dataViewActions: "Acties",
+    dataViewOpenRow: "Details openen: {label}",
+    dataViewExpandRow: "Rij uitklappen",
+    dataViewCollapseRow: "Rij inklappen",
+    dataViewEmpty: "Niets om te tonen.",
+    dataViewLoading: "Laden…",
+    dataViewRefreshing: "Bijwerken…",
+    dataViewErrorTitle: "De gegevens konden niet worden geladen.",
+    dataViewResizeColumn: "Kolombreedte aanpassen",
+    errorCodeBadRequest: "Het verzoek kon niet worden verwerkt.",
+    errorCodeValidationFailed:
+      "Sommige velden zijn ongeldig. Controleer het formulier en probeer het opnieuw.",
+    errorCodeInvalidToken: "Je sessie is ongeldig. Log opnieuw in.",
+    errorCodeAuthenticationRequired: "Log in om verder te gaan.",
+    errorCodePermissionDenied: "Je hebt geen toestemming om dit te doen.",
+    errorCodeNotFound: "Dit item kon niet worden gevonden.",
+    errorCodeConflict:
+      "Dit botst met de huidige stand van zaken. Vernieuw de pagina en probeer het opnieuw.",
+    errorCodeStaleData:
+      "Iemand anders heeft dit item intussen gewijzigd. Vernieuw de pagina en probeer het opnieuw.",
   },
 };
 
@@ -326,6 +372,7 @@ export interface LocaleProviderProps {
  * the choice in `localStorage`, and feeds the active catalog's string overrides to the
  * `UiText` context — so every react-core component (and every `UiText` prop) follows the
  * switch with no per-component wiring. Adding a language to an app is one catalog entry.
+ * It also keeps `<html lang>` on the active locale, from mount and across every switch.
  */
 export function LocaleProvider({
   locales,
@@ -350,6 +397,17 @@ export function LocaleProvider({
     }
   });
   const activeLocale = codes.includes(locale) ? locale : fallback;
+
+  // The document says which language it is in, and it has to be the language on screen.
+  // `index.html` can only declare the default; a reader who picked another one, or a stored
+  // choice from an earlier visit, would otherwise have a Dutch interface announced to a screen
+  // reader as English and read aloud with English pronunciation throughout (WCAG 3.1.1). An
+  // effect rather than a write during render, because an effect never runs on the server:
+  // there is no `document` there, and `ssr.test.tsx` renders this provider without one to hold
+  // that.
+  useEffect(() => {
+    document.documentElement.lang = activeLocale;
+  }, [activeLocale]);
 
   const setLocale = useCallback(
     (next: string) => {

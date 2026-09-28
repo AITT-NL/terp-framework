@@ -113,7 +113,6 @@ const UNREAD_TOKENS: Record<string, string[]> = {
   // the full DataView's frame all name it now. That is the shrink this list was booked for.
   "--color-": [
     "--color-bg-canvas",
-    "--color-bg-inset",
     "--color-bg-raised",
     "--color-border-default",
     "--color-border-strong",

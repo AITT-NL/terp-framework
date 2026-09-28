@@ -310,6 +310,10 @@ jobs:
           # the in-project ratchet guards post-scaffold drift, this proves the
           # template as shipped passes its own baseline.
           uv run ruff check .
+          # And its own dependency check, on every variant as rendered, before anything
+          # is grown: a fresh render was red here once, over the template's own seed
+          # module, and only the hub variant ran deptry, after it had been grown.
+          uv run deptry .
 
       # The workflow a client actually runs is held to the bar this repository
       # holds itself to. It is the one artifact that reaches every consumer, so a
@@ -343,6 +347,10 @@ jobs:
           # Autogenerate only diffs meaningfully from head; bring the file up first.
           uv run terp migrate upgrade
           uv run terp migrate make records -m "create records table"
+          # deptry, the check `terp verify --profile full` blocks on, over everything the
+          # platform has now written into the project: the template's own code, a
+          # scaffolded module and a generated revision.
+          uv run deptry .
           uv run pytest
           # With the budget, which is the form the generated app itself uses. The bare
           # `terp check` fails closed the moment the app holds any `# arch-allow-*`
@@ -386,6 +394,80 @@ jobs:
           npm run routes -- --check
           npm run typecheck
           npm run build
+
+      # A generated app must be able to unit-test the one dialog it is allowed to render.
+      # jsdom has no `showModal()`, ConfirmDialog calls it, and the template's
+      # vitest.setup.ts is what installs the polyfill from `@terpjs/react-core/testing` --
+      # so this is the only place that proves the template's setup, the package's subpath
+      # export and the published tarball agree. The template ships no screen that asks for
+      # a confirmation, so there is no shipped test to run instead: this drops a probe into
+      # the rendered app and runs the app's own `npm test`, the command its `terp verify`
+      # runs. Escape is included on purpose; it is the path a polyfill that only toggled
+      # `open` got wrong.
+      - name: Unit-test a ConfirmDialog flow in the generated frontend
+        working-directory: /tmp/acceptance-app/frontend
+        run: |
+          set -eux
+          cat > src/confirm-dialog.acceptance.test.tsx <<'PROBE'
+          import { fireEvent, render, screen } from "@testing-library/react";
+          import { useState } from "react";
+          import { describe, expect, it, vi } from "vitest";
+
+          import { Button, ConfirmDialog } from "@terpjs/react-core";
+
+          function DeleteRecord({ onDelete }: { onDelete: () => void }) {
+            const [open, setOpen] = useState(false);
+            return (
+              <>
+                <Button onClick={() => setOpen(true)}>Delete record</Button>
+                <ConfirmDialog
+                  open={open}
+                  onOpenChange={setOpen}
+                  onConfirm={() => {
+                    onDelete();
+                    setOpen(false);
+                  }}
+                  title="Delete this record?"
+                  destructive
+                />
+              </>
+            );
+          }
+
+          function openDialog() {
+            fireEvent.click(screen.getByRole("button", { name: "Delete record" }));
+            return screen.getByRole("dialog", { name: "Delete this record?" });
+          }
+
+          describe("a ConfirmDialog in a generated app's unit tests", () => {
+            it("confirms", () => {
+              const onDelete = vi.fn();
+              render(<DeleteRecord onDelete={onDelete} />);
+              openDialog();
+              fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+              expect(onDelete).toHaveBeenCalledTimes(1);
+              expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+            });
+
+            it("cancels with its button", () => {
+              const onDelete = vi.fn();
+              render(<DeleteRecord onDelete={onDelete} />);
+              openDialog();
+              fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+              expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+              expect(onDelete).not.toHaveBeenCalled();
+            });
+
+            it("cancels with Escape", () => {
+              const onDelete = vi.fn();
+              render(<DeleteRecord onDelete={onDelete} />);
+              fireEvent.keyDown(openDialog(), { key: "Escape" });
+              expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+              expect(onDelete).not.toHaveBeenCalled();
+            });
+          });
+          PROBE
+          npm test
 
       # The generated workbench publishes its host ports through REQUIRED variables
       # (ADR 0134), and the generated CI's conformance job had never assigned them, so

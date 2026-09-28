@@ -14,6 +14,7 @@ import pytest
 
 from terp.core import migrations
 from terp.core.migrations import (
+    _unreadable_revision,
     MigrationDiscoveryError,
     MigrationTree,
     resolve_all_migration_trees,
@@ -241,3 +242,84 @@ def test_resolve_all_includes_app_module_without_revisions(
 
     assert runnable == ["beta"]  # alpha is not runnable (it authored no revision)
     assert discovered == ["alpha", "beta"]  # but alpha is still discoverable for imports
+
+
+# --------------------------------------------------------------------------- #
+# A revision the directory lists but cannot read is refused, not skipped
+# --------------------------------------------------------------------------- #
+def _tree_with_one_revision(tmp_path: pathlib.Path, name: str) -> MigrationTree:
+    versions = tmp_path / "migrations" / "versions"
+    versions.mkdir(parents=True)
+    (versions / name).write_text("revision = 'a1'\n", encoding="utf-8")
+    return MigrationTree(label="probe", import_path="probe", path=tmp_path / "migrations")
+
+
+def test_a_readable_revision_makes_the_tree_runnable(tmp_path: pathlib.Path) -> None:
+    tree = _tree_with_one_revision(tmp_path, "a1b2c3_create_probe.py")
+    (tree.versions_path / "not_a_revision.py").mkdir()  # a directory named like one
+    assert tree.has_revision_files is True
+
+
+def test_a_directory_named_like_a_revision_is_not_one(tmp_path: pathlib.Path) -> None:
+    versions = tmp_path / "migrations" / "versions"
+    (versions / "a1b2c3_create_probe.py").mkdir(parents=True)
+    tree = MigrationTree(label="probe", import_path="probe", path=tmp_path / "migrations")
+    assert tree.has_revision_files is False
+
+
+def test_a_listed_revision_that_cannot_be_statted_is_refused(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Windows failure, made reproducible anywhere: the listing works, the stat does not.
+
+    WinError 206 is what a path past the limit raises there; on every platform the tree must
+    refuse rather than read as having no history.
+    """
+    tree = _tree_with_one_revision(tmp_path, "4f1c9d3a7b02_create_probe.py")
+    real_stat = pathlib.Path.stat
+
+    def stat_past_the_limit(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if self.name.startswith("4f1c9d3a7b02"):
+            raise FileNotFoundError(206, "The filename or extension is too long")
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "stat", stat_past_the_limit)
+    with pytest.raises(MigrationDiscoveryError) as refused:
+        tree.has_revision_files  # noqa: B018 - the property is the call under test
+    assert "'probe' migration history lists 4f1c9d3a7b02_create_probe.py" in str(refused.value)
+
+
+def test_the_refusal_names_the_path_limit_when_the_path_is_past_it() -> None:
+    long_parent = pathlib.Path("C:/") / ("d" * 50) / ("e" * 50) / ("f" * 50) / ("g" * 50)
+    revision = long_parent / "venv" / "migrations" / "versions" / (
+        "4f1c9d3a7b02_create_a_table_with_a_long_descriptive_name.py"
+    )
+    assert len(str(revision)) >= 260
+    message = _unreadable_revision("identity", revision)
+    assert "past the 260-character limit" in message
+    assert "LongPathsEnabled" in message and "shorter path" in message
+    assert "report success and create none of its tables" in message
+
+
+def test_a_short_unreadable_revision_is_refused_without_blaming_the_path_length(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = _tree_with_one_revision(tmp_path, "a1b2c3_create_probe.py")
+    real_stat = pathlib.Path.stat
+
+    def locked(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if self.name == "a1b2c3_create_probe.py":
+            raise PermissionError(13, "Permission denied")
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "stat", locked)
+    with pytest.raises(MigrationDiscoveryError) as refused:
+        tree.has_revision_files  # noqa: B018
+    assert "the file cannot be opened" in str(refused.value)
+    assert "260" not in str(refused.value)
+
+
+def test_a_package_marker_in_versions_is_not_a_revision(tmp_path: pathlib.Path) -> None:
+    """``__init__.py`` beside no revision leaves the history empty: underscores are not revisions."""
+    tree = _tree_with_one_revision(tmp_path, "__init__.py")
+    assert tree.has_revision_files is False

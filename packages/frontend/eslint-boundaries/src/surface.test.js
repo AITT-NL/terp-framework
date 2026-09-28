@@ -37,10 +37,37 @@ async function lintModuleSource(source) {
   return result.messages.map((message) => catalogRuleId(message));
 }
 
-describe("structural parity: BOUNDARY_SPEC realises exactly the declared surface", () => {
-  it("restricted elements match", () => {
-    expect(Object.keys(BOUNDARY_SPEC.restrictedElements).sort()).toEqual(
-      [...SURFACE.restrictedElements].sort(),
+/**
+ * Elements this checker refuses before the pinned Standard lists them.
+ *
+ * The Standard states the floor, not the ceiling ("widening a detector past the contract
+ * is always allowed"), so refusing more is conformant. It is still a deliberate list: an
+ * element here must be one the pinned spec does not name yet, so it empties itself when a
+ * spec release adopts the element, and a typo in the map cannot pass as an extra refusal.
+ *
+ * `meter`: react-core ships `Meter` (ADR 0158), and a raw <meter> beside it is a second way
+ * to draw the same thing with none of its theming or naming. The Standard gains it in 0.38.0.
+ */
+const AHEAD_OF_SPEC = ["meter"];
+
+describe("structural parity: BOUNDARY_SPEC realises the declared surface", () => {
+  it("every element the Standard restricts is restricted here", () => {
+    const mapped = Object.keys(BOUNDARY_SPEC.restrictedElements);
+    expect(SURFACE.restrictedElements.filter((element) => !mapped.includes(element))).toEqual([]);
+  });
+
+  it("anything restricted beyond the Standard is named, and only until it is adopted", () => {
+    const beyond = Object.keys(BOUNDARY_SPEC.restrictedElements)
+      .filter((element) => !SURFACE.restrictedElements.includes(element))
+      .sort();
+    expect(beyond).toEqual(
+      AHEAD_OF_SPEC.filter((element) => !SURFACE.restrictedElements.includes(element)).sort(),
+    );
+  });
+
+  it("a raw <meter> is refused and names Meter", async () => {
+    expect(await lintModuleSource("export const W = () => <meter value={0.5} />;\n")).toContain(
+      "frontend/token-styled-elements",
     );
   });
 
@@ -171,6 +198,9 @@ const VIOLATION_SNIPPETS = {
   "frontend/no-cross-module-imports": 'import { x } from "../other/thing";',
   "frontend/no-dom-html-injection": "export const W = (el, html) => { el.innerHTML = html; };",
   "frontend/no-eval": "export const run = (code) => eval(code);",
+  "frontend/no-framework-markers": 'export const W = () => <div data-terp="card" />;',
+  "frontend/no-raw-clipboard": "export const copy = (text) => navigator.clipboard.writeText(text);",
+  "frontend/no-raw-random-uuid": "export const newId = () => crypto.randomUUID();",
   "frontend/no-unsafe-href":
     'export const W = ({label}) => <a href="javascript:alert(1)">{label}</a>;',
   "frontend/no-unsafe-target-blank":
@@ -195,11 +225,17 @@ describe(
         expect(optOut).toBe(`// terp-allow-${name}: <reason>`);
       });
       const snippet = VIOLATION_SNIPPETS[entry.id];
-      if (snippet === undefined) {
-        // frontend/layout-contract needs the opt-in contract config; its marker
-        // behaviour is covered by layouts.test.js with the same spelling.
+      if (entry.id === "frontend/layout-contract") {
+        // It needs the opt-in contract config; its marker behaviour is covered by
+        // layouts.test.js with the same spelling.
         continue;
       }
+      // Any other rule without a snippet used to be skipped here in silence, which is
+      // how two rules shipped with their opt-out parity never checked.
+      it(`${entry.id} has a violating snippet here`, () => {
+        expect(snippet, `add a VIOLATION_SNIPPETS entry for ${entry.id}`).toBeDefined();
+      });
+      if (snippet === undefined) continue;
       it(`${entry.id}'s declared marker suppresses its violation`, async () => {
         const marker = optOut.replace("<reason>", "recorded parity exception");
         // These snippets violate exactly one rule, so the suppressed result is

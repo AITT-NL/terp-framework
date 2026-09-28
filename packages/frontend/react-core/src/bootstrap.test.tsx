@@ -122,7 +122,7 @@ describe("renderTerpApp", () => {
         screen.getByText("That value table is published and cannot be edited."),
       ).toBeInTheDocument(),
     );
-    // And an override of a built-in code wins over DEFAULT_ERROR_MESSAGES, which is the
+    // And an override of a built-in code wins over the built-in wording, which is the
     // half that would still look fine if the map were merged the wrong way round.
     expect(screen.getByText("Niets gevonden.")).toBeInTheDocument();
     expect(screen.queryByText("This item could not be found.")).not.toBeInTheDocument();
