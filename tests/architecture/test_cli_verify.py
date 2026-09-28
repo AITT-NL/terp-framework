@@ -1438,8 +1438,9 @@ def _assurance_schema() -> dict:
 #:
 #: The lane analogue of ``_AWAITING_SPEC_RELEASE`` in ``test_spec_catalog.py``, and it
 #: exists for the same ordering (ADR 0116). terp-spec's ``certify-against-reference``
-#: job resolves the standard against this framework's default branch, so the standard
-#: cannot merge a vocabulary entry the reference toolchain does not already realise —
+#: job resolves the standard against the framework commit the spec pins in its
+#: ``REFERENCE_SHA``, so the standard cannot merge a vocabulary entry until a reference
+#: commit realises it —
 #: while this test reads the *installed*, pinned spec, which is still the release before
 #: it. One of the two has to move first, and it is this one.
 #:

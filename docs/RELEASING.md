@@ -89,15 +89,16 @@ re-lock both lockfiles. `test_repo_split_readiness.py` fails the build if they s
 **Adopt the spec release in the same week it is cut, and move the two repositories in this
 order.** The two pipelines are circularly coupled, which is the whole of the procedure and
 the reason a bare "bump the pin when convenient" does not survive contact with a new rule.
-terp-spec's `certify-against-reference` job checks out this repository's **main source** and
-runs its parity tests against the new catalog; this repository's gate installs the
-**published** pin. So:
+terp-spec's `certify-against-reference` job checks out this repository at the **commit
+terp-spec pins** in its `REFERENCE_SHA` file and runs its parity tests against the new
+catalog; this repository's gate installs the **published** pin. So:
 
 **terp-framework moves first**, which is the opposite of what the coupling suggests and is
 the whole point of ADR 0116. terp-spec's `main` is protected by
-`certify-against-reference`, and that job reads this repository's **default branch** — so
-the standard cannot merge its own catalog entry until the reference implementation already
-carries the rule.
+`certify-against-reference`, and that job reads the pinned reference commit — so the
+standard cannot merge its own catalog entry until a commit here carries the rule and the
+spec's pin names it. (terp-spec's `reference-drift.yml` watches this repository's default
+branch on its own schedule, so drift past the pin is its own red build there.)
 
 1. **terp-framework first.** Land the rule implementation here and add its name to
    `_AWAITING_SPEC_RELEASE` (`tests/architecture/test_spec_catalog.py`, ADR 0116). That
@@ -113,9 +114,11 @@ carries the rule.
    and empties at the same step 4. `test_no_lane_awaits_a_spec_release_it_already_had`
    fails on a name left behind, so the allowance cannot rot into an exemption from the
    one assertion that holds the two vocabularies together.
-2. **terp-spec second.** Its certification now runs against a `main` that implements the
-   rule, so it passes and the catalog merges normally — no override on a protected branch.
-3. **Release terp-spec.** The tag's verify job certifies against the same `main` and
+2. **terp-spec second.** Move its `REFERENCE_SHA` to the commit here that carries the rule,
+   in the pull request that adds the catalog entry. Its certification then runs against a
+   commit that implements the rule, so it passes and the catalog merges normally — no
+   override on a protected branch.
+3. **Release terp-spec.** The tag's verify job certifies against the same pinned commit and
    publishes.
 4. **Come back here and close the window.** Move the four declarations above to the new spec
    version, re-lock, and **empty both `_AWAITING_SPEC_RELEASE` lists** (the rule one in
