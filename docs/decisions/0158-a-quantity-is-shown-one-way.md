@@ -1,7 +1,9 @@
 # 0158 — A quantity is shown one way: meters and charts
 
-- **Status:** Proposed. Nothing is built. This records the fork and a recommendation for a
-  maintainer to decide. The decision will be an amendment to this ADR.
+- **Status:** Accepted, option 2 (2026-09-28). `Meter` ships in `@terpjs/react-core`; no chart
+  is built, and the chart contract below is fixed for the first kind that is. See the Decision
+  section at the end. The fork and the recommendation are kept as the record of what was
+  weighed.
 - **Date:** 2026-09-27
 - **Relates:** [ADR 0099](0099-the-component-gap-and-what-is-not-in-it.md) (the bar a
   component must clear, and its 2026-08-25 amendment on app evidence),
@@ -88,3 +90,64 @@ surface is large or the dependency is heavy, and neither holds for a dependency-
   builds that kind under the contract above.
 - Evidence that a meter is always paired with a chart would argue for designing them
   together, and against building the meter first.
+
+## Decision (2026-09-28): a meter now, and the contract a chart must meet
+
+**Option 2, as recommended.** `Meter` ships in `@terpjs/react-core`. No chart kind is built.
+The constraints written under the recommendation — SVG, attribute-keyed styling, tokens only, a
+table alternative, locale-aware numbers, no dependency — are now the contract every chart kind
+must meet, and the first kind is built when two observations name it. Option 4 stays declined
+for the reason given above.
+
+The split is the one the recommendation argued. A meter clears ADR 0099's bar on the
+capability argument alone: there is no compliant path to a bar whose length is a value, and the
+native element does most of the work. A chart does not yet, because one report names no kind,
+and every kind is surface an agent will reach for.
+
+### What building the meter decided
+
+Five choices were decisions rather than details, so they are recorded here.
+
+- **The bar is the native element.** Styled through its own pseudo-elements, from the adopted
+  sheet, it painted exactly the tokens in all five themes — measured in Chromium, fill and
+  track read back pixel for pixel — and still painted a distinct fill with forced colours on.
+  So there is one element, the browser draws the proportion from its attributes, and there is
+  no inline width. The fallback the proposal allowed, a hidden `<meter>` beside a drawn bar,
+  would have been two elements for one fact. Gecko draws its fill through a different
+  pseudo-element. Those rules are written and pinned, but no lane runs Gecko, so they are
+  unmeasured.
+- **The label names the meter, and is not printed.** Every place a quantity sits already has a
+  visible caption: a `DetailList` term, a `Card` title, a `HubCard` title. Printing the label
+  as well would put the same word twice on one line. `TileGroup` and `SplitPane` take their
+  required `label` the same way.
+- **So no slot table admits a meter.** The layout contract governs direct children only, and a
+  meter inside a list row, a card or a hub card's stat is composition that no contract
+  governs. Loose in a detail body it would be a bar with no visible caption at all, so the
+  standard contract refuses it there, and `Meter.test.tsx` holds that refusal. The slot tables
+  list sections. No value-level component (`Badge`, `Code`, `Avatar`, `TileGroup`) is in one
+  either.
+- **Bands are opt-in, and the component computes the region.** With no band declared the
+  browser still files every value under "optimum". A rule keyed on the browser's choice would
+  therefore paint a bare quota in the success tone, a judgement nobody made. The region is the
+  HTML standard's algorithm written out, and it agrees with Chromium's own choice for every
+  band shape the standard distinguishes. The band colour reinforces the printed value and never
+  replaces it: Chromium's accessibility tree carries the value and the range and nothing about
+  the bands.
+- **One format prop, in the vocabulary that already exists.** `format` takes the
+  `Intl.NumberFormatOptions` the `format` helpers take, and defaults to a percentage. A
+  percentage is always the share of the range, so `74` of `100` prints `74%`, where Intl alone
+  prints `7,400%`. Any other style prints the value itself, unclamped, so an overrun reads
+  `120%` against a full bar. A formatter function was refused, because it would be the second
+  way, and the one that skips the app's locale.
+
+Its fills are declared pairings rather than choices in a comment: the accent and the three band
+tones against the `--color-bg-inset` track, held to 3:1 in every theme by the contrast gate.
+The brand fill was the other candidate. It measures 1.98 to 2.66 against that track in the
+three dark themes, because it is a surface for light text, not a mark on the app's own ground.
+
+### What is left open
+
+A raw `<meter>` in an app module is still legal, because the Standard's refused-element list
+(`restricted-surface.json` in terp-spec) does not name it. With a token-styled `Meter`
+shipped, a raw one is the second way, on the same footing as a raw `<button>` beside `Button`.
+Refusing it is a change to the Standard, so it follows there rather than in this repository.

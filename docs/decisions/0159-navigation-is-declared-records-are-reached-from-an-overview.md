@@ -1,8 +1,9 @@
 # 0159 — Navigation is declared; records are reached from an overview
 
-- **Status:** Proposed. Nothing is built. It recommends declining data-driven navigation and
-  records the pattern that replaces it, for a maintainer to decide. The decision will be an
-  amendment to this ADR.
+- **Status:** Accepted, option 3 (2026-09-28). Navigation stays declared, and records are
+  reached from an overview. Nothing is built. Option 2 stays open behind its own evidence. See
+  the Decision section at the end. The fork and the recommendation are kept as the record of
+  what was weighed.
 - **Date:** 2026-09-27
 - **Relates:** [ADR 0097](0097-shell-parameters-and-ordered-navigation.md) §5 (navigation is
   ordered groups declared by the app, items declared by modules, and a predicate on the
@@ -66,3 +67,25 @@ evidence.
   or recently opened — would argue for a shell affordance for exactly that. It would still be
   declared and still be bounded, and it would not list the whole set.
 - A report of a declared item needing a live count or status argues for option 2.
+
+## Decision (2026-09-28): navigation stays declared
+
+**Option 3, as recommended.** A `NavItem` stays declared data on the manifest, and records are
+reached from an overview: one declared item for the collection, a `DataView` or a `HubPage` of
+the records, and a parameterised detail route per record that the generator types. Nothing is
+built, because every part of that pattern ships today. A sidebar entry per record is declined.
+
+The reasons are the three the recommendation gave. A sidebar that grows with the data is fine
+at three records and unusable at forty. An overview answers "what do I have, and how is each
+one doing?", which a list of links cannot. And records already have one way to be listed,
+searched and opened, so sidebar entries would be a second way that does all three worse, and
+would break the manifest's serialisability, which route generation relies on.
+
+**Option 2 is open, and it is not built.** A declared item with a data-bound decoration — a
+count or a status beside it, as in "Review · 3" — keeps every property ADR 0097 §5 holds,
+because the item stays declared and only the decoration comes from data. But the report asked
+for records in the navigation, not for a count beside an item, so nothing yet asks for option
+2. The second bullet under "What would change this" is the evidence that builds it. The first
+bullet, quick access to a few pinned or recently opened records, is a separate shell affordance
+with its own bar of two reports, and it would still list a bounded few rather than the whole
+set.
