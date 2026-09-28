@@ -8,17 +8,18 @@
   `tests/architecture/test_template_conformance_job.py`,
   `tests/architecture/test_verify_conformance_address.py`,
   `tests/architecture/test_dev_host_ports.py`, `tests/architecture/test_run_workflow_job.py`,
-  the react-core marker, style and component tests, and the end-to-end run in
-  `template-acceptance`, which runs the generated job from its own workflow through
-  `tools/run_workflow_job.py`.
+  the react-core marker, style and component tests, the conformance package's
+  `replaced-sign-in.spec.ts`, and the end-to-end run in `template-acceptance`, which runs the
+  generated job from its own workflow through `tools/run_workflow_job.py`.
 - **Date:** 2026-09-27
 - **Relates:** [ADR 0134](0134-the-lifecycle-has-one-driver-and-a-workbench-is-not-it.md)
   (host ports are an assignment, and a start without one refuses),
   [ADR 0105](0105-localization-is-a-checked-contract.md) (an app's interface is in the app's
   languages), [ADR 0094](0094-attribute-keyed-styling.md) and
   [ADR 0079](0079-slot-typed-layout-contracts.md) (what a marker already is: a component's
-  identity for its styling and its slot check),
-  [ADR 0003](0003-conformance-and-coverage-gate.md) (the conformance suite as a gate)
+  identity for its styling and its slot check), ADR 0160 (app code does not write a
+  `data-terp` marker), [ADR 0003](0003-conformance-and-coverage-gate.md) (the conformance suite
+  as a gate)
 
 ---
 
@@ -91,6 +92,23 @@ visible, exposing the role a user perceives, and carrying a non-empty accessible
 Measured: with the email field's label emptied, `login()` fails on the Dutch app with
 `Received string: ""`.
 
+### The helpers drive the framework's own screens, and no other
+
+A marker is react-core's identity for one of its own components: the stylesheet is keyed on it
+(ADR 0094) and the layout contract identifies components by it (ADR 0079). An app that writes
+one forges both, so app code does not write `data-terp` (ADR 0160), and that holds for an app
+that replaces the sign-in screen (`renderTerpApp({ login: … })`) and would like `login()` to
+find it.
+
+Such an app owns that screen, and its sign-in steps with it. Its specs sign in and out by the
+screen's own accessible names, in the app's own language, instead of calling `login()` and
+`logout()`. The helpers keep targeting the framework's screen, and when it is not there they
+fail saying so: the framework's sign-in heading never became visible, the helpers drive
+react-core's screen only, and an app that replaced it either signs in from its own specs or
+drops the `login` option. The message also closes the way that looks shortest, copying the
+markers onto the app's screen. It is what an agent reads when this happens, so the package's
+own suite asserts it, against a page standing in for such an app.
+
 ### The address is the checkout's assignment, and there is no default
 
 `terp verify --only conformance` now resolves the suite's address the way compose resolves the
@@ -141,10 +159,10 @@ base-profile flow may locate anything by its wording.
 
 - An app's own specs are untouched. One that already uses English names on an English interface
   keeps passing; `login()` and `logout()` now also work on an app in any other language.
-- An app that replaces the built-in sign-in screen (`renderTerpApp({ login })`) must render
-  `login-title`, `login-email`, `login-password` and `login-submit` for `login()` to find its
-  controls, or sign in from its specs its own way. Before this, it had to render the same
-  English names instead.
+- An app that replaces the built-in sign-in screen (`renderTerpApp({ login })`) signs in and
+  out from its own specs, by that screen's own accessible names, and does not call `login()` or
+  `logout()`; on such an app they fail naming the two ways forward. Before this, it could use
+  them only by rendering the framework's English names.
 - A change to the template's conformance job is proved by acceptance exactly as written. A form
   the runner does not implement fails acceptance, and `test_template_conformance_job.py` says so
   in seconds; supporting it is a change to the runner and its tests, never a step restated in
@@ -168,6 +186,12 @@ sign-out, puts two kinds of handle side by side, and neither kind is pinned anyw
 
 **Put the new markers on the controls.** An element has one `data-terp`. Replacing `input`,
 `button` or `menu-item` with a part name would unstyle the control.
+
+**Let a replaced sign-in screen render the framework's markers.** It is the shortest way to
+keep `login()` working, and it has app code write react-core's identity layer: the stylesheet
+would style the app's elements as the framework's, and the layout contract would check them as
+the framework's. ADR 0160 refuses `data-terp` in app code for that reason, and the helpers'
+failure says so rather than suggesting it.
 
 **Keep acceptance's copy of the job's steps, and guard it.** A test that compared the copy
 with the template's job would have to understand both well enough to call them equivalent,

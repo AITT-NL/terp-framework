@@ -176,9 +176,14 @@ repeated more often than the values it applied to.
   **For an app that already has specs of its own, nothing needs to change.** A spec that finds
   its own screens by their English names on an English interface keeps passing, and `login()`
   and `logout()` now also work on an interface in any other language. The one case that
-  changes: an app that replaces the built-in sign-in screen (`renderTerpApp({ login })`) has to
-  render `login-title`, `login-email`, `login-password` and `login-submit` for `login()` to find
-  its controls — where before it had to render the same English names.
+  changes is an app that replaces the built-in sign-in screen (`renderTerpApp({ login })`).
+  That screen is the app's own, and so are its sign-in steps: its specs sign in and out by the
+  screen's own accessible names instead of calling `login()` and `logout()`, which drive the
+  framework's screen only and, when it is not there, now fail saying so and naming the ways
+  forward. The app does not copy the framework's markers onto its screen to be found: a
+  `data-terp` marker is react-core's identity for a component, which the stylesheet and the
+  layout contract key on, and app code does not write one (ADR 0160). Before, such an app could
+  call `login()` only if its screen rendered the framework's English names.
 
 ### Fixed
 
@@ -270,14 +275,17 @@ repeated more often than the values it applied to.
   `.github/workflows/frontend.yml` pins. An app carrying its own visual baselines against
   react-core components will need the same.
 
-- **A replaced sign-in screen renders the markers `login()` finds, and the template's
+- **An app with its own sign-in screen signs in from its own specs, and the template's
   conformance suite takes its address from the gate.** An app that supplies its own sign-in
-  screen (`renderTerpApp({ login })`) renders `login-title`, `login-email`, `login-password` and
-  `login-submit` for `login()` to find its controls, where it used to have to render the English
-  names (see *Changed*). And `conformance/playwright.config.ts` has no default address any more:
-  `copier update` brings the new config together with the CI steps that assign the workbench's
-  ports and print its logs on a failure, and a suite run by hand goes through `uv run terp
-  verify --profile release --only conformance` or sets `TERP_E2E_BASE_URL`.
+  screen (`renderTerpApp({ login })`) owns that screen and writes its own sign-in steps: its
+  specs sign in and out by the screen's own accessible names instead of calling `login()` and
+  `logout()`, which drive the framework's screen and now fail naming both ways forward when it
+  is not there (see *Changed*). Rendering the framework's `data-terp` markers on the app's
+  screen is not one of them: app code does not write react-core's markers (ADR 0160). And
+  `conformance/playwright.config.ts` has no default address any more: `copier update` brings
+  the new config together with the CI steps that assign the workbench's ports and print its
+  logs on a failure, and a suite run by hand goes through `uv run terp verify --profile release
+  --only conformance` or sets `TERP_E2E_BASE_URL`.
 
 ## 0.27.0 — 2026-09-24
 

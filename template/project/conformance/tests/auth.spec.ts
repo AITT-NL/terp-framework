@@ -18,6 +18,12 @@ const ADMIN = {
 // the framework's markers, and `login`/`logout` hold every control they touch to having an
 // accessible name without naming it. Your own module specs are the place for your own wording.
 //
+// The helpers drive the framework's own sign-in screen. If this app replaces it
+// (`renderTerpApp({ login: … })`), that screen is the app's, and so are its sign-in steps: sign
+// in and out here by the screen's own accessible names instead of through `login`, `logout` and
+// `loginHeading`. Do not give it the framework's `data-terp` markers to be found by: they are
+// react-core's identity for its own components, which its stylesheet and layout contract key on.
+//
 // One fixed rate-limit window keyed by client IP covers every request the app answers, so a long
 // suite on a shared runner can exhaust it — and every symptom of that is an element that never
 // appears. `login`/`logout` already say so when it happens. For a flow of your own, wrap it:

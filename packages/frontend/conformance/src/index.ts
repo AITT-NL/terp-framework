@@ -165,6 +165,14 @@ export function assertNotThrottled(response: APIResponse): APIResponse {
  * that back without choosing a language: every control a helper touches must be visible,
  * expose the role a user perceives, and carry a non-empty accessible name. An unlabelled field
  * still fails here, in any locale.
+ *
+ * These are the framework's own screens, and the helpers drive nothing else. An app that
+ * replaces the sign-in screen (`renderTerpApp({ login: … })`) owns that screen, and its specs
+ * write their own sign-in steps, by the screen's own accessible names, instead of calling
+ * `login()` and `logout()`. It does not put these markers on its screen to be found: a
+ * `data-terp` marker is react-core's identity for a component, which its stylesheet is keyed
+ * on and its layout contract checks, so a marker an app writes forges both. When the heading
+ * is not there, the helpers fail saying so ({@link notTheFrameworkSignIn}).
  */
 const LOGIN_HEADING = '[data-terp="login-title"]';
 const LOGIN_EMAIL = '[data-terp="login-email"] [data-terp="input"]';
@@ -176,11 +184,45 @@ const PRIMARY_NAVIGATION = '[data-terp="appshell-nav"]';
 
 type Role = Parameters<Page["getByRole"]>[0];
 
-/** Visible, exposing *role*, and named — in whatever language the app speaks. */
-async function expectNamed(locator: Locator, role: Role): Promise<void> {
-  await expect(locator).toBeVisible();
+/**
+ * Visible, exposing *role*, and named — in whatever language the app speaks. *missing* is what
+ * the failure says first when the element never becomes visible.
+ */
+async function expectNamed(locator: Locator, role: Role, missing?: string): Promise<void> {
+  await expect(locator, missing).toBeVisible();
   await expect(locator).toHaveRole(role);
   await expect(locator).toHaveAccessibleName(/\S/);
+}
+
+/**
+ * What a helper says when the framework's sign-in heading is not where it looked.
+ *
+ * An agent reads this, not the source, so it states what was observed, which screens the
+ * helpers drive, and the two ways forward for an app that replaced the sign-in screen, and
+ * it closes the way that looks shortest: writing the framework's markers into the app's
+ * screen.
+ */
+function notTheFrameworkSignIn(when: "signing-in" | "signed-out", page: Page): string {
+  const observed =
+    when === "signing-in"
+      ? `The framework's sign-in screen is not on the page at ${page.url()}`
+      : `After signing out, the framework's sign-in screen did not appear at ${page.url()}`;
+  const otherwise =
+    when === "signing-in"
+      ? "the page never showed the sign-in screen: check the address the suite drives."
+      : "signing out did not return to the sign-in screen, which is the failure to look into.";
+  return [
+    `${observed}: no ${LOGIN_HEADING} became visible.`,
+    "  login(), submitLogin() and logout() drive react-core's own sign-in screen only.",
+    "  If this app replaces it (renderTerpApp({ login: … })), that screen is the app's own, and so",
+    "  are its sign-in steps. Either:",
+    "    - sign in and out from the spec by the screen's own accessible names (getByLabel,",
+    "      getByRole) instead of calling these helpers; or",
+    "    - drop the `login` option, so the framework's screen renders again.",
+    "  Do not add data-terp markers to the app's screen to be found: they are react-core's",
+    "  identity for its own components, which its stylesheet and layout contract key on.",
+    `  If the app does not replace it, ${otherwise}`,
+  ].join("\n");
 }
 
 /**
@@ -212,7 +254,8 @@ export async function submitLogin(
   watchForThrottling(page);
   await orThrottle(page, async () => {
     await page.goto("/");
-    await expectNamed(page.locator(LOGIN_HEADING), "heading");
+    const heading = page.locator(LOGIN_HEADING);
+    await expectNamed(heading, "heading", notTheFrameworkSignIn("signing-in", page));
     const email = page.locator(LOGIN_EMAIL);
     await expectNamed(email, "textbox");
     await email.fill(credentials.email);
@@ -226,10 +269,13 @@ export async function submitLogin(
 }
 
 /**
- * Sign in through the real login screen. App-agnostic: the login screen and session are
- * base-profile (identical in every Terp app, in every locale it ships), so this is the reusable
- * entry point any app's conformance suite composes. Success is the sign-in screen being
- * replaced by the app shell; callers assert their own landing content afterwards.
+ * Sign in through the framework's sign-in screen. App-agnostic: that screen and the session are
+ * base-profile (the same in every Terp app that keeps the screen, in every locale it ships), so
+ * this is the reusable entry point any app's conformance suite composes. Success is the sign-in
+ * screen being replaced by the app shell; callers assert their own landing content afterwards.
+ *
+ * An app that replaces the screen (`renderTerpApp({ login: … })`) signs in from its own specs,
+ * by that screen's accessible names, and does not call this; here it fails saying so.
  */
 export async function login(
   page: Page,
@@ -247,7 +293,8 @@ export async function login(
  * Sign out through the shell's account menu and assert the session is gone. Base-profile: the
  * user menu (avatar at the bottom of every Terp app's sidebar) opens Settings and Sign out;
  * sign-out revokes the token server-side (ADR 0031), so this is reusable across apps. Success
- * is the app shell being replaced by the sign-in screen.
+ * is the app shell being replaced by the framework's sign-in screen, so an app that replaces
+ * that screen signs out from its own specs too, and here it fails saying so.
  */
 export async function logout(page: Page): Promise<void> {
   watchForThrottling(page);
@@ -258,6 +305,7 @@ export async function logout(page: Page): Promise<void> {
     const signOut = page.locator(SIGN_OUT);
     await expectNamed(signOut, "menuitem");
     await signOut.click();
-    await expectNamed(page.locator(LOGIN_HEADING), "heading");
+    const heading = page.locator(LOGIN_HEADING);
+    await expectNamed(heading, "heading", notTheFrameworkSignIn("signed-out", page));
   });
 }
