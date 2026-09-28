@@ -41,14 +41,12 @@ async function lintModuleSource(source) {
  * Elements this checker refuses before the pinned Standard lists them.
  *
  * The Standard states the floor, not the ceiling ("widening a detector past the contract
- * is always allowed"), so refusing more is conformant. It is still a deliberate list: an
- * element here must be one the pinned spec does not name yet, so it empties itself when a
- * spec release adopts the element, and a typo in the map cannot pass as an extra refusal.
- *
- * `meter`: react-core ships `Meter` (ADR 0158), and a raw <meter> beside it is a second way
- * to draw the same thing with none of its theming or naming. The Standard gains it in 0.38.0.
+ * is always allowed"), so refusing more is conformant. It is still a deliberate list: every
+ * element the map refuses beyond the pinned spec must be named here, so a typo in the map
+ * cannot pass as an extra refusal; and an entry the pinned spec already names fails too, so
+ * adopting the spec release that lists an element is the step that removes it here.
  */
-const AHEAD_OF_SPEC = ["meter"];
+const AHEAD_OF_SPEC = [];
 
 describe("structural parity: BOUNDARY_SPEC realises the declared surface", () => {
   it("every element the Standard restricts is restricted here", () => {
@@ -57,12 +55,12 @@ describe("structural parity: BOUNDARY_SPEC realises the declared surface", () =>
   });
 
   it("anything restricted beyond the Standard is named, and only until it is adopted", () => {
+    // Exact, deliberately: an AHEAD_OF_SPEC entry the pinned spec already lists is not in
+    // `beyond`, so a stale entry fails here instead of lingering as a silent exemption.
     const beyond = Object.keys(BOUNDARY_SPEC.restrictedElements)
       .filter((element) => !SURFACE.restrictedElements.includes(element))
       .sort();
-    expect(beyond).toEqual(
-      AHEAD_OF_SPEC.filter((element) => !SURFACE.restrictedElements.includes(element)).sort(),
-    );
+    expect(beyond).toEqual([...AHEAD_OF_SPEC].sort());
   });
 
   it("a raw <meter> is refused and names Meter", async () => {
