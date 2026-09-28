@@ -88,3 +88,61 @@ def test_every_marker_the_conformance_suite_uses_exists() -> None:
         "these locators name a data-terp marker no component renders, so they can only ever time "
         f"out: {unknown}"
     )
+
+
+#: The base-profile flows every app runs: the helpers, the package's own suite, and the copy
+#: of the auth flow the project template ships. Not an app's own module specs, which are the
+#: right place for that app's own wording.
+_BASE_PROFILE_SOURCES = (
+    *sorted((_CONFORMANCE / "src").rglob("*.ts")),
+    *sorted((_CONFORMANCE / "tests").rglob("*.ts")),
+    _REPO_ROOT / "template/project/conformance/tests/auth.spec.ts",
+)
+
+#: A Playwright locator that finds an element by what it SAYS: a label, a text, a placeholder,
+#: a title, alt text, or a role narrowed by its accessible name.
+_BY_WORDING = re.compile(
+    r"getBy(?:Label|Text|Placeholder|Title|AltText)\s*\(|getByRole\s*\([^)]*\bname\s*:"
+)
+
+
+def _code_lines(path: pathlib.Path) -> list[tuple[int, str]]:
+    """*path*'s lines with comments blanked, so prose quoting the old locators cannot
+    count. Block comments keep their newlines, which keeps the line numbers true."""
+    text = re.sub(
+        r"/\*.*?\*/",
+        lambda match: "\n" * match.group(0).count("\n"),
+        path.read_text(encoding="utf-8"),
+        flags=re.S,
+    )
+    return [
+        (number, re.sub(r"(^|[^:])//.*$", r"\1", line))
+        for number, line in enumerate(text.splitlines(), 1)
+    ]
+
+
+def test_the_base_profile_flows_find_nothing_by_its_wording() -> None:
+    """A base-profile flow must pass in every locale an app can ship.
+
+    The helpers found the sign-in screen by "Sign in", "Email" and "Password" and sign-out
+    by "Sign out" — English sentences, in a framework whose project template starts an app
+    in Dutch. So a freshly generated app failed its own conformance suite on the login screen
+    before it had written a line of code, and the framework's own lane could not see it
+    because the example app it runs on is English.
+
+    What the flows still owe a user of assistive technology is carried by the helpers' own
+    assertion that every control has a role and a non-empty accessible name — which checks
+    that a name exists without choosing its language.
+    """
+    assert all(path.is_file() for path in _BASE_PROFILE_SOURCES)
+    offenders = [
+        f"{path.relative_to(_REPO_ROOT).as_posix()}:{number}: {line.strip()}"
+        for path in _BASE_PROFILE_SOURCES
+        for number, line in _code_lines(path)
+        if _BY_WORDING.search(line)
+    ]
+    assert offenders == [], (
+        "these base-profile flows find an element by its wording, which is the app's language "
+        "and not the framework's; locate it by its data-terp marker instead:\n  "
+        + "\n  ".join(offenders)
+    )

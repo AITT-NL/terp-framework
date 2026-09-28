@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login, logout } from "@terpjs/conformance";
+import { login, loginHeading, logout, primaryNavigation } from "@terpjs/conformance";
 
 // This app's seeded administrator (see app/seed.py). Override via TERP_E2E_ADMIN_* for other
 // environments (e.g. a staging seed).
@@ -13,6 +13,17 @@ const ADMIN = {
 // yours to grow: add module specs alongside this file using the @terpjs/conformance login/logout
 // helpers (see the notes/tasks specs in the Terp example app for the pattern).
 //
+// Nothing here is found by its text. The sign-in screen and the shell speak whatever language
+// this app ships — Dutch, as generated — so `loginHeading` and `primaryNavigation` locate them by
+// the framework's markers, and `login`/`logout` hold every control they touch to having an
+// accessible name without naming it. Your own module specs are the place for your own wording.
+//
+// The helpers drive the framework's own sign-in screen. If this app replaces it
+// (`renderTerpApp({ login: … })`), that screen is the app's, and so are its sign-in steps: sign
+// in and out here by the screen's own accessible names instead of through `login`, `logout` and
+// `loginHeading`. Do not give it the framework's `data-terp` markers to be found by: they are
+// react-core's identity for its own components, which its stylesheet and layout contract key on.
+//
 // One fixed rate-limit window keyed by client IP covers every request the app answers, so a long
 // suite on a shared runner can exhaust it — and every symptom of that is an element that never
 // appears. `login`/`logout` already say so when it happens. For a flow of your own, wrap it:
@@ -21,13 +32,13 @@ const ADMIN = {
 
 test("an unauthenticated visitor is gated to the sign-in screen", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Primary" })).toHaveCount(0);
+  await expect(loginHeading(page)).toBeVisible();
+  await expect(primaryNavigation(page)).toHaveCount(0);
 });
 
 test("the seeded admin can sign in and sign out", async ({ page }) => {
   await login(page, ADMIN);
-  await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
+  await expect(primaryNavigation(page)).toBeVisible();
   await logout(page);
-  await expect(page.getByRole("navigation", { name: "Primary" })).toHaveCount(0);
+  await expect(primaryNavigation(page)).toHaveCount(0);
 });

@@ -48,6 +48,13 @@ export interface DevCredentials {
  * and the four call sites say what they mean. And the submit button hand-rolled a busy state
  * out of `disabled` plus a swapped label; `loading` is that state, and it adds the spinner and
  * the `aria-busy` the hand-rolled version never had.
+ *
+ * The two credentials and the submit button each sit in a named part — `login-email`,
+ * `login-password`, `login-submit` — for anything that has to find them without reading them.
+ * Their labels are in whatever language the app ships, so an accessible name cannot be the
+ * handle for a locale-agnostic caller, and `@terpjs/conformance` drives this screen in every
+ * locale. The parts are `display: contents`: they generate no box, so each field and the button
+ * stay grid items of the form and its gap falls between them exactly as before.
  */
 export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps = {}) {
   const auth = useAuth();
@@ -103,29 +110,35 @@ export function LoginView({ ssoProviders = [], devCredentials }: LoginViewProps 
               `Field` wraps the control in a `<label>`, which is why it needs no id wiring.
               The comment below is left because it dates the omission — an autocomplete
               token was considered for these fields and a label was not. */}
-          <Field label={strings.email}>
-            <Input
-              type="email"
-              // Neither field declared an autocomplete token, so no password manager offered to
-              // fill or save this form — the one place in the framework where that matters most.
-              autoComplete="username"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              required
-            />
-          </Field>
-          <Field label={strings.password}>
-            <Input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-            />
-          </Field>
-          <Button type="submit" fullWidth loading={busy}>
-            {busy ? strings.signingIn : strings.signIn}
-          </Button>
+          <div data-terp="login-email">
+            <Field label={strings.email}>
+              <Input
+                type="email"
+                // Neither field declared an autocomplete token, so no password manager offered to
+                // fill or save this form — the one place in the framework where that matters most.
+                autoComplete="username"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+              />
+            </Field>
+          </div>
+          <div data-terp="login-password">
+            <Field label={strings.password}>
+              <Input
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+            </Field>
+          </div>
+          <div data-terp="login-submit">
+            <Button type="submit" fullWidth loading={busy}>
+              {busy ? strings.signingIn : strings.signIn}
+            </Button>
+          </div>
           {devCredentials ? (
             <Button
               type="button"

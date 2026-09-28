@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { EDITOR, login, logout } from "@terpjs/conformance";
+import { EDITOR, login, loginHeading, logout, primaryNavigation } from "@terpjs/conformance";
 
 import { NOTES } from "./seed";
 
@@ -45,7 +45,7 @@ test("a server-revoked session is returned to the sign-in screen", async ({ brow
     const revokerPage = await revoker.newPage();
 
     await login(workingPage, REVOCATION_EDITOR);
-    await expect(workingPage.getByRole("navigation", { name: "Primary" })).toBeVisible();
+    await expect(primaryNavigation(workingPage)).toBeVisible();
 
     // A second session for the same account, then sign it out — revoking the shared subject's
     // tokens (the working session's token included).
@@ -57,8 +57,8 @@ test("a server-revoked session is returned to the sign-in screen", async ({ brow
     await workingPage.getByPlaceholder(NOTES.createPlaceholder).fill("written after revocation");
     await workingPage.getByRole("button", { name: "Add" }).click();
 
-    await expect(workingPage.getByRole("heading", { name: "Sign in" })).toBeVisible();
-    await expect(workingPage.getByRole("navigation", { name: "Primary" })).toHaveCount(0);
+    await expect(loginHeading(workingPage)).toBeVisible();
+    await expect(primaryNavigation(workingPage)).toHaveCount(0);
   } finally {
     await working.close();
     await revoker.close();

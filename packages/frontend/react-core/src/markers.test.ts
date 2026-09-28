@@ -185,11 +185,14 @@ const MARKERS = [
   "loading-state-spinner",
   "login-brand",
   "login-card",
+  "login-email",
   "login-error",
   "login-form",
+  "login-password",
   "login-separator",
   "login-separator-rule",
   "login-sso",
+  "login-submit",
   "login-title",
   "login-view",
   "markdown",
@@ -261,6 +264,7 @@ const MARKERS = [
   "user-menu-header",
   "user-menu-identity",
   "user-menu-role",
+  "user-menu-sign-out",
 ];
 
 /**

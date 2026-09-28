@@ -469,3 +469,80 @@ jobs:
           PROBE
           npm test
 
+      # The generated workbench publishes its host ports through REQUIRED variables
+      # (ADR 0134), and the generated CI's conformance job had never assigned them, so
+      # `docker compose up` refused before anything ran. Nothing here started that stack,
+      # so nothing noticed. `config` resolves every interpolation without starting a
+      # container: the unassigned refusal proves the ports are still required, and the
+      # clean resolution after `terp ports assign` proves the assignment is exactly what
+      # this variant's compose file needs.
+      - name: Assign the generated workbench's host ports, and prove compose accepts them
+        working-directory: /tmp/acceptance-app
+        env:
+          UV_FIND_LINKS: /tmp/terp-wheels
+        run: |
+          set -eux
+          # Expected to refuse, naming `terp ports assign`: nothing is assigned yet.
+          if docker compose config -q; then
+            echo "compose accepted a checkout with no host ports assigned; they are required" >&2
+            exit 1
+          fi
+          uv run terp ports assign
+          docker compose config -q
+
+      # The generated app's own conformance job, end to end, on one variant. It had never
+      # passed on a fresh app: besides the ports, its suite drove a port the workbench no
+      # longer publishes, and its helpers looked for English names on an interface the
+      # template starts in Dutch. The framework's conformance lane runs the example app
+      # (English, with in-range port defaults), which is why none of it showed.
+      #
+      # This is the one thing an app's CI gets from the package index instead: the code
+      # under test is on no index, so the staged wheels and tarballs go where the template's
+      # Dockerfiles look for pre-release builds, `.terp-dist/`, and the frontend and the
+      # suite are re-pointed at those copies. Their `file:` references have to resolve
+      # inside the build context, and /tmp/terp-npm is outside it.
+      - name: Stage the packages under test where the generated images read them (default-blank)  # zizmor: ignore[adhoc-packages]
+        if: matrix.variant == 'default-blank'
+        working-directory: /tmp/acceptance-app
+        run: |
+          set -eux
+          mkdir -p .terp-dist/wheels .terp-dist/npm
+          cp /tmp/terp-wheels/*.whl .terp-dist/wheels/
+          cp /tmp/terp-npm/*.tgz .terp-dist/npm/
+          # zizmor: ignore[adhoc-packages] this repository's own `npm pack` output, as in
+          # the frontend build above, standing in for the registry.
+          (cd frontend && npm install ../.terp-dist/npm/*.tgz)
+          (cd conformance && npm install ../.terp-dist/npm/terpjs-conformance-*.tgz)
+
+      # Then the job itself, read from the rendered workflow rather than restated here. A
+      # restated copy is a second definition of the job: change the template's, and the
+      # copy goes on proving the steps it was copied from. tools/run_workflow_job.py runs
+      # the job's `run:` steps as Actions would, including its failure and cleanup steps,
+      # and refuses any form it does not implement, so a template change it cannot follow
+      # fails here rather than being skipped. The job's `uses:` steps are this job's own:
+      # the checkout, uv and node above, and the report upload below.
+      #
+      # The runner starts from this repository's locked interpreter directly, not through
+      # `uv run`, which would put .venv first on PATH for every step it runs: a bare `terp`
+      # in the generated job would then be this checkout's, passing here and failing in the
+      # app.
+      - name: Run the generated app's conformance job from its own workflow (default-blank)
+        if: matrix.variant == 'default-blank'
+        env:
+          UV_FIND_LINKS: /tmp/terp-wheels
+        run: |
+          set -eux
+          uv sync --frozen --inexact
+          .venv/bin/python tools/run_workflow_job.py \
+            /tmp/acceptance-app/.github/workflows/ci.yml conformance \
+            --provided actions/checkout --provided astral-sh/setup-uv \
+            --provided actions/setup-node --provided actions/upload-artifact
+
+      - name: Upload the generated app's Playwright report on failure
+        if: failure() && matrix.variant == 'default-blank'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: acceptance-playwright-report
+          path: /tmp/acceptance-app/conformance/playwright-report/
+          retention-days: 7
+

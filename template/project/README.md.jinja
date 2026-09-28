@@ -126,11 +126,19 @@ End-to-end browser flows run with [Playwright](https://playwright.dev) in `confo
 base-profile helpers from `@terpjs/conformance` (sign-in gating, sign-out). Boot the workbench, then:
 
 ```bash
-cd conformance
-npm install
-npx playwright install --with-deps chromium
-npm test                              # drives the running stack (override with TERP_E2E_BASE_URL)
+npm --prefix conformance install
+(cd conformance && npx playwright install --with-deps chromium)
+uv run terp verify --profile release --only conformance   # drives the running stack
 ```
 
+The suite needs to know where the stack answers, and it has no default: the workbench's host
+ports are assigned per checkout (`uv run terp docker dev` assigns them, as does
+`uv run terp ports assign`), so any fixed number would be some other checkout's. `terp verify`
+reads this checkout's assignment and hands the address over. For a stack started another way,
+name it yourself — `TERP_E2E_BASE_URL=http://localhost:21100 npm --prefix conformance test` for
+`uv run terp dev` on its default port.
+
 `conformance/tests/auth.spec.ts` covers the universal auth flow — add your own module specs
-alongside it. CI runs the suite against the Docker workbench on every push.
+alongside it. It finds the sign-in screen and the shell by the framework's markers rather than
+by their text, so it passes in whichever language this app ships; your own module specs are the
+place for your own wording. CI runs the suite against the Docker workbench on every push.
