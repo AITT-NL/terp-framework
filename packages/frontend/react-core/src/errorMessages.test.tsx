@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { ErrorState } from "./ErrorState";
 import { ErrorMessagesProvider, useErrorMessage } from "./errorMessages";
+import { LOCALE_EN, LOCALE_NL, LocaleProvider } from "./locale";
 import { UiTextProvider } from "./uiText";
 import { ApiError } from "./unwrap";
 
@@ -54,6 +55,26 @@ describe("useErrorMessage", () => {
     const statuses = screen.getAllByRole("status");
     expect(statuses[0]).toHaveTextContent("Someone edited this. Reload.");
     expect(statuses[1]).toHaveTextContent("This freight is locked.");
+  });
+});
+
+describe("useErrorMessage under a locale", () => {
+  it("words the platform's codes in the active locale, and an app's map still wins", () => {
+    // The built-in wording used to be an English map that was the context's default, and a
+    // plain string resolves as-is, so these two read in English under the Dutch catalog while
+    // that catalog was reported complete.
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN, nl: LOCALE_NL }} defaultLocale="nl">
+        <ErrorMessagesProvider messages={{ not_found: "Geen factuur met dit nummer." }}>
+          <Probe error={new ApiError("x", { code: "permission_denied", status: 403 })} />
+          <Probe error={new ApiError("x", { code: "not_found", status: 404 })} />
+        </ErrorMessagesProvider>
+      </LocaleProvider>,
+    );
+
+    const statuses = screen.getAllByRole("status");
+    expect(statuses[0]).toHaveTextContent("Je hebt geen toestemming om dit te doen.");
+    expect(statuses[1]).toHaveTextContent("Geen factuur met dit nummer.");
   });
 });
 

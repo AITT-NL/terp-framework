@@ -13,11 +13,14 @@ import { UserDetail } from "./UserDetail";
 import { UsersAdmin } from "./UsersAdmin";
 
 /**
- * The packaged administration area every Terp app ships: one admin-gated "Admin"
- * sidebar entry opening a hub (`/admin`) whose cards lead to the users, groups and
- * audit-log overviews — the UI over the base-profile capabilities the backend
- * mounts in every app (users, groups + access, audit; ADR 0074). The whole area is
- * `role: "admin"` end to end; the backend re-checks every call regardless.
+ * The packaged administration area every Terp app ships: one admin-gated sidebar entry
+ * opening a hub (`/admin`) whose cards lead to the users, groups and audit-log overviews —
+ * the UI over the base-profile capabilities the backend mounts in every app (users,
+ * groups + access, audit; ADR 0074). The whole area is `role: "admin"` end to end; the
+ * backend re-checks every call regardless.
+ *
+ * The entry's label names the `admin` framework string rather than spelling it out, so it
+ * reads "Beheer" under `LOCALE_NL` whatever the app's own source locale is (ADR 0153).
  *
  * `renderTerpApp` injects it by default (`adminArea: false` opts out; an app
  * manifest claiming one of its paths overrides that screen). An L2 composition
@@ -38,7 +41,7 @@ export const adminModule: TerpModule = {
       { path: "/admin/audit", view: "TerpAdminAudit", role: "admin" },
       { path: "/admin/access", view: "TerpAdminAccess", role: "admin" },
     ],
-    nav: [{ label: "Admin", to: "/admin", icon: "shield", role: "admin" }],
+    nav: [{ label: { framework: "admin" }, to: "/admin", icon: "shield", role: "admin" }],
   }),
   views: {
     TerpAdminHub: AdminHub,

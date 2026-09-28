@@ -160,7 +160,7 @@ describe("user-facing strings", () => {
     ).toEqual([]);
   });
 
-  it("never defaults a UiText prop to a bare string", () => {
+  it("never defaults a UiText prop, or fills a table of them, with a bare string", () => {
     // The subtler half, and the one that looks fine in review. A `UiText` prop defaulted to
     // `"Select date"` IS overridable — and still untranslatable: a plain string resolves
     // as-is, so an app that does not pass the prop shows English in every locale. The fix is
@@ -181,9 +181,20 @@ describe("user-facing strings", () => {
         // (`const { value, onChange, removeLabel = "Remove", ...rest } = props`) was
         // invisible, and became visible only when the line was split for unrelated reasons.
         // A check that a reformat can switch on and off is not a check.
-        for (const assignment of line.matchAll(/(\w+)\s*=\s*"([A-Za-z][^"]*)"/g)) {
+        //
+        // And a property as well as a default (`:` beside `=`), which is the shape a whole
+        // second string table takes. DataView's strings were an interface of `UiText` keys
+        // with an object of English values under it, in one file, and this check read every
+        // line of it without a finding, because a table entry is `searchPlaceholder: "Search…"`
+        // and the check only knew `=`. Every one of those strings rendered in English under
+        // every locale, and the completeness guard in locale.test.tsx could not see them
+        // either, because they were not in the table it walks.
+        for (const assignment of line.matchAll(/(\w+)\s*([=:])\s*"([A-Za-z][^"]*)"/g)) {
           if (uiTextProps.has(assignment[1]!)) {
-            offenders.push(`${file}:${index + 1}  ${assignment[1]} = "${assignment[2]}"`);
+            offenders.push(
+              `${file}:${index + 1}  ${assignment[1]}${assignment[2] === ":" ? ":" : " ="} ` +
+                `"${assignment[3]}"`,
+            );
           }
         }
       });
@@ -191,9 +202,11 @@ describe("user-facing strings", () => {
 
     expect(
       offenders,
-      "a UiText prop defaulted to a plain string renders that string in every locale for any " +
-        "app that does not override it — the prop is translatable and its default is not. " +
-        "Leave the default `undefined` and fall back to a TerpStrings key at the use site.",
+      "a UiText prop defaulted to a plain string — or a table of plain strings under an " +
+        "interface of UiText keys — renders that string in every locale for any app that does " +
+        "not override it: the prop is translatable and its default is not. Leave the default " +
+        "`undefined` and fall back to a TerpStrings key at the use site; a set of defaults " +
+        "belongs in TerpStrings itself, where every locale catalog must translate it.",
     ).toEqual([]);
   });
 });

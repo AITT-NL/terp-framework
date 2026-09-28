@@ -1,8 +1,14 @@
 import { createContext, useCallback, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
-import type { UiText } from "@terpjs/contract";
+import type { FrameworkText, UiText } from "@terpjs/contract";
 
 export type { UiText } from "@terpjs/contract";
+
+// The keys a manifest's `FrameworkText` may name are this table's, so a misspelt one is a
+// typecheck error where the manifest is written rather than an empty label on screen.
+declare module "@terpjs/contract" {
+  interface TerpFrameworkStrings extends TerpStrings {}
+}
 
 /**
  * A piece of user-facing text: either a plain string (used as-is) or a message
@@ -281,6 +287,8 @@ export interface TerpStrings {
   whenColumn: string;
   /** Audit admin: expanded row's payload heading. */
   details: string;
+  /** Audit admin: expanded row's label for the request that caused the event. */
+  requestLabel: string;
   /** Generic success toast after a saved mutation. */
   saved: string;
   /** Generic failure toast when a request did not go through. */
@@ -303,6 +311,91 @@ export interface TerpStrings {
   selectDate: string;
   /** DateRangePicker: trigger text before a range is chosen. */
   selectDateRange: string;
+  // DataView. Framework copy like everything above, so a locale catalog translates it and the
+  // completeness check requires it; `DataView`'s per-instance `strings` prop still wins. Kept
+  // apart from the similar keys above (`loading`, `errorTitle`, `moreActions`,
+  // `clearSelection`) on purpose: the English differs, and a translation may too.
+  /** DataView: the search box's placeholder and accessible name. */
+  dataViewSearchPlaceholder: string;
+  /** DataView: clears the search box. */
+  dataViewClearSearch: string;
+  /** DataView: the toolbar action that resets the caller's filters. */
+  dataViewClearFilters: string;
+  /** DataView: the column-settings menu trigger. */
+  dataViewViewOptions: string;
+  /** DataView: heading of the column list inside the column-settings menu. */
+  dataViewColumns: string;
+  /** DataView: moves a column earlier; prefixed to the column's name. */
+  dataViewMoveUp: string;
+  /** DataView: moves a column later; prefixed to the column's name. */
+  dataViewMoveDown: string;
+  /** DataView: switches to the table layout. */
+  dataViewTableView: string;
+  /** DataView: switches to the card layout. */
+  dataViewCardView: string;
+  /** DataView: the page-size selector. */
+  dataViewPageSize: string;
+  /** DataView: the footer's result range; `{from}`, `{to}` and `{total}` are replaced. */
+  dataViewResultsRange: string;
+  /** DataView: the footer's page position; `{page}` and `{pages}` are replaced. */
+  dataViewPageOf: string;
+  /** DataView: pagination, to the first page. */
+  dataViewFirstPage: string;
+  /** DataView: pagination, one page back. */
+  dataViewPreviousPage: string;
+  /** DataView: pagination, one page forward. */
+  dataViewNextPage: string;
+  /** DataView: pagination, to the last page. */
+  dataViewLastPage: string;
+  /** DataView: the header checkbox that selects every row on the page. */
+  dataViewSelectAllPage: string;
+  /** DataView: a row's selection checkbox. */
+  dataViewSelectRow: string;
+  /** DataView: the selection count; `{count}` is replaced. */
+  dataViewSelected: string;
+  /** DataView: widens the selection to every result; `{total}` is replaced. */
+  dataViewSelectAllResults: string;
+  /** DataView: clears the row selection. */
+  dataViewClearSelection: string;
+  /** DataView: the row-action and batch-action overflow trigger. */
+  dataViewMoreActions: string;
+  /** DataView: the actions column header. */
+  dataViewActions: string;
+  /** DataView: a row's open button; `{label}` is replaced by the record's name. */
+  dataViewOpenRow: string;
+  /** DataView: opens a row's detail panel. */
+  dataViewExpandRow: string;
+  /** DataView: closes a row's detail panel. */
+  dataViewCollapseRow: string;
+  /** DataView: the empty state when the caller passes no `emptyMessage`. */
+  dataViewEmpty: string;
+  /** DataView: the first load's placeholder. */
+  dataViewLoading: string;
+  /** DataView: shown while a refetch replaces rows already on screen. */
+  dataViewRefreshing: string;
+  /** DataView: the error state's title. */
+  dataViewErrorTitle: string;
+  /** DataView: a column's resize handle; prefixed to the column's name. */
+  dataViewResizeColumn: string;
+  // The wording for the platform's own `AppError` codes, which `useErrorMessage` shows in place
+  // of the backend's `detail`. An app's `errorMessages` map still wins for any code it names,
+  // including these; a code neither side words falls back to the `detail`.
+  /** Error code `bad_request`. */
+  errorCodeBadRequest: string;
+  /** Error code `validation_failed`. */
+  errorCodeValidationFailed: string;
+  /** Error code `invalid_token`. */
+  errorCodeInvalidToken: string;
+  /** Error code `authentication_required`. */
+  errorCodeAuthenticationRequired: string;
+  /** Error code `permission_denied`. */
+  errorCodePermissionDenied: string;
+  /** Error code `not_found`. */
+  errorCodeNotFound: string;
+  /** Error code `conflict`. */
+  errorCodeConflict: string;
+  /** Error code `stale_data`. */
+  errorCodeStaleData: string;
 }
 
 export const DEFAULT_STRINGS: TerpStrings = {
@@ -439,8 +532,48 @@ export const DEFAULT_STRINGS: TerpStrings = {
   targetColumn: "Target",
   whenColumn: "When",
   details: "Details",
+  requestLabel: "Request",
   saved: "Saved",
   requestFailed: "The request failed. Try again.",
+  dataViewSearchPlaceholder: "Search…",
+  dataViewClearSearch: "Clear search",
+  dataViewClearFilters: "Clear filters",
+  dataViewViewOptions: "View options",
+  dataViewColumns: "Columns",
+  dataViewMoveUp: "Move up",
+  dataViewMoveDown: "Move down",
+  dataViewTableView: "Table view",
+  dataViewCardView: "Card view",
+  dataViewPageSize: "Rows per page",
+  dataViewResultsRange: "{from}–{to} of {total} results",
+  dataViewPageOf: "Page {page} of {pages}",
+  dataViewFirstPage: "First page",
+  dataViewPreviousPage: "Previous page",
+  dataViewNextPage: "Next page",
+  dataViewLastPage: "Last page",
+  dataViewSelectAllPage: "Select all rows on this page",
+  dataViewSelectRow: "Select row",
+  dataViewSelected: "{count} selected",
+  dataViewSelectAllResults: "Select all {total} results",
+  dataViewClearSelection: "Clear selection",
+  dataViewMoreActions: "More actions",
+  dataViewActions: "Actions",
+  dataViewOpenRow: "Open details: {label}",
+  dataViewExpandRow: "Expand row",
+  dataViewCollapseRow: "Collapse row",
+  dataViewEmpty: "Nothing to show.",
+  dataViewLoading: "Loading…",
+  dataViewRefreshing: "Refreshing…",
+  dataViewErrorTitle: "Could not load data.",
+  dataViewResizeColumn: "Resize column",
+  errorCodeBadRequest: "The request could not be processed.",
+  errorCodeValidationFailed: "Some fields are invalid. Check the form and try again.",
+  errorCodeInvalidToken: "Your session is invalid. Sign in again.",
+  errorCodeAuthenticationRequired: "Sign in to continue.",
+  errorCodePermissionDenied: "You do not have permission to do this.",
+  errorCodeNotFound: "This item could not be found.",
+  errorCodeConflict: "This conflicts with the current state. Refresh and try again.",
+  errorCodeStaleData: "This item was changed by someone else. Refresh and try again.",
 };
 
 interface UiTextContextValue {
@@ -459,7 +592,9 @@ export interface UiTextProviderProps {
   /**
    * Custom {@link UiText} resolver — the hook for a real i18n runtime: pass a
    * function that looks descriptors up in the active locale's catalog
-   * (falling back to `message`). Defaults to {@link resolveUiText}.
+   * (falling back to `message`). Defaults to {@link resolveUiText}. It is handed the app's
+   * strings and descriptors only: a manifest's `FrameworkText` is answered from `strings`
+   * before it is reached (see {@link useUiText}).
    */
   resolveText?: ResolveUiText;
   children: ReactNode;
@@ -488,10 +623,35 @@ export function useStrings(): TerpStrings {
   return useContext(UiTextContext).strings;
 }
 
-/** The active {@link UiText} resolver — call it on any `UiText` prop before rendering. */
-export function useUiText(): ResolveUiText {
-  const { resolveText } = useContext(UiTextContext);
-  return useCallback((text: UiText) => resolveText(text), [resolveText]);
+/**
+ * The active {@link UiText} resolver — call it on any `UiText` prop before rendering, and on a
+ * manifest's navigation label, which may also be a {@link FrameworkText}.
+ *
+ * A `FrameworkText` is answered here, from the same table {@link useStrings} returns, and never
+ * reaches the resolver a provider was given. That resolver is the app's: `LocaleProvider`'s
+ * treats a descriptor's `message` as the app's source-locale text and looks every other locale
+ * up in the app's messages, and framework copy is neither. A key the table does not have
+ * throws rather than rendering an empty label; the type already refuses one, so this is what
+ * holds a manifest the typecheck never saw.
+ */
+export function useUiText(): (text: UiText | FrameworkText) => string {
+  const { strings, resolveText } = useContext(UiTextContext);
+  return useCallback(
+    (text: UiText | FrameworkText) => {
+      if (typeof text === "string" || !("framework" in text)) {
+        return resolveText(text);
+      }
+      if (!Object.hasOwn(strings, text.framework)) {
+        throw new Error(
+          `FrameworkText names "${text.framework}", which is not a framework string. ` +
+            "Name a TerpStrings key (for example \"admin\"); an app's own copy is a " +
+            "{ id, message } descriptor in frontend/i18n.json.",
+        );
+      }
+      return strings[text.framework];
+    },
+    [strings, resolveText],
+  );
 }
 
 /** Props for {@link Trans}: one stable catalog id and its source-language fallback. */

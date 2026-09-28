@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { defineModuleManifest } from "@terpjs/contract";
+import type { FrameworkText, UiText } from "@terpjs/contract";
 
 import { Page } from "./Page";
 import { ResourceList } from "./ResourceList";
 import { TerpProvider } from "./TerpProvider";
-import { resolveUiText, resolveUiTextNode, UiTextProvider } from "./uiText";
+import { resolveUiText, resolveUiTextNode, UiTextProvider, useUiText } from "./uiText";
 
 afterEach(cleanup);
 
@@ -103,5 +105,55 @@ describe("UiTextProvider", () => {
       </TerpProvider>,
     );
     expect(screen.getByText("Nog niets.")).toBeInTheDocument();
+  });
+});
+
+describe("FrameworkText", () => {
+  function Label({ text }: { text: UiText | FrameworkText }) {
+    const resolve = useUiText();
+    return <span>{resolve(text)}</span>;
+  }
+
+  it("reads the active framework strings and never reaches the app's resolver", () => {
+    // The app's resolver is the one that treats a descriptor's `message` as source-locale text,
+    // which is exactly what framework copy is not. Handed a FrameworkText, this one would say so.
+    const appResolver = vi.fn((text: UiText) =>
+      typeof text === "string" ? text : `app:${text.id}`,
+    );
+    render(
+      <UiTextProvider strings={{ admin: "Beheer" }} resolveText={appResolver}>
+        <Label text={{ framework: "admin" }} />
+      </UiTextProvider>,
+    );
+    expect(screen.getByText("Beheer")).toBeInTheDocument();
+    expect(appResolver).not.toHaveBeenCalled();
+  });
+
+  it("refuses a key the table does not have, including one it only inherits", () => {
+    // Cast past the type on purpose: this is the manifest a typecheck never saw.
+    const misspelt = { framework: "admn" } as unknown as FrameworkText;
+    expect(() => render(<Label text={misspelt} />)).toThrow(
+      /FrameworkText names "admn", which is not a framework string/,
+    );
+    const inherited = { framework: "toString" } as unknown as FrameworkText;
+    expect(() => render(<Label text={inherited} />)).toThrow(/names "toString"/);
+  });
+
+  it("is a typecheck error for a key the table does not have", () => {
+    // The directive is the test, and `tsc --noEmit` is what runs it: it fails as unused the
+    // moment a misspelt key compiles, as one would if the key were widened to `string`. The
+    // assertion below only proves the literal is still an ordinary manifest at runtime.
+    const manifest = defineModuleManifest({
+      name: "typo",
+      routes: [],
+      nav: [
+        {
+          // @ts-expect-error "admn" is not a TerpStrings key.
+          label: { framework: "admn" },
+          to: "/",
+        },
+      ],
+    });
+    expect(manifest.nav).toHaveLength(1);
   });
 });

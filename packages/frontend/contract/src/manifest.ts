@@ -81,6 +81,38 @@ export type TerpPermissionName = AccessName<"permission">;
  */
 export type UiText = string | { readonly id: string; readonly message: string };
 
+/**
+ * The keys of the stack's own framework-string table, supplied by declaration merging.
+ *
+ * Empty here for the reason {@link TerpAccessVocabulary} is: `@terpjs/contract` is
+ * stack-agnostic, so it cannot know what copy a stack's chrome carries. The stack can, and it
+ * merges its table in — `@terpjs/react-core` merges `TerpStrings` — which is what makes a
+ * misspelt key in a {@link FrameworkText} a typecheck error at the manifest that wrote it.
+ * With no stack merged in there are no keys, and no `FrameworkText` can be written at all.
+ */
+export interface TerpFrameworkStrings {}
+
+/**
+ * Copy the framework ships on a manifest of its own, named by its key in the stack's
+ * framework-string table rather than written out.
+ *
+ * A packaged module's manifest is typed like an app's, and {@link UiText} has no form for
+ * framework copy. A plain string renders as-is in every locale. A descriptor's `message` is the
+ * app's source-locale text, so framework English there is wrong for any app whose source
+ * locale is not English, and translating it would put framework copy in the app's catalog.
+ * Framework copy is already a table the active locale translates, and one every non-English
+ * catalog must complete, so the reference carries a key and no text: the stack resolves it
+ * from the active table and never from the app's messages, and a key the table does not have
+ * is refused at render as well as at typecheck.
+ *
+ * Accepted by {@link NavItem.label} only. That is the one piece of text a packaged module
+ * authors on a manifest: a {@link NavGroup} is the app's by definition, and a route carries
+ * no text.
+ */
+export interface FrameworkText {
+  readonly framework: Extract<keyof TerpFrameworkStrings, string>;
+}
+
 export interface ModuleRoute {
   /**
    * URL path the route mounts at, e.g. `/billing` or `/billing/:id`.
@@ -131,8 +163,11 @@ export interface ModuleRoute {
 }
 
 export interface NavItem {
-  /** Sidebar label. */
-  label: UiText;
+  /**
+   * Sidebar label: the app's own copy, or — on an entry a packaged module ships — a
+   * {@link FrameworkText} naming the framework's.
+   */
+  label: UiText | FrameworkText;
   /** Destination path; should match a {@link ModuleRoute.path}. */
   to: string;
   /**

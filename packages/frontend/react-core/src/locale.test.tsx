@@ -15,6 +15,7 @@ import { DEFAULT_STRINGS, Trans, useStrings } from "./uiText";
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
+  document.documentElement.removeAttribute("lang");
 });
 
 function SignOutLabel() {
@@ -263,6 +264,40 @@ describe("LocaleProvider + LanguageSwitcher", () => {
         { en: LOCALE_EN, de: { strings: germanStrings } },
       ).de.messages,
     ).toEqual({ greeting: "Hallo" });
+  });
+
+  it("keeps <html lang> on the active locale, from mount and across a switch", () => {
+    // A value neither locale has, so the assertion can only pass if the provider wrote it:
+    // starting from "en" would let an effect that never ran pass the English half.
+    document.documentElement.lang = "x-stale";
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN, nl: NL }} defaultLocale="nl">
+        <LanguageSwitcher />
+      </LocaleProvider>,
+    );
+    expect(document.documentElement.lang).toBe("nl");
+
+    fireEvent.click(screen.getByRole("button", { name: "Taal" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "English" }));
+    expect(document.documentElement.lang).toBe("en");
+  });
+
+  it("refuses a catalog that translates the shell but not DataView", () => {
+    // The upgrade path, pinned: a catalog complete against the key set before DataView's
+    // strings joined it. Refused, and by name, because the alternative is the defect itself —
+    // every table in the app back in English under a locale that claims to be complete.
+    const shellOnly = Object.fromEntries(
+      Object.keys(DEFAULT_STRINGS)
+        .filter((key) => !key.startsWith("dataView"))
+        .map((key) => [key, `de:${key}`]),
+    );
+    expect(() =>
+      render(
+        <LocaleProvider locales={{ en: LOCALE_EN, de: { strings: shellOnly } }}>
+          <span />
+        </LocaleProvider>,
+      ),
+    ).toThrow(/missing .* framework string translation.*dataViewSearchPlaceholder/);
   });
 
   it("always renders the descriptor fallback in the source locale", () => {

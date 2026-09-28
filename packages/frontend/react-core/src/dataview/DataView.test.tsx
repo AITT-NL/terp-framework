@@ -2,7 +2,9 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { LOCALE_EN, LOCALE_NL, LanguageSwitcher, LocaleProvider } from "../locale";
 import { DataView } from "./DataView";
+import { DataViewPagination } from "./DataViewPagination";
 import { InMemoryDataViewRepository } from "./repositories/InMemoryDataViewRepository";
 import { InMemoryViewStateRepository } from "./repositories/viewState";
 import type { DataViewColumn, DataViewQuery, DataViewRepository } from "./types";
@@ -582,5 +584,73 @@ describe("DataView search scope", () => {
     for (const toggle of document.querySelectorAll("[aria-pressed]")) {
       expect(toggle.getAttribute("data-terp")).toBe("iconbutton");
     }
+  });
+});
+
+describe("DataView localisation", () => {
+  // DataView's strings are framework strings: the `dataView*` keys of TerpStrings. They used to
+  // be a separate English table that only the per-instance `strings` prop could change, so a
+  // DataView under a Dutch LocaleProvider still said "Search…" and "1–4 of 4 results" — the
+  // framework's own admin screens included — while every locale gate reported the catalog
+  // complete.
+  afterEach(() => {
+    // The switcher persists its choice; the next test must not open in it.
+    window.localStorage.clear();
+  });
+
+  it("speaks the app's locale without a strings prop, and follows a switch", async () => {
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN, nl: LOCALE_NL }}>
+        <LanguageSwitcher />
+        <DataView repository={inMemoryRepo()} columns={COLUMNS} />
+      </LocaleProvider>,
+    );
+    expect(await screen.findByText("1–4 of 4 results")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Language" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Nederlands" }));
+
+    expect(await screen.findByText("1–4 van 4 resultaten")).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: "Zoeken…" })).toHaveAttribute(
+      "placeholder",
+      "Zoeken…",
+    );
+    expect(screen.getByRole("button", { name: "Rijen per pagina" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Weergaveopties" })).toBeInTheDocument();
+    expect(screen.queryByText(/results/)).not.toBeInTheDocument();
+  });
+
+  it("lets a per-instance string win over the locale", async () => {
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN, nl: LOCALE_NL }} defaultLocale="nl">
+        <DataView
+          repository={inMemoryRepo()}
+          columns={COLUMNS}
+          strings={{ searchPlaceholder: "Zoek een ticket…" }}
+        />
+      </LocaleProvider>,
+    );
+    // The rest of the view still follows the locale; only the overridden key does not.
+    expect(await screen.findByText("1–4 van 4 resultaten")).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: "Zoek een ticket…" })).toBeInTheDocument();
+    expect(screen.queryByRole("searchbox", { name: "Zoeken…" })).not.toBeInTheDocument();
+  });
+
+  it("localises a sub-component rendered outside any DataView", () => {
+    // The parts are exported for hand-built compositions, and outside a DataView there is no
+    // provider above them. The context's default used to be a finished English set with a
+    // resolver that ignored the locale, so this path stayed English whatever the provider did.
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN, nl: LOCALE_NL }} defaultLocale="nl">
+        <DataViewPagination
+          pagination={{ pageIndex: 1, pageSize: 10 }}
+          totalCount={45}
+          onPaginationChange={() => {}}
+        />
+      </LocaleProvider>,
+    );
+    expect(screen.getByText("11–20 van 45 resultaten")).toBeInTheDocument();
+    expect(screen.getByText("Pagina 2 van 5")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Volgende pagina" })).toBeInTheDocument();
   });
 });

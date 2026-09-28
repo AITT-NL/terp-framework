@@ -152,9 +152,11 @@ versioned envelope; corrupt data falls back to defaults) and
   `density="comfortable"` cannot make one view comfortable inside a compact subtree.
 - **Variants**: `variant="embedded"` renders a plain compact view (no view toggle, no
   page-size selector, no pagination footer, all rows) for panels/detail sections.
-- **i18n**: no hard-coded user-facing strings — every label is a `UiText` routed
-  through the app's `UiTextProvider` resolver, with defaults overridable per instance
-  via the `strings` prop.
+- **i18n**: no hard-coded user-facing strings. The defaults are framework strings — the
+  `dataView*` keys of `TerpStrings` — so a DataView follows the app's `LocaleProvider` like
+  the rest of the chrome, and `LOCALE_NL` translates them. The `strings` prop overrides a key
+  for one instance and wins over the locale; every value is a `UiText` resolved through the
+  active resolver.
 
 ## Files
 
