@@ -3578,19 +3578,21 @@ def _build_parser() -> argparse.ArgumentParser:
     dev_parser.add_argument(
         "--port",
         type=int,
-        default=DEFAULT_API_PORT,
+        default=None,
         help=(
-            f"Backend host port (default: {DEFAULT_API_PORT}) -- in the range Terp owns, "
-            "away from the 8000 another application on this machine is probably using"
+            "Backend host port (default: the pair claimed for this checkout, the one "
+            "`terp ports show` prints and a workbench and docker compose use; claimed "
+            f"and published on first run; {DEFAULT_API_PORT} if none can be claimed)"
         ),
     )
     dev_parser.add_argument(
         "--web-port",
         type=int,
-        default=DEFAULT_WEB_PORT,
+        default=None,
         help=(
-            f"Frontend host port (default: {DEFAULT_WEB_PORT}); passed through to the "
-            "frontend dev server, which would otherwise take its own 5173"
+            "Frontend host port (default: the web half of the same claimed pair; "
+            f"{DEFAULT_WEB_PORT} if none can be claimed); the frontend dev server refuses "
+            "a taken port rather than wandering to the next one"
         ),
     )
     dev_parser.add_argument(

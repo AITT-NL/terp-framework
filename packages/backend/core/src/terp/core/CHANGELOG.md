@@ -215,6 +215,20 @@ repeated more often than the values it applied to.
   - **`terp dev`'s own lines** are flushed as they are written, instead of sitting in a
     pipe's buffer until the process ends.
 
+- **`terp dev` answers on the checkout's own ports, the ones a workbench and compose use (ADR
+  0134).** It bound a fixed 22100/21100. On a machine where another application held either
+  port, it collided with that application. The same checkout also answered on one pair when a
+  workbench started it and on another when an editor task ran `terp dev`, so a browser tab, the
+  conformance suite or an agent pointed at the first pair talked to nothing.
+  - **Which ports:** `terp dev` now takes the pair `terp ports` settles for the checkout. It
+    adopts what a workbench or a person published in `.env`, otherwise reuses the checkout's
+    claim, otherwise claims and publishes a free pair. `--port` and `--web-port` still win.
+  - **When nothing can be claimed,** the fixed pair is used and the reason is printed.
+  - **A port already held** when the start begins is refused before anything runs, naming
+    `terp ports assign --reassign` and the flags.
+  - **Vite runs with `--strictPort`,** so the frontend refuses a taken port instead of quietly
+    moving to the next one.
+
 ### Upgrade notes
 
 - **Every screen looks different, and no app has to do anything to get it.** The surface model

@@ -21,7 +21,9 @@ the first module: model, migration, service, policy, router and a typed frontend
 
 `uv run terp dev` refreshes the OpenAPI contract, then runs uvicorn and the Vite dev server
 side by side, restarting the API when a Python source of the app changes; Ctrl+C stops
-both. Prefer them apart? `uv run uvicorn app.main:app --reload` and `npm --prefix frontend
+both. Both answer on the host ports claimed for this checkout (`uv run terp ports show`
+prints them): the same pair a workbench and `docker compose` use, claimed on first run
+past any port another application on this machine already holds. Prefer them apart? `uv run uvicorn app.main:app --reload` and `npm --prefix frontend
 run dev` -- though on Windows uvicorn's own reloader stops restarting when it was not
 started from an interactive terminal (an agent's shell, an editor task), which is why
 `uv run terp dev` does the restarting itself. Without Docker the settings

@@ -24,6 +24,7 @@ sys.path.insert(0, str(_CLI_SRC))
 from terp.cli import main, run_dev_command  # noqa: E402
 from terp.cli.dev import (  # noqa: E402
     _POLL_SECONDS,
+    _refuse_taken_ports,
     DEFAULT_API_PORT,
     DEFAULT_WEB_PORT,
     DevCommand,
@@ -32,6 +33,7 @@ from terp.cli.dev import (  # noqa: E402
     _stop,
     _supervise,
     dev_plan,
+    dev_ports,
     reload_paths,
 )
 
@@ -40,6 +42,15 @@ from terp.core import create_app
 
 app = create_app([])
 """
+
+
+def _no_claim(root: pathlib.Path) -> tuple[dict[str, int], str]:
+    """No pair claimed, so the machine's real port ledger is never touched here."""
+    return {}, ""
+
+
+def _all_free(port: int) -> bool:
+    return True
 
 
 class _DoneProc:
@@ -68,7 +79,7 @@ def test_dev_plan_builds_backend_and_frontend_commands(tmp_path: pathlib.Path) -
 
     assert frontend.label == "frontend"
     # The frontend is given its port rather than left to Vite's own 5173.
-    assert frontend.argv == ("npm", "run", "dev", "--", "--port", "8124")
+    assert frontend.argv == ("npm", "run", "dev", "--", "--port", "8124", "--strictPort")
     assert frontend.cwd == tmp_path.resolve() / "frontend"
     assert frontend.watch == ()  # Vite reloads itself
 
@@ -231,7 +242,12 @@ def test_run_dev_command_preflights_spawns_and_supervises(
         supervised.append((list(commands), spawn, stop_wait))  # type: ignore[call-overload]
 
     message = run_dev_command(
-        app_ref="dev_app:app", root=tmp_path, spawn=fake_spawn, supervise=fake_supervise
+        app_ref="dev_app:app",
+        root=tmp_path,
+        spawn=fake_spawn,
+        supervise=fake_supervise,
+        claim=_no_claim,
+        port_free=_all_free,
     )
 
     # The preflight wrote the live OpenAPI document (the contract's codegen source).
@@ -261,6 +277,8 @@ def test_run_dev_command_without_frontend_runs_backend_only(tmp_path: pathlib.Pa
         supervise=lambda commands, spawn, stop_wait: supervised.extend(
             command.label for command in commands
         ),
+        claim=_no_claim,
+        port_free=_all_free,
     )
 
     assert supervised == ["backend"]
@@ -281,6 +299,8 @@ def test_run_dev_command_no_preflight_skips_export(tmp_path: pathlib.Path) -> No
         export=recording_export,
         spawn=lambda command: _DoneProc(),
         supervise=lambda commands, spawn, stop_wait: None,
+        claim=_no_claim,
+        port_free=_all_free,
     )
 
     assert calls == []
@@ -552,6 +572,124 @@ def test_a_real_process_is_restarted_and_stopped(tmp_path: pathlib.Path) -> None
     assert not [pid for pid in interpreters if _is_running(pid)]
 
 
+
+# --------------------------------------------------------------------------- #
+# dev_ports — the checkout's own host ports
+# --------------------------------------------------------------------------- #
+def test_the_claimed_pair_is_used_when_nothing_is_passed(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Editor, workbench and compose all read one claim, so they land on one pair."""
+    claimed: list[pathlib.Path] = []
+
+    def claim(root: pathlib.Path) -> tuple[dict[str, int], str]:
+        claimed.append(root)
+        return {"WEB_PORT": 21107, "API_PORT": 22107}, "terp ports: assigned API_PORT=22107, WEB_PORT=21107"
+
+    (api, web) = dev_ports(tmp_path, port=None, web_port=None, claim=claim)
+
+    assert claimed == [tmp_path]
+    assert api == (22107, "API_PORT, claimed for this checkout")
+    assert web == (21107, "WEB_PORT, claimed for this checkout")
+    assert "assigned API_PORT=22107" in capsys.readouterr().out  # the claim's note is shown
+
+
+def test_an_explicit_port_wins_and_the_other_half_is_still_claimed(
+    tmp_path: pathlib.Path,
+) -> None:
+    claim = lambda root: ({"WEB_PORT": 21107, "API_PORT": 22107}, "")  # noqa: E731
+
+    (api, web) = dev_ports(tmp_path, port=9000, web_port=None, claim=claim)
+
+    assert api == (9000, "from --port")
+    assert web == (21107, "WEB_PORT, claimed for this checkout")
+
+
+def test_both_ports_passed_means_no_claim_is_made(tmp_path: pathlib.Path) -> None:
+    def claim(root: pathlib.Path) -> tuple[dict[str, int], str]:
+        raise AssertionError("an explicit pair must not claim or publish anything")
+
+    assert dev_ports(tmp_path, port=9000, web_port=9001, claim=claim) == (
+        (9000, "from --port"),
+        (9001, "from --web-port"),
+    )
+
+
+def test_no_claim_falls_back_to_the_fixed_pair_and_says_why(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    claim = lambda root: ({}, "workbench.json declares this app unmanaged")  # noqa: E731
+
+    (api, web) = dev_ports(tmp_path, port=None, web_port=None, claim=claim)
+
+    assert (api[0], web[0]) == (DEFAULT_API_PORT, DEFAULT_WEB_PORT)
+    assert "no pair could be claimed" in api[1]
+    assert "unmanaged" in capsys.readouterr().out
+
+
+def test_the_names_a_workbench_declares_are_the_names_read(tmp_path: pathlib.Path) -> None:
+    """An app that publishes its ports as other names is read by those names."""
+    (tmp_path / "workbench.json").write_text(
+        '{"schemaVersion": 1, "compose": {"file": "docker-compose.yml"}, "services": ['
+        '{"role": "web", "service": "web", "hostPortEnv": "SHOP_WEB_PORT"},'
+        '{"role": "api", "service": "api", "hostPortEnv": "SHOP_API_PORT"}]}',
+        encoding="utf-8",
+    )
+    claim = lambda root: ({"SHOP_WEB_PORT": 21120, "SHOP_API_PORT": 22120}, "")  # noqa: E731
+
+    (api, web) = dev_ports(tmp_path, port=None, web_port=None, claim=claim)
+
+    assert (api[0], web[0]) == (22120, 21120)
+
+
+def test_a_taken_port_stops_the_start_and_names_both_ways_out() -> None:
+    with pytest.raises(SystemExit) as refused:
+        _refuse_taken_ports(
+            [("backend", 22107, "API_PORT, claimed for this checkout"), ("frontend", 21107, "x")],
+            port_free=lambda port: port != 22107,
+        )
+    message = str(refused.value)
+    assert "backend: 22107 (API_PORT, claimed for this checkout)" in message
+    assert "frontend" not in message.split("\n", 1)[1].split("\n")[0]  # only the taken one
+    assert "terp ports assign --reassign" in message
+    _refuse_taken_ports([("backend", 1, "x")], port_free=lambda port: True)  # free: no raise
+
+
+def test_run_dev_command_refuses_before_starting_anything(tmp_path: pathlib.Path) -> None:
+    started: list[object] = []
+
+    with pytest.raises(SystemExit):
+        run_dev_command(
+            app_ref="app.main:app",
+            root=tmp_path,
+            preflight=False,
+            spawn=lambda command: started.append(command) or _DoneProc(),
+            supervise=lambda commands, spawn, stop_wait: started.append(commands),
+            claim=lambda root: ({"WEB_PORT": 21107, "API_PORT": 22107}, ""),
+            port_free=lambda port: False,
+        )
+
+    assert started == []
+
+
+def test_the_frontend_port_is_only_checked_when_there_is_a_frontend(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    checked: list[int] = []
+    run_dev_command(
+        app_ref="app.main:app",
+        root=tmp_path,
+        preflight=False,
+        spawn=lambda command: _DoneProc(),
+        supervise=lambda commands, spawn, stop_wait: None,
+        claim=lambda root: ({"WEB_PORT": 21107, "API_PORT": 22107}, ""),
+        port_free=lambda port: checked.append(port) or True,
+    )
+    assert checked == [22107]
+    out = capsys.readouterr().out
+    assert "backend on http://127.0.0.1:22107 (API_PORT, claimed for this checkout)" in out
+    assert "frontend on" not in out
+
 # --------------------------------------------------------------------------- #
 # main() dispatch
 # --------------------------------------------------------------------------- #
@@ -600,3 +738,19 @@ def test_cli_dev_dispatch(
         "preflight": False,
     }
     assert "terp dev stopped (backend)" in capsys.readouterr().out
+
+
+def test_cli_dev_leaves_the_ports_to_the_checkouts_claim(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No flag means no number: a fixed default here would outrank the claim."""
+    captured: dict[str, object] = {}
+
+    def fake_run(**kwargs: object) -> str:
+        captured.update(kwargs)
+        return "terp dev stopped (backend)"
+
+    monkeypatch.setattr("terp.cli.run_dev_command", fake_run)
+    main(["dev", "--no-preflight"])
+
+    assert (captured["port"], captured["web_port"]) == (None, None)

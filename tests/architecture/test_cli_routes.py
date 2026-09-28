@@ -154,6 +154,15 @@ def test_an_unadopted_app_is_skipped_with_the_hint_not_failed(
         run_routes_command(root=tmp_path, run=_never_run)
 
 
+def _no_claim(root):  # type: ignore[no-untyped-def]
+    """No pair claimed, so the machine's real port ledger is never touched here."""
+    return {}, ""
+
+
+def _all_free(port: int) -> bool:
+    return True
+
+
 def test_dev_preflight_regenerates_the_route_types_beside_the_openapi_document(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -169,6 +178,8 @@ def test_dev_preflight_regenerates_the_route_types_beside_the_openapi_document(
         regenerate_routes=lambda **kwargs: regenerated.append(kwargs) or "wrote it",
         spawn=lambda command: _DoneProc(),
         supervise=lambda commands, spawn, stop_wait: None,
+        claim=_no_claim,
+        port_free=_all_free,
     )
 
     assert regenerated == [
@@ -187,6 +198,8 @@ def test_dev_preflight_offers_route_types_optionally_so_a_backend_only_repo_is_f
         export=lambda *args, **kwargs: tmp_path / "openapi.json",
         spawn=lambda command: _DoneProc(),
         supervise=lambda commands, spawn, stop_wait: None,
+        claim=_no_claim,
+        port_free=_all_free,
     )
 
 
@@ -202,6 +215,8 @@ def test_no_preflight_skips_the_route_types_too(tmp_path: pathlib.Path) -> None:
         regenerate_routes=lambda **kwargs: regenerated.append(kwargs) or "unreachable",
         spawn=lambda command: _DoneProc(),
         supervise=lambda commands, spawn, stop_wait: None,
+        claim=_no_claim,
+        port_free=_all_free,
     )
 
     assert regenerated == []

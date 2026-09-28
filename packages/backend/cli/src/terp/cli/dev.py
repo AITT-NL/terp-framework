@@ -45,7 +45,9 @@ _STOP_MARGIN_SECONDS = 5
 SHUTDOWN_TIMEOUT_SECONDS = 3
 
 
-#: Default host ports for ``terp dev``, in the range Terp owns.
+#: Fallback host ports for ``terp dev``, in the range Terp owns — used only when no pair can
+#: be claimed for the checkout (:func:`dev_ports`); a claimed pair is picked from this same
+#: range, past whatever this machine already holds.
 #:
 #: Not 8000 and 5173. Those are where a developer's OTHER applications live, so
 #: defaulting there means the framework's own dev loop is the thing that collides
@@ -147,7 +149,10 @@ def dev_plan(
         # 5173 and the template config pins nothing, so without this the frontend
         # half of the dev loop lands on the very port the rest of this change
         # moves away from.
-        argv=("npm", "run", "dev", "--", "--port", str(web_port)),
+        # ``--strictPort``: Vite's own answer to a taken port is to take the next one, and
+        # then the proxy, the conformance suite and a workbench are all pointed at a port
+        # nothing answers on. Refusing is the answer every other reader can rely on.
+        argv=("npm", "run", "dev", "--", "--port", str(web_port), "--strictPort"),
         cwd=root_path / frontend_dir,
         env=(("TERP_API_PROXY", f"http://{host}:{port}"),),
     )
@@ -159,6 +164,75 @@ Spawn = Callable[[DevCommand], "subprocess.Popen[bytes]"]
 Supervise = Callable[[Sequence[DevCommand], Spawn, float], None]
 Stop = Callable[["subprocess.Popen[bytes]", float], None]
 Snapshot = Callable[[Sequence[pathlib.Path]], dict[str, int]]
+
+
+#: Claims this checkout's host ports: ``root -> (values by variable name, note)``.
+Claim = Callable[[pathlib.Path], tuple[dict[str, int], str]]
+
+
+def dev_ports(
+    root: pathlib.Path,
+    *,
+    port: int | None,
+    web_port: int | None,
+    claim: Claim | None = None,
+) -> tuple[tuple[int, str], tuple[int, str]]:
+    """The ``(api, web)`` host ports this run binds, each with where it came from.
+
+    An explicit ``--port`` / ``--web-port`` wins. Otherwise the checkout's own pair: the
+    one :func:`terp.cli.ports.ensure_assigned` settles — what a workbench or a person has
+    already published in ``.env``, else the claim this checkout already holds, else a
+    free pair, claimed and published. So ``terp dev`` started from an editor answers
+    where ``terp dev`` started from a workbench answers, and where ``docker compose``
+    and ``terp verify --only conformance`` look; and a fresh pair is never one another
+    application on this machine already holds. It used to be a fixed 22100/21100, which
+    was right exactly as long as nothing else on the machine had them.
+
+    Claiming never stops the start: when no pair can be claimed (an unmanaged app, an
+    unreadable declaration, a ledger that cannot be written) the note says why and the
+    fixed defaults are used, as before.
+    """
+    from terp.cli import ports
+
+    claimed: dict[str, int] = {}
+    if port is None or web_port is None:
+        claimed, note = (claim or ports.ensure_assigned)(root)
+        if note:
+            emit(note)
+    web_env, api_env = ports.declared_names(root)
+
+    def pick(explicit: int | None, name: str, default: int, flag: str) -> tuple[int, str]:
+        if explicit is not None:
+            return explicit, f"from {flag}"
+        if name in claimed:
+            return claimed[name], f"{name}, claimed for this checkout"
+        return default, "the fixed default: no pair could be claimed"
+
+    return (
+        pick(port, api_env, DEFAULT_API_PORT, "--port"),
+        pick(web_port, web_env, DEFAULT_WEB_PORT, "--web-port"),
+    )
+
+
+def _refuse_taken_ports(
+    bindings: Sequence[tuple[str, int, str]], port_free: Callable[[int], bool]
+) -> None:
+    """Stop before starting anything when a port this run needs is already held.
+
+    uvicorn and Vite would each fail on their own, later and in their own words, with
+    one server up and the other not. Said once, first, it names the fix instead.
+    """
+    taken = [(label, port, why) for label, port, why in bindings if not port_free(port)]
+    if not taken:
+        return
+    lines = "\n".join(f"  {label}: {port} ({why})" for label, port, why in taken)
+    raise SystemExit(
+        "terp dev did not start: a port it needs is already in use on this machine.\n"
+        f"{lines}\n"
+        "If that is an earlier `terp dev` or a workbench stack for this checkout, stop it "
+        "first. If another application took it, `uv run terp ports assign --reassign` "
+        "claims this checkout a new pair (or pass --port / --web-port)."
+    )
 
 
 def reload_paths(app_ref: str, root: str | pathlib.Path = ".") -> tuple[pathlib.Path, ...]:
@@ -307,8 +381,8 @@ def run_dev_command(
     root: str | pathlib.Path = ".",
     frontend_dir: str = "frontend",
     host: str = "127.0.0.1",
-    port: int = DEFAULT_API_PORT,
-    web_port: int = DEFAULT_WEB_PORT,
+    port: int | None = None,
+    web_port: int | None = None,
     shutdown_timeout: int = SHUTDOWN_TIMEOUT_SECONDS,
     openapi_out: str = "openapi.json",
     preflight: bool = True,
@@ -316,6 +390,8 @@ def run_dev_command(
     regenerate_routes: Callable[..., str] = run_routes_command,
     spawn: Spawn = _spawn,
     supervise: Supervise = _supervise,
+    claim: Claim | None = None,
+    port_free: Callable[[int], bool] | None = None,
 ) -> str:
     """Run the backend + frontend dev servers together, after the codegen preflight.
 
@@ -328,17 +404,31 @@ def run_dev_command(
     frontend exits or on Ctrl+C, stopping both. A repo without ``<frontend_dir>/`` runs
     backend-only.
 
-    *export* / *regenerate_routes* / *spawn* / *supervise* are injected so the orchestration is
-    testable without launching real servers. Returns a one-line summary of what was stopped.
+    The host ports are the checkout's own (:func:`dev_ports`), and a port already held is
+    refused before anything starts.
+
+    *export* / *regenerate_routes* / *spawn* / *supervise* / *claim* / *port_free* are
+    injected so the orchestration is testable without launching real servers or touching
+    the machine's port ledger. Returns a one-line summary of what was stopped.
     """
+    from terp.cli import ports
+
     root_path = pathlib.Path(root).resolve()
+    (api_port, api_why), (ui_port, ui_why) = dev_ports(
+        root_path, port=port, web_port=web_port, claim=claim
+    )
+    has_frontend = (root_path / frontend_dir).is_dir()
+    bindings = [("backend", api_port, api_why)]
+    if has_frontend:
+        bindings.append(("frontend", ui_port, ui_why))
+    _refuse_taken_ports(bindings, port_free or ports.port_is_free)
     backend, frontend = dev_plan(
         app_ref=app_ref,
         root=root_path,
         frontend_dir=frontend_dir,
         host=host,
-        port=port,
-        web_port=web_port,
+        port=api_port,
+        web_port=ui_port,
         shutdown_timeout=shutdown_timeout,
         watch=reload_paths(app_ref, root_path),
     )
@@ -355,8 +445,11 @@ def run_dev_command(
         emit(f"terp dev — routes preflight: {summary}")
 
     commands = [backend]
-    if frontend.cwd.is_dir():
+    if has_frontend:
         commands.append(frontend)
+    emit(f"terp dev — backend on http://{host}:{api_port} ({api_why})")
+    if has_frontend:
+        emit(f"terp dev — frontend on http://{host}:{ui_port} ({ui_why})")
     for command in commands:
         emit(f"  {command.label:8} → {' '.join(command.argv)}  (cwd {command.cwd})")
 
