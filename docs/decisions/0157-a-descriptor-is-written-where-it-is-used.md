@@ -82,6 +82,7 @@ the attribute list. `searchPlaceholder` and `actions` are real text props elsewh
   That limit is unchanged and is not claimed to be closed.
 - The spec entry gains the sentence and the corpus cases (a factory violation, the record
   shapes as compliant, and `columns="auto"` as compliant under `no-untranslated-ui`). The
-  two repositories' CIs are coupled: the spec's certify job fails until this lands on
-  framework `main`, and this repository's corpus test sees the new cases only after the
-  spec release is adopted.
+  two repositories' CIs are coupled: the spec's certify job checks the framework at a pinned
+  `REFERENCE_SHA`, so it fails until that pin moves to a framework `main` commit carrying this
+  change, and this repository's corpus test sees the new cases only after the spec release
+  is adopted.
