@@ -229,8 +229,11 @@ Adopt it by declaring the table (a project from the template already has it):
 
     [tool.deptry.per_rule_ignores]
     # `terp.*` is one PEP 420 namespace across distributions, and pydantic
-    # re-exports through sqlmodel / pydantic-settings.
-    DEP003 = ["terp", "pydantic"]
+    # re-exports through sqlmodel / pydantic-settings. fastapi, sqlmodel,
+    # sqlalchemy and alembic are the stack terp-core and terp-migrations bring,
+    # which the template's code, `terp new module` and `terp migrate make` all
+    # import directly: constrained by that release, not by a second pin here.
+    DEP003 = ["terp", "pydantic", "fastapi", "sqlmodel", "sqlalchemy", "alembic"]
 
 and installing the tool: `uv add --dev deptry`.
 
