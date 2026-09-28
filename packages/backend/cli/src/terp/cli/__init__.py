@@ -1557,7 +1557,7 @@ Using capabilities
                  permission_enforcer=enforce_permission, discover_capabilities=True)
 - You can always drop to native FastAPI/SQLModel — the same gate rules still apply.
 - Outbound HTTP is a capability concern, never a module concern: importing httpx /
-  requests / urllib.request / urllib3 / aiohttp in a module is refused by the
+  httpx2 / requests / urllib.request / urllib3 / aiohttp in a module is refused by the
   no_raw_outbound_http rule — SSRF protection, egress allowlists and timeout policy
   belong behind one declared capability, not scattered per call site. That capability
   is `terp-cap-egress`, and it is a declaration rather than a client you configure at

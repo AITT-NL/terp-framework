@@ -12,8 +12,21 @@ decision, 0001 onwards.
 
 ## 0.29.0 — unreleased
 
-Friction reported from building apps on Terp 0.28.0: a request body that could still carry
-an infinite number past the control built to refuse one.
+Friction reported from building apps on Terp 0.28.0. At the edges: a request body that could
+still carry an infinite number past the control built to refuse one, and an egress rule that
+did not know the name the HTTP client now also ships under. In the model: a module that only
+reads had no way to say so, module code had no way to ask who was calling, and a test suite had
+to write down a signing key to sign a token. On screen: a count of one read as plural, in
+English and in Dutch. And in every generated project, a test run that warned about a dependency
+its own template installed.
+
+### Security
+
+- **`no_raw_outbound_http` refuses `httpx2` (ADR 0165).** `httpx2` is `httpx` continued under
+  a new name, API for API, and the rule refused `httpx` but had never heard of `httpx2`. A
+  module could import it and reach the network with no allowlist, no SSRF check and no timeout
+  policy, and nothing would say so. It is refused now, root and submodules, and sent to the
+  egress capability like every other raw client.
 
 ### Added
 
@@ -83,6 +96,14 @@ an infinite number past the control built to refuse one.
   longer name a count-bearing key, and a DataView's per-instance override is still one string,
   rendered as given.
 
+- **A generated project's tests no longer warn about `httpx` (ADR 0165).** Starlette's test
+  client imports `httpx2` first and falls back to `httpx` with a `StarletteDeprecationWarning`,
+  which it says it will remove. The template's test dependencies installed `httpx`, so every
+  generated suite printed the warning on every run, and would have stopped importing
+  `TestClient` once a lockfile refresh pulled in a starlette without the fallback. The
+  template's dev group now installs `httpx2`. An existing app changes `httpx` to `httpx2` in its
+  own dev group.
+
 ### Upgrade notes
 
 - **A non-English framework catalog of an app's own supplies three keys as plural forms.** A
@@ -92,6 +113,10 @@ an infinite number past the control built to refuse one.
   `{ one: "…", other: "…" }`, adding `few`, `many`, `two` or `zero` where the language has them;
   the refusal lists them. `LOCALE_NL` and `LOCALE_EN` already do, so an app on those changes
   nothing. A `UiTextProvider` given these keys directly takes the same shape.
+
+- **An app module that imports `httpx2` is refused by `no_raw_outbound_http`.** Outbound HTTP
+  goes through `terp.capabilities.egress`, as it already had to for `httpx`. A test that only
+  needs FastAPI's `TestClient` imports nothing from `httpx2` itself and is unaffected.
 
 ## 0.28.0 — 2026-09-28
 

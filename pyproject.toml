@@ -67,7 +67,11 @@ terp-cap-webhooks = { workspace = true }
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    # tools/check_pypi_projects.py and several tests call httpx directly.
     "httpx>=0.28.1",
+    # FastAPI's TestClient: starlette imports httpx2 first, and on plain httpx it warns
+    # on every run and will stop importing once that fallback is removed.
+    "httpx2>=2.13.1",
     "pytest-cov>=7.1.0",
     # `terp dev` launches uvicorn; the standard extra supplies WebSocket + reload support.
     "uvicorn[standard]>=0.53.0",

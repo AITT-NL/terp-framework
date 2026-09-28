@@ -862,9 +862,18 @@ reproduced against that release on 2026-09-28 before any of it was changed. One 
       carries one message, so a DataView override renaming "results" still reads "1 invoices".
       That is a change to the contract's `UiText`, the app catalog and the translation lint; ADR
       0164 names it as a separate decision.
-- [ ] Starlette's test client deprecates `httpx` for `httpx2`, and the template's own test
+- [x] Starlette's test client deprecates `httpx` for `httpx2`, and the template's own test
       dependencies install `httpx`, so every generated app's suite warns — and will fail to
-      import once the fallback is removed.
+      import once the fallback is removed. The template installs `httpx2`, and
+      `no_raw_outbound_http` now refuses it: it is the same client under a new name, and the
+      rule had never heard of it (ADR 0165).
+- [ ] **terp-spec half of ADR 0165:** the `no_raw_outbound_http` catalog `reference` gains
+      `httpx2` and a violation corpus case holds it. Prepared on a terp-spec branch; it lands
+      after this branch reaches `main`, because the spec's `REFERENCE_SHA` must move to the
+      framework commit that refuses `httpx2` (`docs/RELEASING.md`, the circular procedure).
+- [ ] **Recorded, not decided (ADR 0165):** the egress capability still drives `httpx` at
+      runtime. Moving the one outbound transport to `httpx2` means re-verifying its address
+      pinning and redirect refusal, so it is its own decision.
 
 ## Active execution track
 

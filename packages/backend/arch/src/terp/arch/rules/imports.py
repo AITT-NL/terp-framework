@@ -150,7 +150,11 @@ _BACKGROUND_ENGINE_MODULES = frozenset({"celery", "redis", "apscheduler"})
 # so only the Service Bus broker is the background runtime, not all of ``azure``.
 _BACKGROUND_ENGINE_DOTTED = ("azure.servicebus",)
 
-_RAW_OUTBOUND_HTTP_ROOTS = frozenset({"httpx", "requests", "urllib3", "aiohttp", "socket"})
+# httpx2 is httpx continued under a new name, API for API -- starlette imports it as
+# `import httpx2 as httpx` -- so leaving it out would make the same client a way around this.
+_RAW_OUTBOUND_HTTP_ROOTS = frozenset(
+    {"httpx", "httpx2", "requests", "urllib3", "aiohttp", "socket"}
+)
 _RAW_OUTBOUND_HTTP_DOTTED = ("urllib.request", "http.client")
 # The standard library's mail client reaches the network the same way and leaves the same
 # choices at the call site -- whether the session is encrypted, whether the certificate is
@@ -213,8 +217,8 @@ def check_no_raw_outbound_http(
 ) -> list[ArchViolation]:
     """App code does not import raw HTTP clients; outbound calls use a capability.
 
-    Direct ``httpx`` / ``requests`` / ``urllib.request`` / ``urllib3`` / ``aiohttp``
-    imports — and the lower-level ``socket`` / ``http.client`` escape routes to the
+    Direct ``httpx`` / ``httpx2`` / ``requests`` / ``urllib.request`` / ``urllib3`` /
+    ``aiohttp`` imports — and the lower-level ``socket`` / ``http.client`` escape routes to the
     same network — make SSRF protection, allowlists, egress auditing, and timeout
     policy a per-call-site choice. Outbound traffic belongs behind a declared
     capability that centralizes those controls, and that capability is

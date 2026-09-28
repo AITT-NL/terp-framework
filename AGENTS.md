@@ -243,6 +243,6 @@ the gate.
 
 ```bash
 # without uv (use .venv/Scripts/python on Windows):
-python -m venv .venv && .venv/bin/python -m pip install pytest httpx coverage -e packages/backend/core
+python -m venv .venv && .venv/bin/python -m pip install pytest httpx2 coverage -e packages/backend/core
 .venv/bin/python -m coverage run -m pytest && .venv/bin/python -m coverage report
 ```

@@ -303,6 +303,11 @@ def test_no_raw_outbound_http(tmp_path: pathlib.Path) -> None:
     for stmt in (
         "import httpx",
         "from httpx import AsyncClient",
+        # The same client under its continued name, which the template now installs for
+        # FastAPI's TestClient -- so it is in every generated project's environment.
+        "import httpx2",
+        "import httpx2 as httpx",
+        "from httpx2 import Client",
         "import requests.sessions",
         "import urllib.request",
         "from urllib import request",
