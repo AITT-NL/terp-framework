@@ -12,11 +12,66 @@ decision, 0001 onwards.
 
 ## 0.28.0 — unreleased
 
-Friction reported from building FAST-SYNC on Terp: a record card whose labels and values
+Friction reported from building a record-heavy app on Terp: a record card whose labels and values
 did not read as pairs, a row of form fields with no correct alignment, and an affordance
 repeated more often than the values it applied to.
 
+did not read as pairs, a row of form fields with no correct alignment, an affordance
+repeated more often than the values it applied to, and a bounded quantity with no way to be
+drawn as one.
+
 ### Added
+
+- **`Meter` — one bounded value, a quota used or a score against its range, as a bar with the
+  value printed beside it** (ADR 0158, which also decides that no chart is built yet). An app
+  could not draw one within the pattern: a bar whose length is a value needs CSS or `style`,
+  and module code may write neither (ADR 0059). A raw `<meter>` in an app module is now refused by
+  `frontend/token-styled-elements`, which names `Meter`; the Standard gains the element in
+  0.38.0, and the framework refuses it ahead of that, as the Standard's floor allows.
+
+  **The bar is the native `<meter>`, styled from the sheet.** The element carries its own
+  semantics and the browser draws the proportion from its attributes, so nothing renders an
+  inline width and there is no second element standing in for the first. Measured in
+  Chromium, from the adopted sheet: fill and track paint exactly the tokens in all five
+  themes, and a distinct fill still paints with forced colours on. Gecko draws its fill
+  through `::-moz-meter-bar`. Those rules are written and pinned, but no lane runs Gecko, so
+  they are unmeasured. Each engine's pseudo-elements sit in rules of their own: a selector
+  list naming a pseudo-element the engine does not know is dropped whole, and measured,
+  Chromium keeps every Blink rule and drops only the Gecko ones.
+
+  **`label` names the meter and is not printed.** Every place a quantity sits already carries
+  a visible caption: a `DetailList` term, a `Card` title, a `HubCard` title. So a meter goes
+  inside one, and the standard layout contract, which is unchanged, refuses a meter loose in a
+  detail body, where it would be a bar with no caption at all.
+
+  **`format` is the `Intl.NumberFormatOptions` the `format` helpers already take**, in the
+  app's locale, and it defaults to a percentage. A percentage is always the share of the range,
+  so `value={74} max={100}` prints `74%`, where the bare Intl option prints `7,400%`. Any other
+  style prints the value itself, and never clamped: an overrun reads `120%` against a bar the
+  element has drawn full, because the text is where a reader learns the bar ran out of room. A
+  range with no width prints the framework's dash, not an infinity.
+
+  **One accessible element.** The printed copy is `aria-hidden` and handed to the meter as its
+  `aria-valuetext`, so a screen reader hears `62%` once rather than `0.62`. The same holds for a
+  `HubCard` link whose stat is a meter, whose name is computed from its content. Measured in
+  Chromium: with the copy left in the tree the link read its value twice. axe cannot see any
+  of this, because its meter-name rule selects `[role="meter"]` and never reaches the native
+  element, so the accessibility lane now asks Chromium for the name of every meter it paints.
+
+  **Bands are opt-in.** With none declared the bar is one colour, `--color-fg-accent` on a
+  `--color-bg-inset` track. Declare `low`, `high` or `optimum` and the fill takes success,
+  warning or danger by region. The region is the HTML standard's algorithm written out, and it
+  agrees with Chromium's own choice for every band shape the standard distinguishes. It is
+  computed rather than read from the browser because, unbanded, the browser files every value
+  under "optimum", and styling by its choice would paint a bare quota in the success tone. The
+  colour reinforces the printed value and never replaces words, because the region is not in
+  the accessibility tree.
+
+  Four non-text pairings join `token-pairs.json`, the accent and the three band tones against
+  the track, and the contrast gate holds each to 3:1 in every theme. The brand fill was the
+  other candidate and measures 1.98 to 2.66 against that track in the three dark themes.
+  `--color-bg-inset` gets its first reader and leaves the unread-token list. The component
+  renders no words of its own, so no `TerpStrings` entry was needed.
 
 - **`QuietActions` — a value with an action attached, where the action is quiet until someone
   reaches for it.** A revision card carries five copyable digests, so it carried five copy
@@ -149,6 +204,33 @@ repeated more often than the values it applied to.
   `aria-describedby` composition, the `aria-invalid` and the error's `role="alert"` all move
   unchanged, and `Field.test.tsx` asserts each of them across the move.
 
+- **A UiText descriptor built from a function's parameters is refused (ADR 0157).**
+  `terp/locale-catalogs-complete` inventories descriptors where they are written, and a
+  helper such as `const msg = (id, message) => ({ id, message })` hid every call through
+  it: the copy sat in a call's arguments, which the rule never read, so a target locale could
+  miss the entry and the gate stayed green. The rule had allowed exactly this shape on
+  purpose, as a possible business record. It now refuses an object whose `id` and `message`
+  are both parameters of the enclosing function, and the message names both ways out: write
+  the descriptor where the text is used, or build a record from the record
+  (`record.id`, `record.text`), which stays allowed. So do a key into data
+  (`ids.map((id) => ({ id, message: labels[id] }))`) and a helper that takes one
+  descriptor object, whose call site is still inventoried. An app with a positional factory
+  fails lint on upgrade.
+
+- **App code no longer writes react-core's `data-terp` markers (ADR 0160).** Two controls trust
+  them: the stylesheet selects on them (`[data-terp="card"]`), and the runtime layout contract
+  identifies a slot's children by them. So `<div data-terp="card">` was styled as a Card without
+  being one, a way around the `style` / `className` refusal that no attribute refusal saw, and it
+  passed the runtime slot check as a Card. Nothing refused it. `terp/no-framework-markers` now
+  does, across all of app `src/**`: `data-terp` and every `data-terp-*` name as a JSX attribute,
+  as the key of a props object (an inline spread, a hoisted object, a `createElement` bag), as a
+  literal name passed to `setAttribute`, `setAttributeNS` or `toggleAttribute`, and as a
+  `dataset.terp…` assignment. Other data attributes (`data-testid`) and reading a marker stay
+  allowed. The message names the fix: compose the component, and test a framework screen the app
+  has replaced, such as its own sign-in, by the roles and accessible names it renders rather than
+  by the markers the framework's screen carries. An app that writes a marker fails lint on
+  upgrade; the governed opt-out is `// terp-allow-no-framework-markers: <reason>`.
+
 ### Fixed
 
 - **An aligned `DetailList` puts a label and its value on one baseline.** `layout="aligned"`
@@ -185,6 +267,132 @@ repeated more often than the values it applied to.
   The rule sets the `<dd>`, so a value that declares its own size keeps it: a `<Text>` inside
   a value still renders at the step that `Text` asked for. A caller who wants the pair's step
   passes `size="sm"` or hands the value as a string.
+
+- **A JSON body that spells `NaN` or `Infinity` is a 422, not a 500 — and is no longer
+  accepted anywhere (ADR 0152).** JSON has no non-finite numbers, but Python's decoder
+  accepts `NaN`, `Infinity` and `-Infinity`, and nothing above it refused them. Sent to a
+  constrained field, `NaN` was refused and answered with a 500, because the validation error
+  quotes the value back and it cannot be encoded. Sent to a plain `float` field, `Infinity`
+  was accepted. Inside a `dict[str, Any]` field it reached the service untouched. A value
+  that gets in also defeats the service's own checks: `NaN` compares false against
+  everything, so "refuse when larger than the limit" lets it through.
+
+  `create_app` now installs `NonFiniteJsonMiddleware` as the innermost security layer. Every
+  body declared as JSON is parsed strictly, and one that uses any of the three constants is
+  answered with a typed 422, `non_finite_number`, whose detail names the constant and the
+  fix. It holds for every route and field type with nothing to declare. Malformed JSON keeps
+  FastAPI's own `json_invalid` answer, and a body not declared as JSON is not read. A client
+  that was sending these values was relying on a non-standard extension; the typed frontend
+  client never could, since `JSON.stringify` writes them as `null`.
+
+  Not covered: a `float` query or path parameter still accepts the strings `inf` and `nan`.
+  Those errors encode fine, so no 500 occurs there, but the value is accepted. ADR 0152
+  records why this change does not close it.
+
+- **A migration history that cannot be read is refused, not reported as empty.** On
+  Windows a path past 260 characters cannot be read unless long paths are enabled, and a
+  capability installed in a deeply nested virtualenv hit exactly that. The `versions/`
+  directory listed its revisions, then each file failed to stat and so was not counted.
+  The history read as empty, `terp migrate upgrade` skipped it and printed `upgraded: []`,
+  and the first query failed on a table that was never created. A listed revision that
+  cannot be read now stops discovery. The message names the history, the file and, past the
+  limit, its length, with the two fixes: a shorter path, or long paths enabled. `terp
+  migrate` prints it as its answer and exits 2, instead of burying it under a traceback.
+
+- **`terp inspect capabilities` names the command that lists what an installed capability
+  holds.** The registry is built from packages, so it could say an app *has* identity and
+  nothing about what the app had done with it. The identity line read "Persisted user store
+  backing authentication", which led a reader to conclude an app had no machine credentials
+  and pick the wrong way forward. The service accounts the app had issued were one command
+  away, and nothing on the screen named that command.
+
+  A capability can now declare an `inventory` command. For installed capabilities the text
+  report prints it as `what this app has: uv run terp service-account list` (identity),
+  `terp leases list` (leases) or `terp grant list <subject>` (access), and the JSON manifest
+  carries it as `inventory`. The identity summary now names service accounts, and the entry
+  points to `terp guide package-boundaries`, where their lifecycle is written down. A test
+  parses every inventory command with the real CLI parser, so a renamed command cannot leave
+  a dead instruction behind.
+
+- **`terp` no longer dies on a Windows pipe because of a character cp1252 lacks.** On
+  Windows a pipe or a file takes the ANSI code page, and a pipe is exactly how an agent, an
+  editor task or a workbench reads the CLI. cp1252 has no `→`, so the line `terp dev`
+  prints before starting the servers ended the command with `UnicodeEncodeError` before
+  anything booted, and text the CLI does not author — a module's label, a finding quoting
+  a source line — could do the same to any command. The entry point now switches standard
+  output and error to UTF-8 wherever they are not already. A console and every Linux or
+  macOS terminal are untouched. An undecodable file name prints as an escape instead of
+  ending the command.
+
+- **`terp dev` restarts the backend on Windows, however it was started (ADR 0156).** It ran
+  uvicorn with `--reload`, whose reloader restarts its worker on Windows by sending a console
+  Ctrl+C and then waiting, without a time limit, for the worker to exit. Started from
+  anything that is not an interactive console (an agent's shell tool, an editor task, a
+  workbench), that signal never stopped the worker. The reloader logged "Reloading..." and
+  nothing after it, and the old code went on answering, edit after edit. `terp dev` now runs
+  plain uvicorn and restarts it itself.
+  - **What restarts it:** a change to a Python source of the app package or of any
+    `[tool.terp.arch] app_packages` package — the same declaration the gate scans, and never
+    `node_modules` or the virtualenv.
+  - **How it stops:** on Windows, the process tree is ended with `taskkill /T`, which needs no
+    console. The same stop fixes the frontend: `npm` runs through `cmd.exe` there, so a plain
+    terminate used to leave Vite holding the web port.
+  - **A backend that fails to import** after a half-written save waits for the next save
+    instead of ending the session.
+  - **Ctrl+C** stops everything cleanly.
+  - **`terp dev`'s own lines** are flushed as they are written, instead of sitting in a
+    pipe's buffer until the process ends.
+
+- **`terp dev` answers on the checkout's own ports, the ones a workbench and compose use (ADR
+  0134).** It bound a fixed 22100/21100. On a machine where another application held either
+  port, it collided with that application. The same checkout also answered on one pair when a
+  workbench started it and on another when an editor task ran `terp dev`, so a browser tab, the
+  conformance suite or an agent pointed at the first pair talked to nothing.
+  - **Which ports:** `terp dev` now takes the pair `terp ports` settles for the checkout. It
+    adopts what a workbench or a person published in `.env`, otherwise reuses the checkout's
+    claim, otherwise claims and publishes a free pair. `--port` and `--web-port` still win.
+  - **When nothing can be claimed,** the fixed pair is used and the reason is printed.
+  - **A port already held** when the start begins is refused before anything runs, naming
+    `terp ports assign --reassign` and the flags.
+  - **Vite runs with `--strictPort`,** so the frontend refuses a taken port instead of quietly
+    moving to the next one.
+
+- **A new project passes its own dependency check, and keeps passing as it grows.** A
+  generated project declares `[tool.deptry]`, so `terp verify --profile full` runs deptry over
+  it as a blocking check, and the code the platform writes into the project imports
+  distributions the project does not declare. The template's own `app/seed.py` imports
+  `sqlmodel` (and `app/auth.py` does too with SSO on); every module `terp new module`
+  scaffolds imports `fastapi` and `sqlmodel`; every revision `terp migrate make` writes
+  imports `alembic`, `sqlalchemy` and `sqlmodel`. All four arrive through `terp-core` and
+  `terp-migrations`, and the template exempted only `terp` and `pydantic`, so deptry reported
+  each one as a transitive dependency (DEP003). Measured on a fresh render: the merge bar was
+  red before a single module existed, over `app/seed.py`, and red again over the module and
+  its revision once one was scaffolded and migrated. The template-acceptance job never ran
+  deptry, which is how it shipped.
+
+  The four join `pydantic` in the template's DEP003 exemptions rather than being declared.
+  They are the stack the platform is built on, and their versions are constrained through
+  the terp-* release that brings them in, so declaring them directly would add a second
+  constraint free to drift from it — the reasoning that already exempted `pydantic`. The
+  exemption covers DEP003 alone: if the platform stopped installing one of them, an import
+  of it would be DEP001 and still fail. Exempting names, rather than excluding the
+  migrations directory, keeps deptry reading every revision, so an import added to one by
+  hand that nothing declares is still reported.
+
+  A new architecture suite reads what each writer produces — the template's Python sources,
+  a module scaffolded under every profile, and a real autogenerated revision — and holds
+  every import against the template's dependencies and deptry table, so an import added to
+  any of them without a matching exemption fails the framework's own gate. The
+  template-acceptance job now runs `uv run deptry .` over the grown hub project, and
+  `terp guide dependency-hygiene` teaches the same table, checked against the template.
+
+- **`columns="auto"` is no longer reported as untranslated copy.** DataView's own string
+  keys (`columns`, `loading`, `pageOf` and the rest) were in `terp/no-untranslated-ui`'s list
+  of JSX text attributes, so `<Grid columns="auto">`, `<DetailList columns="auto">` and
+  `<img loading="lazy">` all read as copy, and an app could get past them only with an escape
+  marker. Those names are text only as keys of a DataView `strings` object, which the rule
+  still checks, so they leave the attribute list. `searchPlaceholder` and `actions`, which are
+  real text props elsewhere, stay.
 
 - **A generated app can unit-test a `ConfirmDialog`.** jsdom implements `<dialog>` but not
   `showModal()` or `close()`, and `ConfirmDialog` — the one dialog an app may render, since the
@@ -227,6 +435,88 @@ repeated more often than the values it applied to.
   A failing suite is still red.
 
 ### Upgrade notes
+
+- The dependency-check fix is in the template, so a newly generated project has it. An
+  existing project keeps the `pyproject.toml` it was generated with: add `"fastapi",
+  "sqlmodel", "sqlalchemy", "alembic"` to the `DEP003` list under
+  `[tool.deptry.per_rule_ignores]`. A project that declared one of the four directly to
+  quiet the check can drop that line again; the exemption is the shape the template ships.
+
+- **A DataView speaks the app's language, and so does the document.** DataView's strings were
+  a table of their own — English defaults that only a per-instance `strings` prop could change
+  — so a locale catalog had no typed place to translate them, and the check that refuses a
+  half-translated shell walked a table they were not in. Under `LOCALE_NL` every DataView said
+  "Search…", "Rows per page" and "1–20 of 45 results", the framework's own users, groups and
+  audit screens included, while the catalog was reported complete. They are now `TerpStrings`
+  keys under a `dataView` prefix (`dataViewSearchPlaceholder`, `dataViewResultsRange`, …),
+  `LOCALE_NL` translates them, and the `strings` prop still wins over the locale for the keys
+  it names. The prefix is kept even where a key looks like one the table already had:
+  `dataViewLoading` is "Loading…" where `loading` is "Loading...", and a translation may differ
+  too.
+
+  A DataView part rendered outside a `DataView` — a `DataViewPagination` under a hand-built
+  table — was further behind still. With no provider above it, it read the context's default,
+  which was the English set and a resolver that ignored the locale. The context now carries
+  only an instance's overrides, so every part reads the active locale wherever it sits.
+
+  `LocaleProvider` now also keeps `<html lang>` on the active locale, from mount and across
+  every switch. Nothing set it before, and the template's `index.html` declared `en` while its
+  `i18n.json` opens in `nl`, so a generated app presented a Dutch interface that a screen
+  reader was told was English, and pronounced it as English throughout (WCAG 3.1.1). The
+  template's document now declares `nl`, the example's keeps `en`, and
+  `tests/architecture/test_template.py` holds each to the first locale its `i18n.json`
+  declares. The write is an effect, so server rendering, which has no `document`, never
+  reaches it.
+
+  The source scan that guards against untranslatable literals now reads a table entry
+  (`key: "Literal"`) as well as a default (`key = "Literal"`) for a key its file declares as
+  `UiText`. That is the shape the DataView defaults had, and the reason the scan passed over
+  them. ADR 0153.
+
+- **The platform's own error codes, the audit screen's request label and the admin sidebar
+  entry follow the locale too.** Looking for the same shape turned up three more. The wording
+  for `permission_denied`, `stale_data` and the rest of the core `AppError` codes was
+  `DEFAULT_ERROR_MESSAGES`, an English map that seeded its context, and a plain string
+  resolves as-is, so a Dutch app told its users "You do not have permission to do this." It is
+  `errorCode*` keys of `TerpStrings` now (`errorCodeStaleData`), translated by `LOCALE_NL`; an
+  app's own `errorMessages` map still wins for any code it names, so an app that mapped a
+  platform code only to see it in its own language can drop that entry. The audit screen's
+  expanded row labelled the request id with a literal written into the screen, and reads
+  `requestLabel` now.
+
+  The admin area's sidebar entry still said "Admin" under `LOCALE_NL`, and a key was not the
+  missing piece: `TerpStrings` already had `admin: "Beheer"`. The label was a literal in the
+  packaged module's manifest, and a manifest's only text type was `UiText`, whose descriptor
+  `message` is the app's source-locale text — framework English, in an app whose source locale
+  is Dutch. `@terpjs/contract` now has `FrameworkText`, `{ framework: key }`, which
+  `NavItem.label` accepts beside `UiText`: a key of the stack's framework-string table and no
+  text, typed through `TerpFrameworkStrings`, which react-core merges `TerpStrings` into, so a
+  misspelt key is a typecheck error at the manifest. `useUiText` reads it from the active table
+  without handing it to the app's resolver, and throws on a key the table does not have. The
+  packaged entry is `{ framework: "admin" }`, and reads "Beheer" under `LOCALE_NL` whatever the
+  app's source locale is. Code of an app's own that narrows `NavItem.label` by hand stops
+  typechecking; a label resolved through `useUiText()`, as the shell resolves it, needs no
+  change. ADR 0153.
+
+- **A non-English catalog of an app's own must now translate the new framework keys:**
+  `dataView*`, `errorCode*` and `requestLabel`. `defineAppLocales` and `LocaleProvider` refuse
+  a declared non-English locale whose framework strings leave a key out, and name the missing
+  ones (ADR 0105), so a catalog that was complete against the previous table is refused on
+  this release. That is intended: the alternative is every DataView and every platform error
+  in the app back in English under a locale that claims to be complete. An app on the
+  built-in `LOCALE_NL` needs no change. The English to translate from is the same keys of
+  `DEFAULT_STRINGS`.
+
+- **`DEFAULT_DATA_VIEW_STRINGS` and `DEFAULT_ERROR_MESSAGES` are removed.** Nothing in the
+  tree read either except to seed its own context, and a public English-only default set is
+  the defect waiting to be reused: anything built on it as a fallback renders English in every
+  locale. Read `DEFAULT_STRINGS` for the English; pass the keys one view should say
+  differently through that DataView's `strings` prop, and the codes an app words differently
+  through `renderTerpApp`'s `errorMessages`.
+
+- An existing project keeps the `index.html` it was generated with. Set its `<html lang>` to
+  the first locale in `frontend/i18n.json`: the provider corrects the attribute at mount either
+  way, but the static value is what a reader meets before the bundle runs.
 
 - **Every screen looks different, and no app has to do anything to get it.** The surface model
   and the light theme's canvas both moved (see *Changed*), so an app that writes no CSS of its

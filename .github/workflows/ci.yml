@@ -310,6 +310,10 @@ jobs:
           # the in-project ratchet guards post-scaffold drift, this proves the
           # template as shipped passes its own baseline.
           uv run ruff check .
+          # And its own dependency check, on every variant as rendered, before anything
+          # is grown: a fresh render was red here once, over the template's own seed
+          # module, and only the hub variant ran deptry, after it had been grown.
+          uv run deptry .
 
       # The workflow a client actually runs is held to the bar this repository
       # holds itself to. It is the one artifact that reaches every consumer, so a
@@ -343,6 +347,10 @@ jobs:
           # Autogenerate only diffs meaningfully from head; bring the file up first.
           uv run terp migrate upgrade
           uv run terp migrate make records -m "create records table"
+          # deptry, the check `terp verify --profile full` blocks on, over everything the
+          # platform has now written into the project: the template's own code, a
+          # scaffolded module and a generated revision.
+          uv run deptry .
           uv run pytest
           # With the budget, which is the form the generated app itself uses. The bare
           # `terp check` fails closed the moment the app holds any `# arch-allow-*`

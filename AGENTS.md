@@ -190,6 +190,11 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   message that states the fix. The plain `Page` stays unconstrained; recipe:
   `terp guide layouts`.
 - **In-app links go through the router** — never a raw `<a href="/...">`.
+- **App code never writes react-core's `data-terp` markers** (ADR 0160) — the stylesheet
+  selects on them and the runtime layout check identifies a slot's children by them, so a
+  hand-written one borrows a component's styling and passes that check without the component.
+  Compose the component. A framework screen an app replaces (`renderTerpApp({ login })`) is
+  the app's own, tested by its roles and accessible names.
 - **Security defaults** — `dangerouslySetInnerHTML` and DOM HTML-injection sinks
   (`innerHTML` / `outerHTML` / `insertAdjacentHTML` / `document.write`) are refused
   (use `Markdown` for rich text); `eval()` / `new Function()` are refused;

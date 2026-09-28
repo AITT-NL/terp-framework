@@ -3,9 +3,10 @@
  * ./index.js realises them for the React stack; a future stack (e.g. Svelte) can realise the same
  * spec with its own adapter. The *rules* are shared; only the *enforcement adapter* is per-stack.
  *
- * Structural/security boundaries apply to `src/modules/**`; localization applies to all
- * app-authored `src/**`. Framework packages legitimately define the primitives these rules point
- * back to and are outside an app's boundary config.
+ * Structural/security boundaries apply to `src/modules/**`; localization and the refusal of
+ * react-core's `data-terp` markers apply to all app-authored `src/**`. Framework packages
+ * legitimately define the primitives these rules point back to and are outside an app's
+ * boundary config.
  */
 /**
  * The Terp Standard version this adapter is certified against — the `spec_version` a
@@ -19,7 +20,10 @@
 export const SPEC_VERSION = "0.37.0";
 
 export const BOUNDARY_SPEC = {
-  /** Every app-authored TypeScript source file whose user-facing copy must be cataloged. */
+  /**
+   * Every app-authored TypeScript source file: its user-facing copy must be cataloged, and it
+   * never writes react-core's markers.
+   */
   appFiles: ["**/src/**/*.{ts,tsx}"],
   /** App module files the boundary + frontend security defaults apply to. */
   moduleFiles: ["**/modules/**/*.{ts,tsx}"],
@@ -35,6 +39,7 @@ export const BOUNDARY_SPEC = {
     table: "DataView",
     dialog: "ConfirmDialog",
     form: 'Stack as="form"',
+    meter: "Meter",
   },
   /**
    * JSX attributes an app module must not author — styling lives in the design tokens and the

@@ -108,7 +108,7 @@ export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";
 export { ErrorState, describeError } from "./ErrorState";
 export type { ErrorStateProps } from "./ErrorState";
-export { ErrorMessagesProvider, useErrorMessage, DEFAULT_ERROR_MESSAGES } from "./errorMessages";
+export { ErrorMessagesProvider, useErrorMessage } from "./errorMessages";
 export type { ErrorMessages, ErrorMessagesProviderProps } from "./errorMessages";
 export { ConfirmDialog } from "./ConfirmDialog";
 export { Disclosure } from "./Disclosure";
@@ -177,8 +177,10 @@ export type {
 } from "./typography";
 export { Field, FieldRow } from "./Field";
 export { QuietActions } from "./QuietActions";
+export { Meter } from "./Meter";
 export type { FieldProps, FieldRowProps } from "./Field";
 export type { QuietActionsProps } from "./QuietActions";
+export type { MeterProps } from "./Meter";
 export { Stack, Grid, Divider, DetailList, DetailListGroup } from "./layout";
 export type {
   StackProps,

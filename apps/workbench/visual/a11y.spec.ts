@@ -63,6 +63,23 @@ test("holds no allowance for a theme added after the lane", () => {
   expect(THEMES.length).toBeGreaterThan(grandfathered.size);
 });
 
+test("a meter in a hub card's stat adds its printed value to the link's name, once", async ({
+  page,
+}) => {
+  // The stat sits inside the card's link, and a link's name is computed from its content —
+  // which, for a meter, is its value text. Meter prints its value for the eye and hides that
+  // copy from the tree, handing the same string to the element as aria-valuetext, so the link
+  // reads "74%" once. Measured before this existed: with the printed copy left in the tree the
+  // name read the value twice, and without aria-valuetext it read the raw 0.74. axe does not
+  // judge a name's content, so nothing else here would notice either.
+  await page.goto("/?theme=light&only=meter-hub-card");
+  const specimen = page.locator('[data-specimen="meter-hub-card"]');
+  await specimen.waitFor({ state: "visible" });
+  await expect(specimen.getByRole("link").first()).toHaveAccessibleName(
+    "Storage What is kept, and how much room is left. 74%",
+  );
+});
+
 // Each run renders its specimen alone, exactly as the screenshot lane does. The context axe
 // measures is unchanged — the solo page reuses the same page background and specimen card — but
 // a navigation now builds one specimen instead of all fifty. With five themes that was 250
@@ -127,6 +144,15 @@ test.describe("component accessibility", () => {
 
           // No allowance for anything but contrast.
           expect(describe(everythingElse), key).toEqual([]);
+
+          // A native <meter> is out of axe's reach: its meter-name rule selects [role="meter"],
+          // and the element carries its role implicitly, so an unnamed Meter passes the run
+          // above. Chromium's own name computation is asked instead, for every one painted.
+          for (const meter of await page.locator(`${selector} meter`).all()) {
+            await expect(meter, `${key}: a meter with no accessible name`).toHaveAccessibleName(
+              /\S/,
+            );
+          }
 
           if (KNOWN_CONTRAST_FAILURES.has(key)) {
             expect(

@@ -1,8 +1,15 @@
 <!doctype html>
-<html lang="en">
+<html lang="nl">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      The language on the <html> element above is the app's default locale: the first one
+      `frontend/i18n.json` declares, which is what the app opens in. It is what a screen reader
+      and a crawler meet before the bundle runs; from mount onwards LocaleProvider keeps it on
+      whichever locale is active, so a reader who picks another language is announced in that
+      one. Put a different locale first in i18n.json and change this attribute with it.
+    -->
     <!--
       The tab mark. `public/favicon.svg` is served at the site root by Vite and copied into the
       production build as-is, so replacing that one file is the whole change — no import, no
