@@ -186,6 +186,27 @@ repeated more often than the values it applied to.
   a value still renders at the step that `Text` asked for. A caller who wants the pair's step
   passes `size="sm"` or hands the value as a string.
 
+- **A JSON body that spells `NaN` or `Infinity` is a 422, not a 500 — and is no longer
+  accepted anywhere (ADR 0152).** JSON has no non-finite numbers, but Python's decoder
+  accepts `NaN`, `Infinity` and `-Infinity`, and nothing above it refused them. Sent to a
+  constrained field, `NaN` was refused and answered with a 500, because the validation error
+  quotes the value back and it cannot be encoded. Sent to a plain `float` field, `Infinity`
+  was accepted. Inside a `dict[str, Any]` field it reached the service untouched. A value
+  that gets in also defeats the service's own checks: `NaN` compares false against
+  everything, so "refuse when larger than the limit" lets it through.
+
+  `create_app` now installs `NonFiniteJsonMiddleware` as the innermost security layer. Every
+  body declared as JSON is parsed strictly, and one that uses any of the three constants is
+  answered with a typed 422, `non_finite_number`, whose detail names the constant and the
+  fix. It holds for every route and field type with nothing to declare. Malformed JSON keeps
+  FastAPI's own `json_invalid` answer, and a body not declared as JSON is not read. A client
+  that was sending these values was relying on a non-standard extension; the typed frontend
+  client never could, since `JSON.stringify` writes them as `null`.
+
+  Not covered: a `float` query or path parameter still accepts the strings `inf` and `nan`.
+  Those errors encode fine, so no 500 occurs there, but the value is accepted. ADR 0152
+  records why this change does not close it.
+
 ### Upgrade notes
 
 - **Every screen looks different, and no app has to do anything to get it.** The surface model

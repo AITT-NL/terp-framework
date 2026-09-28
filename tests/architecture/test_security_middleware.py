@@ -874,6 +874,26 @@ def test_create_app_installs_the_security_stack() -> None:
     assert response.headers["X-RateLimit-Limit"] == "240"
 
 
+def test_create_app_installs_the_stack_in_its_documented_order() -> None:
+    """The order the middleware module states, outermost first, read off the composed app.
+
+    It was prose until the installer became one declared list; now the list is what this
+    reads, so the two cannot disagree. The body-level layers must sit inside the size cap
+    that bounds what they buffer.
+    """
+    app = _probe_app(SecurityConfig(cors=CorsPolicy.allow(["http://example.com"])))
+    assert [layer.cls.__name__ for layer in app.user_middleware] == [
+        "RequestIdMiddleware",
+        "SecurityHeadersMiddleware",
+        "CORSMiddleware",
+        "ClientIpMiddleware",
+        "RateLimitMiddleware",
+        "RequestSizeLimitMiddleware",
+        "IdempotencyMiddleware",
+        "NonFiniteJsonMiddleware",
+    ]
+
+
 def test_create_app_adds_cors_when_configured() -> None:
     client = TestClient(_probe_app(SecurityConfig(cors=CorsPolicy.allow(["http://example.com"]))))
     preflight = client.options(
