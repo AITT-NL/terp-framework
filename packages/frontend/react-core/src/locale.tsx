@@ -156,10 +156,10 @@ export const LOCALE_EN: LocaleCatalog = { label: "English" };
 /**
  * The built-in Dutch catalog: a translation of every `TerpStrings` key, so
  * `locales: { en: LOCALE_EN, nl: LOCALE_NL }` translates every string react-core
- * reads from that table — the shell, the packaged admin screens, every
- * `DataView`'s toolbar and footer, and the wording for the platform's own error
- * codes — with no catalog work in the app (a completeness test pins it to the
- * `TerpStrings` key set).
+ * reads from that table — the shell, the packaged admin area and its sidebar
+ * entry, every `DataView`'s toolbar and footer, and the wording for the platform's
+ * own error codes — with no catalog work in the app (a completeness test pins it to
+ * the `TerpStrings` key set).
  */
 export const LOCALE_NL: LocaleCatalog = {
   label: "Nederlands",

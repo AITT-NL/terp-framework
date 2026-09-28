@@ -3,11 +3,14 @@
 - **Status:** Accepted and implemented. DataView's strings are `dataView*` keys of
   `TerpStrings`, and the wording for the platform's own error codes is `errorCode*` keys,
   all translated by `LOCALE_NL` and required of every non-English catalog; `LocaleProvider`
-  keeps `<html lang>` on the active locale. Held by `locale.test.tsx`,
+  keeps `<html lang>` on the active locale; a packaged module's nav label names its
+  `TerpStrings` key through the contract's `FrameworkText`. Held by `locale.test.tsx`,
   `dataview/DataView.test.tsx`, `errorMessages.test.tsx`, `admin/admin.test.tsx`,
-  `ssr.test.tsx` and `uiText.literals.test.ts` in `@terpjs/react-core`, and by
-  `tests/architecture/test_template.py`.
+  `ssr.test.tsx`, `uiText.test.tsx` and `uiText.literals.test.ts` in `@terpjs/react-core`, by
+  `i18n.test.js` in `@terpjs/eslint-boundaries`, and by `tests/architecture/test_template.py`.
 - **Date:** 2026-09-27
+- **Amended:** 2026-09-28 — framework copy on a manifest (§7), which the record first left
+  out.
 - **Relates:** [ADR 0105](0105-localization-is-a-checked-contract.md) (framework chrome is
   `TerpStrings`, and a non-English locale supplies all of it or is refused — the rule this
   closes a hole in), [ADR 0103](0103-the-ideology-one-pattern-enforced-escapable-by-proof.md)
@@ -85,15 +88,54 @@ from start to finish, which is WCAG 3.1.1 (Language of Page) failed by default.
 6. **The static document declares the locale the app opens in.** That is what a reader meets
    before the bundle runs. The template's is `nl` and the example's `en`, each the first
    locale its `i18n.json` declares, and `test_template.py` holds both documents to that.
+7. **Amended 2026-09-28: framework copy on a manifest names its key.** This record first left
+   the admin area's sidebar entry out. Its label was a literal in the packaged module's
+   manifest, and a manifest is `@terpjs/contract` data, typed like an app's, whose only text
+   type was `UiText`. Neither form of it fits framework copy. A string renders as-is in every
+   locale. A `{ id, message }` descriptor takes its `message` as the app's source-locale text,
+   so in an app whose source locale is Dutch the entry, opened in Dutch, would render the
+   framework's English without consulting any catalog; and in every other locale its
+   translation would have to sit in the app's own messages — framework copy in a catalog the
+   app owns.
+
+   So the contract gains `FrameworkText`, `{ framework: key }`, and `NavItem.label` accepts it
+   beside `UiText`. It carries a key and no text. The key's type is `TerpFrameworkStrings`,
+   an interface the contract leaves empty and react-core merges `TerpStrings` into — the
+   declaration-merging shape `TerpAccessVocabulary` already uses, because a stack-agnostic
+   contract cannot know a stack's table — so a misspelt key is a typecheck error at the
+   manifest, and for a near miss (`"admn"`) TypeScript suggests the key that was meant.
+   `useUiText` answers a `FrameworkText` from the same table `useStrings` returns, before the
+   provider's resolver is reached, and a key the table does not own — a manifest built past
+   the typecheck, or an inherited name such as `toString` — throws, naming it, rather than
+   rendering an empty label. The admin entry is `{ framework: "admin" }`, so under
+   `LOCALE_NL` it reads "Beheer" whatever the app's source locale is.
+
+   Two other shapes were weighed. **A reserved id namespace on the descriptor**
+   (`{ id: "terp:admin", message: "Admin" }`) leaves the type alone and changes what a
+   descriptor means: its `message` becomes text nothing reads, and `id: string` cannot be
+   narrowed to the table's keys, so only a typed helper would catch a misspelling and the raw
+   literal would stay a second, unchecked way to write the same thing. An app writing that
+   literal would also be asked by `locale-catalogs-complete` for an `i18n.json` entry the
+   runtime never reads, unless the portable rule learned the namespace — a change to the
+   Standard for a need of the framework's own. **Widening `UiText`** would let every `UiText`
+   prop take a framework reference, a second way to render framework copy beside
+   `useStrings()` in every component, and would reach every place that inspects `UiText` by
+   shape. Only a manifest needs framework copy as data, and on a manifest only `NavItem.label`
+   is text a packaged module writes: a `NavGroup` is declared by the app, and a route carries
+   no text.
+
+   An app gains nothing through it. A `FrameworkText` renders only framework copy, which
+   `assertFrameworkStringsComplete` already requires of every declared non-English catalog, so
+   there is no unchecked text for it to carry; and the same string is already one
+   `useStrings()` away. In app source it is refused besides: `no-untranslated-ui` reads the
+   key as a literal under `label`, which is what it is to that rule, and
+   `locale-catalogs-complete` finds no id to ask a catalog entry for. An app's own nav entry
+   keeps its own descriptor. The packaged manifest itself never meets the app lint, which runs
+   over the app's own tree; react-core arrives under `node_modules`, which ESLint does not
+   lint.
 
 ## Deliberately not in it
 
-- **The admin area's sidebar entry.** Its label is a literal in the packaged module's
-  manifest, and a manifest label is `UiText` resolved like an app's own: a descriptor's
-  `message` is taken to be in the app's source locale, which framework English is not in an
-  app whose source locale is Dutch. A framework-owned navigation label needs a decision about
-  the manifest contract of its own; it is not made here, so under a Dutch locale that one
-  entry still reads "Admin".
 - **Restoring the previous `lang` on unmount.** The provider wraps the application for its
   whole life, like `ThemeProvider`, which does not restore `data-theme` either.
 - **Choosing the language from the browser.** The app's catalog decides which locales exist
@@ -116,3 +158,10 @@ from start to finish, which is WCAG 3.1.1 (Language of Page) failed by default.
 - A generated app's document opens as `nl`. An existing project keeps the `index.html` it was
   generated with, so its `<html lang>` is corrected at mount but stays wrong until the bundle
   runs unless the project sets it to its own first locale.
+- `NavItem.label` is wider. Code of an app's own that narrows a nav label by hand
+  (`typeof label === "string" ? label : label.message`) stops typechecking, which is the
+  intended failure: it would render nothing for the admin entry. A label resolved through
+  `useUiText()`, as the shell resolves it, needs no change.
+- A future packaged module with a nav entry of its own labels it the same way, and the key
+  it names must exist in `TerpStrings` — which puts its translation under the completeness
+  check with no further wiring.

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModuleManifest } from "@terpjs/contract";
@@ -10,6 +10,7 @@ import { withAdminArea } from "../bootstrap";
 import type { AdminAreaSections } from "../bootstrap";
 import { formatDateTime } from "../format";
 import { LOCALE_EN, LOCALE_NL, LocaleProvider } from "../locale";
+import type { LocaleProviderProps } from "../locale";
 import { buildAppRouter } from "../router";
 import { Page } from "../Page";
 import { TerpProvider, useAuth } from "../TerpProvider";
@@ -48,7 +49,7 @@ describe("withAdminArea", () => {
       "/admin/groups/new",
       "/admin/groups/$groupId",
     ]));
-    expect(admin?.nav?.[0]?.label).toBe("Admin");
+    expect(admin?.nav?.[0]?.label).toEqual({ framework: "admin" });
     expect(views.TerpAdminHub).toBeDefined();
   });
 
@@ -116,7 +117,7 @@ describe("withAdminArea", () => {
       groups: false,
     });
     const admin = manifests.find((manifest) => manifest.name === "terp-admin");
-    expect(admin?.nav?.[0]?.label).toBe("Admin");
+    expect(admin?.nav?.[0]?.label).toEqual({ framework: "admin" });
     expect(admin?.routes.map((route) => route.path)).toEqual([
       "/admin",
       "/admin/audit",
@@ -396,11 +397,14 @@ function stubAdminFetch() {
   return fetchMock;
 }
 
+/** An English-source app opened in Dutch. */
+const DUTCH = { locales: { en: LOCALE_EN, nl: LOCALE_NL }, defaultLocale: "nl" };
+
 function renderAdminApp(
   initialPath: string,
   roleRank = 30,
   adminArea: boolean | AdminAreaSections = true,
-  dutch = false,
+  locale?: Pick<LocaleProviderProps, "locales" | "defaultLocale">,
 ) {
   const manifests: ModuleManifest[] = [
     { name: "notes", routes: [{ path: "/", view: "NotesList" }], nav: [] },
@@ -438,12 +442,12 @@ function renderAdminApp(
     </TerpProvider>
   );
   render(
-    dutch ? (
-      <LocaleProvider locales={{ en: LOCALE_EN, nl: LOCALE_NL }} defaultLocale="nl">
+    locale === undefined ? (
+      app
+    ) : (
+      <LocaleProvider locales={locale.locales} defaultLocale={locale.defaultLocale}>
         {app}
       </LocaleProvider>
-    ) : (
-      app
     ),
   );
   return { fetchMock, router };
@@ -880,7 +884,7 @@ describe("the packaged admin area", () => {
     // DataView's strings were a table the locale could not reach; and the expanded row carried
     // one label written straight into the screen. Asserted here rather than on a bare DataView
     // because this is where an app's user actually met the two languages side by side.
-    renderAdminApp("/admin/audit", 30, true, true);
+    renderAdminApp("/admin/audit", 30, true, DUTCH);
     await screen.findByRole("heading", { level: 1, name: "Auditlog" });
     expect(await screen.findByText("1–1 van 1 resultaten")).toBeInTheDocument();
 
@@ -889,6 +893,27 @@ describe("the packaged admin area", () => {
     expect(screen.queryByText("Request")).toBeNull();
     expect(screen.queryByText(/results/)).toBeNull();
   });
+
+  it.each([
+    ["nl", "nl", "Hoofdnavigatie", "Beheer"],
+    ["nl", "en", "Primary", "Admin"],
+    ["en", "nl", "Hoofdnavigatie", "Beheer"],
+  ])(
+    "labels the sidebar entry in the active locale (source %s, opened in %s)",
+    async (source, active, navigationName, label) => {
+      // The first row is the case a `{ id, message }` descriptor could not serve. In an app whose
+      // source locale is Dutch, a descriptor opened in Dutch renders its `message` without
+      // consulting any catalog — and a framework-authored message is English. The entry names
+      // the framework string instead, so it is the active table's word whichever locale is the
+      // source: Dutch where the app opens in Dutch, English where it opens in English.
+      const locales =
+        source === "nl" ? { nl: LOCALE_NL, en: LOCALE_EN } : { en: LOCALE_EN, nl: LOCALE_NL };
+      renderAdminApp("/admin", 30, true, { locales, defaultLocale: active });
+      const sidebar = await screen.findByRole("navigation", { name: navigationName });
+      expect(await within(sidebar).findByRole("link", { name: label })).toBeInTheDocument();
+      expect(within(sidebar).getAllByRole("link")).toHaveLength(1);
+    },
+  );
 
   it("keeps the audit payload's scroll container reachable by keyboard", async () => {
     // The gate for the SC 2.1.1 fix, and it has to be here rather than in the workbench.

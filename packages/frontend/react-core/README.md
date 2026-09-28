@@ -272,7 +272,7 @@ single screen by claiming its path from an app module.
 
 | Export | Use |
 |---|---|
-| `UiTextProvider`, `Trans`, `useUiText`, `useStrings`, `resolveUiText`, `DEFAULT_STRINGS` | The `UiText` seam: descriptors for props, `Trans` for body copy, and framework strings through one resolver. `LocaleProvider` is the batteries-included catalog layer and refuses missing target-locale entries. |
+| `UiTextProvider`, `Trans`, `useUiText`, `useStrings`, `resolveUiText`, `DEFAULT_STRINGS` | The `UiText` seam: descriptors for props, `Trans` for body copy, and framework strings through one resolver. `LocaleProvider` is the batteries-included catalog layer and refuses missing target-locale entries. A packaged module's nav label is a `FrameworkText` (`{ framework: "admin" }`), which `useUiText` reads from the active `TerpStrings` rather than the app's messages. |
 
 ## Testing components
 

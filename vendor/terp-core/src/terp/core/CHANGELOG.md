@@ -217,15 +217,30 @@ repeated more often than the values it applied to.
   `UiText`. That is the shape the DataView defaults had, and the reason the scan passed over
   them. ADR 0153.
 
-- **The platform's own error codes, and the audit screen's request label, follow the locale
-  too.** Looking for the same shape turned up two more. The wording for `permission_denied`,
-  `stale_data` and the rest of the core `AppError` codes was `DEFAULT_ERROR_MESSAGES`, an
-  English map that seeded its context, and a plain string resolves as-is, so a Dutch app told
-  its users "You do not have permission to do this." It is `errorCode*` keys of `TerpStrings`
-  now (`errorCodeStaleData`), translated by `LOCALE_NL`; an app's own `errorMessages` map still
-  wins for any code it names, so an app that mapped a platform code only to see it in its own
-  language can drop that entry. The audit screen's expanded row labelled the request id with a
-  literal written into the screen, and reads `requestLabel` now.
+- **The platform's own error codes, the audit screen's request label and the admin sidebar
+  entry follow the locale too.** Looking for the same shape turned up three more. The wording
+  for `permission_denied`, `stale_data` and the rest of the core `AppError` codes was
+  `DEFAULT_ERROR_MESSAGES`, an English map that seeded its context, and a plain string
+  resolves as-is, so a Dutch app told its users "You do not have permission to do this." It is
+  `errorCode*` keys of `TerpStrings` now (`errorCodeStaleData`), translated by `LOCALE_NL`; an
+  app's own `errorMessages` map still wins for any code it names, so an app that mapped a
+  platform code only to see it in its own language can drop that entry. The audit screen's
+  expanded row labelled the request id with a literal written into the screen, and reads
+  `requestLabel` now.
+
+  The admin area's sidebar entry still said "Admin" under `LOCALE_NL`, and a key was not the
+  missing piece: `TerpStrings` already had `admin: "Beheer"`. The label was a literal in the
+  packaged module's manifest, and a manifest's only text type was `UiText`, whose descriptor
+  `message` is the app's source-locale text — framework English, in an app whose source locale
+  is Dutch. `@terpjs/contract` now has `FrameworkText`, `{ framework: key }`, which
+  `NavItem.label` accepts beside `UiText`: a key of the stack's framework-string table and no
+  text, typed through `TerpFrameworkStrings`, which react-core merges `TerpStrings` into, so a
+  misspelt key is a typecheck error at the manifest. `useUiText` reads it from the active table
+  without handing it to the app's resolver, and throws on a key the table does not have. The
+  packaged entry is `{ framework: "admin" }`, and reads "Beheer" under `LOCALE_NL` whatever the
+  app's source locale is. Code of an app's own that narrows `NavItem.label` by hand stops
+  typechecking; a label resolved through `useUiText()`, as the shell resolves it, needs no
+  change. ADR 0153.
 
 ### Upgrade notes
 

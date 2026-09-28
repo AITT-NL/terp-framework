@@ -1,8 +1,14 @@
 import { createContext, useCallback, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
-import type { UiText } from "@terpjs/contract";
+import type { FrameworkText, UiText } from "@terpjs/contract";
 
 export type { UiText } from "@terpjs/contract";
+
+// The keys a manifest's `FrameworkText` may name are this table's, so a misspelt one is a
+// typecheck error where the manifest is written rather than an empty label on screen.
+declare module "@terpjs/contract" {
+  interface TerpFrameworkStrings extends TerpStrings {}
+}
 
 /**
  * A piece of user-facing text: either a plain string (used as-is) or a message
@@ -586,7 +592,9 @@ export interface UiTextProviderProps {
   /**
    * Custom {@link UiText} resolver — the hook for a real i18n runtime: pass a
    * function that looks descriptors up in the active locale's catalog
-   * (falling back to `message`). Defaults to {@link resolveUiText}.
+   * (falling back to `message`). Defaults to {@link resolveUiText}. It is handed the app's
+   * strings and descriptors only: a manifest's `FrameworkText` is answered from `strings`
+   * before it is reached (see {@link useUiText}).
    */
   resolveText?: ResolveUiText;
   children: ReactNode;
@@ -615,10 +623,35 @@ export function useStrings(): TerpStrings {
   return useContext(UiTextContext).strings;
 }
 
-/** The active {@link UiText} resolver — call it on any `UiText` prop before rendering. */
-export function useUiText(): ResolveUiText {
-  const { resolveText } = useContext(UiTextContext);
-  return useCallback((text: UiText) => resolveText(text), [resolveText]);
+/**
+ * The active {@link UiText} resolver — call it on any `UiText` prop before rendering, and on a
+ * manifest's navigation label, which may also be a {@link FrameworkText}.
+ *
+ * A `FrameworkText` is answered here, from the same table {@link useStrings} returns, and never
+ * reaches the resolver a provider was given. That resolver is the app's: `LocaleProvider`'s
+ * treats a descriptor's `message` as the app's source-locale text and looks every other locale
+ * up in the app's messages, and framework copy is neither. A key the table does not have
+ * throws rather than rendering an empty label; the type already refuses one, so this is what
+ * holds a manifest the typecheck never saw.
+ */
+export function useUiText(): (text: UiText | FrameworkText) => string {
+  const { strings, resolveText } = useContext(UiTextContext);
+  return useCallback(
+    (text: UiText | FrameworkText) => {
+      if (typeof text === "string" || !("framework" in text)) {
+        return resolveText(text);
+      }
+      if (!Object.hasOwn(strings, text.framework)) {
+        throw new Error(
+          `FrameworkText names "${text.framework}", which is not a framework string. ` +
+            "Name a TerpStrings key (for example \"admin\"); an app's own copy is a " +
+            "{ id, message } descriptor in frontend/i18n.json.",
+        );
+      }
+      return strings[text.framework];
+    },
+    [strings, resolveText],
+  );
 }
 
 /** Props for {@link Trans}: one stable catalog id and its source-language fallback. */
