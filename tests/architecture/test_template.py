@@ -315,6 +315,46 @@ def test_frontend_ships_a_favicon_that_index_html_actually_links() -> None:
     assert "prefers-color-scheme: dark" in favicon.read_text(encoding="utf-8")
 
 
+def test_index_html_declares_the_language_the_app_opens_in() -> None:
+    # The template's document said `lang="en"` while its i18n.json put `nl` first, and the first
+    # locale is the one LocaleProvider opens in when no `defaultLocale` is passed — so a freshly
+    # generated app served a Dutch interface that a screen reader was told was English, and read
+    # it aloud with English pronunciation (WCAG 3.1.1). LocaleProvider now keeps the attribute on
+    # the active locale from mount, but the static value is what a reader meets before the bundle
+    # runs, and it is the one place a stale language can survive.
+    #
+    # Held for the example app too, whose declaration puts `en` first: two documents written the
+    # same way, so the check that covers one must cover the other.
+    root = pathlib.Path(__file__).resolve().parents[2]
+    apps = {
+        "template": (
+            _PROJECT / "frontend" / "index.html.jinja",
+            _PROJECT / "frontend" / "i18n.json.jinja",
+            _PROJECT / "frontend" / "src" / "main.tsx.jinja",
+        ),
+        "example": (
+            root / "apps/example/frontend/index.html",
+            root / "apps/example/frontend/i18n.json",
+            root / "apps/example/frontend/src/main.tsx",
+        ),
+    }
+    for name, (index, declaration, main) in apps.items():
+        # The premise first: with a `defaultLocale` the first key is no longer the default, and
+        # this check would be comparing the document against the wrong locale.
+        assert "defaultLocale" not in main.read_text(encoding="utf-8"), (
+            f"{name}: main passes defaultLocale, so the app no longer opens in i18n.json's first "
+            "locale — compare index.html's lang against that option instead"
+        )
+        opens_in = next(iter(json.loads(declaration.read_text(encoding="utf-8"))["locales"]))
+        declared = re.search(r'<html\b[^>]*\blang="([^"]+)"', index.read_text(encoding="utf-8"))
+        assert declared, f"{name}: {index.name} declares no language on <html>"
+        assert declared.group(1) == opens_in, (
+            f"{name}: {index.name} says lang=\"{declared.group(1)}\" but the app opens in "
+            f"\"{opens_in}\", the first locale {declaration.name} declares. Set <html lang> to "
+            "the locale the app opens in."
+        )
+
+
 def test_frontend_templates_have_no_unescaped_jsx_double_braces() -> None:
     # In a copier .jinja file `{{ ... }}` is a Jinja expression, so a JSX inline-style
     # object (`style={{ ... }}`) would be mis-parsed. The frontend starter must avoid it.

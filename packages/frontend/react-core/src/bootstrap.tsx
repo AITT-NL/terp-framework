@@ -132,7 +132,8 @@ export interface RenderTerpAppOptions {
   headerActions?: ReactNode;
   /**
    * Per-code overrides and additions for the error copy an app shows
-   * ({@link ErrorMessagesProvider}), merged over {@link DEFAULT_ERROR_MESSAGES}.
+   * ({@link ErrorMessagesProvider}), which win over the platform's own wording for its codes
+   * — the `errorCode*` keys of the active locale's `TerpStrings`.
    *
    * The provider, the hook and the default map were all exported and there was no way to
    * register a map from the one-call bootstrap, which owns everything between the root and

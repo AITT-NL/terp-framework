@@ -9,6 +9,7 @@ export { ICON_NAMES } from "./icons";
 export type { IconName } from "./icons";
 export type {
   AccessName,
+  FrameworkText,
   ModuleManifest,
   ModuleRoute,
   NavGroup,
@@ -16,6 +17,7 @@ export type {
   TerpPermissionName,
   RoleName,
   TerpAccessVocabulary,
+  TerpFrameworkStrings,
   UiText,
 } from "./manifest";
 export type { AccessToken, Action, AuthSession, Credentials, CurrentUser } from "./auth";

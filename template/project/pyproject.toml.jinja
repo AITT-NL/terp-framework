@@ -83,7 +83,17 @@ known_first_party = ["app", "control_plane"]
 # `terp.*` is one PEP 420 namespace spread across distributions, so an import of
 # `terp.core` is not a transitive dependency of terp-cli; pydantic re-exports
 # through sqlmodel and pydantic-settings.
-DEP003 = ["terp", "pydantic"]
+#
+# fastapi, sqlmodel, sqlalchemy and alembic are the stack the platform is built on,
+# and the code it writes into this project imports them directly: the template's own
+# app code, every module `terp new module` scaffolds, every revision `terp migrate
+# make` writes. Their versions are constrained through the terp-* release that
+# brings them in (fastapi, sqlmodel and sqlalchemy through terp-core, alembic through
+# terp-migrations); declaring them here would add a second constraint that can drift
+# from that release, which is why pydantic is exempted rather than declared. The
+# exemption covers DEP003 alone: if the platform stopped installing one of them, an
+# import of it would be DEP001 and still fail.
+DEP003 = ["terp", "pydantic", "fastapi", "sqlmodel", "sqlalchemy", "alembic"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app", "control_plane"]

@@ -18,9 +18,43 @@ and a log level that could suppress it would make the tool lie about having run.
 
 from __future__ import annotations
 
-__all__ = ["emit"]
+import codecs
+import sys
+
+__all__ = ["emit", "use_utf8_output"]
 
 
 def emit(text: object = "") -> None:
-    """Write one line of command output to stdout."""
-    print(text)
+    """Write one line of command output to stdout, flushed.
+
+    Flushed because a pipe is block-buffered: a one-shot command loses nothing by it, but
+    ``terp dev`` runs until it is stopped, and a line saying it restarted the backend is only
+    worth reading while that is true. Unflushed, it sat in the buffer until the process ended,
+    and a stopped process's buffer is simply lost.
+    """
+    print(text, flush=True)
+
+
+def use_utf8_output() -> None:
+    """Write standard output and error as UTF-8 where the stream would not.
+
+    On Windows a pipe or a file takes the ANSI code page -- cp1252 on a Western install --
+    and a pipe is exactly how ``terp`` is read by an agent, an editor task or a workbench,
+    none of which is a console. cp1252 has no ``→``, so the line ``terp dev`` prints before
+    it starts the servers ended the command with ``UnicodeEncodeError`` instead; and text
+    this CLI does not author -- a module's label, a finding quoting a source line -- can do
+    the same to any command. UTF-8 encodes every string, and it is the default Python itself
+    moves to for these streams (PEP 686).
+
+    Changed only where it is not already UTF-8, so a console (which Python already drives
+    through the console API as UTF-8) and every Linux or macOS terminal are left exactly as
+    they were. A stream that cannot be reconfigured -- none at all, or a replacement such
+    as ``io.StringIO`` -- is left alone. ``backslashreplace`` rather than ``strict``, so the
+    one thing UTF-8 cannot encode, a lone surrogate from an undecodable file name, prints
+    as an escape rather than ending the command.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None or codecs.lookup(stream.encoding).name == "utf-8":
+            continue
+        reconfigure(encoding="utf-8", errors="backslashreplace")

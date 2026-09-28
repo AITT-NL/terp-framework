@@ -295,6 +295,17 @@ const noEval = {
   },
 };
 
+/**
+ * JSX attributes that carry user-facing text on some component.
+ *
+ * DataView's own string keys (`columns`, `loading`, `pageOf`, …) are not here. They are text
+ * only as keys of a DataView `strings` object, which {@link UI_TEXT_PROPERTIES} covers; as a
+ * JSX attribute the same name belongs to a prop that is not text at all — `<Grid
+ * columns="auto">`, `<DetailList columns="auto">`, `<img loading="lazy">` — and reporting
+ * those left an app only an escape marker to get past a layout keyword. No react-core component declares any of
+ * them as a text prop; `searchPlaceholder` (DataView's own) and `actions` (a rendered
+ * `ReactNode` slot) do, and stay.
+ */
 const UI_TEXT_ATTRIBUTES = new Set([
   "actions",
   "aria-description",
@@ -304,55 +315,26 @@ const UI_TEXT_ATTRIBUTES = new Set([
   "ariaLabel",
   "broadenedLabel",
   "cancelLabel",
-  "cardView",
   "caption",
-  "clearFilters",
-  "clearSearch",
-  "clearSelection",
-  "collapseRow",
-  "columns",
   "confirmLabel",
   "content",
   "createPlaceholder",
   "description",
-  "empty",
   "emptyMessage",
-  "errorTitle",
-  "expandRow",
-  "firstPage",
   "header",
   "hint",
   "label",
-  "lastPage",
-  "loading",
   "loadingText",
-  "moreActions",
-  "moveDown",
-  "moveUp",
-  "nextPage",
   "noOptionsText",
-  "openRow",
-  "pageOf",
-  "pageSize",
   "placeholder",
-  "previousPage",
-  "refreshing",
   "removeLabel",
-  "resizeColumn",
-  "resultsRange",
   "searchPlaceholder",
-  "selectAllPage",
-  "selectAllResults",
-  "selected",
-  "selectRow",
   "source",
   "stat",
   "subtitle",
-  "tableView",
   "title",
   "tooltip",
   "triggerLabel",
-  "viewOptions",
 ]);
 const UI_TEXT_PROPERTIES = new Set([
   "actions",
@@ -686,6 +668,58 @@ function objectStringProperty(node, name) {
   return property ? staticString(property.value) : null;
 }
 
+/** The parameter names of the function nearest *node*, when they are plain identifiers. */
+function enclosingParameterNames(node) {
+  let current = node.parent;
+  while (current) {
+    if (
+      current.type === "ArrowFunctionExpression" ||
+      current.type === "FunctionExpression" ||
+      current.type === "FunctionDeclaration"
+    ) {
+      return new Set(
+        current.params
+          .map((param) => (param.type === "AssignmentPattern" ? param.left : param))
+          .filter((param) => param.type === "Identifier")
+          .map((param) => param.name),
+      );
+    }
+    current = current.parent;
+  }
+  return new Set();
+}
+
+/**
+ * Whether *node* is `{ id, message }` built from the enclosing function's own parameters.
+ *
+ * `(id, message) => ({ id, message })` is a descriptor factory: every call through it —
+ * `title={msg("widgets.title", "Widgets")}` — carries its copy in a call's arguments, where
+ * the catalog inventory never looks, so a target locale can be missing the entry and the
+ * gate stays green. A business record keeps its shape without this form (`(record) => ({
+ * id: record.id, message: record.text })`), and a helper that takes one object keeps a
+ * literal descriptor at every call site, so only the positional factory is refused.
+ */
+function isDescriptorFactory(node) {
+  const valueOf = (name) =>
+    unwrapExpression(
+      node.properties.find(
+        (entry) => entry.type === "Property" && propertyName(entry) === name,
+      )?.value,
+    );
+  const id = valueOf("id");
+  const message = valueOf("message");
+  if (id?.type !== "Identifier" || message?.type !== "Identifier") return false;
+  const parameters = enclosingParameterNames(node);
+  return parameters.has(id.name) && parameters.has(message.name);
+}
+
+const descriptorFactoryMessage =
+  "A UiText descriptor built from a function's parameters hides every call through it from " +
+  "frontend/i18n.json, so a missing translation passes the gate. Write the descriptor where " +
+  'the text is used — { id: "…", message: "…" } or <Trans id=… message=… /> — and drop the ' +
+  "helper. If this object is business data rather than UI copy, build it from the record " +
+  "(record.id, record.text) instead of from bare parameters.";
+
 function transDescriptor(node) {
   if (jsxName(node.name) !== "Trans") return null;
   const id = staticStringFromJsxValue(getJsxAttribute(node, "id")?.value);
@@ -767,12 +801,17 @@ const localeCatalogsComplete = {
           (entry) => entry.type === "Property" && propertyName(entry) === "message",
         );
         if (!hasId || !hasMessage) return;
+        if (isDescriptorFactory(node)) {
+          context.report({ node, message: descriptorFactoryMessage });
+          return;
+        }
         const id = objectStringProperty(node, "id");
         const message = objectStringProperty(node, "message");
         // The id/message pair is also a common dynamic business-data shape. With
         // no authored literal there is nothing for the static catalog to inventory;
         // if such a value is later used as UiText, LocaleProvider is the runtime
-        // backstop. One static half does identify a malformed descriptor and must
+        // backstop. The one dynamic shape refused above is the positional factory,
+        // whose values are the caller's literals under another name. One static half does identify a malformed descriptor and must
         // not let its authored copy escape the catalog.
         if (id === null && message === null) return;
         if (id === null || message === null) {
@@ -913,6 +952,90 @@ const layoutContract = {
   },
 };
 
+/**
+ * react-core's identity markers: `data-terp` and every `data-terp-*` attribute (ADR 0160).
+ *
+ * react-core's components stamp `data-terp` on the elements they render, and two controls
+ * trust the stamp: the stylesheet selects on it (`[data-terp="card"]`, ADR 0094), and the
+ * runtime half of the layout contract identifies a slot's children by it (ADR 0079). So
+ * `data-terp="card"` written by an app borrows Card's styling without composing Card, which
+ * gets around the `style` / `className` refusal (ADR 0059), and it passes the runtime slot
+ * check as a component it is not. The rest of the namespace (`data-terp-preview-pick`) is
+ * react-core's too.
+ *
+ * Case-insensitive because the DOM lowercases an attribute name written on an HTML element:
+ * measured in Chromium, `setAttribute("DATA-TERP", "card")` leaves `data-terp="card"`, which
+ * `[data-terp="card"]` matches.
+ */
+const FRAMEWORK_MARKER_RE = /^data-terp(?:-|$)/i;
+/** The same namespace as `dataset` keys: `dataset.terp`, `dataset.terpPreviewPick`. */
+const FRAMEWORK_DATASET_KEY_RE = /^terp(?:[A-Z]|$)/;
+/** DOM methods that write an attribute, mapped to the argument that names it. */
+const ATTRIBUTE_WRITERS = new Map([
+  ["setAttribute", 0],
+  ["toggleAttribute", 0],
+  ["setAttributeNS", 1],
+]);
+
+const frameworkMarkerMessage = (name) =>
+  `${name} is one of react-core's markers, and react-core trusts them: its stylesheet selects ` +
+  "on them and the runtime layout contract identifies a slot's children by them, so a marker " +
+  "written in app code borrows a component's styling and passes that check without the " +
+  "component. Compose the react-core component that renders it (Card, Stack, ...) instead. " +
+  "A framework screen the app replaces, such as renderTerpApp({ login }), is the app's own " +
+  'screen: test it by the roles and accessible names it renders (getByRole("button", ' +
+  "{ name: ... })), not by the framework's markers.";
+
+/** The static key of an object-literal property, including a literal computed key. */
+function staticPropertyKey(node) {
+  return node.computed ? staticString(node.key) : propertyName(node);
+}
+
+/** The key assigned through `element.dataset.<key>` or `element.dataset["<key>"]`, or null. */
+function datasetKey(node) {
+  if (node.type !== "MemberExpression" || memberName(node.object) !== "dataset") return null;
+  return node.computed ? staticString(node.property) : node.property.name;
+}
+
+/**
+ * App code never writes react-core's identity markers — in JSX, as the key of a props object
+ * (an inline spread, a hoisted object, a createElement bag), through a DOM attribute writer, or
+ * through `dataset`. Reading one is not a write and is left alone; so is every other data
+ * attribute (`data-testid`), which an app writes for itself.
+ */
+const noFrameworkMarkers = {
+  meta: {
+    type: "problem",
+    docs: { description: "Disallow writing react-core's data-terp identity markers in app code." },
+    schema: [],
+  },
+  create(context) {
+    const report = (node, name) => context.report({ node, message: frameworkMarkerMessage(name) });
+    return {
+      JSXAttribute(node) {
+        const name = jsxName(node.name);
+        if (name !== null && FRAMEWORK_MARKER_RE.test(name)) report(node, name);
+      },
+      Property(node) {
+        // A destructuring pattern reads the key; only an object literal writes it.
+        if (node.parent?.type !== "ObjectExpression") return;
+        const name = staticPropertyKey(node);
+        if (name !== null && FRAMEWORK_MARKER_RE.test(name)) report(node.key, name);
+      },
+      CallExpression(node) {
+        const index = ATTRIBUTE_WRITERS.get(memberName(node.callee));
+        if (index === undefined) return;
+        const name = staticString(node.arguments[index]);
+        if (name !== null && FRAMEWORK_MARKER_RE.test(name)) report(node, name);
+      },
+      AssignmentExpression(node) {
+        const key = datasetKey(node.left);
+        if (key !== null && FRAMEWORK_DATASET_KEY_RE.test(key)) report(node.left, `dataset.${key}`);
+      },
+    };
+  },
+};
+
 const terpPlugin = {
   rules: {
     "locale-catalogs-complete": localeCatalogsComplete,
@@ -920,6 +1043,7 @@ const terpPlugin = {
     "no-cross-module-imports": noCrossModuleImports,
     "no-dom-html-injection": noDomHtmlInjection,
     "no-eval": noEval,
+    "no-framework-markers": noFrameworkMarkers,
     "no-untranslated-ui": noUntranslatedUi,
     "no-unsafe-href": noUnsafeHref,
     "no-unsafe-target-blank": noUnsafeTargetBlank,
@@ -1320,6 +1444,9 @@ export function terpBoundaries() {
       plugins: { terp: terpPlugin },
       rules: {
         "terp/locale-catalogs-complete": "error",
+        // Across src, not only modules: a replaced framework screen (a custom sign-in passed
+        // to renderTerpApp) can live beside the bootstrap, outside any module.
+        "terp/no-framework-markers": "error",
         "terp/no-untranslated-ui": "error",
       },
     },

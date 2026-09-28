@@ -258,9 +258,13 @@ token-styled primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>
 `XMLHttpRequest` / `WebSocket` / `EventSource` / `sendBeacon`),
 design-token styling with no `style={}` / `className` / module stylesheets (layout via
 `Stack` / the page archetypes), in-app links via the router (no raw `<a href="/...">`),
-and no deep `@terpjs/*` imports. Every routed view renders a page archetype (`Page` /
-`OverviewPage` / `DetailPage` / `HubPage` / `FormPage` / `SettingsPage` / `SplitPage`) —
-the router refuses an unframed view.
+no deep `@terpjs/*` imports, and no `data-terp` attribute anywhere in `src/` — those are
+react-core's own markers, which its stylesheet and the runtime layout check trust, so
+compose the component that renders one. A framework screen you replace, such as a custom
+sign-in passed to `renderTerpApp({ login })`, is yours: its tests find it by role and
+accessible name, not by the markers the framework's screen carries. Every routed view
+renders a page archetype (`Page` / `OverviewPage` / `DetailPage` / `HubPage` / `FormPage` /
+`SettingsPage` / `SplitPage`) — the router refuses an unframed view.
 This app also opts into the **`standard` layout contract** (ADR 0079), declared once in
 `frontend/layout-contract.json` — the lint rule finds the file and `main.tsx` imports it,
 so there is nothing to keep in sync. The same file is where the app's shell shape
@@ -319,7 +323,10 @@ No lint modes — every violation is an error. The governed opt-out is a justifi
   Adding a language also requires a complete `TerpStrings` framework catalog: put its
   `strings` map on the locale in `i18n.json`, or pass that catalog as the second
   `defineAppLocales` argument. App messages alone do not translate the shell, and bootstrap
-  refuses that half-translated configuration.
+  refuses that half-translated configuration. The framework catalog covers every `DataView`'s
+  toolbar and footer too (its `dataView*` keys). The first locale in `i18n.json` is the one
+  the app opens in, and `frontend/index.html` names it in `<html lang>` for the moment before
+  the bundle runs: put a different locale first and change that attribute with it.
 - **User menu** — every app gets the avatar menu (email, role, sign-out) pinned to the
   sidebar bottom automatically; there is nothing to wire. The theme toggle and the
   language switch are separate controls in the shell header, not entries in this menu.
