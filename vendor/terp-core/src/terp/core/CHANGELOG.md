@@ -40,7 +40,9 @@ its own template installed.
 
   Declared, `create_app` refuses a route that answers `POST`, `PUT`, `PATCH` or `DELETE`
   (including one of several methods) or a WebSocket, on any router the module includes, unless
-  it is declared `@read_only`. The refusal names the route's path and its handler. Every route
+  it is declared `@read_only`, and a plain Starlette route or a mount outright, because FastAPI
+  serves those without the router's dependencies and the guard never runs for them. The
+  refusal names the route's path and its handler. Every route
   that boots is one the runtime binder already marks read-only, so a write that reaches the
   chokepoint anyway fails closed. The declaration sits on `ModuleSpec`, not on `Policy`, so a
   per-route `route_policy(...)` cannot reopen it. Recipe: `terp guide policy`.
@@ -74,8 +76,8 @@ its own template installed.
   a value was no longer accepted anywhere. That was not true: `1e400` is a legal JSON number,
   and Python's decoder reads it as infinity without spelling a constant, so the middleware
   never saw it. A plain `float` field accepted it, an untyped mapping carried it to the
-  service, and a constrained field refused it with a 500, because the validation error quoted
-  the infinity back and could not be encoded.
+  service, and a constrained field that refused it answered with a 500, because the
+  validation error quoted the infinity back and could not be encoded.
 
   The same strict parse now also checks every number with a fraction or an exponent, which is
   every number that can overflow, and answers one that decodes to infinity with the same typed
@@ -97,8 +99,8 @@ its own template installed.
   rendered as given.
 
 - **A generated project's tests no longer warn about `httpx` (ADR 0165).** Starlette's test
-  client imports `httpx2` first and falls back to `httpx` with a `StarletteDeprecationWarning`,
-  which it says it will remove. The template's test dependencies installed `httpx`, so every
+  client imports `httpx2` first and falls back to `httpx` with a `StarletteDeprecationWarning`:
+  the fallback is deprecated. The template's test dependencies installed `httpx`, so every
   generated suite printed the warning on every run, and would have stopped importing
   `TestClient` once a lockfile refresh pulled in a starlette without the fallback. The
   template's dev group now installs `httpx2`. An existing app changes `httpx` to `httpx2` in its
@@ -117,6 +119,11 @@ its own template installed.
 - **An app module that imports `httpx2` is refused by `no_raw_outbound_http`.** Outbound HTTP
   goes through `terp.capabilities.egress`, as it already had to for `httpx`. A test that only
   needs FastAPI's `TestClient` imports nothing from `httpx2` itself and is unaffected.
+
+- **A locale code must be a language tag.** `LocaleProvider` and `defineAppLocales` refuse a
+  catalog keyed by a code that is not a BCP 47 tag, such as `en_US`, and say to write `en-US`.
+  A code now chooses plural forms through `Intl.PluralRules`, which throws on such a code, so
+  without the refusal the first DataView on the page would have failed instead (ADR 0164).
 
 ## 0.28.0 — 2026-09-28
 

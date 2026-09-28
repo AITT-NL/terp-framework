@@ -1175,26 +1175,53 @@ def validate_public_modules_read_only(specs: Sequence[ModuleSpec]) -> None:
             )
 
 
+def _every_route(routes: Sequence[object]) -> Iterator[object]:
+    """Every route under *routes*, descending into included routers, whatever its kind.
+
+    Unlike :func:`~terp.core.routing.iter_declaring_routes`, which yields only the FastAPI
+    routes a declaration can sit on, this also yields what that walk passes over: a plain
+    Starlette ``Route`` from ``add_route``, a ``WebSocketRoute``, a ``Mount``. FastAPI serves
+    those without the router's dependencies, so they are exactly what a guarantee about
+    every route has to see.
+    """
+    for route in routes:
+        nested = getattr(route, "original_router", None)
+        if nested is not None:
+            yield from _every_route(nested.routes)
+        else:
+            yield route
+
+
 def _validate_read_only_modules(specs: Sequence[ModuleSpec]) -> None:
     """Refuse a route that could write in a module declared ``read_only`` (ADR 0161).
 
     A route boots in such a module only if the read-only binder will mark every request
     it serves: an HTTP route none of whose methods is in ``MUTATING_METHODS``, or any
     route declared ``@read_only``. A WebSocket has no method after the upgrade and is a
-    write to the guard, so it needs the declaration too. A per-route ``route_policy``
+    write to the guard, so it needs the declaration too. A plain Starlette route or a mount
+    is refused outright, because FastAPI serves it without the router's dependencies — the
+    binder never runs for it, and neither does the guard. A per-route ``route_policy``
     changes nothing here — it says who may call, and this is about what the route does.
     """
     for spec in specs:
         if not spec.read_only or spec.router is None:
             continue
-        for route in iter_declaring_routes(spec.router.routes):
-            endpoint = getattr(route, "endpoint", None)
+        for route in _every_route(spec.router.routes):
+            if not isinstance(route, APIRoute | APIWebSocketRoute):
+                raise BootError(
+                    f"module {spec.name!r} is declared read_only and mounts "
+                    f"{type(route).__name__} {getattr(route, 'path', '?')!r}, which FastAPI "
+                    "serves without the router's dependencies: neither the read-only binder "
+                    "nor the policy guard runs for it. Register the route with a route "
+                    "decorator or add_api_route instead (terp guide policy)"
+                )
+            endpoint = route.endpoint
             if is_read_only(endpoint):
                 continue
             if isinstance(route, APIWebSocketRoute):
                 serves = "a WebSocket"
             else:
-                methods = {method.upper() for method in getattr(route, "methods", ())}
+                methods = {method.upper() for method in route.methods}
                 mutating = sorted(MUTATING_METHODS & methods)
                 if not mutating:
                     continue
@@ -1203,7 +1230,7 @@ def _validate_read_only_modules(specs: Sequence[ModuleSpec]) -> None:
             # sub-router reports its path relative to that router, not to the mount.
             raise BootError(
                 f"module {spec.name!r} is declared read_only and route "
-                f"{getattr(route, 'path', '?')!r} ({getattr(endpoint, '__name__', '?')}) "
+                f"{route.path!r} ({getattr(endpoint, '__name__', '?')}) "
                 f"serves {serves}, which can write; a "
                 "read-only module persists nothing through its routes. Move the route to a "
                 "module that writes, or, if it computes an answer and persists nothing, "

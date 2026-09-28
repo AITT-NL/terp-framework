@@ -14,10 +14,10 @@
 
 ## Context
 
-`httpx2` is the continuation of `httpx` under a new name, maintained by Pydantic because the
-original has seen little recent activity, security updates included. Starlette 1.3 moved its
-test client to it: `starlette.testclient` imports `httpx2` first and falls back to `httpx` with
-a `StarletteDeprecationWarning`, and says the fallback will go. The template's test dependencies
+`httpx2` is the continuation of `httpx` under a new name. Pydantic took it on because the
+original had seen little recent activity, to keep a maintained path with timely security
+fixes. Starlette 1.3 moved its test client to it: `starlette.testclient` imports `httpx2` first
+and falls back to `httpx` with a `StarletteDeprecationWarning`, so the fallback is deprecated. The template's test dependencies
 installed `httpx`, so every generated project printed that warning on every run — and would
 fail to import FastAPI's `TestClient` at all once a lockfile refresh pulled in a starlette
 without the fallback. `terp-core` asks for `fastapi>=0.115` with no ceiling, so that refresh is
@@ -52,6 +52,6 @@ the network with no allowlist, no SSRF check and no timeout policy.
   describes.
 - **Recorded, not decided:** the egress capability itself still drives `httpx` at runtime. It
   is the one distribution on the outbound path, and `httpx2` exists because upstream `httpx`
-  has slowed down, security fixes included. Moving the capability is a change to the transport
+  had slowed down. Moving the capability is a change to the transport
   every outbound call goes through, with its own pinning and redirect behaviour to re-verify,
   and it is a separate decision rather than part of a test-dependency fix.

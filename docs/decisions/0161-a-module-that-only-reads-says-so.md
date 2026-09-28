@@ -29,10 +29,10 @@ The friction was reported from an app whose module serves records that only a se
 may write. Its author held the line with a hand-written test: walk `router.routes`, fail on any
 method but `GET` or `HEAD`. Measured on FastAPI 0.139, that test has a hole. `include_router`
 keeps a sub-router as a nested `_IncludedRouter` instead of flattening its routes, so a `POST`
-added one router down is invisible to the scan and the test stays green. The framework already
-walks routes correctly — `iter_declaring_routes` descends into included routers and yields
-WebSocket routes too — which is the argument for it owning the check rather than every app
-writing its own.
+added one router down is invisible to the scan and the test stays green. The framework can
+walk the composed router properly — into included routers, and over WebSocket routes, plain
+Starlette routes and mounts as well as FastAPI's — which is the argument for it owning the check
+rather than every app writing its own.
 
 ## Decision
 
@@ -44,10 +44,15 @@ one the runtime binder already marks read-only, and `create_app` refuses the boo
   test and the route then computes rather than persists;
 - anything else is refused — a route answering `POST` / `PUT` / `PATCH` / `DELETE`, one
   registered with several methods of which one is mutating, and a WebSocket, which has no
-  method after the upgrade and which the guard already treats as a write.
+  method after the upgrade and which the guard already treats as a write;
+- a plain Starlette route (`add_route`) or a `Mount` is refused outright, declared or not.
+  FastAPI serves it without the router's dependencies, so neither the binder nor the policy
+  guard runs for it. Measured while this was reviewed: in a module behind `Policy.default()`,
+  an unauthenticated `POST` to such a route, and to a mounted sub-app, both answered 200.
 
-The refusal names the module, the route's path and its handler, and the two ways out: move the
-route to a module that writes, or declare it `@read_only` if it persists nothing. The handler is
+The refusal names the module, the route's path and its handler, and the way out: move the
+route to a module that writes, declare it `@read_only` if it persists nothing, or — for a plain
+route — register it with a route decorator so the guard and the binder run for it. The handler is
 named because a route on an included sub-router reports its path relative to that router, and
 the path alone can be ambiguous. Measured before relying on it: the binder does run for a
 WebSocket route, and a `@read_only` one executes with the read-only flag set.
@@ -65,7 +70,7 @@ per-route policy cannot touch it. Authorization is unchanged: a declared `@read_
 such a module is still authorized at the write tier, for the reason `terp.core.routing` gives.
 
 **No build-time rule.** The boot check reads the composed router — nested routers,
-`add_api_route`, WebSockets — where a source scan would approximate it, and it cannot be
+`add_api_route`, WebSockets, plain routes and mounts — where a source scan would approximate it, and it cannot be
 silenced by a marker. Every test that composes the app reaches it, so an app's own suite fails
 on the change that breaks the promise. A catalog rule would duplicate it less precisely.
 
@@ -79,3 +84,9 @@ on the change that breaks the promise. A catalog rule would duplicate it less pr
   and are not covered; a module whose background work must not write either needs that said
   where the work runs.
 - A module declared `read_only` with no router is vacuously true and is not refused.
+- **Recorded, not decided:** a plain Starlette route or a mount in a module that does *not*
+  declare `read_only` is served outside the guard as well. The build-time `no_raw_app_routes`
+  refuses `add_route`, `mount` and `add_websocket_route` in app code, with a budgeted escape
+  marker, but nothing refuses one at runtime. Refusing every such route at boot is the missing
+  half of that rule, and it would also remove the marker's escape for a mount, which is why it
+  is a decision of its own rather than part of this one.

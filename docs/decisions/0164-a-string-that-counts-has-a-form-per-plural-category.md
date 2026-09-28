@@ -61,6 +61,11 @@ object keyed by category is checked by its structure.
 - An app with a non-English catalog of its own supplies the three keys as forms, and is told
   exactly which form is missing or stray. `LOCALE_NL` ships them. An app on `LOCALE_EN` and
   `LOCALE_NL` changes nothing.
+- A locale code must be a BCP 47 language tag. `Intl.PluralRules` throws on one that is not
+  — `en_US` rather than `en-US` — and a code chooses a plural form now, so an app keyed that
+  way would have met a `RangeError` the first time a page rendered a count. `LocaleProvider`
+  and `defineAppLocales` refuse such a code when the catalogs are checked, with the spelling to
+  use. `<html lang>`, which the code is written to, needed a tag all along.
 - A `UiTextProvider` given `strings` directly is not checked. `other` answers there when the
   chosen form is absent, so an unchecked table still renders a sentence.
 - **Not covered, and recorded rather than implied:** app-authored copy has no plural form. A

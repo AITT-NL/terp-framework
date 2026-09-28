@@ -374,6 +374,18 @@ describe("count-bearing framework strings", () => {
     ).not.toThrow();
   });
 
+  it("refuses a locale code that is not a language tag, before anything renders a count", () => {
+    // `Intl.PluralRules` throws on `en_US`, so without this the first DataView on the page
+    // would fail with a RangeError instead of the app being told what to write.
+    expect(() =>
+      render(
+        <LocaleProvider locales={{ en_US: LOCALE_EN }}>
+          <span />
+        </LocaleProvider>,
+      ),
+    ).toThrow(/Locale "en_US" is not a language tag \(BCP 47: "en-US", not "en_US"\)/);
+  });
+
   it("chooses the form by the active locale's rules, not English's", () => {
     // Four is "few" in Polish and "other" in English, so this fails if LocaleProvider stops
     // handing its locale to the UiText seam. Dutch could not show it: for every integer, Dutch

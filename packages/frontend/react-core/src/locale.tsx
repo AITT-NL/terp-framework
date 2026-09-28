@@ -35,6 +35,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Refuse a locale code the runtime cannot read as a language tag.
+ *
+ * A code chooses a plural form through `Intl.PluralRules`, which throws on a code that is not
+ * a BCP 47 tag — `en_US` rather than `en-US` — and it is written to `<html lang>`, which needs
+ * one too. Refused here, with the spelling to use, rather than as a `RangeError` the first
+ * time a page renders a count.
+ */
+function assertLanguageTag(code: string): void {
+  try {
+    new Intl.PluralRules(code);
+  } catch {
+    throw new Error(
+      `Locale "${code}" is not a language tag (BCP 47: "en-US", not "en_US"). Its plural ` +
+        "rules and <html lang> both need one.",
+    );
+  }
+}
+
+/**
  * Refuse a count-bearing framework string that does not have exactly *code*'s plural forms.
  *
  * The categories come from the locale's own `Intl.PluralRules`, so the check is as wide as the
@@ -85,6 +104,7 @@ function assertLocaleCatalogs(
     if (code.trim() === "" || !isRecord(value)) {
       throw new Error("Locale entries must be non-empty codes mapped to catalog objects.");
     }
+    assertLanguageTag(code);
     if (
       value.label !== undefined &&
       (typeof value.label !== "string" || value.label.trim() === "")

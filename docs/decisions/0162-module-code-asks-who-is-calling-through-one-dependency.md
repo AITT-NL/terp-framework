@@ -28,8 +28,8 @@ the token's claims is stale the moment it changes.
 
 `/me` already resolves the caller, but through a resolver the app passes to `build_me_module`,
 and it answers with the whole session payload — the caller's permissions and per-module ranks,
-each a query. That is right for a screen that gates on them once per session and wrong for a
-dependency that may sit on every write route.
+each read from the store on every call. That is right for a screen that gates on them once per
+session and wrong for a dependency that may sit on every write route.
 
 ## Decision
 
