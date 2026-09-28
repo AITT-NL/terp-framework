@@ -34,7 +34,6 @@ from terp.core import (
     Roles,
     create_app,
     get_session,
-    settings,
 )
 from terp.core._internal.session_guard import WriteGuardedSession
 
@@ -112,7 +111,6 @@ _OPERATIONS = OperationCatalog(
 _REPORTS_EXPORT = Permission("reports.export", min_role=VIEWER)
 
 _PASSWORD = "correct horse battery"  # 12+ chars, 2 classes; satisfies the default policy
-settings.SECRET_KEY = "terp-framework-stack-secret-key-0123456789ab"
 
 
 @pytest.fixture

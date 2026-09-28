@@ -99,6 +99,7 @@ __all__ = [
     "terp_leases",
     "terp_pg_url",
     "terp_runtime_isolation",
+    "terp_signing_key",
 ]
 
 #: Where the PostgreSQL lane finds its server. Unset, the lane skips — an offline run
@@ -267,6 +268,29 @@ def _record_installs(config: pytest.Config, node_id: str, started: dict[str, Any
     for name, snapshot in capture_runtimes().items():
         if name not in started or snapshot != started[name]:
             installs.setdefault(name, []).append(node_id)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def terp_signing_key() -> Iterator[None]:
+    """Sign the session's tokens with a strong key nobody wrote down (autouse, ADR 0163).
+
+    The development default is ten bytes on purpose — production refuses it by length as well
+    as by name — and pyjwt warns on every token signed with an HMAC key under 32 bytes. So a
+    suite that signs tokens needed a key of its own, and a key written into a test file is a
+    literal the secret scan then flags. A random one is installed for the session instead,
+    only while the default is still in place: a key the environment set, or a test sets, wins.
+    """
+    import secrets
+
+    from terp.core.config import _PLACEHOLDER_SECRETS, settings
+
+    original = settings.SECRET_KEY
+    if original in _PLACEHOLDER_SECRETS:
+        settings.SECRET_KEY = secrets.token_urlsafe(48)
+    try:
+        yield
+    finally:
+        settings.SECRET_KEY = original
 
 
 @pytest.fixture

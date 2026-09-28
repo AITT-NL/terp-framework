@@ -850,9 +850,11 @@ reproduced against that release on 2026-09-28 before any of it was changed. One 
       role, so an app builds a second `IdentityService` inside a module to read the email.
       `CallerDep` in the identity capability names the caller from the live row — email for
       a user, name for a service account (ADR 0162).
-- [ ] Tests that sign tokens must hard-code a signing key, because the 10-byte development
+- [x] Tests that sign tokens must hard-code a signing key, because the 10-byte development
       default trips pyjwt's key-length warning — and the literal then trips the secret scan.
-      The framework's own example app carries one.
+      The framework's own example app carries one. The shipped plugin's autouse
+      `terp_signing_key` installs a random key per session (ADR 0163); the example app's key
+      and the full-stack test's are gone.
 - [ ] Count-bearing interface strings have no plural form in any locale: "1–1 of 1 results",
       "1–1 van 1 resultaten", and `action(s)` / `actie(s)` where the wording was dodged.
 - [ ] Starlette's test client deprecates `httpx` for `httpx2`, and the template's own test

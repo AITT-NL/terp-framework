@@ -1223,6 +1223,13 @@ RESTORES it after. No conftest.py line, no opt-in. Without it a suite goes
 order-dependent: green together, red alone - the sharpest failure mode there is,
 because the green is the wrong answer.
 
+SIGNING TOKENS NEEDS NO KEY OF YOUR OWN. The same plugin's `terp_signing_key` fixture
+(autouse, once per session) replaces the development SECRET_KEY with a random 64-character
+one while the default is in place, and puts the default back afterwards. So a test that
+calls create_access_token signs with a strong key and pyjwt does not warn. Never write a
+key into a test file: it is a credential-shaped literal the secret scan flags. A key the
+environment sets, or one a test sets with monkeypatch, is left as it is.
+
 THE SIX SEAMS. create_app installs six process globals per app; in a test process they
 outlive the app that installed them. Restored automatically -- but installed by you:
 

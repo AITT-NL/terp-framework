@@ -17,7 +17,7 @@ from sqlalchemy import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from terp.core import Principal, Roles, get_session, settings
+from terp.core import Principal, Roles, get_session
 from terp.core._internal.session_guard import WriteGuardedSession
 
 from terp.capabilities.auth import create_access_token
@@ -26,9 +26,6 @@ from app import auth as app_auth
 from app.auth import login_throttle
 from app.main import build
 
-# Tests sign JWTs; use a realistic-length secret so pyjwt does not warn about a
-# short HMAC key (the dev default is intentionally short and production-guarded).
-settings.SECRET_KEY = "terp-example-test-secret-key-0123456789abcdef"
 
 
 @pytest.fixture(autouse=True)

@@ -43,6 +43,17 @@ an infinite number past the control built to refuse one.
   through the request's session. The principal's kind decides the table, and a principal whose
   row is gone is refused as unauthenticated. Nothing to wire. Recipe: `terp guide capability`.
 
+- **A test suite that signs tokens needs no key of its own (ADR 0163).** The development
+  `SECRET_KEY` is ten bytes on purpose, so production refuses it by length as well as by name,
+  and pyjwt warns on every token signed with an HMAC key under 32 bytes. Every suite that
+  signed tokens therefore hard-coded a longer key, and the secret scan flags a key written into
+  a test file. `terp.core.testing` now ships `terp_signing_key`, an autouse session fixture that
+  replaces the default with a random key for the run and puts it back afterwards. A key the
+  environment sets is left alone, and one a test sets with `monkeypatch` still wins. Nothing to
+  install: every project on `terp-core` gets it through the plugin, as it gets runtime
+  isolation. The example app and the framework's full-stack test drop the keys they set only
+  to silence the warning.
+
 ### Fixed
 
 - **A number too large for a double is refused like `Infinity` (ADR 0152, amended).** 0.28.0
