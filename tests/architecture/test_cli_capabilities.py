@@ -83,6 +83,33 @@ def test_declared_guide_topics_exist() -> None:
             assert capability.guide in guide_choices(), capability.name
 
 
+def test_every_inventory_command_is_one_the_cli_accepts() -> None:
+    """A named command that does not exist is worse than none: it is followed, and fails."""
+    from terp.cli import _build_parser
+
+    parser = _build_parser()
+    inventories = [c for c in CAPABILITIES if c.inventory is not None]
+    assert inventories  # the check below must have something to check
+    for capability in inventories:
+        program, *arguments = capability.inventory.split()
+        assert program == "terp", capability.name
+        parser.parse_args([word.replace("<subject>", "someone") for word in arguments])
+
+
+def test_an_installed_capability_names_what_the_app_holds(monkeypatch) -> None:
+    """The line that would have answered "does this app have machine credentials?"."""
+    monkeypatch.setattr(capabilities_module, "_installed_version", lambda capability: "9.9.9")
+    text = render_capabilities()
+    identity = text.split("terp-cap-identity", 1)[1].split("terp-cap-", 1)[0]
+    assert "service accounts" in identity
+    assert "what this app has: uv run terp service-account list" in identity
+
+
+def test_an_adoptable_capability_has_nothing_to_list(monkeypatch) -> None:
+    monkeypatch.setattr(capabilities_module, "_installed_version", lambda capability: None)
+    assert "what this app has:" not in render_capabilities()
+
+
 def test_text_output_separates_installed_from_adoptable_and_states_the_fix(
     monkeypatch,
 ) -> None:
@@ -172,6 +199,7 @@ def test_json_output_is_machine_readable() -> None:
             "kind",
             "wiring",
             "guide",
+            "inventory",
             "installed",
             "seams",
             "unwired_seams",

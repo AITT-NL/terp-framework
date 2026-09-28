@@ -16,7 +16,7 @@ from terp.core import ControlPlane, CorsPolicy, ModuleSpec
 if TYPE_CHECKING:  # terp-arch stays off the common `terp guide` / `terp inspect` path
     from terp.arch import ScanRoot
 
-from terp.cli._output import emit
+from terp.cli._output import emit, use_utf8_output
 from terp.cli.access import (
     build_access_graph_for_app,
     render_access,
@@ -229,8 +229,11 @@ Adopt it by declaring the table (a project from the template already has it):
 
     [tool.deptry.per_rule_ignores]
     # `terp.*` is one PEP 420 namespace across distributions, and pydantic
-    # re-exports through sqlmodel / pydantic-settings.
-    DEP003 = ["terp", "pydantic"]
+    # re-exports through sqlmodel / pydantic-settings. fastapi, sqlmodel,
+    # sqlalchemy and alembic are the stack terp-core and terp-migrations bring,
+    # which the template's code, `terp new module` and `terp migrate make` all
+    # import directly: constrained by that release, not by a second pin here.
+    DEP003 = ["terp", "pydantic", "fastapi", "sqlmodel", "sqlalchemy", "alembic"]
 
 and installing the tool: `uv add --dev deptry`.
 
@@ -3578,19 +3581,21 @@ def _build_parser() -> argparse.ArgumentParser:
     dev_parser.add_argument(
         "--port",
         type=int,
-        default=DEFAULT_API_PORT,
+        default=None,
         help=(
-            f"Backend host port (default: {DEFAULT_API_PORT}) -- in the range Terp owns, "
-            "away from the 8000 another application on this machine is probably using"
+            "Backend host port (default: the pair claimed for this checkout, the one "
+            "`terp ports show` prints and a workbench and docker compose use; claimed "
+            f"and published on first run; {DEFAULT_API_PORT} if none can be claimed)"
         ),
     )
     dev_parser.add_argument(
         "--web-port",
         type=int,
-        default=DEFAULT_WEB_PORT,
+        default=None,
         help=(
-            f"Frontend host port (default: {DEFAULT_WEB_PORT}); passed through to the "
-            "frontend dev server, which would otherwise take its own 5173"
+            "Frontend host port (default: the web half of the same claimed pair; "
+            f"{DEFAULT_WEB_PORT} if none can be claimed); the frontend dev server refuses "
+            "a taken port rather than wandering to the next one"
         ),
     )
     dev_parser.add_argument(
@@ -3932,6 +3937,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> None:
     """Console entry point."""
+    use_utf8_output()
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.command == "inspect" and args.inspect_command == "control-plane":

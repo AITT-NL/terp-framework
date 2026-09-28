@@ -5,7 +5,7 @@
       "base_query_not_overridden": 1,
       "mutations_emit_audit": 7,
       "no_adhoc_background_runtime": 4,
-      "no_adhoc_middleware": 11,
+      "no_adhoc_middleware": 5,
       "no_app_instantiation": 1,
       "no_dependency_overrides": 3,
       "no_exception_text_in_responses": 3,
@@ -27,7 +27,7 @@
       "no_exception_text_in_responses": 1,
       "no_internal_imports": 1,
       "no_oversized_python_files": 8,
-      "no_print": 64,
+      "no_print": 61,
       "no_raw_outbound_http": 3,
       "no_raw_session_construction": 1
     }

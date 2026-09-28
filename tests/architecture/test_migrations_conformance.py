@@ -229,6 +229,27 @@ def test_cli_upgrade_status_check_and_downgrade(db_url: str, capsys: pytest.Capt
     assert _DOMAIN_TABLES.isdisjoint(_table_names(db_url))
 
 
+def test_cli_prints_an_unreadable_history_as_its_answer(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A revision past the Windows path limit reaches the operator as the fix, not a traceback."""
+    import terp.migrations.cli as migrate_cli
+    from terp.core.migrations import MigrationDiscoveryError
+
+    def unreadable(*_args: object, **_kwargs: object) -> list[str]:
+        raise MigrationDiscoveryError("the 'identity' migration history lists 4f1c… but its path is 318 characters")
+
+    monkeypatch.setattr(migrate_cli, "upgrade", unreadable)
+    with pytest.raises(SystemExit) as excinfo:
+        migrate_main(
+            ["upgrade", "--database-url", f"sqlite:///{tmp_path / 'x.db'}", "--app-root", str(APP_ROOT)]
+        )
+    assert excinfo.value.code == 2
+    assert "its path is 318 characters" in capsys.readouterr().err
+
+
 def test_cli_check_exits_nonzero_when_behind(tmp_path: pathlib.Path) -> None:
     fresh = f"sqlite:///{tmp_path / 'fresh.db'}"
     with pytest.raises(SystemExit) as excinfo:

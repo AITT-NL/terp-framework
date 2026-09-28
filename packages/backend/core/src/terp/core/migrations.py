@@ -22,6 +22,7 @@ from __future__ import annotations
 import importlib.metadata
 import importlib.util
 import pathlib
+import stat
 from collections.abc import Iterator
 from dataclasses import dataclass
 
@@ -93,12 +94,50 @@ class MigrationTree:
         as *current* while its tables were never created (ADR 0027). Alembic revision
         files are hash-named (never underscore-prefixed), so ``__init__`` / ``__pycache__``
         artefacts are ignored.
+
+        **A revision the directory lists but that cannot be read is an error, not an
+        absence.** ``Path.is_file()`` answers ``False`` for a file it cannot stat, and on
+        Windows a path past 260 characters cannot be statted unless long paths are
+        enabled — so a capability installed in a deeply nested virtualenv listed its
+        revisions and then counted none of them. The tree read as having no history,
+        ``upgrade`` skipped it and reported success, and the first query failed on a
+        table that had never been created. Refusing here names the path and the fix.
         """
         versions = self.versions_path
-        return versions.is_dir() and any(
-            entry.is_file() and not entry.name.startswith("_")
-            for entry in versions.glob("*.py")
-        )
+        if not versions.is_dir():
+            return False
+        for entry in versions.glob("*.py"):
+            if entry.name.startswith("_"):
+                continue
+            try:
+                mode = entry.stat().st_mode
+            except OSError as exc:
+                raise MigrationDiscoveryError(_unreadable_revision(self.label, entry)) from exc
+            if stat.S_ISREG(mode):
+                return True
+        return False
+
+
+#: Windows' classic path limit, which applies unless long paths are enabled machine-wide.
+_WINDOWS_MAX_PATH = 260
+
+
+def _unreadable_revision(label: str, revision: pathlib.Path) -> str:
+    """The refusal for a listed revision that cannot be read, naming the likely cause."""
+    length = len(str(revision))
+    cause = (
+        f"its path is {length} characters, past the {_WINDOWS_MAX_PATH}-character limit "
+        "Windows applies unless long paths are enabled"
+        if length >= _WINDOWS_MAX_PATH
+        else "the file cannot be opened"
+    )
+    return (
+        f"the {label!r} migration history lists {revision.name} in {revision.parent}, but "
+        f"{cause}. Without it the history reads as empty, so an upgrade would report success "
+        "and create none of its tables. Move the project, or its virtualenv, to a shorter "
+        "path, or enable long paths on this machine (the LongPathsEnabled setting), then run "
+        "the command again."
+    )
 
 
 def _package_dir(import_path: str, *, label: str) -> pathlib.Path:
