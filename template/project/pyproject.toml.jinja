@@ -12,31 +12,31 @@ requires-python = ">=3.13"
 # instead: `UV_FIND_LINKS=/path/to/terp-wheels uv sync` (the platform repo's
 # template-acceptance CI job installs exactly this way).
 dependencies = [
-    "terp-core==0.28.0",
-    "terp-cli==0.28.0",
-    "terp-migrations==0.28.0",
+    "terp-core==0.29.0",
+    "terp-cli==0.29.0",
+    "terp-migrations==0.29.0",
     # Base profile: secure-by-default auth + identity + admin + audit.
-    "terp-cap-auth==0.28.0",
-    "terp-cap-identity==0.28.0",
-    "terp-cap-users==0.28.0",
-    "terp-cap-groups==0.28.0",
-    "terp-cap-access==0.28.0",
-    "terp-cap-audit==0.28.0",
+    "terp-cap-auth==0.29.0",
+    "terp-cap-identity==0.29.0",
+    "terp-cap-users==0.29.0",
+    "terp-cap-groups==0.29.0",
+    "terp-cap-access==0.29.0",
+    "terp-cap-audit==0.29.0",
 {%- if use_files %}
     # File uploads: streamed storage + admin surface (auto-discovered, ADR 0056).
-    "terp-cap-files==0.28.0",
+    "terp-cap-files==0.29.0",
 {%- endif %}
 {%- if use_sso %}
     # Single sign-on via OIDC (ADR 0058) — wired in app/auth.py, enabled by OIDC_* env.
-    "terp-cap-oidc==0.28.0",
+    "terp-cap-oidc==0.29.0",
 {%- endif %}
 {%- if use_events %}
     # Domain events: typed catalog + in-process dispatch (ADR 0008).
-    "terp-cap-eventbus==0.28.0",
+    "terp-cap-eventbus==0.29.0",
 {%- endif %}
 {%- if use_realtime %}
     # Realtime: typed, policy-gated SSE + WebSocket channels (auto-discovered).
-    "terp-cap-realtime==0.28.0",
+    "terp-cap-realtime==0.29.0",
 {%- endif %}
 ]
 
@@ -54,7 +54,7 @@ dependencies = [
 # httpx2 is what FastAPI's TestClient drives requests with. Starlette imports it first and
 # falls back to plain httpx with a deprecation warning on every run. The fallback is
 # deprecated; once it is gone, a suite that only has httpx cannot import TestClient.
-dev = ["pytest>=8.0", "httpx2>=2.0", "pytest-cov>=5.0", "terp-arch==0.28.0", "uvicorn[standard]>=0.30", "ruff>=0.6", "deptry>=0.20", "psycopg[binary]>=3.2"]
+dev = ["pytest>=8.0", "httpx2>=2.0", "pytest-cov>=5.0", "terp-arch==0.29.0", "uvicorn[standard]>=0.30", "ruff>=0.6", "deptry>=0.20", "psycopg[binary]>=3.2"]
 
 # deptry: is every distribution this project imports one it declares? The
 # question no Terp rule can answer -- mapping an import name to a distribution

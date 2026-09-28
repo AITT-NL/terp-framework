@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.29.0 — unreleased
+## 0.29.0 — 2026-09-28
 
 Friction reported from building apps on Terp 0.28.0. At the edges: a request body that could
 still carry an infinite number past the control built to refuse one, an egress rule that did

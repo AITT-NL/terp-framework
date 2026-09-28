@@ -834,7 +834,9 @@ All of it shipped in 0.28.0, on terp-spec 0.38.0, which carries the catalog half
 
 **A second friction batch from app building** — six findings reported against 0.28.0, each
 reproduced against that release on 2026-09-28 before any of it was changed. One branch,
-`fix/app-friction-0.28`, one commit per item; this is the index.
+`fix/app-friction-0.28`, one commit per item; this is the index. All of it shipped in 0.29.0,
+still on terp-spec 0.38.0: the catalog half of ADR 0165 is merged in terp-spec as 0.39.0 and
+is adopted here when that version is released.
 
 - [x] A number literal too large for a double (`1e400`) decodes as infinity without ever
       spelling `Infinity`, so ADR 0152's middleware never saw it: a plain `float` field
