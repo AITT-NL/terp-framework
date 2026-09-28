@@ -172,6 +172,8 @@ const VIOLATION_SNIPPETS = {
   "frontend/no-dom-html-injection": "export const W = (el, html) => { el.innerHTML = html; };",
   "frontend/no-eval": "export const run = (code) => eval(code);",
   "frontend/no-framework-markers": 'export const W = () => <div data-terp="card" />;',
+  "frontend/no-raw-clipboard": "export const copy = (text) => navigator.clipboard.writeText(text);",
+  "frontend/no-raw-random-uuid": "export const newId = () => crypto.randomUUID();",
   "frontend/no-unsafe-href":
     'export const W = ({label}) => <a href="javascript:alert(1)">{label}</a>;',
   "frontend/no-unsafe-target-blank":
@@ -196,11 +198,17 @@ describe(
         expect(optOut).toBe(`// terp-allow-${name}: <reason>`);
       });
       const snippet = VIOLATION_SNIPPETS[entry.id];
-      if (snippet === undefined) {
-        // frontend/layout-contract needs the opt-in contract config; its marker
-        // behaviour is covered by layouts.test.js with the same spelling.
+      if (entry.id === "frontend/layout-contract") {
+        // It needs the opt-in contract config; its marker behaviour is covered by
+        // layouts.test.js with the same spelling.
         continue;
       }
+      // Any other rule without a snippet used to be skipped here in silence, which is
+      // how two rules shipped with their opt-out parity never checked.
+      it(`${entry.id} has a violating snippet here`, () => {
+        expect(snippet, `add a VIOLATION_SNIPPETS entry for ${entry.id}`).toBeDefined();
+      });
+      if (snippet === undefined) continue;
       it(`${entry.id}'s declared marker suppresses its violation`, async () => {
         const marker = optOut.replace("<reason>", "recorded parity exception");
         // These snippets violate exactly one rule, so the suppressed result is
