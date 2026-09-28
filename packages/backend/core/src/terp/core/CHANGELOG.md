@@ -12,7 +12,7 @@ decision, 0001 onwards.
 
 ## 0.28.0 — unreleased
 
-Friction reported from building FAST-SYNC on Terp: a record card whose labels and values
+Friction reported from building a record-heavy app on Terp: a record card whose labels and values
 did not read as pairs, a row of form fields with no correct alignment, and an affordance
 repeated more often than the values it applied to.
 
@@ -185,6 +185,37 @@ repeated more often than the values it applied to.
   The rule sets the `<dd>`, so a value that declares its own size keeps it: a `<Text>` inside
   a value still renders at the step that `Text` asked for. A caller who wants the pair's step
   passes `size="sm"` or hands the value as a string.
+
+- **A JSON body that spells `NaN` or `Infinity` is a 422, not a 500 — and is no longer
+  accepted anywhere (ADR 0152).** JSON has no non-finite numbers, but Python's decoder
+  accepts `NaN`, `Infinity` and `-Infinity`, and nothing above it refused them. Sent to a
+  constrained field, `NaN` was refused and answered with a 500, because the validation error
+  quotes the value back and it cannot be encoded. Sent to a plain `float` field, `Infinity`
+  was accepted. Inside a `dict[str, Any]` field it reached the service untouched. A value
+  that gets in also defeats the service's own checks: `NaN` compares false against
+  everything, so "refuse when larger than the limit" lets it through.
+
+  `create_app` now installs `NonFiniteJsonMiddleware` as the innermost security layer. Every
+  body declared as JSON is parsed strictly, and one that uses any of the three constants is
+  answered with a typed 422, `non_finite_number`, whose detail names the constant and the
+  fix. It holds for every route and field type with nothing to declare. Malformed JSON keeps
+  FastAPI's own `json_invalid` answer, and a body not declared as JSON is not read. A client
+  that was sending these values was relying on a non-standard extension; the typed frontend
+  client never could, since `JSON.stringify` writes them as `null`.
+
+  Not covered: a `float` query or path parameter still accepts the strings `inf` and `nan`.
+  Those errors encode fine, so no 500 occurs there, but the value is accepted. ADR 0152
+  records why this change does not close it.
+
+- **A migration history that cannot be read is refused, not reported as empty.** On
+  Windows a path past 260 characters cannot be read unless long paths are enabled, and a
+  capability installed in a deeply nested virtualenv hit exactly that. The `versions/`
+  directory listed its revisions, then each file failed to stat and so was not counted.
+  The history read as empty, `terp migrate upgrade` skipped it and printed `upgraded: []`,
+  and the first query failed on a table that was never created. A listed revision that
+  cannot be read now stops discovery. The message names the history, the file and, past the
+  limit, its length, with the two fixes: a shorter path, or long paths enabled. `terp
+  migrate` prints it as its answer and exits 2, instead of burying it under a traceback.
 
 - **`terp inspect capabilities` names the command that lists what an installed capability
   holds.** The registry is built from packages, so it could say an app *has* identity and

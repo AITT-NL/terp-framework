@@ -8,7 +8,7 @@ always the one central declaration.
 
 Order (outermost → innermost), so each response — including a CORS preflight —
 carries every control: request-id · security-headers · CORS · client-ip ·
-rate-limit · request-size-limit · idempotency · app.
+rate-limit · request-size-limit · idempotency · non-finite-json · app.
 """
 
 from __future__ import annotations
@@ -20,8 +20,10 @@ import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
+from typing import NoReturn
 
 from fastapi import FastAPI
+from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
@@ -411,6 +413,105 @@ class RequestSizeLimitMiddleware:
         await self.app(scope, counting_receive, send)
 
 
+class NonFiniteJsonMiddleware:
+    """Refuse a JSON request body that spells ``NaN``, ``Infinity`` or ``-Infinity``.
+
+    JSON has no such numbers (RFC 8259 §6), but Python's decoder accepts all three, and so
+    does everything above it: FastAPI hands the float to pydantic, a plain ``float`` field
+    takes it, and a ``dict[str, Any]`` field carries it into the service untouched. Three
+    things then go wrong:
+
+    - A value that got in defeats the comparisons business logic is written with. Under
+      IEEE 754 ``NaN > limit`` and ``NaN <= limit`` are both false, so a check that refuses
+      "too large" waves it through.
+    - The first place the value is encoded again, the response, refuses it — so a request
+      the API accepted is answered with a 500.
+    - A field that *does* reject it quotes the value back in the validation error, and
+      FastAPI's renderer cannot encode that either: a 500 again, where the client was owed
+      a 422 saying what was wrong.
+
+    One refusal at the boundary closes all three for every field type, because it happens
+    before anything is decoded for the route. The body is parsed strictly, and one that uses
+    any of those constants is answered with a typed 422 naming it. That is one parse per JSON
+    body more than FastAPI's own; the size limiter outside this middleware already bounds the
+    body, and the parse needs no prefilter to get wrong — a byte scan for ``NaN`` misses a
+    UTF-16 body, which the decoder accepts all the same.
+
+    Nothing else about the body is judged here. Malformed JSON is FastAPI's to report, in the
+    shape it already reports it; a body that is not declared as JSON is not read at all; and
+    a request whose client went away mid-body is handed on as it arrived.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not _declares_json(scope):
+            await self.app(scope, receive, send)
+            return
+        buffered: list[Message] = []
+        body = bytearray()
+        complete = False
+        while not complete:
+            message = await receive()
+            buffered.append(message)
+            if message["type"] != "http.request":
+                break
+            body.extend(message.get("body", b"") or b"")
+            complete = not message.get("more_body", False)
+        constant = _non_finite_constant(bytes(body)) if complete else None
+        if constant is not None:
+            await _send_json_error(
+                send,
+                422,
+                "non_finite_number",
+                f"The request body contains {constant}, which is not a JSON number. "
+                "Send a finite number, or null where there is no value.",
+            )
+            return
+        await self.app(scope, _replay_receive(buffered, receive), send)
+
+
+def _declares_json(scope: Scope) -> bool:
+    """Whether the request declares a body FastAPI would decode as JSON.
+
+    The same test FastAPI applies before it calls the decoder: an ``application`` media type
+    whose subtype is ``json`` or ends in ``+json``. FastAPI's strict content-type default
+    (which ``create_app`` keeps) decodes nothing else as JSON, so nothing else needs refusing.
+    """
+    for key, value in scope.get("headers", []):
+        if key == b"content-type":
+            media_type = value.decode("latin-1").split(";", 1)[0].strip().lower()
+            main, _, subtype = media_type.partition("/")
+            return main == "application" and (subtype == "json" or subtype.endswith("+json"))
+    return False
+
+
+class _NonFiniteNumber(Exception):
+    """Raised from the strict parse at the first constant JSON does not have."""
+
+
+def _refuse_constant(constant: str) -> NoReturn:
+    raise _NonFiniteNumber(constant)
+
+
+def _non_finite_constant(body: bytes) -> str | None:
+    """The first non-finite constant *body* spells, or ``None``.
+
+    ``parse_constant`` is the decoder's hook for exactly ``NaN``, ``Infinity`` and
+    ``-Infinity``, and nothing else reaches it. A body that fails to parse for any other
+    reason — malformed, undecodable, nested past the recursion limit — is not this
+    middleware's to answer, so it reports nothing and FastAPI answers as it always has.
+    """
+    try:
+        json.loads(body, parse_constant=_refuse_constant)
+    except _NonFiniteNumber as refused:
+        return str(refused)
+    except (ValueError, RecursionError):
+        return None
+    return None
+
+
 class IdempotencyMiddleware:
     """Deduplicate client-retried unsafe requests carrying an ``Idempotency-Key``.
 
@@ -693,7 +794,8 @@ def install_security_middleware(
     """Attach the full security stack to *app* from its central ``SecurityConfig``.
 
     Added innermost-first so the resulting outer→inner order is request-id,
-    security-headers, CORS, client-ip, rate-limit, request-size-limit, idempotency.
+    security-headers, CORS, client-ip, rate-limit, request-size-limit, idempotency,
+    non-finite-json.
     Request-id and the security headers wrap CORS so that even a CORS preflight
     (handled and short-circuited by the CORS middleware) still carries a correlation
     id and the security headers. The client-ip resolver always attaches (it feeds
@@ -704,53 +806,68 @@ def install_security_middleware(
     supplies one; the default is per-process). The idempotency dedup sits innermost —
     inside the request-size cap (so its body fingerprinting is bounded) and inside the
     per-request headers (so a replayed response gets fresh ones) — keeping its state in
-    *idempotency_store*. *request_size_overrides* is the
+    *idempotency_store*. The non-finite-json refusal is innermost of all, nearest the
+    decode it guards and, like the idempotency buffer, inside the size cap that bounds
+    what it reads. *request_size_overrides* is the
     prefix→cap map the composition root derives from each mounted spec's declared
     ``max_request_bytes`` (ADR 0067); unmatched paths keep the global cap. **Both**
     body-bounding middlewares receive it: the idempotency buffer used to carry its own
     fixed 1 MiB default that nothing here passed, so a mount raising its declared
     allowance was still refused one layer in.
     """
-    app.add_middleware(
-        IdempotencyMiddleware,
-        store=idempotency_store,
-        max_body_bytes=config.max_request_bytes,
-        overrides=request_size_overrides,
-    )
-    app.add_middleware(
-        RequestSizeLimitMiddleware,
-        max_bytes=config.max_request_bytes,
-        overrides=request_size_overrides,
-    )
+    # One declared list, installed through one call. ``add_middleware`` wraps whatever is
+    # already there, so the first entry ends up nearest the app and the last outermost;
+    # the order above is this list read bottom to top. Each ``Middleware(...)`` checks its
+    # options against the layer's own constructor, as a direct call would.
+    stack = [
+        Middleware(NonFiniteJsonMiddleware),
+        Middleware(
+            IdempotencyMiddleware,
+            store=idempotency_store,
+            max_body_bytes=config.max_request_bytes,
+            overrides=request_size_overrides,
+        ),
+        Middleware(
+            RequestSizeLimitMiddleware,
+            max_bytes=config.max_request_bytes,
+            overrides=request_size_overrides,
+        ),
+    ]
     if config.rate_limit.enabled:
-        app.add_middleware(
-            RateLimitMiddleware,
-            limit=config.rate_limit.requests,
-            window=config.rate_limit.window_seconds,
-            # Already merged by the composition root: each mounted spec's declared
-            # rate_limit, then SecurityConfig.rate_limit_overrides on top (ADR 0138).
-            overrides=dict(rate_limit_overrides or {}),
-            store=throttle_store,
+        stack.append(
+            Middleware(
+                RateLimitMiddleware,
+                limit=config.rate_limit.requests,
+                window=config.rate_limit.window_seconds,
+                # Already merged by the composition root: each mounted spec's declared
+                # rate_limit, then SecurityConfig.rate_limit_overrides on top (ADR 0138).
+                overrides=dict(rate_limit_overrides or {}),
+                store=throttle_store,
+            )
         )
-    app.add_middleware(ClientIpMiddleware, trusted_proxy_hops=config.trusted_proxy_hops)
+    stack.append(Middleware(ClientIpMiddleware, trusted_proxy_hops=config.trusted_proxy_hops))
     if config.cors.enabled:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=list(config.cors.allow_origins),
-            allow_credentials=config.cors.allow_credentials,
-            allow_methods=list(config.cors.allow_methods),
-            allow_headers=list(config.cors.allow_headers),
-            expose_headers=list(config.cors.expose_headers),
+        stack.append(
+            Middleware(
+                CORSMiddleware,
+                allow_origins=list(config.cors.allow_origins),
+                allow_credentials=config.cors.allow_credentials,
+                allow_methods=list(config.cors.allow_methods),
+                allow_headers=list(config.cors.allow_headers),
+                expose_headers=list(config.cors.expose_headers),
+            )
         )
-    app.add_middleware(
-        SecurityHeadersMiddleware, headers=config.headers, include_hsts=not is_local
+    stack.append(
+        Middleware(SecurityHeadersMiddleware, headers=config.headers, include_hsts=not is_local)
     )
-    app.add_middleware(RequestIdMiddleware, header_name=config.request_id_header)
-
+    stack.append(Middleware(RequestIdMiddleware, header_name=config.request_id_header))
+    for layer in stack:
+        app.add_middleware(layer.cls, *layer.args, **layer.kwargs)
 
 __all__ = [
     "ClientIpMiddleware",
     "IdempotencyMiddleware",
+    "NonFiniteJsonMiddleware",
     "RateLimitMiddleware",
     "RequestIdMiddleware",
     "RequestSizeLimitMiddleware",
