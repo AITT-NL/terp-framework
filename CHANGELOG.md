@@ -232,6 +232,49 @@ repeated more often than the values it applied to.
   parses every inventory command with the real CLI parser, so a renamed command cannot leave
   a dead instruction behind.
 
+- **`terp` no longer dies on a Windows pipe because of a character cp1252 lacks.** On
+  Windows a pipe or a file takes the ANSI code page, and a pipe is exactly how an agent, an
+  editor task or a workbench reads the CLI. cp1252 has no `→`, so the line `terp dev`
+  prints before starting the servers ended the command with `UnicodeEncodeError` before
+  anything booted, and text the CLI does not author — a module's label, a finding quoting
+  a source line — could do the same to any command. The entry point now switches standard
+  output and error to UTF-8 wherever they are not already. A console and every Linux or
+  macOS terminal are untouched. An undecodable file name prints as an escape instead of
+  ending the command.
+
+- **`terp dev` restarts the backend on Windows, however it was started (ADR 0156).** It ran
+  uvicorn with `--reload`, whose reloader restarts its worker on Windows by sending a console
+  Ctrl+C and then waiting, without a time limit, for the worker to exit. Started from
+  anything that is not an interactive console (an agent's shell tool, an editor task, a
+  workbench), that signal never stopped the worker. The reloader logged "Reloading..." and
+  nothing after it, and the old code went on answering, edit after edit. `terp dev` now runs
+  plain uvicorn and restarts it itself.
+  - **What restarts it:** a change to a Python source of the app package or of any
+    `[tool.terp.arch] app_packages` package — the same declaration the gate scans, and never
+    `node_modules` or the virtualenv.
+  - **How it stops:** on Windows, the process tree is ended with `taskkill /T`, which needs no
+    console. The same stop fixes the frontend: `npm` runs through `cmd.exe` there, so a plain
+    terminate used to leave Vite holding the web port.
+  - **A backend that fails to import** after a half-written save waits for the next save
+    instead of ending the session.
+  - **Ctrl+C** stops everything cleanly.
+  - **`terp dev`'s own lines** are flushed as they are written, instead of sitting in a
+    pipe's buffer until the process ends.
+
+- **`terp dev` answers on the checkout's own ports, the ones a workbench and compose use (ADR
+  0134).** It bound a fixed 22100/21100. On a machine where another application held either
+  port, it collided with that application. The same checkout also answered on one pair when a
+  workbench started it and on another when an editor task ran `terp dev`, so a browser tab, the
+  conformance suite or an agent pointed at the first pair talked to nothing.
+  - **Which ports:** `terp dev` now takes the pair `terp ports` settles for the checkout. It
+    adopts what a workbench or a person published in `.env`, otherwise reuses the checkout's
+    claim, otherwise claims and publishes a free pair. `--port` and `--web-port` still win.
+  - **When nothing can be claimed,** the fixed pair is used and the reason is printed.
+  - **A port already held** when the start begins is refused before anything runs, naming
+    `terp ports assign --reassign` and the flags.
+  - **Vite runs with `--strictPort`,** so the frontend refuses a taken port instead of quietly
+    moving to the next one.
+
 ### Upgrade notes
 
 - **Every screen looks different, and no app has to do anything to get it.** The surface model

@@ -27,7 +27,7 @@
       "no_exception_text_in_responses": 1,
       "no_internal_imports": 1,
       "no_oversized_python_files": 8,
-      "no_print": 64,
+      "no_print": 61,
       "no_raw_outbound_http": 3,
       "no_raw_session_construction": 1
     }

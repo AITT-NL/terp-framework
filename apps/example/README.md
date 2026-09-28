@@ -32,11 +32,13 @@ docker compose -f apps/example/docker-compose.yml watch
 
 That brings up Postgres, runs the migrations, seeds `admin@acme.test` (password
 `correct horse battery staple`) plus demo notes / tasks / journal / projects, then serves the
-API (`:8000`) and the frontend (`:5173`). Open the frontend and log in. Set `API_PORT` /
-`WEB_PORT` in a `.env` (see `.env.example`) if those host ports are busy.
+API on host port `22100` and the frontend on `21100`, the fallbacks in its compose file. Open
+the frontend and log in. If either port is busy, `terp ports assign` claims this checkout a free
+pair and publishes it as `API_PORT` / `WEB_PORT` in `.env`, which compose reads.
 
-Prefer local processes? `terp dev` runs uvicorn + Vite together (SQLite); bootstrap a first
-admin with `terp user create admin@acme.test --role admin` and seed with `terp seed`.
+Prefer local processes? `terp dev` runs uvicorn + Vite together (SQLite), on the pair claimed
+for this checkout (`terp ports show`), claiming one on first run; bootstrap a first admin with
+`terp user create admin@acme.test --role admin` and seed with `terp seed`.
 
 ## Run it
 
