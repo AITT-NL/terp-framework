@@ -327,8 +327,10 @@ describe("LocaleProvider + LanguageSwitcher", () => {
 });
 
 describe("count-bearing framework strings", () => {
-  // Each is held to the plural categories of the locale it is in, which is why Polish appears:
-  // it has four, so a check hard-wired to English's two would pass Dutch and still be wrong.
+  // The check at render is structural: which categories a language uses comes from the
+  // runtime's ICU data, which differs between browsers, so a check against it would pass a
+  // catalog in one browser and blank the app in another. The shipped catalogs are held to
+  // their languages' categories below, by tests that run where the ICU is fixed.
   function refuse(code: string, key: string, translated: unknown): () => void {
     return () =>
       render(
@@ -340,38 +342,53 @@ describe("count-bearing framework strings", () => {
       );
   }
 
-  it("refuses a single string where the locale takes a form per category", () => {
+  function Range({ count }: { count: number }) {
+    const plural = usePlural();
+    return <p>{plural(useStrings().dataViewResultsRange, count)}</p>;
+  }
+
+  it("refuses a single string where the key takes a form per category", () => {
     expect(refuse("nl", "dataViewResultsRange", "{from}–{to} van {total} resultaten")).toThrow(
-      /"dataViewResultsRange" counts something, so it takes one form per plural category of "nl" \(one, other\)/,
+      /Locale "nl" framework string "dataViewResultsRange" counts something, so it takes one form per plural category/,
     );
   });
 
-  it("refuses a form the locale uses and the catalog left out", () => {
-    expect(refuse("nl", "accessUnexplainedRoutes", { other: "{count} acties" })).toThrow(
-      /"accessUnexplainedRoutes" has no "one" form; "nl" uses one, other/,
+  it("refuses a catalog with no other form, or an empty form", () => {
+    expect(refuse("nl", "accessUnexplainedRoutes", { one: "{count} actie" })).toThrow(
+      /"accessUnexplainedRoutes" has no "other" form, which every language uses/,
     );
     expect(refuse("nl", "accessUnexplainedRoutes", { one: " ", other: "{count} acties" })).toThrow(
-      /has no "one" form/,
+      /"accessUnexplainedRoutes" has no "one" form/,
     );
   });
 
-  it("refuses a form the locale never selects", () => {
+  it("refuses a form named by something that is not a plural category", () => {
     expect(
-      refuse("nl", "dataViewSelectAllResults", { one: "a", few: "b", other: "c" }),
-    ).toThrow(/"dataViewSelectAllResults" has a "few" form, which "nl" never selects/);
+      refuse("nl", "dataViewSelectAllResults", { one: "a", plural: "b", other: "c" }),
+    ).toThrow(/"dataViewSelectAllResults" has a "plural" form, which is not a plural category/);
   });
 
-  it("holds each locale to its own categories", () => {
-    expect(refuse("pl", "dataViewResultsRange", { one: "a", other: "b" })).toThrow(
-      /has no "few" form; "pl" uses one, few, many, other/,
+  it("accepts a form the runtime's plural data does not select, and answers a missing one with other", () => {
+    // French is one/other on some engines and one/many/other on newer ones: a catalog written
+    // for either must work on both, so a stray category is harmless and a missing one falls
+    // back. Here: Polish four is "few", which the catalog does not have.
+    render(
+      <LocaleProvider
+        locales={{
+          en: LOCALE_EN,
+          pl: {
+            strings: {
+              ...completeCatalog("pl"),
+              dataViewResultsRange: { one: "jeden", zero: "zero", other: "inne" },
+            },
+          },
+        }}
+        defaultLocale="pl"
+      >
+        <Range count={4} />
+      </LocaleProvider>,
     );
-    expect(() =>
-      render(
-        <LocaleProvider locales={{ en: LOCALE_EN, pl: { strings: completeCatalog("pl") } }}>
-          <span />
-        </LocaleProvider>,
-      ),
-    ).not.toThrow();
+    expect(screen.getByText("inne")).toBeInTheDocument();
   });
 
   it("refuses a locale code that is not a language tag, before anything renders a count", () => {
@@ -390,10 +407,6 @@ describe("count-bearing framework strings", () => {
     // Four is "few" in Polish and "other" in English, so this fails if LocaleProvider stops
     // handing its locale to the UiText seam. Dutch could not show it: for every integer, Dutch
     // and English choose the same form.
-    function Range({ count }: { count: number }) {
-      const plural = usePlural();
-      return <p>{plural(useStrings().dataViewResultsRange, count)}</p>;
-    }
     render(
       <LocaleProvider
         locales={{ en: LOCALE_EN, pl: { strings: completeCatalog("pl") } }}
@@ -407,6 +420,25 @@ describe("count-bearing framework strings", () => {
 });
 
 describe("LOCALE_NL", () => {
+  it("writes each count-bearing string in exactly the plural forms its language uses", () => {
+    // The per-language half of the plural check, run where the ICU data is fixed rather than
+    // in whatever browser renders the catalog. English is the defaults; Dutch is this catalog.
+    const counted = Object.keys(DEFAULT_STRINGS).filter(
+      (key) => typeof DEFAULT_STRINGS[key as keyof typeof DEFAULT_STRINGS] !== "string",
+    );
+    expect(counted.length).toBeGreaterThan(0);
+    for (const [code, table] of [
+      ["en", DEFAULT_STRINGS],
+      ["nl", LOCALE_NL.strings ?? {}],
+    ] as const) {
+      const categories = [...new Intl.PluralRules(code).resolvedOptions().pluralCategories].sort();
+      for (const key of counted) {
+        const forms = (table as Record<string, unknown>)[key] as Record<string, string>;
+        expect(Object.keys(forms).sort(), `${code} ${key}`).toEqual(categories);
+      }
+    }
+  });
+
   it("translates every framework string (completeness drift-guard)", () => {
     // A new TerpStrings key without a Dutch translation fails here, so the
     // bundled catalog can never silently fall back to English for new chrome.

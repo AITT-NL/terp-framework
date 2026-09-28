@@ -336,6 +336,24 @@ def iter_declaring_routes(routes: Sequence[object]) -> Iterator[object]:
             yield from iter_declaring_routes(sub)
 
 
+def iter_every_route(routes: Sequence[object]) -> Iterator[object]:
+    """Every route under *routes*, of whatever kind, descending into included routers.
+
+    :func:`iter_declaring_routes` yields the FastAPI routes a declaration can sit on and passes
+    over the rest. This one yields the rest too — a plain Starlette ``Route`` from
+    ``add_route``, a ``WebSocketRoute``, a ``Mount`` — because FastAPI serves those without the
+    router's dependencies, so neither the guard nor the read-only binder runs for them, and a
+    check that must see every route has to see them. It descends into an included router only,
+    never into a mount's application: the mount itself is what such a check is looking for.
+    """
+    for route in routes:
+        nested = getattr(route, "original_router", None)
+        if nested is not None:
+            yield from iter_every_route(nested.routes)
+        else:
+            yield route
+
+
 def route_permission_names(route: object) -> list[str]:
     """Every ``require_permission`` name this route enforces, in declaration order.
 

@@ -106,6 +106,10 @@ Add a module (the "10-minute module")
      @router.post("/", response_model=InvoiceRead, status_code=201)
      def create_invoice(payload: InvoiceCreate, session: SessionDep) -> InvoiceRead:
          return InvoiceRead.model_validate(_service.create(session, payload))
+   Register every route with a route decorator or add_api_route. A plain Starlette route
+   (router.add_route), a Starlette WebSocket route or a Mount is served without the
+   router's dependencies, so the deny-by-default guard never runs for it, and the boot
+   refuses one. A route anyone may call declares route_policy(Policy.public(reason=...)).
 
 5) module.py   the manifest
      module = ModuleSpec(name="invoices", router=router, policy=Policy.default())

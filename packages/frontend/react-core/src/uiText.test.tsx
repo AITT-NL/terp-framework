@@ -61,13 +61,27 @@ describe("usePlural", () => {
     ]);
   });
 
-  it("answers with the other form when an unchecked table lacks the chosen one", () => {
+  it("answers with the other form when the text lacks the chosen one", () => {
     render(
       <UiTextProvider locale="pl">
         <Chosen count={3} text={{ other: "some" }} />
       </UiTextProvider>,
     );
     expect(screen.getByRole("listitem")).toHaveTextContent("3:some");
+  });
+
+  it("refuses a table given directly that writes a count-bearing string as one string", () => {
+    // The old shape. Unchecked, `plural` would have handed `undefined` to the caller that
+    // fills the placeholders, and the access pane would have thrown on `.replace`.
+    expect(() =>
+      render(
+        <UiTextProvider
+          strings={{ accessUnexplainedRoutes: "{count} acties" as unknown as PluralText }}
+        >
+          <span />
+        </UiTextProvider>,
+      ),
+    ).toThrow(/UiTextProvider framework string "accessUnexplainedRoutes" counts something/);
   });
 });
 

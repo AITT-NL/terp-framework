@@ -36,6 +36,7 @@ from terp.capabilities.auth import SubjectKind
 from terp.core import AuthenticationError, Principal, SessionDep, get_principal
 
 from terp.capabilities.identity.models import ServiceAccount, User
+from terp.capabilities.identity.service_accounts import ServiceAccountService
 
 
 @dataclass(frozen=True)
@@ -54,19 +55,29 @@ def current_caller(
 ) -> Caller:
     """Resolve the request's principal to a :class:`Caller`, or refuse it as unauthenticated.
 
-    An unauthenticated request is refused, and so is a principal whose row no longer exists —
-    a token for a removed subject reaching a provider that does not check the store — rather
-    than being named by an id nobody can read. The row is looked up in the table the
+    An unauthenticated request is refused, and so is a principal whose account can no longer
+    act: a row that is gone, a user or service account that was deactivated, a service account
+    past its expiry. The bundled revocable provider already refuses those tokens; a provider
+    that does not check the store lets them through, and a module must not then record a
+    switched-off account as the one who acted. The row is looked up in the table the
     principal's kind says it lives in; a service account is never looked up as a user.
     """
     if principal is None:
         raise AuthenticationError()
+    name: str | None = None
     if principal.kind == SubjectKind.SERVICE:
         account = session.get(ServiceAccount, principal.id)
-        name = None if account is None else account.name
+        # The service's own expiry rule, so the two cannot disagree about a naive timestamp.
+        if (
+            account is not None
+            and account.is_active
+            and not ServiceAccountService._is_expired(account)
+        ):
+            name = account.name
     else:
         user = session.get(User, principal.id)
-        name = None if user is None else user.email
+        if user is not None and user.is_active:
+            name = user.email
     if name is None:
         raise AuthenticationError()
     return Caller(id=principal.id, name=name)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 import asyncio
 import datetime
 import uuid
@@ -26,7 +27,15 @@ from terp.capabilities.auth import (
 from terp.capabilities.auth.deps import _bearer_token
 from terp.capabilities.tenancy import TenantMiddleware
 
-_KEY = "terp-coverage-test-secret-key-0123456789ab"
+# Generated, not written: the tests hand-craft tokens with it, so it must be known here,
+# and a key-shaped literal is what the secret scan flags (ADR 0163).
+_KEY = secrets.token_urlsafe(32)
+
+
+@pytest.fixture(autouse=True)
+def _signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sign with this module's known key, and put the session's back after each test."""
+    monkeypatch.setattr(settings, "SECRET_KEY", _KEY)
 
 
 def _request(headers: dict[str, str] | None = None) -> Request:
@@ -45,7 +54,6 @@ def test_bearer_token_extraction() -> None:
 
 
 def test_decode_rejects_garbage_and_malformed_payload() -> None:
-    settings.SECRET_KEY = _KEY
     with pytest.raises(AuthenticationError):
         decode_access_token("not.a.jwt")
     malformed = jwt.encode({"foo": "bar"}, _KEY, algorithm="HS256")
@@ -56,7 +64,6 @@ def test_decode_rejects_garbage_and_malformed_payload() -> None:
 def test_custom_role_round_trips_through_the_jwt() -> None:
     # Genericness proof: a consumer-defined role (not viewer/editor/admin) keeps
     # its name and rank across issue -> decode, with no coercion to a fixed tier.
-    settings.SECRET_KEY = _KEY
     approver = Role("approver", rank=25)
     claims = decode_access_token(create_access_token(subject=uuid.uuid4(), role=approver))
     assert claims.role == approver
@@ -66,7 +73,6 @@ def test_tokens_sign_and_require_the_registered_audience_and_issuer() -> None:
     # ADR 0076: every access token carries the fixed iss/aud pair, and decode
     # refuses a token minted without them or for a foreign audience/issuer —
     # even one signed with the very same shared secret.
-    settings.SECRET_KEY = _KEY
     raw = jwt.decode(
         create_access_token(subject=uuid.uuid4(), role=Roles.EDITOR),
         _KEY,
@@ -101,47 +107,43 @@ def test_tokens_sign_and_require_the_registered_audience_and_issuer() -> None:
         decode_access_token(jwt.encode({**base, "sub": "not-a-uuid"}, _KEY, algorithm="HS256"))
 
 
-def test_rotation_fallback_verifies_old_tokens_but_never_signs_new_ones() -> None:
+def test_rotation_fallback_verifies_old_tokens_but_never_signs_new_ones(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # ADR 0076: SECRET_KEY_FALLBACKS keeps an already-issued token valid across a
     # key rotation; signing always uses the current key, and dropping the fallback
-    # ends the window fail-closed.
-    old_key = "terp-coverage-old-signing-key-0123456789abcd"
-    new_key = "terp-coverage-new-signing-key-0123456789abcd"
-    settings.SECRET_KEY = old_key
+    # ends the window fail-closed. monkeypatch puts both settings back afterwards.
+    old_key, new_key = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+    monkeypatch.setattr(settings, "SECRET_KEY", old_key)
     holder = uuid.uuid4()
     outstanding = create_access_token(subject=holder, role=Roles.EDITOR)
-    try:
-        settings.SECRET_KEY = new_key
-        settings.SECRET_KEY_FALLBACKS = [old_key]
-        assert decode_access_token(outstanding).subject == holder
-        # A freshly minted token is signed with the *current* key, never a fallback.
-        fresh = create_access_token(subject=uuid.uuid4(), role=Roles.EDITOR)
-        jwt.decode(
-            fresh,
-            new_key,
-            algorithms=["HS256"],
-            audience=TOKEN_AUDIENCE,
-            issuer=TOKEN_ISSUER,
-        )
-        # An expired / tampered token is final — never retried against a fallback.
-        expired = create_access_token(
-            subject=uuid.uuid4(),
-            role=Roles.EDITOR,
-            expires_in=datetime.timedelta(minutes=-1),
-        )
-        with pytest.raises(AuthenticationError):
-            decode_access_token(expired)
-        # Dropping the fallback closes the window: the old-key token dies.
-        settings.SECRET_KEY_FALLBACKS = []
-        with pytest.raises(AuthenticationError):
-            decode_access_token(outstanding)
-    finally:
-        settings.SECRET_KEY_FALLBACKS = []
-        settings.SECRET_KEY = _KEY
+    monkeypatch.setattr(settings, "SECRET_KEY", new_key)
+    monkeypatch.setattr(settings, "SECRET_KEY_FALLBACKS", [old_key])
+    assert decode_access_token(outstanding).subject == holder
+    # A freshly minted token is signed with the *current* key, never a fallback.
+    fresh = create_access_token(subject=uuid.uuid4(), role=Roles.EDITOR)
+    jwt.decode(
+        fresh,
+        new_key,
+        algorithms=["HS256"],
+        audience=TOKEN_AUDIENCE,
+        issuer=TOKEN_ISSUER,
+    )
+    # An expired / tampered token is final — never retried against a fallback.
+    expired = create_access_token(
+        subject=uuid.uuid4(),
+        role=Roles.EDITOR,
+        expires_in=datetime.timedelta(minutes=-1),
+    )
+    with pytest.raises(AuthenticationError):
+        decode_access_token(expired)
+    # Dropping the fallback closes the window: the old-key token dies.
+    monkeypatch.setattr(settings, "SECRET_KEY_FALLBACKS", [])
+    with pytest.raises(AuthenticationError):
+        decode_access_token(outstanding)
 
 
 def test_get_principal_and_tenant_from_bearer_round_trip() -> None:
-    settings.SECRET_KEY = _KEY
     subject = uuid.uuid4()
     tenant = uuid.uuid4()
     token = create_access_token(subject=subject, role=Roles.EDITOR, tenant=tenant)

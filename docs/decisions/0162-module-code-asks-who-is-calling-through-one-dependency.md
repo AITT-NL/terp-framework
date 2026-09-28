@@ -43,9 +43,12 @@ session and wrong for a dependency that may sit on every write route.
 `current_caller` reads the live row through the request's own session and the kernel's
 `get_principal` seam, so it needs no wiring and reflects a renamed account as it is now. The
 principal's kind decides which table is read, so a service account is never looked up as a
-user. An unauthenticated request is refused, and so is a principal whose row no longer exists
-— a token for a removed subject reaching a provider that does not check the store — rather than
-being named by an id nobody can read.
+user. An unauthenticated request is refused, and so is a principal whose account can no longer
+act: a row that is gone, a user or service account that was deactivated, a service account past
+its expiry. The bundled revocable provider already refuses those tokens; a provider that does
+not check the store lets them through, and a module must not then record a switched-off
+account as the one who acted. Expiry is the service account service's own rule, so the two
+cannot disagree about a timestamp SQLite hands back without a zone.
 
 It lives in identity because identity owns both tables. It is not a kernel seam, because the
 kernel cannot name a user store, and it is not a method on `IdentityService`, because an

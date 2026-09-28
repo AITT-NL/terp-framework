@@ -10,6 +10,7 @@ lock an account lives in ``apps/example/tests/test_session_revocation_api.py``.
 
 from __future__ import annotations
 
+import secrets
 import datetime
 import uuid
 
@@ -41,7 +42,15 @@ from terp.capabilities.auth import (
     decode_access_token,
 )
 
-_KEY = "terp-session-revocation-secret-key-0123456789"
+# Generated, not written: the tests hand-craft tokens with it, so it must be known here,
+# and a key-shaped literal is what the secret scan flags (ADR 0163).
+_KEY = secrets.token_urlsafe(32)
+
+@pytest.fixture(autouse=True)
+def _signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sign with this module's known key, and put the session's back after each test."""
+    monkeypatch.setattr(settings, "SECRET_KEY", _KEY)
+
 # A stand-in for the request Session the provider passes the validator: the validators
 # below ignore it (they decide purely on the decoded claims), so any object will do.
 _SESSION = object()
@@ -326,7 +335,6 @@ def test_build_get_principal_marks_only_the_validated_provider() -> None:
 
 
 def test_validated_provider_rejects_a_token_its_validator_fails() -> None:
-    settings.SECRET_KEY = _KEY
     subject = uuid.uuid4()
     token = create_access_token(subject=subject, role=Roles.EDITOR, token_version=2)
     request = _request({"Authorization": f"Bearer {token}"})
@@ -351,7 +359,6 @@ def test_validated_provider_rejects_a_token_its_validator_fails() -> None:
 
 
 def test_realtime_validator_rechecks_credential_identity() -> None:
-    settings.SECRET_KEY = _KEY
     subject = uuid.uuid4()
     token = create_access_token(subject=subject, role=Roles.EDITOR, token_version=3)
     principal = Principal(id=subject, role=Roles.EDITOR)
@@ -364,7 +371,6 @@ def test_realtime_validator_rechecks_credential_identity() -> None:
 
 
 def test_realtime_validator_refuses_an_expired_access_token() -> None:
-    settings.SECRET_KEY = _KEY
     subject = uuid.uuid4()
     expired = create_access_token(
         subject=subject,
@@ -401,7 +407,6 @@ def test_boot_accepts_a_revocation_enforcing_provider() -> None:
 # token epoch claim round-trip
 # --------------------------------------------------------------------------- #
 def test_token_version_round_trips_and_old_tokens_decode_to_epoch_zero() -> None:
-    settings.SECRET_KEY = _KEY
     subject = uuid.uuid4()
     assert (
         decode_access_token(

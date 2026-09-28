@@ -10,6 +10,7 @@ app disagrees with, and the vectors catch exactly that.
 from __future__ import annotations
 
 import base64
+import secrets
 import contextlib
 import time
 import datetime
@@ -190,7 +191,7 @@ def test_an_unsealed_value_is_refused_rather_than_used() -> None:
 
 def test_a_seal_from_another_key_does_not_open(monkeypatch: pytest.MonkeyPatch) -> None:
     sealed = seal_secret("JBSWY3DPEHPK3PXP")
-    monkeypatch.setattr(settings, "SECRET_KEY", "a-completely-different-secret-key-0123456789")
+    monkeypatch.setattr(settings, "SECRET_KEY", secrets.token_urlsafe(32))
     with pytest.raises(MfaSecretError):
         unseal_secret(sealed)
 

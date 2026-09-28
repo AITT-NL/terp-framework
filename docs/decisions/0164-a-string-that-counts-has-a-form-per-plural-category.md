@@ -33,16 +33,23 @@ and in Russian 21 takes the singular form.
    `other` always required, the same `{placeholder}`s in every form. Each form is a whole
    sentence, and the placeholders stay in the `one` form too, because a category is a
    grammatical class and not a number.
-2. **A catalog supplies exactly its locale's categories.** `LocaleProvider` and
-   `defineAppLocales` read them from the locale's own `Intl.PluralRules` and refuse a single
-   string where forms are due, a category the language uses and the catalog left out, and a form
-   the language never selects. The check is as wide as the language: two forms for Dutch, four
-   for Polish. Completeness (ADR 0105) is unchanged: a key is present or it is missing, and a
-   present value has already been held to its shape.
+2. **The shape is checked where a table arrives; the language is checked where the ICU is
+   fixed.** `LocaleProvider`, `defineAppLocales` and a `UiTextProvider` given its strings
+   directly refuse a count-bearing key written as one string, one with no `other` form, an
+   empty form, and a form named by anything but a CLDR category. They do not check a
+   catalog's categories against its language, because that answer comes from the runtime's
+   ICU data, which differs between browsers and versions: French is `one`/`other` on some
+   engines and `one`/`many`/`other` on newer ones, so a check against it would pass a catalog
+   in one browser and blank the app in the next. The shipped catalogs are held to exactly
+   their languages' categories by react-core's own tests instead, where the ICU is fixed. A
+   category a catalog has no form for is answered by `other`. Completeness (ADR 0105) is
+   unchanged: a key is present or it is missing.
 3. **The form is chosen through the UiText seam.** `UiTextProvider` carries the locale whose
    rules apply, `LocaleProvider` passes its active one, and the root default is English. The
    framework's components choose by the count they render — the total for the range and the
-   select-all label, the route count for the access warning.
+   select-all label, the route count for the access warning — through `usePlural`, which is
+   exported so that app code reading one of these strings from `useStrings` chooses the same
+   way.
 4. **A manifest's `FrameworkText` names plain strings only.** A navigation label has no count to
    choose a form by, so the type no longer admits a count-bearing key, and a manifest that was
    never typechecked is refused at render with a message saying why.
@@ -58,16 +65,16 @@ object keyed by category is checked by its structure.
 
 ## Consequences
 
-- An app with a non-English catalog of its own supplies the three keys as forms, and is told
-  exactly which form is missing or stray. `LOCALE_NL` ships them. An app on `LOCALE_EN` and
-  `LOCALE_NL` changes nothing.
+- An app that supplies any of the three keys itself — in a catalog of any locale, English
+  included, or to a `UiTextProvider` directly — writes them as forms, and is told what is
+  wrong with the shape. `LOCALE_NL` ships them. An app on `LOCALE_EN` and `LOCALE_NL` that
+  sets none of the three changes nothing. App code that renders one of them itself chooses the
+  form with `usePlural`.
 - A locale code must be a BCP 47 language tag. `Intl.PluralRules` throws on one that is not
   — `en_US` rather than `en-US` — and a code chooses a plural form now, so an app keyed that
   way would have met a `RangeError` the first time a page rendered a count. `LocaleProvider`
   and `defineAppLocales` refuse such a code when the catalogs are checked, with the spelling to
   use. `<html lang>`, which the code is written to, needed a tag all along.
-- A `UiTextProvider` given `strings` directly is not checked. `other` answers there when the
-  chosen form is absent, so an unchecked table still renders a sentence.
 - **Not covered, and recorded rather than implied:** app-authored copy has no plural form. A
   `UiText` descriptor carries one message, so a DataView override that renames "results" to
   "invoices" still reads "1 invoices". Giving descriptors plural forms is a change to the

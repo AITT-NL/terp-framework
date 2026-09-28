@@ -17,6 +17,7 @@ one they are written for.
 
 from __future__ import annotations
 
+import secrets
 import datetime
 import json
 import logging
@@ -63,7 +64,15 @@ from terp.capabilities.oidc.client import MAX_RESPONSE_BYTES
 from terp.capabilities.oidc.router import _throttle_key
 from terp.core.errors import AppError
 
-_KEY = "terp-oidc-test-secret-key-0123456789abcdef"
+# Generated, not written: the tests hand-craft tokens with it, so it must be known here,
+# and a key-shaped literal is what the secret scan flags (ADR 0163).
+_KEY = secrets.token_urlsafe(32)
+
+@pytest.fixture(autouse=True)
+def _signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sign with this module's known key, and put the session's back after each test."""
+    monkeypatch.setattr(settings, "SECRET_KEY", _KEY)
+
 _ISSUER = "https://idp.example.test"
 _CLIENT_ID = "terp-test-client"
 _KID = "test-key-1"
@@ -750,7 +759,6 @@ def test_router_construction_refuses_bad_registries() -> None:
 
 
 def test_router_construction_refuses_a_sealed_secret_with_no_resolver() -> None:
-    settings.SECRET_KEY = _KEY
     sealed = _config(client_secret=encrypt_config("the-real-secret"))
     with pytest.raises(ValueError, match="sealed client_secret"):
         build_oidc_router([sealed], lambda session, claims: None)
@@ -763,7 +771,6 @@ def _sso_app(
     config: OIDCProviderConfig | None = None,
     **kwargs,
 ) -> tuple[FastAPI, InMemoryStateStore]:
-    settings.SECRET_KEY = _KEY
     store = InMemoryStateStore()
     module = build_oidc_module(
         [config if config is not None else _config()],
@@ -873,7 +880,6 @@ def test_a_refused_identity_is_the_uniform_401(idp: FakeIdP) -> None:
 
 
 def test_a_sealed_client_secret_is_resolved_through_the_app_seam(idp: FakeIdP) -> None:
-    settings.SECRET_KEY = _KEY
     sealed = _config(client_secret=encrypt_config("the-real-secret"))
     principal = Principal(id=uuid.uuid4(), role=Roles.VIEWER)
     unsealed: list[str] = []

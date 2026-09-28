@@ -52,7 +52,10 @@ this removes.
 
 - An app's suite can delete a key it set only to silence the warning, and the `.gitleaksignore`
   entry that key needed.
-- The framework's example app and its full-stack test no longer set one. Tests that need a
-  *known* key — to hand-craft a token, or to exercise rotation — still set their own.
+- The framework's example app, its full-stack test and its MFA suite no longer set one. Tests
+  that need a *known* key — to hand-craft a token, or to exercise rotation — still set their
+  own, generated rather than written, and put back after the test — through `monkeypatch`,
+  or a `finally` where the test already had one — instead of silently replacing the session's
+  key for every test after it.
 - What it does not cover: a token minted at import time, before the session starts, is signed
   with whatever key was in force then. Nothing in the framework's suites does that.

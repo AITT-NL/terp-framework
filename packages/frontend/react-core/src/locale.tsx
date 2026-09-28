@@ -4,7 +4,7 @@ import type { UiText } from "@terpjs/contract";
 
 import { Icon } from "./icons";
 import { Menu, MenuItem } from "./ui/Menu";
-import { DEFAULT_STRINGS, UiTextProvider, useStrings } from "./uiText";
+import { assertPluralShape, DEFAULT_STRINGS, UiTextProvider, useStrings } from "./uiText";
 import type { TerpStrings } from "./uiText";
 
 /**
@@ -53,40 +53,6 @@ function assertLanguageTag(code: string): void {
   }
 }
 
-/**
- * Refuse a count-bearing framework string that does not have exactly *code*'s plural forms.
- *
- * The categories come from the locale's own `Intl.PluralRules`, so the check is as wide as the
- * language: two forms for Dutch, four for Polish. A missing form would render the wrong grammar
- * for some count, and a form the language never selects is a sentence nobody will ever read.
- */
-function assertPluralForms(code: string, key: string, translated: unknown): void {
-  const categories: readonly string[] = new Intl.PluralRules(code).resolvedOptions()
-    .pluralCategories;
-  if (!isRecord(translated)) {
-    throw new Error(
-      `Locale "${code}" framework string "${key}" counts something, so it takes one form per ` +
-        `plural category of "${code}" (${categories.join(", ")}), not a single string.`,
-    );
-  }
-  for (const category of categories) {
-    const form = translated[category];
-    if (typeof form !== "string" || form.trim() === "") {
-      throw new Error(
-        `Locale "${code}" framework string "${key}" has no "${category}" form; "${code}" ` +
-          `uses ${categories.join(", ")}.`,
-      );
-    }
-  }
-  const stray = Object.keys(translated).find((category) => !categories.includes(category));
-  if (stray !== undefined) {
-    throw new Error(
-      `Locale "${code}" framework string "${key}" has a "${stray}" form, which "${code}" never ` +
-        `selects; it uses ${categories.join(", ")}.`,
-    );
-  }
-}
-
 function assertLocaleCatalogs(
   locales: unknown,
   sourceLocale?: string,
@@ -119,7 +85,7 @@ function assertLocaleCatalogs(
         throw new Error(`Locale "${code}" has unknown framework string "${key}".`);
       }
       if (typeof DEFAULT_STRINGS[key as keyof TerpStrings] !== "string") {
-        assertPluralForms(code, key, translated);
+        assertPluralShape(`Locale "${code}"`, key, translated);
         continue;
       }
       if (typeof translated !== "string" || translated.trim() === "") {

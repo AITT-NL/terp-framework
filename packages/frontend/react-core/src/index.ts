@@ -91,6 +91,7 @@ export {
   UiTextProvider,
   Trans,
   useStrings,
+  usePlural,
   useUiText,
   resolveUiText,
   resolveUiTextNode,

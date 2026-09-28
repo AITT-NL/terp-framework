@@ -5,17 +5,15 @@ because nobody had added a write route yet. The substitute an app reaches for â€
 walks ``router.routes`` and fails on any method but ``GET`` â€” misses a route on an included
 sub-router, because FastAPI keeps that as a nested ``_IncludedRouter`` rather than flattening
 it. So the cases below are the ones a hand-written scan gets wrong, and every refusal is
-driven through ``create_app``, where the declaration is enforced.
+driven through ``create_app``, where the declaration is enforced. A plain Starlette route or a
+mount is refused in every module, declared or not, and is tested with that refusal
+(``test_module_routes_are_guarded``).
 """
 
 from __future__ import annotations
 
 import pytest
 from fastapi import APIRouter, WebSocket
-from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import PlainTextResponse
-from starlette.routing import Mount
 
 from terp.core import BaseSchema, BootError, ModuleSpec, Policy, create_app, read_only, route_policy
 
@@ -91,32 +89,6 @@ def test_a_websocket_is_refused_unless_it_declares_itself_pure() -> None:
     async def live(websocket: WebSocket) -> None: ...
 
     with pytest.raises(BootError, match=r"route '/live' \(live\) serves a WebSocket"):
-        _compose(router)
-
-
-async def _plain(request: Request) -> PlainTextResponse:
-    return PlainTextResponse("reached")
-
-
-def test_a_plain_starlette_route_is_refused_because_nothing_guards_it() -> None:
-    """``add_route`` registers a route FastAPI serves without the router's dependencies.
-
-    Measured before this check existed: in a module behind ``Policy.default()`` such a POST
-    answered 200 to a request with no token, so neither the guard nor the read-only binder
-    ran. A read-only module that booted with one would be promising what nothing enforces.
-    """
-    router = _reads()
-    router.add_route("/raw", _plain, methods=["POST"])
-    with pytest.raises(BootError, match=r"mounts Route '/raw', which FastAPI serves without"):
-        _compose(router)
-
-
-def test_a_mount_is_refused_one_router_down_too() -> None:
-    nested = APIRouter()
-    nested.routes.append(Mount("/sub", app=Starlette()))
-    router = _reads()
-    router.include_router(nested, prefix="/deeper")
-    with pytest.raises(BootError, match=r"mounts Mount '/sub'"):
         _compose(router)
 
 

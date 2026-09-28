@@ -846,12 +846,11 @@ reproduced against that release on 2026-09-28 before any of it was changed. One 
       the line with a hand-written test — and one that scans `router.routes` misses a route on
       an included sub-router. `ModuleSpec(read_only=True)` now refuses the boot on any route
       that could write (ADR 0161); boot-only by decision, no catalog rule.
-- [ ] **Found while reviewing ADR 0161, not decided:** a plain Starlette route (`add_route`) or
-      a `Mount` on a module router is served without the policy guard — measured, an
-      unauthenticated `POST` answered 200 in a `Policy.default()` module. `no_raw_app_routes`
-      refuses both at build time (budgeted marker); nothing refuses them at runtime. A
-      `read_only` module now refuses them; whether every module should, which removes the
-      marker's escape for a mount, is a decision for the user (see ADR 0161).
+- [x] **Found while reviewing ADR 0161:** a plain Starlette route (`add_route`), a Starlette
+      WebSocket route or a `Mount` on a module router is served without the policy guard —
+      measured, an unauthenticated `POST` answered 200 in a `Policy.default()` module, and
+      `no_raw_app_routes` could not see `router.routes.append(...)`. `create_app` now refuses
+      one on every module router (ADR 0166).
 - [x] Module code has no supported way to ask who is calling beyond the principal's id and
       role, so an app builds a second `IdentityService` inside a module to read the email.
       `CallerDep` in the identity capability names the caller from the live row — email for

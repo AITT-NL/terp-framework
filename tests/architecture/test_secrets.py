@@ -11,6 +11,7 @@ The matching build-time layer is the ``no_adhoc_config_decrypt`` arch rule
 
 from __future__ import annotations
 
+import secrets
 import sys
 
 import pytest
@@ -121,9 +122,9 @@ def test_decrypt_rejects_a_token_sealed_under_a_different_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Seal under one SECRET_KEY, then rotate the key: the token no longer authenticates.
-    monkeypatch.setattr(settings, "SECRET_KEY", "first-key-first-key-first-key-00")
+    monkeypatch.setattr(settings, "SECRET_KEY", secrets.token_urlsafe(32))
     sealed = encrypt_config("value")
-    monkeypatch.setattr(settings, "SECRET_KEY", "other-key-other-key-other-key-00")
+    monkeypatch.setattr(settings, "SECRET_KEY", secrets.token_urlsafe(32))
     read_sealed = _register_reader()
     with pytest.raises(SecretsError, match="did not authenticate"):
         read_sealed(sealed)

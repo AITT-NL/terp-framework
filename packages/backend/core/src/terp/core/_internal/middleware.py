@@ -438,7 +438,9 @@ class NonFiniteJsonMiddleware:
     before anything is decoded for the route. The body is parsed strictly, and one that
     carries a non-finite number in either form is answered with a typed 422 saying which.
     The overflow is caught where the decoder turns each literal into a float, so no literal
-    can reach a field without passing the check. That is one parse per JSON body more than
+    can reach a field without passing the check. The hook costs a Python call per fractional
+    literal; decoding on the C path and then re-encoding with ``allow_nan=False`` to find an
+    infinity was measured as the alternative and costs more. That is one parse per JSON body more than
     FastAPI's own; the size limiter outside this middleware already bounds the body, and the
     parse needs no prefilter to get wrong — a byte scan for ``NaN`` misses a UTF-16 body,
     which the decoder accepts all the same.

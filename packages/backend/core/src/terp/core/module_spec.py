@@ -386,8 +386,9 @@ class ModuleSpec:
     because no write route had been added yet, which is a guarantee made of missing
     code. Declared, a route that could write is refused where the app is composed:
     one that answers a mutating method, or a WebSocket, unless it is declared
-    :func:`~terp.core.routing.read_only`, and a plain Starlette route or a mount, which
-    FastAPI serves without the guard at all. Every route that boots is then one the
+    :func:`~terp.core.routing.read_only` (a plain Starlette route or a mount, which FastAPI
+    serves without the guard at all, is refused in every module, ADR 0166). Every route
+    that boots is then one the
     runtime binder marks read-only, so a write through the chokepoint fails closed
     as it does in a ``GET``. It is not part of :class:`Policy`, deliberately: a policy
     says who may call, a per-route ``route_policy`` replaces it outright, and neither

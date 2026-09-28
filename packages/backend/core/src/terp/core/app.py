@@ -84,6 +84,7 @@ from terp.core.routing import (
     declared_operation,
     is_read_only,
     iter_declaring_routes,
+    iter_every_route,
     request_method,
     route_permission_names,
 )
@@ -803,7 +804,7 @@ def _validate_token_revocation(
 def _router_has_mutating_route(router: APIRouter) -> bool:
     """True when *router* (including nested included routers) declares a write method."""
     for route in _iter_api_routes(router.routes):
-        if MUTATING_METHODS & {method.upper() for method in (route.methods or ())}:
+        if _mutating_methods(route):
             return True
     return False
 
@@ -1156,7 +1157,7 @@ def validate_public_modules_read_only(specs: Sequence[ModuleSpec]) -> None:
         if policy is None or not policy.is_public or spec.router is None:
             continue
         for route in _iter_api_routes(spec.router.routes):
-            if not MUTATING_METHODS & {m.upper() for m in (route.methods or ())}:
+            if not _mutating_methods(route):
                 continue
             # The route's own policy where it has one: a route that declared itself
             # protected inside a public module is not an unauthenticated write, and
@@ -1175,21 +1176,36 @@ def validate_public_modules_read_only(specs: Sequence[ModuleSpec]) -> None:
             )
 
 
-def _every_route(routes: Sequence[object]) -> Iterator[object]:
-    """Every route under *routes*, descending into included routers, whatever its kind.
+def _validate_module_routes_are_guarded(specs: Sequence[ModuleSpec]) -> None:
+    """Refuse a module router route the deny-by-default guard cannot see (ADR 0166).
 
-    Unlike :func:`~terp.core.routing.iter_declaring_routes`, which yields only the FastAPI
-    routes a declaration can sit on, this also yields what that walk passes over: a plain
-    Starlette ``Route`` from ``add_route``, a ``WebSocketRoute``, a ``Mount``. FastAPI serves
-    those without the router's dependencies, so they are exactly what a guarantee about
-    every route has to see.
+    ``create_app`` guards a module by mounting its router with dependencies, and FastAPI
+    attaches router dependencies to its own routes only. A plain Starlette ``Route`` from
+    ``add_route``, a ``WebSocketRoute`` or a ``Mount`` is served without them: measured, an
+    unauthenticated ``POST`` to either answered 200 in a module behind ``Policy.default()``.
+    The build-time ``no_raw_app_routes`` refuses ``add_route`` and ``mount`` in app code, but
+    not ``router.routes.append(...)``, and an allowance marker there reaches nothing at
+    runtime — so the refusal is here, for every module, where the composed router is read.
     """
-    for route in routes:
-        nested = getattr(route, "original_router", None)
-        if nested is not None:
-            yield from _every_route(nested.routes)
-        else:
-            yield route
+    for spec in specs:
+        if spec.router is None:
+            continue
+        for route in iter_every_route(spec.router.routes):
+            if isinstance(route, APIRoute | APIWebSocketRoute):
+                continue
+            raise BootError(
+                f"module {spec.name!r} mounts {type(route).__name__} "
+                f"{getattr(route, 'path', '?')!r}, which FastAPI serves without the router's "
+                "dependencies: the deny-by-default guard never runs for it, so it answers a "
+                "request with no token. Register it with a route decorator or add_api_route; "
+                "a route anyone may call declares route_policy(Policy.public(reason=...)) "
+                "(terp guide module)"
+            )
+
+
+def _mutating_methods(route: APIRoute) -> list[str]:
+    """The methods *route* answers that carry write authority, upper-cased and sorted."""
+    return sorted(MUTATING_METHODS & {method.upper() for method in (route.methods or ())})
 
 
 def _validate_read_only_modules(specs: Sequence[ModuleSpec]) -> None:
@@ -1198,39 +1214,31 @@ def _validate_read_only_modules(specs: Sequence[ModuleSpec]) -> None:
     A route boots in such a module only if the read-only binder will mark every request
     it serves: an HTTP route none of whose methods is in ``MUTATING_METHODS``, or any
     route declared ``@read_only``. A WebSocket has no method after the upgrade and is a
-    write to the guard, so it needs the declaration too. A plain Starlette route or a mount
-    is refused outright, because FastAPI serves it without the router's dependencies — the
-    binder never runs for it, and neither does the guard. A per-route ``route_policy``
-    changes nothing here — it says who may call, and this is about what the route does.
+    write to the guard, so it needs the declaration too. A plain Starlette route or a mount,
+    which the binder never runs for, does not reach this check:
+    :func:`_validate_module_routes_are_guarded` refuses it in every module first. A
+    per-route ``route_policy`` changes nothing here — it says who may call, and this is
+    about what the route does.
     """
     for spec in specs:
         if not spec.read_only or spec.router is None:
             continue
-        for route in _every_route(spec.router.routes):
-            if not isinstance(route, APIRoute | APIWebSocketRoute):
-                raise BootError(
-                    f"module {spec.name!r} is declared read_only and mounts "
-                    f"{type(route).__name__} {getattr(route, 'path', '?')!r}, which FastAPI "
-                    "serves without the router's dependencies: neither the read-only binder "
-                    "nor the policy guard runs for it. Register the route with a route "
-                    "decorator or add_api_route instead (terp guide policy)"
-                )
-            endpoint = route.endpoint
+        for route in iter_declaring_routes(spec.router.routes):
+            endpoint = getattr(route, "endpoint", None)
             if is_read_only(endpoint):
                 continue
-            if isinstance(route, APIWebSocketRoute):
-                serves = "a WebSocket"
-            else:
-                methods = {method.upper() for method in route.methods}
-                mutating = sorted(MUTATING_METHODS & methods)
+            if isinstance(route, APIRoute):
+                mutating = _mutating_methods(route)
                 if not mutating:
                     continue
                 serves = "/".join(mutating)
+            else:
+                serves = "a WebSocket"
             # The handler's name as well as the path, because a route on an included
             # sub-router reports its path relative to that router, not to the mount.
             raise BootError(
                 f"module {spec.name!r} is declared read_only and route "
-                f"{route.path!r} ({getattr(endpoint, '__name__', '?')}) "
+                f"{getattr(route, 'path', '?')!r} ({getattr(endpoint, '__name__', '?')}) "
                 f"serves {serves}, which can write; a "
                 "read-only module persists nothing through its routes. Move the route to a "
                 "module that writes, or, if it computes an answer and persists nothing, "
@@ -1658,21 +1666,17 @@ def _is_orm_table_model(tp: type) -> bool:
 
 
 def _iter_api_routes(routes: Sequence[object]) -> Iterator[APIRoute]:
-    """Every ``APIRoute`` reachable from *routes*, descending into included sub-routers.
+    """Every HTTP ``APIRoute`` reachable from *routes*, descending into included sub-routers.
 
     ``APIRouter.include_router`` keeps the sub-router as a nested ``_IncludedRouter``
     (its routes live on ``.original_router``), not flattened into ``.routes`` -- so a
     plain ``for route in router.routes`` would miss a route declared on a nested
-    router. Walking the tree keeps the response-model guard total.
+    router. It is :func:`~terp.core.routing.iter_declaring_routes` narrowed to HTTP, so the
+    two cannot come to disagree about what counts as nested.
     """
-    for route in routes:
+    for route in iter_declaring_routes(routes):
         if isinstance(route, APIRoute):
             yield route
-            continue
-        nested = getattr(route, "original_router", None) or route
-        sub = getattr(nested, "routes", None)
-        if sub:
-            yield from _iter_api_routes(sub)
 
 
 # HTTP status codes whose responses carry no body (RFC 9110); a route returning one of
@@ -2173,6 +2177,7 @@ def create_app(
     # Standard's catalog as a runtime enforcement ref, so it carries no promise of a
     # stable spelling and takes the underscore the others had to give up.
     _validate_public_routes_are_declared(collected)
+    _validate_module_routes_are_guarded(collected)
     validate_public_modules_read_only(collected)
     _validate_read_only_modules(collected)
     validate_declared_operations(collected, resolved_plane.operations)

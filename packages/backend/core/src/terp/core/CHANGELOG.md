@@ -13,12 +13,13 @@ decision, 0001 onwards.
 ## 0.29.0 — unreleased
 
 Friction reported from building apps on Terp 0.28.0. At the edges: a request body that could
-still carry an infinite number past the control built to refuse one, and an egress rule that
-did not know the name the HTTP client now also ships under. In the model: a module that only
-reads had no way to say so, module code had no way to ask who was calling, and a test suite had
-to write down a signing key to sign a token. On screen: a count of one read as plural, in
-English and in Dutch. And in every generated project, a test run that warned about a dependency
-its own template installed.
+still carry an infinite number past the control built to refuse one, an egress rule that did
+not know the name the HTTP client now also ships under, and a kind of module route FastAPI
+serves outside the permission guard. In the model: a module that only reads had no way to say
+so, module code had no way to ask who was calling, and a test suite had to write down a
+signing key to sign a token. On screen: a count of one read as plural, in English and in
+Dutch. And in every generated project, a test run that warned about a dependency its own
+template installed.
 
 ### Security
 
@@ -27,6 +28,16 @@ its own template installed.
   module could import it and reach the network with no allowlist, no SSRF check and no timeout
   policy, and nothing would say so. It is refused now, root and submodules, and sent to the
   egress capability like every other raw client.
+
+- **A route on a module router that the guard cannot see is refused at boot (ADR 0166).**
+  `create_app` guards a module by mounting its router with dependencies, and FastAPI attaches
+  those to its own routes only. A plain Starlette route from `add_route`, a Starlette WebSocket
+  route and a mount were served without them: in a module behind `Policy.default()`, an
+  unauthenticated `POST` to either answered 200. The build-time `no_raw_app_routes` refused
+  `add_route` and `mount` in app code but not `router.routes.append(...)`, and an allowance
+  marker spent there reached nothing at runtime. `create_app` now refuses any such route on any
+  module router, included routers too, with the fix in the message: a route decorator or
+  `add_api_route`, and `route_policy(Policy.public(reason=...))` for a route anyone may call.
 
 ### Added
 
@@ -40,9 +51,7 @@ its own template installed.
 
   Declared, `create_app` refuses a route that answers `POST`, `PUT`, `PATCH` or `DELETE`
   (including one of several methods) or a WebSocket, on any router the module includes, unless
-  it is declared `@read_only`, and a plain Starlette route or a mount outright, because FastAPI
-  serves those without the router's dependencies and the guard never runs for them. The
-  refusal names the route's path and its handler. Every route
+  it is declared `@read_only`. The refusal names the route's path and its handler. Every route
   that boots is one the runtime binder already marks read-only, so a write that reaches the
   chokepoint anyway fails closed. The declaration sits on `ModuleSpec`, not on `Policy`, so a
   per-route `route_policy(...)` cannot reopen it. Recipe: `terp guide policy`.
@@ -56,7 +65,9 @@ its own template installed.
   `caller: CallerDep`, from `terp.capabilities.identity`, gives `caller.name` (a user's email,
   or a service account's name) and `caller.id` (the key to store), read from the live row
   through the request's session. The principal's kind decides the table, and a principal whose
-  row is gone is refused as unauthenticated. Nothing to wire. Recipe: `terp guide capability`.
+  account can no longer act — the row gone, the account deactivated, a service account past its
+  expiry — is refused as unauthenticated, even behind a provider that does not check the store.
+  Nothing to wire. Recipe: `terp guide capability`.
 
 - **A test suite that signs tokens needs no key of its own (ADR 0163).** The development
   `SECRET_KEY` is ten bytes on purpose, so production refuses it by length as well as by name,
@@ -93,10 +104,14 @@ its own template installed.
   `dataViewSelectAllResults` and `accessUnexplainedRoutes` — are now `PluralText`, one form per
   CLDR plural category, and the form is chosen by the count under the active locale's
   `Intl.PluralRules`: "1–1 of 1 result", "1–1 van 1 resultaat", "1 action in this module has no
-  description yet". A catalog must supply exactly the categories its locale uses, so the check
-  is right for Polish's four forms as well as Dutch's two. A manifest's `FrameworkText` can no
-  longer name a count-bearing key, and a DataView's per-instance override is still one string,
-  rendered as given.
+  description yet". A catalog, or a table handed to `UiTextProvider`, is refused when a
+  count-bearing key is one string, has no `other` form, or names a form that is not a plural
+  category. Which categories a language uses is not checked where the catalog loads, because
+  that answer differs between browsers' plural data; the shipped catalogs are held to exactly
+  their languages' forms by react-core's tests, and `other` answers for a form a catalog
+  lacks. `usePlural` is exported for app code that renders one of these strings itself. A
+  manifest's `FrameworkText` can no longer name a count-bearing key, and a DataView's
+  per-instance override is still one string, rendered as given.
 
 - **A generated project's tests no longer warn about `httpx` (ADR 0165).** Starlette's test
   client imports `httpx2` first and falls back to `httpx` with a `StarletteDeprecationWarning`:
@@ -108,13 +123,19 @@ its own template installed.
 
 ### Upgrade notes
 
-- **A non-English framework catalog of an app's own supplies three keys as plural forms.** A
-  catalog that sets `dataViewResultsRange`, `dataViewSelectAllResults` or
-  `accessUnexplainedRoutes` to a single string is refused by `LocaleProvider` and
-  `defineAppLocales`, with a message naming the key and the forms its locale uses. Write each as
-  `{ one: "…", other: "…" }`, adding `few`, `many`, `two` or `zero` where the language has them;
-  the refusal lists them. `LOCALE_NL` and `LOCALE_EN` already do, so an app on those changes
-  nothing. A `UiTextProvider` given these keys directly takes the same shape.
+- **Three framework strings take plural forms, wherever an app supplies them.** A catalog of
+  any locale — English included — or a table handed to `UiTextProvider` that sets
+  `dataViewResultsRange`, `dataViewSelectAllResults` or `accessUnexplainedRoutes` to a single
+  string is refused, with a message naming the key. Write each as `{ one: "…", other: "…" }`,
+  adding `zero`, `two`, `few` or `many` where the language has them. `LOCALE_NL` and `LOCALE_EN`
+  already do, so an app on those that sets none of the three changes nothing. App code that
+  read one of them from `useStrings()` as a string now gets the forms; choose one with
+  `usePlural()`.
+
+- **A module router that registers a plain Starlette route, a Starlette WebSocket route or a
+  mount is refused at boot.** Register the route with a route decorator or `add_api_route`;
+  one anyone may call declares `route_policy(Policy.public(reason=...))`. None of the
+  framework's capabilities, its example app or its template did this.
 
 - **An app module that imports `httpx2` is refused by `no_raw_outbound_http`.** Outbound HTTP
   goes through `terp.capabilities.egress`, as it already had to for `httpx`. A test that only

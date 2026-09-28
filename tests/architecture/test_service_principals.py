@@ -9,6 +9,7 @@ exactly the same guard as everyone else.
 
 from __future__ import annotations
 
+import secrets
 import datetime
 import uuid
 
@@ -30,7 +31,8 @@ from terp.capabilities.auth import (
 from terp.capabilities.identity import IdentityService, ServiceAccountService
 from terp.capabilities.identity.schemas import ServiceAccountCreate
 
-_KEY = "terp-service-principal-secret-key-0123456789"
+# Generated, not written: known to this module for hand-crafted tokens (ADR 0163).
+_KEY = secrets.token_urlsafe(32)
 
 
 @pytest.fixture(autouse=True)

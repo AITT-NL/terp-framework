@@ -13,6 +13,7 @@ failure retries with backoff and dead-letters after the budget.
 
 from __future__ import annotations
 
+import secrets
 import hashlib
 import hmac
 import json
@@ -384,11 +385,11 @@ def test_a_secret_that_no_longer_unseals_fails_the_delivery_terminally(
     set_webhook_sender(sender)
     original = settings.SECRET_KEY
     try:
-        settings.SECRET_KEY = "webhooks-seal-key-one-0123456789abcdef"
+        settings.SECRET_KEY = secrets.token_urlsafe(32)
         sealed_elsewhere = seal_secret(_SECRET)
         # Flip the key: the sealed value no longer authenticates (a rotated
         # SECRET_KEY without re-sealing, or a tampered row).
-        settings.SECRET_KEY = "webhooks-seal-key-two-0123456789abcdef"
+        settings.SECRET_KEY = secrets.token_urlsafe(32)
         sub_id = _add_subscription(
             engine, event=_DOC_CREATED.name, secret=sealed_elsewhere
         )

@@ -14,16 +14,55 @@ declare module "@terpjs/contract" {
 /**
  * A framework string whose wording depends on a count: one form per CLDR plural category.
  *
- * English and Dutch each have two categories, `one` and `other`; Polish has four. A catalog
- * supplies exactly the categories its locale's `Intl.PluralRules` produces, and the locale check
- * refuses a form that is missing or one the language does not use. The form is then chosen by
- * the count, so "1 result" and "2 results" are two sentences rather than one sentence with
- * "(s)" in it. Each form keeps the same `{placeholder}`s, because a category is a grammatical
- * class and not a number: in Russian, 21 takes the `one` form.
+ * English and Dutch each have two categories, `one` and `other`; Polish has four. The form is
+ * chosen by the count under the active locale's `Intl.PluralRules`, so "1 result" and
+ * "2 results" are two sentences rather than one sentence with "(s)" in it, and `other` answers
+ * for a category the catalog has no form for. Each form keeps the same `{placeholder}`s,
+ * because a category is a grammatical class and not a number: in Russian, 21 takes the `one`
+ * form.
  */
 export type PluralText = Readonly<Partial<Record<Intl.LDMLPluralRule, string>>> & {
   readonly other: string;
 };
+
+/** Every CLDR plural category; a {@link PluralText} names its forms from these. */
+const PLURAL_CATEGORIES: readonly string[] = ["zero", "one", "two", "few", "many", "other"];
+
+/**
+ * Refuse a count-bearing framework string that is not a {@link PluralText}.
+ *
+ * Structure only, and deliberately: which categories a language uses comes from the runtime's
+ * ICU data, which differs between browsers and versions — French is `one`/`other` on some and
+ * `one`/`many`/`other` on newer ones — so a check against it would pass a catalog in one browser
+ * and blank the app in the next. The shipped catalogs are held to their languages' categories
+ * by react-core's own tests instead, where the ICU is fixed. *where* names the table in the
+ * message: a locale, or a provider given its strings directly.
+ */
+export function assertPluralShape(where: string, key: string, value: unknown): void {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(
+      `${where} framework string "${key}" counts something, so it takes one form per plural ` +
+        'category — at least { other: "…" }, usually { one: "…", other: "…" } — not a single string.',
+    );
+  }
+  const forms = value as Record<string, unknown>;
+  const stray = Object.keys(forms).find((category) => !PLURAL_CATEGORIES.includes(category));
+  if (stray !== undefined) {
+    throw new Error(
+      `${where} framework string "${key}" has a "${stray}" form, which is not a plural ` +
+        `category (${PLURAL_CATEGORIES.join(", ")}).`,
+    );
+  }
+  for (const category of ["other", ...Object.keys(forms)]) {
+    const form = forms[category];
+    if (typeof form !== "string" || form.trim() === "") {
+      throw new Error(
+        `${where} framework string "${key}" has no "${category}" form` +
+          (category === "other" ? ", which every language uses." : "."),
+      );
+    }
+  }
+}
 
 /** Whether *text* is a {@link PluralText} rather than a {@link UiText}. */
 export function isPluralText(text: UiText | PluralText): text is PluralText {
@@ -651,14 +690,20 @@ export interface UiTextProviderProps {
  */
 export function UiTextProvider({ strings, resolveText, locale, children }: UiTextProviderProps) {
   const parent = useContext(UiTextContext);
-  const value = useMemo<UiTextContextValue>(
-    () => ({
+  const value = useMemo<UiTextContextValue>(() => {
+    // A table given here directly has not been through LocaleProvider's check, and a
+    // count-bearing key written the old way, as one string, would render nothing usable.
+    for (const [key, supplied] of Object.entries(strings ?? {})) {
+      if (typeof DEFAULT_STRINGS[key as keyof TerpStrings] !== "string") {
+        assertPluralShape("UiTextProvider", key, supplied);
+      }
+    }
+    return {
       strings: { ...parent.strings, ...strings },
       resolveText: resolveText ?? parent.resolveText,
       locale: locale ?? parent.locale,
-    }),
-    [parent, strings, resolveText, locale],
-  );
+    };
+  }, [parent, strings, resolveText, locale]);
   return <UiTextContext.Provider value={value}>{children}</UiTextContext.Provider>;
 }
 
@@ -670,9 +715,10 @@ export function useStrings(): TerpStrings {
 /**
  * The form of a {@link PluralText} the active locale's grammar gives *count*.
  *
- * A catalog that went through `LocaleProvider` holds every category its locale uses, so the
- * chosen form is always there. `other` answers when it is not: a `UiTextProvider` given its
- * `strings` directly is not checked, and a missing form there still renders a sentence.
+ * `other` answers for a category the text has no form for — a catalog written against another
+ * engine's plural data, or one that leaves a rare category out — so a count always renders a
+ * sentence. For an app that renders a count-bearing framework string itself, read from
+ * {@link useStrings}.
  */
 export function usePlural(): (text: PluralText, count: number) => string {
   const { locale } = useContext(UiTextContext);

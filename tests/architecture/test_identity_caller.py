@@ -8,6 +8,7 @@ and the request's session are the real ones.
 
 from __future__ import annotations
 
+import datetime
 import uuid
 from collections.abc import Iterator
 
@@ -41,6 +42,19 @@ class Named(BaseSchema):
 _SHARED_ID = uuid.uuid4()
 """One id held by a user AND a service account, so the table a lookup reads is visible."""
 
+_DEACTIVATED_USER, _DEACTIVATED_ACCOUNT, _EXPIRED_ACCOUNT = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+
+def _account(account_id: uuid.UUID, name: str, **fields: object) -> ServiceAccount:
+    return ServiceAccount(
+        id=account_id,
+        name=name,
+        client_id=f"client-{name}",
+        hashed_secret="x" * 60,  # never verified here
+        role=int(Roles.EDITOR),
+        **fields,
+    )
+
 
 @pytest.fixture
 def engine() -> Iterator[object]:
@@ -50,13 +64,18 @@ def engine() -> Iterator[object]:
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
         session.add(User(id=_SHARED_ID, email="ops@example.test", role=int(Roles.EDITOR)))
+        session.add(_account(_SHARED_ID, "nightly-sync"))
         session.add(
-            ServiceAccount(
-                id=_SHARED_ID,
-                name="nightly-sync",
-                client_id="client-nightly-sync",
-                hashed_secret="x" * 60,  # never verified here
-                role=int(Roles.EDITOR),
+            User(id=_DEACTIVATED_USER, email="gone@example.test", role=int(Roles.EDITOR), is_active=False)
+        )
+        session.add(_account(_DEACTIVATED_ACCOUNT, "retired-sync", is_active=False))
+        # Naive, as SQLite hands it back: the expiry rule has to normalise it to compare.
+        session.add(
+            _account(
+                _EXPIRED_ACCOUNT,
+                "lapsed-sync",
+                expires_at=datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+                - datetime.timedelta(minutes=1),
             )
         )
         session.commit()
@@ -107,6 +126,24 @@ def test_a_service_account_is_named_by_its_own_name_not_a_users(engine: object) 
 def test_a_subject_whose_row_is_gone_is_unauthenticated(engine: object, kind: str) -> None:
     """A token for a removed subject is refused, not named by an id nobody can read."""
     principal = Principal(id=uuid.uuid4(), role=Roles.VIEWER, kind=kind)
+    response = _client(engine, principal).get("/api/v1/who/")
+    assert response.status_code == 401, response.text
+
+
+@pytest.mark.parametrize(
+    ("subject", "kind"),
+    [
+        (_DEACTIVATED_USER, "user"),
+        (_DEACTIVATED_ACCOUNT, "service"),
+        (_EXPIRED_ACCOUNT, "service"),
+    ],
+    ids=["deactivated user", "deactivated service account", "expired service account"],
+)
+def test_an_account_that_can_no_longer_act_is_unauthenticated(
+    engine: object, subject: uuid.UUID, kind: str
+) -> None:
+    """A provider that does not check the store lets its token through; the name is not given."""
+    principal = Principal(id=subject, role=Roles.VIEWER, kind=kind)
     response = _client(engine, principal).get("/api/v1/who/")
     assert response.status_code == 401, response.text
 

@@ -45,14 +45,14 @@ one the runtime binder already marks read-only, and `create_app` refuses the boo
 - anything else is refused — a route answering `POST` / `PUT` / `PATCH` / `DELETE`, one
   registered with several methods of which one is mutating, and a WebSocket, which has no
   method after the upgrade and which the guard already treats as a write;
-- a plain Starlette route (`add_route`) or a `Mount` is refused outright, declared or not.
-  FastAPI serves it without the router's dependencies, so neither the binder nor the policy
-  guard runs for it. Measured while this was reviewed: in a module behind `Policy.default()`,
-  an unauthenticated `POST` to such a route, and to a mounted sub-app, both answered 200.
+- a plain Starlette route (`add_route`) or a `Mount` never reaches this check. FastAPI serves
+  it without the router's dependencies, so neither the binder nor the policy guard runs for it
+  — measured while this was reviewed: an unauthenticated `POST` to either answered 200 in a
+  module behind `Policy.default()`. It is refused in every module, declared or not
+  ([ADR 0166](0166-a-module-router-carries-only-routes-the-guard-can-see.md)).
 
 The refusal names the module, the route's path and its handler, and the way out: move the
-route to a module that writes, declare it `@read_only` if it persists nothing, or — for a plain
-route — register it with a route decorator so the guard and the binder run for it. The handler is
+route to a module that writes, or declare it `@read_only` if it persists nothing. The handler is
 named because a route on an included sub-router reports its path relative to that router, and
 the path alone can be ambiguous. Measured before relying on it: the binder does run for a
 WebSocket route, and a `@read_only` one executes with the read-only flag set.
@@ -84,9 +84,7 @@ on the change that breaks the promise. A catalog rule would duplicate it less pr
   and are not covered; a module whose background work must not write either needs that said
   where the work runs.
 - A module declared `read_only` with no router is vacuously true and is not refused.
-- **Recorded, not decided:** a plain Starlette route or a mount in a module that does *not*
-  declare `read_only` is served outside the guard as well. The build-time `no_raw_app_routes`
-  refuses `add_route`, `mount` and `add_websocket_route` in app code, with a budgeted escape
-  marker, but nothing refuses one at runtime. Refusing every such route at boot is the missing
-  half of that rule, and it would also remove the marker's escape for a mount, which is why it
-  is a decision of its own rather than part of this one.
+- A plain Starlette route or a mount in a module that does *not* declare `read_only` was
+  served outside the guard as well. This record first left that open as a decision of its own;
+  [ADR 0166](0166-a-module-router-carries-only-routes-the-guard-can-see.md) takes it and
+  refuses one in every module.
