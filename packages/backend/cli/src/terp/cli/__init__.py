@@ -1520,6 +1520,14 @@ Using capabilities
   BASE PROFILE — auth, identity, users, groups, access, audit — so authentication,
   accounts, group membership, permission checks and the audit trail are wired before you
   write anything. Install the others you need.
+- WHO IS CALLING, in words a person reads: take `caller: CallerDep` on the route.
+      from terp.capabilities.identity import CallerDep
+      def pause(name: str, caller: CallerDep, session: SessionDep) -> None:
+          service.pause(session, name, decided_by=caller.name)
+  `caller.name` is a user's email or a service account's name, read from the live row;
+  `caller.id` is the key to store when a record must point at who did it. Never take a
+  "decided by" from the request body (it is whatever the client says), and never build
+  an IdentityService inside a module to look the caller up.
 - SEE WHAT EXISTS BEFORE YOU BUILD IT:
       terp inspect capabilities
   lists every maintained capability, whether this app already has it, the exact

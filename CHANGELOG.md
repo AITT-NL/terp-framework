@@ -32,6 +32,17 @@ an infinite number past the control built to refuse one.
   chokepoint anyway fails closed. The declaration sits on `ModuleSpec`, not on `Policy`, so a
   per-route `route_policy(...)` cannot reopen it. Recipe: `terp guide policy`.
 
+- **Module code asks who is calling through one dependency (ADR 0162).** A route gets a
+  `Principal`, which carries an id, a role and a kind and no name a person would recognise.
+  A module that had to say who did something — the operator on a decision it forwards — had
+  to build its own `IdentityService` and look the user up, which wires a second copy of the
+  composition root's and refuses a service account as unauthenticated.
+
+  `caller: CallerDep`, from `terp.capabilities.identity`, gives `caller.name` (a user's email,
+  or a service account's name) and `caller.id` (the key to store), read from the live row
+  through the request's session. The principal's kind decides the table, and a principal whose
+  row is gone is refused as unauthenticated. Nothing to wire. Recipe: `terp guide capability`.
+
 ### Fixed
 
 - **A number too large for a double is refused like `Infinity` (ADR 0152, amended).** 0.28.0

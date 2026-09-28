@@ -16,6 +16,7 @@ This is a **library** capability: it ships no router (user administration lives 
 
 from __future__ import annotations
 
+from terp.capabilities.identity.caller import Caller, CallerDep, current_caller
 from terp.capabilities.identity.federated import (
     FederatedIdentityLink,
     FederatedIdentityService,
@@ -34,6 +35,11 @@ from terp.capabilities.identity.service import IdentityService
 from terp.capabilities.identity.service_accounts import ServiceAccountService
 
 __all__ = [
+    # Who is calling, as a person names them (ADR 0162): the one supported way for module
+    # code to say who did something, instead of a second IdentityService built in a module.
+    "Caller",
+    "CallerDep",
+    "current_caller",
     "FederatedIdentity",
     "FederatedIdentityLink",
     "FederatedIdentityService",

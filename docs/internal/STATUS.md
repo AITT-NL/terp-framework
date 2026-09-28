@@ -846,8 +846,10 @@ reproduced against that release on 2026-09-28 before any of it was changed. One 
       the line with a hand-written test — and one that scans `router.routes` misses a route on
       an included sub-router. `ModuleSpec(read_only=True)` now refuses the boot on any route
       that could write (ADR 0161); boot-only by decision, no catalog rule.
-- [ ] Module code has no supported way to ask who is calling beyond the principal's id and
+- [x] Module code has no supported way to ask who is calling beyond the principal's id and
       role, so an app builds a second `IdentityService` inside a module to read the email.
+      `CallerDep` in the identity capability names the caller from the live row — email for
+      a user, name for a service account (ADR 0162).
 - [ ] Tests that sign tokens must hard-code a signing key, because the 10-byte development
       default trips pyjwt's key-length warning — and the literal then trips the secret scan.
       The framework's own example app carries one.
