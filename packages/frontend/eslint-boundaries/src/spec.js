@@ -39,6 +39,7 @@ export const BOUNDARY_SPEC = {
     table: "DataView",
     dialog: "ConfirmDialog",
     form: 'Stack as="form"',
+    meter: "Meter",
   },
   /**
    * JSX attributes an app module must not author — styling lives in the design tokens and the
