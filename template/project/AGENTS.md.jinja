@@ -258,9 +258,13 @@ token-styled primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>
 `XMLHttpRequest` / `WebSocket` / `EventSource` / `sendBeacon`),
 design-token styling with no `style={}` / `className` / module stylesheets (layout via
 `Stack` / the page archetypes), in-app links via the router (no raw `<a href="/...">`),
-and no deep `@terpjs/*` imports. Every routed view renders a page archetype (`Page` /
-`OverviewPage` / `DetailPage` / `HubPage` / `FormPage` / `SettingsPage` / `SplitPage`) —
-the router refuses an unframed view.
+no deep `@terpjs/*` imports, and no `data-terp` attribute anywhere in `src/` — those are
+react-core's own markers, which its stylesheet and the runtime layout check trust, so
+compose the component that renders one. A framework screen you replace, such as a custom
+sign-in passed to `renderTerpApp({ login })`, is yours: its tests find it by role and
+accessible name, not by the markers the framework's screen carries. Every routed view
+renders a page archetype (`Page` / `OverviewPage` / `DetailPage` / `HubPage` / `FormPage` /
+`SettingsPage` / `SplitPage`) — the router refuses an unframed view.
 This app also opts into the **`standard` layout contract** (ADR 0079), declared once in
 `frontend/layout-contract.json` — the lint rule finds the file and `main.tsx` imports it,
 so there is nothing to keep in sync. The same file is where the app's shell shape

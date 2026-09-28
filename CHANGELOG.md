@@ -149,6 +149,33 @@ repeated more often than the values it applied to.
   `aria-describedby` composition, the `aria-invalid` and the error's `role="alert"` all move
   unchanged, and `Field.test.tsx` asserts each of them across the move.
 
+- **A UiText descriptor built from a function's parameters is refused (ADR 0157).**
+  `terp/locale-catalogs-complete` inventories descriptors where they are written, and a
+  helper such as `const msg = (id, message) => ({ id, message })` hid every call through
+  it: the copy sat in a call's arguments, which the rule never read, so a target locale could
+  miss the entry and the gate stayed green. The rule had allowed exactly this shape on
+  purpose, as a possible business record. It now refuses an object whose `id` and `message`
+  are both parameters of the enclosing function, and the message names both ways out: write
+  the descriptor where the text is used, or build a record from the record
+  (`record.id`, `record.text`), which stays allowed. So do a key into data
+  (`ids.map((id) => ({ id, message: labels[id] }))`) and a helper that takes one
+  descriptor object, whose call site is still inventoried. An app with a positional factory
+  fails lint on upgrade.
+
+- **App code no longer writes react-core's `data-terp` markers (ADR 0160).** Two controls trust
+  them: the stylesheet selects on them (`[data-terp="card"]`), and the runtime layout contract
+  identifies a slot's children by them. So `<div data-terp="card">` was styled as a Card without
+  being one, a way around the `style` / `className` refusal that no attribute refusal saw, and it
+  passed the runtime slot check as a Card. Nothing refused it. `terp/no-framework-markers` now
+  does, across all of app `src/**`: `data-terp` and every `data-terp-*` name as a JSX attribute,
+  as the key of a props object (an inline spread, a hoisted object, a `createElement` bag), as a
+  literal name passed to `setAttribute`, `setAttributeNS` or `toggleAttribute`, and as a
+  `dataset.terp…` assignment. Other data attributes (`data-testid`) and reading a marker stay
+  allowed. The message names the fix: compose the component, and test a framework screen the app
+  has replaced, such as its own sign-in, by the roles and accessible names it renders rather than
+  by the markers the framework's screen carries. An app that writes a marker fails lint on
+  upgrade; the governed opt-out is `// terp-allow-no-framework-markers: <reason>`.
+
 ### Fixed
 
 - **An aligned `DetailList` puts a label and its value on one baseline.** `layout="aligned"`
@@ -303,6 +330,14 @@ repeated more often than the values it applied to.
   any of them without a matching exemption fails the framework's own gate. The
   template-acceptance job now runs `uv run deptry .` over the grown hub project, and
   `terp guide dependency-hygiene` teaches the same table, checked against the template.
+
+- **`columns="auto"` is no longer reported as untranslated copy.** DataView's own string
+  keys (`columns`, `loading`, `pageOf` and the rest) were in `terp/no-untranslated-ui`'s list
+  of JSX text attributes, so `<Grid columns="auto">`, `<DetailList columns="auto">` and
+  `<img loading="lazy">` all read as copy, and an app could get past them only with an escape
+  marker. Those names are text only as keys of a DataView `strings` object, which the rule
+  still checks, so they leave the attribute list. `searchPlaceholder` and `actions`, which are
+  real text props elsewhere, stay.
 
 ### Upgrade notes
 
