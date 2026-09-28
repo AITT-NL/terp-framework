@@ -207,6 +207,16 @@ repeated more often than the values it applied to.
   Those errors encode fine, so no 500 occurs there, but the value is accepted. ADR 0152
   records why this change does not close it.
 
+- **A migration history that cannot be read is refused, not reported as empty.** On
+  Windows a path past 260 characters cannot be read unless long paths are enabled, and a
+  capability installed in a deeply nested virtualenv hit exactly that. The `versions/`
+  directory listed its revisions, then each file failed to stat and so was not counted.
+  The history read as empty, `terp migrate upgrade` skipped it and printed `upgraded: []`,
+  and the first query failed on a table that was never created. A listed revision that
+  cannot be read now stops discovery. The message names the history, the file and, past the
+  limit, its length, with the two fixes: a shorter path, or long paths enabled. `terp
+  migrate` prints it as its answer and exits 2, instead of burying it under a traceback.
+
 ### Upgrade notes
 
 - **Every screen looks different, and no app has to do anything to get it.** The surface model
