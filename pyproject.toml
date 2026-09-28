@@ -74,7 +74,7 @@ dev = [
     "httpx2>=2.13.1",
     "pytest-cov>=7.1.0",
     # `terp dev` launches uvicorn; the standard extra supplies WebSocket + reload support.
-    "uvicorn[standard]>=0.53.0",
+    "uvicorn[standard]>=0.54.0",
     # The PostgreSQL conformance lane (ADR 0069): tests skip without a server, so the
     # driver is harmless locally and required in CI.
     "psycopg[binary]>=3.3.6",
@@ -90,7 +90,7 @@ dev = [
 # CI-only generic backstops (NOT part of the `pytest --cov=terp` gate; they
 # complement terp-arch, never replace it). Installed in CI; optional locally.
 lint = [
-    "ruff>=0.16.8",
+    "ruff>=0.16.9",
     "pip-audit>=2.10.1",
     "deptry>=0.25.1",
     "import-linter>=2.15",
