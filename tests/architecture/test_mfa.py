@@ -53,21 +53,9 @@ _RFC_VECTORS = {
 }
 
 
-# Assembled rather than written out. gitleaks' generic-api-key matches a key-SHAPED literal
-# wherever it is assigned -- hoisting it to a named constant does not help, which was
-# measured rather than assumed -- and an obviously-fake fixture tripping a secret scanner
-# is how people are trained to wave the scanner through. Sealing needs a stable value, not
-# a key-shaped one.
-_KEY = "-".join(["mfa", "test", "fixture", "not", "a", "real", "key"])
-
-
-@pytest.fixture(autouse=True)
-def _secret_key() -> Iterator[None]:
-    """Sealing derives from SECRET_KEY, so the suite pins one."""
-    previous = settings.SECRET_KEY
-    settings.SECRET_KEY = _KEY
-    yield
-    settings.SECRET_KEY = previous
+# Sealing derives from SECRET_KEY and needs it stable, not known: the shipped plugin's
+# `terp_signing_key` gives the session a strong random one (ADR 0163). The key this suite
+# used to assemble was 31 bytes, so every token it minted drew pyjwt's key-length warning.
 
 
 @pytest.fixture
@@ -200,9 +188,9 @@ def test_an_unsealed_value_is_refused_rather_than_used() -> None:
         unseal_secret("JBSWY3DPEHPK3PXP")
 
 
-def test_a_seal_from_another_key_does_not_open() -> None:
+def test_a_seal_from_another_key_does_not_open(monkeypatch: pytest.MonkeyPatch) -> None:
     sealed = seal_secret("JBSWY3DPEHPK3PXP")
-    settings.SECRET_KEY = "a-completely-different-secret-key-0123456789"
+    monkeypatch.setattr(settings, "SECRET_KEY", "a-completely-different-secret-key-0123456789")
     with pytest.raises(MfaSecretError):
         unseal_secret(sealed)
 
