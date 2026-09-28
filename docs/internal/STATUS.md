@@ -874,9 +874,12 @@ reproduced against that release on 2026-09-28 before any of it was changed. One 
       `no_raw_outbound_http` now refuses it: it is the same client under a new name, and the
       rule had never heard of it (ADR 0165).
 - [ ] **terp-spec half of ADR 0165:** the `no_raw_outbound_http` catalog `reference` gains
-      `httpx2` and a violation corpus case holds it. Prepared on a terp-spec branch; it lands
+      `httpx2` and a violation corpus case holds it, as spec 0.39.0. Committed on terp-spec's
+      `fix/no-raw-outbound-http-httpx2`, and certified locally: this branch's corpus parity
+      suite passes against it, and fails `violation-08` without `httpx2` in the rule. It lands
       after this branch reaches `main`, because the spec's `REFERENCE_SHA` must move to the
-      framework commit that refuses `httpx2` (`docs/RELEASING.md`, the circular procedure).
+      framework commit that refuses `httpx2` (`docs/RELEASING.md`, the circular procedure);
+      then release 0.39.0 and move this repository's spec pins to it.
 - [ ] **Recorded, not decided (ADR 0165):** the egress capability still drives `httpx` at
       runtime. Moving the one outbound transport to `httpx2` means re-verifying its address
       pinning and redirect refusal, so it is its own decision.
