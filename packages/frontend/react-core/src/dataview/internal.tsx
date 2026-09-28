@@ -4,19 +4,40 @@ import type { ReactNode } from "react";
 import { useFormatDate } from "../format";
 import { injectTerpStyles } from "../styles";
 import { Menu, MenuItem } from "../ui/Menu";
-import { useStrings, useUiText } from "../uiText";
-import type { ResolveUiText, TerpStrings, UiText } from "../uiText";
+import { isPluralText, usePlural, useStrings, useUiText } from "../uiText";
+import type { PluralText, ResolveUiText, TerpStrings, UiText } from "../uiText";
 import { formatDataViewString } from "./types";
 import type { DataViewStrings } from "./types";
 
 injectTerpStyles();
 
+/**
+ * The strings a DataView part reads: the locale's, under an instance's overrides.
+ *
+ * Wider than {@link DataViewStrings} in two keys. From the locale, the result range and the
+ * select-all label are {@link PluralText}, one form per plural category; an instance that
+ * overrides them passes one `UiText`, which is its own wording and is used as given.
+ */
+export type DataViewTextSet = Omit<DataViewStrings, "resultsRange" | "selectAllResults"> & {
+  resultsRange: CountedText;
+  selectAllResults: CountedText;
+};
+
+/** A count-bearing string: the locale's plural forms, or an instance's own wording. */
+type CountedText = UiText | PluralText;
+
 /** Internal: merged strings + resolver every DataView sub-component reads. */
 export interface DataViewTextApi {
-  strings: DataViewStrings;
+  strings: DataViewTextSet;
   resolve: ResolveUiText;
-  /** Resolve a countable string and fill its `{placeholder}`s. */
+  /** Resolve a string with `{placeholder}`s and fill them. */
   format: (text: UiText, values: Record<string, string | number>) => string;
+  /** The same for a string whose wording depends on *count*: choose its form, then fill it. */
+  formatCount: (
+    text: CountedText,
+    count: number,
+    values: Record<string, string | number>,
+  ) => string;
 }
 
 /**
@@ -31,7 +52,7 @@ export interface DataViewTextApi {
  * Written out rather than derived from the key names, so a missing or misspelt key is a type
  * error here and not an `undefined` on screen.
  */
-function dataViewStrings(strings: TerpStrings): DataViewStrings {
+function dataViewStrings(strings: TerpStrings): DataViewTextSet {
   return {
     searchPlaceholder: strings.dataViewSearchPlaceholder,
     clearSearch: strings.dataViewClearSearch,
@@ -82,13 +103,16 @@ export function useDataViewText(): DataViewTextApi {
   const overrides = useContext(DataViewOverridesContext);
   const framework = useStrings();
   const resolve = useUiText();
+  const plural = usePlural();
   return useMemo<DataViewTextApi>(
     () => ({
       strings: { ...dataViewStrings(framework), ...overrides },
       resolve,
       format: (text, values) => formatDataViewString(resolve(text), values),
+      formatCount: (text, count, values) =>
+        formatDataViewString(isPluralText(text) ? plural(text, count) : resolve(text), values),
     }),
-    [framework, overrides, resolve],
+    [framework, overrides, resolve, plural],
   );
 }
 

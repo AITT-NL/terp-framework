@@ -855,8 +855,13 @@ reproduced against that release on 2026-09-28 before any of it was changed. One 
       The framework's own example app carries one. The shipped plugin's autouse
       `terp_signing_key` installs a random key per session (ADR 0163); the example app's key
       and the full-stack test's are gone.
-- [ ] Count-bearing interface strings have no plural form in any locale: "1–1 of 1 results",
-      "1–1 van 1 resultaten", and `action(s)` / `actie(s)` where the wording was dodged.
+- [x] Count-bearing interface strings have no plural form in any locale: "1–1 of 1 results",
+      "1–1 van 1 resultaten", and `action(s)` / `actie(s)` where the wording was dodged. The three
+      keys are `PluralText`, checked against each locale's `Intl.PluralRules` (ADR 0164).
+      **Recorded, not fixed:** app-authored copy has no plural form — a `UiText` descriptor
+      carries one message, so a DataView override renaming "results" still reads "1 invoices".
+      That is a change to the contract's `UiText`, the app catalog and the translation lint; ADR
+      0164 names it as a separate decision.
 - [ ] Starlette's test client deprecates `httpx` for `httpx2`, and the template's own test
       dependencies install `httpx`, so every generated app's suite warns — and will fail to
       import once the fallback is removed.

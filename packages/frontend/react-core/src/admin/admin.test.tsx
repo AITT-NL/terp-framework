@@ -886,7 +886,7 @@ describe("the packaged admin area", () => {
     // because this is where an app's user actually met the two languages side by side.
     renderAdminApp("/admin/audit", 30, true, DUTCH);
     await screen.findByRole("heading", { level: 1, name: "Auditlog" });
-    expect(await screen.findByText("1–1 van 1 resultaten")).toBeInTheDocument();
+    expect(await screen.findByText("1–1 van 1 resultaat")).toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole("button", { name: "Rij uitklappen" }));
     expect(await screen.findByText("Verzoek")).toBeInTheDocument();

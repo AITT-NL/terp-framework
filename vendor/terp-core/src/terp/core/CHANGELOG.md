@@ -71,6 +71,28 @@ an infinite number past the control built to refuse one.
   refuses one too large for a `float` field with an ordinary 422. A `float` query or path
   parameter still accepts `inf`, `nan` and `1e400`, as ADR 0152 records.
 
+- **A string that counts has a form per plural category (ADR 0164).** A DataView with one row
+  said "1–1 of 1 results", and under `LOCALE_NL` "1–1 van 1 resultaten", because every framework
+  string had one form for every count; the access pane's warning dodged it with "action(s)" and
+  "actie(s)". The three count-bearing keys of `TerpStrings` — `dataViewResultsRange`,
+  `dataViewSelectAllResults` and `accessUnexplainedRoutes` — are now `PluralText`, one form per
+  CLDR plural category, and the form is chosen by the count under the active locale's
+  `Intl.PluralRules`: "1–1 of 1 result", "1–1 van 1 resultaat", "1 action in this module has no
+  description yet". A catalog must supply exactly the categories its locale uses, so the check
+  is right for Polish's four forms as well as Dutch's two. A manifest's `FrameworkText` can no
+  longer name a count-bearing key, and a DataView's per-instance override is still one string,
+  rendered as given.
+
+### Upgrade notes
+
+- **A non-English framework catalog of an app's own supplies three keys as plural forms.** A
+  catalog that sets `dataViewResultsRange`, `dataViewSelectAllResults` or
+  `accessUnexplainedRoutes` to a single string is refused by `LocaleProvider` and
+  `defineAppLocales`, with a message naming the key and the forms its locale uses. Write each as
+  `{ one: "…", other: "…" }`, adding `few`, `many`, `two` or `zero` where the language has them;
+  the refusal lists them. `LOCALE_NL` and `LOCALE_EN` already do, so an app on those changes
+  nothing. A `UiTextProvider` given these keys directly takes the same shape.
+
 ## 0.28.0 — 2026-09-28
 
 Friction reported from building a record-heavy app on Terp. On screen: a record card whose

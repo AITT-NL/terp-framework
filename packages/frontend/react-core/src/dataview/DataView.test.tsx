@@ -620,6 +620,35 @@ describe("DataView localisation", () => {
     expect(screen.queryByText(/results/)).not.toBeInTheDocument();
   });
 
+  it("says a single result in the singular, in both shipped languages", async () => {
+    // The footer used to read "1–1 of 1 results" and "1–1 van 1 resultaten": one sentence for
+    // every count, with the plural noun in it.
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN, nl: LOCALE_NL }}>
+        <LanguageSwitcher />
+        <DataView repository={inMemoryRepo(TICKETS.slice(0, 1))} columns={COLUMNS} />
+      </LocaleProvider>,
+    );
+    expect(await screen.findByText("1–1 of 1 result")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Language" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Nederlands" }));
+
+    expect(await screen.findByText("1–1 van 1 resultaat")).toBeInTheDocument();
+  });
+
+  it("renders an instance's own range as given, with no plural form chosen", async () => {
+    // An override is one UiText, the instance's own wording; only the locale's has forms.
+    render(
+      <DataView
+        repository={inMemoryRepo(TICKETS.slice(0, 1))}
+        columns={COLUMNS}
+        strings={{ resultsRange: "{from}–{to} / {total} tickets" }}
+      />,
+    );
+    expect(await screen.findByText("1–1 / 1 tickets")).toBeInTheDocument();
+  });
+
   it("lets a per-instance string win over the locale", async () => {
     render(
       <LocaleProvider locales={{ en: LOCALE_EN, nl: LOCALE_NL }} defaultLocale="nl">

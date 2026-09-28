@@ -10,7 +10,7 @@ import {
   LocaleProvider,
   defineAppLocales,
 } from "./locale";
-import { DEFAULT_STRINGS, Trans, useStrings } from "./uiText";
+import { DEFAULT_STRINGS, Trans, usePlural, useStrings } from "./uiText";
 
 afterEach(() => {
   cleanup();
@@ -23,6 +23,22 @@ function SignOutLabel() {
 }
 
 const NL = LOCALE_NL;
+
+/**
+ * A complete framework catalog for *code* whose every value names its key: a plain string for
+ * a plain key, and a count-bearing key in exactly the plural forms *code* uses.
+ */
+function completeCatalog(code: string, keys: readonly string[] = Object.keys(DEFAULT_STRINGS)) {
+  const categories = new Intl.PluralRules(code).resolvedOptions().pluralCategories;
+  return Object.fromEntries(
+    keys.map((key) => [
+      key,
+      typeof DEFAULT_STRINGS[key as keyof typeof DEFAULT_STRINGS] === "string"
+        ? `${code}:${key}`
+        : Object.fromEntries(categories.map((category) => [category, `${code}:${key}:${category}`])),
+    ]),
+  );
+}
 
 describe("LocaleProvider + LanguageSwitcher", () => {
   it("feeds the active catalog's overrides through the UiText seam", () => {
@@ -252,9 +268,7 @@ describe("LocaleProvider + LanguageSwitcher", () => {
       ),
     ).toThrow(/missing .* framework string translation/);
 
-    const germanStrings = Object.fromEntries(
-      Object.keys(DEFAULT_STRINGS).map((key) => [key, `de:${key}`]),
-    );
+    const germanStrings = completeCatalog("de");
     expect(
       defineAppLocales(
         {
@@ -286,10 +300,9 @@ describe("LocaleProvider + LanguageSwitcher", () => {
     // The upgrade path, pinned: a catalog complete against the key set before DataView's
     // strings joined it. Refused, and by name, because the alternative is the defect itself —
     // every table in the app back in English under a locale that claims to be complete.
-    const shellOnly = Object.fromEntries(
-      Object.keys(DEFAULT_STRINGS)
-        .filter((key) => !key.startsWith("dataView"))
-        .map((key) => [key, `de:${key}`]),
+    const shellOnly = completeCatalog(
+      "de",
+      Object.keys(DEFAULT_STRINGS).filter((key) => !key.startsWith("dataView")),
     );
     expect(() =>
       render(
@@ -310,6 +323,74 @@ describe("LocaleProvider + LanguageSwitcher", () => {
       </LocaleProvider>,
     );
     expect(screen.getByText("Hello")).toBeInTheDocument();
+  });
+});
+
+describe("count-bearing framework strings", () => {
+  // Each is held to the plural categories of the locale it is in, which is why Polish appears:
+  // it has four, so a check hard-wired to English's two would pass Dutch and still be wrong.
+  function refuse(code: string, key: string, translated: unknown): () => void {
+    return () =>
+      render(
+        <LocaleProvider
+          locales={{ en: LOCALE_EN, [code]: { strings: { ...completeCatalog(code), [key]: translated } } }}
+        >
+          <span />
+        </LocaleProvider>,
+      );
+  }
+
+  it("refuses a single string where the locale takes a form per category", () => {
+    expect(refuse("nl", "dataViewResultsRange", "{from}–{to} van {total} resultaten")).toThrow(
+      /"dataViewResultsRange" counts something, so it takes one form per plural category of "nl" \(one, other\)/,
+    );
+  });
+
+  it("refuses a form the locale uses and the catalog left out", () => {
+    expect(refuse("nl", "accessUnexplainedRoutes", { other: "{count} acties" })).toThrow(
+      /"accessUnexplainedRoutes" has no "one" form; "nl" uses one, other/,
+    );
+    expect(refuse("nl", "accessUnexplainedRoutes", { one: " ", other: "{count} acties" })).toThrow(
+      /has no "one" form/,
+    );
+  });
+
+  it("refuses a form the locale never selects", () => {
+    expect(
+      refuse("nl", "dataViewSelectAllResults", { one: "a", few: "b", other: "c" }),
+    ).toThrow(/"dataViewSelectAllResults" has a "few" form, which "nl" never selects/);
+  });
+
+  it("holds each locale to its own categories", () => {
+    expect(refuse("pl", "dataViewResultsRange", { one: "a", other: "b" })).toThrow(
+      /has no "few" form; "pl" uses one, few, many, other/,
+    );
+    expect(() =>
+      render(
+        <LocaleProvider locales={{ en: LOCALE_EN, pl: { strings: completeCatalog("pl") } }}>
+          <span />
+        </LocaleProvider>,
+      ),
+    ).not.toThrow();
+  });
+
+  it("chooses the form by the active locale's rules, not English's", () => {
+    // Four is "few" in Polish and "other" in English, so this fails if LocaleProvider stops
+    // handing its locale to the UiText seam. Dutch could not show it: for every integer, Dutch
+    // and English choose the same form.
+    function Range({ count }: { count: number }) {
+      const plural = usePlural();
+      return <p>{plural(useStrings().dataViewResultsRange, count)}</p>;
+    }
+    render(
+      <LocaleProvider
+        locales={{ en: LOCALE_EN, pl: { strings: completeCatalog("pl") } }}
+        defaultLocale="pl"
+      >
+        <Range count={4} />
+      </LocaleProvider>,
+    );
+    expect(screen.getByText("pl:dataViewResultsRange:few")).toBeInTheDocument();
   });
 });
 

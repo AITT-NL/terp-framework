@@ -59,7 +59,7 @@ export interface DataViewToolbarProps<T> {
  * one instance of an attribute is not owning every element such a selector reaches.
  */
 export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
-  const { strings, resolve, format } = useDataViewText();
+  const { strings, resolve, format, formatCount } = useDataViewText();
   const search = useViewSearch(props.search, props.onSearchChange, props.searchDebounceMs ?? 0);
 
   const selectionMode = props.selectedCount > 0;
@@ -78,7 +78,7 @@ export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
         </span>
         {props.onSelectAllAcrossPages !== undefined && !props.selectAllAcrossPages && (
           <Button variant="secondary" onClick={props.onSelectAllAcrossPages}>
-            {format(strings.selectAllResults, { total: props.totalCount })}
+            {formatCount(strings.selectAllResults, props.totalCount, { total: props.totalCount })}
           </Button>
         )}
         <span data-terp="dataview-toolbar-actions">

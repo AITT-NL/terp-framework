@@ -100,6 +100,7 @@ export type {
   UiText,
   UiTextNode,
   ResolveUiText,
+  PluralText,
   TerpStrings,
   TransProps,
   UiTextProviderProps,

@@ -32,7 +32,7 @@ export function DataViewPagination({
   totalCount,
   onPaginationChange,
 }: DataViewPaginationProps) {
-  const { strings, format } = useDataViewText();
+  const { strings, format, formatCount } = useDataViewText();
 
   const known = totalCount !== undefined;
   const pageCount = Math.max(1, Math.ceil((totalCount ?? 0) / pagination.pageSize));
@@ -46,7 +46,7 @@ export function DataViewPagination({
 
   return (
     <div data-terp="dataview-pagination">
-      <span>{known ? format(strings.resultsRange, { from, to, total: totalCount }) : null}</span>
+      <span>{known ? formatCount(strings.resultsRange, totalCount, { from, to, total: totalCount }) : null}</span>
       {/* aria-disabled, not disabled, and the difference is where focus goes. Each of these
           four buttons has a bound condition recomputed from what its own click just changed, so
           pressing "next" until the last page disabled the very control the user was operating —

@@ -34,6 +34,40 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Refuse a count-bearing framework string that does not have exactly *code*'s plural forms.
+ *
+ * The categories come from the locale's own `Intl.PluralRules`, so the check is as wide as the
+ * language: two forms for Dutch, four for Polish. A missing form would render the wrong grammar
+ * for some count, and a form the language never selects is a sentence nobody will ever read.
+ */
+function assertPluralForms(code: string, key: string, translated: unknown): void {
+  const categories: readonly string[] = new Intl.PluralRules(code).resolvedOptions()
+    .pluralCategories;
+  if (!isRecord(translated)) {
+    throw new Error(
+      `Locale "${code}" framework string "${key}" counts something, so it takes one form per ` +
+        `plural category of "${code}" (${categories.join(", ")}), not a single string.`,
+    );
+  }
+  for (const category of categories) {
+    const form = translated[category];
+    if (typeof form !== "string" || form.trim() === "") {
+      throw new Error(
+        `Locale "${code}" framework string "${key}" has no "${category}" form; "${code}" ` +
+          `uses ${categories.join(", ")}.`,
+      );
+    }
+  }
+  const stray = Object.keys(translated).find((category) => !categories.includes(category));
+  if (stray !== undefined) {
+    throw new Error(
+      `Locale "${code}" framework string "${key}" has a "${stray}" form, which "${code}" never ` +
+        `selects; it uses ${categories.join(", ")}.`,
+    );
+  }
+}
+
 function assertLocaleCatalogs(
   locales: unknown,
   sourceLocale?: string,
@@ -63,6 +97,10 @@ function assertLocaleCatalogs(
     for (const [key, translated] of Object.entries(value.strings ?? {})) {
       if (!Object.hasOwn(DEFAULT_STRINGS, key)) {
         throw new Error(`Locale "${code}" has unknown framework string "${key}".`);
+      }
+      if (typeof DEFAULT_STRINGS[key as keyof TerpStrings] !== "string") {
+        assertPluralForms(code, key, translated);
+        continue;
       }
       if (typeof translated !== "string" || translated.trim() === "") {
         throw new Error(`Locale "${code}" has an empty or invalid framework string "${key}".`);
@@ -98,10 +136,10 @@ function assertLocaleCatalogs(
 function assertFrameworkStringsComplete(locales: Record<string, LocaleCatalog>): void {
   for (const [code, catalog] of Object.entries(locales)) {
     if (code.split("-")[0].toLowerCase() === "en") continue;
+    // Present is enough: every value that is present was already held to its shape, a plain
+    // string or its locale's plural forms, when the catalogs were checked.
     const missing = Object.keys(DEFAULT_STRINGS).filter(
-      (key) =>
-        typeof catalog.strings?.[key as keyof TerpStrings] !== "string" ||
-        catalog.strings[key as keyof TerpStrings]?.trim() === "",
+      (key) => catalog.strings?.[key as keyof TerpStrings] === undefined,
     );
     if (missing.length > 0) {
       throw new Error(
@@ -240,7 +278,10 @@ export const LOCALE_NL: LocaleCatalog = {
     accessAddsNothing: "Niets extra ten opzichte van de tier eronder",
     accessNeverAssignable: "Nooit per module toe te kennen",
     accessNotAssignable: "Niet per module toe te kennen",
-    accessUnexplainedRoutes: "{count} actie(s) in deze module hebben nog geen omschrijving",
+    accessUnexplainedRoutes: {
+      one: "{count} actie in deze module heeft nog geen omschrijving",
+      other: "{count} acties in deze module hebben nog geen omschrijving",
+    },
     accessDeclaredOnly:
       "Dit is wat de applicatie vastlegt. Het laat niet zien wie welke rol heeft — open een persoon om dat te zien.",
     moduleAccessTitle: "Toegang per module",
@@ -310,7 +351,10 @@ export const LOCALE_NL: LocaleCatalog = {
     dataViewTableView: "Tabelweergave",
     dataViewCardView: "Kaartweergave",
     dataViewPageSize: "Rijen per pagina",
-    dataViewResultsRange: "{from}–{to} van {total} resultaten",
+    dataViewResultsRange: {
+      one: "{from}–{to} van {total} resultaat",
+      other: "{from}–{to} van {total} resultaten",
+    },
     dataViewPageOf: "Pagina {page} van {pages}",
     dataViewFirstPage: "Eerste pagina",
     dataViewPreviousPage: "Vorige pagina",
@@ -319,7 +363,10 @@ export const LOCALE_NL: LocaleCatalog = {
     dataViewSelectAllPage: "Alle rijen op deze pagina selecteren",
     dataViewSelectRow: "Rij selecteren",
     dataViewSelected: "{count} geselecteerd",
-    dataViewSelectAllResults: "Alle {total} resultaten selecteren",
+    dataViewSelectAllResults: {
+      one: "{total} resultaat selecteren",
+      other: "Alle {total} resultaten selecteren",
+    },
     dataViewClearSelection: "Selectie wissen",
     dataViewMoreActions: "Meer acties",
     dataViewActions: "Acties",
@@ -466,7 +513,11 @@ export function LocaleProvider({
 
   return (
     <LocaleContext.Provider value={value}>
-      <UiTextProvider strings={locales[activeLocale]?.strings} resolveText={resolveText}>
+      <UiTextProvider
+        strings={locales[activeLocale]?.strings}
+        resolveText={resolveText}
+        locale={activeLocale}
+      >
         {children}
       </UiTextProvider>
     </LocaleContext.Provider>

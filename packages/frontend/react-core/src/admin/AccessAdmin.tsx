@@ -9,7 +9,7 @@ import { Page } from "../Page";
 import { Stack } from "../layout";
 import { TileGroup } from "../ui/TileGroup";
 import { useTerpClient } from "../TerpProvider";
-import { useStrings } from "../uiText";
+import { usePlural, useStrings } from "../uiText";
 import type { TerpStrings } from "../uiText";
 import { unwrap } from "../unwrap";
 
@@ -19,6 +19,7 @@ import type { AccessModel, ModuleRow } from "./accessModel";
 import { tilesFor } from "./accessTiles";
 
 function ModuleCard({ row, strings }: { row: ModuleRow; strings: TerpStrings }) {
+  const plural = usePlural();
   return (
     <Card key={row.name}>
       <Stack gap={2}>
@@ -41,7 +42,10 @@ function ModuleCard({ row, strings }: { row: ModuleRow; strings: TerpStrings }) 
         )}
         {row.unexplainedRoutes > 0 && (
           <Alert tone="warning">
-            {strings.accessUnexplainedRoutes.replace("{count}", String(row.unexplainedRoutes))}
+            {plural(strings.accessUnexplainedRoutes, row.unexplainedRoutes).replace(
+              "{count}",
+              String(row.unexplainedRoutes),
+            )}
           </Alert>
         )}
         <span data-terp="tile-note">{strings.accessAdds}</span>

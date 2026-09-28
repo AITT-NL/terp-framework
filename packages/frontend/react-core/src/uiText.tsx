@@ -5,10 +5,35 @@ import type { FrameworkText, UiText } from "@terpjs/contract";
 export type { UiText } from "@terpjs/contract";
 
 // The keys a manifest's `FrameworkText` may name are this table's, so a misspelt one is a
-// typecheck error where the manifest is written rather than an empty label on screen.
+// typecheck error where the manifest is written rather than an empty label on screen. Only its
+// plain-string keys: a nav label has no count to choose a plural form by.
 declare module "@terpjs/contract" {
-  interface TerpFrameworkStrings extends TerpStrings {}
+  interface TerpFrameworkStrings extends Pick<TerpStrings, FrameworkTextKey> {}
 }
+
+/**
+ * A framework string whose wording depends on a count: one form per CLDR plural category.
+ *
+ * English and Dutch each have two categories, `one` and `other`; Polish has four. A catalog
+ * supplies exactly the categories its locale's `Intl.PluralRules` produces, and the locale check
+ * refuses a form that is missing or one the language does not use. The form is then chosen by
+ * the count, so "1 result" and "2 results" are two sentences rather than one sentence with
+ * "(s)" in it. Each form keeps the same `{placeholder}`s, because a category is a grammatical
+ * class and not a number: in Russian, 21 takes the `one` form.
+ */
+export type PluralText = Readonly<Partial<Record<Intl.LDMLPluralRule, string>>> & {
+  readonly other: string;
+};
+
+/** Whether *text* is a {@link PluralText} rather than a {@link UiText}. */
+export function isPluralText(text: UiText | PluralText): text is PluralText {
+  return typeof text === "object" && "other" in text;
+}
+
+/** The `TerpStrings` keys that hold one plain string, which a `FrameworkText` may name. */
+type FrameworkTextKey = {
+  [K in keyof TerpStrings]: TerpStrings[K] extends string ? K : never;
+}[keyof TerpStrings];
 
 /**
  * A piece of user-facing text: either a plain string (used as-is) or a message
@@ -187,8 +212,8 @@ export interface TerpStrings {
   accessNeverAssignable: string;
   /** Access pane: shown on a module that has not opted into per-module roles. */
   accessNotAssignable: string;
-  /** Access pane: warns that some of the module's routes declared no operation. */
-  accessUnexplainedRoutes: string;
+  /** Access pane: warns that some of the module's routes declared no operation; `{count}`. */
+  accessUnexplainedRoutes: PluralText;
   /** Access pane: the note that this screen shows the declared model, not who holds what. */
   accessDeclaredOnly: string;
   /** Assignment panel: the section heading on a person's or group's detail screen. */
@@ -335,8 +360,8 @@ export interface TerpStrings {
   dataViewCardView: string;
   /** DataView: the page-size selector. */
   dataViewPageSize: string;
-  /** DataView: the footer's result range; `{from}`, `{to}` and `{total}` are replaced. */
-  dataViewResultsRange: string;
+  /** DataView: the footer's result range; `{from}`, `{to}` and `{total}`, plural by `{total}`. */
+  dataViewResultsRange: PluralText;
   /** DataView: the footer's page position; `{page}` and `{pages}` are replaced. */
   dataViewPageOf: string;
   /** DataView: pagination, to the first page. */
@@ -353,8 +378,8 @@ export interface TerpStrings {
   dataViewSelectRow: string;
   /** DataView: the selection count; `{count}` is replaced. */
   dataViewSelected: string;
-  /** DataView: widens the selection to every result; `{total}` is replaced. */
-  dataViewSelectAllResults: string;
+  /** DataView: widens the selection to every result; `{total}`, plural by it. */
+  dataViewSelectAllResults: PluralText;
   /** DataView: clears the row selection. */
   dataViewClearSelection: string;
   /** DataView: the row-action and batch-action overflow trigger. */
@@ -475,7 +500,10 @@ export const DEFAULT_STRINGS: TerpStrings = {
   accessAddsNothing: "Nothing beyond the tier below",
   accessNeverAssignable: "Never assignable per module",
   accessNotAssignable: "Not assignable per module",
-  accessUnexplainedRoutes: "{count} action(s) in this module have no description yet",
+  accessUnexplainedRoutes: {
+    one: "{count} action in this module has no description yet",
+    other: "{count} actions in this module have no description yet",
+  },
   accessDeclaredOnly:
     "This is what the application declares. It does not show who holds which role — open a person to see that.",
   moduleAccessTitle: "Access per module",
@@ -545,7 +573,10 @@ export const DEFAULT_STRINGS: TerpStrings = {
   dataViewTableView: "Table view",
   dataViewCardView: "Card view",
   dataViewPageSize: "Rows per page",
-  dataViewResultsRange: "{from}–{to} of {total} results",
+  dataViewResultsRange: {
+    one: "{from}–{to} of {total} result",
+    other: "{from}–{to} of {total} results",
+  },
   dataViewPageOf: "Page {page} of {pages}",
   dataViewFirstPage: "First page",
   dataViewPreviousPage: "Previous page",
@@ -554,7 +585,10 @@ export const DEFAULT_STRINGS: TerpStrings = {
   dataViewSelectAllPage: "Select all rows on this page",
   dataViewSelectRow: "Select row",
   dataViewSelected: "{count} selected",
-  dataViewSelectAllResults: "Select all {total} results",
+  dataViewSelectAllResults: {
+    one: "Select the {total} result",
+    other: "Select all {total} results",
+  },
   dataViewClearSelection: "Clear selection",
   dataViewMoreActions: "More actions",
   dataViewActions: "Actions",
@@ -579,11 +613,14 @@ export const DEFAULT_STRINGS: TerpStrings = {
 interface UiTextContextValue {
   strings: TerpStrings;
   resolveText: ResolveUiText;
+  /** The locale whose plural rules choose a {@link PluralText}'s form. */
+  locale: string;
 }
 
 const UiTextContext = createContext<UiTextContextValue>({
   strings: DEFAULT_STRINGS,
   resolveText: resolveUiText,
+  locale: "en",
 });
 
 export interface UiTextProviderProps {
@@ -597,6 +634,12 @@ export interface UiTextProviderProps {
    * before it is reached (see {@link useUiText}).
    */
   resolveText?: ResolveUiText;
+  /**
+   * The locale code the `strings` are in, whose plural rules choose a {@link PluralText}'s
+   * form. `LocaleProvider` passes its active locale; without one the parent's applies, and
+   * at the root that is English.
+   */
+  locale?: string;
   children: ReactNode;
 }
 
@@ -606,14 +649,15 @@ export interface UiTextProviderProps {
  * use the bundled English defaults. An app localises by wrapping its tree
  * once — no per-component wiring, no i18n dependency inside react-core.
  */
-export function UiTextProvider({ strings, resolveText, children }: UiTextProviderProps) {
+export function UiTextProvider({ strings, resolveText, locale, children }: UiTextProviderProps) {
   const parent = useContext(UiTextContext);
   const value = useMemo<UiTextContextValue>(
     () => ({
       strings: { ...parent.strings, ...strings },
       resolveText: resolveText ?? parent.resolveText,
+      locale: locale ?? parent.locale,
     }),
-    [parent, strings, resolveText],
+    [parent, strings, resolveText, locale],
   );
   return <UiTextContext.Provider value={value}>{children}</UiTextContext.Provider>;
 }
@@ -621,6 +665,21 @@ export function UiTextProvider({ strings, resolveText, children }: UiTextProvide
 /** The framework strings for the active locale (defaults merged with any overrides). */
 export function useStrings(): TerpStrings {
   return useContext(UiTextContext).strings;
+}
+
+/**
+ * The form of a {@link PluralText} the active locale's grammar gives *count*.
+ *
+ * A catalog that went through `LocaleProvider` holds every category its locale uses, so the
+ * chosen form is always there. `other` answers when it is not: a `UiTextProvider` given its
+ * `strings` directly is not checked, and a missing form there still renders a sentence.
+ */
+export function usePlural(): (text: PluralText, count: number) => string {
+  const { locale } = useContext(UiTextContext);
+  return useMemo(() => {
+    const rules = new Intl.PluralRules(locale);
+    return (text: PluralText, count: number) => text[rules.select(count)] ?? text.other;
+  }, [locale]);
 }
 
 /**
@@ -648,7 +707,14 @@ export function useUiText(): (text: UiText | FrameworkText) => string {
             "{ id, message } descriptor in frontend/i18n.json.",
         );
       }
-      return strings[text.framework];
+      const value: unknown = strings[text.framework];
+      if (typeof value !== "string") {
+        throw new Error(
+          `FrameworkText names "${text.framework}", which counts something and has one form ` +
+            "per plural category. A navigation label is one string; name a plain one.",
+        );
+      }
+      return value;
     },
     [strings, resolveText],
   );

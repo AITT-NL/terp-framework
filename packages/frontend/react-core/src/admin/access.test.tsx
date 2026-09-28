@@ -441,7 +441,8 @@ describe("the access screen", () => {
     renderAt("/admin/access");
     await waitFor(() =>
       expect(
-        screen.getByText("1 action(s) in this module have no description yet"),
+        // One route, so the singular: the sentence used to say "1 action(s) ... have".
+        screen.getByText("1 action in this module has no description yet"),
       ).toBeInTheDocument(),
     );
   });

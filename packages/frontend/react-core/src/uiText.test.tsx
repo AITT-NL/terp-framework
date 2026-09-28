@@ -7,9 +7,69 @@ import type { FrameworkText, UiText } from "@terpjs/contract";
 import { Page } from "./Page";
 import { ResourceList } from "./ResourceList";
 import { TerpProvider } from "./TerpProvider";
-import { resolveUiText, resolveUiTextNode, UiTextProvider, useUiText } from "./uiText";
+import {
+  resolveUiText,
+  resolveUiTextNode,
+  UiTextProvider,
+  usePlural,
+  useUiText,
+} from "./uiText";
+import type { PluralText } from "./uiText";
 
 afterEach(cleanup);
+
+describe("usePlural", () => {
+  // Polish, because its categories differ from English for the same counts: 3 is "few" and 5
+  // is "many" there, and both are "other" in English — so a form chosen by the wrong rules is
+  // visible, where Dutch and English would agree on every integer.
+  const FORMS: PluralText = { one: "one", few: "few", many: "many", other: "other" };
+
+  function Chosen({ count, text = FORMS }: { count: number; text?: PluralText }) {
+    const plural = usePlural();
+    return <li>{`${count}:${plural(text, count)}`}</li>;
+  }
+
+  it("chooses the form the provider's locale gives each count", () => {
+    render(
+      <UiTextProvider locale="pl">
+        <Chosen count={1} />
+        <Chosen count={3} />
+        <Chosen count={5} />
+      </UiTextProvider>,
+    );
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "1:one",
+      "3:few",
+      "5:many",
+    ]);
+  });
+
+  it("uses English rules with no provider, and a nested provider inherits its parent's", () => {
+    render(
+      <>
+        <Chosen count={3} />
+        <UiTextProvider locale="pl">
+          <UiTextProvider strings={{ loading: "Ładowanie…" }}>
+            <Chosen count={3} />
+          </UiTextProvider>
+        </UiTextProvider>
+      </>,
+    );
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "3:other",
+      "3:few",
+    ]);
+  });
+
+  it("answers with the other form when an unchecked table lacks the chosen one", () => {
+    render(
+      <UiTextProvider locale="pl">
+        <Chosen count={3} text={{ other: "some" }} />
+      </UiTextProvider>,
+    );
+    expect(screen.getByRole("listitem")).toHaveTextContent("3:some");
+  });
+});
 
 describe("resolveUiText", () => {
   it("passes plain strings through and falls back to a descriptor's message", () => {
@@ -137,6 +197,21 @@ describe("FrameworkText", () => {
     );
     const inherited = { framework: "toString" } as unknown as FrameworkText;
     expect(() => render(<Label text={inherited} />)).toThrow(/names "toString"/);
+  });
+
+  it("refuses a count-bearing key, which has forms and no one string to render", () => {
+    const counted = { framework: "dataViewResultsRange" } as unknown as FrameworkText;
+    expect(() => render(<Label text={counted} />)).toThrow(
+      /FrameworkText names "dataViewResultsRange", which counts something/,
+    );
+  });
+
+  it("is a typecheck error for a count-bearing key", () => {
+    // As below: `tsc --noEmit` runs the directive, which fails as unused if the manifest's key
+    // type ever widens back to every TerpStrings key.
+    // @ts-expect-error dataViewResultsRange holds plural forms, not a label.
+    const counted: FrameworkText = { framework: "dataViewResultsRange" };
+    expect(counted.framework).toBe("dataViewResultsRange");
   });
 
   it("is a typecheck error for a key the table does not have", () => {
