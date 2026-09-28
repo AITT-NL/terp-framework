@@ -116,6 +116,11 @@ terp_strict_isolation = true
 # explicit, greppable `# pragma: no cover`.
 [tool.coverage.run]
 source_pkgs = ["terp"]
+# The scripts under tools/ decide gate verdicts too -- the workflow-job runner decides
+# whether template acceptance is green, the scorecard emitter is the backend's
+# certification evidence -- so they are held to the same bar as terp.* rather than
+# measured only by whoever remembers to.
+source = ["tools"]
 # Generated Alembic artifacts are not framework logic: the shared env/script
 # template and every package's revision scripts (DDL) are exercised end-to-end by
 # the migration conformance test but excluded from the line-coverage gate, mirroring
