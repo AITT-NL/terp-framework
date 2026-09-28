@@ -210,3 +210,22 @@ phone a workbench is not a framework that works by itself.
 
 **Scope the ledger to the checkout.** Cannot work. The resource is the host's, so two checkouts
 each holding a truthful record of its own claim still collide on the same port.
+
+## Amendment (2026-09-28): `terp dev` reads the same claim
+
+Decision 3 gave `terp docker dev` an on-demand assignment and left `terp dev` on a fixed
+22100/21100. That is this ADR's own first alternative, happening: correct on the starters that
+read the ledger, and silent on the one that did not. Two failures followed from it in ordinary
+use. On a machine where another application already held one of the fixed ports, `terp dev`
+collided with it. And the same checkout answered on one pair when a workbench started it and on
+another when an editor task ran `terp dev`, so whatever pointed at the first pair — a browser tab,
+the conformance suite, an agent — was talking to nothing.
+
+`terp dev` now takes its ports from `ports.ensure_assigned`, the same non-fatal entry point
+`terp docker dev` uses. It adopts a pair a workbench or a person already published in `.env`,
+otherwise reuses the checkout's ledger claim, otherwise claims and publishes a free pair past
+whatever the machine holds. An explicit `--port` / `--web-port` still wins, and when nothing can
+be claimed the fixed pair is used and the reason is printed, so a start never fails over the
+ledger. What the start does refuse is a port already held when it begins, before anything is
+spawned, with the two ways out named. Vite runs with `--strictPort`, so the frontend refuses a
+taken port instead of moving to the next one and leaving every reader pointed at the old one.

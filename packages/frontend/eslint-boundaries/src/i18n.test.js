@@ -258,6 +258,19 @@ describe("untranslated UI coverage", () => {
     expect(messages.map((message) => message.ruleId)).toContain("terp/no-untranslated-ui");
   });
 
+  it("refuses a framework-string reference in app source, and asks no catalog entry for it", async () => {
+    // `{ framework: key }` names react-core's own table, for the manifests react-core ships;
+    // what it renders is framework copy, which LocaleProvider already requires of every
+    // non-English catalog. An app's nav entry is the app's copy and keeps its own descriptor,
+    // so here the key reads as a literal under `label`, which is what it is to this rule. The
+    // catalog rule stays silent: there is no app id to look up, so nothing to demand.
+    const messages = await lintWithCatalog(
+      declaration,
+      'export const nav = [{ label: { framework: "admin" }, to: "/admin" }];',
+    );
+    expect(messages.map((message) => message.ruleId)).toEqual(["terp/no-untranslated-ui"]);
+  });
+
   it.each([
     ['<Grid columns="auto" />', "a layout keyword on Grid"],
     ['<DetailList columns="auto" />', "a layout keyword on DetailList"],

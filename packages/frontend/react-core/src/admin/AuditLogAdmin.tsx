@@ -102,7 +102,7 @@ export function AuditLogAdmin() {
               items={[
                 { label: strings.targetColumn, value: `${event.target_type} ${event.target_id}` },
                 { label: strings.actorColumn, value: event.actor_id ?? "—" },
-                { label: "Request", value: event.request_id ?? "—" },
+                { label: strings.requestLabel, value: event.request_id ?? "—" },
               ]}
             />
             {event.payload !== null && (

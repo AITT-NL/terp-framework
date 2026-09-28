@@ -12,7 +12,7 @@ decision, 0001 onwards.
 
 ## 0.28.0 — unreleased
 
-Friction reported from building FAST-SYNC on Terp: a record card whose labels and values
+Friction reported from building a record-heavy app on Terp: a record card whose labels and values
 did not read as pairs, a row of form fields with no correct alignment, and an affordance
 repeated more often than the values it applied to.
 
@@ -213,6 +213,124 @@ repeated more often than the values it applied to.
   a value still renders at the step that `Text` asked for. A caller who wants the pair's step
   passes `size="sm"` or hands the value as a string.
 
+- **A JSON body that spells `NaN` or `Infinity` is a 422, not a 500 — and is no longer
+  accepted anywhere (ADR 0152).** JSON has no non-finite numbers, but Python's decoder
+  accepts `NaN`, `Infinity` and `-Infinity`, and nothing above it refused them. Sent to a
+  constrained field, `NaN` was refused and answered with a 500, because the validation error
+  quotes the value back and it cannot be encoded. Sent to a plain `float` field, `Infinity`
+  was accepted. Inside a `dict[str, Any]` field it reached the service untouched. A value
+  that gets in also defeats the service's own checks: `NaN` compares false against
+  everything, so "refuse when larger than the limit" lets it through.
+
+  `create_app` now installs `NonFiniteJsonMiddleware` as the innermost security layer. Every
+  body declared as JSON is parsed strictly, and one that uses any of the three constants is
+  answered with a typed 422, `non_finite_number`, whose detail names the constant and the
+  fix. It holds for every route and field type with nothing to declare. Malformed JSON keeps
+  FastAPI's own `json_invalid` answer, and a body not declared as JSON is not read. A client
+  that was sending these values was relying on a non-standard extension; the typed frontend
+  client never could, since `JSON.stringify` writes them as `null`.
+
+  Not covered: a `float` query or path parameter still accepts the strings `inf` and `nan`.
+  Those errors encode fine, so no 500 occurs there, but the value is accepted. ADR 0152
+  records why this change does not close it.
+
+- **A migration history that cannot be read is refused, not reported as empty.** On
+  Windows a path past 260 characters cannot be read unless long paths are enabled, and a
+  capability installed in a deeply nested virtualenv hit exactly that. The `versions/`
+  directory listed its revisions, then each file failed to stat and so was not counted.
+  The history read as empty, `terp migrate upgrade` skipped it and printed `upgraded: []`,
+  and the first query failed on a table that was never created. A listed revision that
+  cannot be read now stops discovery. The message names the history, the file and, past the
+  limit, its length, with the two fixes: a shorter path, or long paths enabled. `terp
+  migrate` prints it as its answer and exits 2, instead of burying it under a traceback.
+
+- **`terp inspect capabilities` names the command that lists what an installed capability
+  holds.** The registry is built from packages, so it could say an app *has* identity and
+  nothing about what the app had done with it. The identity line read "Persisted user store
+  backing authentication", which led a reader to conclude an app had no machine credentials
+  and pick the wrong way forward. The service accounts the app had issued were one command
+  away, and nothing on the screen named that command.
+
+  A capability can now declare an `inventory` command. For installed capabilities the text
+  report prints it as `what this app has: uv run terp service-account list` (identity),
+  `terp leases list` (leases) or `terp grant list <subject>` (access), and the JSON manifest
+  carries it as `inventory`. The identity summary now names service accounts, and the entry
+  points to `terp guide package-boundaries`, where their lifecycle is written down. A test
+  parses every inventory command with the real CLI parser, so a renamed command cannot leave
+  a dead instruction behind.
+
+- **`terp` no longer dies on a Windows pipe because of a character cp1252 lacks.** On
+  Windows a pipe or a file takes the ANSI code page, and a pipe is exactly how an agent, an
+  editor task or a workbench reads the CLI. cp1252 has no `→`, so the line `terp dev`
+  prints before starting the servers ended the command with `UnicodeEncodeError` before
+  anything booted, and text the CLI does not author — a module's label, a finding quoting
+  a source line — could do the same to any command. The entry point now switches standard
+  output and error to UTF-8 wherever they are not already. A console and every Linux or
+  macOS terminal are untouched. An undecodable file name prints as an escape instead of
+  ending the command.
+
+- **`terp dev` restarts the backend on Windows, however it was started (ADR 0156).** It ran
+  uvicorn with `--reload`, whose reloader restarts its worker on Windows by sending a console
+  Ctrl+C and then waiting, without a time limit, for the worker to exit. Started from
+  anything that is not an interactive console (an agent's shell tool, an editor task, a
+  workbench), that signal never stopped the worker. The reloader logged "Reloading..." and
+  nothing after it, and the old code went on answering, edit after edit. `terp dev` now runs
+  plain uvicorn and restarts it itself.
+  - **What restarts it:** a change to a Python source of the app package or of any
+    `[tool.terp.arch] app_packages` package — the same declaration the gate scans, and never
+    `node_modules` or the virtualenv.
+  - **How it stops:** on Windows, the process tree is ended with `taskkill /T`, which needs no
+    console. The same stop fixes the frontend: `npm` runs through `cmd.exe` there, so a plain
+    terminate used to leave Vite holding the web port.
+  - **A backend that fails to import** after a half-written save waits for the next save
+    instead of ending the session.
+  - **Ctrl+C** stops everything cleanly.
+  - **`terp dev`'s own lines** are flushed as they are written, instead of sitting in a
+    pipe's buffer until the process ends.
+
+- **`terp dev` answers on the checkout's own ports, the ones a workbench and compose use (ADR
+  0134).** It bound a fixed 22100/21100. On a machine where another application held either
+  port, it collided with that application. The same checkout also answered on one pair when a
+  workbench started it and on another when an editor task ran `terp dev`, so a browser tab, the
+  conformance suite or an agent pointed at the first pair talked to nothing.
+  - **Which ports:** `terp dev` now takes the pair `terp ports` settles for the checkout. It
+    adopts what a workbench or a person published in `.env`, otherwise reuses the checkout's
+    claim, otherwise claims and publishes a free pair. `--port` and `--web-port` still win.
+  - **When nothing can be claimed,** the fixed pair is used and the reason is printed.
+  - **A port already held** when the start begins is refused before anything runs, naming
+    `terp ports assign --reassign` and the flags.
+  - **Vite runs with `--strictPort`,** so the frontend refuses a taken port instead of quietly
+    moving to the next one.
+
+- **A new project passes its own dependency check, and keeps passing as it grows.** A
+  generated project declares `[tool.deptry]`, so `terp verify --profile full` runs deptry over
+  it as a blocking check, and the code the platform writes into the project imports
+  distributions the project does not declare. The template's own `app/seed.py` imports
+  `sqlmodel` (and `app/auth.py` does too with SSO on); every module `terp new module`
+  scaffolds imports `fastapi` and `sqlmodel`; every revision `terp migrate make` writes
+  imports `alembic`, `sqlalchemy` and `sqlmodel`. All four arrive through `terp-core` and
+  `terp-migrations`, and the template exempted only `terp` and `pydantic`, so deptry reported
+  each one as a transitive dependency (DEP003). Measured on a fresh render: the merge bar was
+  red before a single module existed, over `app/seed.py`, and red again over the module and
+  its revision once one was scaffolded and migrated. The template-acceptance job never ran
+  deptry, which is how it shipped.
+
+  The four join `pydantic` in the template's DEP003 exemptions rather than being declared.
+  They are the stack the platform is built on, and their versions are constrained through
+  the terp-* release that brings them in, so declaring them directly would add a second
+  constraint free to drift from it — the reasoning that already exempted `pydantic`. The
+  exemption covers DEP003 alone: if the platform stopped installing one of them, an import
+  of it would be DEP001 and still fail. Exempting names, rather than excluding the
+  migrations directory, keeps deptry reading every revision, so an import added to one by
+  hand that nothing declares is still reported.
+
+  A new architecture suite reads what each writer produces — the template's Python sources,
+  a module scaffolded under every profile, and a real autogenerated revision — and holds
+  every import against the template's dependencies and deptry table, so an import added to
+  any of them without a matching exemption fails the framework's own gate. The
+  template-acceptance job now runs `uv run deptry .` over the grown hub project, and
+  `terp guide dependency-hygiene` teaches the same table, checked against the template.
+
 - **`columns="auto"` is no longer reported as untranslated copy.** DataView's own string
   keys (`columns`, `loading`, `pageOf` and the rest) were in `terp/no-untranslated-ui`'s list
   of JSX text attributes, so `<Grid columns="auto">`, `<DetailList columns="auto">` and
@@ -222,6 +340,88 @@ repeated more often than the values it applied to.
   real text props elsewhere, stay.
 
 ### Upgrade notes
+
+- The dependency-check fix is in the template, so a newly generated project has it. An
+  existing project keeps the `pyproject.toml` it was generated with: add `"fastapi",
+  "sqlmodel", "sqlalchemy", "alembic"` to the `DEP003` list under
+  `[tool.deptry.per_rule_ignores]`. A project that declared one of the four directly to
+  quiet the check can drop that line again; the exemption is the shape the template ships.
+
+- **A DataView speaks the app's language, and so does the document.** DataView's strings were
+  a table of their own — English defaults that only a per-instance `strings` prop could change
+  — so a locale catalog had no typed place to translate them, and the check that refuses a
+  half-translated shell walked a table they were not in. Under `LOCALE_NL` every DataView said
+  "Search…", "Rows per page" and "1–20 of 45 results", the framework's own users, groups and
+  audit screens included, while the catalog was reported complete. They are now `TerpStrings`
+  keys under a `dataView` prefix (`dataViewSearchPlaceholder`, `dataViewResultsRange`, …),
+  `LOCALE_NL` translates them, and the `strings` prop still wins over the locale for the keys
+  it names. The prefix is kept even where a key looks like one the table already had:
+  `dataViewLoading` is "Loading…" where `loading` is "Loading...", and a translation may differ
+  too.
+
+  A DataView part rendered outside a `DataView` — a `DataViewPagination` under a hand-built
+  table — was further behind still. With no provider above it, it read the context's default,
+  which was the English set and a resolver that ignored the locale. The context now carries
+  only an instance's overrides, so every part reads the active locale wherever it sits.
+
+  `LocaleProvider` now also keeps `<html lang>` on the active locale, from mount and across
+  every switch. Nothing set it before, and the template's `index.html` declared `en` while its
+  `i18n.json` opens in `nl`, so a generated app presented a Dutch interface that a screen
+  reader was told was English, and pronounced it as English throughout (WCAG 3.1.1). The
+  template's document now declares `nl`, the example's keeps `en`, and
+  `tests/architecture/test_template.py` holds each to the first locale its `i18n.json`
+  declares. The write is an effect, so server rendering, which has no `document`, never
+  reaches it.
+
+  The source scan that guards against untranslatable literals now reads a table entry
+  (`key: "Literal"`) as well as a default (`key = "Literal"`) for a key its file declares as
+  `UiText`. That is the shape the DataView defaults had, and the reason the scan passed over
+  them. ADR 0153.
+
+- **The platform's own error codes, the audit screen's request label and the admin sidebar
+  entry follow the locale too.** Looking for the same shape turned up three more. The wording
+  for `permission_denied`, `stale_data` and the rest of the core `AppError` codes was
+  `DEFAULT_ERROR_MESSAGES`, an English map that seeded its context, and a plain string
+  resolves as-is, so a Dutch app told its users "You do not have permission to do this." It is
+  `errorCode*` keys of `TerpStrings` now (`errorCodeStaleData`), translated by `LOCALE_NL`; an
+  app's own `errorMessages` map still wins for any code it names, so an app that mapped a
+  platform code only to see it in its own language can drop that entry. The audit screen's
+  expanded row labelled the request id with a literal written into the screen, and reads
+  `requestLabel` now.
+
+  The admin area's sidebar entry still said "Admin" under `LOCALE_NL`, and a key was not the
+  missing piece: `TerpStrings` already had `admin: "Beheer"`. The label was a literal in the
+  packaged module's manifest, and a manifest's only text type was `UiText`, whose descriptor
+  `message` is the app's source-locale text — framework English, in an app whose source locale
+  is Dutch. `@terpjs/contract` now has `FrameworkText`, `{ framework: key }`, which
+  `NavItem.label` accepts beside `UiText`: a key of the stack's framework-string table and no
+  text, typed through `TerpFrameworkStrings`, which react-core merges `TerpStrings` into, so a
+  misspelt key is a typecheck error at the manifest. `useUiText` reads it from the active table
+  without handing it to the app's resolver, and throws on a key the table does not have. The
+  packaged entry is `{ framework: "admin" }`, and reads "Beheer" under `LOCALE_NL` whatever the
+  app's source locale is. Code of an app's own that narrows `NavItem.label` by hand stops
+  typechecking; a label resolved through `useUiText()`, as the shell resolves it, needs no
+  change. ADR 0153.
+
+- **A non-English catalog of an app's own must now translate the new framework keys:**
+  `dataView*`, `errorCode*` and `requestLabel`. `defineAppLocales` and `LocaleProvider` refuse
+  a declared non-English locale whose framework strings leave a key out, and name the missing
+  ones (ADR 0105), so a catalog that was complete against the previous table is refused on
+  this release. That is intended: the alternative is every DataView and every platform error
+  in the app back in English under a locale that claims to be complete. An app on the
+  built-in `LOCALE_NL` needs no change. The English to translate from is the same keys of
+  `DEFAULT_STRINGS`.
+
+- **`DEFAULT_DATA_VIEW_STRINGS` and `DEFAULT_ERROR_MESSAGES` are removed.** Nothing in the
+  tree read either except to seed its own context, and a public English-only default set is
+  the defect waiting to be reused: anything built on it as a fallback renders English in every
+  locale. Read `DEFAULT_STRINGS` for the English; pass the keys one view should say
+  differently through that DataView's `strings` prop, and the codes an app words differently
+  through `renderTerpApp`'s `errorMessages`.
+
+- An existing project keeps the `index.html` it was generated with. Set its `<html lang>` to
+  the first locale in `frontend/i18n.json`: the provider corrects the attribute at mount either
+  way, but the static value is what a reader meets before the bundle runs.
 
 - **Every screen looks different, and no app has to do anything to get it.** The surface model
   and the light theme's canvas both moved (see *Changed*), so an app that writes no CSS of its

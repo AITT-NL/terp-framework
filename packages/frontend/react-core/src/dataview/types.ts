@@ -199,7 +199,15 @@ export interface DataViewSearchScope {
   broadenedLabel: UiText;
 }
 
-/** Every user-facing string the DataView renders, overridable per instance. */
+/**
+ * Every user-facing string the DataView renders, overridable per instance through its
+ * `strings` prop.
+ *
+ * The defaults are not here. Each key is read from the active locale's `TerpStrings`, under
+ * the same name with a `dataView` prefix (`searchPlaceholder` is `dataViewSearchPlaceholder`),
+ * so a DataView speaks whatever language the app's `LocaleProvider` does and a catalog that
+ * leaves one of them out is refused. A per-instance override wins over the locale.
+ */
 export interface DataViewStrings {
   searchPlaceholder: UiText;
   clearSearch: UiText;
@@ -233,40 +241,6 @@ export interface DataViewStrings {
   errorTitle: UiText;
   resizeColumn: UiText;
 }
-
-export const DEFAULT_DATA_VIEW_STRINGS: DataViewStrings = {
-  searchPlaceholder: "Search…",
-  clearSearch: "Clear search",
-  clearFilters: "Clear filters",
-  viewOptions: "View options",
-  columns: "Columns",
-  moveUp: "Move up",
-  moveDown: "Move down",
-  tableView: "Table view",
-  cardView: "Card view",
-  pageSize: "Rows per page",
-  resultsRange: "{from}–{to} of {total} results",
-  pageOf: "Page {page} of {pages}",
-  firstPage: "First page",
-  previousPage: "Previous page",
-  nextPage: "Next page",
-  lastPage: "Last page",
-  selectAllPage: "Select all rows on this page",
-  selectRow: "Select row",
-  selected: "{count} selected",
-  selectAllResults: "Select all {total} results",
-  clearSelection: "Clear selection",
-  moreActions: "More actions",
-  actions: "Actions",
-  openRow: "Open details: {label}",
-  expandRow: "Expand row",
-  collapseRow: "Collapse row",
-  empty: "Nothing to show.",
-  loading: "Loading…",
-  refreshing: "Refreshing…",
-  errorTitle: "Could not load data.",
-  resizeColumn: "Resize column",
-};
 
 /** Tiny `{placeholder}` formatter for the countable strings above. */
 export function formatDataViewString(
