@@ -12,11 +12,61 @@ decision, 0001 onwards.
 
 ## 0.28.0 — unreleased
 
-Friction reported from building FAST-SYNC on Terp: a record card whose labels and values
-did not read as pairs, a row of form fields with no correct alignment, and an affordance
-repeated more often than the values it applied to.
+Friction reported from building a record-heavy app on Terp: a record card whose labels and values
+did not read as pairs, a row of form fields with no correct alignment, an affordance
+repeated more often than the values it applied to, and a bounded quantity with no way to be
+drawn as one.
 
 ### Added
+
+- **`Meter` — one bounded value, a quota used or a score against its range, as a bar with the
+  value printed beside it** (ADR 0158, which also decides that no chart is built yet). An app
+  could not draw one within the pattern: a bar whose length is a value needs CSS or `style`,
+  and module code may write neither (ADR 0059).
+
+  **The bar is the native `<meter>`, styled from the sheet.** The element carries its own
+  semantics and the browser draws the proportion from its attributes, so nothing renders an
+  inline width and there is no second element standing in for the first. Measured in
+  Chromium, from the adopted sheet: fill and track paint exactly the tokens in all five
+  themes, and a distinct fill still paints with forced colours on. Gecko draws its fill
+  through `::-moz-meter-bar`. Those rules are written and pinned, but no lane runs Gecko, so
+  they are unmeasured. Each engine's pseudo-elements sit in rules of their own: a selector
+  list naming a pseudo-element the engine does not know is dropped whole, and measured,
+  Chromium keeps every Blink rule and drops only the Gecko ones.
+
+  **`label` names the meter and is not printed.** Every place a quantity sits already carries
+  a visible caption: a `DetailList` term, a `Card` title, a `HubCard` title. So a meter goes
+  inside one, and the standard layout contract, which is unchanged, refuses a meter loose in a
+  detail body, where it would be a bar with no caption at all.
+
+  **`format` is the `Intl.NumberFormatOptions` the `format` helpers already take**, in the
+  app's locale, and it defaults to a percentage. A percentage is always the share of the range,
+  so `value={74} max={100}` prints `74%`, where the bare Intl option prints `7,400%`. Any other
+  style prints the value itself, and never clamped: an overrun reads `120%` against a bar the
+  element has drawn full, because the text is where a reader learns the bar ran out of room. A
+  range with no width prints the framework's dash, not an infinity.
+
+  **One accessible element.** The printed copy is `aria-hidden` and handed to the meter as its
+  `aria-valuetext`, so a screen reader hears `62%` once rather than `0.62`. The same holds for a
+  `HubCard` link whose stat is a meter, whose name is computed from its content. Measured in
+  Chromium: with the copy left in the tree the link read its value twice. axe cannot see any
+  of this, because its meter-name rule selects `[role="meter"]` and never reaches the native
+  element, so the accessibility lane now asks Chromium for the name of every meter it paints.
+
+  **Bands are opt-in.** With none declared the bar is one colour, `--color-fg-accent` on a
+  `--color-bg-inset` track. Declare `low`, `high` or `optimum` and the fill takes success,
+  warning or danger by region. The region is the HTML standard's algorithm written out, and it
+  agrees with Chromium's own choice for every band shape the standard distinguishes. It is
+  computed rather than read from the browser because, unbanded, the browser files every value
+  under "optimum", and styling by its choice would paint a bare quota in the success tone. The
+  colour reinforces the printed value and never replaces words, because the region is not in
+  the accessibility tree.
+
+  Four non-text pairings join `token-pairs.json`, the accent and the three band tones against
+  the track, and the contrast gate holds each to 3:1 in every theme. The brand fill was the
+  other candidate and measures 1.98 to 2.66 against that track in the three dark themes.
+  `--color-bg-inset` gets its first reader and leaves the unread-token list. The component
+  renders no words of its own, so no `TerpStrings` entry was needed.
 
 - **`QuietActions` — a value with an action attached, where the action is quiet until someone
   reaches for it.** A revision card carries five copyable digests, so it carried five copy

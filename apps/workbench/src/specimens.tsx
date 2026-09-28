@@ -44,6 +44,7 @@ import {
   Markdown,
   Menu,
   MenuItem,
+  Meter,
   ModuleNav,
   NavIcon,
   OverviewPage,
@@ -863,6 +864,108 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         id: "alert-untitled",
         title: "Alert — body only",
         node: <Alert tone="info">A single line, with no heading above it.</Alert>,
+      },
+      {
+        // What gets PRINTED, in the list a meter most often sits in. The four rows are the four
+        // answers the format prop gives: a share of the range (the default), a unit, a plain
+        // number, and an overrun — which prints 120% against a bar the element has clamped
+        // full, because the text is where a reader learns the bar ran out of room. The bars are
+        // one measure, so the four fills can be compared at a glance.
+        id: "meter-formats",
+        title: "Meter — a share, a unit, a plain number and an overrun",
+        node: (
+          <DetailList
+            layout="aligned"
+            items={[
+              { label: "Seats", value: <Meter label="Seats" value={0.62} /> },
+              {
+                label: "Storage",
+                value: (
+                  <Meter
+                    label="Storage"
+                    value={7.4}
+                    max={10}
+                    format={{ style: "unit", unit: "gigabyte", maximumFractionDigits: 1 }}
+                  />
+                ),
+              },
+              { label: "Score", value: <Meter label="Score" value={72} max={100} format={{}} /> },
+              { label: "Quota", value: <Meter label="Quota" value={12} max={10} /> },
+            ]}
+          />
+        ),
+      },
+      {
+        // Every fill the sheet paints, in one shot: the unbanded accent, then one quota — where
+        // lower is better, so the optimum sits below the low band — in each of its three
+        // regions. The unbanded row is not decoration. Without bands the browser still files
+        // the value under "optimum", so it is the row that shows a bare meter is NOT painted in
+        // the success tone.
+        id: "meter-bands",
+        title: "Meter — unbanded, and each band's tone",
+        node: (
+          <DetailList
+            layout="aligned"
+            items={[
+              { label: "Unbanded", value: <Meter label="Unbanded" value={0.5} /> },
+              {
+                label: "Optimum",
+                value: <Meter label="Optimum" value={0.5} low={0.7} high={0.9} optimum={0} />,
+              },
+              {
+                label: "Suboptimum",
+                value: <Meter label="Suboptimum" value={0.8} low={0.7} high={0.9} optimum={0} />,
+              },
+              {
+                label: "Even less good",
+                value: (
+                  <Meter label="Even less good" value={0.95} low={0.7} high={0.9} optimum={0} />
+                ),
+              },
+            ]}
+          />
+        ),
+      },
+      {
+        // A meter inside a sentence, which is DetailList's default layout and therefore the one
+        // an agent gets by writing the obvious thing. The bar has to sit on the line the label
+        // and the colon sit on, not hang below it.
+        id: "meter-inline",
+        title: "Meter — in an inline detail list",
+        node: (
+          <DetailList
+            items={[
+              { label: "Storage", value: <Meter label="Storage" value={0.62} /> },
+              { label: "Owner", value: "Operations" },
+            ]}
+          />
+        ),
+      },
+      {
+        // The stat slot is the other place a quantity sits, and it is inside the card's LINK:
+        // the meter's value text becomes part of the link's accessible name. The a11y lane
+        // asserts that name, because the meter's printed copy is aria-hidden precisely so the
+        // link does not read its value twice. A text stat beside it for the baseline row.
+        id: "meter-hub-card",
+        title: "Meter — as a hub card's stat",
+        node: (
+          <HubPage title="Files">
+            <HubCard
+              to="/files/storage"
+              title="Storage"
+              description="What is kept, and how much room is left."
+              icon={<Icon name="database" />}
+              stat={<Meter label="Storage used" value={0.74} />}
+            />
+            <HubCard
+              to="/files/shares"
+              title="Shares"
+              description="Links handed out, and to whom."
+              icon={<Icon name="layers" />}
+              stat="12 active"
+            />
+          </HubPage>
+        ),
       },
     ],
   },
