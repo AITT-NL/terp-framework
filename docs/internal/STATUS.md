@@ -810,7 +810,10 @@ fixes.
       `float` query or path parameter still accepts `inf`/`nan`; ADR 0152 says why.
 - [ ] #123 — `terp dev` dies on a cp1252 pipe before anything boots, and on Windows uvicorn's
       reloader never restarts when `terp dev` is started from a tool rather than a console, so
-      the old code keeps answering. `terp dev` now owns the restart (ADR 0156).
+      the old code keeps answering. `terp dev` now owns the restart (ADR 0156), and answers on
+      the checkout's claimed ports instead of a fixed pair (ADR 0134 amendment).
+- [ ] #127 — On Windows a migration history past the 260-character path limit read as empty,
+      so `terp migrate upgrade` reported success and created nothing. It is refused now.
 - [ ] #121 — `terp inspect capabilities` described identity without the service accounts it
       provides; installed capabilities now name the command that lists what the app holds.
 - [ ] #119 — DataView's strings sat outside `TerpStrings`, so `LOCALE_NL` never reached them,
@@ -820,14 +823,15 @@ fixes.
       module and every generated revision import the platform's stack undeclared.
 - [ ] #124 + terp-spec#36 — The translation lint read `columns="auto"` as copy, and never saw a
       descriptor built by a helper function (ADR 0157, which reverses a deliberate allowance).
-      Merge the spec PR first.
+      App code may not write the framework's `data-terp` markers either (ADR 0160). Merge the
+      spec PR first.
 - [ ] #126 — The template's conformance job could not start on a fresh app
       (unassigned ports, a stale base URL) and its helpers only worked with an English
       interface; template acceptance never started the generated stack (ADR 0154).
 - [ ] #122 — The template's test setup lacked the `<dialog>` polyfill react-core kept for itself
       (ADR 0155), and a fresh app's CI was red at `frontend-tests` before its first test.
-- [ ] #125 — Proposed, awaiting a decision: meters and charts (ADR 0158); data-driven
-      navigation (ADR 0159).
+- [ ] #125 — Decided: a `Meter` ships and charts wait for evidence under a fixed contract
+      (ADR 0158); navigation stays declared, records are reached from an overview (ADR 0159).
 
 ## Active execution track
 
