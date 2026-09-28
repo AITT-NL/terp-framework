@@ -219,7 +219,7 @@ export interface DataViewStrings {
   tableView: UiText;
   cardView: UiText;
   pageSize: UiText;
-  resultsRange: UiText; // "{from}–{to} of {total} results"
+  resultsRange: UiText; // "{from}–{to} of {total} …": yours, used as given — the locale's has plural forms
   pageOf: UiText; // "Page {page} of {pages}"
   firstPage: UiText;
   previousPage: UiText;
@@ -228,7 +228,7 @@ export interface DataViewStrings {
   selectAllPage: UiText;
   selectRow: UiText;
   selected: UiText; // "{count} selected"
-  selectAllResults: UiText; // "Select all {total} results"
+  selectAllResults: UiText; // "… {total} …": yours, used as given — the locale's has plural forms
   clearSelection: UiText;
   moreActions: UiText;
   actions: UiText;
