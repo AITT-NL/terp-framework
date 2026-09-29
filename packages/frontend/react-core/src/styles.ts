@@ -2137,11 +2137,39 @@ textarea[data-terp="input"] {
      to their content, plus the padding the multi-row band now spends, give 4px and 4px. */
   grid-auto-rows: auto;
 }
+/* WHICH meta decides the row, not whether there is any. Badges show at every width, so a band
+   carrying one has its second row at every width. A lead line shows only above the SECOND
+   cutover (see page-description below), so a band whose only meta is a lead line has nothing
+   to put on that row anywhere beneath it -- and a grid row with nothing visible in it is still
+   a row. It was one: the empty meta group took a track, the band's row gap and the multi-row
+   band's block padding came with it, and the whole was stretched to the header floor. Measured
+   below the first cutover on a hub with a lead line, the title sat 6.8px above the centre of a
+   one-line band whose other line showed nothing at all.
+
+   So Page stamps the kind (data-has-meta="badges" or "description"), and a description-only
+   band is a one-row band until the correction at the second cutover gives it its meta row --
+   the same mobile-first shape the lead line itself is written in. Its meta group is taken out
+   of flow there too, and not merely left empty: its grid-area names an area the one-row
+   template does not declare, and an item placed into a missing named area is not dropped but
+   given IMPLICIT lines, which is a new row after all. */
+[data-terp="page-header"][data-has-meta="description"] [data-terp="page-meta"] {
+  display: none;
+}
 @media ${WIDE_VIEWPORT_QUERY} {
-  [data-terp="page-header"][data-has-meta] {
+  [data-terp="page-header"][data-has-meta="badges"] {
     grid-template-areas:
       "trail actions"
       "meta  meta";
+  }
+}
+@media ${ROOMY_VIEWPORT_QUERY} {
+  [data-terp="page-header"][data-has-meta="description"] {
+    grid-template-areas:
+      "trail actions"
+      "meta  meta";
+  }
+  [data-terp="page-header"][data-has-meta="description"] [data-terp="page-meta"] {
+    display: flex;
   }
 }
 /* Below the first cutover the band is one column and nothing competes for a line. The trail
@@ -2169,13 +2197,16 @@ textarea[data-terp="input"] {
   }
   /* Written AFTER the :has() rule and not before it: the two selectors tie at (0,2,0), so
      source order is what decides a page that carries meta and no cluster, and it belongs to
-     this one. The combined selector below outranks both at (0,3,0). */
-  [data-terp="page-header"][data-has-meta] {
+     this one. The combined selector below outranks both at (0,3,0).
+
+     Badges only: this whole block sits below the first cutover, where a lead line never
+     shows, so a description-only band keeps the rows it would have with no meta at all. */
+  [data-terp="page-header"][data-has-meta="badges"] {
     grid-template-areas:
       "trail"
       "meta";
   }
-  [data-terp="page-header"][data-has-meta]:has(> [data-terp="page-actions"]) {
+  [data-terp="page-header"][data-has-meta="badges"]:has(> [data-terp="page-actions"]) {
     grid-template-areas:
       "trail"
       "meta"
@@ -2253,35 +2284,25 @@ textarea[data-terp="input"] {
    2em } ON the element, and a declaration on the element beats an inherited value however
    specific the ancestor rule is: without this the leaf renders at twice the trail.
 
-   xl, not the trail's own sm. "Heavier than its ancestors, not larger" was the rule while the
-   band was 3rem and the leaf had no room to be anything else, and it cost the page its name:
-   at sm/semibold the title measured the same as a table header, less than the action button
-   beside it, and exactly as much as the card titles of the sections under it — so on a hub
-   every HubCard outranked the page it was on. A screen whose largest type belongs to its
-   content is a screen with no masthead, and that reads as unfinished before any one component
-   does. The scale is 24 / 18 / 16 / 14 again: page title, card title, body, description.
+   Semibold at the trail's own size, which is the whole "the trail is the title" idea in one
+   declaration — heavier than its ancestors, not larger.
 
-   The one-row band still holds its floor, which is the promise this row makes and the number
-   to re-measure if either half moves. --shell-header-height is 3.5rem now, and xl at the TIGHT
-   step is 28.8px, so the title's line box sits inside 56px with room to spare: measured, a hub's
-   band and the app header above it are both 56.0. At the trail's snug step it would be 32.4 and
-   still fit, but the band that carries meta — which has broken the floor by design, and does not
-   make the claim — would take the extra 3.6px on every page with a lead line, so the tight step
-   is what keeps the two bands one apart rather than two.
+   This is the second time the leaf has been sm, and the first reversal is the reason to keep
+   it here. 0.28.0 took it to xl so the page's name would outrank its cards, and paid for that
+   in the band itself: the leaf was 24px on 14px ancestors, the small-small-BIG trail the band
+   comment above warns about, and it needed --shell-header-height raised from 3rem to 3.5rem to
+   fit, so every app's header grew 8px to hold a title that is chrome. The page's name is
+   carried by being the trail's heaviest item and its h1, not by being its largest.
 
-   That is also the answer to the line height the trail's own rule argues for. Sharing it keeps
-   the leaf's glyphs on the ancestors' baseline, which mattered when leaf and ancestors were the
-   same size; at 24 against 14 they cannot share a baseline anyway and the li centres them, so
-   the value is free to do the job only it can do here.
-
-   Tracking is the scale's tight step, which only starts earning its keep at this size: -0.02em
-   is 0.48px here and nothing at all at 14px, which is why the trail below does not take it. */
+   And no line-height of its own, which is the other half of that idea: it takes the trail's
+   (see breadcrumbs, where the value and the defect are recorded). A second value here — 1.3
+   against the ancestors' inherited normal — is what left the leaf's glyphs sitting 0.59px
+   above the crumb they hang off, in the same font at the same size. */
 [data-terp="page-title"] {
   margin: 0;
-  font-size: var(--font-size-xl);
-  line-height: var(--font-line-height-tight);
+  font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--font-letter-spacing-tight);
+  letter-spacing: 0;
   color: var(--color-neutral-900);
 }
 /* Status pills next to the title. A row of its own so a page passing several keeps them
@@ -2357,9 +2378,20 @@ textarea[data-terp="input"] {
    Below the cutover the same is true of a band whose cluster has taken a row of its own.
 
    The narrow rule weighs (0,3,0) plus :has()'s argument, so (0,4,0) — the same as the meta
-   rule, and they declare the same value, so the tie decides nothing. */
-[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"][data-has-meta] {
+   rule, and they declare the same value, so the tie decides nothing.
+
+   A description-only band is multi-row only above the second cutover (see the meta-kind rule
+   near the top of the band), so that is the only width it spends this padding at. Below it
+   the band is one row and holds the floor like any other: spending 4px + 4px there is exactly
+   what pushed a lone title off the centre of a band with nothing else in it. */
+[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"][data-has-meta="badges"] {
   padding-block: var(--space-1);
+}
+@media ${ROOMY_VIEWPORT_QUERY} {
+  [data-terp="page"]:not([data-measure="narrow"])
+    > [data-terp="page-header"][data-has-meta="description"] {
+    padding-block: var(--space-1);
+  }
 }
 @media ${NARROW_VIEWPORT} {
   [data-terp="page"]:not([data-measure="narrow"])

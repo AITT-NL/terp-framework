@@ -127,6 +127,11 @@ const LINUX_ONLY = new Set([
   "app-shell-nav-groups-collapsed",
   "app-shell-header-nav-groups",
   "app-shell-nav-groups-drawer",
+  // The lead-line-only band, above and below the second cutover. Added under the same
+  // constraint as the first two: recorded in the linux image because the authoring machine's
+  // Windows browser would not launch.
+  "page-header-lead-only",
+  "page-header-lead-only-narrow",
 ]);
 
 test("every specimen with asynchronous content declares what to wait for", () => {

@@ -8,6 +8,8 @@
     "dark-app-shell-nav-groups-drawer.png",
     "dark-app-shell-nav-groups.png",
     "dark-icons.png",
+    "dark-page-header-lead-only-narrow.png",
+    "dark-page-header-lead-only.png",
     "dark-tooltip-open.png",
     "light-app-shell-brand-pair.png",
     "light-app-shell-header-nav-groups.png",
@@ -16,6 +18,8 @@
     "light-app-shell-nav-groups-drawer.png",
     "light-app-shell-nav-groups.png",
     "light-icons.png",
+    "light-page-header-lead-only-narrow.png",
+    "light-page-header-lead-only.png",
     "light-tooltip-open.png"
   ],
   "linux": []
