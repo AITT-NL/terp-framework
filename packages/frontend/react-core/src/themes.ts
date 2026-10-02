@@ -35,7 +35,19 @@
  * dark palette under `@media (prefers-color-scheme: dark)`, so `"system"` simply removes the
  * attribute.
  */
-export type Theme = "light" | "dark" | "midnight" | "twilight" | "contrast" | "system";
+export type Theme = "midday" | "twilight" | "evening" | "night" | "contrast" | "system";
+
+/**
+ * The names three themes had before they were renamed for the time of day they suit:
+ * `light` is now `midday`, `dark` is `evening` and `midnight` is `night`.
+ *
+ * Still accepted wherever a theme is NAMED -- a stored choice, `defaultTheme`, an app's
+ * `layout-contract.json`, a hand-written `data-theme` -- and mapped to today's name by
+ * {@link resolveTheme}, so no app changes palette because of the rename. The token sheet paints
+ * each one as the theme it now names (`aliases` in the contract's `themes.json`). New code
+ * writes the new names; these exist so old code and old storage keep working.
+ */
+export type LegacyTheme = "light" | "dark" | "midnight";
 
 /**
  * Every value {@link Theme} admits, in the order the theme control offers them: the shipped
@@ -45,10 +57,33 @@ export type Theme = "light" | "dark" | "midnight" | "twilight" | "contrast" | "s
  * string, a JSON file and a bootstrap option are all `string` until something checks them.
  */
 export const THEMES: readonly Theme[] = [
-  "light",
-  "dark",
-  "midnight",
+  "midday",
   "twilight",
+  "evening",
+  "night",
   "contrast",
   "system",
 ];
+
+/** Each {@link LegacyTheme} and the theme it now names. Mirrors `aliases` in `themes.json`. */
+export const THEME_ALIASES: Readonly<Record<LegacyTheme, Theme>> = {
+  light: "midday",
+  dark: "evening",
+  midnight: "night",
+};
+
+/**
+ * The theme a stored, declared or passed name stands for: itself if it is one, today's name if
+ * it is an earlier one, and `null` if it is neither. The one place an old name becomes a new
+ * one, so the provider, the layout declaration and the bootstrap all agree on it.
+ */
+export function resolveTheme(name: string | null | undefined): Theme | null {
+  if (name === null || name === undefined) {
+    return null;
+  }
+  if ((THEMES as readonly string[]).includes(name)) {
+    return name as Theme;
+  }
+  // Own keys only: "constructor" is not a theme.
+  return Object.hasOwn(THEME_ALIASES, name) ? THEME_ALIASES[name as LegacyTheme] : null;
+}

@@ -32,7 +32,7 @@
  *
  * An app that ships on a named palette declares it TWICE, and both halves are load-bearing:
  * `defaultTheme` in frontend/layout-contract.json, which is what ThemeProvider applies, and
- * the same name on the element in index.html (<html lang="en" data-theme="midnight">), which
+ * the same name on the element in index.html (<html lang="en" data-theme="night">), which
  * is what paints it before this bundle exists. The attribute alone is not enough and fails in
  * the direction nobody expects: ThemeProvider defaults to "system", so it would REMOVE the
  * attribute on mount and the app would open on its palette and then leave it. This script
@@ -40,8 +40,13 @@
  */
 (function () {
   var STORAGE_KEY = "terp.theme";
-  var THEMES = ["light", "dark", "midnight", "twilight", "contrast", "system"];
-  var DARK = ["dark", "midnight", "twilight"];
+  var THEMES = ["midday", "twilight", "evening", "night", "contrast", "system"];
+  // The names three themes had before they were renamed for the time of day they suit. A choice
+  // stored under one resolves to the theme it now names, as ThemeProvider resolves it on mount.
+  var ALIASES = { light: "midday", dark: "evening", midnight: "night" };
+  // Every name the sheet paints dark, earlier names included: an app that ships on a palette
+  // declares it on <html> itself, and one written before the rename says data-theme="midnight".
+  var DARK = ["twilight", "evening", "night", "dark", "midnight"];
 
   var root = document.documentElement;
   var stored = null;
@@ -55,6 +60,10 @@
     // with it, so a declared dark palette flashed white for exactly the viewers whose browser
     // refuses storage.
     stored = null;
+  }
+
+  if (stored !== null && Object.prototype.hasOwnProperty.call(ALIASES, stored)) {
+    stored = ALIASES[stored];
   }
 
   if (stored === "system") {

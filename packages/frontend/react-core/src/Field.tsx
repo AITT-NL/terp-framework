@@ -85,9 +85,17 @@ export function Field({ label, children, error, hint }: FieldProps) {
         <span id={labelId} data-terp="field-label-text">
           {resolve(label)}
         </span>
-        {control}
+        {/* The control and what the field says about it, as ONE box under the label. That is
+            what lets fields side by side share two lines -- every label on one, every control
+            on the next -- however long any label runs or whatever any field has to say: a
+            hint or an error grows its own body downward and moves no other field's control.
+            Inside the <label> with the control, which changes no name: the control is named
+            by aria-labelledby on the label TEXT above, not by the label's whole subtree. */}
+        <span data-terp="field-body">
+          {control}
+          {messages}
+        </span>
       </label>
-      {messages}
     </div>
   );
 }
@@ -106,8 +114,10 @@ export interface FieldRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "sty
 }
 
 /**
- * Several {@link Field}s side by side, with their labels, their controls and their
- * messages each on a shared line.
+ * Several {@link Field}s side by side, with their labels on one shared line and their
+ * bodies -- each control with whatever its field says under it -- on the next. A `Grid`
+ * whose children are all fields does the same by itself; this is for a row that also holds
+ * an action beside the fields.
  *
  * It exists because a row of fields had no correct alignment, and both wrong ones were
  * reachable by an ordinary `Stack`. A field is as tall as its label, its control AND
@@ -122,7 +132,7 @@ export interface FieldRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "sty
  *
  * Neither is a bug in `Stack`. A flex row can align one edge of a box, and the thing that
  * has to line up here is a band in the MIDDLE of it, which needs the boxes to share tracks
- * rather than edges. So the row owns three rows and each field becomes a subgrid of them --
+ * rather than edges. So the row owns two rows and each field becomes a subgrid of them --
  * the same instrument {@link DetailListGroup} uses to share one label column across several
  * lists, for the same reason: the alternative is each box measuring itself.
  *

@@ -1539,6 +1539,39 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // Fields in an ordinary Grid -- the composition a form reaches for -- with the two things
+        // that used to throw them out of line: a label long enough to wrap and a hint under one
+        // control. Every label sits on one line and every control on the next, in each row of
+        // the grid, because a grid whose children are all fields shares a label line and a body
+        // line across them. Before, the cells aligned their TOPS, so the wrapped label pushed its
+        // control below its neighbours'. Two rows of three, so the second row shows the grid's
+        // own gap between rows of fields while each field keeps 4px from label to control.
+        id: "field-grid",
+        title: "Grid of fields — labels on one line, controls on the next",
+        node: (
+          <Grid columns={3} gap={4}>
+            <Field label="Name">
+              <Input defaultValue="Customer master" />
+            </Field>
+            <Field label="The system this sync reads its records from, and writes nothing back to">
+              <Select defaultValue="erp" options={[{ value: "erp", label: "ERP" }]} />
+            </Field>
+            <Field label="Schedule" hint="Runs after the warehouse closes its books.">
+              <Input defaultValue="Nightly" />
+            </Field>
+            <Field label="Owner">
+              <Input defaultValue="Finance" />
+            </Field>
+            <Field label="Retention" hint="Days a run's report is kept.">
+              <Input defaultValue="30" />
+            </Field>
+            <Field label="Notify">
+              <Input defaultValue="On failure" />
+            </Field>
+          </Grid>
+        ),
+      },
+      {
         // At rest, which is the state the component exists for: five copyable digests and no
         // five copy buttons competing with them. The baseline can only ever picture this
         // half -- Playwright takes a screenshot with no pointer over the page, and the
@@ -2888,22 +2921,43 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
-        // The band at its tallest: below the first cutover a badge and a cluster each take a
-        // row of their own under the trail, so this is three rows. Each row is a control tall
-        // and the one-row band's inset (5.5px) sits once above, between and below them, so the
-        // lines are as far from each other as from the border. Nothing pictured a multi-row band
-        // at a phone width before, and both earlier forms were wrong here: content-sized rows
-        // with 4px of padding crammed the content against the border, and full 47px bars per
-        // row doubled the space between lines.
+        // The band at its tallest at a phone width: a cluster too wide to share the trail's line
+        // drops to a line of its own, and the badges take the next -- three lines. Each is a
+        // control tall with the one-row band's inset (5.5px) once above, between and below them,
+        // so the lines sit as far from each other as from the border. Two actions, not one: one
+        // button fits beside a short title and stays there (see page-header-inline-narrow).
         id: "page-header-root-narrow",
-        title: "Page — a badge and an action below the cutover: three rows, one inset",
+        title: "Page — a badge and a cluster too wide to share the line: three lines",
         viewport: { width: 430, height: 700 },
         node: (
           <Page
             title="Customer master"
             breadcrumbs={[{ label: "Records", to: "/records" }]}
             badges={<Badge tone="neutral">Read only</Badge>}
-            actions={<Button variant="primary">Publish</Button>}
+            actions={
+              <PageActions
+                primary={<Button variant="primary">Publish</Button>}
+                secondary={<Button variant="secondary">Discard changes</Button>}
+              />
+            }
+          >
+            <p style={{ margin: 0 }}>Body content below the header.</p>
+          </Page>
+        ),
+      },
+      {
+        // The case that was reported: one action and one crumb at a phone width. Below the first
+        // cutover the band used to put the cluster on a row of its own however little it held,
+        // so an overview's single "New" button sat alone under its title and the band was two
+        // rows tall for one line of content. The band is a wrapping line now, and a cluster that
+        // fits beside the trail stays there: one line, the header's 48px.
+        id: "page-header-inline-narrow",
+        title: "Page — one action beside a short title at a phone width",
+        viewport: { width: 430, height: 700 },
+        node: (
+          <Page
+            title="Connections"
+            actions={<Button variant="primary" icon={<Icon name="plus" size="1em" />}>New connection</Button>}
           >
             <p style={{ margin: 0 }}>Body content below the header.</p>
           </Page>

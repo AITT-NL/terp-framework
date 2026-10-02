@@ -87,13 +87,38 @@ from each other as the first is from the border, and a badge row, shorter than a
 in a control's height and so sits as far from the bottom border as the trail's text does from the
 top. Two rows are 89.5px, three 131px.
 
-It applies only to the bands that are more than one row, keyed on the same three cases the meta
-and actions areas are (badges at every width, a lead line above the second cutover, the cluster's
-own row below the first). The one-row band keeps zero padding and its 47px bar, because it holds
-the header's height for the largest control the package ships, and 2.75rem plus 5.5px either side
-would beat the floor. `minmax` throughout, so content taller than its row grows the row instead of
-spilling out. The computed lane reads the padding, the gap, every track and each item's distance
-from its track's centre.
+It first applied only to the bands known to be more than one row (badges at every width, a lead
+line above the second cutover, the cluster's own row below the first), so the one-row band could
+keep zero padding and hold the header's height for the largest control. The next amendment
+retired that split.
+
+**Amended again, by giving up the areas.** Decision 1 placed the band by grid area so a wrapped
+band could not scatter its cluster. But an area answers "where does the cluster go" per
+viewport, and the question is about content: above the first cutover the cluster stayed beside
+the trail however wide it was — squeezing the trail, and with enough actions running off the
+window — and below it the cluster took a row of its own even when one button fitted beside a
+one-word title. Reported on exactly that: an overview's single "New" button alone under its
+title on a phone.
+
+So the band is a wrapping flex line again, and both of decision 1's objections are answered
+without areas. `order` puts the cluster straight after the trail and the meta group last (with a
+full-line basis, so it is always a line of its own); the cluster is one item pushed to the end by
+`margin-inline-start: auto`, so no free space is ever distributed among buttons. The trail's basis
+is its own width (`flex: 1 1 auto`), which is what "fits" means: the cluster shares the trail's
+line only when the whole trail fits beside it, and otherwise drops to a line of its own and wraps
+its own buttons there (`min-width: 0`, so it can shrink to the line instead of running off it).
+A fixed claim for the trail (12rem) was tried first and answered the wrong question — it moved a
+single button off a one-word title at a phone's width.
+
+**The inset is spent on every chrome band.** Whether the cluster wraps now depends on content no
+selector can see, so the inset cannot be keyed on the kinds of band known to wrap. Every chrome
+band pads by the inset and gaps its lines by it, and every line is at least a control tall
+(`min-height: var(--density-control-min-height)` on the trail, the cluster and the meta group). A
+one-line band is inset + control + inset + rule = the header's 48px, exactly as before. The one
+price: a band carrying a `size="lg"` control is 56px, where zero padding held it at 48 — a page
+that puts a large button in its band has chosen a taller band. The computed lane measures every
+line, the gaps between them, the band's edges and each item's centre, at a phone width and a
+desk's, and that one button fits beside a short title at 430px.
 
 **4. Every crumb may be cut; no crumb may be orphaned.** Both the list and its items are
 `nowrap`, and the crumb text carries `min-width: 0` with an ellipsis. A deep trail degrades by

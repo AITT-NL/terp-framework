@@ -1940,11 +1940,16 @@ Theming and branding (design tokens, palettes, the brand mark)
   refuses `style={}`, `className` and module stylesheets: a module that painted itself
   would not follow the palette. Modules never need theme-specific code.
 - THE SHIPPED PALETTES, plus "system":
-      light  dark  midnight  twilight  contrast
-  `contrast` is a high-contrast light set. The active one is `data-theme` on <html>;
-  the shell header's theme toggle offers all five plus "system" (follow the viewer's
-  own platform preference) and persists the choice. `system` resolves to the dark set
-  when the platform asks for dark.
+      midday  twilight  evening  night  contrast
+  Named for the time of day they suit: midday is the light set, twilight a dimmed dark,
+  evening the slate dark, night the near-black dark. `contrast` is a high-contrast light
+  set. The active one is `data-theme` on <html>; the shell header's theme toggle offers all
+  five plus "system" (follow the viewer's own platform preference) and persists the choice.
+  `system` resolves to `night` when the platform asks for dark.
+  `light`, `dark` and `midnight` are the EARLIER names of midday, evening and night. They
+  are still accepted wherever a theme is named (defaultTheme, a stored choice, data-theme)
+  and resolve to the new name -- but the theme toggle now writes the new names, so a
+  selector in your own theme.css must use them: `[data-theme="dark"]` no longer matches.
 - TO CHANGE HOW YOUR APP LOOKS, redefine tokens in `frontend/src/theme.css`. It is
   imported last and therefore wins the cascade. Declare only what you are changing;
   everything else falls back to the framework's value.
@@ -1954,15 +1959,15 @@ Theming and branding (design tokens, palettes, the brand mark)
   depart from a house style, declare the token in theme.css; nothing takes that back.
 
       :root { --color-brand-primary: #2563eb; }
-      [data-theme="dark"] { --color-brand-primary: #60a5fa; }
+      [data-theme="evening"] { --color-brand-primary: #60a5fa; }
 
   Per palette, use that palette's selector. A token with no palette selector is
   declared in `:root` and governs every palette at once — which is what you want for
   spacing, corners and typography, and usually not what you want for a colour.
-- TO SHIP ON A PALETTE OTHER THAN light, name it in the layout declaration — never by
+- TO SHIP ON A PALETTE OTHER THAN midday, name it in the layout declaration — never by
   restyling one palette to imitate another:
 
-      frontend/layout-contract.json -> { "defaultTheme": "midnight" }
+      frontend/layout-contract.json -> { "defaultTheme": "night" }
 
   Legal values are the five above plus "system". Passing `defaultTheme` as a bootstrap
   option as well is refused (terp guide layouts). Your organisation's styling tool may
@@ -1975,7 +1980,7 @@ Theming and branding (design tokens, palettes, the brand mark)
   so declare it on the document as well and the app opens in its own palette with no
   flash either:
 
-      frontend/index.html -> <html lang="en" data-theme="midnight">
+      frontend/index.html -> <html lang="en" data-theme="night">
 
   Both halves are the same fact, in the two places that can each answer at a different
   moment: the attribute is there before anything runs, and the script overrides it only

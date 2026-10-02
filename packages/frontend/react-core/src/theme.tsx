@@ -3,8 +3,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from "react";
 
 import { Icon } from "./icons";
-import { THEMES } from "./themes";
-import type { Theme } from "./themes";
+import { THEMES, resolveTheme } from "./themes";
+import type { LegacyTheme, Theme } from "./themes";
 import { Menu, MenuItem } from "./ui/Menu";
 import { useStrings } from "./uiText";
 
@@ -14,13 +14,13 @@ import { useStrings } from "./uiText";
  * palette an app's checked-in file names — and it must not import this file to get it.
  * Re-exported here so `ThemeProvider`'s own type stays where its props are documented.
  */
-export type { Theme } from "./themes";
+export type { LegacyTheme, Theme } from "./themes";
 
 const THEME_ICONS: Record<Theme, IconName> = {
-  light: "sun",
-  dark: "moon",
-  midnight: "moon-stars",
+  midday: "sun",
   twilight: "sunset",
+  evening: "moon",
+  night: "moon-stars",
   contrast: "contrast",
   system: "monitor",
 };
@@ -51,8 +51,9 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
  */
 function readStoredTheme(): Theme | null {
   try {
-    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-    return THEMES.includes(stored as Theme) ? (stored as Theme) : null;
+    // A choice stored before the rename ("dark", "midnight", "light") resolves to the theme it
+    // now names, so nobody's palette changes because the theme did.
+    return resolveTheme(window.localStorage.getItem(THEME_STORAGE_KEY));
   } catch {
     return null;
   }
@@ -60,7 +61,8 @@ function readStoredTheme(): Theme | null {
 
 export interface ThemeProviderProps {
   /** Starting theme when the user has not chosen one yet; default "system". */
-  defaultTheme?: Theme;
+  /** Today's theme name, or an earlier one ({@link LegacyTheme}), which resolves to it. */
+  defaultTheme?: Theme | LegacyTheme;
   children: ReactNode;
 }
 
@@ -70,13 +72,15 @@ export interface ThemeProviderProps {
  * `renderTerpApp` mounts one for every app; pair with {@link ThemeToggle} (the default
  * {@link UserMenu} already includes it).
  *
- * `defaultTheme` is how an app ships on a named theme — `defaultTheme="midnight"` and
+ * `defaultTheme` is how an app ships on a named theme — `defaultTheme="night"` and
  * nothing else — since it applies until the user chooses otherwise, INCLUDING when what they
  * choose is "system". Prefer declaring it in the app's own `frontend/layout-contract.json`,
  * which is the form a tool can read and rewrite.
  */
 export function ThemeProvider({ defaultTheme = "system", children }: ThemeProviderProps) {
-  const [theme, setThemeState] = useState<Theme>(() => readStoredTheme() ?? defaultTheme);
+  const [theme, setThemeState] = useState<Theme>(
+    () => readStoredTheme() ?? resolveTheme(defaultTheme) ?? "system",
+  );
 
   useEffect(() => {
     const root = document.documentElement;
@@ -141,11 +145,15 @@ export function ThemeToggle({ variant = "stacked" }: ThemeToggleProps) {
   if (context === null) {
     return null;
   }
+  // The string keys keep the names the themes had when they were written (themeLight is
+  // midday's label, themeDark evening's, themeMidnight night's): an app shipping its own
+  // language catalog must supply every key, and renaming them would refuse that catalog for a
+  // change no reader sees. The VALUES are the new names.
   const labels: Record<Theme, string> = {
-    light: strings.themeLight,
-    dark: strings.themeDark,
-    midnight: strings.themeMidnight,
+    midday: strings.themeLight,
     twilight: strings.themeTwilight,
+    evening: strings.themeDark,
+    night: strings.themeMidnight,
     contrast: strings.themeContrast,
     system: strings.themeSystem,
   };

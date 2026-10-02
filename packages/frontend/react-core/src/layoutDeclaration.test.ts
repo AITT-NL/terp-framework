@@ -108,7 +108,7 @@ describe("resolveLayoutDeclaration", () => {
         },
         {
           contract: "standard",
-          defaultTheme: "dark",
+          defaultTheme: "evening",
           density: "compact",
           navPlacement: "header",
         },
@@ -137,9 +137,30 @@ describe("resolveLayoutDeclaration", () => {
   it("supplies the palette from the file, narrowed to the published list", () => {
     // The point of the key: which palette an app opens on used to be reachable only by editing
     // that app's own code, which put it out of reach of anything that edits files.
-    expect(resolveLayoutDeclaration({ defaultTheme: "midnight" }, {})).toEqual({
-      defaultTheme: "midnight",
+    expect(resolveLayoutDeclaration({ defaultTheme: "night" }, {})).toEqual({
+      defaultTheme: "night",
     });
+  });
+
+  it("accepts a palette's earlier name, and resolves it to the theme it now names", () => {
+    // The themes were renamed for the time of day they suit, and an app's checked-in file that
+    // says "dark" was written before that. Refusing it would break every such app on upgrade
+    // for a change that did not touch its palette: the sheet paints "dark" as evening, and the
+    // resolver hands the router the name the provider and the control use.
+    // Mutation: check against THEMES alone again, and the first line throws.
+    expect(resolveLayoutDeclaration({ defaultTheme: "dark" }, {})).toEqual({
+      defaultTheme: "evening",
+    });
+    expect(resolveLayoutDeclaration({ defaultTheme: "midnight" }, {})).toEqual({
+      defaultTheme: "night",
+    });
+    expect(resolveLayoutDeclaration({ defaultTheme: "light" }, {})).toEqual({
+      defaultTheme: "midday",
+    });
+    // Own names only: a prototype key is not an earlier theme.
+    expect(() => resolveLayoutDeclaration({ defaultTheme: "constructor" }, {})).toThrow(
+      /"defaultTheme" is "constructor"/,
+    );
   });
 
   it("accepts every palette the framework publishes, and nothing else", () => {
@@ -166,11 +187,11 @@ describe("resolveLayoutDeclaration", () => {
       defaultTheme: "system",
     });
     expect(() =>
-      resolveLayoutDeclaration({ defaultTheme: "system" }, { defaultTheme: "dark" }),
-    ).toThrow(/both declare "defaultTheme" \(file: "system", code: "dark"\)/);
+      resolveLayoutDeclaration({ defaultTheme: "system" }, { defaultTheme: "evening" }),
+    ).toThrow(/both declare "defaultTheme" \(file: "system", code: "evening"\)/);
     // And an absent key does leave the option in force, which is the half that was true.
-    expect(resolveLayoutDeclaration({}, { defaultTheme: "dark" })).toEqual({
-      defaultTheme: "dark",
+    expect(resolveLayoutDeclaration({}, { defaultTheme: "evening" })).toEqual({
+      defaultTheme: "evening",
     });
   });
 
@@ -180,16 +201,16 @@ describe("resolveLayoutDeclaration", () => {
     // matches no block in the stylesheet, so the app renders the base palette and nothing
     // anywhere reports that the file was ignored.
     expect(() => resolveLayoutDeclaration({ defaultTheme: "midnite" }, {})).toThrow(
-      /"defaultTheme" is "midnite"; expected one of "light", "dark", "midnight", "twilight", "contrast", "system"/,
+      /"defaultTheme" is "midnite"; expected one of "midday", "twilight", "evening", "night", "contrast", "system" \(or an earlier name: "light", "dark", "midnight"\)/,
     );
   });
 
   it("refuses the palette declared twice, like every other key", () => {
     expect(() =>
-      resolveLayoutDeclaration({ defaultTheme: "midnight" }, { defaultTheme: "dark" }),
-    ).toThrow(/"defaultTheme" \(file: "midnight", code: "dark"\)/);
+      resolveLayoutDeclaration({ defaultTheme: "night" }, { defaultTheme: "evening" }),
+    ).toThrow(/"defaultTheme" \(file: "night", code: "evening"\)/);
     expect(() =>
-      resolveLayoutDeclaration({ defaultTheme: "dark" }, { defaultTheme: "dark" }),
+      resolveLayoutDeclaration({ defaultTheme: "evening" }, { defaultTheme: "evening" }),
     ).toThrow(/both declare/);
   });
 

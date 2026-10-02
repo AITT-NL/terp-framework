@@ -206,13 +206,16 @@ export interface TerpStrings {
   closeNavigation: string;
   /** Label of the {@link ThemeToggle} select. */
   theme: string;
-  /** {@link ThemeToggle} option: the light theme. */
+  /**
+   * {@link ThemeToggle} option: `midday`, the light theme. The key keeps the theme's earlier
+   * name (`light`), so a catalog written before the rename still loads; the value is the new one.
+   */
   themeLight: string;
-  /** {@link ThemeToggle} option: the dark theme. */
+  /** {@link ThemeToggle} option: `evening`, the slate dark theme (key from its earlier name, `dark`). */
   themeDark: string;
-  /** {@link ThemeToggle} option: the near-black dark theme. */
+  /** {@link ThemeToggle} option: `night`, the near-black dark theme (key from its earlier name, `midnight`). */
   themeMidnight: string;
-  /** {@link ThemeToggle} option: the violet-tinted dark theme. */
+  /** {@link ThemeToggle} option: `twilight`, the dimmed violet dark theme. */
   themeTwilight: string;
   /** {@link ThemeToggle} option: the high-contrast theme. */
   themeContrast: string;
@@ -515,9 +518,9 @@ export const DEFAULT_STRINGS: TerpStrings = {
   openNavigation: "Open navigation",
   closeNavigation: "Close navigation",
   theme: "Theme",
-  themeLight: "Light",
-  themeDark: "Dark",
-  themeMidnight: "Midnight",
+  themeLight: "Midday",
+  themeDark: "Evening",
+  themeMidnight: "Night",
   themeTwilight: "Twilight",
   themeContrast: "High contrast",
   themeSystem: "System",

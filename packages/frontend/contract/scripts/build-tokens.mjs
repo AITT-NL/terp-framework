@@ -63,9 +63,24 @@ if (!themes.some((theme) => theme.name === registry.systemDark)) {
 if (registry.systemDark === registry.base) {
   throw new Error("themes.json: systemDark must not be the base theme");
 }
+// Every name a theme answers to: its own, then the names it had before a rename. An alias is a
+// data-theme value like any other, so it must be one, and no two themes may claim one name --
+// the selector would then paint whichever block came last.
+const namesOf = (theme) => [theme.name, ...(theme.aliases ?? [])];
+const claimed = new Map();
 for (const theme of themes) {
-  if (!/^[a-z][a-z0-9-]*$/.test(theme.name)) {
-    throw new Error(`themes.json: "${theme.name}" is not usable as a data-theme value`);
+  for (const name of namesOf(theme)) {
+    if (claimed.has(name)) {
+      throw new Error(`themes.json: "${name}" names both ${claimed.get(name)} and ${theme.name}`);
+    }
+    claimed.set(name, theme.name);
+  }
+}
+for (const theme of themes) {
+  for (const name of namesOf(theme)) {
+    if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+      throw new Error(`themes.json: "${name}" is not usable as a data-theme value`);
+    }
   }
   if (theme.appearance !== "light" && theme.appearance !== "dark") {
     throw new Error(`themes.json: ${theme.name} appearance must be "light" or "dark"`);
@@ -142,9 +157,11 @@ const appearanceSwitch = (appearance) =>
 const themeBlocks = overlays
   .map(
     (theme) => `
-/* ${theme.label}: an explicit choice via <html data-theme="${theme.name}">.
+/* ${theme.label}: an explicit choice via <html data-theme="${theme.name}">${
+      theme.aliases?.length ? `, or its earlier name${theme.aliases.length > 1 ? "s" : ""} ${theme.aliases.map((alias) => `"${alias}"`).join(", ")}` : ""
+    }.
    ${theme.description} */
-[data-theme='${theme.name}'] {
+${namesOf(theme).map((name) => `[data-theme='${name}']`).join(",\n")} {
   color-scheme: ${theme.appearance};
 ${appearanceSwitch(theme.appearance)}
 ${compiled.get(theme.name)}
@@ -233,9 +250,12 @@ const manifest = {
   // alone rather than hard-coding the list it happens to know about.
   base: registry.base,
   systemDark: registry.systemDark,
-  themes: themes.map(({ name, label, appearance, description, minimumContrast }) => ({
+  themes: themes.map(({ name, label, appearance, description, minimumContrast, aliases }) => ({
     name,
     label,
+    // The names this theme had before a rename. Accept them wherever a theme is named, and map
+    // them to `name`; the stylesheet already paints them as this theme.
+    aliases: aliases ?? [],
     appearance,
     description,
     // The ratio this theme's declared text pairings must reach, published as a NUMBER on every

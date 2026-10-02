@@ -232,17 +232,22 @@ describe("Divider", () => {
 });
 
 describe("DetailList", () => {
-  it("leaves the inline default unstamped, and marks each row", () => {
-    // `inline` and one column are the base rule. The row marker is new and load-bearing: the
-    // aligned layout turns the wrapper into `display: contents` so the dt and dd become grid
-    // items of the dl itself, which is the only way to align labels across rows without
-    // changing the DOM — and a rule cannot reach an unmarked wrapper.
+  it("stacks by default, leaves inline unstamped, and marks each row", () => {
+    // Stacked is the default: the label above its value, the one layout with no label-to-value
+    // spacing to get wrong. It is the default LAYOUT but not the base rule, so it stamps its
+    // name; `inline` and one column are the base rule and stamp nothing. The row marker is
+    // load-bearing: the aligned layout turns the wrapper into `display: contents` so the dt and
+    // dd become grid items of the dl itself -- and a rule cannot reach an unmarked wrapper.
+    // Mutation: put the default back to "inline", and the first assertion fails.
     render(<DetailList data-testid="dl" items={[{ label: "Owner", value: "Ada" }]} />);
     const el = screen.getByTestId("dl");
-    expect(el.hasAttribute("data-layout")).toBe(false);
+    expect(el).toHaveAttribute("data-layout", "stacked");
     expect(el.hasAttribute("data-columns")).toBe(false);
     expect(el.querySelector('[data-terp="detail-list-row"]')).not.toBeNull();
     expect(el.getAttribute("style")).toBeNull();
+
+    render(<DetailList data-testid="inline" layout="inline" items={[{ label: "Owner", value: "Ada" }]} />);
+    expect(screen.getByTestId("inline").hasAttribute("data-layout")).toBe(false);
   });
 
   it("names a layout and a column count", () => {

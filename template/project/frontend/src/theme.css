@@ -10,14 +10,15 @@
  *     --shell-brand-size: 2rem;
  *   }
  *
- * Per palette, use the theme's own selector. The shipped palettes are light,
- * dark, midnight, twilight and contrast, and the active one is applied as
- * `data-theme` on <html>:
+ * Per palette, use the theme's own selector. The shipped palettes are midday,
+ * twilight, evening, night and contrast, and the active one is applied as
+ * `data-theme` on <html> by its current name (light, dark and midnight are the
+ * earlier names of midday, evening and night, and no longer what is written):
  *
- *   [data-theme="dark"] { --color-brand-primary: #60a5fa; }
+ *   [data-theme="evening"] { --color-brand-primary: #60a5fa; }
  *
  * `uv run terp guide theming` has the whole recipe, including which token names
- * exist and how to ship on a palette other than light.
+ * exist and how to ship on a palette other than midday.
  *
  * THIS FILE IS ALWAYS YOURS. No tool writes here. If your organisation manages
  * a house style, it is applied to `house-style.css` next door, which is
