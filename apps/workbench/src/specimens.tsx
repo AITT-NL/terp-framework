@@ -2827,6 +2827,28 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The sequence bar (ADR 0168) on its own: a record in the middle of its series, so all
+        // three cells are filled — the step back, the position, the step on. Standalone it is
+        // the same bordered row it is in a shell, without the bleed and without the column
+        // height that puts it at the bottom; `app-shell-sequence` pictures that half.
+        id: "page-sequence",
+        title: "Page — a sequence bar: the step back, the position and the step on",
+        node: (
+          <Page
+            title="Order 1017"
+            breadcrumbs={[{ label: "Orders", to: "/orders" }]}
+            sequence={{
+              label: "Orders",
+              previous: { label: "Order 1016", to: "/orders/1016" },
+              next: { label: "Order 1018", to: "/orders/1018" },
+              position: { current: 17, total: 48 },
+            }}
+          >
+            <p style={{ margin: 0 }}>Body content above the bar.</p>
+          </Page>
+        ),
+      },
+      {
         // `Page`'s two async frames, which nothing pictured. The header staying put while the
         // body is replaced is the frame's whole promise — the user keeps their place in the
         // layers — and `loading-state` / `error-state` photograph those blocks standing alone,
@@ -3408,6 +3430,57 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
                 actions={<Button variant="primary">New sync</Button>}
               >
                 <DataView repository={SYNC_REPOSITORY} columns={WIDE_SYNC_COLUMNS} />
+              </Page>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
+        // The sequence bar where its geometry lives (ADR 0168): inside a shell, at the bottom of
+        // the content column, bleeding to the column's edges the way the band at the top does.
+        // The FIRST order of its series, so the previous cell is empty and "next" still sits at
+        // the right edge — the empty cell is the reason it does not move.
+        //
+        // The box SCROLLS, and that is what lets one picture hold the bar's point. The shell is
+        // min-height: 100vh, so in a 40rem box it runs on below the visible area, and the box is
+        // the bar's scroll container: the bar is pinned to the box's bottom edge over a column
+        // that continues underneath it, which is exactly what it does over a long page in an app.
+        // computed.spec.ts scrolls the same box to its end and holds the other half — that the
+        // bar at rest lands on the same line, at the bottom of main.
+        id: "app-shell-sequence",
+        title: "AppShell — a page's sequence bar, pinned to the bottom of the column",
+        viewport: { width: 1280, height: 900 },
+        node: (
+          <div
+            data-testid="sequence-scroller"
+            style={{ height: "40rem", overflow: "auto", border: "1px solid var(--color-neutral-200)" }}
+          >
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV}
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <Page
+                title="Order 1001"
+                breadcrumbs={[{ label: "Orders", to: "/orders" }]}
+                sequence={{
+                  label: "Orders",
+                  next: { label: "Order 1002", to: "/orders/1002" },
+                  position: { current: 1, total: 48 },
+                }}
+              >
+                <Card title="Delivery">
+                  <DetailList
+                    items={[
+                      { label: "Ship to", value: "Warehouse 3, dock B" },
+                      { label: "Carrier", value: "Road freight" },
+                    ]}
+                  />
+                </Card>
               </Page>
             </AppShell>
           </div>

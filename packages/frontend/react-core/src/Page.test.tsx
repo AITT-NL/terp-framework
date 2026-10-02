@@ -3,8 +3,10 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { DetailPage } from "./DetailPage";
+import { NavLinkContext } from "./navLink";
 import { OverviewPage } from "./OverviewPage";
 import { Page } from "./Page";
+import { UiTextProvider } from "./uiText";
 import { ApiError } from "./unwrap";
 import { Badge } from "./ui/Badge";
 import { Button } from "./ui/Button";
@@ -256,6 +258,139 @@ describe("Page", () => {
     );
     expect(screen.getByText("custom error")).toBeInTheDocument();
     expect(screen.queryByText("boom")).not.toBeInTheDocument();
+  });
+});
+
+describe("Page sequence", () => {
+  const MIDDLE = {
+    label: "Orders",
+    previous: { label: "Order 1016", to: "/orders/1016" },
+    next: { label: "Order 1018", to: "/orders/1018" },
+    position: { current: 17, total: 48 },
+  };
+
+  it("renders no bar when the page is not part of a sequence", () => {
+    const { container } = render(<Page title="Tasks">body</Page>);
+    expect(container.querySelector('[data-terp="page-sequence"]')).toBeNull();
+    expect(screen.getAllByRole("navigation")).toHaveLength(1);
+  });
+
+  it("names the series and says which way each link goes", () => {
+    render(
+      <Page title="Order 1017" sequence={MIDDLE}>
+        body
+      </Page>,
+    );
+    // Its own landmark, named for the series, beside the page's breadcrumb landmark — two
+    // navigations a screen reader can tell apart by name.
+    expect(screen.getByRole("navigation", { name: "Orders" })).toHaveAttribute(
+      "data-terp",
+      "page-sequence",
+    );
+    // The visible label is the neighbour's name; the accessible name says the direction and
+    // still contains that name, so a voice user can say what they see.
+    const previous = screen.getByRole("link", { name: "Previous: Order 1016" });
+    expect(previous).toHaveAttribute("href", "/orders/1016");
+    expect(previous).toHaveAttribute("rel", "prev");
+    expect(previous).toHaveTextContent("Order 1016");
+    const next = screen.getByRole("link", { name: "Next: Order 1018" });
+    expect(next).toHaveAttribute("href", "/orders/1018");
+    expect(next).toHaveAttribute("rel", "next");
+    expect(screen.getByText("17 of 48")).toHaveAttribute("data-terp", "page-sequence-position");
+  });
+
+  it("renders the bar after the article, never inside it", () => {
+    // Inside, the layout contract's slot check would read it as a body child (see the
+    // governed-page case in layoutContract.test.tsx).
+    const { container } = render(
+      <Page title="Order 1017" sequence={MIDDLE}>
+        body
+      </Page>,
+    );
+    const bar = container.querySelector('[data-terp="page-sequence"]')!;
+    expect(bar.closest('[data-terp="page"]')).toBeNull();
+    expect(bar.previousElementSibling).toHaveAttribute("data-terp", "page");
+  });
+
+  it("keeps an absent neighbour's cell, so the others never move", () => {
+    const { container } = render(
+      <Page title="Order 1001" sequence={{ label: "Orders", next: MIDDLE.next }}>
+        body
+      </Page>,
+    );
+    const bar = container.querySelector('[data-terp="page-sequence"]')!;
+    expect([...bar.children].map((cell) => cell.getAttribute("data-terp"))).toEqual([
+      "page-sequence-previous",
+      "page-sequence-position",
+      "page-sequence-next",
+    ]);
+    expect(bar.querySelector('[data-terp="page-sequence-previous"]')).toBeEmptyDOMElement();
+    // No position given is no position shown — an unknown total is never guessed at.
+    expect(bar.querySelector('[data-terp="page-sequence-position"]')).toBeEmptyDOMElement();
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+  });
+
+  it("steps through the ambient router, with the direction on the anchor", () => {
+    const renderer = ({
+      to,
+      children,
+      attributes,
+    }: {
+      to: string;
+      children: React.ReactNode;
+      attributes?: Record<string, unknown>;
+    }) => (
+      <a href={`#routed${to}`} data-testid="routed" {...attributes}>
+        {children}
+      </a>
+    );
+    render(
+      <NavLinkContext.Provider value={renderer}>
+        <Page title="Order 1017" sequence={{ label: "Orders", next: MIDDLE.next }}>
+          body
+        </Page>
+      </NavLinkContext.Provider>,
+    );
+    const anchor = screen.getByRole("link", { name: "Next: Order 1018" });
+    expect(anchor).toHaveAttribute("href", "#routed/orders/1018");
+    expect(anchor).toHaveAttribute("rel", "next");
+    // The marker is on the cell the bar owns, not on the router's anchor: a renderer that
+    // forwards no attributes must not leave the bar unstyled.
+    expect(anchor.parentElement).toHaveAttribute("data-terp", "page-sequence-next");
+  });
+
+  it("stays while the body loads or fails, like the band", () => {
+    const { container, rerender } = render(
+      <Page title="Order 1017" sequence={MIDDLE} isLoading>
+        body
+      </Page>,
+    );
+    expect(container.querySelector('[data-terp="page-sequence"]')).not.toBeNull();
+    rerender(
+      <Page title="Order 1017" sequence={MIDDLE} error="gone">
+        body
+      </Page>,
+    );
+    expect(screen.getByRole("link", { name: "Next: Order 1018" })).toBeInTheDocument();
+  });
+
+  it("words the position and the directions through the strings seam", () => {
+    render(
+      <UiTextProvider
+        strings={{
+          pageSequencePrevious: "Vorige: {label}",
+          pageSequenceNext: "Volgende: {label}",
+          pageSequencePosition: "{current} van {total}",
+        }}
+      >
+        <Page title="Order 1017" sequence={MIDDLE}>
+          body
+        </Page>
+      </UiTextProvider>,
+    );
+    expect(screen.getByRole("link", { name: "Vorige: Order 1016" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Volgende: Order 1018" })).toBeInTheDocument();
+    expect(screen.getByText("17 van 48")).toBeInTheDocument();
   });
 });
 

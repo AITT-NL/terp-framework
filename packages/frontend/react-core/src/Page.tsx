@@ -11,6 +11,8 @@ import {
 } from "./layoutContract";
 import { LoadingState } from "./LoadingState";
 import { usePageMarker } from "./pageMarker";
+import { PageSequenceBar } from "./PageSequence";
+import type { PageSequence } from "./PageSequence";
 import { resolveUiTextNode, useUiText } from "./uiText";
 import type { UiText, UiTextNode } from "./uiText";
 
@@ -76,6 +78,16 @@ export interface PageProps {
   error?: unknown;
   /** Error slot; defaults to {@link ErrorState} rendering `error` through the error-code map. */
   errorState?: ReactNode;
+  /**
+   * The ordered series this page is one item of — its previous and next neighbours and its
+   * place among them — rendered as a bar that stays at the bottom of the viewport.
+   *
+   * For a page that is worked through one after another: the records a search returned, the
+   * columns of a table, the steps of a procedure. Inside a shell the bar sits at the bottom of
+   * the content column on a short page and pins to the bottom of the viewport on a long one,
+   * so "next" is at the same place on every page of the series.
+   */
+  sequence?: PageSequence;
   /** The page body. */
   children: ReactNode;
 }
@@ -109,6 +121,10 @@ export interface PageProps {
  * query never hides behind a spinner) then `isLoading` replace the body while the
  * header stays put, so the user keeps their place in the layers.
  *
+ * A page that is one item of a series takes `sequence`, and the frame renders its neighbours
+ * as a bar after the article that stays at the bottom of the viewport (see `PageSequenceBar`,
+ * ADR 0168) — the band says where the page is, the bar what comes before and after it.
+ *
  * It renders no inline styles: the frame's geometry and the title's type come from the
  * injected react-core sheet, matched on the `data-terp` markers stamped below (ADR 0094).
  */
@@ -124,6 +140,7 @@ export function Page({
   loadingState,
   error,
   errorState,
+  sequence,
   children,
 }: PageProps) {
   const resolve = useUiText();
@@ -206,48 +223,55 @@ export function Page({
   // every string literal out of.
   const measureAttribute = measure === "narrow" ? "narrow" : undefined;
   return (
-    <article ref={articleRef} data-terp="page" data-measure={measureAttribute}>
-      {/* A <header> ELEMENT, and it has to stay one. The slot check above drops the header
-          from the body set by tagName, so re-rendering this as a marked <div> would put it
-          back in and fail every governed OverviewPage / DetailPage closed. The marker is
-          additive; the tag is load-bearing. For the same reason the body below takes no
-          wrapper of its own — not even a display: contents one, since article.children is a
-          DOM traversal and would see it. */}
-      <header data-terp="page-header" data-has-meta={metaAttribute}>
-        <div data-terp="page-heading">
-          {/* The trail carries the h1 as its leaf. No wrapper of its own any more: the crumb
-              row it used to sit in existed to hold a 2rem floor above the title row, and
-              there is no title row to be above. */}
-          <Breadcrumbs items={trail} renderLink={renderLink} currentAs="h1" />
-          {/* Badges and the lead line travel together as one grid item: with meta present
-              they share the band's second row with the action cluster, and a group is what
-              lets them be left of it rather than competing for the same cells. Rendered only
-              when there is something in it, because the empty box would still take a row. */}
-          {hasMeta && (
-            <div data-terp="page-meta">
-              {badgeList.length > 0 && (
-                <div data-terp="page-badges">
-                  {badgeList.map((badge, index) => (
-                    <Fragment key={index}>{badge}</Fragment>
-                  ))}
-                </div>
-              )}
-              {hasDescription && (
-                <p data-terp="page-description">{resolveUiTextNode(description, resolve)}</p>
-              )}
-            </div>
-          )}
-        </div>
-        {/* Always a group, never the caller's nodes loose in the band. A page that passed a
-            fragment of buttons used to put each one in the band as its own item, which the
-            grid would now scatter across cells it has no areas for. One wrapper means the
-            cluster is one item wherever the areas put it, whether or not the page reached
-            for PageActions. */}
-        {hasActions && <div data-terp="page-actions">{actions}</div>}
-      </header>
-      {/* Reset the slot for the body's own subtree, so nested content is never judged
-          by an ancestor archetype's slot. */}
-      <LayoutSlotContext.Provider value={null}>{body}</LayoutSlotContext.Provider>
-    </article>
+    <>
+      <article ref={articleRef} data-terp="page" data-measure={measureAttribute}>
+        {/* A <header> ELEMENT, and it has to stay one. The slot check above drops the header
+            from the body set by tagName, so re-rendering this as a marked <div> would put it
+            back in and fail every governed OverviewPage / DetailPage closed. The marker is
+            additive; the tag is load-bearing. For the same reason the body below takes no
+            wrapper of its own — not even a display: contents one, since article.children is a
+            DOM traversal and would see it. */}
+        <header data-terp="page-header" data-has-meta={metaAttribute}>
+          <div data-terp="page-heading">
+            {/* The trail carries the h1 as its leaf. No wrapper of its own any more: the crumb
+                row it used to sit in existed to hold a 2rem floor above the title row, and
+                there is no title row to be above. */}
+            <Breadcrumbs items={trail} renderLink={renderLink} currentAs="h1" />
+            {/* Badges and the lead line travel together as one grid item: with meta present
+                they share the band's second row with the action cluster, and a group is what
+                lets them be left of it rather than competing for the same cells. Rendered only
+                when there is something in it, because the empty box would still take a row. */}
+            {hasMeta && (
+              <div data-terp="page-meta">
+                {badgeList.length > 0 && (
+                  <div data-terp="page-badges">
+                    {badgeList.map((badge, index) => (
+                      <Fragment key={index}>{badge}</Fragment>
+                    ))}
+                  </div>
+                )}
+                {hasDescription && (
+                  <p data-terp="page-description">{resolveUiTextNode(description, resolve)}</p>
+                )}
+              </div>
+            )}
+          </div>
+          {/* Always a group, never the caller's nodes loose in the band. A page that passed a
+              fragment of buttons used to put each one in the band as its own item, which the
+              grid would now scatter across cells it has no areas for. One wrapper means the
+              cluster is one item wherever the areas put it, whether or not the page reached
+              for PageActions. */}
+          {hasActions && <div data-terp="page-actions">{actions}</div>}
+        </header>
+        {/* Reset the slot for the body's own subtree, so nested content is never judged
+            by an ancestor archetype's slot. */}
+        <LayoutSlotContext.Provider value={null}>{body}</LayoutSlotContext.Provider>
+      </article>
+      {/* After the article rather than inside it, so the slot check above never reads it as
+          body (see PageSequenceBar). Rendered while the body loads or fails too: the series is
+          the page's place, like the band, and stepping past a record that failed to load is
+          exactly when a reader wants it. */}
+      {sequence !== undefined && <PageSequenceBar sequence={sequence} />}
+    </>
   );
 }
