@@ -12,8 +12,16 @@ name: {{ project_slug }}
 # Shared backend definition — migrate / seed / api run the same image. Only the `api`
 # service declares the build: one builder produces the tag (concurrent builds of a shared
 # tag race in the exporter: "already exists"), the one-shots reuse it.
+#
+# `pull_policy: never` because the one-shots name a tag they cannot produce, and
+# compose's default for a missing image is to pull it: a first `docker compose watch`
+# sends them to a registry for a tag no registry has ("pull access denied for
+# {{ project_slug }}-backend"), which some compose versions survive and some do not.
+# The tag is only ever built here, so the pull is never attempted. It does not govern
+# building — `api` still builds it.
 x-backend: &backend
   image: {{ project_slug }}-backend
+  pull_policy: never
   # App-declared environment variables (environment.schema.json): same seam as
   # the production profile, so a declared variable behaves identically in the
   # inner loop. `cp .app.env.example .app.env` to exercise it locally — that is
@@ -241,12 +249,21 @@ services:
       # so the file a check passes on and the file the app runs on could differ while the
       # toolchain stayed green.
       #
-      # The anonymous volume masking node_modules is not optional. Without it the host's
-      # directory shadows the image's, and a dependency built for the developer's own
-      # platform is handed to a Linux container -- Vite then fails on a native binding
-      # with an error that names neither the mount nor the cause.
+      # The mask over node_modules is not optional. Without it a `node_modules` in the
+      # checkout (a host `npm install`) shadows the image's, and a dependency built for
+      # the developer's own platform is handed to a Linux container -- Vite then fails on
+      # a native binding with an error that names neither the mount nor the cause.
+      #
+      # A `tmpfs`, and never a volume. The image installs its dependencies one level up
+      # (`/app/node_modules`, see frontend/Dockerfile), so this directory holds nothing
+      # the app needs and the mask only has to hide. An anonymous volume here was seeded
+      # from the image once and then REUSED by every recreate, so after a dependency bump
+      # the rebuilt image had the new tree and the container kept running the old one --
+      # silently, and `watch`'s rebuild below could not reach it. A tmpfs is empty on
+      # every start, so there is nothing for a recreate to carry forward.
       - ${TERP_DEV_HOST_ROOT:-.}/frontend:/app/frontend
-      - /app/frontend/node_modules
+      - type: tmpfs
+        target: /app/frontend/node_modules
     depends_on:
       - api
     develop:

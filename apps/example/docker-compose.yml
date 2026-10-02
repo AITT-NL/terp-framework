@@ -13,15 +13,16 @@ name: terp-example
 # service declares the build: one builder produces the tag (concurrent builds of a shared
 # tag race in the exporter: "already exists"), the one-shots reuse it.
 #
-# The cost of that choice: `migrate` and `seed` name a tag they cannot produce, so
-# they only work once something has built it. `api` depends on `migrate`, which means
-# compose resolves the one-shot's image FIRST — and with no build to fall back on it
-# reaches for a registry and fails with "pull access denied for terp-example-backend".
-# Whether that happens is a compose-version detail, which is exactly why nothing here
-# should depend on it: build the tag explicitly before bringing the stack up
-# (`docker compose build api web`, as CI does) rather than relying on the order.
+# The cost of that choice: `migrate` and `seed` name a tag they cannot produce, and
+# compose's default for a missing image is to pull it. On a first `docker compose watch`
+# that sends the one-shots to a registry for a tag no registry has: "pull access denied
+# for terp-example-backend". Some compose versions carry on and build it anyway, some
+# stop there. `pull_policy: never` says what is true of this tag — it is only ever
+# built here — so the pull is never attempted, and the build `api` declares is the one
+# way the tag comes to exist. It does not govern building, so `api` still builds.
 x-backend: &backend
   image: terp-example-backend
+  pull_policy: never
   # App-declared environment variables (environment.schema.json): same seam as
   # the production profile, so a declared variable behaves identically in the
   # inner loop. Optional — the workbench runs without the file.
@@ -173,15 +174,26 @@ services:
       # the file a check passes on and the file the app runs on could differ while the
       # toolchain stayed green.
       #
-      # The anonymous volumes masking node_modules are not optional. Without them the host's
-      # directories shadow the image's, and a dependency built for the developer's own
-      # platform is handed to a Linux container -- Vite then fails on a native binding with
-      # an error that names neither the mount nor the cause.
+      # The masks over node_modules are not optional. Without them the host's directories
+      # shadow the image's, and a dependency built for the developer's own platform is
+      # handed to a Linux container -- Vite then fails on a native binding with an error
+      # that names neither the mount nor the cause.
+      #
+      # `tmpfs`, and never volumes. The workspace install hoists every dependency to
+      # `/workspace/node_modules`, which nothing mounts over, so these directories hold
+      # nothing the app needs and the masks only have to hide. An anonymous volume is
+      # seeded from the image once and then reused by every recreate, so whatever it held
+      # would outlive each rebuild after it; a tmpfs is empty on every start. (A package
+      # npm ever declines to hoist would be hidden here too -- loudly, as a module that
+      # does not resolve, rather than silently as a stale one.)
       - ./frontend:/workspace/apps/example/frontend
-      - /workspace/apps/example/frontend/node_modules
+      - type: tmpfs
+        target: /workspace/apps/example/frontend/node_modules
       - ../../packages/frontend:/workspace/packages/frontend
-      - /workspace/packages/frontend/react-core/node_modules
-      - /workspace/packages/frontend/contract/node_modules
+      - type: tmpfs
+        target: /workspace/packages/frontend/react-core/node_modules
+      - type: tmpfs
+        target: /workspace/packages/frontend/contract/node_modules
     depends_on:
       - api
     develop:

@@ -25,6 +25,7 @@ _EXAMPLE_DOCKERFILE = _REPO_ROOT / "apps" / "example" / "Dockerfile"
 _TEMPLATE_DOCKERFILE = _REPO_ROOT / "template" / "project" / "Dockerfile"
 _EXAMPLE_PROD_DOCKERFILE = _REPO_ROOT / "apps" / "example" / "Dockerfile.prod"
 _TEMPLATE_PROD_DOCKERFILE = _REPO_ROOT / "template" / "project" / "Dockerfile.prod"
+_TEMPLATE_FRONTEND_DOCKERFILE = _REPO_ROOT / "template" / "project" / "frontend" / "Dockerfile"
 _WORKBENCH_SERVICES = {"db", "migrate", "seed", "api", "web"}
 
 #: The interpreters the distributions support (`requires-python = ">=3.13"`), and so
@@ -75,6 +76,31 @@ def _template_prod_compose() -> dict:
     text = _TEMPLATE_PROD_COMPOSE.read_text(encoding="utf-8")
     text = text.replace("{{ project_slug }}", "app").replace("{{ project_name }}", "App")
     return yaml.safe_load(_JINJA_IF_BLOCK.sub("", text))
+
+
+def _bind_sources(service: dict) -> set[str]:
+    """The host half of every short-form ``host:container`` mount."""
+    return {
+        volume.rsplit(":", 1)[0]
+        for volume in service.get("volumes", [])
+        if isinstance(volume, str) and ":" in volume
+    }
+
+
+def _masks(service: dict) -> dict[str, str]:
+    """``{container path: mount type}`` for every mount with no host source.
+
+    A short-form entry without a colon is an anonymous volume; a long-form entry
+    without a ``source`` is whatever its ``type`` says (here, a tmpfs).
+    """
+    masks: dict[str, str] = {}
+    for volume in service.get("volumes", []):
+        if isinstance(volume, str):
+            if ":" not in volume:
+                masks[volume] = "volume"
+        elif not volume.get("source"):
+            masks[volume["target"]] = volume.get("type", "volume")
+    return masks
 
 
 def _depends_conditions(service: dict) -> dict:
@@ -133,6 +159,27 @@ def test_the_frontend_healthcheck_uses_a_binary_its_image_actually_has() -> None
         assert not any(part in ("wget", "curl") for part in command)
 
 
+def test_a_workbench_never_pulls_the_backend_tag_it_builds_itself() -> None:
+    """The one-shots name a tag only `api` builds, so they must not pull it.
+
+    Compose's default for a missing image is to pull, and a first `docker compose
+    watch` did exactly that for `migrate` and `seed`: "pull access denied" for a tag
+    no registry holds. Some compose versions go on to build it, some stop — so the
+    documented one command to a running workbench worked or not by compose version.
+    Every service sharing the tag says `never`, and one of them is the builder, so the
+    tag still has exactly one way to come into existence.
+    """
+    for compose in (_compose(), _template_compose()):
+        services = compose["services"]
+        tag = services["api"]["image"]
+        sharing = {name: s for name, s in services.items() if s.get("image") == tag}
+
+        assert {"migrate", "seed", "api"} <= set(sharing)
+        assert [name for name, s in sharing.items() if "build" in s] == ["api"]
+        pulling = [name for name, s in sharing.items() if s.get("pull_policy") != "never"]
+        assert pulling == [], f"{sorted(pulling)} would pull {tag!r}, which only `api` builds"
+
+
 def test_api_waits_for_a_healthy_db_and_a_completed_migrate() -> None:
     deps = _compose()["services"]["api"]["depends_on"]
     assert deps["db"]["condition"] == "service_healthy"
@@ -164,15 +211,14 @@ def test_api_mounts_live_app_source_with_a_polling_reloader() -> None:
 
 def test_web_mounts_live_frontend_source_and_proxies_to_the_api() -> None:
     web = _compose()["services"]["web"]
-    sources = {volume.rsplit(":", 1)[0] for volume in web.get("volumes", [])}
     # The whole frontend, not just src/: the entry point imports declarations that live
     # one level above it, and with only src/ mounted Vite served the copies baked into
     # the image -- silently, which is why
     # `test_dev_mounts_reach_what_is_imported` now holds the general rule.
-    assert "./frontend" in sources
+    assert "./frontend" in _bind_sources(web)
     # And the mask, without which the host's node_modules shadows the image's and a
     # Linux container is handed a dependency built for the developer's own platform.
-    assert "/workspace/apps/example/frontend/node_modules" in web["volumes"]
+    assert "/workspace/apps/example/frontend/node_modules" in _masks(web)
     assert web["environment"]["TERP_DEV_FORCE_POLLING"] == "true"
     assert web["environment"]["TERP_API_PROXY"] == "http://api:8000"
 
@@ -189,12 +235,39 @@ def test_template_workbench_mounts_live_source_through_the_host_root_seam() -> N
         }
         assert "${TERP_DEV_HOST_ROOT:-.}/app" in backend_sources
         assert "${TERP_DEV_HOST_ROOT:-.}/control_plane" in backend_sources
-    web_sources = {volume.rsplit(":", 1)[0] for volume in services["web"].get("volumes", [])}
     # See the example's note: the whole frontend, plus the node_modules mask.
-    assert "${TERP_DEV_HOST_ROOT:-.}/frontend" in web_sources
-    assert "/app/frontend/node_modules" in services["web"]["volumes"]
+    assert "${TERP_DEV_HOST_ROOT:-.}/frontend" in _bind_sources(services["web"])
+    assert "/app/frontend/node_modules" in _masks(services["web"])
     assert services["api"]["environment"]["WATCHFILES_FORCE_POLLING"] == "true"
     assert services["web"]["environment"]["TERP_DEV_FORCE_POLLING"] == "true"
+
+
+def test_a_frontend_rebuild_reaches_the_running_dev_server() -> None:
+    """A mask over a bind-mounted `node_modules` must not persist between containers.
+
+    The mask exists to hide a host `node_modules` from a Linux container. As an
+    anonymous volume it did that and one thing more: Docker seeds such a volume from
+    the image on first use and compose reuses it on every recreate, so the dependency
+    tree of the FIRST boot survived every rebuild after it. A dependency bump rebuilt
+    an image with the new tree and restarted a container running the old one — with no
+    error, and with `watch`'s rebuild on `frontend/package.json` appearing to cover it.
+
+    So every mask is a tmpfs, empty on each start, and the template image installs
+    its dependencies where no mount reaches (`/app/node_modules`, one level above the
+    mounted `/app/frontend`), so there is nothing under the mask the app needs.
+    """
+    for compose in (_compose(), _template_compose()):
+        masks = _masks(compose["services"]["web"])
+
+        assert masks, "the web service must still mask the host's node_modules"
+        persisted = sorted(path for path, kind in masks.items() if kind != "tmpfs")
+        assert persisted == [], f"{persisted} would carry a stale dependency tree across rebuilds"
+
+    dockerfile = _TEMPLATE_FRONTEND_DOCKERFILE.read_text(encoding="utf-8")
+    assert re.search(r"^RUN npm install && mv node_modules /app/node_modules$", dockerfile, re.M), (
+        "the template frontend image must install its dependencies outside the mounted "
+        "/app/frontend, or the tmpfs mask hides the only copy"
+    )
 
 
 def test_workbench_backend_forwards_app_declared_env() -> None:
