@@ -6,6 +6,7 @@ import { DetailPage } from "./DetailPage";
 import { OverviewPage } from "./OverviewPage";
 import { Page } from "./Page";
 import { ApiError } from "./unwrap";
+import { Badge } from "./ui/Badge";
 import { Button } from "./ui/Button";
 
 afterEach(cleanup);
@@ -126,8 +127,29 @@ describe("Page", () => {
       </Page>,
     );
     const withMeta = container.querySelector('[data-terp="page-header"]');
-    expect(withMeta?.getAttribute("data-has-meta"), "a lead line earns the row").toBe("true");
+    // "description" rather than a bare flag: a lead line earns the row only where it is shown,
+    // above the second cutover, and the sheet can only honour that if it can tell this band
+    // from one carrying a badge.
+    expect(withMeta?.getAttribute("data-has-meta"), "a lead line earns the row").toBe(
+      "description",
+    );
     expect(container.querySelector('[data-terp="page-meta"]')).not.toBeNull();
+
+    // A badge is visible at every width, so it names the kind even beside a lead line.
+    rerender(
+      <Page
+        title="Tasks"
+        badges={<Badge>Draft</Badge>}
+        description="A sentence."
+        actions={<Button>New</Button>}
+      >
+        <p>body</p>
+      </Page>,
+    );
+    expect(
+      container.querySelector('[data-terp="page-header"]')?.getAttribute("data-has-meta"),
+      "a badge earns the row at every width",
+    ).toBe("badges");
   });
 
   it("groups the action cluster even when the page passes loose nodes", () => {

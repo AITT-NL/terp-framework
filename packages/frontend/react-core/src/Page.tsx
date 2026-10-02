@@ -185,9 +185,14 @@ export function Page({
   // shares it at no cost in height. A page with neither keeps the single row, and with it the
   // measurement the chrome is held to: the band matches the app header above it.
   const hasMeta = badgeList.length > 0 || hasDescription;
+  // WHICH meta, because the two are visible at different widths and the row must follow what
+  // is visible: badges show everywhere, a lead line only above the second cutover. A band whose
+  // only meta is a lead line therefore has an empty second row below that width unless the
+  // sheet can tell it apart, and it could not while this said "true" for both.
   // Hoisted, the density/collapsed idiom: the default stamps nothing, so the expression has a
   // branch rather than a boolean React would render as the string "false".
-  const metaAttribute = hasMeta ? "true" : undefined;
+  const metaAttribute =
+    badgeList.length > 0 ? "badges" : hasDescription ? "description" : undefined;
   const body =
     error !== null && error !== undefined ? (
       (errorState ?? <ErrorState error={error} />)

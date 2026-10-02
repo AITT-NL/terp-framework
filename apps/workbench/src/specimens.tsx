@@ -2794,6 +2794,39 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // A lead line and nothing else, which is the one kind of meta that is not visible at
+        // every width. At the pinned 1280 it is shown, and it earns the second row.
+        id: "page-header-lead-only",
+        title: "Page — a lead line alone, shown, on its own row",
+        node: (
+          <Page
+            title="Customers"
+            breadcrumbs={[{ label: "Records", to: "/records" }]}
+            description="Every customer the ledger knows about, across operating companies."
+          >
+            <p style={{ margin: 0 }}>Body content below the header.</p>
+          </Page>
+        ),
+      },
+      {
+        // The same band below the cutovers, where the lead line is hidden. This was the defect:
+        // the empty meta group kept its row, the gap and the multi-row padding, and the lone
+        // title sat 6.8px above the centre of a band that showed one line. It is a one-row band
+        // here, and the picture is the proof it looks like one.
+        id: "page-header-lead-only-narrow",
+        title: "Page — a lead line alone, hidden, so one row",
+        viewport: { width: 430, height: 700 },
+        node: (
+          <Page
+            title="Customers"
+            breadcrumbs={[{ label: "Records", to: "/records" }]}
+            description="Every customer the ledger knows about, across operating companies."
+          >
+            <p style={{ margin: 0 }}>Body content below the header.</p>
+          </Page>
+        ),
+      },
+      {
         // `Page`'s two async frames, which nothing pictured. The header staying put while the
         // body is replaced is the frame's whole promise — the user keeps their place in the
         // layers — and `loading-state` / `error-state` photograph those blocks standing alone,

@@ -1304,7 +1304,9 @@ describe("cascade structure", () => {
     expect(withMeta, "rows sized to their content, so neither sits on the border").toContain(
       "grid-auto-rows: auto",
     );
-    // The areas move per cutover, so they are pinned in their own queries rather than here.
+    // The areas move per cutover, so they are pinned in their own queries rather than here --
+    // and per meta KIND, which "spends the meta row only at the widths where its meta is
+    // visible" below pins.
     const wideMeta = mediaBodies(base, WIDE_VIEWPORT_QUERY);
     expect(wideMeta, "above the cutover the cluster keeps its place beside the trail").toContain(
       '"trail actions"',
@@ -1346,7 +1348,9 @@ describe("cascade structure", () => {
     expect(description, "the lead line is the first thing to go when room is short").toContain(
       "display: none",
     );
-    const roomy = base.indexOf(`@media ${ROOMY_VIEWPORT_QUERY}`);
+    // Searched FROM the hiding rule: the meta-kind correction earlier in the band is also a
+    // roomy block, and "the first roomy block in the sheet" stopped meaning this one with it.
+    const roomy = base.indexOf(`@media ${ROOMY_VIEWPORT_QUERY}`, descAt);
     expect(roomy, "the lead line comes back above the second cutover").toBeGreaterThan(descAt);
     // And the truncation, which still matters on the row it does get: the sentence shares
     // that row with the badges, so its max-content must not decide the row's width.
@@ -1358,37 +1362,78 @@ describe("cascade structure", () => {
     expect(full).toContain("text-overflow: ellipsis");
   });
 
-  it("gives the breadcrumb trail one line box, and the leaf the step its own size needs", () => {
+  it("spends the meta row only at the widths where its meta is visible", () => {
+    // A lead line is hidden below the second cutover, so a band whose ONLY meta is a lead line
+    // has nothing to show on a second row there. It had the row anyway: the empty meta group
+    // took a track, the row gap and the multi-row padding came with it, and the band stretched
+    // all of that to its floor -- measured below the first cutover, the lone title sat 6.8px
+    // above the centre of a band that showed one line. Badges are visible everywhere and keep
+    // their row everywhere; the lead-line kind earns it only where the lead line is shown.
+    const base = layerBody("terp.base");
+    const always = baseOnly(base);
+    const wide = mediaBodies(base, WIDE_VIEWPORT_QUERY);
+    const narrow = mediaBodies(base, NARROW_VIEWPORT);
+    const roomy = mediaBodies(base, ROOMY_VIEWPORT_QUERY);
+    const badges = '[data-terp="page-header"][data-has-meta="badges"]';
+    const lead = '[data-terp="page-header"][data-has-meta="description"]';
+
+    expect(wide, "badges keep their row above the first cutover").toContain(`${badges} {`);
+    expect(narrow, "and below it").toContain(`${badges} {`);
+    expect(wide, "a lead line alone earns no row where it is hidden").not.toContain(lead);
+    expect(narrow, "including below the first cutover").not.toContain(lead);
+    expect(roomy, "the lead line's row comes back with the lead line").toContain(`${lead} {`);
+
+    // The empty group has to leave flow, not just sit empty: its grid-area names an area the
+    // one-row template lacks, and an item placed into a missing named area gets implicit lines.
+    expect(
+      declaresRuleFor(always, `${lead} [data-terp="page-meta"]`),
+      "the lead-line group is out of flow wherever the lead line is",
+    ).toBe(true);
+    expect(always).toMatch(
+      /\[data-has-meta="description"\] \[data-terp="page-meta"\] \{\s*display: none;/,
+    );
+    expect(roomy).toMatch(
+      /\[data-has-meta="description"\] \[data-terp="page-meta"\] \{\s*display: flex;/,
+    );
+
+    // And the padding a multi-row band spends follows the same split: always for badges, only
+    // above the second cutover for a lead line alone.
+    expect(always.replace(/\s+/g, " ")).toContain(
+      `[data-terp="page"]:not([data-measure="narrow"]) > ${badges} { padding-block: var(--space-1);`,
+    );
+    expect(always).not.toContain(`> ${lead} {`);
+    expect(roomy.replace(/\s+/g, " ")).toContain(
+      `[data-terp="page"]:not([data-measure="narrow"]) > ${lead} { padding-block: var(--space-1);`,
+    );
+  });
+
+  it("gives the breadcrumb trail one line box, leaf included", () => {
     // The trail is a row of items that get CENTRED, so two line heights in it are two
     // baselines. The leaf declared 1.3 while its ancestors inherited `normal`: measured at
     // font-size-sm, a 19.00px ancestor line box against an 18.19px leaf, which left the
     // page's own title 0.59px above the crumb it hangs off with the chevron centred on a
-    // third line. One declaration on the trail, inherited by every crumb, is what makes the
-    // ancestors share a baseline.
+    // third line. One declaration on the trail, inherited by every crumb and by the h1, is
+    // what makes the row share a baseline.
     //
     // The published step rather than a bare literal, and that is the second half of the fix
     // rather than house style: `normal` is the FONT's metric, so the mismatch was as big as
     // the app's typeface said it was, and an app on a webfont with taller natural leading got
     // a worse one than the system stack this was measured in.
     //
-    // The LEAF is now the exception, and deliberately: at xl against sm ancestors it cannot
-    // share their baseline whatever it declares, and the li centres it instead. That frees the
-    // value to do the one job only it can do here — hold the band's floor, where snug would
-    // cost 3.6px on every page carrying a lead line (see the rule, where the measurement is).
-    // So this holds it at the published tight step rather than at "absent": absent means
-    // inheriting the trail's snug, which is the version that grows the band.
+    // 0.28.0 made the leaf the exception (xl at the tight step) and this test followed it.
+    // The leaf is back at the trail's own size, so it is back on the trail's line box too.
     const base = layerBody("terp.base");
     const trail = base.slice(base.indexOf('[data-terp="breadcrumbs"] {'));
     expect(
       trail.slice(0, trail.indexOf("}")),
-      "the trail declares the line box every ancestor crumb shares",
+      "the trail declares the line box every crumb shares",
     ).toContain("line-height: var(--font-line-height-snug)");
     const leafAt = base.indexOf('[data-terp="page-title"] {');
     expect(leafAt, "the trail's leaf should have a rule").toBeGreaterThan(-1);
     expect(
       base.slice(leafAt, base.indexOf("}", leafAt)),
-      "the leaf declares the tight step; inheriting snug is what overruns the band's floor",
-    ).toContain("line-height: var(--font-line-height-tight)");
+      "the leaf takes the trail's line box; a second value here is the misalignment",
+    ).not.toContain("line-height");
   });
 
   it("spans a full row across every track, and makes it a box that can", () => {
@@ -1544,16 +1589,15 @@ describe("cascade structure", () => {
     // one published scale rather than four sizes that happen to differ.
     const base = layerBody("terp.base");
     for (const [selector, step] of [
-      // page-title is back on the top step, which is where this loop found it before the band
-      // change demoted it to sm. At sm it tied with card-title, so the page's own name measured
-      // exactly as much as the name of a section on it — the flat scale this test exists to
-      // stop, one row further up than the version it was written for. Pinned rather than
-      // dropped, for the reason the band change proved: removing this marker from the loop left
-      // the one size the change was about free to drift.
-      ['[data-terp="page-title"]', "xl"],
-      // The top step's OTHER reader. It stopped being the thing that keeps the token read when
-      // page-title came back to it, and is kept for the reason it was added: a standalone
-      // heading asking for the masthead step should get the same size the masthead renders.
+      // page-title left the TOP step when the header became a band, but it still has a step
+      // and this is it: sm, the trail's own size, because the title IS the trail's leaf and a
+      // 24px leaf on 14px ancestors reads as small-small-BIG rather than as one trail. Pinned
+      // rather than dropped — removing it from this loop, which is what the band change first
+      // did, left the one marker whose size the change was about free to drift. 0.28.0 took it
+      // back to xl, and the band paid 8px of header height for it; this is that reversal.
+      ['[data-terp="page-title"]', "sm"],
+      // The top step keeps two readers, which is what stops the token going unread;
+      // tokens.guard.test.ts holds that end.
       ['[data-terp="heading"][data-size="xl"]', "xl"],
       ['[data-terp="card-title"]', "lg"],
       ['[data-terp="card-description"]', "sm"],

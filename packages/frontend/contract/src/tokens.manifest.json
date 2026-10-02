@@ -964,7 +964,7 @@
       "name": "--shell-header-height",
       "category": "shell",
       "values": {
-        "light": "3.5rem"
+        "light": "3rem"
       },
       "themeable": false
     },

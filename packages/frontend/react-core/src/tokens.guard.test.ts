@@ -148,9 +148,9 @@ const BARE_TYPE_LITERALS: Record<string, Record<string, number>> = {
   // letter-spacing on form controls, so inheritance has to be asked for explicitly — the
   // header and its button were rendering two different treatments side by side until it was.
   //
-  // One `0` retired when page-title took --font-letter-spacing-tight: the leaf is set at lg now,
-  // and the tight step is worth a third of a pixel there where at sm it was worth nothing.
-  "letter-spacing": { "0": 3, "0.04em": 1, "0.06em": 1, inherit: 1 },
+  // Four `0`s again: page-title is back at sm, where the tight step is worth nothing, and it
+  // takes the trail's plain tracking as it did before 0.28.0 set it at xl.
+  "letter-spacing": { "0": 4, "0.04em": 1, "0.06em": 1, inherit: 1 },
 };
 
 describe("design tokens", () => {

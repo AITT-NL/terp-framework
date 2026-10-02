@@ -811,54 +811,86 @@ test("a band that earns a second row keeps the same edge above and below", async
   }
 });
 
-test("every crumb in the trail sits on one line, leaf included", async ({ page }) => {
-  // The trail is a row of centred items, and it has two halves because it now holds two
-  // sizes. Each half is probed by the only thing that can see its own failure.
+test("a lead line alone earns the second row only where it is shown", async ({ page }) => {
+  // A lead line is hidden below the second cutover, so a band whose only meta is a lead line
+  // shows ONE line there. It used to lay out two: the empty meta group kept a track, the band's
+  // row gap and the multi-row padding came with it, and the rows were stretched to the header
+  // floor -- so the height looked right and the title did not. Measured at a phone width, the
+  // title sat 6.8px above the band's centre. A height check alone passes that band, which is
+  // why this reads the row count and the title's own position as well.
   //
-  // THE LEAF, against ancestors it no longer matches in size. It is xl where they are sm, so
-  // "one baseline" is not the promise any more and cannot be: a shared baseline across a 10px
-  // size difference would hang the small crumbs off the big one's feet, which is why the row
-  // centres them instead. The promise is one CENTRE LINE, and that is what is asserted --
-  // exactly, on border boxes, across the ancestor crumb, the chevron between them and the h1.
+  // Three widths, one per region: a phone and the middle region (both hide the lead line), and
+  // the pinned 1280, above the second cutover, where the lead line shows and earns its row.
+  for (const [width, shown] of [
+    [430, false],
+    [900, false],
+    [1280, true],
+  ] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/?theme=light&only=page-header-lead-only");
+    await page.locator('[data-terp="page-title"]').waitFor({ state: "visible" });
+    const band = await page.evaluate(() => {
+      const header = document.querySelector('[data-terp="page-header"]');
+      const title = document.querySelector('[data-terp="page-title"]');
+      if (header === null || title === null) return null;
+      const root = document.documentElement;
+      const rem = Number.parseFloat(getComputedStyle(root).fontSize);
+      const declared =
+        Number.parseFloat(getComputedStyle(root).getPropertyValue("--shell-header-height")) * rem;
+      const style = getComputedStyle(header);
+      const border = Number.parseFloat(style.borderBottomWidth) || 0;
+      const box = header.getBoundingClientRect();
+      const ink = title.getBoundingClientRect();
+      return {
+        height: box.height,
+        declared,
+        rows: style.gridTemplateRows.split(" ").filter((size) => size.length > 0).length,
+        above: Number((ink.top - box.top).toFixed(2)),
+        below: Number((box.bottom - border - ink.bottom).toFixed(2)),
+      };
+    });
+    expect(band, `${width}px: the band should render`).not.toBeNull();
+    if (shown) {
+      expect(band!.rows, `${width}px: the shown lead line takes its own row`).toBe(2);
+      expect(band!.height, `${width}px: and the band grows for it`).toBeGreaterThan(band!.declared);
+    } else {
+      expect(band!.rows, `${width}px: a hidden lead line must not keep a row`).toBe(1);
+      expect(band!.height, `${width}px: a one-row band holds the header's height`).toBe(
+        band!.declared,
+      );
+      expect(band!.above, `${width}px: the lone title sits in the band's centre`).toBeCloseTo(
+        band!.below,
+        1,
+      );
+    }
+  }
+});
+
+test("every crumb in the trail sits on one baseline, leaf included", async ({ page }) => {
+  // The trail is a row of centred items, so two line heights in it are two baselines. The
+  // leaf declared 1.3 of its own while its ancestors inherited line-height: normal, and
+  // measured here that was a 19.00px ancestor line box against an 18.19px leaf: the page's
+  // own title sat 0.59px above the crumb it hangs off, with the chevron between them centred
+  // on a third line. It reads as a trail whose end sits high, which is how it was reported.
   //
-  // Not the ink box here, and the measurement is why rather than a preference. Chrome's range
-  // rect is the font's ascent-plus-descent sitting on the baseline, not the line box, so it is
-  // ASYMMETRIC within its own box by an amount that depends on the size: measured at this
-  // trail's two sizes, the ancestor's ink centre sits 0.94px above its box centre and the
-  // leaf's 0.40px, while both boxes centre on 99.49 to the hundredth. Comparing ink rects
-  // across two sizes therefore reports a 0.54px "misalignment" in a row that is exactly
-  // aligned -- a probe that fails on correct layout, which is worse than no probe.
+  // Sub-pixel, and therefore invisible to the lane that would seem to own it: the shift
+  // moves no pixel past the 0.02 colour threshold in a screenshot, so every page-header and
+  // DetailPage baseline in the suite held it. A range rect over the text is the only probe
+  // that can see it at all, and equality is the assertion — not a tolerance, because the two
+  // now inherit ONE declared value and any difference at all means a second one came back.
   await page.goto("/?theme=light&only=page-header-bare");
   await page.locator('[data-terp="page-title"]').waitFor({ state: "visible" });
-  const centres = await page.evaluate(() =>
-    [
-      '[data-terp="breadcrumbs"] li a',
-      '[data-terp="breadcrumbs-separator"]',
-      '[data-terp="page-title"]',
-    ].map((css) => {
-      const element = document.querySelector(css);
-      if (element === null) return null;
-      const box = element.getBoundingClientRect();
-      return Number((box.top + box.height / 2).toFixed(2));
-    }),
-  );
-  expect(centres.includes(null), "the specimen should render the whole trail").toBe(false);
-  expect(
-    new Set(centres).size,
-    `the trail must sit on one centre line; got ${JSON.stringify(centres)}`,
-  ).toBe(1);
+  const [ancestor, leaf] = await textRows(page, [
+    '[data-terp="breadcrumbs"] li a',
+    '[data-terp="page-title"]',
+  ]);
+  expect(ancestor, "the specimen should render an ancestor crumb").not.toBeNull();
+  expect(leaf, "the specimen should render the trail's leaf").not.toBeNull();
+  expect(leaf, "the h1 leaf must sit on its ancestors' baseline").toEqual(ancestor);
 
-  // THE ANCESTORS, which are all one size and so still owe each other a baseline. This is
-  // where the original defect lived and the ink box is what saw it: the leaf declared 1.3 of
-  // its own while its ancestors inherited line-height: normal, and at font-size-sm that was a
-  // 19.00px ancestor line box against an 18.19px leaf -- the trail's end sitting 0.59px high,
-  // with the chevron centred on a third line. Sub-pixel, so it moved no pixel past the
-  // screenshot lane's 0.02 threshold and every page-header baseline in the suite held it.
-  //
-  // Equality rather than a tolerance, because these three inherit ONE declared value and any
-  // difference at all means a second one came back. The centre-line check above cannot stand
-  // in for this: flexbox centres boxes, so a leaf with a line height of its own would still
-  // centre perfectly while its glyphs sat high inside the box.
+  // The same rule, on the trail that is not a page title: three levels, a span leaf, no
+  // heading anywhere. Both spellings of the leaf go through breadcrumbs-current's own
+  // inherited line box, so a fix that only reached the h1 would pass the case above.
   await page.goto("/?theme=light&only=breadcrumbs");
   await page.locator('[data-terp="breadcrumbs-current"]').waitFor({ state: "visible" });
   const [first, middle, current] = await textRows(page, [
