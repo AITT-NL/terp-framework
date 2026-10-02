@@ -12,8 +12,16 @@ name: {{ project_slug }}
 # Shared backend definition — migrate / seed / api run the same image. Only the `api`
 # service declares the build: one builder produces the tag (concurrent builds of a shared
 # tag race in the exporter: "already exists"), the one-shots reuse it.
+#
+# `pull_policy: never` because the one-shots name a tag they cannot produce, and
+# compose's default for a missing image is to pull it: a first `docker compose watch`
+# sends them to a registry for a tag no registry has ("pull access denied for
+# {{ project_slug }}-backend"), which some compose versions survive and some do not.
+# The tag is only ever built here, so the pull is never attempted. It does not govern
+# building — `api` still builds it.
 x-backend: &backend
   image: {{ project_slug }}-backend
+  pull_policy: never
   # App-declared environment variables (environment.schema.json): same seam as
   # the production profile, so a declared variable behaves identically in the
   # inner loop. `cp .app.env.example .app.env` to exercise it locally — that is

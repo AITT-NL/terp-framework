@@ -159,6 +159,27 @@ def test_the_frontend_healthcheck_uses_a_binary_its_image_actually_has() -> None
         assert not any(part in ("wget", "curl") for part in command)
 
 
+def test_a_workbench_never_pulls_the_backend_tag_it_builds_itself() -> None:
+    """The one-shots name a tag only `api` builds, so they must not pull it.
+
+    Compose's default for a missing image is to pull, and a first `docker compose
+    watch` did exactly that for `migrate` and `seed`: "pull access denied" for a tag
+    no registry holds. Some compose versions go on to build it, some stop — so the
+    documented one command to a running workbench worked or not by compose version.
+    Every service sharing the tag says `never`, and one of them is the builder, so the
+    tag still has exactly one way to come into existence.
+    """
+    for compose in (_compose(), _template_compose()):
+        services = compose["services"]
+        tag = services["api"]["image"]
+        sharing = {name: s for name, s in services.items() if s.get("image") == tag}
+
+        assert {"migrate", "seed", "api"} <= set(sharing)
+        assert [name for name, s in sharing.items() if "build" in s] == ["api"]
+        pulling = [name for name, s in sharing.items() if s.get("pull_policy") != "never"]
+        assert pulling == [], f"{sorted(pulling)} would pull {tag!r}, which only `api` builds"
+
+
 def test_api_waits_for_a_healthy_db_and_a_completed_migrate() -> None:
     deps = _compose()["services"]["api"]["depends_on"]
     assert deps["db"]["condition"] == "service_healthy"
