@@ -249,12 +249,21 @@ services:
       # so the file a check passes on and the file the app runs on could differ while the
       # toolchain stayed green.
       #
-      # The anonymous volume masking node_modules is not optional. Without it the host's
-      # directory shadows the image's, and a dependency built for the developer's own
-      # platform is handed to a Linux container -- Vite then fails on a native binding
-      # with an error that names neither the mount nor the cause.
+      # The mask over node_modules is not optional. Without it a `node_modules` in the
+      # checkout (a host `npm install`) shadows the image's, and a dependency built for
+      # the developer's own platform is handed to a Linux container -- Vite then fails on
+      # a native binding with an error that names neither the mount nor the cause.
+      #
+      # A `tmpfs`, and never a volume. The image installs its dependencies one level up
+      # (`/app/node_modules`, see frontend/Dockerfile), so this directory holds nothing
+      # the app needs and the mask only has to hide. An anonymous volume here was seeded
+      # from the image once and then REUSED by every recreate, so after a dependency bump
+      # the rebuilt image had the new tree and the container kept running the old one --
+      # silently, and `watch`'s rebuild below could not reach it. A tmpfs is empty on
+      # every start, so there is nothing for a recreate to carry forward.
       - ${TERP_DEV_HOST_ROOT:-.}/frontend:/app/frontend
-      - /app/frontend/node_modules
+      - type: tmpfs
+        target: /app/frontend/node_modules
     depends_on:
       - api
     develop:
