@@ -302,6 +302,30 @@ describe("runtime slot enforcement", () => {
     });
   });
 
+  it("passes a governed DetailPage that steps through a sequence", async () => {
+    // The bar is a `nav` of the page's own, and the check reads every child of the article
+    // except its header as body — so a bar rendered inside the article would be judged a
+    // body child no slot table admits, and fail every governed page closed. It renders after
+    // the article instead, where the check never looks.
+    const { container } = underContract(
+      <DetailPage
+        title="Record 4"
+        parents={[{ label: "Records", to: "/records" }]}
+        sequence={{
+          label: "Records",
+          previous: { label: "Record 3", to: "/records/3" },
+          next: { label: "Record 5", to: "/records/5" },
+          position: { current: 4, total: 9 },
+        }}
+      >
+        <Card title="A section">the record</Card>
+      </DetailPage>,
+    );
+    await expectAccepted();
+    expect(container.querySelector('[data-terp="page"] [data-terp="page-sequence"]')).toBeNull();
+    expect(container.querySelector('[data-terp="page"] + [data-terp="page-sequence"]')).not.toBeNull();
+  });
+
   it("leaves the plain Page unconstrained (the contract's bespoke pressure valve)", async () => {
     underContract(
       <Page title="Bespoke">

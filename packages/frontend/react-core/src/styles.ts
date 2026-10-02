@@ -2488,6 +2488,130 @@ textarea[data-terp="input"] {
   width: min(100%, var(--shell-content-max-width));
 }
 
+/* The sequence bar (ADR 0168) ---------------------------------------------- */
+/* A page's previous and next neighbours and its place among them, rendered by Page after its
+   article when the page is given a sequence. The band at the top says where the page is; this
+   bar at the bottom says what comes before and after it.
+
+   STICKY, and that is the reason it exists rather than a row of buttons under the body. A row
+   placed after the content sits wherever the content ends, so stepping through a series moved
+   the control on every page — a long record put "next" below the fold, a short one put it
+   halfway up the screen — and the reader had to find it again each time. Pinned to the bottom
+   it is in one place for the whole series.
+
+   THREE CELLS, always rendered: an absent neighbour leaves its cell empty, so "next" is at the
+   same spot on the first page as on the fortieth. The outer two are minmax(0, 1fr), which is
+   what lets a long neighbour name truncate inside its half instead of pushing the position
+   off centre.
+
+   A surface of its own, which a block in this sheet does not usually paint: content scrolls
+   UNDER a sticky bar, so a transparent one would print the body through itself. The same
+   neutral-0 and border the band at the top carries, so the two read as one frame around the
+   body.
+
+   The safe-area inset is the phone's home indicator: max() keeps the ordinary padding where
+   there is none and clears the indicator where there is. */
+[data-terp="page-sequence"] {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-index-sticky);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  margin-block-start: var(--space-4);
+  padding-block: var(--space-2) max(var(--space-2), env(safe-area-inset-bottom));
+  border-block-start: 1px solid var(--color-neutral-200);
+  background: var(--color-neutral-0);
+  font-size: var(--font-size-sm);
+}
+[data-terp="page-sequence-previous"],
+[data-terp="page-sequence-next"] {
+  display: flex;
+  min-width: 0;
+}
+[data-terp="page-sequence-next"] {
+  justify-content: flex-end;
+}
+[data-terp="page-sequence-position"] {
+  color: var(--color-fg-subtle);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* The links read as the ghost button they sit beside in every other toolbar — same height,
+   same ink, same wash on hover (terp.state) — while staying links, which is the half a button
+   could not be: a step to a sibling page is a navigation, so it opens in a new tab on a
+   middle-click like any other link. Child selectors from the marked cells rather than a marker
+   on the anchor, because the anchor is the router's: a renderer that forwards no attributes
+   would otherwise leave the bar unstyled with no error, which is the reason Link's marker is
+   on a wrapper too. */
+[data-terp="page-sequence-previous"] > a,
+[data-terp="page-sequence-next"] > a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  min-height: var(--density-control-min-height);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  box-sizing: border-box;
+  color: var(--color-neutral-700);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+}
+[data-terp="page-sequence-label"] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A narrow frame caps the bar with it, as it caps its own band (ADR 0098 §3). */
+[data-terp="page"][data-measure="narrow"] + [data-terp="page-sequence"] {
+  max-width: 32rem;
+}
+/* Inside a shell the bar has to be at the BOTTOM of the content column even when the page is
+   short, or a short page and a long one put it in different places and the bar has fixed
+   nothing. appshell-main already fills the column — the shell is at least the viewport's
+   height and main grows to fill what the header and footer leave — so the page only has to
+   take up the rest of main, and that needs main to be a flex column.
+
+   Scoped to a main that HAS a bar, with :has(), so no other page changes at all: a page with
+   no sequence keeps main as the block it has always been. Inside the scope the article is a
+   flex item of a column container, which stretches it across main exactly as block layout did
+   (stretch fills the cross axis; the automatic minimum size applies to the main axis only),
+   and flex-grow gives it the free height.
+
+   The bar then bleeds through main's padding to the column's edges, by the same gutter the
+   band at the top bleeds by, so the frame's bottom edge lines up with its top one. Bottom too,
+   so a bar at rest and a bar pinned to the viewport sit on the same line rather than a gutter
+   apart. A narrow frame keeps its cap and takes only the bottom bleed. */
+[data-terp="appshell-main"]:has(> [data-terp="page-sequence"]) {
+  display: flex;
+  flex-direction: column;
+}
+[data-terp="appshell-main"] > [data-terp="page"]:has(+ [data-terp="page-sequence"]) {
+  flex-grow: 1;
+}
+[data-terp="appshell-main"] > [data-terp="page-sequence"] {
+  margin-block-end: calc(-1 * var(--shell-gutter));
+}
+[data-terp="appshell-main"]
+  > [data-terp="page"]:not([data-measure="narrow"])
+  + [data-terp="page-sequence"] {
+  margin-inline: calc(-1 * var(--shell-gutter));
+  padding-inline: var(--shell-gutter);
+}
+/* A bar pinned over the bottom of the viewport can cover what the browser just scrolled into
+   view: tab to the last field of a long form and the field lands behind the bar (WCAG 2.2 SC
+   2.4.11, focus not obscured). Scroll padding at the bottom of the document — its scroll
+   container, see the gutter rule on html — keeps a focused or scrolled-to element above it.
+   The bar's own height, from the tokens it is built of: a control, its two paddings and the
+   border. The root's control height, which is the comfortable one and so never the shorter of
+   the two densities. */
+html:has([data-terp="page-sequence"]) {
+  scroll-padding-block-end: calc(var(--density-control-min-height) + 2 * var(--space-2) + 1px);
+}
+
 /* The split archetype ------------------------------------------------------ */
 /* A list beside the record it selects. Mobile-first: one column, list first, so the tab
    sequence is the reading order in both layouts and the stacked case needs no rule at all.
@@ -5246,6 +5370,23 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp="breadcrumbs"] a:hover {
   color: var(--color-neutral-900);
   text-decoration: underline;
+}
+
+/* Sequence links ----------------------------------------------------------- */
+/* The ghost button's hover, for links that read as one (see the bar's rule in terp.base). */
+[data-terp="page-sequence-previous"] > a:hover,
+[data-terp="page-sequence-next"] > a:hover {
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-900);
+}
+/* The shared ring, restated for an anchor that carries no marker of its own: the router renders
+   it, so [data-terp]:focus-visible cannot reach it, and without this a keyboard user stepping
+   through a series would get whatever ring the browser draws by default. */
+[data-terp="page-sequence-previous"] > a:focus-visible,
+[data-terp="page-sequence-next"] > a:focus-visible {
+  outline: 2px solid var(--color-fg-accent);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
 /* The pager's disabled ink, scoped rather than added to the shared iconbutton

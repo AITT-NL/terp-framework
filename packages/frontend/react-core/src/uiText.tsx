@@ -166,6 +166,12 @@ export interface TerpStrings {
   moduleNavigationLabel: string;
   /** Accessible label of the page-actions overflow trigger. */
   moreActions: string;
+  /** Accessible name of a page's link to the previous item of its sequence; `{label}` is that item. */
+  pageSequencePrevious: string;
+  /** Accessible name of a page's link to the next item of its sequence; `{label}` is that item. */
+  pageSequenceNext: string;
+  /** A page's place in its sequence; `{current}` and `{total}` are replaced. */
+  pageSequencePosition: string;
   /** Default {@link ErrorState} title. */
   errorTitle: string;
   /** Title shown by `RequireAuth` when the backend did not answer the boot check. */
@@ -493,6 +499,9 @@ export const DEFAULT_STRINGS: TerpStrings = {
   breadcrumbsLabel: "Breadcrumb",
   moduleNavigationLabel: "Module navigation",
   moreActions: "More actions",
+  pageSequencePrevious: "Previous: {label}",
+  pageSequenceNext: "Next: {label}",
+  pageSequencePosition: "{current} of {total}",
   errorTitle: "Something went wrong.",
   backendUnreachableTitle: "The application cannot reach its server.",
   backendUnreachableDescription:

@@ -10,6 +10,36 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.31.0 — unreleased
+
+Friction reported from building a screen that is worked through one item after another: the
+only place a page had for its previous and next links was the end of its body, where they moved
+with every item and could not be links.
+
+### Added
+
+- **A page in a series steps through it from a bar that stays put (ADR 0168).** `Page` — and so
+  every archetype — takes `sequence`: the series' `label`, the `previous` and `next` neighbours
+  as `{ label, to }`, and an optional `position`. It renders a navigation bar after the page's
+  article: the steps are router links with `rel="prev"` / `rel="next"` and the direction in their
+  accessible name ("Previous: Order 1016"), the position reads "17 of 48", and an absent
+  neighbour leaves its cell empty so the others never move. The bar sticks to the bottom of the
+  viewport over the band's own surface; inside a shell it sits at the bottom of the content
+  column on a short page and pins there on a long one, bleeding to the column's edges like the
+  band at the top, so "next" is in one place for the whole series. While it is on the page the
+  document keeps a focused control scrolled clear of it. A row of buttons at the end of the body
+  had none of that, and an app could not build it: pinning is a style, and module code has none.
+  Three framework strings come with it — `pageSequencePrevious`, `pageSequenceNext` and
+  `pageSequencePosition` — in the English and Dutch catalogs.
+
+### Upgrade notes
+
+- **A non-English framework catalog of an app's own supplies three new keys.** `LocaleProvider`
+  and `defineAppLocales` refuse a catalog that lacks any framework string, and this release adds
+  `pageSequencePrevious` ("Previous: {label}"), `pageSequenceNext` ("Next: {label}") and
+  `pageSequencePosition` ("{current} of {total}"). Add the three, keeping the placeholders; an
+  app on `LOCALE_NL` or `LOCALE_EN` changes nothing.
+
 ## 0.30.0 — 2026-10-02
 
 Friction reported from upgrading apps to Terp 0.29.0. In the dev workbench: a first start

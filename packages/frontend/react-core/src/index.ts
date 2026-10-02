@@ -61,6 +61,7 @@ export { NavLinkContext, useNavLink } from "./navLink";
 export type { NavLinkRenderer } from "./navLink";
 export { Page } from "./Page";
 export type { PageProps } from "./Page";
+export type { PageSequence, PageSequenceLink } from "./PageSequence";
 export { LAYOUT_CONTRACTS } from "./layoutContract";
 export type { LayoutContractSpec, LayoutSlotSpec } from "./layoutContract";
 // `ResolvedLayout` is deliberately NOT exported: nothing hands one to app code, so it
