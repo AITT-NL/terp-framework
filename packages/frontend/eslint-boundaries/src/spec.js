@@ -17,7 +17,7 @@
  * NOT by this package's own suite, which certification runs against candidate spec releases
  * whose version is allowed to be newer).
  */
-export const SPEC_VERSION = "0.38.0";
+export const SPEC_VERSION = "0.39.0";
 
 export const BOUNDARY_SPEC = {
   /**
