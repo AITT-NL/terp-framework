@@ -10,6 +10,54 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.30.0 — 2026-10-02
+
+Friction reported from upgrading apps to Terp 0.29.0. In the dev workbench: a first start
+that asked a registry for an image only the workbench itself builds, and a frontend rebuild
+that never reached the dev server it was meant for. On screen: a page title 0.28.0 had made the
+size of a heading, and a lead line hidden at narrow widths that still took a row. The standard
+moves to terp-spec 0.39.0, which catalogues the `httpx2` refusal this framework has enforced
+since 0.29.0.
+
+### Fixed
+
+- **The dev workbench never pulls the backend tag it builds.** The backend services other
+  than `api` (`migrate`, `seed`, and anything an app adds on the `x-backend` anchor) run an
+  image tag only `api` builds, and a missing image is pulled by default, so a first
+  `docker compose watch` — what `terp docker dev` runs — asked a registry for a tag no
+  registry has and printed `pull access denied` before building it. Some Compose versions
+  stop there. The anchor now says `pull_policy: never`, in the template and the example app;
+  `api` stays the only service that builds the tag, and the production profile, which a
+  deployment may pull, is unchanged.
+
+- **A frontend rebuild reaches the running dev server.** The workbench masks the mounted
+  checkout's `node_modules` so a host install cannot hand the Linux container a dependency
+  built for another platform, and the mask was an anonymous volume — filled from the image
+  on first use and reused on every recreate. So the dependency tree of the *first* boot
+  survived every rebuild: a version bump rebuilt the image and restarted a container still
+  running the old tree, with nothing reporting it. The template's `frontend/Dockerfile` now
+  installs one level up, where no mount reaches, and the masks are `tmpfs`, empty on every
+  start. The example app, whose dependencies are already hoisted, only changes its masks.
+
+- **The page title is the trail's size again.** 0.28.0 set `page-title` to
+  `--font-size-xl` and raised `--shell-header-height` from `3rem` to `3.5rem` to fit it: a
+  24px leaf on 14px ancestors, against the band's own rule, and 8px more header in every app
+  for a title that is chrome. Both are reversed: `page-title` is `--font-size-sm` semibold on
+  the trail's line box and tracking, and the header is `3rem` again.
+
+- **A hidden lead line takes no row.** A band whose only meta was a lead line kept two rows
+  at every width, although the lead line is `display: none` below the second cutover: the
+  empty group kept a grid track, the row gap and padding came with it, and at a phone width
+  the lone title sat 6.8px above the band's centre. `Page` now stamps which meta it carries
+  (`data-has-meta="badges"` or `"description"`); badges keep their row at every width, and a
+  lead line alone is a one-row band until the `ROOMY` cutover.
+
+### Changed
+
+- **Certified against terp-spec 0.39.0.** The catalog half of ADR 0165 — `no_raw_outbound_http`
+  refuses `httpx2` — is published; the four pins (`pyproject.toml`, `terp.arch.SPEC_VERSION`,
+  `@terpjs/eslint-boundaries`'s dependency and its `SPEC_VERSION`) move to it.
+
 ## 0.29.0 — 2026-09-28
 
 Friction reported from building apps on Terp 0.28.0. At the edges: a request body that could
