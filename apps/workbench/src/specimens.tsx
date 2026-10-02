@@ -336,6 +336,32 @@ const syncRepositoryOptions = {
 const SYNC_REPOSITORY = new InMemoryDataViewRepository(SYNC_ROWS, syncRepositoryOptions);
 
 /**
+ * SYNC_COLUMNS with the first row's name as a control that explains itself, open. The first
+ * row because its bubble opens above the cell, past the table's top edge -- the place the
+ * table's scroller used to cut it off.
+ */
+const TOOLTIP_COLUMNS: DataViewColumn<SyncRow>[] = SYNC_COLUMNS.map((column) =>
+  column.id === "name"
+    ? {
+        ...column,
+        cell: (row: SyncRow) =>
+          row.id === "s1" ? (
+            <Tooltip
+              content="Synced nightly from the ERP. The last run finished without errors, and the next one starts after the warehouse closes its books for the day."
+              defaultOpen
+            >
+              <Button variant="ghost" size="sm">
+                {row.name}
+              </Button>
+            </Tooltip>
+          ) : (
+            row.name
+          ),
+      }
+    : column,
+);
+
+/**
  * Four columns whose CONTENT is one character each, so nothing about the data can explain their
  * widths. Three declare a step and the fourth declares nothing, which is what makes the picture
  * readable: the declared tracks hold a floor a single digit could never justify, and the last
@@ -2188,25 +2214,60 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         // have been changed, or deleted, with no gate saying anything. `defaultOpen` is the
         // door, the same one `defaultCollapsed` and `defaultDrawerOpen` opened for the shell.
         //
-        // `overlay` because the bubble is position: absolute above its anchor and would be
-        // clipped out of an element-scoped shot — the plainest case of the four the flag
-        // exists for, and the one most likely to be missed.
+        // `overlay` because the bubble is portalled to the body, like Popover's panel, and is not
+        // even a descendant of the specimen an element-scoped shot would clip to.
         id: "tooltip-open",
         title: "Tooltip — the bubble, shown",
         overlay: true,
         node: (
-          // Padded down so the bubble, which sits ABOVE its anchor, clears the specimen's own
-          // title rather than covering it. Worth knowing while reading the picture: the panel is
-          // position: absolute with only inset-inline-start set, so it shrink-to-fits against
-          // the anchor's box — which is why a long string wraps narrow instead of running to the
-          // declared max-inline-size. That clamp may well be unreachable in this geometry; it is
-          // noted rather than asserted, because nothing here has measured it.
+          // Padded down so the bubble, which opens ABOVE its anchor when there is room, clears
+          // the specimen's own title rather than covering it. The note that used to sit here --
+          // that the bubble shrink-to-fit against its anchor, so a long string wrapped narrow and
+          // the declared max-inline-size was probably unreachable -- described the defect the
+          // portal fixed: the bubble's width is its message's now, capped by that clamp.
           <div style={{ paddingBlockStart: "7rem" }}>
             <Tooltip content="Explains the control" defaultOpen>
               <Button variant="ghost">Hover me</Button>
             </Tooltip>
           </div>
         ),
+      },
+      {
+        // The composition an app reported: a page band's primary action, at the top-right of
+        // the window, explaining why it is disabled in a sentence. The bubble opened above, at
+        // the trigger's left edge, one button wide -- a column of words running off the top of
+        // the screen. It is the message's width now, flips below when there is no room above,
+        // and is pushed in from the right edge.
+        id: "tooltip-band-action",
+        title: "Tooltip — a long message on the band's primary action",
+        overlay: true,
+        node: (
+          <Page
+            title="Customer master"
+            breadcrumbs={[{ label: "Records", to: "/records" }]}
+            actions={
+              <Tooltip
+                content="Publishing waits until the two open review comments are resolved; both are listed under the band."
+                defaultOpen
+              >
+                <Button variant="primary">Publish</Button>
+              </Tooltip>
+            }
+          >
+            <p style={{ margin: 0 }}>Body content below the header.</p>
+          </Page>
+        ),
+      },
+      {
+        // A tooltip in a DataView cell, on the first row, where the bubble opens above the
+        // cell and so past the table's top edge. The table's horizontal scroller clipped an
+        // absolutely positioned bubble there whatever its z-index -- it ended at the table's
+        // edge instead of drawing over it. Portalled, nothing above it clips.
+        id: "tooltip-dataview-cell",
+        title: "Tooltip — in a DataView cell, drawn over the table's edge",
+        overlay: true,
+        ready: '[data-terp="tooltip"]:not([hidden])',
+        node: <DataView repository={SYNC_REPOSITORY} columns={TOOLTIP_COLUMNS} />,
       },
       {
         id: "stack-directions",
@@ -2821,6 +2882,27 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
             title="Customers"
             breadcrumbs={[{ label: "Records", to: "/records" }]}
             description="Every customer the ledger knows about, across operating companies."
+          >
+            <p style={{ margin: 0 }}>Body content below the header.</p>
+          </Page>
+        ),
+      },
+      {
+        // The band at its tallest: below the first cutover a badge and a cluster each take a
+        // row of their own under the trail, so this is three rows. Each is a BAR of the
+        // one-row band's height with its item centred in it, which is what a band that wraps
+        // does now -- it used to size the rows to their content and pad the whole band by 4px,
+        // so the trail, the badge and the button sat 4px off the border while a one-row band
+        // centred its line in 47px. Nothing pictured a multi-row band at a phone width before.
+        id: "page-header-root-narrow",
+        title: "Page — a badge and an action below the cutover: three bars",
+        viewport: { width: 430, height: 700 },
+        node: (
+          <Page
+            title="Customer master"
+            breadcrumbs={[{ label: "Records", to: "/records" }]}
+            badges={<Badge tone="neutral">Read only</Badge>}
+            actions={<Button variant="primary">Publish</Button>}
           >
             <p style={{ margin: 0 }}>Body content below the header.</p>
           </Page>

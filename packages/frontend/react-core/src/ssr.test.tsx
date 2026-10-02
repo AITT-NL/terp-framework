@@ -5,6 +5,8 @@ import { AppShell } from "./AppShell";
 import { DataView } from "./dataview/DataView";
 import type { DataViewRepository } from "./dataview/types";
 import { LOCALE_EN, LOCALE_NL, LocaleProvider } from "./locale";
+import { Button } from "./ui/Button";
+import { Tooltip } from "./ui/Tooltip";
 
 interface Row {
   id: string;
@@ -57,5 +59,21 @@ describe("server rendering", () => {
     );
 
     expect(view).toContain('aria-label="Laden…"');
+  });
+
+  it("renders a tooltip's trigger without a body to portal its bubble into", () => {
+    // The bubble is portalled to document.body so no scroll container clips it, and there is
+    // no body on the server. The portal waits for the mount, so the server and the first
+    // client render agree: the trigger, described by an id the bubble takes once mounted.
+    // Moved into the render body, createPortal(..., document.body) throws here.
+    const markup = renderToString(
+      <Tooltip content="More information" defaultOpen>
+        <Button>Help</Button>
+      </Tooltip>,
+    );
+
+    expect(markup).toContain('data-terp="tooltip-anchor"');
+    expect(markup).toContain("Help");
+    expect(markup).not.toContain('role="tooltip"');
   });
 });

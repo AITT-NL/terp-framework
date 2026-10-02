@@ -62,6 +62,27 @@ two lines. It costs height — a band with meta is 81px against the 48px the tok
 content-sized rows would have been 64px — and that is the price of the second row being a line
 rather than an afterthought.
 
+**Amended after 0.30.0, by keeping the promise this made with a different mechanism.** `1fr`
+did not survive building: equal rows sized by the taller one left the taller line's item filling
+its track exactly, flush on the band's border (9px above the content, 0px below). It was
+replaced by content-sized rows plus 4px of block padding on any band of more than one row —
+which kept the edges equal and broke the reading this decision was for. A band of two or three
+lines then sat its trail, badges and buttons 4px from the border while a band of one centred its
+line in 47px: the same chrome at two insets, and the multi-line one read as crammed against its
+edges. Reported against exactly that, at every width, including the phone width where a badge
+and the cluster each take a row of their own.
+
+So every row is now a **bar** of the one-row band's height: `grid-auto-rows:
+minmax(calc(var(--shell-header-height) - 1px), auto)` on the chrome band, `row-gap: 0`, and no
+block padding at any row count. The one-row band is unchanged — 47px of row and the 1px rule is
+the 48px it always was — and a band of *n* rows is *n* bars and one rule, each item centred in
+its own bar. That is "one band of two lines" made literal: the second line is the first line's
+twin rather than a strip under it. It costs more height than either earlier form (95px for two
+rows, 143px for three), which is the same trade this decision already made, taken further.
+`minmax` rather than a fixed size, so content taller than a bar — an app's own cluster whose
+labels wrapped — grows its row instead of spilling out of it. The computed lane measures every
+track, the band's height and each item's offset from the centre of its bar.
+
 **4. Every crumb may be cut; no crumb may be orphaned.** Both the list and its items are
 `nowrap`, and the crumb text carries `min-width: 0` with an ellipsis. A deep trail degrades by
 losing characters rather than by growing the chrome, and a chevron never leaves its label.

@@ -760,55 +760,125 @@ async function textRows(page: import("@playwright/test").Page, selectors: string
   }, selectors);
 }
 
-test("a band that earns a second row keeps the same edge above and below", async ({ page }) => {
-  // What replaced "both lines must be the same height". That claim was `grid-auto-rows: 1fr`,
-  // which resolves every row to the LARGEST row's content in a box whose height nobody
-  // declared -- and equal rows are exactly what put the taller row's item flush against the
-  // band's bottom edge, because the item filled its track exactly while the chrome row spends
-  // no block padding of its own. Measured 9px above the content and 0px below it on every
-  // two-row page, which is how it was reported.
+test("every row of a band is a bar of the one-row band's height, its item centred in it", async ({
+  page,
+}) => {
+  // What a band does when it needs more than one line: it adds a BAR, the height of the
+  // one-row band, rather than growing the one it has. The rows used to be content-sized with
+  // 4px of block padding on the whole band -- and before that 1fr, which left 9px above the
+  // content and 0px below it -- so a band of two or three lines sat its trail, badges and
+  // buttons 4px from the border while a band of one centred its line in 47px. Same chrome, two
+  // insets, and the multi-line one read as crammed against its edges.
   //
-  // Rows are content-sized now, and the reading 1fr was buying -- one band of two lines rather
-  // than two bands stacked -- is bought with padding instead. A band that has already broken
-  // the one-row height can afford it; the one-row band cannot, since it has to match the app
-  // header, and is untouched.
-  //
-  // Measured from the CONTENT rather than read off the resolved template, because where the ink
-  // lands is the thing that was wrong. A track size says nothing about the gap to the border.
-  for (const [only, what] of [
-    ["page-header", "a band with badges, a lead line and an action"],
-    ["page-header-root", "a band with a badge and an action"],
-    ["page-header-crowded", "the most crowded band the gallery ships"],
+  // So every track is exactly one bar (the header height less the band's 1px rule), the band is
+  // n bars and one rule, and each item's centre is its row's centre. Measured from the items
+  // rather than read off the template alone, because where the content lands is the thing that
+  // was wrong; a track size says nothing about where the item sits in it.
+  for (const [only, width, expectedRows, what] of [
+    ["page-header", 1280, 2, "badges, a lead line and an action"],
+    ["page-header-root", 1280, 2, "a badge and an action"],
+    ["page-header-crowded", 1280, 2, "the most crowded band the gallery ships"],
+    ["page-header-root-narrow", 430, 3, "a badge and an action below the cutover"],
   ] as const) {
+    await page.setViewportSize({ width, height: 900 });
     await page.goto(`/?theme=light&only=${only}`);
     await page.locator('[data-terp="page-header"]').first().waitFor({ state: "visible" });
-    const edges = await page.evaluate(() => {
-      const band = document.querySelector('[data-terp="page-header"]');
-      if (band === null) return null;
+    const band = await page.evaluate(() => {
+      const header = document.querySelector('[data-terp="page-header"]');
+      if (header === null) return null;
+      const root = document.documentElement;
+      const rem = Number.parseFloat(getComputedStyle(root).fontSize);
+      const declared =
+        Number.parseFloat(getComputedStyle(root).getPropertyValue("--shell-header-height")) * rem;
+      const style = getComputedStyle(header);
+      const border = Number.parseFloat(style.borderBottomWidth) || 0;
+      const tracks = style.gridTemplateRows
+        .split(" ")
+        .filter((size) => size.length > 0)
+        .map((size) => Number.parseFloat(size));
+      const box = header.getBoundingClientRect();
       // page-heading generates no box, so its children are the band's own grid items.
       const items: Element[] = [];
-      for (const child of Array.from(band.children)) {
+      for (const child of Array.from(header.children)) {
         if (getComputedStyle(child).display === "contents") items.push(...Array.from(child.children));
         else items.push(child);
       }
-      const box = band.getBoundingClientRect();
-      const style = getComputedStyle(band);
-      const border = Number.parseFloat(style.borderBottomWidth) || 0;
-      const tops = items.map((item) => item.getBoundingClientRect().top);
-      const bottoms = items.map((item) => item.getBoundingClientRect().bottom);
-      return {
-        above: Number((Math.min(...tops) - box.top).toFixed(2)),
-        below: Number((box.bottom - border - Math.max(...bottoms)).toFixed(2)),
-        rows: style.gridTemplateRows.split(" ").filter((size) => size.length > 0).length,
-      };
+      // Each visible item, as how far its centre sits from the centre of the bar it is in.
+      const offsets = items
+        .map((item) => item.getBoundingClientRect())
+        .filter((rect) => rect.height > 0)
+        .map((rect) => {
+          const centre = rect.top + rect.height / 2 - box.top;
+          const row = Math.min(tracks.length - 1, Math.floor(centre / (tracks[0] ?? 1)));
+          const rowTop = tracks.slice(0, row).reduce((sum, size) => sum + size, 0);
+          return Number((centre - (rowTop + (tracks[row] ?? 0) / 2)).toFixed(2));
+        });
+      return { declared, border, tracks, height: box.height, offsets };
     });
-    expect(edges, `${what} should render`).not.toBeNull();
-    expect(edges!.rows, `${what} should be two rows`).toBe(2);
-    expect(edges!.above, `${what}: the edges must match`).toBeCloseTo(edges!.below, 1);
-    // And neither edge is nothing: the equality would hold trivially at zero, which is the
-    // state this test exists to refuse.
-    expect(edges!.above, `${what}: the content must not sit on the border`).toBeGreaterThan(0);
+    expect(band, `${what} should render`).not.toBeNull();
+    const bar = band!.declared - band!.border;
+    expect(band!.tracks.length, `${what}: ${expectedRows} rows`).toBe(expectedRows);
+    for (const track of band!.tracks) {
+      expect(track, `${what}: every row is one bar`).toBeCloseTo(bar, 1);
+    }
+    expect(band!.height, `${what}: n bars and one rule`).toBeCloseTo(
+      expectedRows * bar + band!.border,
+      1,
+    );
+    for (const offset of band!.offsets) {
+      expect(Math.abs(offset), `${what}: each item sits in the middle of its bar`).toBeLessThan(1);
+    }
   }
+});
+
+test("an open tooltip lands inside the window and over the scroll container it sits in", async ({
+  page,
+}) => {
+  // The bubble was an absolutely positioned child of its anchor, which failed in two
+  // compositions an app reported. On a page band's primary action -- top right of the window --
+  // it opened above, at the trigger's left edge, with the TRIGGER's width as its available
+  // width: a column of words one button wide, running off the top of the screen. In a
+  // DataView cell it was clipped by the table's scroller, ending at the table's edge instead of
+  // drawing over it. It is portalled and placed from measurements now.
+  await page.goto("/?theme=light&only=tooltip-band-action");
+  await page.locator('[data-terp="tooltip"]:not([hidden])').waitFor({ state: "visible" });
+  const band = await page.evaluate(() => {
+    const bubble = document.querySelector('[data-terp="tooltip"]')!.getBoundingClientRect();
+    const trigger = document.querySelector('[data-terp="tooltip-anchor"]')!.getBoundingClientRect();
+    return {
+      bubble: { left: bubble.left, right: bubble.right, top: bubble.top, bottom: bubble.bottom, width: bubble.width },
+      trigger: { top: trigger.top, bottom: trigger.bottom, width: trigger.width },
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+    };
+  });
+  expect(band.bubble.left, "inside the window on the left").toBeGreaterThanOrEqual(0);
+  expect(band.bubble.right, "inside the window on the right").toBeLessThanOrEqual(band.viewport.width);
+  expect(band.bubble.top, "inside the window at the top").toBeGreaterThanOrEqual(0);
+  expect(band.bubble.bottom, "inside the window at the bottom").toBeLessThanOrEqual(band.viewport.height);
+  expect(band.bubble.width, "the message's width, not the trigger's").toBeGreaterThan(
+    band.trigger.width * 2,
+  );
+  expect(
+    band.bubble.bottom <= band.trigger.top || band.bubble.top >= band.trigger.bottom,
+    "beside the trigger, never over it",
+  ).toBe(true);
+
+  await page.goto("/?theme=light&only=tooltip-dataview-cell");
+  await page.locator('[data-terp="tooltip"]:not([hidden])').waitFor({ state: "visible" });
+  const cell = await page.evaluate(() => {
+    const bubble = document.querySelector('[data-terp="tooltip"]')!.getBoundingClientRect();
+    const scroller = document.querySelector('[data-terp="dataview-scroll"]')!.getBoundingClientRect();
+    // What is actually painted at the bubble's top edge, just inside it: the bubble itself if
+    // nothing clips or covers it there.
+    const probe = document.elementFromPoint(bubble.left + bubble.width / 2, bubble.top + 2);
+    return {
+      bubbleTop: bubble.top,
+      scrollerTop: scroller.top,
+      painted: probe?.closest('[data-terp="tooltip"]') !== null,
+    };
+  });
+  expect(cell.bubbleTop, "the bubble opens past the table's top edge").toBeLessThan(cell.scrollerTop);
+  expect(cell.painted, "and is drawn there, not clipped at the edge").toBe(true);
 });
 
 test("a lead line alone earns the second row only where it is shown", async ({ page }) => {

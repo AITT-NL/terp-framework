@@ -2128,13 +2128,15 @@ textarea[data-terp="input"] {
    whose whole job was to right-align it. Areas say where things go and no free space is
    distributed anywhere, so neither failure has anywhere to happen. */
 [data-terp="page-header"][data-has-meta] {
-  /* auto, not 1fr. Equal-height lines read as one band of two lines, which is why they were
-     here -- but fr rows in an indefinite container resolve to the LARGEST row's content, so
-     the shorter line's item was centred in a track sized by the taller one and the taller
-     line's item filled its track exactly. With no block padding under it (the chrome row
-     spends none, by the invariant below) that put the bottom row flush against the band's
-     border: measured 9px above the content and 0px below it on every two-row page. Rows sized
-     to their content, plus the padding the multi-row band now spends, give 4px and 4px. */
+  /* auto, not 1fr, and only for the band that is NOT chrome -- the narrow measure's title row,
+     where rows are simply as tall as what is in them. fr rows in an indefinite container
+     resolve to the LARGEST row's content, so the shorter line's item was centred in a track
+     sized by the taller one and the taller line's item filled its track exactly: measured 9px
+     above the content and 0px below it on every two-row page.
+
+     The chrome band does not read this. It sizes every row as a BAR of the one-row band's
+     height (see the chrome rule below), which outranks this on specificity, and that is what
+     gives a band of two lines the same edges as a band of one. */
   grid-auto-rows: auto;
 }
 /* WHICH meta decides the row, not whether there is any. Badges show at every width, so a band
@@ -2350,10 +2352,22 @@ textarea[data-terp="input"] {
    band was 53px on a page with actions and 48px on a page without — the one piece of chrome
    whose entire promise is that it is the same height as the header above it, changing height
    per page. var(--space-1) fixed that for the default control and not for the large one, which
-   is why this is zero rather than a step. It still grows past the floor when the row WRAPS, which is the
-   one case that should move it: a long title meeting a wide action cluster takes a second
-   line rather than overflowing, and a band that clipped its own title to keep a height would
-   be the worse trade.
+   is why this is zero rather than a step.
+
+   And EVERY row is a bar of that height, which is what the band does when it needs more than
+   one line: it adds a bar, it does not grow the one it has. grid-auto-rows sizes the rows the
+   areas declare (an area row nobody sized takes its size from it), so badges on a row of their
+   own, a lead line, or a cluster that dropped below the trail at a phone width each get a
+   track exactly as tall as the one-row band's, with the item centred in it the way the lone
+   title is. The rows used to be content-sized with 4px of block padding on the whole band,
+   so a band of two lines put its content 4px from the border while a band of one sat it in
+   the middle of 47px: the same chrome with two different insets, and the two-line one read as
+   crammed against its edges. row-gap is zero for the same reason -- the bars are the spacing.
+
+   The bar is the header height LESS the border: the one-row band's 48px is 47px of row and
+   1px of rule, so a band of n rows is n bars and one rule, and the one-row case is exactly the
+   floor it always was. minmax and not a fixed size, because an item taller than a bar (an
+   app's own cluster whose labels wrapped) must grow its row rather than spill out of it.
 
    :not([data-measure="narrow"]) because a form is capped WITH its header (ADR 0098 §3) — a
    Save button a screen-width from its field is worse than one over it — so a form gets the
@@ -2367,37 +2381,8 @@ textarea[data-terp="input"] {
   min-height: var(--shell-header-height);
   box-sizing: border-box;
   border-block-end: 1px solid var(--color-neutral-200);
-}
-/* The block padding the ONE-ROW band cannot have, spent on the bands that are already more
-   than one row. The rule above stays at var(--space-0) and stays tied to the app header's
-   own padding, because that row is the one making the claim: 48px, the same as the header
-   above it, and the largest control this package ships (2.75rem) has to fit inside it. A band
-   that carries meta has broken that height already and makes no such claim, so it can afford
-   the 4px — and it is the only band where the missing padding was ever visible, since the
-   one-row band centres its single line inside the floor and reads as padded either way.
-   Below the cutover the same is true of a band whose cluster has taken a row of its own.
-
-   The narrow rule weighs (0,3,0) plus :has()'s argument, so (0,4,0) — the same as the meta
-   rule, and they declare the same value, so the tie decides nothing.
-
-   A description-only band is multi-row only above the second cutover (see the meta-kind rule
-   near the top of the band), so that is the only width it spends this padding at. Below it
-   the band is one row and holds the floor like any other: spending 4px + 4px there is exactly
-   what pushed a lone title off the centre of a band with nothing else in it. */
-[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"][data-has-meta="badges"] {
-  padding-block: var(--space-1);
-}
-@media ${ROOMY_VIEWPORT_QUERY} {
-  [data-terp="page"]:not([data-measure="narrow"])
-    > [data-terp="page-header"][data-has-meta="description"] {
-    padding-block: var(--space-1);
-  }
-}
-@media ${NARROW_VIEWPORT} {
-  [data-terp="page"]:not([data-measure="narrow"])
-    > [data-terp="page-header"]:has(> [data-terp="page-actions"]) {
-    padding-block: var(--space-1);
-  }
+  grid-auto-rows: minmax(calc(var(--shell-header-height) - 1px), auto);
+  row-gap: 0;
 }
 /* The BLEED, which does need a shell, because the negative-margin idiom is only correct when
    the box being escaped is appshell-main and that box pads by exactly --shell-gutter. ADR
@@ -3374,11 +3359,17 @@ th[data-terp="dataview-actions-cell"] > span {
 /* DataView: the card layout ------------------------------------------------ */
 /* The responsive stand-in for a row, so it reads the same cell-padding tokens:
    a card IS the row's padding, and having compact tighten the table while
-   leaving the cards alone would make the attribute mean two things. */
+   leaving the cards alone would make the attribute mean two things.
+
+   The list has NO padding of its own. It is a direct child of the view, beside the toolbar
+   and the pagination -- not inside the table's frame -- so the space-2 it used to carry inset
+   every card 8px from the edge the toolbar, the pagination and the table frame all sit on.
+   Measured at a phone width: toolbar 16-394px, cards 24-386px. The cards are the frame in
+   this layout, so their edge is the one that lines up. */
 [data-terp="dataview-card-list"] {
   list-style: none;
   margin: 0;
-  padding: var(--space-2);
+  padding: 0;
   display: grid;
   gap: var(--space-2);
 }
@@ -4311,21 +4302,43 @@ button[data-terp="input"][data-placeholder="true"] {
 /* Tooltips ----------------------------------------------------------------- */
 /* No display declaration here on purpose: the panel is hidden with the hidden
    attribute, and any author display would beat the UA's [hidden] rule and
-   leave the tooltip permanently visible. */
+   leave the tooltip permanently visible.
+
+   The bubble is PORTALLED to the body and placed with position: fixed, the way
+   [data-terp="popover-panel"] already was. It used to be an absolutely positioned child of
+   its anchor, and that failed three ways an app reported together:
+   - An ancestor with overflow other than visible clipped it, whatever its z-index. A DataView
+     cell is inside the table's horizontal scroller, so a tooltip there was cut off at the
+     table's edge instead of drawing over it.
+   - Its containing block was the anchor, so its available width was the TRIGGER's. A long
+     message on a button wrapped to the button's width -- a column of words one button wide --
+     and grew upward from there.
+   - It always opened above and started at the trigger's left edge, so a trigger near the top
+     or the right edge of the window put the message off screen.
+   The component now measures the trigger and the bubble, opens above or flips below, and
+   clamps the bubble inside the viewport; only those coordinates and the one-frame
+   visibility before them are inline, the measured part ADR 0094 allows. inline-size:
+   max-content is what makes the measured width the MESSAGE's rather than whatever room a
+   containing block happens to leave, so where the bubble lands cannot change what it measures.
+
+   The anchor keeps its inline-flex and loses its position: relative, which existed only to
+   be the bubble's containing block. */
 [data-terp="tooltip-anchor"] {
-  position: relative;
   display: inline-flex;
 }
 [data-terp="tooltip"] {
-  position: absolute;
+  position: fixed;
   z-index: var(--z-index-tooltip);
-  inset-block-end: calc(100% + var(--space-1));
-  inset-inline-start: 0;
+  inline-size: max-content;
   max-inline-size: min(18rem, calc(100vw - 2 * var(--space-4)));
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
   color: var(--color-neutral-0);
   background: var(--color-neutral-900);
+  /* Declared, not inherited, now that the bubble is portalled: its parent is the body, which
+     no Terp rule gives a typeface, so it rendered in the browser's default serif. The
+     popover panel declares its family for the same reason. */
+  font-family: var(--font-family-sans);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
   line-height: 1.4;
@@ -4731,10 +4744,10 @@ button[data-terp="input"][data-placeholder="true"] {
    on whatever ancestor happens to establish a context looks like. It reads
    --z-index-tooltip (70) now, the level published for it.
 
-   Still true, and NOT fixed by this: an ancestor with overflow: hidden clips an
-   absolutely positioned tooltip whatever its level. The fix for that is the one
-   [data-terp="popover-panel"] already uses — position: fixed with measured
-   coordinates — and it is a change to the component rather than to this sheet. */
+   That left one failure no level could fix: an ancestor with overflow other than visible
+   clipped the absolutely positioned bubble whatever its z-index. It is fixed the way this
+   panel was, by the component rather than the sheet -- the tooltip is portalled and placed
+   with position: fixed from measured coordinates now (see its own rule). */
 [data-terp="popover-panel"] {
   position: fixed;
   z-index: var(--z-index-popover);

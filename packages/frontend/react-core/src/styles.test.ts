@@ -557,6 +557,18 @@ describe("cascade structure", () => {
       /padding-inline|padding:/.test(chrome),
       "an inline pad with no bleed would inset the band from the body beneath it",
     ).toBe(false);
+    // Every row is a BAR of the one-row band's height: the header height less the band's own
+    // 1px rule, so one row is exactly the floor above and n rows are n bars and one rule. A
+    // band that needs a second line adds a bar rather than squeezing its content against the
+    // border -- which is what the content-sized rows and their 4px of padding did, while the
+    // one-row band centred its line in 47px. minmax, so an item taller than a bar grows its
+    // row instead of spilling out. No row gap: the bars are the spacing.
+    expect(chrome, "every row is a bar of the one-row band's height").toContain(
+      "grid-auto-rows: minmax(calc(var(--shell-header-height) - 1px), auto)",
+    );
+    expect(chrome, "the bars are the spacing, so there is no gap between them").toContain(
+      "row-gap: 0",
+    );
 
     // THE BLEED is gated, because the negative-margin idiom is only correct against a box
     // that pads by exactly this token. ADR 0097 section 2 kept "it works with no shell above
@@ -641,6 +653,49 @@ describe("cascade structure", () => {
       base.slice(base.indexOf("{", body) + 1, base.indexOf("}", body)),
       "the body's percentage height is the only thing equalising two cards in a row",
     ).toContain("height: 100%");
+  });
+
+  it("places a tooltip against the window and a card list against the view's own edge", () => {
+    const base = layerBody("terp.base");
+    const bodyFor = (selector: string): string => {
+      for (const match of base.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const selectors = match[1].split(",").map((part) => part.trim().replace(/\s+/g, " "));
+        if (selectors.includes(selector)) return match[2];
+      }
+      throw new Error(`the sheet declares no rule for exactly ${selector}`);
+    };
+    // The bubble is portalled and placed from measured coordinates, so the sheet fixes it to
+    // the window and names no offset of its own. As an absolute child of its anchor it was
+    // clipped by any scroll container above it -- a DataView cell's tooltip ended at the
+    // table's edge -- and its available width was the trigger's, so a message on a button
+    // wrapped one button wide and grew off the top of the window.
+    const bubble = bodyFor('[data-terp="tooltip"]');
+    expect(bubble, "fixed to the window, where no scroll container can clip it").toContain(
+      "position: fixed",
+    );
+    expect(bubble, "the message's width, not the room a containing block leaves").toContain(
+      "inline-size: max-content",
+    );
+    // Portalled, its parent is the body, which no rule gives a typeface: without its own
+    // family the bubble rendered in the browser's default serif.
+    expect(bubble, "the bubble declares its typeface rather than inheriting the body's").toContain(
+      "font-family: var(--font-family-sans)",
+    );
+    expect(
+      /inset-|(^|[^-])(top|left|right|bottom):/.test(bubble),
+      "the coordinates are measured by the component; an offset here would fight them",
+    ).toBe(false);
+    expect(
+      bodyFor('[data-terp="tooltip-anchor"]'),
+      "the anchor is no longer anything's containing block",
+    ).not.toContain("position:");
+    // The card list sits beside the toolbar and the pagination, not inside the table's
+    // frame, so padding of its own inset every card from the edge they share. Measured at a
+    // phone width before: toolbar 16-394px, cards 24-386px.
+    expect(
+      bodyFor('[data-terp="dataview-card-list"]'),
+      "the cards line up with the toolbar and the pagination",
+    ).toContain("padding: 0");
   });
 
   it("puts the DataView's surface on the full variant's TABLE, not on the root or the marker", () => {
@@ -1300,7 +1355,8 @@ describe("cascade structure", () => {
     // fr rows resolve to the LARGEST row's content -- so the taller line's item filled its
     // track exactly and, with the chrome row spending no block padding, sat flush on the
     // band's border. Measured 9px above the content and 0px below it on every two-row page.
-    // Content-sized rows plus the multi-row band's own padding measure 4px and 4px.
+    // This is the band that is NOT chrome (the narrow measure's title row); the chrome band
+    // sizes every row as a bar instead, pinned with the chrome rule.
     expect(withMeta, "rows sized to their content, so neither sits on the border").toContain(
       "grid-auto-rows: auto",
     );
@@ -1396,15 +1452,26 @@ describe("cascade structure", () => {
       /\[data-has-meta="description"\] \[data-terp="page-meta"\] \{\s*display: flex;/,
     );
 
-    // And the padding a multi-row band spends follows the same split: always for badges, only
-    // above the second cutover for a lead line alone.
-    expect(always.replace(/\s+/g, " ")).toContain(
-      `[data-terp="page"]:not([data-measure="narrow"]) > ${badges} { padding-block: var(--space-1);`,
-    );
-    expect(always).not.toContain(`> ${lead} {`);
-    expect(roomy.replace(/\s+/g, " ")).toContain(
-      `[data-terp="page"]:not([data-measure="narrow"]) > ${lead} { padding-block: var(--space-1);`,
-    );
+    // And no kind of band buys its edges with block padding any more. A band that took a
+    // second row used to spend var(--space-1), so its two lines sat 4px from the border while
+    // a one-row band's line sat in the middle of 47px -- the same chrome with two insets, and
+    // the two-line one read as crammed. Every row is a bar now (pinned with the chrome rule),
+    // so there is no per-kind padding left to split by width.
+    const chrome = '[data-terp="page"]:not([data-measure="narrow"])';
+    for (const [where, body] of [
+      ["always", always],
+      ["above the first cutover", wide],
+      ["below it", narrow],
+      ["above the second", roomy],
+    ] as const) {
+      expect(body.replace(/\s+/g, " "), `${where}: a multi-row band spends no padding of its own`).not.toMatch(
+        // Any NON-zero block padding on a chrome band: the base chrome rule's own
+        // var(--space-0) is the one-row band's, and stays.
+        new RegExp(
+          `${chrome.replace(/[[\]()]/g, "\\$&")} > \\[data-terp="page-header"\\][^{]*\\{[^}]*padding-block: var\\(--space-[1-9]`,
+        ),
+      );
+    }
   });
 
   it("gives the breadcrumb trail one line box, leaf included", () => {
