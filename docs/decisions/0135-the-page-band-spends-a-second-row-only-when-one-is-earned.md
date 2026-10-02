@@ -72,16 +72,28 @@ line in 47px: the same chrome at two insets, and the multi-line one read as cram
 edges. Reported against exactly that, at every width, including the phone width where a badge
 and the cluster each take a row of their own.
 
-So every row is now a **bar** of the one-row band's height: `grid-auto-rows:
-minmax(calc(var(--shell-header-height) - 1px), auto)` on the chrome band, `row-gap: 0`, and no
-block padding at any row count. The one-row band is unchanged — 47px of row and the 1px rule is
-the 48px it always was — and a band of *n* rows is *n* bars and one rule, each item centred in
-its own bar. That is "one band of two lines" made literal: the second line is the first line's
-twin rather than a strip under it. It costs more height than either earlier form (95px for two
-rows, 143px for three), which is the same trade this decision already made, taken further.
-`minmax` rather than a fixed size, so content taller than a bar — an app's own cluster whose
-labels wrapped — grows its row instead of spilling out of it. The computed lane measures every
-track, the band's height and each item's offset from the centre of its bar.
+The fix went through one more wrong form before the right one, and both are worth keeping.
+Making every row a full bar of the one-row band's height (47px, content centred) fixed the edges
+and doubled the middle: where two bars met, each row's centring space stacked, so the trail and
+the badges sat about 26px apart against 13px from the border.
+
+What holds is the one-row band's **inset**, spent once. A default control centred in the 47px bar
+sits 5.5px from each edge; that is the band's inset. A band of more than one row makes every row a
+control tall (`grid-auto-rows: minmax(var(--density-control-min-height), auto)`) and spends the
+inset as `padding-block` *and* `row-gap`, both `calc((var(--shell-header-height) - 1px -
+var(--density-control-min-height)) / 2)`. Its first row is therefore the one-row band exactly, and
+every row after it is the root bar minus one inset: a control and one inset. The lines are as far
+from each other as the first is from the border, and a badge row, shorter than a control, centres
+in a control's height and so sits as far from the bottom border as the trail's text does from the
+top. Two rows are 89.5px, three 131px.
+
+It applies only to the bands that are more than one row, keyed on the same three cases the meta
+and actions areas are (badges at every width, a lead line above the second cutover, the cluster's
+own row below the first). The one-row band keeps zero padding and its 47px bar, because it holds
+the header's height for the largest control the package ships, and 2.75rem plus 5.5px either side
+would beat the floor. `minmax` throughout, so content taller than its row grows the row instead of
+spilling out. The computed lane reads the padding, the gap, every track and each item's distance
+from its track's centre.
 
 **4. Every crumb may be cut; no crumb may be orphaned.** Both the list and its items are
 `nowrap`, and the crumb text carries `min-width: 0` with an ellipsis. A deep trail degrades by

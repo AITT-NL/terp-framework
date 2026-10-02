@@ -557,18 +557,14 @@ describe("cascade structure", () => {
       /padding-inline|padding:/.test(chrome),
       "an inline pad with no bleed would inset the band from the body beneath it",
     ).toBe(false);
-    // Every row is a BAR of the one-row band's height: the header height less the band's own
-    // 1px rule, so one row is exactly the floor above and n rows are n bars and one rule. A
-    // band that needs a second line adds a bar rather than squeezing its content against the
-    // border -- which is what the content-sized rows and their 4px of padding did, while the
-    // one-row band centred its line in 47px. minmax, so an item taller than a bar grows its
-    // row instead of spilling out. No row gap: the bars are the spacing.
-    expect(chrome, "every row is a bar of the one-row band's height").toContain(
+    // The one-row band's row is a BAR: the header height less the band's own 1px rule, so the
+    // row is exactly the floor above, and a default control centred in it sits 5.5px from each
+    // edge -- the inset a band of more than one row keeps once, pinned with the meta kinds
+    // below. minmax, so an item taller than a bar grows its row instead of spilling out.
+    expect(chrome, "the one-row band's row is a bar of the header's height").toContain(
       "grid-auto-rows: minmax(calc(var(--shell-header-height) - 1px), auto)",
     );
-    expect(chrome, "the bars are the spacing, so there is no gap between them").toContain(
-      "row-gap: 0",
-    );
+    expect(chrome, "a one-row band has no gap to spend").toContain("row-gap: 0");
 
     // THE BLEED is gated, because the negative-margin idiom is only correct against a box
     // that pads by exactly this token. ADR 0097 section 2 kept "it works with no shell above
@@ -1452,26 +1448,47 @@ describe("cascade structure", () => {
       /\[data-has-meta="description"\] \[data-terp="page-meta"\] \{\s*display: flex;/,
     );
 
-    // And no kind of band buys its edges with block padding any more. A band that took a
-    // second row used to spend var(--space-1), so its two lines sat 4px from the border while
-    // a one-row band's line sat in the middle of 47px -- the same chrome with two insets, and
-    // the two-line one read as crammed. Every row is a bar now (pinned with the chrome rule),
-    // so there is no per-kind padding left to split by width.
+    // And the band that IS more than one row keeps the one-row band's inset once: control-tall
+    // rows, with the inset above the first, between each pair and below the last. Same split
+    // by kind and width as the rows themselves -- always for badges, above the second cutover
+    // for a lead line alone, below the first for a cluster on its own row.
+    //
+    // Two earlier forms are what this replaces. Content-sized rows padded by var(--space-1)
+    // put a two-line band's content 4px from the border, crammed. Every row a full 47px bar
+    // fixed the edges and stacked each row's centring space where two bars met: the trail and
+    // the badges about 26px apart against 13px from the border, a double space between lines.
     const chrome = '[data-terp="page"]:not([data-measure="narrow"])';
-    for (const [where, body] of [
-      ["always", always],
-      ["above the first cutover", wide],
-      ["below it", narrow],
-      ["above the second", roomy],
+    const inset = "calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2)";
+    const multiRow = (body: string, selector: string) => {
+      const flat = body.replace(/\s+/g, " ");
+      const at = flat.indexOf(`${chrome} > ${selector} {`);
+      return at === -1 ? null : flat.slice(at, flat.indexOf("}", at));
+    };
+    for (const [where, body, selector] of [
+      ["badges, at every width", always, badges],
+      ["a lead line, above the second cutover", roomy, lead],
+      [
+        "a cluster on its own row, below the first",
+        narrow,
+        '[data-terp="page-header"]:has(> [data-terp="page-actions"])',
+      ],
     ] as const) {
-      expect(body.replace(/\s+/g, " "), `${where}: a multi-row band spends no padding of its own`).not.toMatch(
-        // Any NON-zero block padding on a chrome band: the base chrome rule's own
-        // var(--space-0) is the one-row band's, and stays.
-        new RegExp(
-          `${chrome.replace(/[[\]()]/g, "\\$&")} > \\[data-terp="page-header"\\][^{]*\\{[^}]*padding-block: var\\(--space-[1-9]`,
-        ),
+      const rule = multiRow(body, selector);
+      expect(rule, `${where}: the multi-row band has a rule of its own`).not.toBeNull();
+      expect(rule, `${where}: the inset above the first row and below the last`).toContain(
+        `padding-block: ${inset}`,
+      );
+      expect(rule, `${where}: the same inset once between rows, not twice`).toContain(
+        `row-gap: ${inset}`,
+      );
+      expect(rule, `${where}: each row a control tall`).toContain(
+        "grid-auto-rows: minmax(var(--density-control-min-height), auto)",
       );
     }
+    // Not where the lead line is hidden: a lead-line-only band is one row there, and holds
+    // the one-row band's zero padding like any other.
+    expect(multiRow(always, lead), "a hidden lead line spends no inset").toBeNull();
+    expect(multiRow(wide, lead), "including between the cutovers").toBeNull();
   });
 
   it("gives the breadcrumb trail one line box, leaf included", () => {

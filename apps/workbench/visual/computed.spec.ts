@@ -760,20 +760,22 @@ async function textRows(page: import("@playwright/test").Page, selectors: string
   }, selectors);
 }
 
-test("every row of a band is a bar of the one-row band's height, its item centred in it", async ({
+test("a band of more than one row keeps the one-row band's inset once, at the edges and between rows", async ({
   page,
 }) => {
-  // What a band does when it needs more than one line: it adds a BAR, the height of the
-  // one-row band, rather than growing the one it has. The rows used to be content-sized with
-  // 4px of block padding on the whole band -- and before that 1fr, which left 9px above the
-  // content and 0px below it -- so a band of two or three lines sat its trail, badges and
-  // buttons 4px from the border while a band of one centred its line in 47px. Same chrome, two
-  // insets, and the multi-line one read as crammed against its edges.
+  // What a band does when it needs more than one line. Its first row is the one-row band --
+  // a control's height with the bar's leftover split above and below, 5.5px at comfortable
+  // density -- and every row after it adds a control's height and ONE more inset. So the
+  // second line is exactly as far from the first as the first is from the border.
   //
-  // So every track is exactly one bar (the header height less the band's 1px rule), the band is
-  // n bars and one rule, and each item's centre is its row's centre. Measured from the items
-  // rather than read off the template alone, because where the content lands is the thing that
-  // was wrong; a track size says nothing about where the item sits in it.
+  // Two earlier forms failed on spacing, which is why this reads the spacing and not only the
+  // height. Content-sized rows padded by 4px put a two-line band's content against its border.
+  // Then every row a full 47px bar: the edges were right, and where two bars met each row's
+  // centring space stacked -- the trail and the badges about 26px apart against 13px from the
+  // border, a double space between the lines.
+  //
+  // Measured from the browser: the resolved padding, the row gap and every track against the
+  // control height, the band's total, and each item's distance from the centre of its track.
   for (const [only, width, expectedRows, what] of [
     ["page-header", 1280, 2, "badges, a lead line and an action"],
     ["page-header-root", 1280, 2, "a badge and an action"],
@@ -788,45 +790,72 @@ test("every row of a band is a bar of the one-row band's height, its item centre
       if (header === null) return null;
       const root = document.documentElement;
       const rem = Number.parseFloat(getComputedStyle(root).fontSize);
-      const declared =
-        Number.parseFloat(getComputedStyle(root).getPropertyValue("--shell-header-height")) * rem;
+      const length = (name: string) => {
+        const value = getComputedStyle(header).getPropertyValue(name).trim();
+        return value.endsWith("rem") ? Number.parseFloat(value) * rem : Number.parseFloat(value);
+      };
       const style = getComputedStyle(header);
-      const border = Number.parseFloat(style.borderBottomWidth) || 0;
       const tracks = style.gridTemplateRows
         .split(" ")
         .filter((size) => size.length > 0)
         .map((size) => Number.parseFloat(size));
       const box = header.getBoundingClientRect();
+      const padTop = Number.parseFloat(style.paddingTop);
+      const gap = Number.parseFloat(style.rowGap);
       // page-heading generates no box, so its children are the band's own grid items.
       const items: Element[] = [];
       for (const child of Array.from(header.children)) {
         if (getComputedStyle(child).display === "contents") items.push(...Array.from(child.children));
         else items.push(child);
       }
-      // Each visible item, as how far its centre sits from the centre of the bar it is in.
+      // Where each track starts, from the content box's top edge.
+      const starts: number[] = [];
+      let cursor = padTop;
+      for (const track of tracks) {
+        starts.push(cursor);
+        cursor += track + gap;
+      }
       const offsets = items
         .map((item) => item.getBoundingClientRect())
         .filter((rect) => rect.height > 0)
         .map((rect) => {
           const centre = rect.top + rect.height / 2 - box.top;
-          const row = Math.min(tracks.length - 1, Math.floor(centre / (tracks[0] ?? 1)));
-          const rowTop = tracks.slice(0, row).reduce((sum, size) => sum + size, 0);
-          return Number((centre - (rowTop + (tracks[row] ?? 0) / 2)).toFixed(2));
+          // The track this item's centre falls in.
+          let row = 0;
+          for (let index = 0; index < starts.length; index += 1) {
+            if (centre >= starts[index]!) row = index;
+          }
+          return Number((centre - (starts[row]! + tracks[row]! / 2)).toFixed(2));
         });
-      return { declared, border, tracks, height: box.height, offsets };
+      return {
+        header: length("--shell-header-height"),
+        control: length("--density-control-min-height"),
+        border: Number.parseFloat(style.borderBottomWidth) || 0,
+        padTop,
+        padBottom: Number.parseFloat(style.paddingBottom),
+        gap,
+        tracks,
+        height: box.height,
+        offsets,
+      };
     });
     expect(band, `${what} should render`).not.toBeNull();
-    const bar = band!.declared - band!.border;
-    expect(band!.tracks.length, `${what}: ${expectedRows} rows`).toBe(expectedRows);
-    for (const track of band!.tracks) {
-      expect(track, `${what}: every row is one bar`).toBeCloseTo(bar, 1);
+    const b = band!;
+    const inset = (b.header - b.border - b.control) / 2;
+    expect(inset, "the inset is the one-row band's: 5.5px at comfortable density").toBeCloseTo(5.5, 1);
+    expect(b.tracks.length, `${what}: ${expectedRows} rows`).toBe(expectedRows);
+    for (const track of b.tracks) {
+      expect(track, `${what}: every row is a control tall`).toBeCloseTo(b.control, 1);
     }
-    expect(band!.height, `${what}: n bars and one rule`).toBeCloseTo(
-      expectedRows * bar + band!.border,
+    expect(b.padTop, `${what}: the inset above the first row`).toBeCloseTo(inset, 1);
+    expect(b.padBottom, `${what}: and below the last`).toBeCloseTo(inset, 1);
+    expect(b.gap, `${what}: and once between rows, not twice`).toBeCloseTo(inset, 1);
+    expect(b.height, `${what}: n controls, n + 1 insets and the rule`).toBeCloseTo(
+      expectedRows * b.control + (expectedRows + 1) * inset + b.border,
       1,
     );
-    for (const offset of band!.offsets) {
-      expect(Math.abs(offset), `${what}: each item sits in the middle of its bar`).toBeLessThan(1);
+    for (const offset of b.offsets) {
+      expect(Math.abs(offset), `${what}: each item sits in the middle of its row`).toBeLessThan(1);
     }
   }
 });

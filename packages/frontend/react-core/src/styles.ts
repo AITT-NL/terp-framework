@@ -2354,20 +2354,12 @@ textarea[data-terp="input"] {
    per page. var(--space-1) fixed that for the default control and not for the large one, which
    is why this is zero rather than a step.
 
-   And EVERY row is a bar of that height, which is what the band does when it needs more than
-   one line: it adds a bar, it does not grow the one it has. grid-auto-rows sizes the rows the
-   areas declare (an area row nobody sized takes its size from it), so badges on a row of their
-   own, a lead line, or a cluster that dropped below the trail at a phone width each get a
-   track exactly as tall as the one-row band's, with the item centred in it the way the lone
-   title is. The rows used to be content-sized with 4px of block padding on the whole band,
-   so a band of two lines put its content 4px from the border while a band of one sat it in
-   the middle of 47px: the same chrome with two different insets, and the two-line one read as
-   crammed against its edges. row-gap is zero for the same reason -- the bars are the spacing.
-
-   The bar is the header height LESS the border: the one-row band's 48px is 47px of row and
-   1px of rule, so a band of n rows is n bars and one rule, and the one-row case is exactly the
-   floor it always was. minmax and not a fixed size, because an item taller than a bar (an
-   app's own cluster whose labels wrapped) must grow its row rather than spill out of it.
+   The one-row band's row is the BAR: the header height less the border, 47px of row and 1px of
+   rule. grid-auto-rows sizes the rows the areas declare (an area row nobody sized takes its
+   size from it), and minmax rather than a fixed size, so an item taller than a bar grows its
+   row rather than spilling out of it. A default control centred in the bar sits 5.5px from
+   each edge, and that 5.5px is the band's inset: the rule after this one keeps it when the
+   band needs more than one line.
 
    :not([data-measure="narrow"]) because a form is capped WITH its header (ADR 0098 §3) — a
    Save button a screen-width from its field is worse than one over it — so a form gets the
@@ -2383,6 +2375,53 @@ textarea[data-terp="input"] {
   border-block-end: 1px solid var(--color-neutral-200);
   grid-auto-rows: minmax(calc(var(--shell-header-height) - 1px), auto);
   row-gap: 0;
+}
+/* The band that needs more than one line keeps the one-row band's inset, ONCE. Each row is a
+   control tall, and the inset -- the bar less a control, halved: 5.5px at comfortable density
+   -- sits above the first row, between rows and below the last. So the first row is exactly
+   the one-row band (inset, control, inset) and every row after it adds a control and one
+   inset: the root bar minus one inset, which is where the second line is no further from the
+   first than the first is from the border.
+
+   This is the third form, and both earlier ones failed on spacing. Content-sized rows with 4px
+   of block padding put a two-line band's content 4px from the border while a one-row band sat
+   its line in the middle of 47px -- crammed at the edges. Then every row a full 47px bar: the
+   edges matched, but where two bars met, each row's centring space stacked, so the trail and
+   the badges sat about 26px apart against 13px from the border -- a double space between the
+   lines. One inset between rows is the space a single bar already spends at its edge.
+
+   Rows are a control tall rather than content-sized for the bottom edge's sake: a badge row is
+   shorter than a control, and centred in a control's height it sits as far from the bottom
+   border as the trail's text sits from the top one. minmax, so an app's taller cluster grows
+   its row rather than spilling out.
+
+   Only the bands that ARE more than one row take this, keyed on the same three cases the meta
+   and actions areas already are: badges at every width, a lead line above the second cutover,
+   and the cluster's own row below the first. The one-row band keeps its zero padding and its
+   47px bar, because it holds the header's height for the largest control the package ships,
+   and a 2.75rem control plus 5.5px either side would beat the floor. The inset is written out
+   rather than named, because a custom property declared here is one the token sheet does not
+   publish (tokens.guard.test.ts refuses it). */
+[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"][data-has-meta="badges"] {
+  padding-block: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2);
+  row-gap: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2);
+  grid-auto-rows: minmax(var(--density-control-min-height), auto);
+}
+@media ${ROOMY_VIEWPORT_QUERY} {
+  [data-terp="page"]:not([data-measure="narrow"])
+    > [data-terp="page-header"][data-has-meta="description"] {
+    padding-block: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2);
+    row-gap: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2);
+    grid-auto-rows: minmax(var(--density-control-min-height), auto);
+  }
+}
+@media ${NARROW_VIEWPORT} {
+  [data-terp="page"]:not([data-measure="narrow"])
+    > [data-terp="page-header"]:has(> [data-terp="page-actions"]) {
+    padding-block: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2);
+    row-gap: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2);
+    grid-auto-rows: minmax(var(--density-control-min-height), auto);
+  }
 }
 /* The BLEED, which does need a shell, because the negative-margin idiom is only correct when
    the box being escaped is appshell-main and that box pads by exactly --shell-gutter. ADR

@@ -2889,13 +2889,14 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
       },
       {
         // The band at its tallest: below the first cutover a badge and a cluster each take a
-        // row of their own under the trail, so this is three rows. Each is a BAR of the
-        // one-row band's height with its item centred in it, which is what a band that wraps
-        // does now -- it used to size the rows to their content and pad the whole band by 4px,
-        // so the trail, the badge and the button sat 4px off the border while a one-row band
-        // centred its line in 47px. Nothing pictured a multi-row band at a phone width before.
+        // row of their own under the trail, so this is three rows. Each row is a control tall
+        // and the one-row band's inset (5.5px) sits once above, between and below them, so the
+        // lines are as far from each other as from the border. Nothing pictured a multi-row band
+        // at a phone width before, and both earlier forms were wrong here: content-sized rows
+        // with 4px of padding crammed the content against the border, and full 47px bars per
+        // row doubled the space between lines.
         id: "page-header-root-narrow",
-        title: "Page — a badge and an action below the cutover: three bars",
+        title: "Page — a badge and an action below the cutover: three rows, one inset",
         viewport: { width: 430, height: 700 },
         node: (
           <Page
