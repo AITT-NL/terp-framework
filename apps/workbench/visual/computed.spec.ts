@@ -760,55 +760,154 @@ async function textRows(page: import("@playwright/test").Page, selectors: string
   }, selectors);
 }
 
-test("a band that earns a second row keeps the same edge above and below", async ({ page }) => {
-  // What replaced "both lines must be the same height". That claim was `grid-auto-rows: 1fr`,
-  // which resolves every row to the LARGEST row's content in a box whose height nobody
-  // declared -- and equal rows are exactly what put the taller row's item flush against the
-  // band's bottom edge, because the item filled its track exactly while the chrome row spends
-  // no block padding of its own. Measured 9px above the content and 0px below it on every
-  // two-row page, which is how it was reported.
+test("a band of more than one row keeps the one-row band's inset once, at the edges and between rows", async ({
+  page,
+}) => {
+  // What a band does when it needs more than one line. Its first row is the one-row band --
+  // a control's height with the bar's leftover split above and below, 5.5px at comfortable
+  // density -- and every row after it adds a control's height and ONE more inset. So the
+  // second line is exactly as far from the first as the first is from the border.
   //
-  // Rows are content-sized now, and the reading 1fr was buying -- one band of two lines rather
-  // than two bands stacked -- is bought with padding instead. A band that has already broken
-  // the one-row height can afford it; the one-row band cannot, since it has to match the app
-  // header, and is untouched.
+  // Two earlier forms failed on spacing, which is why this reads the spacing and not only the
+  // height. Content-sized rows padded by 4px put a two-line band's content against its border.
+  // Then every row a full 47px bar: the edges were right, and where two bars met each row's
+  // centring space stacked -- the trail and the badges about 26px apart against 13px from the
+  // border, a double space between the lines.
   //
-  // Measured from the CONTENT rather than read off the resolved template, because where the ink
-  // lands is the thing that was wrong. A track size says nothing about the gap to the border.
-  for (const [only, what] of [
-    ["page-header", "a band with badges, a lead line and an action"],
-    ["page-header-root", "a band with a badge and an action"],
-    ["page-header-crowded", "the most crowded band the gallery ships"],
+  // Measured from the browser: the resolved padding, the row gap and every track against the
+  // control height, the band's total, and each item's distance from the centre of its track.
+  for (const [only, width, expectedRows, what] of [
+    ["page-header", 1280, 2, "badges, a lead line and an action"],
+    ["page-header-root", 1280, 2, "a badge and an action"],
+    ["page-header-crowded", 1280, 2, "the most crowded band the gallery ships"],
+    ["page-header-root-narrow", 430, 3, "a badge and an action below the cutover"],
   ] as const) {
+    await page.setViewportSize({ width, height: 900 });
     await page.goto(`/?theme=light&only=${only}`);
     await page.locator('[data-terp="page-header"]').first().waitFor({ state: "visible" });
-    const edges = await page.evaluate(() => {
-      const band = document.querySelector('[data-terp="page-header"]');
-      if (band === null) return null;
+    const band = await page.evaluate(() => {
+      const header = document.querySelector('[data-terp="page-header"]');
+      if (header === null) return null;
+      const root = document.documentElement;
+      const rem = Number.parseFloat(getComputedStyle(root).fontSize);
+      const length = (name: string) => {
+        const value = getComputedStyle(header).getPropertyValue(name).trim();
+        return value.endsWith("rem") ? Number.parseFloat(value) * rem : Number.parseFloat(value);
+      };
+      const style = getComputedStyle(header);
+      const tracks = style.gridTemplateRows
+        .split(" ")
+        .filter((size) => size.length > 0)
+        .map((size) => Number.parseFloat(size));
+      const box = header.getBoundingClientRect();
+      const padTop = Number.parseFloat(style.paddingTop);
+      const gap = Number.parseFloat(style.rowGap);
       // page-heading generates no box, so its children are the band's own grid items.
       const items: Element[] = [];
-      for (const child of Array.from(band.children)) {
+      for (const child of Array.from(header.children)) {
         if (getComputedStyle(child).display === "contents") items.push(...Array.from(child.children));
         else items.push(child);
       }
-      const box = band.getBoundingClientRect();
-      const style = getComputedStyle(band);
-      const border = Number.parseFloat(style.borderBottomWidth) || 0;
-      const tops = items.map((item) => item.getBoundingClientRect().top);
-      const bottoms = items.map((item) => item.getBoundingClientRect().bottom);
+      // Where each track starts, from the content box's top edge.
+      const starts: number[] = [];
+      let cursor = padTop;
+      for (const track of tracks) {
+        starts.push(cursor);
+        cursor += track + gap;
+      }
+      const offsets = items
+        .map((item) => item.getBoundingClientRect())
+        .filter((rect) => rect.height > 0)
+        .map((rect) => {
+          const centre = rect.top + rect.height / 2 - box.top;
+          // The track this item's centre falls in.
+          let row = 0;
+          for (let index = 0; index < starts.length; index += 1) {
+            if (centre >= starts[index]!) row = index;
+          }
+          return Number((centre - (starts[row]! + tracks[row]! / 2)).toFixed(2));
+        });
       return {
-        above: Number((Math.min(...tops) - box.top).toFixed(2)),
-        below: Number((box.bottom - border - Math.max(...bottoms)).toFixed(2)),
-        rows: style.gridTemplateRows.split(" ").filter((size) => size.length > 0).length,
+        header: length("--shell-header-height"),
+        control: length("--density-control-min-height"),
+        border: Number.parseFloat(style.borderBottomWidth) || 0,
+        padTop,
+        padBottom: Number.parseFloat(style.paddingBottom),
+        gap,
+        tracks,
+        height: box.height,
+        offsets,
       };
     });
-    expect(edges, `${what} should render`).not.toBeNull();
-    expect(edges!.rows, `${what} should be two rows`).toBe(2);
-    expect(edges!.above, `${what}: the edges must match`).toBeCloseTo(edges!.below, 1);
-    // And neither edge is nothing: the equality would hold trivially at zero, which is the
-    // state this test exists to refuse.
-    expect(edges!.above, `${what}: the content must not sit on the border`).toBeGreaterThan(0);
+    expect(band, `${what} should render`).not.toBeNull();
+    const b = band!;
+    const inset = (b.header - b.border - b.control) / 2;
+    expect(inset, "the inset is the one-row band's: 5.5px at comfortable density").toBeCloseTo(5.5, 1);
+    expect(b.tracks.length, `${what}: ${expectedRows} rows`).toBe(expectedRows);
+    for (const track of b.tracks) {
+      expect(track, `${what}: every row is a control tall`).toBeCloseTo(b.control, 1);
+    }
+    expect(b.padTop, `${what}: the inset above the first row`).toBeCloseTo(inset, 1);
+    expect(b.padBottom, `${what}: and below the last`).toBeCloseTo(inset, 1);
+    expect(b.gap, `${what}: and once between rows, not twice`).toBeCloseTo(inset, 1);
+    expect(b.height, `${what}: n controls, n + 1 insets and the rule`).toBeCloseTo(
+      expectedRows * b.control + (expectedRows + 1) * inset + b.border,
+      1,
+    );
+    for (const offset of b.offsets) {
+      expect(Math.abs(offset), `${what}: each item sits in the middle of its row`).toBeLessThan(1);
+    }
   }
+});
+
+test("an open tooltip lands inside the window and over the scroll container it sits in", async ({
+  page,
+}) => {
+  // The bubble was an absolutely positioned child of its anchor, which failed in two
+  // compositions an app reported. On a page band's primary action -- top right of the window --
+  // it opened above, at the trigger's left edge, with the TRIGGER's width as its available
+  // width: a column of words one button wide, running off the top of the screen. In a
+  // DataView cell it was clipped by the table's scroller, ending at the table's edge instead of
+  // drawing over it. It is portalled and placed from measurements now.
+  await page.goto("/?theme=light&only=tooltip-band-action");
+  await page.locator('[data-terp="tooltip"]:not([hidden])').waitFor({ state: "visible" });
+  const band = await page.evaluate(() => {
+    const bubble = document.querySelector('[data-terp="tooltip"]')!.getBoundingClientRect();
+    const trigger = document.querySelector('[data-terp="tooltip-anchor"]')!.getBoundingClientRect();
+    return {
+      bubble: { left: bubble.left, right: bubble.right, top: bubble.top, bottom: bubble.bottom, width: bubble.width },
+      trigger: { top: trigger.top, bottom: trigger.bottom, width: trigger.width },
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+    };
+  });
+  expect(band.bubble.left, "inside the window on the left").toBeGreaterThanOrEqual(0);
+  expect(band.bubble.right, "inside the window on the right").toBeLessThanOrEqual(band.viewport.width);
+  expect(band.bubble.top, "inside the window at the top").toBeGreaterThanOrEqual(0);
+  expect(band.bubble.bottom, "inside the window at the bottom").toBeLessThanOrEqual(band.viewport.height);
+  expect(band.bubble.width, "the message's width, not the trigger's").toBeGreaterThan(
+    band.trigger.width * 2,
+  );
+  expect(
+    band.bubble.bottom <= band.trigger.top || band.bubble.top >= band.trigger.bottom,
+    "beside the trigger, never over it",
+  ).toBe(true);
+
+  await page.goto("/?theme=light&only=tooltip-dataview-cell");
+  await page.locator('[data-terp="tooltip"]:not([hidden])').waitFor({ state: "visible" });
+  const cell = await page.evaluate(() => {
+    const bubble = document.querySelector('[data-terp="tooltip"]')!.getBoundingClientRect();
+    const scroller = document.querySelector('[data-terp="dataview-scroll"]')!.getBoundingClientRect();
+    // What is actually painted at the bubble's top edge, just inside it: the bubble itself if
+    // nothing clips or covers it there.
+    const probe = document.elementFromPoint(bubble.left + bubble.width / 2, bubble.top + 2);
+    return {
+      bubbleTop: bubble.top,
+      scrollerTop: scroller.top,
+      painted: probe?.closest('[data-terp="tooltip"]') !== null,
+    };
+  });
+  expect(cell.bubbleTop, "the bubble opens past the table's top edge").toBeLessThan(cell.scrollerTop);
+  expect(cell.painted, "and is drawn there, not clipped at the edge").toBe(true);
 });
 
 test("a lead line alone earns the second row only where it is shown", async ({ page }) => {

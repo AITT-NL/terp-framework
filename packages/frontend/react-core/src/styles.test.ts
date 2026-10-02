@@ -557,6 +557,14 @@ describe("cascade structure", () => {
       /padding-inline|padding:/.test(chrome),
       "an inline pad with no bleed would inset the band from the body beneath it",
     ).toBe(false);
+    // The one-row band's row is a BAR: the header height less the band's own 1px rule, so the
+    // row is exactly the floor above, and a default control centred in it sits 5.5px from each
+    // edge -- the inset a band of more than one row keeps once, pinned with the meta kinds
+    // below. minmax, so an item taller than a bar grows its row instead of spilling out.
+    expect(chrome, "the one-row band's row is a bar of the header's height").toContain(
+      "grid-auto-rows: minmax(calc(var(--shell-header-height) - 1px), auto)",
+    );
+    expect(chrome, "a one-row band has no gap to spend").toContain("row-gap: 0");
 
     // THE BLEED is gated, because the negative-margin idiom is only correct against a box
     // that pads by exactly this token. ADR 0097 section 2 kept "it works with no shell above
@@ -641,6 +649,49 @@ describe("cascade structure", () => {
       base.slice(base.indexOf("{", body) + 1, base.indexOf("}", body)),
       "the body's percentage height is the only thing equalising two cards in a row",
     ).toContain("height: 100%");
+  });
+
+  it("places a tooltip against the window and a card list against the view's own edge", () => {
+    const base = layerBody("terp.base");
+    const bodyFor = (selector: string): string => {
+      for (const match of base.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const selectors = match[1].split(",").map((part) => part.trim().replace(/\s+/g, " "));
+        if (selectors.includes(selector)) return match[2];
+      }
+      throw new Error(`the sheet declares no rule for exactly ${selector}`);
+    };
+    // The bubble is portalled and placed from measured coordinates, so the sheet fixes it to
+    // the window and names no offset of its own. As an absolute child of its anchor it was
+    // clipped by any scroll container above it -- a DataView cell's tooltip ended at the
+    // table's edge -- and its available width was the trigger's, so a message on a button
+    // wrapped one button wide and grew off the top of the window.
+    const bubble = bodyFor('[data-terp="tooltip"]');
+    expect(bubble, "fixed to the window, where no scroll container can clip it").toContain(
+      "position: fixed",
+    );
+    expect(bubble, "the message's width, not the room a containing block leaves").toContain(
+      "inline-size: max-content",
+    );
+    // Portalled, its parent is the body, which no rule gives a typeface: without its own
+    // family the bubble rendered in the browser's default serif.
+    expect(bubble, "the bubble declares its typeface rather than inheriting the body's").toContain(
+      "font-family: var(--font-family-sans)",
+    );
+    expect(
+      /inset-|(^|[^-])(top|left|right|bottom):/.test(bubble),
+      "the coordinates are measured by the component; an offset here would fight them",
+    ).toBe(false);
+    expect(
+      bodyFor('[data-terp="tooltip-anchor"]'),
+      "the anchor is no longer anything's containing block",
+    ).not.toContain("position:");
+    // The card list sits beside the toolbar and the pagination, not inside the table's
+    // frame, so padding of its own inset every card from the edge they share. Measured at a
+    // phone width before: toolbar 16-394px, cards 24-386px.
+    expect(
+      bodyFor('[data-terp="dataview-card-list"]'),
+      "the cards line up with the toolbar and the pagination",
+    ).toContain("padding: 0");
   });
 
   it("puts the DataView's surface on the full variant's TABLE, not on the root or the marker", () => {
@@ -1300,7 +1351,8 @@ describe("cascade structure", () => {
     // fr rows resolve to the LARGEST row's content -- so the taller line's item filled its
     // track exactly and, with the chrome row spending no block padding, sat flush on the
     // band's border. Measured 9px above the content and 0px below it on every two-row page.
-    // Content-sized rows plus the multi-row band's own padding measure 4px and 4px.
+    // This is the band that is NOT chrome (the narrow measure's title row); the chrome band
+    // sizes every row as a bar instead, pinned with the chrome rule.
     expect(withMeta, "rows sized to their content, so neither sits on the border").toContain(
       "grid-auto-rows: auto",
     );
@@ -1396,15 +1448,47 @@ describe("cascade structure", () => {
       /\[data-has-meta="description"\] \[data-terp="page-meta"\] \{\s*display: flex;/,
     );
 
-    // And the padding a multi-row band spends follows the same split: always for badges, only
-    // above the second cutover for a lead line alone.
-    expect(always.replace(/\s+/g, " ")).toContain(
-      `[data-terp="page"]:not([data-measure="narrow"]) > ${badges} { padding-block: var(--space-1);`,
-    );
-    expect(always).not.toContain(`> ${lead} {`);
-    expect(roomy.replace(/\s+/g, " ")).toContain(
-      `[data-terp="page"]:not([data-measure="narrow"]) > ${lead} { padding-block: var(--space-1);`,
-    );
+    // And the band that IS more than one row keeps the one-row band's inset once: control-tall
+    // rows, with the inset above the first, between each pair and below the last. Same split
+    // by kind and width as the rows themselves -- always for badges, above the second cutover
+    // for a lead line alone, below the first for a cluster on its own row.
+    //
+    // Two earlier forms are what this replaces. Content-sized rows padded by var(--space-1)
+    // put a two-line band's content 4px from the border, crammed. Every row a full 47px bar
+    // fixed the edges and stacked each row's centring space where two bars met: the trail and
+    // the badges about 26px apart against 13px from the border, a double space between lines.
+    const chrome = '[data-terp="page"]:not([data-measure="narrow"])';
+    const inset = "calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2)";
+    const multiRow = (body: string, selector: string) => {
+      const flat = body.replace(/\s+/g, " ");
+      const at = flat.indexOf(`${chrome} > ${selector} {`);
+      return at === -1 ? null : flat.slice(at, flat.indexOf("}", at));
+    };
+    for (const [where, body, selector] of [
+      ["badges, at every width", always, badges],
+      ["a lead line, above the second cutover", roomy, lead],
+      [
+        "a cluster on its own row, below the first",
+        narrow,
+        '[data-terp="page-header"]:has(> [data-terp="page-actions"])',
+      ],
+    ] as const) {
+      const rule = multiRow(body, selector);
+      expect(rule, `${where}: the multi-row band has a rule of its own`).not.toBeNull();
+      expect(rule, `${where}: the inset above the first row and below the last`).toContain(
+        `padding-block: ${inset}`,
+      );
+      expect(rule, `${where}: the same inset once between rows, not twice`).toContain(
+        `row-gap: ${inset}`,
+      );
+      expect(rule, `${where}: each row a control tall`).toContain(
+        "grid-auto-rows: minmax(var(--density-control-min-height), auto)",
+      );
+    }
+    // Not where the lead line is hidden: a lead-line-only band is one row there, and holds
+    // the one-row band's zero padding like any other.
+    expect(multiRow(always, lead), "a hidden lead line spends no inset").toBeNull();
+    expect(multiRow(wide, lead), "including between the cutovers").toBeNull();
   });
 
   it("gives the breadcrumb trail one line box, leaf included", () => {

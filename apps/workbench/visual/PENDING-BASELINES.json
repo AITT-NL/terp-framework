@@ -8,15 +8,13 @@
     "dark-app-shell-nav-groups-drawer.png",
     "dark-app-shell-nav-groups.png",
     "dark-icons.png",
-    "dark-tooltip-open.png",
     "light-app-shell-brand-pair.png",
     "light-app-shell-header-nav-groups.png",
     "light-app-shell-header-nav.png",
     "light-app-shell-nav-groups-collapsed.png",
     "light-app-shell-nav-groups-drawer.png",
     "light-app-shell-nav-groups.png",
-    "light-icons.png",
-    "light-tooltip-open.png"
+    "light-icons.png"
   ],
   "linux": []
 }
