@@ -1175,9 +1175,11 @@ textarea[data-terp="input"] {
    through — and that was reversed. The argument then was sound about the DEFECT and wrong
    about the fix: cards were painting --color-neutral-0, the far end of the primitive ramp,
    so an app that themed its canvas got cards that did not follow, and a card dropped on
-   something already a surface repainted it. Naming SEMANTIC tokens answers the first (a
-   theme moves every rung together, which is what the bg family is for) and
-   variant="plain" already answered the second.
+   something already a surface repainted it. Naming SEMANTIC tokens answers the first —
+   every shipped palette declares every rung, which is what the bg family is for, and an
+   app's theme.css that moves canvas or surface redeclares subtle with them (terp guide
+   theming says so, because a token there does not recompute another) — and variant="plain"
+   already answered the second.
 
    What frame-only cost was the thing a screen is judged on: with every block and the page a
    rounding error apart there is no object anywhere, and the page reads as a wireframe of an

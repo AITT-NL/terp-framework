@@ -316,9 +316,11 @@ declaration gains a key: the spec lists no slots.
 
 Two constraints on the work itself:
 
-- **win32 baselines cannot be recorded on the workstation this was drafted on** — the screenshot
-  spec notes Chrome is blocked there by group policy — so every phase that adds a specimen needs a
-  machine or CI lane that can.
+- **Baselines are recorded on both platforms, by two different routes.** linux in the pinned
+  `mcr.microsoft.com/playwright:v1.63.0-noble` container from a `git archive` of the change, as the
+  workbench README prescribes, and win32 natively. The screenshot spec says the browser is blocked
+  by group policy on the machine its linux-only set was authored on; on the workstation phase 1
+  was built on it is not, and phase 1 recorded its win32 baselines there (see below).
 - **The Studio pins framework 0.27.0**, so none of this reaches its styling editor or its previews
   until the pin moves.
 
@@ -331,13 +333,15 @@ Every phase ends at a shippable point; nothing is half-wired between them.
 - [ ] **1 — The surface ladder.** Wire `--color-bg-canvas`; add `--color-bg-subtle` with its readers
       (page band, boxed Card, HubCard); raise the DataView frame. Pairings, completeness and
       baselines re-recorded deliberately — every app's look moves here, so the release says so.
-      **Built on `main` after #135–#139 landed:** canvas read by the body, the AppShell and the
-      login view; `subtle` in every theme — midday `#f7f8fb`, twilight `#363044` (recomputed for
-      #138's new twilight), evening `#172033`, night `#070b10`, contrast `#ffffff` — with seven
-      text pairings, read by the boxed Card, the HubCard body, the profile card, the page band and
-      #139's sequence bar, which carries the band's fill by design; the full DataView frame raised
-      to `--shadow-md`. Four gates mutation-checked on the first build. **Owed:** the release
-      note, written against the version phases 1–3 ship in.
+      **Built on top of #135–#139, merged together and awaiting their push to `main`:** canvas
+      read by the body, the AppShell and the login view; `subtle` in every theme — midday
+      `#f7f8fb`, twilight `#363044` (recomputed for #138's new twilight), evening `#172033`,
+      night `#070b10`, contrast `#ffffff` — with seven text pairings, read by the boxed Card,
+      the HubCard body, the profile card, the page band and #139's sequence bar, which carries
+      the band's fill by design; the full DataView frame raised to `--shadow-md`; and `terp
+      guide theming` saying the three backgrounds move as a set. Four gates mutation-checked,
+      on the first build and again on this one. **Owed:** the release note, written against the
+      version phases 1–3 ship in.
 - [ ] **2 — Composition and figures.** `Grid` `template`; the `summary` slot; `Stat` and `StatGroup`
       with delta, sentiment and the sparkline (0158's first named kind); the one-headline check;
       both halves of the contract widened.

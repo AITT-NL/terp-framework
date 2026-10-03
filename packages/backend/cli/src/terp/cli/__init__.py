@@ -1964,6 +1964,20 @@ Theming and branding (design tokens, palettes, the brand mark)
   Per palette, use that palette's selector. A token with no palette selector is
   declared in `:root` and governs every palette at once — which is what you want for
   spacing, corners and typography, and usually not what you want for a colour.
+- THE PAGE'S BACKGROUNDS MOVE AS A SET (ADR 0169). `--color-bg-canvas` is the page,
+  `--color-bg-subtle` the containers and chrome on it — boxed cards, hub tiles, the page
+  band — and `--color-bg-surface` where data is read: tables, and charts and figures as
+  they land. Every shipped palette declares all three, with subtle the midpoint of the
+  other two. A token in theme.css does not recompute another, so a theme that moves canvas
+  or surface redeclares subtle as well, usually as their midpoint; otherwise its containers
+  keep the shipped tone, between two rungs the app no longer has.
+
+      :root {
+        --color-bg-canvas: #e8eef8;
+        --color-bg-subtle: #f4f7fc;
+        --color-bg-surface: #ffffff;
+      }
+
 - TO SHIP ON A PALETTE OTHER THAN midday, name it in the layout declaration — never by
   restyling one palette to imitate another:
 

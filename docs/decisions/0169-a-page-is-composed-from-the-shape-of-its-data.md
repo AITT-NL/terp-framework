@@ -64,7 +64,7 @@ as the condition for `DashboardPage`.
 |---|---|---|
 | The page | `--color-bg-canvas` — read for the first time | `body`, AppShell, the login view |
 | Containers and chrome | `--color-bg-subtle` — new: the midpoint of canvas and surface, with explicit per-theme values | the page band and the sequence bar, a boxed Card, the HubCard body, the profile card |
-| Where data is read | `--color-bg-surface` | the DataView frame, raised to `--shadow-md`; charts; stat tiles |
+| Where data is read | `--color-bg-surface` | the DataView frame, raised to `--shadow-md`; and charts and stat tiles as they land |
 | The one headline | `--color-brand-primary` with its contrast ink | the headline figure (§4) |
 
 Roles decide treatment, never placement: nothing changes its look because of where it sits.

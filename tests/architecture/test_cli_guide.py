@@ -398,6 +398,16 @@ def test_a_theming_topic_exists_at_all() -> None:
     assert "shell.brand" in text or '"brand"' in text, "the topic must cover the brand mark"
 
 
+def test_the_theming_topic_says_the_backgrounds_move_as_a_set() -> None:
+    """A token in theme.css does not recompute another, and --color-bg-subtle is the midpoint
+    of canvas and surface only in the palettes that ship. An app that moves either one without
+    it keeps containers in a tone between two rungs it no longer has, so the recipe has to say
+    so where an app author looks. Mutation: drop the paragraph, and this fails."""
+    text = guide("theming")
+    for token in ("--color-bg-canvas", "--color-bg-subtle", "--color-bg-surface"):
+        assert token in text, f"terp guide theming must name {token} with its neighbours"
+
+
 def test_the_theming_topic_names_every_palette_that_ships() -> None:
     """Asserted against THEMES, so a new palette is a failing test rather than a
     recipe that quietly stops listing it."""

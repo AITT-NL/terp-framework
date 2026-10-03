@@ -895,7 +895,8 @@ frontend design-system track below.
 
 - [x] Forks decided and recorded as ADR 0169; ADR 0158's chart trigger amended in place.
 - [ ] The sequence in the draft, phases 1–6, each ending shippable; 1–3 ship as one release.
-      Phase 1 (the surface ladder) is built on `main` after #135–#139 landed, with its
+      Phase 1 (the surface ladder) is built on top of #135–#139 (merged together, awaiting
+      their push to `main`), with its
       baselines on both platforms; phases 2–3 are next.
 - [ ] **Recorded, not fixed:** `terp guide frontend` names four archetypes and `terp guide
       layouts` three; FormPage, SettingsPage and SplitPage are missing from both.
