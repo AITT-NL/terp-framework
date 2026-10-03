@@ -18,6 +18,11 @@ two lists left a per-file check green.
 An enumeration is a paragraph naming two or more archetypes: that is what a list looks like
 whether it is written on one line or wrapped over several. A paragraph naming exactly one is
 prose or a table row about that archetype, and is deliberately not held to the whole set.
+
+**The `terp guide` topics are documents too**, and the ones an agent reads first. `terp guide
+frontend` named four archetypes and `terp guide layouts` three for releases after the other
+three shipped, because this gate read files and the guide is a dict of strings in the CLI.
+Every topic is held to the same rule now, paragraph by paragraph.
 """
 
 from __future__ import annotations
@@ -53,12 +58,20 @@ def _shipped_archetypes() -> frozenset[str]:
     return found
 
 
+def _documents() -> list[tuple[str, str]]:
+    """Every briefing that may enumerate the archetypes: the files, and each guide topic."""
+    from terp.cli import _GUIDE_TOPICS
+
+    files = [(rel, (_REPO_ROOT / rel).read_text(encoding="utf-8")) for rel in _ENUMERATING_DOCS]
+    topics = [(f"terp guide {name}", text) for name, text in sorted(_GUIDE_TOPICS.items())]
+    return files + topics
+
+
 def test_every_enumeration_of_the_archetypes_lists_all_of_them() -> None:
     shipped = _shipped_archetypes()
     problems: list[str] = []
 
-    for rel in _ENUMERATING_DOCS:
-        text = (_REPO_ROOT / rel).read_text(encoding="utf-8")
+    for rel, text in _documents():
         for index, paragraph in enumerate(re.split(r"\n\s*\n", text)):
             named = {name for name in shipped if name in paragraph}
             # One name is prose or a table row about that archetype; two or more is a list.

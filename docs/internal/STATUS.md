@@ -901,10 +901,9 @@ frontend design-system track below.
       `StatGroup`, one headline per page) and phase 3 (`DataView` titles and counts, status
       dots and bars, `DetailList`'s ruled grid, `Alert` actions) are built on top of it, which
       completes the first release's three phases; 4–6 follow.
-- [ ] **Recorded, not fixed:** `terp guide frontend` names four archetypes and `terp guide
-      layouts` three; FormPage, SettingsPage and SplitPage are missing from both.
-      `test_layout_archetypes.py` reads the two `AGENTS.md` files and the react-core README, not
-      the guide topics. Folded into the draft's phase 6, with the gate extended to the guide.
+- [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list all
+      seven now, and `test_layout_archetypes.py` reads every guide topic as well as the two
+      `AGENTS.md` files and the react-core README.
 
 ## Active execution track
 

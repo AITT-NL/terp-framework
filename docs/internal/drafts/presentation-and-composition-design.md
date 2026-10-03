@@ -410,7 +410,13 @@ Every phase ends at a shippable point; nothing is half-wired between them.
 - [ ] **6 — The archetype and the guidance.** `DashboardPage`; the scaffold's hub preset becomes a
       dashboard that keeps the Studio wizard's "Kerncijfers" promise; `terp guide layouts`
       rewritten around the vocabulary — a data-shape table an agent can follow — and its stale
-      archetype lists fixed (below); the Studio's pin moved.
+      archetype lists fixed (below); the Studio's pin moved. **Started early, because the
+      first release's guidance depends on it:** the guide's two stale archetype lists are
+      complete (`terp guide frontend` named four, `terp guide layouts` three, and the latter
+      now gives FormPage, SettingsPage and SplitPage their slot rows), and
+      `test_layout_archetypes.py` reads every `terp guide` topic as well as the three files —
+      mutation-checked: the old four-name sentence fails it. The data-shape table and the frame
+      rules are in `terp guide layouts` and both `AGENTS.md` files since phase 2.
 
 Releases: phases 1–3 together, as the design-system track shipped 0.10.0, so consumers cross the
 styling change once; 4–6 after.
