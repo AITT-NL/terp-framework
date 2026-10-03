@@ -195,6 +195,24 @@ export function headlineViolationMessage(contractId: string, found: string): str
 /** The active contract id for the current routed view, or null (no contract = no checks). */
 export const LayoutContractContext = createContext<string | null>(null);
 
+/** A page's count of the figures marked headline, which each such figure joins. */
+export interface HeadlineRegistry {
+  /** Count one more headline; the function it returns counts that one out again. */
+  register(): () => void;
+}
+
+/**
+ * The nearest page's headline registry (ADR 0169 §4), or null outside a page.
+ *
+ * A registry rather than a DOM count, and the difference is when it looks. A count taken one
+ * macrotask after the page renders missed a figure that rendered later -- a section that loads
+ * its own data and then shows its headline -- because nothing renders the page again, and a
+ * `querySelectorAll` over the article counted a nested page's figures as the outer page's,
+ * which the lint does not. A figure that registers is counted whenever it mounts, by the page
+ * it is nearest to, and only by that one.
+ */
+export const HeadlineContext = createContext<HeadlineRegistry | null>(null);
+
 /** Read the active layout contract id (null outside an opted-in app). */
 export function useLayoutContract(): string | null {
   return useContext(LayoutContractContext);
@@ -248,11 +266,12 @@ function firstStranger(
 }
 
 /**
- * Verify a page's rendered frame against the contract's two frame rules (ADR 0169 §4): the
- * summary band's children are the figures it admits, and the page carries at most one headline
- * figure anywhere in it. Returns the directive message, or null when the frame conforms.
+ * Verify a page's summary band against the contract (ADR 0169 §4): its children are the
+ * figures it admits. Returns the directive message, or null when the band conforms or there is
+ * none. The frame's other rule, one headline per page, is counted by registration instead (see
+ * {@link HeadlineContext}).
  */
-export function verifyPageFrame(contractId: string, page: Element): string | null {
+export function verifyPageSummary(contractId: string, page: Element): string | null {
   const contract = LAYOUT_CONTRACTS[contractId];
   if (contract === undefined) {
     return null;
@@ -260,20 +279,9 @@ export function verifyPageFrame(contractId: string, page: Element): string | nul
   const summary = [...page.children].find(
     (child) => child.getAttribute("data-terp") === "page-summary",
   );
-  const stranger =
-    summary === undefined
-      ? null
-      : firstStranger(contract.summary, [...summary.children], (found) =>
-          summaryViolationMessage(contractId, found),
-        );
-  if (stranger !== null) {
-    return stranger;
-  }
-  const selector = Object.values(contract.headline.components)
-    .map((marker) => `[data-terp="${marker}"][data-headline]`)
-    .join(", ");
-  const headlines = page.querySelectorAll(selector).length;
-  return headlines > 1
-    ? headlineViolationMessage(contractId, `${headlines} figures marked headline`)
-    : null;
+  return summary === undefined
+    ? null
+    : firstStranger(contract.summary, [...summary.children], (found) =>
+        summaryViolationMessage(contractId, found),
+      );
 }

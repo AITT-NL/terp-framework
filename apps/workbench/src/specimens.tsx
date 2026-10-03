@@ -4394,28 +4394,29 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         node: adminScreenSpecimen(<UserCreate />, "/admin/users/new"),
       },
       {
-        // `admin-section-title` reproduced in place: two `h2`s heading two sections of a
-        // record screen, which is exactly where `GroupDetail` renders them (its members list
-        // and its permission grants).
+        // `admin-section-title` reproduced in place: two `h3`s heading two sections of a
+        // record screen, the level a Card's title and a titled collection take. The packaged
+        // screens render one -- the access a person or a group holds per module -- beside
+        // collections that title themselves.
         //
         // Both of the rule's declarations need a neighbour to be observable at all.
         // `font-size: var(--font-size-base)` is only interesting against the page's own `h1`,
-        // which is `font-size-lg` — the UA default for an `h2` is LARGER than that, so without
+        // which is `font-size-lg` — the UA default for a heading is LARGER than that, so without
         // the rule a section outranks the view it sits in, and the two have to be in one frame
         // to see it. And `margin: 0` only shows against a sibling to collapse into, which is
         // why there are two sections rather than one.
         id: "admin-section-title",
-        title: "Admin section headings — h2 under the page h1",
+        title: "Admin section headings — h3 under the page h1",
         node: (
           <Page title="Warehouse operators">
-            <h2 data-terp="admin-section-title">Members</h2>
+            <h3 data-terp="admin-section-title">Members</h3>
             <DetailList
               items={[
                 { label: "Direct members", value: "14" },
                 { label: "Inherited", value: "3" },
               ]}
             />
-            <h2 data-terp="admin-section-title">Permission grants</h2>
+            <h3 data-terp="admin-section-title">Permission grants</h3>
             <DetailList
               items={[
                 { label: "records.read", value: "Granted" },

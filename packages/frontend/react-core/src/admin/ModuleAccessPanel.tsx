@@ -292,7 +292,7 @@ export function ModuleAccessPanel({ subjectId, globalRank = null }: ModuleAccess
 
   return (
     <Stack gap={3}>
-      <h2 data-terp="admin-section-title">{strings.moduleAccessTitle}</h2>
+      <h3 data-terp="admin-section-title">{strings.moduleAccessTitle}</h3>
       <span data-terp="tile-note">{strings.moduleAccessDescription}</span>
       {(loading || (settled < 0 && heldError === null)) && <LoadingState />}
       {!loading && error !== null && <Alert tone="danger">{error}</Alert>}

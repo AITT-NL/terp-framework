@@ -125,6 +125,30 @@ describe("Stat's delta", () => {
     expect(part("stat-sentiment")).toBeNull();
   });
 
+  it("follows the change as it prints: a change that rounds to zero is no change", () => {
+    // 0.004 as a whole percentage prints "0%"; an up arrow, a green pill and "favourable" beside
+    // "0%" contradicted the number they decorate. Mutation: take the direction from the raw
+    // value again, and the arrow points up.
+    renderIn("en", (
+      <Stat
+        label="Orders"
+        value={1}
+        delta={{ value: 0.004, sentiment: "positive", format: { style: "percent" } }}
+      />
+    ));
+    expect(part("stat-change")!.textContent).toBe("0%");
+    expect(part("stat-change")).toHaveAttribute("data-sentiment", "neutral");
+    expect(part("stat-arrow")!.querySelector("path")!.getAttribute("d")).toBe("M1 5 H11 V7 H1 Z");
+  });
+
+  it("keeps the sign over a format that asks to hide it", () => {
+    // Mutation: spread the caller's format last, and "never" wins.
+    renderIn("en", (
+      <Stat label="Orders" value={1} delta={{ value: 5, sentiment: "positive", format: { signDisplay: "never" } }} />
+    ));
+    expect(part("stat-change")!.textContent).toBe("+5 favourable");
+  });
+
   it("hides the arrow from assistive technology, which hears the sign instead", () => {
     renderIn("en", <Stat label="Orders" value={1} delta={{ value: 1, sentiment: "positive" }} />);
     expect(part("stat-arrow")).toHaveAttribute("aria-hidden", "true");
@@ -175,13 +199,41 @@ describe("Stat's trend", () => {
         trend={[{ label: "jan", value: 1200.5 }, { label: "feb", value: 1500 }]}
       />
     ));
-    expect(part("stat-trend-data")!.textContent).toBe("Verloop: jan 1.200,5, feb 1.500");
+    expect(part("stat-trend-data")!.textContent).toBe("Verloop: jan: 1.200,5 en feb: 1.500");
   });
 
-  it("reads out a single point without drawing a line through nothing", () => {
+  it("reads a series out as a sentence in English too, each point's label set off from its value", () => {
+    // Intl's narrow unit list joins English with bare spaces, so "Mon 10 Tue 30 Wed 20" read as
+    // one run of words and numbers. Mutation: go back to the narrow unit list, and this fails.
+    renderIn("en", <Stat label="Runs" value={20} trend={WEEK} />);
+    expect(part("stat-trend-data")!.textContent).toBe("Over time: Mon: 10, Tue: 30, and Wed: 20");
+  });
+
+  it("reads out a single point without drawing a line, or a block, for it", () => {
+    // As the only child of the trend's own block, the hidden text left that block's margin
+    // behind as an empty line. Mutation: keep the block for one point, and it is found.
     renderIn("en", <Stat label="Runs" value={5} trend={[{ label: "Mon", value: 5 }]} />);
     expect(part("stat-trend-chart")).toBeNull();
-    expect(part("stat-trend-data")!.textContent).toBe("Over time: Mon 5");
+    expect(part("stat-trend")).toBeNull();
+    expect(part("stat-trend-data")!.textContent).toBe("Over time: Mon: 5");
+  });
+
+  it("draws only the points that are numbers, and prints the dash for one that is not", () => {
+    // A NaN in the points attribute is a console error and no line at all.
+    // Mutation: draw every value, and the points carry a NaN.
+    renderIn("en", (
+      <Stat
+        label="Runs"
+        value={3}
+        trend={[
+          { label: "a", value: 1 },
+          { label: "b", value: Number.NaN },
+          { label: "c", value: 3 },
+        ]}
+      />
+    ));
+    expect(part("stat-trend-line")!.getAttribute("points")).toBe("0,22 100,2");
+    expect(part("stat-trend-data")!.textContent).toBe("Over time: a: 1, b: —, and c: 3");
   });
 
   it("renders no trend at all for an empty series", () => {

@@ -1980,8 +1980,11 @@ Theming and branding (design tokens, palettes, the brand mark)
       }
 
   The page's summary band — the figures under its title — sits on its own token,
-  `--color-bg-summary`, which every palette ships at its brand soft tint. A theme that wants
-  a calmer band moves that one token; the tint the hub tiles share stays where it is.
+  `--color-bg-summary`, which every palette ships at its brand soft tint (night's a step
+  darker, so subtle text clears AA on it). It is a value of its own, not a reference: a theme
+  that moves `--color-brand-primary-soft` for a new brand moves `--color-bg-summary` with it,
+  or the band keeps the shipped blue; a theme that wants a calmer band moves this one token
+  and the tint the hub tiles share stays where it is.
 
 - TO SHIP ON A PALETTE OTHER THAN midday, name it in the layout declaration — never by
   restyling one palette to imitate another:

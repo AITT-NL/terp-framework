@@ -366,7 +366,9 @@ export function GroupDetail() {
     >
       <Stack gap={6}>
         {record !== null && (
+          // The group's facts as a ruled sheet (ADR 0169 §5), above its access and collections.
           <DetailList
+            layout="grid"
             items={[
               { label: strings.description, value: record.description || "-" },
               { label: strings.members, value: record.member_count },

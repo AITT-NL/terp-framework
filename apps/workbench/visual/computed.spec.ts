@@ -1421,8 +1421,10 @@ test("the summary band bleeds to the column, flush under the title band", async 
 test("a group of figures fits two to a line on a phone, and only a line's later figures carry a rule", async ({
   page,
 }) => {
-  // The rule before a figure is drawn into the column gap and clipped where it falls outside
-  // the group, so "no rule at a line's start" is a position against the group's edge.
+  // The rule before a figure is a 1px shadow outside its cell's start edge, clipped where that
+  // edge is the group's own, so "no rule at a line's start" is a position against the group's
+  // edge. And the clip sits half a gap outside the figure's text, which is the room a focus
+  // ring needs.
   await page.setViewportSize({ width: 420, height: 900 });
   await page.goto("/?theme=midday&only=app-shell-summary-narrow");
   await page.locator('[data-terp="stat-group"]').waitFor({ state: "visible" });
@@ -1434,9 +1436,11 @@ test("a group of figures fits two to a line on a phone, and only a line's later 
       overflow: getComputedStyle(group).overflowX,
       rules: [...group.querySelectorAll(':scope > [data-terp="stat"]')].map((stat) => {
         const box = stat.getBoundingClientRect();
-        const offset = parseFloat(getComputedStyle(stat, "::before").insetInlineStart);
-        return { inside: box.left + offset >= groupBox.left };
+        return { inside: box.left - 1 >= groupBox.left };
       }),
+      // How far the first figure's label starts inside the clip: the room a ring has.
+      room:
+        group.querySelector('[data-terp="stat-label"]')!.getBoundingClientRect().left - groupBox.left,
     };
   });
   expect(layout.columns).toBe(2);
@@ -1444,6 +1448,8 @@ test("a group of figures fits two to a line on a phone, and only a line's later 
   // Four figures, two to a line: the first and third start a line, so their rules fall outside
   // the group and are clipped; the second and fourth carry theirs.
   expect(layout.rules.map(({ inside }) => inside)).toEqual([false, true, false, true]);
+  // The shared ring is a 2px outline 1px out, with a 3px halo: 6px it must not lose.
+  expect(layout.room).toBeGreaterThanOrEqual(6);
 });
 
 test("a ruled grid of facts drops the rule before a row's first cell and above its first row", async ({
@@ -1463,9 +1469,10 @@ test("a ruled grid of facts drops the rule before a row's first cell and above i
       columns: getComputedStyle(list).gridTemplateColumns.split(" ").length,
       cells: [...list.querySelectorAll(':scope > [data-terp="detail-list-row"]')].map((cell) => {
         const box = cell.getBoundingClientRect();
-        const before = parseFloat(getComputedStyle(cell, "::before").insetInlineStart);
-        return { ruleBefore: box.left + before >= edge.left, ruleAbove: box.top - 1 >= edge.top };
+        return { ruleBefore: box.left - 1 >= edge.left, ruleAbove: box.top - 1 >= edge.top };
       }),
+      room:
+        list.querySelector('[data-terp="detail-list-term"]')!.getBoundingClientRect().left - edge.left,
     };
   });
   expect(cells.overflow).toBe("hidden");
@@ -1476,4 +1483,6 @@ test("a ruled grid of facts drops the rule before a row's first cell and above i
   expect(cells.cells.map(({ ruleAbove }) => ruleAbove)).toEqual([
     false, false, false, false, false, true, true,
   ]);
+  // A focus ring inside the first column keeps its side: 6px of room inside the clip.
+  expect(cells.room).toBeGreaterThanOrEqual(6);
 });

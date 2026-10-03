@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { Component } from "react";
+import { Component, useEffect, useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 // The lint-side source of the contract table (spec-as-data in @terpjs/eslint-boundaries);
@@ -709,6 +709,49 @@ describe("runtime enforcement of the page frame's two rules (ADR 0169 §4)", () 
         <Stat label="B" value={2} headline />
       </Page>,
       null,
+    );
+    await expectAccepted();
+  });
+});
+
+describe("a page counts the headlines that register with it (ADR 0169 §4)", () => {
+  function LateHeadline() {
+    // A section that shows its figure once its own data arrives: nothing renders the page again.
+    const [ready, setReady] = useState(false);
+    useEffect(() => {
+      const timer = setTimeout(() => setReady(true), 5);
+      return () => clearTimeout(timer);
+    }, []);
+    return ready ? <Stat label="Late" value={2} headline /> : null;
+  }
+
+  it("refuses a second headline that renders after the page did", async () => {
+    // A DOM count taken one macrotask after the page rendered found one headline and was never
+    // taken again. Mutation: count by DOM again, and the late figure ships.
+    underContract(
+      <Page title="Bespoke" summary={<Stat label="Revenue" value={1} headline />}>
+        <Stack>
+          <LateHeadline />
+        </Stack>
+      </Page>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("refused").textContent).toBe(
+        headlineViolationMessage("standard", "2 figures marked headline"),
+      );
+    });
+  });
+
+  it("counts a nested page's headline on its own, as the lint does", async () => {
+    // The outer page counted the inner page's figure as its own, and refused what the lint
+    // accepts. Mutation: provide one registry for both pages, and this is refused.
+    underContract(
+      <Page title="Outer">
+        <Page title="Inner" summary={<Stat label="Inner" value={1} headline />}>
+          <div>inner body</div>
+        </Page>
+        <Stat label="Outer" value={2} headline />
+      </Page>,
     );
     await expectAccepted();
   });

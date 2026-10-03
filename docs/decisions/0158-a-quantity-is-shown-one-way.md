@@ -171,4 +171,5 @@ attempt, and react-core could draw neither as more than a badge in a table row. 
 that evidence are this record's three — a line or area over time, bars across categories, a
 sparkline for a figure — and three the same data asks for: columns as a mark of the over-time
 chart, a status history, and a proportion bar. Any other kind still waits for a consumer of its
-own, which is the rule this record set, unchanged.
+own, which is the rule this record set, unchanged. A sparkline, which sits inside a link,
+reads its series out as text rather than as a table; ADR 0169's amendment records why.

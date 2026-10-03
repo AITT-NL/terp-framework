@@ -392,7 +392,9 @@ Every phase ends at a shippable point; nothing is half-wired between them.
         pairings declared for the toned dots; the neutral dot is the subtle ink, already held
         by a text pairing.
       - **`DetailList` `layout="grid"`**, the ruled grid, its rules drawn by the cells and
-        clipped at the list's edge as `StatGroup`'s are; `columns="auto"` by default.
+        clipped at the list's edge as `StatGroup`'s are; `columns="auto"` by default. It
+        landed with no framework consumer, though the commit said each piece had one; the
+        review below caught it, and the packaged user and group screens take it since.
       - **`Alert` `actions`.** Consumer: the module-access panel's revoke for a retired
         module's rung, which was a button row beside the alert.
       **Deferred, each to its consumer:** the footer link goes with the scaffolded dashboard
@@ -421,6 +423,36 @@ Every phase ends at a shippable point; nothing is half-wired between them.
 Releases: phases 1–3 together, as the design-system track shipped 0.10.0, so consumers cross the
 styling change once; 4–6 after.
 
+## What the review of phases 2 and 3 found
+
+An independent review of the two phases, read against this draft and the ADRs, found these,
+each fixed in one follow-up with a test that fails without the fix:
+
+- A percent `bar` printed the share of the largest value, not the rate (a `Meter` prints a
+  percentage as the share of its range). Percent bars are drawn against 100%, and a `max`
+  beside a percent format is refused.
+- The sparkline's text ran together in English ("Week 1 12 Week 2 15"): the narrow unit list
+  joins with spaces. It is a conjunction list of "label: value" now.
+- The runtime counted headlines in the DOM once, after the page rendered: a figure that rendered
+  later was never counted, and a nested page's figures were counted twice. Headlines register
+  with their page now. The lint, for its part, reported `summary={null}` as text and counted
+  expression-valued `headline`s; it treats both as the runtime does.
+- Subtle text on the night summary band measured 4.26. Night's band is a step darker (subtle
+  4.68) and `subtle-on-summary` is declared; the status dots are declared on the canvas and on
+  a container as well as on the surface.
+- The ruled layouts clipped a focus ring's side at the text's edge. Their cells are padded half
+  a gap and the groups reach out by it, so the clip sits outside the ring.
+- A delta that rounds to zero showed an up arrow and "favourable" beside "0%"; the direction
+  follows the printed change now, and the sign survives a caller's `signDisplay`.
+- The group screen nested its two collections under the access panel's h2 in the outline; the
+  panel's title is an h3, the level of every section on a page.
+- The claims: the ruled grid had no framework consumer, the summary band's token does not
+  follow a rebrand of the soft tint (the theming guide and the upgrade note say so now), and the
+  sparkline's text alternative departed from ADR 0158's table without a record (ADR 0169's
+  amendment is that record). Phase 2's figure family, band and templates name the scaffolded
+  dashboard of phase 6 as their framework consumer; until it lands the admin hub's totals are
+  the one consumer in the framework.
+
 ## Found along the way
 
 Recorded so they are not lost; this proposal does not fix them on its own.
@@ -443,6 +475,11 @@ Recorded so they are not lost; this proposal does not fix them on its own.
   authored on" because group policy blocks the browser. On the workstation phase 1 was built on,
   sixteen untouched specimens matched their win32 baselines pixel for pixel and the lane recorded
   the changed ones, so the `LINUX_ONLY` set may now be recordable there. Not acted on here.
+- The layout contract's opt-out, a `// terp-allow-layout-contract` marker, silences only the
+  lint. The runtime half, which ADR 0079 calls authoritative, has no way to read it and refuses
+  the same view, so a justified marker passes the build and fails the page. It predates this
+  work and holds for the summary and headline rules exactly as for the body slots; it is a
+  question for ADR 0079, not acted on here.
 - `test_spec_catalog.py::test_frontend_catalog_covers_every_named_plugin_rule` fails on that
   workstation with or without this branch — the local terp-spec candidate lacks
   `no-framework-markers` (ADR 0160) — so it is an environment fact, not a regression.

@@ -1,6 +1,8 @@
+import { useContext, useEffect } from "react";
 import type { ReactNode } from "react";
 
 import { useFormatNumber } from "./format";
+import { HeadlineContext } from "./layoutContract";
 import { useLocale } from "./locale";
 import { Meter } from "./Meter";
 import type { MeterProps } from "./Meter";
@@ -28,7 +30,11 @@ export interface StatDelta {
   /**
    * How the change prints, as the `Intl.NumberFormatOptions` the `format` helpers take
    * (default: a plain number). It always carries its sign, so `{ style: "percent" }` with
-   * `0.12` prints `+12%`.
+   * `0.12` prints `+12%`; a `signDisplay` of the caller's own is overridden to keep it.
+   *
+   * The printed change is what the arrow and the tone follow: a change that rounds to zero in
+   * this format prints `0`, draws the bar for no change and reads as neutral, whatever its
+   * declared sentiment, because there is no change left to judge.
    */
   format?: Intl.NumberFormatOptions;
   /**
@@ -90,7 +96,7 @@ export interface StatProps {
 
 const DASH = "—";
 
-/** The default delta format: a plain number that always shows its sign. */
+/** The delta's sign rule, applied last over the caller's format so the sign always shows. */
 const SIGNED: Intl.NumberFormatOptions = { signDisplay: "exceptZero" };
 
 // The arrow, as geometry: a triangle up, one down, and a bar for no change. Paths rather than
@@ -107,6 +113,24 @@ const ARROWS = {
 const TREND_WIDTH = 100;
 const TREND_HEIGHT = 24;
 const TREND_INSET = 2;
+
+/**
+ * Which way a change points, read from the change as it prints rather than as it was passed:
+ * `0.004` as a percentage prints `0%`, and an up arrow beside `0%` would contradict itself.
+ * The sign is a part of its own in `formatToParts`, so this holds in every locale's spelling.
+ */
+function directionOf(
+  value: number,
+  format: Intl.NumberFormatOptions,
+  locale: string | undefined,
+): "up" | "down" | "flat" {
+  const parts = new Intl.NumberFormat(locale, format).formatToParts(value);
+  return parts.some((part) => part.type === "plusSign")
+    ? "up"
+    : parts.some((part) => part.type === "minusSign")
+      ? "down"
+      : "flat";
+}
 
 /** The sparkline's points, scaled to its canvas: x by position, y by value, top is highest. */
 function trendPoints(values: readonly number[]): string {
@@ -173,31 +197,48 @@ export function Stat({
   const strings = useStrings();
   const formatNumber = useFormatNumber();
   const locale = useLocale()?.locale;
+  // A headline registers with its page, which counts them (ADR 0169 §4): a figure that
+  // renders late -- after its own data arrives -- is counted when it arrives, where a DOM count
+  // taken when the page rendered would have missed it.
+  const headlines = useContext(HeadlineContext);
+  useEffect(
+    () => (headline && headlines !== null ? headlines.register() : undefined),
+    [headline, headlines],
+  );
   const printed =
     typeof value === "number"
       ? formatNumber(value, format)
       : typeof value === "string" && value !== ""
         ? value
         : DASH;
+  const deltaFormat =
+    delta === undefined ? SIGNED : { ...(delta.format ?? {}), ...SIGNED };
   const direction =
-    delta === undefined ? undefined : delta.value > 0 ? "up" : delta.value < 0 ? "down" : "flat";
+    delta === undefined || !Number.isFinite(delta.value)
+      ? undefined
+      : directionOf(delta.value, deltaFormat, locale);
+  // No change left to judge is neutral, whatever was declared for the change.
+  const sentiment = direction === "flat" ? "neutral" : delta?.sentiment;
   const sentimentWord =
-    delta?.sentiment === "positive"
+    sentiment === "positive"
       ? strings.statFavourable
-      : delta?.sentiment === "negative"
+      : sentiment === "negative"
         ? strings.statUnfavourable
         : undefined;
   const points = trend ?? [];
-  // The text alternative names every point, in the order drawn, as the app's locale lists things.
+  // The text alternative names every point, label and value, in the order drawn and joined the
+  // way the app's locale joins a list ("a, b and c"), so it reads as a sentence in every
+  // language. A value that is not a number prints the dash here and draws nothing below.
   const trendText =
     points.length === 0
       ? undefined
       : fillPlaceholders(strings.statTrend, {
-          points: new Intl.ListFormat(locale, { style: "narrow", type: "unit" }).format(
-            points.map((point) => `${resolve(point.label)} ${formatNumber(point.value, format)}`),
+          points: new Intl.ListFormat(locale, { style: "long", type: "conjunction" }).format(
+            points.map((point) => `${resolve(point.label)}: ${formatNumber(point.value, format)}`),
           ),
         });
-  const line = points.length >= 2 ? trendPoints(points.map((point) => point.value)) : undefined;
+  const drawable = points.map((point) => point.value).filter((value) => Number.isFinite(value));
+  const line = drawable.length >= 2 ? trendPoints(drawable) : undefined;
   const showsTarget = target !== undefined && typeof value === "number" && Number.isFinite(value);
   return (
     <span data-terp="stat" data-headline={headline ? "true" : undefined}>
@@ -205,11 +246,11 @@ export function Stat({
       <span data-terp="stat-value">{printed}</span>
       {delta !== undefined && direction !== undefined && (
         <span data-terp="stat-delta">
-          <span data-terp="stat-change" data-sentiment={delta.sentiment}>
+          <span data-terp="stat-change" data-sentiment={sentiment}>
             <svg data-terp="stat-arrow" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
               <path d={ARROWS[direction]} />
             </svg>
-            {formatNumber(delta.value, delta.format === undefined ? SIGNED : { ...SIGNED, ...delta.format })}
+            {formatNumber(delta.value, deltaFormat)}
             {sentimentWord !== undefined && (
               <span data-terp="stat-sentiment">{` ${sentimentWord}`}</span>
             )}
@@ -219,23 +260,26 @@ export function Stat({
           )}
         </span>
       )}
-      {trendText !== undefined && (
+      {/* The series' text, alone when there is no line to draw: as the only child of a block
+          of its own it left an empty block the height of the block's margin. */}
+      {trendText !== undefined && line === undefined && (
+        <span data-terp="stat-trend-data">{trendText}</span>
+      )}
+      {trendText !== undefined && line !== undefined && (
         <span data-terp="stat-trend">
-          {line !== undefined && (
-            <svg
-              data-terp="stat-trend-chart"
-              viewBox={`0 0 ${TREND_WIDTH} ${TREND_HEIGHT}`}
-              preserveAspectRatio="none"
-              aria-hidden="true"
-              focusable="false"
-            >
-              <polygon
-                data-terp="stat-trend-area"
-                points={`0,${TREND_HEIGHT} ${line} ${TREND_WIDTH},${TREND_HEIGHT}`}
-              />
-              <polyline data-terp="stat-trend-line" points={line} />
-            </svg>
-          )}
+          <svg
+            data-terp="stat-trend-chart"
+            viewBox={`0 0 ${TREND_WIDTH} ${TREND_HEIGHT}`}
+            preserveAspectRatio="none"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <polygon
+              data-terp="stat-trend-area"
+              points={`0,${TREND_HEIGHT} ${line} ${TREND_WIDTH},${TREND_HEIGHT}`}
+            />
+            <polyline data-terp="stat-trend-line" points={line} />
+          </svg>
           <span data-terp="stat-trend-data">{trendText}</span>
         </span>
       )}

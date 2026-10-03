@@ -137,3 +137,24 @@ in one release, so consumers cross the styling change once. Phases 4–6 follow.
   container's edge is carried by its border. If the workbench shows that too faint across the
   themes, the fallback the draft records is a darker canvas — the one change this record does not
   make.
+
+## Amendment (2026-10-03): what building the first three phases settled
+
+Three choices the phases made are decisions rather than details, and the first departs from
+the letter of ADR 0158's contract, so they are recorded here.
+
+- **A sparkline's alternative is its series as text, not a table.** ADR 0158 asks every chart
+  for a table alternative, and §6 above keeps that contract. A figure (`Stat`) is phrasing
+  content throughout, because a hub card's stat row is inside the card's link, and a table
+  cannot sit there. So the sparkline is drawn for the eye and every point is read out, label and
+  value, in the order drawn and joined as the app's locale joins a list — the one row a table of
+  a sparkline would have, read as the sentence it is. The larger charts of phase 4 have no such
+  constraint and keep the table.
+- **One headline per page is counted by registration.** A figure marked headline registers with
+  the nearest page when it mounts. A count of the page's DOM, taken when the page rendered,
+  missed a figure that rendered after its own data arrived, and counted a nested page's figures
+  as the outer page's, which the lint does not. The lint counts a page element's static JSX and
+  only the headlines the file itself says yes to; an expression is left to the page's count.
+- **A percent bar is drawn against 100%.** A `Meter` prints a percentage as the value's share of
+  its range, so a column of rates scaled to its largest value printed shares; its rates' own
+  range is 0 to 1, and a `max` beside a percent format is refused.

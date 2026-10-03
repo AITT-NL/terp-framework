@@ -141,7 +141,13 @@ export interface DataViewColumnMeta {
  * so the column reads as magnitudes at a glance and every value is still printed.
  */
 export interface DataViewBar {
-  /** The top of every bar's range (default: the largest value among the rows shown). */
+  /**
+   * The top of every bar's range (default: the largest value among the rows shown).
+   *
+   * Not for a percentage: a rate's range is 0 to 1 already, and a `Meter` prints a percentage
+   * as the value's share of its range, so any other top would print the share rather than the
+   * rate. A percent bar is drawn against 100% and a `max` beside it is refused.
+   */
   max?: number;
   /** How the value prints, as `Intl.NumberFormatOptions` (default: a plain number). */
   format?: Intl.NumberFormatOptions;

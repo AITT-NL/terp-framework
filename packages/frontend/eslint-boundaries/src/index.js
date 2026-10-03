@@ -962,7 +962,12 @@ const layoutContract = {
         attribute.value.type === "JSXExpressionContainer"
           ? attribute.value.expression
           : attribute.value;
-      if (value.type === "TemplateLiteral" || (value.type === "Literal" && String(value.value).trim() !== "")) {
+      // `summary={null}` and `summary={false}` are the band left out, as the runtime renders
+      // them; only a string is text.
+      if (
+        value.type === "TemplateLiteral" ||
+        (value.type === "Literal" && typeof value.value === "string" && value.value.trim() !== "")
+      ) {
         context.report({ node: attribute, message: describe("raw text") });
         return;
       }
@@ -982,13 +987,16 @@ const layoutContract = {
       if (attribute === undefined) {
         return false;
       }
-      // `headline={false}` is the one spelling that says "not this one" statically.
+      // Counted only where the file itself says yes: a bare `headline` or `headline={true}`.
+      // An expression -- `headline={isMain}` beside `headline={!isMain}` -- is decided at run
+      // time, and the page's own count holds it there; counting it here refused code the
+      // runtime accepts, and left the author an escape marker as the only way through.
       const value = attribute.value;
-      return !(
-        value !== null &&
-        value.type === "JSXExpressionContainer" &&
-        value.expression.type === "Literal" &&
-        value.expression.value === false
+      return (
+        value === null ||
+        (value.type === "JSXExpressionContainer" &&
+          value.expression.type === "Literal" &&
+          value.expression.value === true)
       );
     };
     const visitorKeys = context.sourceCode.visitorKeys;

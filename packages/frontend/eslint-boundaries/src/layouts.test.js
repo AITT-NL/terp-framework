@@ -190,6 +190,30 @@ describe("terp/layout-contract — the page frame's two rules (ADR 0169 §4)", (
     ]);
   });
 
+  it("reads summary={null} and summary={false} as the band left out", async () => {
+    // Mutation: report any Literal as raw text again, and both are refused.
+    const code =
+      imports +
+      "export const A = ({title}) => <Page title={title} summary={null}><div /></Page>;\n" +
+      "export const B = ({title}) => <Page title={title} summary={false}><div /></Page>;";
+    expect((await lint(code, configWithContract("standard"))).map((m) => m.message)).toEqual([]);
+  });
+
+  it("leaves a headline decided by an expression to the runtime's count", async () => {
+    // `headline={isMain}` beside `headline={!isMain}` is one headline at a time, which no
+    // static count can see. Mutation: count expression values again, and this is refused.
+    const code =
+      imports +
+      "export const P = ({title, isMain}) => <Page title={title}><Stat headline={isMain} label={title} value={1} /><Stat headline={!isMain} label={title} value={2} /></Page>;";
+    expect((await lint(code, configWithContract("standard"))).map((m) => m.message)).toEqual([]);
+    const literal =
+      imports +
+      "export const P = ({title}) => <Page title={title}><Stat headline={true} label={title} value={1} /><Stat headline label={title} value={2} /></Page>;";
+    expect((await lint(literal, configWithContract("standard"))).map((m) => m.message)).toEqual([
+      headlineViolationMessage("standard", "2 figures marked headline"),
+    ]);
+  });
+
   it("counts a nested page on its own rather than twice", async () => {
     const code =
       imports +

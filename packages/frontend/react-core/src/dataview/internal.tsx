@@ -163,6 +163,19 @@ export function barMaxima<T>(
       continue;
     }
     const declared = column.bar === true ? undefined : column.bar.max;
+    const percent = column.bar !== true && column.bar.format?.style === "percent";
+    if (percent) {
+      // A rate's range is 0 to 1, and only there does a Meter's percentage -- the share of its
+      // range -- print the rate itself. Another top would print a share nobody asked for.
+      if (declared !== undefined) {
+        throw new Error(
+          `DataView column "${column.id}": a percent bar is drawn against 100%, so it takes no ` +
+            "max. Drop max, or format the value as a plain number to scale it to a max.",
+        );
+      }
+      maxima.set(column.id, 1);
+      continue;
+    }
     if (declared !== undefined) {
       maxima.set(column.id, declared);
       continue;

@@ -883,9 +883,27 @@ describe("the packaged admin area", () => {
       return found;
     });
     for (const heading of headings) {
-      expect(heading.tagName).toBe("H2");
+      // An h3, the level of the group's two collections beside it and of every Card's title:
+      // as an h2 it put the members and the permissions under "Access per module" in the
+      // page's outline. Mutation: an h2 again, and this fails.
+      expect(heading.tagName).toBe("H3");
       expect(heading.getAttribute("style")).toBeNull();
     }
+  });
+
+  it("shows an account's facts and a group's as ruled sheets", async () => {
+    // The packaged detail screens are the ruled grid's consumers in the framework (ADR 0169
+    // §5). Mutation: drop layout="grid" from either list, and its layout is "stacked".
+    renderAdminApp("/admin/users/u1");
+    await screen.findByRole("heading", { level: 1, name: "jane.doe@example.com" });
+    await waitFor(() =>
+      expect(document.querySelector('[data-terp="detail-list"]')).toHaveAttribute("data-layout", "grid"),
+    );
+    cleanup();
+    renderAdminApp("/admin/groups/g1");
+    await waitFor(() =>
+      expect(document.querySelector('[data-terp="detail-list"]')).toHaveAttribute("data-layout", "grid"),
+    );
   });
 
   it("names each of a group's collections, and counts the one it has read", async () => {

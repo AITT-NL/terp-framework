@@ -7,6 +7,7 @@ import { DataView } from "./DataView";
 import { DataViewPagination } from "./DataViewPagination";
 import { InMemoryDataViewRepository } from "./repositories/InMemoryDataViewRepository";
 import { InMemoryViewStateRepository } from "./repositories/viewState";
+import { barMaxima } from "./internal";
 import type { DataViewColumn, DataViewQuery, DataViewRepository } from "./types";
 
 afterEach(() => {
@@ -824,6 +825,33 @@ describe("DataView's cell presentations (ADR 0169 §5)", () => {
     expect(meters[0]).toHaveAttribute("max", "20000");
     // A plain number in the app's locale -- grouped, where the default cell printed "12000".
     expect(meters[0]).toHaveAttribute("aria-valuetext", "12,000");
+  });
+
+  it("prints a percent column's own rates, drawn against 100%", async () => {
+    // A Meter prints a percentage as the value's share of its range, so rates scaled to the
+    // largest shown printed 40% / 100% / 83% for 0.12 / 0.30 / 0.25. Mutation: scale a percent
+    // bar to the largest value again, and the printed rates are shares.
+    const columns: DataViewColumn<Group>[] = [
+      { id: "name", header: "Name", accessor: (g) => g.name },
+      {
+        id: "rate",
+        header: "Rate",
+        accessor: (g) => g.members / 40,
+        bar: { format: { style: "percent" } },
+      },
+    ];
+    render(<DataView repository={repo()} columns={columns} />);
+    await screen.findByText("Operations");
+    const meters = screen.getAllByRole("meter", { name: "Rate" });
+    expect(meters.map((meter) => meter.getAttribute("aria-valuetext"))).toEqual(["30%", "8%", "15%"]);
+    expect(meters.map((meter) => meter.getAttribute("max"))).toEqual(["1", "1", "1"]);
+  });
+
+  it("refuses a max beside a percent bar, which would print shares", () => {
+    const columns: DataViewColumn<Group>[] = [
+      { id: "rate", header: "Rate", accessor: (g) => g.members / 40, bar: { max: 0.5, format: { style: "percent" } } },
+    ];
+    expect(() => barMaxima(columns, GROUPS)).toThrow(/a percent bar is drawn against 100%/);
   });
 
   it("renders the same presentation in the card layout", async () => {

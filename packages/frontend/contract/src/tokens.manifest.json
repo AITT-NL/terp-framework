@@ -406,7 +406,7 @@
         "midday": "#e4edfd",
         "twilight": "#4b3f72",
         "evening": "#15304e",
-        "night": "#0c2d6b",
+        "night": "#0a275c",
         "contrast": "#e8f0fe"
       },
       "themeable": true
@@ -1463,7 +1463,7 @@
       "layer": "semantic"
     },
     {
-      "$comment": "The summary band's fill (ADR 0169 §4) and the three inks it carries: a figure's value and label, and the accent a figure's trend line and a link are drawn in. Its own token rather than the brand's soft tint read directly, because the record leaves the fill to the theme: a palette that wants a calmer band moves this one token, and the tint the hub tiles and the selected states share stays where it is. Every theme ships it at its soft tint. A figure's delta is not here: it is a pill with its own soft fill, held by the badge pairings wherever a band or a card puts it.",
+      "$comment": "The summary band's fill (ADR 0169 §4) and the three inks it carries: a figure's value and label, and the accent a figure's trend line and a link are drawn in. Its own token rather than the brand's soft tint read directly, because the record leaves the fill to the theme: a palette that wants a calmer band moves this one token, and the tint the hub tiles and the selected states share stays where it is. Every theme ships it at its soft tint, except night, whose band is a step darker than its tint so the subtle ink a line of Text may carry clears AA on it. A figure's delta is not here: it is a pill with its own soft fill, held by the badge pairings wherever a band or a card puts it.",
       "id": "body-on-summary",
       "label": "body text on the summary band",
       "fg": "--color-fg-default",
@@ -1474,6 +1474,13 @@
       "id": "muted-on-summary",
       "label": "muted text on the summary band",
       "fg": "--color-fg-muted",
+      "bg": "--color-bg-summary",
+      "layer": "semantic"
+    },
+    {
+      "id": "subtle-on-summary",
+      "label": "subtle text on the summary band",
+      "fg": "--color-fg-subtle",
       "bg": "--color-bg-summary",
       "layer": "semantic"
     },
@@ -1683,6 +1690,56 @@
       "label": "a danger status dot in a collection's cell, against the surface",
       "fg": "--color-status-danger",
       "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "$comment": "The same dots where an embedded collection or a card list draws its rows on the page's ground or on a container rather than on the surface. Danger on a container is already held to AA as text (danger-on-container), so it is not declared again here.",
+      "id": "status-dot-info-on-canvas",
+      "label": "a info status dot in a collection's cell, against the canvas",
+      "fg": "--color-status-info",
+      "bg": "--color-bg-canvas",
+      "layer": "semantic"
+    },
+    {
+      "id": "status-dot-success-on-canvas",
+      "label": "a success status dot in a collection's cell, against the canvas",
+      "fg": "--color-status-success",
+      "bg": "--color-bg-canvas",
+      "layer": "semantic"
+    },
+    {
+      "id": "status-dot-warning-on-canvas",
+      "label": "a warning status dot in a collection's cell, against the canvas",
+      "fg": "--color-status-warning",
+      "bg": "--color-bg-canvas",
+      "layer": "semantic"
+    },
+    {
+      "id": "status-dot-danger-on-canvas",
+      "label": "a danger status dot in a collection's cell, against the canvas",
+      "fg": "--color-status-danger",
+      "bg": "--color-bg-canvas",
+      "layer": "semantic"
+    },
+    {
+      "id": "status-dot-info-on-subtle",
+      "label": "a info status dot in a collection's cell, against the container",
+      "fg": "--color-status-info",
+      "bg": "--color-bg-subtle",
+      "layer": "semantic"
+    },
+    {
+      "id": "status-dot-success-on-subtle",
+      "label": "a success status dot in a collection's cell, against the container",
+      "fg": "--color-status-success",
+      "bg": "--color-bg-subtle",
+      "layer": "semantic"
+    },
+    {
+      "id": "status-dot-warning-on-subtle",
+      "label": "a warning status dot in a collection's cell, against the container",
+      "fg": "--color-status-warning",
+      "bg": "--color-bg-subtle",
       "layer": "semantic"
     },
     {

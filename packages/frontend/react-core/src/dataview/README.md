@@ -142,7 +142,9 @@ versioned envelope; corrupt data falls back to defaults) and
   is the word the dot stands for, so an empty cell gets none. `bar: true` (or
   `{ max, format }`) draws the column's number as a `Meter` scaled to the largest value among
   the rows shown — or to `max` — with the value printed beside it in the app's locale; a row
-  whose value is not a number renders as text, and a `cell` renderer is not used for a bar.
+  whose value is not a number renders as text, and a `cell` renderer is not used for a bar. A
+  percent column is drawn against 100%, its rates' own range, because a `Meter` prints a
+  percentage as the share of its range; a `max` beside a percent format is refused.
 - **Row tone**: `getRowTone={(row) => tone | null}` marks the *row* as being in a
   state (a refused link, a failed run) — the right altitude when the verdict belongs
   to the record, not to one of its cells. The row/card is tinted with the tone's soft

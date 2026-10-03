@@ -170,7 +170,9 @@ export function UserDetail() {
     >
       {record !== null && (
         <Stack gap={6}>
+          {/* The account's facts as a ruled sheet (ADR 0169 §5): short, several, read across. */}
           <DetailList
+            layout="grid"
             items={[
               { label: strings.email, value: record.email },
               { label: strings.role, value: adminRoleLabel(rungs, record.role) },

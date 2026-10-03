@@ -148,7 +148,9 @@ first phases, and every app's look moves with them.
   `theme.css` does not recompute another, so a theme that redeclares `--color-bg-canvas` or
   `--color-bg-surface` redeclares `--color-bg-subtle` too, usually as their midpoint — otherwise
   its containers keep the shipped tone, between two rungs the app no longer has
-  (`terp guide theming`). A theme that wants a calmer summary band moves `--color-bg-summary`.
+  (`terp guide theming`). `--color-bg-summary` is likewise a value of its own: a theme that
+  moves `--color-brand-primary-soft` for its brand moves the summary band's fill with it, or
+  the band keeps the shipped blue; a theme that wants a calmer band moves it alone.
 - **A per-palette selector in an app's `theme.css` uses the new theme names.** The theme toggle
   now writes `midday`, `evening` and `night` to the document, so a rule keyed on
   `[data-theme="light"]`, `[data-theme="dark"]` or `[data-theme="midnight"]` no longer matches.

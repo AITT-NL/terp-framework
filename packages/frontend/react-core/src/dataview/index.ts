@@ -23,6 +23,7 @@ export type {
   DataViewState,
   ViewStateRepository,
   ColumnWidth,
+  DataViewBar,
   DataViewColumn,
   DataViewColumnMeta,
   DataViewDensity,

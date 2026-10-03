@@ -987,44 +987,33 @@ textarea[data-terp="input"] {
   display: contents;
 }
 /* The ruled grid (ADR 0169 §5): a record's facts as a sheet. Each pair is a cell -- its label
-   above its value -- as many to a row as fit at 11rem, and the rules are drawn by the cells
-   themselves, the technique StatGroup uses: the rule before a cell sits in the middle of the
-   column gap, the rule above it on the cell's own top edge and reaching half the gap either
-   side, and the list's overflow clips whichever of them falls outside it -- so a cell that
-   starts a row has no rule before it and the first row none above it, however many render.
+   above its value -- padded half a gap all round, as many to a row as fit, and the list reaches
+   out by that half on both sides so the labels start on the line the content around them does.
+   StatGroup's construction, with a second rule: each cell draws a 1px shadow outside its start
+   edge and one outside its top edge, and the list's overflow clips the ones that fall outside it
+   -- so a cell that starts a row has no rule before it and the first row none above it, however
+   many render. The tracks meet with no gap, so the rules are continuous; the clip sits half a gap
+   outside the text, so a focus ring inside a cell keeps its sides.
 
-   The rows meet with no gap of their own, because the horizontal rule IS the row boundary and
-   the cells carry the breathing room as block padding. A gap from the gap prop opens space
-   between ruled rows on top of that (its rules are declared later and win on source order). */
+   12.5rem is 11rem of fact and the 1.5rem of its padding. A gap from the gap prop opens space
+   between ruled rows on top of this (its rules are declared later and win on source order). */
 [data-terp="detail-list"][data-layout="grid"] {
-  row-gap: 0;
-  column-gap: var(--space-6);
+  gap: 0;
+  margin-inline: calc(-1 * var(--space-3));
   overflow: hidden;
 }
 [data-terp="detail-list"][data-layout="grid"][data-columns="auto"] {
-  grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));
-  column-gap: var(--space-6);
+  grid-template-columns: repeat(auto-fit, minmax(min(12.5rem, 100%), 1fr));
+  column-gap: 0;
 }
 [data-terp="detail-list"][data-layout="grid"] > [data-terp="detail-list-row"] {
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding-block: var(--space-3);
-}
-[data-terp="detail-list"][data-layout="grid"] > [data-terp="detail-list-row"]::before {
-  content: "";
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: calc(-1 * var(--space-3));
-  border-inline-start: 1px solid var(--color-neutral-200);
-}
-[data-terp="detail-list"][data-layout="grid"] > [data-terp="detail-list-row"]::after {
-  content: "";
-  position: absolute;
-  inset-block-start: -1px;
-  inset-inline: calc(-1 * var(--space-3));
-  border-block-start: 1px solid var(--color-neutral-200);
+  padding: var(--space-3);
+  box-shadow:
+    -1px 0 0 0 var(--color-neutral-200),
+    0 -1px 0 0 var(--color-neutral-200);
 }
 [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-term"],
 [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-value"],
@@ -2912,10 +2901,11 @@ html:has([data-terp="page-sequence"]) {
 [data-terp="admin-form"] {
   max-width: 32rem;
 }
-/* A section heading inside a detail screen: the members list, the permission
-   grants. font-size-base rather than the UA default, which for an h2 is LARGER than
-   the page's own h1 at font-size-lg — so without this a section outranks the view
-   it sits in. */
+/* A section heading inside a detail screen: the access a person or a group holds per
+   module. An h3, the level a Card's title and a titled collection take, so the sections of
+   one screen sit at one level of its outline. font-size-base rather than the UA default for a
+   heading, which is larger than the page's own title -- so without this a section outranks
+   the view it sits in. */
 [data-terp="admin-section-title"] {
   margin: 0;
   font-size: var(--font-size-base);
@@ -4713,9 +4703,10 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 /* The sparkline: the full width of its tile at a fixed height, so sparklines side by side
    share a scale of height. The SVG stretches to its box, and non-scaling-stroke keeps the
-   line at its width through the stretch. The accent is a declared text pairing on every
-   ground a figure stands on -- surface, container, canvas and the summary band -- so the
-   line clears the 3:1 a graphic needs everywhere. The wash under it is reinforcement only. */
+   line at its width through the stretch. The accent is a declared pairing on every ground a
+   figure stands on -- text pairings on the surface, a container and the summary band, and the
+   focus ring's non-text pairing on the canvas -- so the line clears the 3:1 a graphic needs
+   everywhere. The wash under it is reinforcement only. */
 [data-terp="stat-trend"] {
   display: block;
   align-self: stretch;
@@ -4773,36 +4764,37 @@ button[data-terp="input"][data-placeholder="true"] {
   fill: var(--color-brand-primary-contrast);
 }
 /* A group of figures: one ruled row, unframed wherever it is placed. As many figures to a line
-   as fit at 8rem -- two on a phone, which 9rem did not manage inside a summary band at 420px --
-   and the rule between two figures is drawn in the middle of the column gap, from the figure
-   after it. A figure that starts a line has its rule in the
-   gap before the first track, which is outside the group -- and overflow: hidden is what
-   clips it, so no figure at a line's start carries a rule, however the row wraps. */
+   as fit -- two on a phone -- each a cell padded half a gap either side, and the group reaching
+   out by that half on both sides so the first figure's text starts on the line the content
+   around it does.
+
+   The rule before a figure is a 1px shadow outside its cell's start edge. For a figure that
+   starts a line that edge is the group's own, where overflow: hidden clips the shadow, so no
+   figure at a line's start carries a rule however the row wraps. The clip sits half a gap
+   outside the text rather than at it, which is the point of the padding: a focus ring on
+   something inside a figure has room to draw, where clipping at the text's edge cut its side
+   off -- the first version, rules drawn in the column gap, did exactly that.
+
+   9.5rem is 8rem of figure and the 1.5rem of its padding. */
 [data-terp="stat-group"] {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(8rem, 100%), 1fr));
-  gap: var(--space-4) var(--space-6);
+  grid-template-columns: repeat(auto-fit, minmax(min(9.5rem, 100%), 1fr));
+  row-gap: var(--space-4);
   min-width: 0;
+  margin-inline: calc(-1 * var(--space-3));
   overflow: hidden;
 }
 [data-terp="stat-group"] > [data-terp="stat"] {
-  position: relative;
-  padding: 0;
+  padding: 0 var(--space-3);
   border: 0;
   border-radius: 0;
   background: none;
-  box-shadow: none;
+  box-shadow: -1px 0 0 0 var(--color-neutral-200);
 }
-[data-terp="stat-group"] > [data-terp="stat"]::before {
-  content: "";
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: calc(-1 * var(--space-3));
-  border-inline-start: 1px solid var(--color-neutral-200);
-}
-/* The headline keeps its fill in a group, inset in its own padding, so it reads as the one
-   filled cell of the row. */
+/* The headline keeps its fill in a group, inset in its own padding and held off the next
+   figure by half a gap, so it reads as the one filled cell of the row. */
 [data-terp="stat-group"] > [data-terp="stat"][data-headline] {
+  margin-inline-end: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-lg);
   background: var(--color-brand-primary);

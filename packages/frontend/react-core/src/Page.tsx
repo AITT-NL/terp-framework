@@ -1,15 +1,18 @@
 import type { ReactNode } from "react";
-import { Fragment, useContext, useEffect, useRef, useState } from "react";
+import { Fragment, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { Breadcrumbs } from "./Breadcrumbs";
 import type { BreadcrumbItem, RenderBreadcrumbLink } from "./Breadcrumbs";
 import { ErrorState } from "./ErrorState";
 import {
+  HeadlineContext,
   LayoutSlotContext,
+  headlineViolationMessage,
   useLayoutContract,
-  verifyPageFrame,
+  verifyPageSummary,
   verifySlotChildren,
 } from "./layoutContract";
+import type { HeadlineRegistry } from "./layoutContract";
 import { LoadingState } from "./LoadingState";
 import { usePageMarker } from "./pageMarker";
 import { PageSequenceBar } from "./PageSequence";
@@ -171,8 +174,8 @@ export function Page({
   // allowed component's data-terp marker — verified one macrotask after mount (like the
   // page-archetype check) and refused fail closed with the lint rule's directive message.
   // The frame's own two rules (ADR 0169 §4) are checked on every page under a contract, the
-  // plain Page included: the summary band holds figures, and one figure at most is the
-  // headline.
+  // plain Page included: the summary band holds figures, checked here with the body; and one
+  // figure at most is the headline, counted as figures register below.
   const contract = useLayoutContract();
   const slotOwner = useContext(LayoutSlotContext);
   const articleRef = useRef<HTMLElement>(null);
@@ -190,13 +193,34 @@ export function Page({
       const body = [...article.children].filter((child) => child.tagName !== "HEADER");
       setSlotViolation(
         (slotOwner === null ? null : verifySlotChildren(contract, slotOwner, body)) ??
-          verifyPageFrame(contract, article),
+          verifyPageSummary(contract, article),
       );
     }, 0);
     return () => clearTimeout(timer);
   });
   if (slotViolation !== null) {
     throw new Error(slotViolation);
+  }
+  // Every figure marked headline under this page registers here when it mounts, so one that
+  // renders after its own data arrives is counted then; a nested page keeps a registry of its
+  // own. One registry for the page's life, so a figure's effect is not re-run by the page's.
+  const [headlines, setHeadlines] = useState(0);
+  const headlineRegistry = useMemo<HeadlineRegistry>(() => {
+    const registered = new Set<symbol>();
+    return {
+      register() {
+        const id = Symbol("headline");
+        registered.add(id);
+        setHeadlines(registered.size);
+        return () => {
+          registered.delete(id);
+          setHeadlines(registered.size);
+        };
+      },
+    };
+  }, []);
+  if (contract !== null && headlines > 1) {
+    throw new Error(headlineViolationMessage(contract, `${headlines} figures marked headline`));
   }
   // ALWAYS a trail, even of one, and that is the point rather than a simplification.
   // An overview's title has to be the same node in the same boxes as a detail's, or the name
@@ -252,7 +276,7 @@ export function Page({
   const hasSummary =
     showsBody && summary !== undefined && summary !== null && summary !== false && summary !== "";
   return (
-    <>
+    <HeadlineContext.Provider value={headlineRegistry}>
       <article ref={articleRef} data-terp="page" data-measure={measureAttribute}>
         {/* A <header> ELEMENT, and it has to stay one. The slot check above drops the header
             from the body set by tagName, so re-rendering this as a marked <div> would put it
@@ -310,6 +334,6 @@ export function Page({
           the page's place, like the band, and stepping past a record that failed to load is
           exactly when a reader wants it. */}
       {sequence !== undefined && <PageSequenceBar sequence={sequence} />}
-    </>
+    </HeadlineContext.Provider>
   );
 }
