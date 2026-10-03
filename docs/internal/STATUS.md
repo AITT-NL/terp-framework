@@ -894,13 +894,16 @@ accent — produced by the vocabulary rather than left to the author. This is ph
 frontend design-system track below.
 
 - [x] Forks decided and recorded as ADR 0169; ADR 0158's chart trigger amended in place.
-- [ ] The sequence in the draft, phases 1–6, each ending shippable; 1–3 ship as one release.
-      Phase 1 (the surface ladder) is built on top of #135–#139 (merged together, awaiting
-      their push to `main`), with its
-      baselines on both platforms; phase 2 (`Grid` templates, the `summary` band, `Stat` and
-      `StatGroup`, one headline per page) and phase 3 (`DataView` titles and counts, status
-      dots and bars, `DetailList`'s ruled grid, `Alert` actions) are built on top of it, which
-      completes the first release's three phases; 4–6 follow.
+- [x] The sequence in the draft, phases 1–6, each ending shippable. Phase 1 (the surface
+      ladder) is built on top of #135–#139 (merged together, awaiting their push to `main`),
+      with its baselines on both platforms; phase 2 (`Grid` templates, the `summary` band,
+      `Stat` and `StatGroup`, one headline per page) and phase 3 (`DataView` titles and counts,
+      status dots and bars, `DetailList`'s ruled grid, `Alert` actions) complete the first
+      release's three phases; phase 4 (`TrendChart`, `BarChart`, `ProportionBar`,
+      `StatusHistory`), phase 5 (`Timeline`, and the audit trail narrowed to one record) and
+      phase 6 (`DashboardPage`, and the hub preset scaffolded as one) complete the second.
+- [ ] Owed: the release cut (one release or two, ADR 0169 §8), the Studio's pin after it, and
+      which screen draws the charts first — open in the draft.
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list all
       seven now, and `test_layout_archetypes.py` reads every guide topic as well as the two
       `AGENTS.md` files and the react-core README.

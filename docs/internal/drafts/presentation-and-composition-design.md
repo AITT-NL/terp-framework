@@ -422,9 +422,12 @@ Every phase ends at a shippable point; nothing is half-wired between them.
         §4 says; a `DataView` column takes `history`.
       - The chart ramp is declared at 3:1 against the surface and the status cells against the
         summary band; the five chart tokens came off `UNREAD_TOKENS`.
-      **Framework consumer:** the scaffolded dashboard (phase 6), which ADR 0169 §6 names with the
-      `SyncRun` and `WebhookDelivery` data; the workbench's dashboard-shaped specimen is the
-      composition it will scaffold.
+      **Framework consumer:** this commit named the scaffolded dashboard of phase 6. That was
+      wrong: phase 6 found that a new app has no data over time, and its dashboard draws figures,
+      not charts (ADR 0169's second amendment). The charts stand on ADR 0169 §6's other
+      observation, the framework's own `SyncRun` and `WebhookDelivery` data, which no packaged
+      screen draws yet; the workbench's dashboard specimens are the composition such a screen
+      takes. Which screen comes first is open (below).
 - [x] **5 — Time and state.** `Timeline` for a record's audit trail; `StatusList` only if this
       phase names its consumer. **Built.** `Timeline` is an ordered list of events, each its
       words, a `<time>` with its instant, an optional detail and a toned marker. Its consumer
@@ -434,7 +437,7 @@ Every phase ends at a shippable point; nothing is half-wired between them.
       unreadable or empty. The four audit actions have words in both catalogs, which the audit
       log's action column uses too. **`StatusList` is not built:** no phase named a consumer for
       a check list, and the rule this phase was given was to build it only with one.
-- [ ] **6 — The archetype and the guidance.** `DashboardPage`; the scaffold's hub preset becomes a
+- [x] **6 — The archetype and the guidance.** `DashboardPage`; the scaffold's hub preset becomes a
       dashboard that keeps the Studio wizard's "Kerncijfers" promise; `terp guide layouts`
       rewritten around the vocabulary — a data-shape table an agent can follow — and its stale
       archetype lists fixed (below); the Studio's pin moved. **Started early, because the
@@ -444,6 +447,20 @@ Every phase ends at a shippable point; nothing is half-wired between them.
       `test_layout_archetypes.py` reads every `terp guide` topic as well as the three files —
       mutation-checked: the old four-name sentence fails it. The data-shape table and the frame
       rules are in `terp guide layouts` and both `AGENTS.md` files since phase 2.
+      **Built.** `DashboardPage` is the eighth archetype, its slot in both halves of the
+      contract; its body admits a little more than ADR 0169 §4 lists, recorded in the ADR's
+      second amendment. The hub preset renders one: three key figures in the summary band —
+      the dash, and a line saying they arrive with the first area's data — and the area cards in
+      a `"1:1:1"` section; the process, portal and blank landings render byte for byte as before.
+      End to end, the rendered hub app installed this branch's packed packages and wheels and
+      passed its own gates (routes, typecheck, lint, build, its Python suite, ruff and deptry);
+      in a browser its summary band, figures and three tracks rendered with no refusal, one
+      track on a phone, in `midday` and `night`, and the packaged user and group screens showed
+      their record's history from the branch's backend. The workbench's dashboard specimens
+      render `DashboardPage` and still match their baselines, which is the archetype adding a
+      slot and nothing else. **Not done:** the Studio's pin, which waits for a release; and
+      the DataView footer link phase 3 deferred to this phase, because the scaffolded dashboard
+      has no collection to link from until a module exists.
 
 Releases: phases 1–3 together, as the design-system track shipped 0.10.0, so consumers cross the
 styling change once; 4–6 after.
@@ -478,6 +495,19 @@ each fixed in one follow-up with a test that fails without the fix:
   dashboard of phase 6 as their framework consumer; until it lands the admin hub's totals are
   the one consumer in the framework.
 
+## Open after phase 6
+
+- **Which screen draws the charts first.** The charts are built and gated, and a module can
+  use them today, but no packaged screen does (ADR 0169's second amendment). Two candidates,
+  neither started, because each reshapes a surface: the admin hub as a dashboard over the base
+  profile's own data — users by status, the audit trail's activity — which needs an aggregate
+  read from the audit capability, since counting a paginated list in the browser is not one;
+  or packaged screens for sync runs and webhook deliveries, which needs those capabilities in
+  the typed client the framework's own screens use.
+- **The release.** ADR 0169 §8 ships phases 1–3 together and 4–6 after. All six are on this
+  branch, under one unreleased section of the changelog; cutting them as one release or two is
+  the owner's call.
+
 ## Found along the way
 
 Recorded so they are not lost; this proposal does not fix them on its own.
@@ -505,6 +535,14 @@ Recorded so they are not lost; this proposal does not fix them on its own.
   the same view, so a justified marker passes the build and fails the page. It predates this
   work and holds for the summary and headline rules exactly as for the body slots; it is a
   question for ADR 0079, not acted on here.
+- **Timestamps read from SQLite display as UTC wall time.** A timezone-aware column round-trips
+  naive on SQLite (the identity capability says so where it compares an expiry), so the API
+  serialises such a timestamp without an offset, and the browser reads a string without an
+  offset as local time. In the scaffolded app at UTC+2, an event recorded at 17:12 local showed
+  as 15:12 in the audit log, a record's history and its "Created" field alike. PostgreSQL
+  returns aware values and is not affected. It predates this work; the fix belongs in how the
+  API serialises a timestamp, not in the frontend, where a naive string can also be a
+  `datetime-local` input's local time.
 - `test_spec_catalog.py::test_frontend_catalog_covers_every_named_plugin_rule` fails on that
   workstation with or without this branch — the local terp-spec candidate lacks
   `no-framework-markers` (ADR 0160) — so it is an environment fact, not a regression.

@@ -158,3 +158,18 @@ the letter of ADR 0158's contract, so they are recorded here.
 - **A percent bar is drawn against 100%.** A `Meter` prints a percentage as the value's share of
   its range, so a column of rates scaled to its largest value printed shares; its rates' own
   range is 0 to 1, and a `max` beside a percent format is refused.
+
+## Amendment (2026-10-03): what building phases 4 to 6 settled
+
+- **The dashboard's body admits more than §4 lists.** Besides templated `Grid`s, the figure and
+  chart families, `DataView`, `Alert` and `Card`, it admits `Stack` — §2 makes nesting the way
+  to anything finer than a template, and `Stack` is what nests a column — `Timeline`, which §5
+  lists, `Divider` and `Text`, the framework's states, and `ConfirmDialog` for an alert's action,
+  as every other archetype with a free body does.
+- **The scaffolded dashboard draws figures, not charts.** A new app has no data over time, so
+  the hub preset's dashboard carries three key figures in its summary band, each the dash
+  until a module gives it a value, and the area cards in a templated section. A chart there
+  would be a drawing of nothing. So of §6's observations, the scaffold counts for the figure
+  family and the templates, and the charts stand on the framework's own data alone, which no
+  packaged screen draws yet: `SyncRun` and `WebhookDelivery` are not in the base profile the
+  typed client covers. Which screen should draw them first is left open.

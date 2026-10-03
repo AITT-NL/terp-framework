@@ -72,6 +72,8 @@ export type { OverflowAction, PageActionsProps } from "./PageActions";
 export { ModuleNav } from "./ModuleNav";
 export type { ModuleNavProps, ModuleNavTab } from "./ModuleNav";
 export { OverviewPage } from "./OverviewPage";
+export { DashboardPage } from "./DashboardPage";
+export type { DashboardPageProps } from "./DashboardPage";
 export type { OverviewPageProps } from "./OverviewPage";
 export { DetailPage } from "./DetailPage";
 export type { DetailPageProps } from "./DetailPage";

@@ -1798,8 +1798,8 @@ Frontend module screens (@terpjs/react-core)
   @terpjs/react-core for rich text; eval() / new Function() are refused; javascript:
   URLs in href/src are refused; a static target="_blank" link needs rel="noopener".
 - Every routed view renders a page archetype (Page / OverviewPage / DetailPage / HubPage /
-  FormPage / SettingsPage / SplitPage); buildAppRouter refuses an unframed view at runtime,
-  fail closed. An app can ratchet
+  DashboardPage / FormPage / SettingsPage / SplitPage); buildAppRouter refuses an unframed
+  view at runtime, fail closed. An app can ratchet
   further with an opt-in slot-typed layout contract (terp guide layouts).
 - Route paths and params are CHECKED, from generated types (ADR 0092). The router is built
   at runtime from the manifests, so nothing type-checks a path or a param name until you
@@ -2082,9 +2082,13 @@ Layout contracts (slot-typed layouts, ADR 0079)
       SettingsPage -> Card / Stack / Divider / Text + the same states and ConfirmDialog:
                       Card sections, no collection
       SplitPage    -> SplitPane only: a list beside the record it selects
-  Grid is a DETAIL-body component and not an overview one, deliberately: an overview
-  body is a data collection, and a grid of summary cards is a hub — which has its own
-  archetype. Heading is admitted nowhere: a heading in a governed body must OWN its
+      DashboardPage -> Grid / Stack / Card / DataView / Stat / StatGroup / TrendChart /
+                      BarChart / ProportionBar / Timeline / Divider / Text + the same
+                      states and ConfirmDialog: "how is the whole doing", its figures in
+                      the summary band
+  Grid is not an overview-body component, deliberately: an overview body is a data
+  collection, a grid of cards into each area is a hub, and sections of figures and charts
+  are a dashboard — each has its own archetype. Heading is admitted nowhere: a heading in a governed body must OWN its
   section, and Card (boxed, or variant="plain" for no chrome) is how a section is
   owned; a bare heading with siblings after it is a grouping the check cannot see.
   The plain Page's BODY stays unconstrained — it is the sanctioned home for a bespoke

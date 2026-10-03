@@ -145,9 +145,14 @@ def test_layout_presets_render_a_home_module() -> None:
     assert "defineModuleManifest(" in manifest
     assert 'path: "/"' in manifest
     view = (home / "Home.tsx.jinja").read_text()
-    # Hub/process/portal: a HubPage of cards, linking through the stack's router Link.
+    # Process/portal: a HubPage of cards, linking through the stack's router Link. Hub: a
+    # dashboard (ADR 0169) -- its key figures in the summary band, which is what the Studio
+    # wizard sells it for, and the area cards in a templated section below.
     assert "HubPage" in view
     assert "HubCard" in view
+    assert "DashboardPage" in view
+    assert "summary={" in view and "<StatGroup>" in view
+    assert 'template="1:1:1"' in view
     assert 'import { Link } from "@tanstack/react-router"' in view
     assert "renderLink=" in view
     assert "Werkvoorraad" in view

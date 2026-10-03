@@ -10,6 +10,7 @@ import {
   Code,
   Combobox,
   ConfirmDialog,
+  DashboardPage,
   DataView,
   DataViewCardList,
   DataViewColumnSettings,
@@ -1361,9 +1362,9 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         node: <DataView title="Sync definitions" repository={SYNC_REPOSITORY} columns={SYNC_HISTORY_COLUMNS} />,
       },
       {
-        // The shape a dashboard takes (ADR 0169): the figures in the summary band, a trend
-        // beside a ranking in a 2:1 section, and the collection, brightest, at the foot -- each
-        // block chosen by the shape of its data rather than by a style.
+        // The dashboard archetype (ADR 0169): the figures in the summary band, a trend beside a
+        // ranking in a 2:1 section, and the collection, brightest, at the foot -- each block
+        // chosen by the shape of its data rather than by a style.
         id: "dashboard-shape",
         title: "A dashboard's shape — figures, a trend beside a ranking, the collection",
         ready: '[data-terp="status-history"]',
@@ -1378,7 +1379,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
                 </a>
               )}
             >
-              <Page title="Overview" summary={<SyncSummary />}>
+              <DashboardPage title="Overview" summary={<SyncSummary />}>
                 <Grid template="2:1">
                   <TrendChart
                     label="Rows synced per week"
@@ -1396,7 +1397,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
                   />
                 </Grid>
                 <DataView title="Sync definitions" repository={SYNC_REPOSITORY} columns={SYNC_HISTORY_COLUMNS} />
-              </Page>
+              </DashboardPage>
             </AppShell>
           </div>
         ),
@@ -1417,7 +1418,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
                 </a>
               )}
             >
-              <Page title="Overview" summary={<SyncSummary />}>
+              <DashboardPage title="Overview" summary={<SyncSummary />}>
                 <Grid template="2:1">
                   <TrendChart label="Rows synced per week" mark="area" series={{ label: "This quarter", points: WEEKS }} />
                   <BarChart
@@ -1428,7 +1429,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
                     ]}
                   />
                 </Grid>
-              </Page>
+              </DashboardPage>
             </AppShell>
           </div>
         ),

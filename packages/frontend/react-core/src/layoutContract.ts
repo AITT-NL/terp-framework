@@ -47,8 +47,10 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
       "beside those: a form body is a container (Stack) with optional Grid / Card " +
       "sections and no Field at the top level, so the body is always a container rather " +
       "than a loose run of controls; a settings body is Card sections and holds no " +
-      "collection; and a split " +
-      "body is two SplitPanes and nothing else. A screen that needs no contract " +
+      "collection; a split " +
+      "body is two SplitPanes and nothing else; and a dashboard body is its figures and " +
+      "charts in Grid sections, the collection they summarise and the framework states. " +
+      "A screen that needs no contract " +
       "composes the plain Page, whose body this contract deliberately leaves unconstrained. " +
       "Every page, the plain one included, keeps two rules of its frame: its summary band " +
       "holds the page's own figures (Stat / StatGroup / StatusHistory / Badge / Text), and " +
@@ -103,6 +105,27 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
       },
       SplitPage: {
         components: { SplitPane: "splitpane" },
+      },
+      DashboardPage: {
+        components: {
+          Grid: "grid",
+          Stack: "stack",
+          Card: "card",
+          DataView: "dataview",
+          Stat: "stat",
+          StatGroup: "stat-group",
+          TrendChart: "trend-chart",
+          BarChart: "bar-chart",
+          ProportionBar: "proportion-bar",
+          Timeline: "timeline",
+          Divider: "divider",
+          Text: "text",
+          EmptyState: "empty-state",
+          ErrorState: "error-state",
+          LoadingState: "loading-state",
+          Alert: "alert",
+          ConfirmDialog: "dialog",
+        },
       },
       DetailPage: {
         components: {

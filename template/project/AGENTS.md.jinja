@@ -7,10 +7,12 @@ row scoping for you, with precise, fixable messages.
 ## This project's selections
 
 {% if layout == 'hub' -%}
-- **Layout: hub landing** — `frontend/src/modules/home` owns `/` (a `HubPage` of cards).
-  No module exists yet: the cards are placeholders pointing at `/`. When you build the
-  first module (`uv run terp new module <name>`, named after the actual domain), point
-  the cards at its route and add a `HubCard` per area as the app grows.
+- **Layout: hub landing** — `frontend/src/modules/home` owns `/` as a `DashboardPage`: the
+  app's key figures in the band under its title, and a `HubCard` per area below. No module
+  exists yet: the figures print a dash and the card points at `/`. When you build the first
+  module (`uv run terp new module <name>`, named after the actual domain), point the card at
+  its route and add one per area as the app grows, and give each figure its live value — a
+  `Stat` per figure the app is about, one of them its `headline` (`uv run terp guide layouts`).
 {%- elif layout == 'process' -%}
 - **Layout: process** — `frontend/src/modules/home` owns `/` as a status-based work
   queue. No module exists yet: the status cards are placeholders pointing at `/`. Build
@@ -263,8 +265,8 @@ react-core's own markers, which its stylesheet and the runtime layout check trus
 compose the component that renders one. A framework screen you replace, such as a custom
 sign-in passed to `renderTerpApp({ login })`, is yours: its tests find it by role and
 accessible name, not by the markers the framework's screen carries. Every routed view
-renders a page archetype (`Page` / `OverviewPage` / `DetailPage` / `HubPage` / `FormPage` /
-`SettingsPage` / `SplitPage`) — the router refuses an unframed view.
+renders a page archetype (`Page` / `OverviewPage` / `DetailPage` / `HubPage` /
+`DashboardPage` / `FormPage` / `SettingsPage` / `SplitPage`) — the router refuses an unframed view.
 This app also opts into the **`standard` layout contract** (ADR 0079), declared once in
 `frontend/layout-contract.json` — the lint rule finds the file and `main.tsx` imports it,
 so there is nothing to keep in sync. The same file is where the app's shell shape

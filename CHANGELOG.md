@@ -79,6 +79,13 @@ first phases, and every app's look moves with them.
   `target_id`, so a screen can ask for one record's events, and the packaged user and group
   screens show theirs, newest first; the audit log's action column now says each action in the
   app's words as well.
+- **A page that answers "how is the whole doing": `DashboardPage` (ADR 0169 §4).** Where an
+  overview answers "how is each one doing", a dashboard puts its figures in the `summary` band
+  and composes its body from the shape of its data: templated `Grid` sections holding figures
+  and charts side by side, the `DataView` the figures summarise, a `Timeline`, an `Alert` where
+  something needs action. Under the `standard` layout contract its body admits exactly those and
+  the framework states — refused by the lint and by the frame like every other archetype's slot,
+  each with the fix in its message.
 - Ten framework strings come with the figures, the charts and the history — `statFavourable`,
   `statUnfavourable`, `statTrend`, `statusHistoryRuns`, `adminHubTotal`, `recordHistory` and the
   four `auditAction…` words — in the English and Dutch catalogs.
@@ -137,6 +144,12 @@ first phases, and every app's look moves with them.
   label-to-value spacing to get wrong. `layout="inline"` brings the run back.
 - **A DataView card's status slot loses its grey pill**, which showed as a second, wider pill
   around a `Badge`; plain status text keeps `--color-fg-muted`.
+- **A new app's hub landing is a dashboard.** The `hub` layout scaffolds `/` as a
+  `DashboardPage`: three key figures in its summary band — the dash, and a line saying they
+  arrive with the first area's data, until a module gives each one its value — and the area
+  cards in a three-track section below, one column on a phone. The generated `AGENTS.md` tells
+  the agent to make them the app's live figures, one of them the headline. The process and
+  portal landings are unchanged.
 
 ### Fixed
 
@@ -179,6 +192,10 @@ first phases, and every app's look moves with them.
   the slate palette picks `evening` in the theme toggle.
 - **A `DetailList` without a `layout` now stacks.** Pass `layout="inline"` where the previous run
   of label and value is wanted.
+- **An existing hub landing stays a `HubPage`.** The landing is the app's own code, so the
+  upgrade does not touch it. To give it the dashboard's shape, render `DashboardPage` in place of
+  `HubPage`, with its figures as the `summary` and its cards — list items — in a
+  `<Grid as="ul" template="1:1:1">` (`terp guide layouts`).
 
 ## 0.30.0 — 2026-10-02
 

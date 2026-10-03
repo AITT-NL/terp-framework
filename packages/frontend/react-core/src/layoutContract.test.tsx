@@ -10,6 +10,9 @@ import { afterEach, describe, expect, it } from "vitest";
 // @ts-expect-error — monorepo-relative untyped JS import, test-only
 import * as lintLayouts from "../../eslint-boundaries/src/layouts.js";
 
+import { BarChart } from "./charts/BarChart";
+import { TrendChart } from "./charts/TrendChart";
+import { DashboardPage } from "./DashboardPage";
 import { DetailPage } from "./DetailPage";
 import { FormPage } from "./FormPage";
 import { SettingsPage } from "./SettingsPage";
@@ -174,6 +177,7 @@ describe("every archetype the package exports is governed, or says it is not", (
   it("finds the archetype exports it is meant to check", () => {
     // Vacuity guard: a derivation that matched nothing would make every assertion below pass.
     expect(exported).toEqual([
+      "DashboardPage",
       "DetailPage",
       "FormPage",
       "HubPage",
@@ -427,8 +431,10 @@ describe("layout contract survives the roots the styling migration renames", () 
         Object.values(slot.components),
       ),
     );
+    // The dashboard's body (ADR 0169 §4) added the figure and chart families and the timeline.
     expect([...named].sort()).toEqual([
       "alert",
+      "bar-chart",
       "card",
       "dataview",
       "detail-list",
@@ -441,11 +447,16 @@ describe("layout contract survives the roots the styling migration renames", () 
       "hubcard",
       "loading-state",
       "module-nav",
+      "proportion-bar",
       "resource-list",
       "splitpane",
       "stack",
+      "stat",
+      "stat-group",
       "tabs",
       "text",
+      "timeline",
+      "trend-chart",
     ]);
   });
 
@@ -775,5 +786,35 @@ describe("the summary band admits a status history (ADR 0169 §4)", () => {
       </Page>,
     );
     await expectAccepted();
+  });
+});
+
+describe("the dashboard's body (ADR 0169 §4)", () => {
+  it("passes figures and charts in a templated section, and the collection they summarise", async () => {
+    underContract(
+      <DashboardPage title="Overview" summary={<StatGroup><Stat label="Runs" value={84} /></StatGroup>}>
+        <Grid template="2:1">
+          <TrendChart label="Runs per day" series={{ label: "Runs", points: [{ label: "Mon", value: 3 }] }} />
+          <BarChart label="By source" bars={[{ label: "Ledger", value: 9 }]} />
+        </Grid>
+        <TrendChart label="Rows" mark="columns" series={{ label: "Rows", points: [{ label: "Mon", value: 3 }] }} />
+        <Stat label="Failed runs" value={3} />
+      </DashboardPage>,
+    );
+    await expectAccepted();
+  });
+
+  it("refuses a body block the dashboard does not admit, with the directive message", async () => {
+    // Mutation: drop the DashboardPage slot table, and the dashboard's body is unconstrained.
+    underContract(
+      <DashboardPage title="Overview">
+        <div>hand-rolled tiles</div>
+      </DashboardPage>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("refused").textContent).toBe(
+        slotViolationMessage("standard", "DashboardPage", "<div>"),
+      );
+    });
   });
 });

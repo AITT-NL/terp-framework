@@ -114,6 +114,16 @@ describe("terp/layout-contract — the page frame's two rules (ADR 0169 §4)", (
   const imports =
     'import { Badge, Card, DataView, DetailPage, OverviewPage, Page, Stack, Stat, StatGroup, Text } from "@terpjs/react-core";\n';
 
+  it("governs a dashboard's body: figures and charts pass, a bare element is refused", async () => {
+    const code =
+      'import { BarChart, DashboardPage, Grid, Stat, TrendChart } from "@terpjs/react-core";\n' +
+      "export const D = ({title, points}) => <DashboardPage title={title}><Grid template=\"2:1\"><TrendChart label={title} series={points} /><BarChart label={title} bars={[]} /></Grid><Stat label={title} value={1} /></DashboardPage>;\n" +
+      "export const E = ({title}) => <DashboardPage title={title}><div /></DashboardPage>;";
+    expect((await lint(code, configWithContract("standard"))).map((m) => m.message)).toEqual([
+      slotViolationMessage("standard", "DashboardPage", "<div>"),
+    ]);
+  });
+
   it("passes a status history in the summary", async () => {
     const code =
       'import { Page, StatusHistory } from "@terpjs/react-core";\n' +

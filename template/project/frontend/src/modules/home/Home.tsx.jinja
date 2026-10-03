@@ -1,8 +1,19 @@
-{% if layout in ['hub', 'process', 'portal'] -%}
+{% if layout == 'hub' -%}
+// The hub landing is a dashboard: the app's key figures in the band under its title, and a
+// card per area below. Both are placeholders until the first module lands -- point the cards at
+// its routes, and give each figure its live value (`uv run terp guide layouts`). Every stable
+// label is a cataloged UiText descriptor.
+import { DashboardPage, Grid, HubCard, Stat, StatGroup, Text, Trans } from "@terpjs/react-core";
+import { Link } from "@tanstack/react-router";
+{%- else %}
+{%- if layout in ['process', 'portal'] -%}
 // The {{ layout }} landing is a placeholder HubPage. Point its cards at real module routes
 // as those modules arrive; every stable label is a cataloged UiText descriptor.
 import { HubCard, HubPage, Trans } from "@terpjs/react-core";
 import { Link } from "@tanstack/react-router";
+{%- endif %}
+{%- endif %}
+{%- if layout in ['hub', 'process', 'portal'] %}
 
 const APP_TITLE = "{{ project_name }}";
 {% if layout == 'process' -%}
@@ -23,10 +34,47 @@ const ACTIONS_DESCRIPTION = { id: "home.portal.actions.description", message: "H
 const PAGE_TITLE = APP_TITLE;
 const FIRST_TITLE = { id: "home.hub.first.title", message: "Eerste onderdeel" };
 const FIRST_DESCRIPTION = { id: "home.hub.first.description", message: "Hier komt je eerste onderdeel. Bouw het via de chat of met `terp new module`." };
+const FIGURE_ONE = { id: "home.hub.figure.one", message: "Eerste kerncijfer" };
+const FIGURE_TWO = { id: "home.hub.figure.two", message: "Tweede kerncijfer" };
+const FIGURE_THREE = { id: "home.hub.figure.three", message: "Derde kerncijfer" };
 {%- endif %}
 
 export function Home() {
   return (
+{%- if layout == 'hub' %}
+    // The figures are the page's summary (ADR 0169): the dash until a module gives each one a
+    // value, and a line saying so. The areas sit in a three-track section that becomes one
+    // column on a phone; a fourth area joins the next row.
+    <DashboardPage
+      title={PAGE_TITLE}
+      summary={
+        <>
+          <StatGroup>
+            <Stat label={FIGURE_ONE} value={null} />
+            <Stat label={FIGURE_TWO} value={null} />
+            <Stat label={FIGURE_THREE} value={null} />
+          </StatGroup>
+          <Text tone="muted">
+            <Trans
+              id="home.hub.figures.note"
+              message="Hier komen je kerncijfers zodra het eerste onderdeel gegevens heeft."
+            />
+          </Text>
+        </>
+      }
+    >
+      <Grid as="ul" template="1:1:1">
+        <HubCard
+          to="/"
+          title={FIRST_TITLE}
+          description={FIRST_DESCRIPTION}
+          renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
+        />
+      </Grid>
+    </DashboardPage>
+  );
+}
+{%- else %}
     <HubPage title={PAGE_TITLE}>
 {% if layout == 'process' -%}
       <HubCard
@@ -65,17 +113,11 @@ export function Home() {
         stat={<Trans id="home.portal.actions.stat" message="Actie nodig" />}
         renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
       />
-{%- else -%}
-      <HubCard
-        to="/"
-        title={FIRST_TITLE}
-        description={FIRST_DESCRIPTION}
-        renderLink={({ to, children }) => <Link to={to}>{children}</Link>}
-      />
 {%- endif %}
     </HubPage>
   );
 }
+{%- endif %}
 {%- else -%}
 // The blank-shell landing. Product names and commands are intentionally not translated;
 // every stable sentence goes through Trans and is checked against frontend/i18n.json.

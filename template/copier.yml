@@ -66,7 +66,8 @@ project_slug:
 # domain — so there is nothing generic to rename or delete. The presets
 # differ only in the home page that greets a signed-in user.
 #   blank — a welcome page; modules are built afterwards.
-#   hub   — a HubPage landing at "/" with placeholder cards to wire up.
+#   hub   — a DashboardPage landing at "/": placeholder key figures in its summary
+#           band and placeholder cards to wire up.
 #   process — a work-queue landing grouped by status (placeholder cards).
 #   portal  — a personal landing focused on the signed-in user (placeholder
 #             cards; apply an ownership trait when modules arrive).
@@ -77,7 +78,7 @@ layout:
   default: blank
   choices:
     "Blank shell — sign-in and admin only; add modules later": blank
-    "Hub landing — a dashboard of cards into each area": hub
+    "Hub landing — a dashboard: the key figures, and a card into each area": hub
     "Process — a status-based work queue for requests and cases": process
     "Portal — a personal overview for customers, staff or suppliers": portal
     # Legacy alias: projects rendered before the starter module's retirement
