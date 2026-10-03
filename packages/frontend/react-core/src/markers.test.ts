@@ -399,8 +399,9 @@ const INLINE_BASE_STYLES: Record<string, number> = {};
  *   - A measured value the sheet has no business owning. `icons.tsx` and `LoadingState.tsx`
  *     size a box from a prop taking any CSS length; `layout.tsx` passes Stack's `align` /
  *     `justify`, an open vocabulary CSS already has; `ui/Popover.tsx` positions its panel
- *     from a rect measured at runtime; `dataview/DataViewTable.tsx` carries a column's width
- *     while it is being dragged.
+ *     from a rect measured at runtime, and `ui/Tooltip.tsx` its bubble the same way, for the
+ *     same reason (a portalled, fixed bubble has no box the sheet could place it against);
+ *     `dataview/DataViewTable.tsx` carries a column's width while it is being dragged.
  *   - The caller's own `style` prop, forwarded to a root. `ui/Checkbox.tsx`, `ui/Radio.tsx`,
  *     `ui/Switch.tsx` and `ui/Combobox.tsx` do this and nothing else — it is not the
  *     component styling itself, it is the escape a framework component owes its caller, and
@@ -428,6 +429,7 @@ const INLINE_STYLE_SITES: Record<string, number> = {
   "./ui/Popover.tsx": 1,
   "./ui/Radio.tsx": 1,
   "./ui/Switch.tsx": 1,
+  "./ui/Tooltip.tsx": 1,
 };
 
 /**
