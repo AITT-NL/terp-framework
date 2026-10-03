@@ -330,7 +330,7 @@ Every phase ends at a shippable point; nothing is half-wired between them.
 
 - [x] **0 — Decide.** Every fork and open point went the recommended way, recorded as ADR 0169,
       with ADR 0158's trigger amended in place.
-- [ ] **1 — The surface ladder.** Wire `--color-bg-canvas`; add `--color-bg-subtle` with its readers
+- [x] **1 — The surface ladder.** Wire `--color-bg-canvas`; add `--color-bg-subtle` with its readers
       (page band, boxed Card, HubCard); raise the DataView frame. Pairings, completeness and
       baselines re-recorded deliberately — every app's look moves here, so the release says so.
       **Built on top of #135–#139, merged together and awaiting their push to `main`:** canvas
@@ -340,8 +340,8 @@ Every phase ends at a shippable point; nothing is half-wired between them.
       the HubCard body, the profile card, the page band and #139's sequence bar, which carries
       the band's fill by design; the full DataView frame raised to `--shadow-md`; and `terp
       guide theming` saying the three backgrounds move as a set. Four gates mutation-checked,
-      on the first build and again on this one. **Owed:** the release note, written against the
-      version phases 1–3 ship in.
+      on the first build and again on this one. The release note is written, in the unreleased
+      0.31.0 section's Changed entries and the upgrade notes on moving the backgrounds as a set.
 - [x] **2 — Composition and figures.** `Grid` `template`; the `summary` slot; `Stat` and `StatGroup`
       with delta, sentiment and the sparkline (0158's first named kind); the one-headline check;
       both halves of the contract widened. **Built**, on top of phase 1. What the commit decided:
