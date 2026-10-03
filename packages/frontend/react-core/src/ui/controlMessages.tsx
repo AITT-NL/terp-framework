@@ -65,7 +65,16 @@ export function useControlMessages(
     // render it outside any label, get the same box.
     messages:
       hint === undefined && !hasError ? null : (
-        <span data-terp="field-messages">
+        <span
+          data-terp="field-messages"
+          // Field puts this box inside its <label>, and a click anywhere in a label that is
+          // not itself interactive is forwarded to the label's control: clicking or
+          // double-click-selecting an error opened a Select or a DatePicker, and toggled a
+          // checkbox. Cancelling the click skips the label's activation and nothing else —
+          // the box holds text only, so there is no link or button in it to break, and outside
+          // a label (Checkbox, Switch, Radio) a click on a span has no default to cancel.
+          onClick={(event) => event.preventDefault()}
+        >
           {hint !== undefined && (
             <span id={hintId} data-terp="field-hint">
               {resolve(hint)}

@@ -87,6 +87,16 @@ function useActionDensity(): ActionDensity {
   return density;
 }
 
+/**
+ * Whether a slot draws anything. React draws nothing for `false`, `null`, `undefined` or an
+ * empty string, so `primary={canCreate && <Button>…</Button>}` with `canCreate` false is not an
+ * action — counted as one, it turned a lone supporting action into a bare icon, or folded two
+ * of them into the menu on a phone.
+ */
+function renders(node: ReactNode): boolean {
+  return node !== undefined && node !== null && typeof node !== "boolean" && node !== "";
+}
+
 function actionKey(action: OverflowAction): string {
   return typeof action.label === "string" ? action.label : action.label.id;
 }
@@ -127,8 +137,7 @@ export function PageActions({
   const supporting = secondaryActions ?? [];
   const rare = overflow ?? [];
   // How many actions the slot shows, which decides the form as much as the width does.
-  const count =
-    (primary === undefined ? 0 : 1) + (secondary === undefined ? 0 : 1) + supporting.length;
+  const count = (renders(primary) ? 1 : 0) + (renders(secondary) ? 1 : 0) + supporting.length;
   // On a phone, and only with more than two, the supporting actions stop being buttons and
   // become the top of the menu. Order is deliberate: what the page offers first, then what it
   // keeps back.
@@ -139,12 +148,7 @@ export function PageActions({
   // Below the widest region, an icon stands in for a label only beside other actions.
   const iconOnly = density !== "labels" && count > 1;
 
-  if (
-    primary === undefined &&
-    secondary === undefined &&
-    supporting.length === 0 &&
-    rare.length === 0
-  ) {
+  if (!renders(primary) && !renders(secondary) && supporting.length === 0 && rare.length === 0) {
     return null;
   }
 

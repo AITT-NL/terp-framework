@@ -1969,7 +1969,7 @@ Theming and branding (design tokens, palettes, the brand mark)
 
       frontend/layout-contract.json -> { "defaultTheme": "night" }
 
-  Legal values are the five above plus "system". Passing `defaultTheme` as a bootstrap
+  Legal values are the palettes named above, plus "system". Passing `defaultTheme` as a bootstrap
   option as well is refused (terp guide layouts). Your organisation's styling tool may
   seed this key; changing it here makes it yours and later rollouts leave it alone.
 

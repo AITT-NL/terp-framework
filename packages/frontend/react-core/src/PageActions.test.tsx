@@ -182,6 +182,42 @@ describe("PageActions", () => {
     }
   });
 
+  it("counts only what renders: a primary that is false or null is not an action", () => {
+    // `primary={canCreate && <Button>New</Button>}` with canCreate false. Counted as an
+    // action, it made the lone supporting action a bare icon in the middle region.
+    // Mutation: count `primary !== undefined` again, and Discard loses its label.
+    stubRegion("medium");
+    for (const primary of [false, null] as const) {
+      const { unmount } = render(<PageActions primary={primary} secondaryActions={SUPPORTING} />);
+      expect(screen.getByRole("button", { name: "Discard" })).toHaveTextContent("Discard");
+      unmount();
+    }
+  });
+
+  it("does not fold two supporting actions into a menu beside a primary that is not rendered", () => {
+    // Two actions fit a phone's line; a primary of null made the count three, and folded both
+    // into a menu of two. Mutation: count `primary !== undefined` again, and Discard is gone.
+    stubRegion("narrow");
+    render(
+      <PageActions
+        primary={null}
+        secondaryActions={[
+          ...SUPPORTING,
+          { label: "Duplicate", icon: <svg aria-hidden="true" focusable={false} />, onSelect: () => {} },
+        ]}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More actions" })).toBeNull();
+  });
+
+  it("returns no wrapper when every slot is empty or not rendered", () => {
+    // Mutation: test `primary === undefined` again in the early return, and an empty cluster
+    // div is left in the band.
+    const { container } = render(<PageActions primary={false} secondary={null} />);
+    expect(container.firstChild).toBeNull();
+  });
+
   it("keeps the primary action labelled at every width", () => {
     // The decision ADR 0135 records: everything around the primary gives way, the primary
     // never does. Asserted in the narrowest region, where the pressure to fold it is highest.

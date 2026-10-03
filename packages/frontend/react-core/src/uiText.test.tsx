@@ -13,6 +13,7 @@ import {
   UiTextProvider,
   usePlural,
   useUiText,
+  fillPlaceholders,
 } from "./uiText";
 import type { PluralText } from "./uiText";
 
@@ -244,5 +245,20 @@ describe("FrameworkText", () => {
       ],
     });
     expect(manifest.nav).toHaveLength(1);
+  });
+});
+
+describe("fillPlaceholders", () => {
+  it("fills the names it is given and leaves any other as written", () => {
+    expect(fillPlaceholders("{current} of {total}", { current: 4, total: 23 })).toBe("4 of 23");
+    expect(fillPlaceholders("{current} of {total}", { current: 4 })).toBe("4 of {total}");
+  });
+
+  it("leaves a name every object inherits as written", () => {
+    // `key in values` matched inherited members, so a catalog typo of {constructor} printed
+    // the source text of Object. Mutation: `key in values` again, and this fails.
+    expect(fillPlaceholders("{current} {constructor} {toString}", { current: 4 })).toBe(
+      "4 {constructor} {toString}",
+    );
   });
 });

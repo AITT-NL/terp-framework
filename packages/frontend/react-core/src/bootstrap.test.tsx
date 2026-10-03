@@ -231,6 +231,30 @@ describe("renderTerpApp", () => {
     }
   });
 
+  it("refuses a palette passed as an option that names no theme", () => {
+    // Resolved to undefined, an unknown name was dropped twice over: the app opened on another
+    // palette, and a palette also declared in the file was no longer reported as declared in
+    // both places. Refused now in the resolver's own words, as the file's is.
+    // Mutation: resolve it with `?? undefined` again, and both calls return quietly.
+    for (const layout of [undefined, { defaultTheme: "night" }] as const) {
+      const root = document.createElement("div");
+      document.body.appendChild(root);
+      try {
+        expect(() =>
+          renderTerpApp({
+            title: "Test",
+            modules: { "./modules/notes/module.tsx": notesModule },
+            layout,
+            defaultTheme: "midnite" as never,
+            rootElement: root,
+          }),
+        ).toThrow(/renderTerpApp: "defaultTheme" is "midnite"; expected one of "midday"/);
+      } finally {
+        root.remove();
+      }
+    }
+  });
+
   it("names every doubly-declared key at once, groups included", async () => {
     // The property the resolver's `conflicts.join("; ")` exists for, asserted through the entry
     // point apps use — and it was broken here. `renderTerpApp` resolves the declaration itself

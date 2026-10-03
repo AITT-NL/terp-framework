@@ -103,6 +103,57 @@ describe("Tooltip", () => {
     );
   });
 
+  it("renders the bubble inside its trigger's dialog, the one place above the top layer", () => {
+    // A modal dialog is in the top layer, and a bubble portalled to the body painted behind it
+    // and its backdrop whatever its z-index -- measured in Chromium. Inside the dialog it is
+    // painted with it.
+    // Mutation: portal to the body again, and the bubble's parent is the body.
+    render(
+      <dialog open data-testid="dialog">
+        <Tooltip content="More information" defaultOpen>
+          <Button>Help</Button>
+        </Tooltip>
+      </dialog>,
+    );
+    expect(screen.getByRole("tooltip").parentElement).toBe(screen.getByTestId("dialog"));
+  });
+
+  it("is placed again when its text changes while it is open", () => {
+    // "Copy" becoming "Copied to clipboard" under the pointer: the bubble grows, and a bubble
+    // placed for the short text ran past the window's right edge.
+    // Mutation: drop the text from the placement's dependencies, and the long bubble keeps the
+    // left it was given for "Copy".
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const marker = this.getAttribute("data-terp");
+      if (marker === "tooltip-anchor") {
+        return { left: 900, right: 960, top: 300, bottom: 336, width: 60, height: 36 } as DOMRect;
+      }
+      if (marker === "tooltip") {
+        const width = (this.textContent ?? "").length * 10;
+        return { left: 0, right: width, top: 0, bottom: 40, width, height: 40 } as DOMRect;
+      }
+      return original.call(this);
+    };
+    try {
+      const { rerender } = render(
+        <Tooltip content="Copy" defaultOpen>
+          <Button>Copy</Button>
+        </Tooltip>,
+      );
+      const tooltip = screen.getByRole("tooltip");
+      expect(tooltip.style.left).toBe("900px");
+      rerender(
+        <Tooltip content="Copied to clipboard" defaultOpen>
+          <Button>Copy</Button>
+        </Tooltip>,
+      );
+      expect(tooltip.style.left).toBe(`${window.innerWidth - 190 - 8}px`);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = original;
+    }
+  });
+
   it("stays open while the pointer moves from the trigger onto the portalled bubble", () => {
     // Hoverable survives the portal because React dispatches enter and leave along the
     // component tree, where the bubble is still inside the anchor. Driven with the native pair

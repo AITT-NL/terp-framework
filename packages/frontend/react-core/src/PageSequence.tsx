@@ -2,7 +2,7 @@ import type { AnchorHTMLAttributes, ReactNode } from "react";
 
 import { Icon } from "./icons";
 import { useNavLink } from "./navLink";
-import { useStrings, useUiText } from "./uiText";
+import { fillPlaceholders, useStrings, useUiText } from "./uiText";
 import type { UiText } from "./uiText";
 
 /** One neighbour of the current page: what it is called, and where it lives. */
@@ -42,13 +42,6 @@ export interface PageSequence {
   position?: { current: number; total: number };
 }
 
-/** `{name}` placeholders filled from *values*; an unknown name is left as written. */
-function fill(template: string, values: Record<string, string | number>): string {
-  return template.replace(/\{(\w+)\}/g, (match, key: string) =>
-    key in values ? String(values[key]) : match,
-  );
-}
-
 /**
  * The sequence bar `Page` renders after its article when given a `sequence`.
  *
@@ -78,7 +71,7 @@ export function PageSequenceBar({ sequence }: { sequence: PageSequence }) {
     // a screen reader hears "Previous: Order 1016", a voice user can still say "Order 1016".
     const attributes: Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href"> = {
       rel: direction,
-      "aria-label": fill(
+      "aria-label": fillPlaceholders(
         direction === "prev" ? strings.pageSequencePrevious : strings.pageSequenceNext,
         { label },
       ),
@@ -108,7 +101,7 @@ export function PageSequenceBar({ sequence }: { sequence: PageSequence }) {
       </span>
       <span data-terp="page-sequence-position">
         {position !== undefined &&
-          fill(strings.pageSequencePosition, {
+          fillPlaceholders(strings.pageSequencePosition, {
             current: position.current,
             total: position.total,
           })}

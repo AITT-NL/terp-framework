@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { THEME_ALIASES } from "./themes";
 import { DEFAULT_STRINGS } from "./uiText";
 
 // react-core's theme list against the contract's published one.
@@ -131,5 +132,19 @@ describe("react-core's theme list", () => {
     // or "System" would render a palette the user cannot pick deliberately.
     expect(shipped).toContain(manifest.systemDark);
     expect(shipped).toContain(manifest.base);
+  });
+});
+
+describe("the earlier theme names", () => {
+  it("resolves exactly the earlier names the registry publishes", () => {
+    // themes.json lists each theme's earlier names, the generator compiles them into the sheet
+    // and the manifest publishes them -- and THEME_ALIASES is a second, hand-written copy that
+    // the provider, the layout resolver and the bootstrap option all resolve through. An alias
+    // added to the registry alone was styled and published, and refused at runtime.
+    // Mutation: drop "midnight" from THEME_ALIASES, and this fails.
+    const published = Object.fromEntries(
+      manifest.themes.flatMap((theme) => theme.aliases.map((alias) => [alias, theme.name])),
+    );
+    expect(THEME_ALIASES).toEqual(published);
   });
 });

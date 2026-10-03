@@ -4,9 +4,9 @@ import type { ReactNode } from "react";
 import { useFormatDate } from "../format";
 import { injectTerpStyles } from "../styles";
 import { Menu, MenuItem } from "../ui/Menu";
-import { isPluralText, usePlural, useStrings, useUiText } from "../uiText";
+import { fillPlaceholders, isPluralText, usePlural, useStrings, useUiText } from "../uiText";
 import type { PluralText, ResolveUiText, TerpStrings, UiText } from "../uiText";
-import { formatDataViewString } from "./types";
+
 import type { DataViewStrings } from "./types";
 
 injectTerpStyles();
@@ -108,9 +108,9 @@ export function useDataViewText(): DataViewTextApi {
     () => ({
       strings: { ...dataViewStrings(framework), ...overrides },
       resolve,
-      format: (text, values) => formatDataViewString(resolve(text), values),
+      format: (text, values) => fillPlaceholders(resolve(text), values),
       formatCount: (text, count, values) =>
-        formatDataViewString(isPluralText(text) ? plural(text, count) : resolve(text), values),
+        fillPlaceholders(isPluralText(text) ? plural(text, count) : resolve(text), values),
     }),
     [framework, overrides, resolve, plural],
   );

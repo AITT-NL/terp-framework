@@ -29,6 +29,7 @@ theme cannot ship without this file learning about it.
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 
@@ -144,6 +145,26 @@ def test_the_bootstrap_validates_against_the_shipped_theme_list() -> None:
     assert sorted(_array(_bootstrap(), "THEMES")) == sorted(
         re.findall(r'"([^"]+)"', published.group(1))
     ), "the bootstrap's theme list must be the list the provider validates against"
+
+
+def test_the_bootstrap_resolves_the_names_the_registry_lists() -> None:
+    # A stored "dark" is resolved to "evening" by this script before anything renders, so its
+    # alias map is the third hand-written copy of the registry's (themes.json, themes.ts and
+    # this). One alias added to the registry alone is compiled into the sheet and published in
+    # the manifest, and then a stored old name falls back to the default here, before paint.
+    # Mutation: drop ``midnight`` from the script's ALIASES, and this fails.
+    registry = json.loads(
+        (_REPO_ROOT / "packages" / "frontend" / "contract" / "themes.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    published = {
+        alias: theme["name"] for theme in registry["themes"] for alias in theme.get("aliases", [])
+    }
+    match = re.search(r"var\s+ALIASES\s*=\s*\{(.*?)\}\s*;", _bootstrap(), re.DOTALL)
+    assert match, "the bootstrap should declare ALIASES"
+    shipped = dict(re.findall(r'(\w+)\s*:\s*"([^"]+)"', match.group(1)))
+    assert shipped == published, "the bootstrap must resolve exactly the names themes.json lists"
 
 
 def test_the_bootstrap_knows_which_palettes_are_dark() -> None:

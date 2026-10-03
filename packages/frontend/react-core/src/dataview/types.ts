@@ -242,16 +242,6 @@ export interface DataViewStrings {
   resizeColumn: UiText;
 }
 
-/** Tiny `{placeholder}` formatter for the countable strings above. */
-export function formatDataViewString(
-  template: string,
-  values: Record<string, string | number>,
-): string {
-  return template.replace(/\{(\w+)\}/g, (match, key: string) =>
-    key in values ? String(values[key]) : match,
-  );
-}
-
 /** Resolve a row-action boolean-or-predicate flag against a row. */
 export function resolveRowFlag<T>(
   flag: boolean | ((row: T) => boolean) | undefined,

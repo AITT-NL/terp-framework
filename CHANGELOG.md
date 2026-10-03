@@ -54,14 +54,17 @@ of the window; fields side by side did not line up; and three dark palettes name
   no longer sits alone under a one-word title on a phone.
 - **`PageActions` collapses by count as well as width.** Below the widest region an action with
   an icon drops its label only when the slot holds more than one action, and on a phone the
-  supporting actions fold into the menu only when there are more than two.
+  supporting actions fold into the menu only when there are more than two. Only actions that
+  render are counted, so `primary={canCreate && <Button>New</Button>}` with `canCreate` false is
+  not one.
 - **A `Card` header has the band's shape.** Title and actions share a line, the actions wrapping
   under the title when they do not fit, and the description takes a line of its own at full
   width instead of losing width to the actions beside it.
 - **Fields line up side by side.** A `Grid` whose children are all fields shares a label line and
   a body line across each row, each label at the foot of its line above its control, and
   `FieldRow` does the same; the hint and the error sit in the field's body, so no shared line is
-  ever empty. The accessible name is unchanged.
+  ever empty. The accessible name is unchanged, and a click on the hint or the error is not a
+  click on the control.
 - **`DetailList` stacks by default**, label above value — the one layout with no
   label-to-value spacing to get wrong. `layout="inline"` brings the run back.
 - **A DataView card's status slot loses its grey pill**, which showed as a second, wider pill
@@ -72,9 +75,10 @@ of the window; fields side by side did not line up; and three dark palettes name
 - **A tooltip stays readable.** The bubble was a positioned child of its anchor, so a scroll
   container clipped it — a tooltip in a DataView cell ended at the table's edge — it wrapped to its
   trigger's width, and it always opened above, off the top of the window for a page band's action.
-  It is portalled to the body and placed from measurements: above if it fits, below if not,
-  clamped inside the viewport, as wide as its message. Hovering onto the bubble still keeps it
-  open (WCAG 1.4.13).
+  It is portalled to the body, or into the dialog its trigger sits in, and placed from
+  measurements: above if it fits, below if not, clamped inside the viewport, as wide as its
+  message, and placed again when its text changes while it is open. Hovering onto the bubble
+  still keeps it open (WCAG 1.4.13).
 - **Cards meet the edge in a DataView's card list.** The list padded every card 8px in from the
   edge it shares with the toolbar and the pagination; it has no padding of its own now.
 

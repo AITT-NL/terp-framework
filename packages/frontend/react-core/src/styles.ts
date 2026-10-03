@@ -4447,8 +4447,10 @@ button[data-terp="input"][data-placeholder="true"] {
    attribute, and any author display would beat the UA's [hidden] rule and
    leave the tooltip permanently visible.
 
-   The bubble is PORTALLED to the body and placed with position: fixed, the way
-   [data-terp="popover-panel"] already was. It used to be an absolutely positioned child of
+   The bubble is PORTALLED -- to the body, or into the dialog its trigger sits in, since a
+   modal dialog is in the top layer and nothing outside it paints above it -- and placed with
+   position: fixed, the way [data-terp="popover-panel"] already was. It used to be an
+   absolutely positioned child of
    its anchor, and that failed three ways an app reported together:
    - An ancestor with overflow other than visible clipped it, whatever its z-index. A DataView
      cell is inside the table's horizontal scroller, so a tooltip there was cut off at the

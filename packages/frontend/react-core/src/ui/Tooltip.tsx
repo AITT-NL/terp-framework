@@ -104,7 +104,8 @@ interface TriggerHandlers {
  * - **Persistent.** It stays until dismissed, focus leaves or the pointer leaves — it has never
  *   had a timeout.
  *
- * And it is readable wherever its trigger is. The bubble is portalled to the body and placed
+ * And it is readable wherever its trigger is. The bubble is portalled to the body -- or into the
+ * dialog its trigger sits in, since nothing outside a modal dialog paints above it -- and placed
  * from measured coordinates (see the sheet's tooltip rule for the three ways the absolutely
  * positioned version was not): no scroll container clips it, its width is the message's
  * rather than the trigger's, and it flips below a trigger too close to the top and stays
@@ -114,6 +115,10 @@ export function Tooltip({ content, children, defaultOpen = false }: TooltipProps
   const id = useId();
   const resolve = useUiText();
   const [open, setOpen] = useState(defaultOpen);
+  // Resolved once, and a dependency of the placement below: text that changes while the
+  // bubble is open ("Copy" becoming "Copied to clipboard") changes its size, and a bubble
+  // placed for the old size runs past the window's edge or over its trigger.
+  const text = resolve(content);
   const anchorRef = useRef<HTMLSpanElement>(null);
   const bubbleRef = useRef<HTMLSpanElement>(null);
   const [position, setPosition] = useState<BubblePosition>(UNPLACED);
@@ -124,7 +129,14 @@ export function Tooltip({ content, children, defaultOpen = false }: TooltipProps
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    setHost(document.body);
+    // The trigger's own <dialog> when it sits in one, and the body otherwise. A modal dialog
+    // is in the top layer, and nothing outside it paints above it or its backdrop whatever
+    // its z-index: a bubble portalled to the body opened BEHIND the dialog its trigger was in.
+    // Measured in Chromium: a fixed box inside a modal dialog, outside the dialog's own box,
+    // is the topmost element at its point (the dialog's overflow: auto does not clip it, since
+    // a fixed box is placed against the viewport), and the same box under the body at
+    // z-index 70 is covered by the backdrop.
+    setHost(anchorRef.current?.closest("dialog") ?? document.body);
   }, []);
 
   function cancelClose() {
@@ -193,7 +205,7 @@ export function Tooltip({ content, children, defaultOpen = false }: TooltipProps
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [open, host]);
+  }, [open, host, text]);
 
   if (!isValidElement<TriggerHandlers>(children)) {
     return children;
@@ -210,7 +222,7 @@ export function Tooltip({ content, children, defaultOpen = false }: TooltipProps
       // bubble for the frame before they exist. Everything it LOOKS like is the sheet's.
       style={position}
     >
-      {resolve(content)}
+      {text}
     </span>
   );
 

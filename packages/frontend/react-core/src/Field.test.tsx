@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { Field, FieldRow } from "./Field";
@@ -250,5 +250,30 @@ describe("Select / Textarea primitives", () => {
       "4",
     );
     expect(TERP_STYLES_CSS).toContain('[data-terp="field-row"][data-gap="4"]');
+  });
+});
+
+describe("Field — what it says is not part of its control", () => {
+  it("does not hand a click on its hint or its error to the control", () => {
+    // The messages sit inside the <label> so fields side by side share two lines, and a click
+    // anywhere in a label is forwarded to its control: clicking an error opened a Select and
+    // toggled a checkbox. The label text still forwards -- the fix is the messages, not the
+    // label.
+    // Asserted after EACH click: two forwarded clicks toggle a checkbox twice and leave it as it
+    // was, so one assertion after both could not see either of them (a first version did that,
+    // and the mutation below stayed green against it).
+    // Mutation: drop the envelope's click handler, and the box is checked after the hint click.
+    render(
+      <Field label="Accept the terms" hint="You can withdraw later." error="Required.">
+        <input type="checkbox" />
+      </Field>,
+    );
+    const box = screen.getByRole("checkbox");
+    fireEvent.click(screen.getByText("You can withdraw later."));
+    expect(box).not.toBeChecked();
+    fireEvent.click(screen.getByText("Required."));
+    expect(box).not.toBeChecked();
+    fireEvent.click(screen.getByText("Accept the terms"));
+    expect(box).toBeChecked();
   });
 });

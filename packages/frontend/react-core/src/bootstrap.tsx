@@ -21,7 +21,7 @@ import { buildAppRouter } from "./router";
 import type { SsoProvider } from "./sso";
 import { ThemeProvider } from "./theme";
 import type { LegacyTheme, Theme } from "./theme";
-import { resolveTheme } from "./themes";
+import { THEME_ALIASES, THEMES, resolveTheme } from "./themes";
 import { ToastProvider } from "./toast";
 
 /** A frontend module: its stack-agnostic manifest and the view components it names. */
@@ -338,6 +338,28 @@ export function withAdminArea(
  * the provider + auth gate + shell. A consumer's `main.tsx` is just this plus the token
  * stylesheet import. Drop to `TerpProvider` + `buildAppRouter` for full control.
  */
+/**
+ * The palette `renderTerpApp` was handed, resolved the way `layout-contract.json`'s is: an
+ * earlier name is the theme it now names, and a name nothing answers to is refused, in the
+ * resolver's own words. Dropping an unknown one instead hid it twice over: the app quietly
+ * opened on another palette, and a palette ALSO declared in the file stopped being reported as
+ * declared in both places, because the resolver sees a code side only when it is defined.
+ */
+function resolveCodeTheme(name: string | undefined): Theme | undefined {
+  if (name === undefined) {
+    return undefined;
+  }
+  const theme = resolveTheme(name);
+  if (theme === null) {
+    throw new Error(
+      `renderTerpApp: "defaultTheme" is "${name}"; expected one of ` +
+        `${THEMES.map((known) => `"${known}"`).join(", ")} (or an earlier name: ` +
+        `${Object.keys(THEME_ALIASES).map((known) => `"${known}"`).join(", ")}).`,
+    );
+  }
+  return theme;
+}
+
 export function renderTerpApp(options: RenderTerpAppOptions): void {
   // Resolved here as well as inside `buildAppRouter`, because the one key mounted OUTSIDE the
   // router is the palette: `ThemeProvider` wraps everything, the router included.
@@ -358,7 +380,7 @@ export function renderTerpApp(options: RenderTerpAppOptions): void {
     navPlacement: options.navPlacement,
     contentWidth: options.contentWidth,
     navGroups: options.navGroups,
-    defaultTheme: resolveTheme(options.defaultTheme) ?? undefined,
+    defaultTheme: resolveCodeTheme(options.defaultTheme),
   });
   const collected = collectModules(options.modules);
   const { manifests, views } = withAdminArea(

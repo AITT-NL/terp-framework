@@ -113,6 +113,21 @@ export function resolveUiTextNode(
 }
 
 /** The default resolver: plain strings as-is, descriptors via their fallback `message`. */
+/**
+ * `{name}` placeholders in *template*, filled from *values*. A name *values* does not own is left
+ * as written — including one every object inherits: `key in values` filled `{constructor}` with
+ * the source text of `Object`. The one formatter for a framework string that counts or names
+ * something (the DataView's ranges, the page sequence's steps), so a fix reaches every caller.
+ */
+export function fillPlaceholders(
+  template: string,
+  values: Readonly<Record<string, string | number>>,
+): string {
+  return template.replace(/\{(\w+)\}/g, (match, key: string) =>
+    Object.hasOwn(values, key) ? String(values[key]) : match,
+  );
+}
+
 export function resolveUiText(text: UiText): string {
   return typeof text === "string" ? text : text.message;
 }
