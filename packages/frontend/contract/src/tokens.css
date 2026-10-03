@@ -36,6 +36,7 @@
   --color-status-info-soft: #f0f9ff;
   --color-focus-ring: rgba(37,99,235,0.35);
   --color-bg-canvas: #eef1f6;
+  --color-bg-subtle: #f7f8fb;
   --color-bg-surface: #ffffff;
   --color-bg-raised: #ffffff;
   --color-bg-inset: #e5eaf2;
@@ -171,6 +172,7 @@
   --color-status-info-soft: #284261;
   --color-focus-ring: rgba(188,166,255,0.5);
   --color-bg-canvas: #312c3f;
+  --color-bg-subtle: #363044;
   --color-bg-surface: #3a3449;
   --color-bg-raised: #453e57;
   --color-bg-inset: #312c3f;
@@ -228,6 +230,7 @@
   --color-status-info-soft: #12303f;
   --color-focus-ring: rgba(96,165,250,0.45);
   --color-bg-canvas: #0f172a;
+  --color-bg-subtle: #172033;
   --color-bg-surface: #1e293b;
   --color-bg-raised: #263449;
   --color-bg-inset: #0f172a;
@@ -285,6 +288,7 @@
   --color-status-info-soft: #0b2545;
   --color-focus-ring: rgba(88,166,255,0.5);
   --color-bg-canvas: #010409;
+  --color-bg-subtle: #070b10;
   --color-bg-surface: #0d1117;
   --color-bg-raised: #161b22;
   --color-bg-inset: #010409;
@@ -341,6 +345,7 @@
   --color-status-info-soft: #e5f0fb;
   --color-focus-ring: rgba(8,66,160,0.7);
   --color-bg-canvas: #ffffff;
+  --color-bg-subtle: #ffffff;
   --color-bg-surface: #ffffff;
   --color-bg-raised: #ffffff;
   --color-bg-inset: #f2f2f2;
@@ -397,6 +402,7 @@
     --color-status-info-soft: #0b2545;
     --color-focus-ring: rgba(88,166,255,0.5);
     --color-bg-canvas: #010409;
+    --color-bg-subtle: #070b10;
     --color-bg-surface: #0d1117;
     --color-bg-raised: #161b22;
     --color-bg-inset: #010409;

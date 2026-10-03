@@ -3,7 +3,8 @@
 - **Status:** Accepted, option 2 (2026-09-28). `Meter` ships in `@terpjs/react-core`; no chart
   is built, and the chart contract below is fixed for the first kind that is. See the Decision
   section at the end. The fork and the recommendation are kept as the record of what was
-  weighed.
+  weighed. **Amended 2026-10-03 by [ADR 0169](0169-a-page-is-composed-from-the-shape-of-its-data.md):**
+  the trigger for building a kind, not the contract — see the amendment at the end.
 - **Date:** 2026-09-27
 - **Relates:** [ADR 0099](0099-the-component-gap-and-what-is-not-in-it.md) (the bar a
   component must clear, and its 2026-08-25 amendment on app evidence),
@@ -155,3 +156,19 @@ the Standard states the floor and not the ceiling. The framework's parity test u
 its element map to equal the Standard's list exactly, which made that impossible; it now
 requires every Standard element to be mapped, and names each element the framework refuses
 ahead of the Standard in a list that empties itself on adoption.
+
+## Amendment (2026-10-03): the trigger, by ADR 0169
+
+The contract above stands as written: SVG, styled only by attributes and tokens, a table
+alternative, numbers through the `format` helpers, no dependency.
+
+What changes is when a kind gets built. "When two observations name it" assumed the evidence would
+arrive from apps. [ADR 0169](0169-a-page-is-composed-from-the-shape-of-its-data.md) records the
+owner's decision that the framework should promote varied, high-contrast pages, and with it that
+the framework's own data counts as the observations: the `sync` capability stores each
+`SyncRun`'s aggregates and status for a stats view, and `webhooks` records an outcome per delivery
+attempt, and react-core could draw neither as more than a badge in a table row. The kinds built on
+that evidence are this record's three — a line or area over time, bars across categories, a
+sparkline for a figure — and three the same data asks for: columns as a mark of the over-time
+chart, a status history, and a proportion bar. Any other kind still waits for a consumer of its
+own, which is the rule this record set, unchanged.

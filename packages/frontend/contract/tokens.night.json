@@ -32,6 +32,7 @@
     "focusRing": { "value": "rgba(88,166,255,0.5)" },
     "bg": {
       "canvas": { "value": "#010409" },
+      "subtle": { "value": "#070b10" },
       "surface": { "value": "#0d1117" },
       "raised": { "value": "#161b22" },
       "inset": { "value": "#010409" }

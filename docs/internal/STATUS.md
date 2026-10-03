@@ -885,6 +885,23 @@ still on terp-spec 0.38.0. The catalog half of ADR 0165 was released as terp-spe
       runtime. Moving the one outbound transport to `httpx2` means re-verifying its address
       pinning and redirect refusal, so it is its own decision.
 
+**Presentation and page composition** — decided in
+[ADR 0169](../decisions/0169-a-page-is-composed-from-the-shape-of-its-data.md), sequenced and
+tracked in [presentation-and-composition-design.md](drafts/presentation-and-composition-design.md),
+on the `feat/composition` branch. A page should have deliberate hierarchy — figures that read as
+figures, the collection as the brightest object, framed and unframed content side by side, one
+accent — produced by the vocabulary rather than left to the author. This is phase 8 of the
+frontend design-system track below.
+
+- [x] Forks decided and recorded as ADR 0169; ADR 0158's chart trigger amended in place.
+- [ ] The sequence in the draft, phases 1–6, each ending shippable; 1–3 ship as one release.
+      Phase 1 (the surface ladder) is built on `main` after #135–#139 landed, with its
+      baselines on both platforms; phases 2–3 are next.
+- [ ] **Recorded, not fixed:** `terp guide frontend` names four archetypes and `terp guide
+      layouts` three; FormPage, SettingsPage and SplitPage are missing from both.
+      `test_layout_archetypes.py` reads the two `AGENTS.md` files and the react-core README, not
+      the guide topics. Folded into the draft's phase 6, with the gate extended to the guide.
+
 ## Active execution track
 
 Authoritative design refinement:
@@ -1655,6 +1672,7 @@ every pixel in every consuming app with nothing watching.
 | 5 | The component gap | ✅ | Field-level 422s, app-locale formatting, declared column widths as steps, `Avatar`, the password reveal — and thirteen candidate components refused with the evidence that decided each. ADR 0099, 0.10.0. |
 | 6 | The Studio's styling editor, built from the token manifest | 🚧 | Lands in **terp-studio**, not here. What this repo owes it is already published: the manifest carries every token's category, per-theme values and themeable flag, plus the pairings the contrast gate enforces (ADR 0093 §4). |
 | 7 | Layout editable in the Studio | ⬜ | Lands in **terp-studio**. Unblocked by phase 3 (attribute-keyed styling), phase 4 (archetypes, density and nav placement as props rather than frozen constants) and, in 0.10.0, the two seams a file-editing tool actually needs: the layout declaration as the one document holding the shell's shape (ADR 0100) and the development-only channel that lets a tool ask a running app about its own structure instead of asking the operator to describe it (ADR 0101). |
+| 8 | Presentation and page composition | 🚧 | Decided in ADR 0169; tracked in [presentation-and-composition-design.md](drafts/presentation-and-composition-design.md). A presentation vocabulary keyed on the shape of the data, a surface ladder with a midpoint between canvas and surface, `Grid` track templates, a `summary` band, one headline per page, and charts under ADR 0158's contract. |
 
 **Releases:** phases 0–2 shipped as **0.7.0**, phase 3 across **0.8.0** and **0.9.0**. Phases 4
 and 5 shipped together as **0.10.0**, held back until the whole build order was finished so

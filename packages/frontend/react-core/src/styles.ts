@@ -206,7 +206,7 @@ html, body {
   margin: 0;
 }
 body {
-  background: var(--color-neutral-50);
+  background: var(--color-bg-canvas);
 }
 /* Border-box baseline: react-core sizes components as padding-inclusive
    (e.g. LoginView's 100vh page with padding, inputs at width:100% with
@@ -1162,35 +1162,36 @@ textarea[data-terp="input"] {
 }
 
 /* Cards -------------------------------------------------------------------- */
-/* The surface model, and this is the rule that states it: an in-flow block is an OBJECT —
-   a fill, a frame, a radius and a padding — sitting on a canvas that is tinted away from
-   it. Two tokens, two jobs: --color-bg-surface is what an object is made of and
-   --color-bg-canvas is what the page is made of, and the whole legibility of a screen
-   rests on the gap between them.
+/* The surface model, and this is the rule that states it. A screen is legible because its
+   blocks sit at different heights, and ADR 0169 gives the page four rungs, one job each:
+   --color-bg-canvas is what the page is made of; --color-bg-subtle, the midpoint between
+   canvas and surface, is what containers and chrome are made of — this card, the HubCard
+   body, the profile card, the page band and the sequence bar; --color-bg-surface is where
+   data is read — the
+   full DataView's table frame, dataview-card, resource-list-row and empty-state; and the
+   brand fill is kept for the one headline figure a page may carry.
 
-   It was frame-only for one release — border and radius with the canvas showing through —
-   and that is what this reverses. The argument then was sound about the DEFECT and wrong
+   Cards were frame-only for one release — border and radius with the canvas showing
+   through — and that was reversed. The argument then was sound about the DEFECT and wrong
    about the fix: cards were painting --color-neutral-0, the far end of the primitive ramp,
    so an app that themed its canvas got cards that did not follow, and a card dropped on
-   something already a surface repainted it. Naming the SEMANTIC surface answers the first
-   (a theme moves both ends together, which is what the bg family is for) and
+   something already a surface repainted it. Naming SEMANTIC tokens answers the first (a
+   theme moves every rung together, which is what the bg family is for) and
    variant="plain" already answered the second.
 
-   What frame-only cost was the thing a screen is judged on. With canvas and surface a
-   rounding error apart there is no object anywhere on the page: measured on the light
-   theme, a table, a hub card and the page behind them all rendered #f8fafc inside a
-   #e2e8f0 hairline, which reads as a wireframe of an app rather than an app. Tinting the
-   canvas alone does not fix it either — it just moves every object onto grey, and a data
-   table with a grey ground reads as disabled. Both halves have to move, and they are one
-   decision, so they are in one commit.
+   What frame-only cost was the thing a screen is judged on: with every block and the page a
+   rounding error apart there is no object anywhere, and the page reads as a wireframe of an
+   app. Tinting the canvas alone does not fix it either — it moves every object onto grey,
+   and a data table on a grey ground reads as disabled. That is why the containers step back
+   to the midpoint while the collection stays on surface. In the midday theme the midpoint
+   halves the step from canvas to surface, to about 1.06:1 either side, so a container's
+   edge is carried by its hairline, and the table keeps the brightest fill on the page.
 
-   Six rules follow the same line, and they are the framework's other in-flow blocks:
-   hubcard-body, profile-card, resource-list-row, empty-state, dataview-card and the full
-   DataView's table frame. Three kinds of element already did and keep doing so for reasons
-   of their own: an overlay has to be opaque over whatever it covers (dialog,
-   popover-panel, toast, the combobox list, and appshell-header, which the page scrolls
-   under); a control needs a surface of its own to read as a control (input, select, the
-   secondary button); and login-card is the one object on an otherwise empty canvas.
+   Three kinds of element paint --color-neutral-0 for reasons of their own: an overlay has to
+   be opaque over whatever it covers (dialog, popover-panel, toast, the combobox list, and
+   appshell-header, which the page scrolls under); a control needs a surface of its own to
+   read as a control (input, select, the secondary button); and login-card is the one object
+   on an otherwise empty canvas.
 
    The washes stay one step along the ramp — --color-neutral-100, or the
    --color-interactive-* token that names the state — rather than returning to
@@ -1204,7 +1205,7 @@ textarea[data-terp="input"] {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  background: var(--color-bg-surface);
+  background: var(--color-bg-subtle);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -1635,7 +1636,7 @@ textarea[data-terp="input"] {
   min-height: 100vh;
   font-family: var(--font-family-sans);
   color: var(--color-neutral-900);
-  background: var(--color-neutral-50);
+  background: var(--color-bg-canvas);
 }
 /* The sidebar. width is a rule now rather than an inline value chosen per render, which
    is what finally puts its transition inside terp.motion's reach: the aside carried no
@@ -2391,9 +2392,10 @@ textarea[data-terp="input"] {
    keying this half on the shell is what keeps it: standalone the band is the same bordered
    row at the same height, it simply does not reach past its container.
 
-   The surface comes with the bleed rather than with the chrome, and that is deliberate under
-   0.14.0's surface model: a block paints no fill of its own, and this one is only chrome —
-   the app header's companion — once there is an app header above it to pair with.
+   The fill comes with the bleed rather than with the chrome, and that is deliberate: this band
+   is only chrome — the app header's companion — once there is an app header above it to pair
+   with. Chrome sits on --color-bg-subtle, the container rung of ADR 0169's surface ladder, so
+   the band steps back from the white app header above it and from the data below it.
 
    ONE rule for both variants, which is the payoff of the token rather than a tidy-up. As two
    literals this needed a mobile twin, and a negative margin whose sign has to agree with a
@@ -2404,7 +2406,7 @@ textarea[data-terp="input"] {
   > [data-terp="page-header"] {
   margin: calc(-1 * var(--shell-gutter)) calc(-1 * var(--shell-gutter)) 0;
   padding-inline: var(--shell-gutter);
-  background: var(--color-neutral-0);
+  background: var(--color-bg-subtle);
 }
 /* The content measure, and the subheader band, which are ONE declaration rather than two
    features (ADR 0097 §2). A full-width band only means anything once the column beside it is
@@ -2491,9 +2493,9 @@ textarea[data-terp="input"] {
    off centre.
 
    A surface of its own, which a block in this sheet does not usually paint: content scrolls
-   UNDER a sticky bar, so a transparent one would print the body through itself. The same
-   neutral-0 and border the band at the top carries, so the two read as one frame around the
-   body.
+   UNDER a sticky bar, so a transparent one would print the body through itself. The same fill
+   and border the band at the top carries — --color-bg-subtle, the chrome rung of ADR 0169's
+   surface ladder — so the two read as one frame around the body.
 
    The safe-area inset is the phone's home indicator: max() keeps the ordinary padding where
    there is none and clears the indicator where there is. */
@@ -2508,7 +2510,7 @@ textarea[data-terp="input"] {
   margin-block-start: var(--space-4);
   padding-block: var(--space-2) max(var(--space-2), env(safe-area-inset-bottom));
   border-block-start: 1px solid var(--color-neutral-200);
-  background: var(--color-neutral-0);
+  background: var(--color-bg-subtle);
   font-size: var(--font-size-sm);
 }
 [data-terp="page-sequence-previous"],
@@ -2653,7 +2655,7 @@ html:has([data-terp="page-sequence"]) {
   display: grid;
   place-items: center;
   padding: var(--space-6);
-  background: var(--color-neutral-50);
+  background: var(--color-bg-canvas);
   font-family: var(--font-family-sans);
   color: var(--color-neutral-900);
 }
@@ -2729,7 +2731,7 @@ html:has([data-terp="page-sequence"]) {
   gap: var(--space-4);
   padding: var(--space-4);
   max-width: 32rem;
-  background: var(--color-bg-surface);
+  background: var(--color-bg-subtle);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
 }
@@ -2872,7 +2874,7 @@ html:has([data-terp="page-sequence"]) {
   height: 100%;
   min-height: 10rem;
   padding: var(--space-4);
-  background: var(--color-bg-surface);
+  background: var(--color-bg-subtle);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -2984,10 +2986,12 @@ html:has([data-terp="page-sequence"]) {
    leaves the toolbar inside a surface, and leaves two nested frames whenever the view
    is empty (the empty state's dashed frame inside the card's solid one).
 
-   What the slot carries is now a FRAME rather than a fill — border and radius, with the
-   page showing through, per the card rule's note on the surface model. That changes the
-   sentence above by one word and not the ownership it settles: the frame is the table's,
-   not the view's.
+   What the slot carries is the surface itself — a fill, a border and a radius — and the
+   page's one raised shadow. The collection is where data is read, so under ADR 0169's
+   surface ladder it keeps --color-bg-surface while the containers around it step back to
+   --color-bg-subtle, and --shadow-md lifts it above them: the table is the brightest object
+   on the page by rule. None of that moves the ownership settled above: the frame is the
+   table's, not the view's.
 
    Keyed on [data-variant="full"] rather than the bare marker for the reason the
    previous rule gave and which still holds: [data-variant="embedded"] must declare
@@ -2999,6 +3003,7 @@ html:has([data-terp="page-sequence"]) {
   background: var(--color-bg-surface);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
 }
 /* The horizontal scroll container the reset's scrollbar comment already names. A
    marker rather than [data-terp="dataview"] > div, which also matches the toolbar.

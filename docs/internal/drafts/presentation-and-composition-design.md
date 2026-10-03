@@ -1,0 +1,397 @@
+# Presentation and page composition — the proposal and the sequenced plan
+
+> **Decision:** [ADR 0169](../../decisions/0169-a-page-is-composed-from-the-shape-of-its-data.md)
+> (2026-10-03): every fork went the recommended way, and so did the three open points. This file
+> was the proposal and is now the execution tracker; when it disagrees with the ADR, the ADR wins.
+>
+> **Audience:** platform/core team + agents. **Status:** decided; in progress.
+
+The goal, in one line: a Terp page should have deliberate hierarchy — figures that read as figures,
+the collection as the brightest object on the page, framed and unframed content side by side, an
+accent used once — produced by the framework's vocabulary rather than left to whoever writes the
+page, and themed exactly as everything else already is.
+
+## Why this, and why now
+
+The direction comes from the platform's owner, after comparing rendered pages: a Terp page is the
+same object repeated, and nothing on it is louder than anything else. The framework should
+*promote* contrast and variety in layout and styling — cards and text directly on the background in
+combination, new ways to present key values and KPIs, the way BI dashboards and current product
+interfaces do — while one theme and consistent styling still govern every app.
+
+That is a product decision, and it is the premise of this proposal rather than one of its options.
+What the proposal has to settle is how a framework whose ideology admits no flexibility in usage
+patterns (ADR 0103) produces variety without becoming a menu of styles. In ADR 0111's terms it
+constrains a **usage pattern** — "how a thing is done when the framework already offers a way to
+do it" — and no capability: every page an app can build today stays buildable. Its one new
+conformance rule (one headline per page, fork 5) sits beside the frontend's existing usage-pattern
+rules — ADR 0059's boundary, ADR 0079's slot contracts — rather than among 0111's security
+invariants, and the ADR should say so in those words.
+
+A rendered study backs every option below: the current page, the alternatives, a catalogue sheet
+per family of presentation, and two composed pages, built from react-core's own stylesheet and
+tokens, in every registered theme and at phone width. It lives outside the repository; the
+measurements quoted from it are restated here so this file stands on its own.
+
+## What the references actually do
+
+Taken for their mechanics, not their look.
+
+**BI dashboards** (Power BI is the usual reference):
+
+1. The visual is chosen by the **shape of the data**: one figure becomes a card, a figure against a
+   target a KPI or bullet, values over time a line or columns, a ranking a bar chart, a share of a
+   whole a stacked bar, many records a table or matrix.
+2. **One theme file styles every visual.** A report formatted visual by visual is the report people
+   call messy.
+3. Every visual has the **same header**: title, optional subtitle, actions.
+4. **Key figures sit at the top**, and a bigger tile means a more important figure.
+5. **One set of filters** applies to every visual on the page.
+6. **Conditional formatting** puts cues inside tables: bars in cells, status icons, shaded cells.
+
+**Current product interfaces:**
+
+1. Hierarchy comes from **type and space more than boxes**: a section heading sits on the canvas,
+   unframed.
+2. **Several surface levels** instead of one card colour.
+3. **Asymmetric tiles in a strict grid.**
+4. **One saturated accent per view**; everything else neutral.
+5. **Large tabular numerals** over small muted labels.
+6. Status as a **soft tinted fill and a word**, not a heavy border.
+7. **Small data inline**: sparklines and bars inside rows.
+
+**Not taken:** a free-positioned canvas, per-visual formatting panes, decorative gradients and
+glass, a second accent per view. Each is a style an agent would pick at random.
+
+## Where a page stands today (measured at 0.29.0)
+
+1. **One object.** Card and the framework's other in-flow blocks — `hubcard-body`, `profile-card`,
+   `resource-list-row`, `empty-state`, `dataview-card` and the full DataView's frame — are all a
+   `--color-bg-surface` fill inside a hairline frame on the canvas, and Card, the HubCard body and
+   the DataView card share the whole recipe: a `--color-neutral-200` border, `--radius-lg`,
+   `--shadow-sm`. The "Cards" comment in `styles.ts` records this as the surface model. On a page,
+   the only hierarchy is block order and heading text.
+2. **Two surface levels, one of them unnamed.** The page ground is painted `--color-neutral-50` by
+   the `body` and `appshell` rules. `--color-bg-canvas` holds the same value in every theme and sits
+   on `UNREAD_TOKENS` in `tokens.guard.test.ts`, as does `--color-bg-raised`, which equals surface in
+   the light theme (named `midday` since 0.31.0). Its canvas against surface measures 1.13:1.
+3. **A figure is a title over text.** `Text` stops at `lg` and a Card title is `lg` semibold, so in a
+   tile of label and value the label is the louder of the two. HubCard's `stat` line is the only
+   place react-core gives a figure a slot of its own ("a lightweight dashboard", `HubPage.tsx`).
+4. **Grids weigh every block equally.** `Grid` takes `columns` 1–4 or `auto` and has no `span`
+   (`layout.tsx`). Fixed counts keep their count at every width by design — ADR 0097 §3 leaves
+   reflow to `columns="auto"` and §4 gives responsive forms to `direction` and `gap` only — so a
+   legal `columns={4}` row of figures clips at phone width (measured at 390px).
+5. **The chart palette is published and unread.** `--color-chart-1..5` are on `UNREAD_TOKENS`, and
+   `token-pairs.json` holds no chart pairing. ADR 0158 fixed the contract for charts and builds no
+   kind until two observations name it.
+6. **The guidance steers away from variety.** `terp guide layouts` says `Grid` "is a DETAIL-body
+   component and not an overview one, deliberately", that "a grid of summary cards is a hub", and
+   that `Card` is how a section is owned.
+7. **The framework already shapes data it cannot draw.** The `sync` capability stores each
+   `SyncRun`'s aggregates "so a stats view never pays a per-row `COUNT(*)`"
+   (`capabilities/sync/models.py`), and `webhooks` keeps an append-only `WebhookDelivery` log — an
+   `outcome` and a `response_code` per attempt. Both are a status per run over time, and react-core
+   can show each run only as a badge in a table row. The Studio's project wizard meanwhile offers
+   the hub preset as "Dashboard", suitable for "Kerncijfers" (key figures) (`terp-studio`,
+   `scaffold.py`) — a promise the scaffolded `HubPage` can keep only as a line of text.
+
+## The forks
+
+### Fork 1 — where variety comes from
+
+**A. Style variants per block.** Card's `variant` grows filled / tinted / elevated / flat, with
+`tone` and `emphasis` on every block. The page author picks per block.
+
+**B. A presentation vocabulary keyed on the shape of the data.** The author declares what a block
+*is* — one figure, a figure against a target, facts about a record, values over time, a ranking, a
+share, a status history, a collection — and the framework owns how each looks. Variety comes from
+mixing shapes.
+
+**C. B, plus a page frame that orders and rations.** A summary band (one per page, because it is a
+slot), asymmetric compositions, and a single headline figure (checked). The collection is the
+brightest object by rule, not by choice.
+
+**Recommendation: C.**
+
+- A is a second way to do an already-supported thing, for every block, with no failure it can
+  observe. And it would not produce what the goal asks for: contrast is a *ranking* — one thing
+  louder than the rest — and a per-block menu has no notion of rank. An agent given four looks for
+  one box varies them page by page, which reads as noise.
+- B turns the author's choice into a question about the data, which an agent can answer from the
+  model it has just written. It is the BI tools' own mechanism, and the one that survives being
+  driven by an agent.
+- C adds the two things B cannot guarantee alone: an order (the summary first, the collection
+  brightest) and scarcity (one band, one headline). Scarcity is what lets an accent mean something,
+  and unlike variety it is decidable, so it can be gated.
+
+*What would change it:* an app with a presentation need the vocabulary cannot express, for a reason
+of its domain rather than taste. That reopens A for that case alone.
+
+### Fork 2 — how asymmetric layout is written
+
+**A. `span` on grid children** — a closed set (1 | 2 | full), carried by a child component or a
+prop on every block.
+
+**B. Named track templates on `Grid`** — a closed set such as `"2:1"`, `"1:2"`, `"3:1"`, `"1:1:1"`,
+each defining its tracks and how it collapses at the one breakpoint. Anything finer is nesting: a
+`Stack` in the narrow track holds two figures beside a chart.
+
+**C. Free placement** — the BI canvas.
+
+**Recommendation: B.**
+
+- It is a closed set on the parent, so it needs neither the child component `layout.tsx` names as
+  the reason `span` was refused, nor a second breakpoint (ADR 0097 §3).
+- Rows cannot go ragged. With spans, `2 + 2` in three columns leaves a hole no lint can see, because
+  it depends on how many children render.
+- Every template collapses by construction, so the composition that replaces a fixed `columns={4}`
+  row cannot clip on a phone.
+- In the Studio's layout editor (design-system track phase 7) it is a picker, not a canvas.
+- It meets ADR 0098's condition for `DashboardPage` — "the day spans do… a `Grid` decision" — with a
+  `Grid` decision.
+- C has no responsive behaviour, separates reading order from visual order, and is geometry an agent
+  would invent.
+
+*What would change it:* a composition that needs a tile spanning rows, which nesting cannot express.
+
+### Fork 3 — the surface ladder
+
+The midpoint between canvas and surface, tried by hand on hub cards and the page band, is the
+proposal here.
+
+**A.** Two levels, as today; only wire `--color-bg-canvas`.
+
+**B.** One new semantic token, `--color-bg-subtle`, the midpoint of canvas and surface with explicit
+per-theme values (ADR 0093), and one role per level:
+
+| Level | Token | midday | twilight | evening | night | contrast | Read by |
+|---|---|---|---|---|---|---|---|
+| The page | `--color-bg-canvas` (now read) | `#eef1f6` | `#312c3f` | `#0f172a` | `#010409` | `#ffffff` | body, AppShell, the login view |
+| Containers and chrome | `--color-bg-subtle` (new) | `#f7f8fb` | `#363044` | `#172033` | `#070b10` | `#ffffff` | page band, sequence bar, boxed Card, HubCard, profile card |
+| Where data is read | `--color-bg-surface` | `#ffffff` | `#3a3449` | `#1e293b` | `#0d1117` | `#ffffff` | DataView frame (raised to `--shadow-md`), charts, stat tiles |
+| The one headline | `--color-brand-primary` | | | | | | the headline figure |
+
+**C.** Darken the canvas a step instead.
+
+**Recommendation: B**, with its measured cost stated. In the midday theme the midpoint halves the
+existing step, to 1.07:1 on each side, so a container's 1px border does the separating — the same
+reasoning ADR 0098 §6 applied to the sidebar's edge, where a decorative separator beside a surface
+that already differs in background is not a gated pairing. Text on `subtle` clears AA in every
+theme (lowest: muted text in midday, 7.14:1). C is the fallback if the workbench shows the step too
+faint, but it is the change the stylesheet's own record warns against — a table on a grey ground
+reads as disabled — which B avoids, because tables stay on surface. The token ships in the same
+commit as its readers (ADR 0094), and canvas comes off `UNREAD_TOKENS` with it.
+
+### Fork 4 — charts, ahead of ADR 0158's trigger
+
+ADR 0158 fixed how charts are drawn — SVG, styled only by attributes and tokens, a table
+alternative, numbers through the `format` helpers, no dependency — and deferred every kind until two
+observations name it.
+
+**A. Hold the trigger.** Ship everything else; no chart until two reports.
+
+**B. Amend the trigger, keep the contract.** The framework's own data counts as the observations —
+the `sync` run aggregates and the `webhooks` delivery log (item 7 above) — together with the
+dashboard the template will scaffold. Build the kinds 0158 already named — a line or area over
+time, bars across categories, a sparkline for a stat — and, named here explicitly because 0158 did
+not, three more that the same data asks for: columns as a mark of the over-time chart (per-period
+counts), the status history (`SyncRun.status`, `WebhookDelivery.outcome`), and the proportion bar
+(a `SyncRun`'s created, updated and failed counts as shares of the run).
+
+**C. A chart library behind a Terp contract.**
+
+**Recommendation: B**, recorded in the new ADR as an explicit amendment of 0158, not as a reading of
+it. C is refused by 0158 itself and by ADR 0099 §3: a library's types would enter react-core's
+public surface. A leaves the dashboard without its main visual and the run data without a picture.
+Kinds 0158 did not name — donut, heatmap, small multiples, matrix — stay out until they bring
+consumers of their own.
+
+### Fork 5 — how "promote" is held
+
+**A.** Guidance only: a `terp guide` topic and examples.
+
+**B.** Structure: the archetypes carry the composition, and the template scaffolds a page that uses
+it.
+
+**C.** Gates on scarcity: one summary band (a slot) and at most one headline figure per page,
+checked in both halves of the layout contract with the fix in the message.
+
+**Recommendation: B and C, with A as the explanation.** Variety itself is not decidable from markup
+— a page that is one table is often the right page — so a rule against monotony would have no
+failure it could honestly observe, which ADR 0103 calls ceremony. Scarcity is decidable, so it is
+gated. Variety is promoted by what the archetypes and the scaffold do by default, which is what an
+agent copies.
+
+## The vocabulary, by shape of data
+
+Working names; the ADR settles them.
+
+| The data | Presentation | New or existing | Consumer in the framework |
+|---|---|---|---|
+| One figure, with context | `Stat`: label, value, unit, a delta whose sentiment the caller declares, an optional sparkline | new | the scaffolded dashboard; `sync` run aggregates. HubCard's `stat` line renders through it, so a figure is shown one way |
+| Several figures about one subject | `StatGroup`: a ruled row of stats, unframed in the summary band | new | the summary band on detail pages |
+| A figure against a target | `Stat` with a target: the bands `Meter` already models (`low` / `high` / `optimum`) plus a target mark | a mode of `Stat`, reusing `Meter` | the scaffolded dashboard |
+| A figure against the previous period | `Stat` with a comparison: the delta and a ghost series | a mode of `Stat` | the scaffolded dashboard |
+| Facts about one record | `DetailList` with a ruled grid layout | a layout on an existing component | detail pages |
+| Values over time | `TrendChart`: a line or area with an optional comparison series; columns for per-period counts | new (a 0158 kind) | `SyncRun` counts, `WebhookDelivery` attempts |
+| Categories, ranked | `BarChart`: horizontal, the label inside the bar | new (a 0158 kind) | the scaffolded dashboard |
+| A share of a whole | a stacked proportion bar with a worded legend | new | a `SyncRun`'s created / updated / failed counts |
+| A status per run | `StatusHistory`: one cell per run, also as a DataView cell | new | `SyncRun.status`, `WebhookDelivery.outcome` |
+| Events in order | `Timeline` | new | a record's audit trail on a detail page |
+| Checks with a state | `StatusList` | new | to be named in phase 5, or not built |
+| A collection | `DataView` gains panel chrome — title with count, filters with counts, a footer link — and cell presentations: status dot, inline bar, status history | modes on an existing component | every overview; `AuditLogAdmin` |
+| Something needs action | `Alert` gains actions and a prominent size | a mode on an existing component | — |
+
+A `Stat`'s sentiment is the caller's fact, for the reason ADR 0097 §5 gave when it refused a
+navigation badge: whether a number is good or bad "is domain knowledge the shell does not have and
+cannot infer". More rows is good news, more rejections is bad, and only the caller knows which.
+
+**Refused or deferred:** a board (drag-and-drop and an ordering model are a capability, not a
+presentation); a calendar heatmap, donut, small multiples and matrix (no consumer yet — and a bar
+chart or proportion bar says what a donut says, more legibly); a page filter bar shared by every
+visual (one filter state per page is a capability that deserves its own ADR); a stepper (no
+consumer found); per-block style variants (fork 1A); free placement (fork 2C).
+
+## The page frame
+
+**The summary band.** A `Page` slot named `summary` — not "lead", which ADR 0135 already gives to
+the `description` line — rendered full-bleed directly under the page band. It admits `Stat`,
+`StatGroup`, `StatusHistory`, `Badge` and `Text`, and nothing else, and it is one per page because
+it is a slot. It is not ADR 0123's hero band, which was refused as a marketing component with no
+consumer in the framework: this one carries the page's own figures and names its consumers. Its
+fill is a theme decision — the brand's soft tint by default, the surface, or the brand with its
+contrast ink — as the shell's other bands are.
+
+**Compositions.** `Grid` gains `template` (fork 2). `DashboardPage` ships as an archetype whose body
+admits templated `Grid`s, the stat and chart families, `DataView`, `Alert` and `Card`, and whose
+summary slot holds the headline figures. It answers "how is the whole doing", where the overview
+ADR 0159 sanctions answers "how is each one doing", so it is not two names for one grid.
+
+**One headline.** At most one `Stat` per page carries `headline` — the filled, accent-coloured
+figure. Checked at runtime by the `Page` frame (the seam `verifySlotChildren` already uses) and by
+the layout-contract lint, with the fix in the message: mark one figure as the headline and render
+the others as ordinary stats.
+
+**Roles decide treatment, not regions.** A stat tile, a chart and a DataView frame sit on surface
+because data is read there; a boxed Card is a container on `subtle`; a plain Card is a heading on
+the canvas. Nothing changes its look because of where it is placed — that would be styling an
+author cannot predict from what they wrote.
+
+## Theming, CSP and accessibility
+
+- **One theme styles everything.** Every new rule reads tokens, and nothing is themed per page.
+  "Bolder" or "calmer" is an app's `theme.css` and, through the token manifest, the Studio's
+  styling editor: the summary band's fill, the chart palette, `subtle`.
+- **Charts are SVG geometry** — `x`, `y`, `width`, `height`, `points` — coloured by sheet rules keyed
+  on `data-*` attributes. That keeps `INLINE_STYLE_SITES` exact, keeps the template's production
+  `style-src 'self'` intact (ADR 0104; `template/project/frontend/nginx.conf`), and matches 0158 to
+  the letter. The study's prototype set bar heights with inline custom properties; that was a
+  shortcut of the study, not part of the proposal.
+- **Every chart ships a table alternative**, numbers go through the `format` helpers, and a tone is
+  always also a word — a legend entry or a status label.
+- **Contrast is gated.** New pairings go into `token-pairs.json`: chart marks at 3:1 against
+  surface, text at AA on `subtle` and on the summary band's fills. Against today's token values
+  every one already clears in every registered theme; the tightest cases:
+
+| Pairing | Lowest across the themes |
+|---|---|
+| `--color-chart-1..5` against surface (3:1) | 3.19 — chart-3, midday |
+| status success / warning / danger against surface (3:1 as a mark, 4.5:1 as a word) | 5.02 — midday |
+| muted text on `subtle` (4.5:1) | 7.14 — midday |
+| muted text on the brand's soft tint (4.5:1) | 5.19 — night |
+| contrast ink on the brand fill (4.5:1) | 5.17 — midday |
+
+## What every phase touches
+
+A new component ships with a co-located test, its markers in `MARKERS` (`markers.test.ts`), rules in
+`styles.ts`, default copy in `uiText` and the locale catalogs (with any new text prop added to the
+i18n lint's `UI_TEXT_PROPERTIES`), a README row, workbench specimens with **linux and win32**
+baselines, token pairs for any new colour, and a CHANGELOG entry. A slot change edits both halves of
+the layout contract — `layoutContract.ts` and `eslint-boundaries/src/layouts.js` — and the pinned
+marker set in `layoutContract.test.tsx`. A new archetype is exported by name and named in every
+archetype list `test_layout_archetypes.py` reads (`template/project/AGENTS.md.jinja`,
+`template/AGENTS.md`, the react-core README). terp-spec needs no change unless the layout
+declaration gains a key: the spec lists no slots.
+
+Two constraints on the work itself:
+
+- **win32 baselines cannot be recorded on the workstation this was drafted on** — the screenshot
+  spec notes Chrome is blocked there by group policy — so every phase that adds a specimen needs a
+  machine or CI lane that can.
+- **The Studio pins framework 0.27.0**, so none of this reaches its styling editor or its previews
+  until the pin moves.
+
+## Sequence
+
+Every phase ends at a shippable point; nothing is half-wired between them.
+
+- [x] **0 — Decide.** Every fork and open point went the recommended way, recorded as ADR 0169,
+      with ADR 0158's trigger amended in place.
+- [ ] **1 — The surface ladder.** Wire `--color-bg-canvas`; add `--color-bg-subtle` with its readers
+      (page band, boxed Card, HubCard); raise the DataView frame. Pairings, completeness and
+      baselines re-recorded deliberately — every app's look moves here, so the release says so.
+      **Built on `main` after #135–#139 landed:** canvas read by the body, the AppShell and the
+      login view; `subtle` in every theme — midday `#f7f8fb`, twilight `#363044` (recomputed for
+      #138's new twilight), evening `#172033`, night `#070b10`, contrast `#ffffff` — with seven
+      text pairings, read by the boxed Card, the HubCard body, the profile card, the page band and
+      #139's sequence bar, which carries the band's fill by design; the full DataView frame raised
+      to `--shadow-md`. Four gates mutation-checked on the first build. **Owed:** the release
+      note, written against the version phases 1–3 ship in.
+- [ ] **2 — Composition and figures.** `Grid` `template`; the `summary` slot; `Stat` and `StatGroup`
+      with delta, sentiment and the sparkline (0158's first named kind); the one-headline check;
+      both halves of the contract widened.
+- [ ] **3 — The prominent collection.** DataView panel chrome and cell presentations;
+      `DetailList`'s grid layout; `Alert` actions.
+- [ ] **4 — Charts under the amended 0158.** `TrendChart` (line, area, columns), `BarChart`, the
+      proportion bar, `StatusHistory`; table alternatives; chart pairings gated, which takes the
+      chart tokens off `UNREAD_TOKENS`.
+- [ ] **5 — Time and state.** `Timeline` for a record's audit trail; `StatusList` only if this
+      phase names its consumer.
+- [ ] **6 — The archetype and the guidance.** `DashboardPage`; the scaffold's hub preset becomes a
+      dashboard that keeps the Studio wizard's "Kerncijfers" promise; `terp guide layouts`
+      rewritten around the vocabulary — a data-shape table an agent can follow — and its stale
+      archetype lists fixed (below); the Studio's pin moved.
+
+Releases: phases 1–3 together, as the design-system track shipped 0.10.0, so consumers cross the
+styling change once; 4–6 after.
+
+## Found along the way
+
+Recorded so they are not lost; this proposal does not fix them on its own.
+
+- `terp guide frontend` names four archetypes ("Page / OverviewPage / DetailPage / HubPage") and
+  `terp guide layouts` covers only Hub, Overview and Detail. FormPage, SettingsPage and SplitPage are
+  missing from both. It is the staleness `test_layout_archetypes.py` was written to catch, but that
+  gate reads the two `AGENTS.md` files and the react-core README, not the guide topics, and
+  `test_cli_guide.py` checks neither list. Phase 6 fixes the text, and should extend the gate to the
+  guide in the same change.
+- A fixed `columns={4}` row that clips at phone width is not a bug under ADR 0097 §3, but it is a
+  legal configuration that renders broken. Templates remove the reason to write it; whether fixed
+  counts should collapse too is a question for the ADR.
+- A control on a boxed card now sits on `--color-bg-subtle`, and its `--color-neutral-300`
+  outline measures between the two control-boundary floors already recorded in `BELOW_UI`
+  (on canvas and on surface), because `subtle` is their midpoint. It is the same recorded defect,
+  fixed by the same token value, and it is deliberately not declared as a third pairing: the
+  ratchet admits no new control-boundary entry.
+- `visual/specimens.spec.ts` says win32 baselines cannot be recorded "on the machine these were
+  authored on" because group policy blocks the browser. On the workstation phase 1 was built on,
+  sixteen untouched specimens matched their win32 baselines pixel for pixel and the lane recorded
+  the changed ones, so the `LINUX_ONLY` set may now be recordable there. Not acted on here.
+- `test_spec_catalog.py::test_frontend_catalog_covers_every_named_plugin_rule` fails on that
+  workstation with or without this branch — the local terp-spec candidate lacks
+  `no-framework-markers` (ADR 0160) — so it is an environment fact, not a regression.
+
+## What would change this
+
+- The midpoint reads too faint in the workbench → fork 3C.
+- A domain need the vocabulary cannot express → fork 1A, for that case.
+- A composition nesting cannot express → fork 2A.
+- A ruling that the owner's direction does not count as evidence → fork 4A.
+
+## Open for the decision
+
+1. Forks 1–5. The recommendations are C, B, B, B, and B with C.
+2. `DashboardPage` as a new archetype (recommended), or a wider `OverviewPage` slot table.
+3. The summary band's default fill: the brand's soft tint (recommended), the surface, or the brand.
+4. The release grouping above.

@@ -100,19 +100,19 @@ const UNREAD_TOKENS: Record<string, string[]> = {
   // `--color-border-` and `--color-chart-` are each STILL read by nothing, and the assertion
   // below requires a tracked family to publish more than it books — a deliberate "is the prefix
   // right?" check that a wholly-unread family would trip. The broader prefix subsumes them and
-  // still catches the sixteenth. `--color-sidebar-` stays above because it makes a narrower
+  // still catches the next one. `--color-sidebar-` stays above because it makes a narrower
   // claim worth keeping: that family is read in full.
   //
-  // None of these fourteen is a defect on its own. They are a published vocabulary that shipped
-  // ahead of its consumers — three surface tokens, three borders, one interactive state, a
-  // five-step chart ramp and two neutrals — and the point of booking them is that the list can
-  // only shrink from here, so wiring one is visible and adding a fifteenth has to argue.
+  // None of these is a defect on its own. They are a published vocabulary that shipped ahead of
+  // its consumers — a surface token, borders, an interactive state, the chart ramp and two
+  // neutrals — and the point of booking them is that the list can only shrink from here, so
+  // wiring one is visible and adding one has to argue.
   //
   // --color-bg-surface came off it when the surface model went back to filling its in-flow
-  // blocks: card, hubcard-body, profile-card, resource-list-row, empty-state, dataview-card and
-  // the full DataView's frame all name it now. That is the shrink this list was booked for.
+  // blocks. --color-bg-canvas came off it when ADR 0169's surface ladder gave the page ground a
+  // reader: the body, the AppShell and the login view name it now. --color-bg-subtle, the
+  // ladder's new rung, shipped with its readers in the same change and so never joined.
   "--color-": [
-    "--color-bg-canvas",
     "--color-bg-raised",
     "--color-border-default",
     "--color-border-strong",

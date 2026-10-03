@@ -56,10 +56,11 @@ export interface CardProps
  * A token-styled frame that groups one block of a page — the sanctioned way to give
  * sections visual separation (a border, a radius and padding) without module CSS, and
  * allowed directly in `OverviewPage` / `DetailPage` body slots under the `standard`
- * layout contract. It carries no fill: what shows through a card is the page's own
- * canvas, so a card sits on a themed background instead of repainting it. An optional header row carries a semantic `<h3>` title, a muted
- * description and an `actions` slot; the body stacks its children on the token
- * spacing scale.
+ * layout contract. A boxed card is a container, so it paints `--color-bg-subtle`, the
+ * rung of the surface ladder between the canvas and the surface where data is read
+ * (ADR 0169): a card steps back from the collection beside it rather than competing with
+ * it. An optional header row carries a semantic `<h3>` title, a muted description and an
+ * `actions` slot; the body stacks its children on the token spacing scale.
  */
 export function Card({
   variant = "boxed",

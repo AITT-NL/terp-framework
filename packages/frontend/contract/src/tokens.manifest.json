@@ -352,6 +352,18 @@
       "themeable": true
     },
     {
+      "name": "--color-bg-subtle",
+      "category": "color",
+      "values": {
+        "midday": "#f7f8fb",
+        "twilight": "#363044",
+        "evening": "#172033",
+        "night": "#070b10",
+        "contrast": "#ffffff"
+      },
+      "themeable": true
+    },
+    {
       "name": "--color-bg-surface",
       "category": "color",
       "values": {
@@ -1264,7 +1276,7 @@
   "textPairs": [
     {
       "id": "body-on-card",
-      "label": "body text on a card",
+      "label": "body text on a white surface — a control, an overlay, the sign-in card",
       "fg": "--color-neutral-900",
       "bg": "--color-neutral-0",
       "layer": "primitive"
@@ -1278,7 +1290,7 @@
     },
     {
       "id": "muted-on-card",
-      "label": "muted text on a card",
+      "label": "muted text on a white surface — a control, an overlay, the sign-in card",
       "fg": "--color-neutral-600",
       "bg": "--color-neutral-0",
       "layer": "primitive"
@@ -1292,7 +1304,7 @@
     },
     {
       "id": "danger-on-card",
-      "label": "danger text on a card",
+      "label": "danger text on a white surface — a control, an overlay, the sign-in card",
       "fg": "--color-status-danger",
       "bg": "--color-neutral-0",
       "layer": "primitive"
@@ -1303,6 +1315,27 @@
       "fg": "--color-status-danger",
       "bg": "--color-neutral-50",
       "layer": "primitive"
+    },
+    {
+      "id": "body-on-container-primitive",
+      "label": "body text on a container — a boxed card, the page band",
+      "fg": "--color-neutral-900",
+      "bg": "--color-bg-subtle",
+      "layer": "primitive"
+    },
+    {
+      "id": "muted-on-container-primitive",
+      "label": "muted text on a container — a boxed card, the page band",
+      "fg": "--color-neutral-600",
+      "bg": "--color-bg-subtle",
+      "layer": "primitive"
+    },
+    {
+      "id": "danger-on-container",
+      "label": "danger text on a container — a boxed card, the page band",
+      "fg": "--color-status-danger",
+      "bg": "--color-bg-subtle",
+      "layer": "semantic"
     },
     {
       "id": "primary-button-label",
@@ -1387,6 +1420,34 @@
       "label": "subtle text on the canvas",
       "fg": "--color-fg-subtle",
       "bg": "--color-bg-canvas",
+      "layer": "semantic"
+    },
+    {
+      "id": "body-on-subtle",
+      "label": "body text on a container",
+      "fg": "--color-fg-default",
+      "bg": "--color-bg-subtle",
+      "layer": "semantic"
+    },
+    {
+      "id": "muted-on-subtle",
+      "label": "muted text on a container",
+      "fg": "--color-fg-muted",
+      "bg": "--color-bg-subtle",
+      "layer": "semantic"
+    },
+    {
+      "id": "subtle-on-subtle",
+      "label": "subtle text on a container",
+      "fg": "--color-fg-subtle",
+      "bg": "--color-bg-subtle",
+      "layer": "semantic"
+    },
+    {
+      "id": "accent-on-subtle",
+      "label": "a link on a container",
+      "fg": "--color-fg-accent",
+      "bg": "--color-bg-subtle",
       "layer": "semantic"
     },
     {
