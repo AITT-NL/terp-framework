@@ -60,6 +60,8 @@ import {
   SplitPage,
   SplitPane,
   Stack,
+  Stat,
+  StatGroup,
   Switch,
   Text,
   Tabs,
@@ -661,6 +663,39 @@ const RECORD_SECTIONS = [
 ];
 
 /** 64 hex characters with nothing to break on — the value the old `auto` track overflowed. */
+/** Twelve weeks of one figure, for the trend specimens: a shape worth drawing, fixed. */
+const WEEKS = [118, 124, 121, 133, 129, 141, 138, 152, 149, 161, 158, 172].map((value, index) => ({
+  label: `Week ${index + 1}`,
+  value,
+}));
+
+/** The same twelve weeks of a figure that falls, for the negative-sentiment specimens. */
+const FAILURES = [9, 7, 11, 8, 12, 10, 14, 13, 15, 12, 16, 18].map((value, index) => ({
+  label: `Week ${index + 1}`,
+  value,
+}));
+
+/** A record's figures, as a page's summary band holds them: one headline and a ruled group. */
+function SyncSummary() {
+  return (
+    <>
+      <Stat
+        headline
+        label="Rows synced"
+        value={172_400}
+        delta={{ value: 0.089, sentiment: "positive", format: { style: "percent", maximumFractionDigits: 1 }, label: "vs last week" }}
+        trend={WEEKS}
+      />
+      <StatGroup>
+        <Stat label="Runs" value={84} delta={{ value: 4, sentiment: "neutral", label: "vs last week" }} />
+        <Stat label="Failed runs" value={3} delta={{ value: 2, sentiment: "negative", label: "vs last week" }} />
+        <Stat label="Median duration" value="4 m 12 s" />
+        <Stat label="Last run" value="12:04" caption="Succeeded" />
+      </StatGroup>
+    </>
+  );
+}
+
 const LONG_DIGEST = "9f2c1b7ae4d08c3f5a6b2e1d4c7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f";
 
 /** Long enough that the measure caps it — at two words the cap paints nothing. */
@@ -989,6 +1024,118 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               description="Links handed out, and to whom."
               icon={<Icon name="layers" />}
               stat="12 active"
+            />
+          </HubPage>
+        ),
+      },
+      {
+        // One figure on its own is a tile on the surface rung (ADR 0169 §3), and these four
+        // cover what a tile can carry: a bare figure, a delta in each sentiment with its
+        // sparkline, a figure against its range, and a caption. The second and third are BOTH
+        // rising arrows and they are different colours on purpose: the colour is the declared
+        // sentiment, never the sign.
+        id: "stat-tiles",
+        title: "Stat — a figure, a delta in each sentiment, a trend and a target",
+        node: (
+          <Grid template="1:1:1:1">
+            <Stat label="Open orders" value={1284} />
+            <Stat
+              label="Rows synced"
+              value={172_400}
+              delta={{ value: 0.089, sentiment: "positive", format: { style: "percent", maximumFractionDigits: 1 }, label: "vs last week" }}
+              trend={WEEKS}
+            />
+            <Stat
+              label="Failed deliveries"
+              value={18}
+              delta={{ value: 6, sentiment: "negative", label: "vs last week" }}
+              trend={FAILURES}
+            />
+            <Stat
+              label="Spend"
+              value={842}
+              format={{ style: "currency", currency: "EUR", maximumFractionDigits: 0 }}
+              target={{ max: 1200, high: 1000, optimum: 0 }}
+              caption="of the monthly budget"
+            />
+          </Grid>
+        ),
+      },
+      {
+        // The one filled figure a page may carry (ADR 0169 §4), beside two ordinary ones so the
+        // fill reads as a rank. Every word on it is the brand's contrast ink and its delta keeps
+        // its own pill; the sparkline is drawn in the ink too.
+        id: "stat-headline",
+        title: "Stat — the headline figure, beside two ordinary ones",
+        node: (
+          <Grid template="2:1">
+            <Stat
+              headline
+              label="Rows synced"
+              value={172_400}
+              delta={{ value: 0.089, sentiment: "positive", format: { style: "percent", maximumFractionDigits: 1 }, label: "vs last week" }}
+              trend={WEEKS}
+              caption="Across every sync definition"
+            />
+            <Stack gap={4}>
+              <Stat label="Runs" value={84} delta={{ value: 0, sentiment: "neutral", label: "vs last week" }} />
+              <Stat label="Failed runs" value={3} delta={{ value: -2, sentiment: "positive", label: "vs last week" }} />
+            </Stack>
+          </Grid>
+        ),
+      },
+      {
+        // Several figures about one subject: one ruled row with no tile each. Four at the
+        // specimen's width, so every rule between two figures is painted and the first figure
+        // carries none.
+        id: "stat-group",
+        title: "StatGroup — one ruled row of figures",
+        node: (
+          <StatGroup>
+            <Stat label="Runs" value={84} delta={{ value: 4, sentiment: "neutral", label: "vs last week" }} />
+            <Stat label="Failed runs" value={3} delta={{ value: 2, sentiment: "negative", label: "vs last week" }} />
+            <Stat label="Median duration" value="4 m 12 s" />
+            <Stat label="Last run" value="12:04" caption="Succeeded" />
+          </StatGroup>
+        ),
+      },
+      {
+        // The same row at a phone's width, which is the only place the clipped rule shows: two
+        // figures to a line, and the figure that starts the second line has its rule in the
+        // gap before the first track, outside the group, where overflow: hidden removes it.
+        id: "stat-group-narrow",
+        title: "StatGroup — two to a line on a phone, no rule at a line's start",
+        viewport: { width: 420, height: 900 },
+        node: (
+          <StatGroup>
+            <Stat label="Runs" value={84} delta={{ value: 4, sentiment: "neutral", label: "vs last week" }} />
+            <Stat label="Failed runs" value={3} delta={{ value: 2, sentiment: "negative", label: "vs last week" }} />
+            <Stat label="Median duration" value="4 m 12 s" />
+            <Stat label="Last run" value="12:04" caption="Succeeded" />
+          </StatGroup>
+        ),
+      },
+      {
+        // A figure in a hub card's stat row, where the card is the frame: the packaged admin
+        // hub's totals are this. The a11y lane reads the card link's name, which carries the
+        // figure; a text stat beside it for the row.
+        id: "stat-hub-card",
+        title: "Stat — as a hub card's figure",
+        node: (
+          <HubPage title="Administration">
+            <HubCard
+              to="/admin/users"
+              title="Users"
+              description="Provision accounts, change roles, reset passwords"
+              icon={<Icon name="users" />}
+              stat={<Stat label="Total" value={1420} delta={{ value: 12, sentiment: "positive", label: "this month" }} />}
+            />
+            <HubCard
+              to="/admin/audit"
+              title="Audit log"
+              description="Who changed what, and when."
+              icon={<Icon name="clipboard" />}
+              stat="Needs review"
             />
           </HubPage>
         ),
@@ -2431,6 +2578,43 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The six track templates (ADR 0169 §2) at the desktop width, where each keeps its
+        // tracks: three asymmetric, three equal. Each row is labelled with its template so a
+        // changed proportion is legible in the baseline rather than only measurable.
+        id: "grid-templates",
+        title: "Grid — the six track templates",
+        node: (
+          <Stack gap={4}>
+            {(["2:1", "1:2", "3:1", "1:1", "1:1:1", "1:1:1:1"] as const).map((template) => (
+              <Grid key={template} template={template} gap={2}>
+                {template.split(":").map((share, index) => (
+                  <GridCell key={index} label={`${template} · ${share}fr`} />
+                ))}
+              </Grid>
+            ))}
+          </Stack>
+        ),
+      },
+      {
+        // The same six at a phone's width, which is the property a template has and a fixed
+        // count does not: every one gives up its tracks at the cutover, to one track, and the
+        // four-track set to two.
+        id: "grid-templates-narrow",
+        title: "Grid — the six track templates, collapsed on a phone",
+        viewport: { width: 420, height: 900 },
+        node: (
+          <Stack gap={4}>
+            {(["2:1", "1:2", "3:1", "1:1", "1:1:1", "1:1:1:1"] as const).map((template) => (
+              <Grid key={template} template={template} gap={2}>
+                {template.split(":").map((share, index) => (
+                  <GridCell key={index} label={`${template} · ${index + 1}`} />
+                ))}
+              </Grid>
+            ))}
+          </Stack>
+        ),
+      },
+      {
         // The alignment rules, and this one CANNOT be observed without the contrived context:
         // with cells of equal height, stretch, start, center and end paint identically, so the
         // three non-default rules would be in the sheet with nothing depending on them. Each
@@ -2982,6 +3166,23 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
             }}
           >
             <p style={{ margin: 0 }}>Body content above the bar.</p>
+          </Page>
+        ),
+      },
+      {
+        // The summary band standalone (ADR 0169 §4): a rounded block on the summary fill
+        // directly under the title band, holding the page's own figures — one headline and a
+        // ruled group beside it, which the band's grow factors keep side by side.
+        id: "page-summary",
+        title: "Page — the summary band, standalone",
+        node: (
+          <Page
+            title="Customer master"
+            breadcrumbs={[{ label: "Sync definitions", to: "/syncs" }]}
+            badges={<Badge tone="success" label="Active" />}
+            summary={<SyncSummary />}
+          >
+            <Card title="Mapping">The body starts under the band.</Card>
           </Page>
         ),
       },
@@ -3568,6 +3769,64 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               >
                 <DataView repository={SYNC_REPOSITORY} columns={WIDE_SYNC_COLUMNS} />
               </Page>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
+        // The summary band where its geometry lives: inside a shell it bleeds to the content
+        // column's edges as the title band does, flush against that band's border, and the
+        // body starts under it on the canvas. The collection below is the brightest object on
+        // the page, which is the surface ladder's whole argument (ADR 0169 §3).
+        id: "app-shell-summary",
+        title: "AppShell — a page's summary band, bled to the column",
+        node: (
+          <div style={{ height: "60rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV}
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/records" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <DetailPage
+                title="Customer master"
+                parents={[{ label: "Sync definitions", to: "/syncs" }]}
+                badges={<Badge tone="success" label="Active" />}
+                summary={<SyncSummary />}
+              >
+                <DataView repository={SYNC_REPOSITORY} columns={SYNC_COLUMNS} />
+              </DetailPage>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
+        // The same page on a phone: the headline takes its line, the group wraps two to a
+        // line under it, and the band still bleeds to the column at the tighter gutter.
+        id: "app-shell-summary-narrow",
+        title: "AppShell — a page's summary band on a phone",
+        viewport: { width: 420, height: 900 },
+        node: (
+          <div style={{ height: "60rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV}
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/records" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <DetailPage
+                title="Customer master"
+                parents={[{ label: "Sync definitions", to: "/syncs" }]}
+                summary={<SyncSummary />}
+              >
+                <Card title="Mapping">The body starts under the band.</Card>
+              </DetailPage>
             </AppShell>
           </div>
         ),

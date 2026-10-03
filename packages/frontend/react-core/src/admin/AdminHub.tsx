@@ -5,6 +5,7 @@ import { HubCard, HubPage } from "../HubPage";
 import type { RenderHubCardLink } from "../HubPage";
 import type { AdminAreaSections } from "../bootstrap";
 import { NavIcon } from "../icons";
+import { Stat } from "../Stat";
 import { useTerpClient } from "../TerpProvider";
 import { unwrap } from "../unwrap";
 import { useStrings } from "../uiText";
@@ -58,7 +59,8 @@ function useHubStats(sections: Required<AdminAreaSections>): HubStats {
 
 /**
  * The packaged admin hub (`/admin`): one card per administration area — users,
- * groups and the audit log — with live totals where they are cheap to know.
+ * groups and the audit log — with live totals where they are cheap to know, each a `Stat`
+ * so a count reads here as it does on every other page (ADR 0169 §5).
  * The sidebar's single "Admin" entry opens this hub; the overviews breadcrumb
  * back to it, keeping the hub -> overview -> detail layering every Terp screen
  * follows. `sections` (default: all) mirrors the app's `adminArea` selection —
@@ -81,7 +83,9 @@ export function AdminHub({ sections }: { sections?: AdminAreaSections } = {}) {
           title={strings.adminUsers}
           description={strings.adminUsersDescription}
           icon={<NavIcon name="users" label={strings.adminUsers} />}
-          stat={stats.users !== null ? String(stats.users) : undefined}
+          stat={
+            stats.users !== null ? <Stat label={strings.adminHubTotal} value={stats.users} /> : undefined
+          }
           renderLink={renderLink}
         />
       )}
@@ -91,7 +95,11 @@ export function AdminHub({ sections }: { sections?: AdminAreaSections } = {}) {
           title={strings.adminGroups}
           description={strings.adminGroupsDescription}
           icon={<NavIcon name="shield" label={strings.adminGroups} />}
-          stat={stats.groups !== null ? String(stats.groups) : undefined}
+          stat={
+            stats.groups !== null ? (
+              <Stat label={strings.adminHubTotal} value={stats.groups} />
+            ) : undefined
+          }
           renderLink={renderLink}
         />
       )}

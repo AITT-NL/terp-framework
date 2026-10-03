@@ -6,6 +6,7 @@ import { DetailPage } from "./DetailPage";
 import { NavLinkContext } from "./navLink";
 import { OverviewPage } from "./OverviewPage";
 import { Page } from "./Page";
+import { Stat, StatGroup } from "./Stat";
 import { UiTextProvider } from "./uiText";
 import { ApiError } from "./unwrap";
 import { Badge } from "./ui/Badge";
@@ -430,5 +431,61 @@ describe("DetailPage", () => {
       "page",
     );
     expect(screen.getByText("detail")).toBeInTheDocument();
+  });
+});
+
+describe("Page's summary band", () => {
+  it("renders the page's figures in a second header, directly after the title band", () => {
+    // A <header> because the body slot check drops headers by tag: the band is the frame's,
+    // and judging it as body would fail every governed page that has one.
+    const { container } = render(
+      <Page
+        title="Orders"
+        summary={
+          <StatGroup>
+            <Stat label="Open" value={12} />
+          </StatGroup>
+        }
+      >
+        <p>body</p>
+      </Page>,
+    );
+    const article = container.querySelector('[data-terp="page"]')!;
+    const [band, summary, body] = [...article.children];
+    expect(band).toHaveAttribute("data-terp", "page-header");
+    expect(summary!.tagName).toBe("HEADER");
+    expect(summary).toHaveAttribute("data-terp", "page-summary");
+    expect(summary!.querySelector('[data-terp="stat-group"]')).not.toBeNull();
+    expect(body!.textContent).toBe("body");
+  });
+
+  it("renders no band for a summary that renders nothing", () => {
+    // `summary={figures && <StatGroup/>}` hands the frame false before the figures arrive.
+    // Mutation: test `summary !== undefined` alone, and an empty padded band appears.
+    for (const summary of [undefined, null, false, ""] as const) {
+      const { container, unmount } = render(
+        <Page title="Orders" summary={summary}>
+          <p>body</p>
+        </Page>,
+      );
+      expect(container.querySelector('[data-terp="page-summary"]')).toBeNull();
+      unmount();
+    }
+  });
+
+  it("follows the body: no band while the page loads or shows its error", () => {
+    // The figures are data. The title band stays for orientation; the summary does not
+    // claim a place for figures that are not there.
+    const figures = <Stat label="Open" value={12} />;
+    for (const state of [{ isLoading: true }, { error: new Error("gone") }]) {
+      const { container, unmount } = render(
+        <Page title="Orders" summary={figures} {...state}>
+          <p>body</p>
+        </Page>,
+      );
+      expect(container.querySelector('[data-terp="page-header"]')).not.toBeNull();
+      expect(container.querySelector('[data-terp="page-summary"]')).toBeNull();
+      unmount();
+    }
   });
 });

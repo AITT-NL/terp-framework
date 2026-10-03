@@ -7,6 +7,7 @@ import { ErrorState } from "./ErrorState";
 import {
   LayoutSlotContext,
   useLayoutContract,
+  verifyPageFrame,
   verifySlotChildren,
 } from "./layoutContract";
 import { LoadingState } from "./LoadingState";
@@ -48,6 +49,20 @@ export interface PageProps {
    * source language.
    */
   description?: UiTextNode;
+  /**
+   * The page's own figures, in a band under the title band (ADR 0169 §4): a `StatGroup` of
+   * what the page is about, a headline `Stat`, a status `Badge`, a line of `Text`.
+   *
+   * Full-bleed inside a shell, on the summary fill (`--color-bg-summary`, the brand's soft tint
+   * unless the theme says otherwise), so the figures are the first thing on the page after its
+   * name. One per page because it is a slot. Under a layout contract it admits exactly those
+   * four components, on every page including the plain `Page`, and the page carries at most
+   * one headline figure anywhere in it.
+   *
+   * It is data, so it follows the body: it is not rendered while the page loads or shows its
+   * error, where the band and the trail stay.
+   */
+  summary?: ReactNode;
   /**
    * Cap the whole frame — header included — at a readable measure (default `"full"`).
    *
@@ -138,6 +153,7 @@ export function Page({
   actions,
   badges,
   description,
+  summary,
   measure = "full",
   isLoading,
   loadingState,
@@ -154,13 +170,16 @@ export function Page({
   // (OverviewPage / DetailPage), the rendered body's DOM children must each carry an
   // allowed component's data-terp marker — verified one macrotask after mount (like the
   // page-archetype check) and refused fail closed with the lint rule's directive message.
+  // The frame's own two rules (ADR 0169 §4) are checked on every page under a contract, the
+  // plain Page included: the summary band holds figures, and one figure at most is the
+  // headline.
   const contract = useLayoutContract();
   const slotOwner = useContext(LayoutSlotContext);
   const articleRef = useRef<HTMLElement>(null);
   const [slotViolation, setSlotViolation] = useState<string | null>(null);
   const showsBody = (error === null || error === undefined) && !isLoading;
   useEffect(() => {
-    if (contract === null || slotOwner === null || !showsBody) {
+    if (contract === null || !showsBody) {
       return;
     }
     const timer = setTimeout(() => {
@@ -169,7 +188,10 @@ export function Page({
         return;
       }
       const body = [...article.children].filter((child) => child.tagName !== "HEADER");
-      setSlotViolation(verifySlotChildren(contract, slotOwner, body));
+      setSlotViolation(
+        (slotOwner === null ? null : verifySlotChildren(contract, slotOwner, body)) ??
+          verifyPageFrame(contract, article),
+      );
     }, 0);
     return () => clearTimeout(timer);
   });
@@ -225,6 +247,10 @@ export function Page({
   // branch, and a conditional written at the attribute is the form the marker scanner reads
   // every string literal out of.
   const measureAttribute = measure === "narrow" ? "narrow" : undefined;
+  // The same renderability test as the band's meta: `summary={figures && <StatGroup/>}` hands
+  // this `false` before the figures arrive, and an empty band would still take its padding.
+  const hasSummary =
+    showsBody && summary !== undefined && summary !== null && summary !== false && summary !== "";
   return (
     <>
       <article ref={articleRef} data-terp="page" data-measure={measureAttribute}>
@@ -266,6 +292,15 @@ export function Page({
               for PageActions (which also collapses to icons and a menu as room runs out). */}
           {hasActions && <div data-terp="page-actions">{actions}</div>}
         </header>
+        {/* The summary band: a second <header>, so the body slot check above drops it by tag
+            as it drops the band, and the frame check reads its children against the summary's
+            own table instead. Introductory content for the page is what a header is; inside an
+            article it is no landmark, so it adds nothing to a screen reader's landmark list. */}
+        {hasSummary && (
+          <header data-terp="page-summary">
+            <LayoutSlotContext.Provider value={null}>{summary}</LayoutSlotContext.Provider>
+          </header>
+        )}
         {/* Reset the slot for the body's own subtree, so nested content is never judged
             by an ancestor archetype's slot. */}
         <LayoutSlotContext.Provider value={null}>{body}</LayoutSlotContext.Provider>

@@ -24,10 +24,14 @@ export interface LayoutSlotSpec {
   readonly components: Readonly<Record<string, string>>;
 }
 
-/** One named layout contract: a description and its per-archetype slot specs. */
+/** One named layout contract: a description, its per-archetype slot specs and its frame rules. */
 export interface LayoutContractSpec {
   readonly description: string;
   readonly slots: Readonly<Record<string, LayoutSlotSpec>>;
+  /** What a page's summary band admits (ADR 0169 §4), on every page, the plain one included. */
+  readonly summary: LayoutSlotSpec;
+  /** The components whose `headline` marks the page's one headline figure (ADR 0169 §4). */
+  readonly headline: LayoutSlotSpec;
 }
 
 /** Every layout contract, keyed by id (mirror of the eslint-boundaries source table). */
@@ -45,7 +49,10 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
       "than a loose run of controls; a settings body is Card sections and holds no " +
       "collection; and a split " +
       "body is two SplitPanes and nothing else. A screen that needs no contract " +
-      "composes the plain Page, which this contract deliberately leaves unconstrained.",
+      "composes the plain Page, whose body this contract deliberately leaves unconstrained. " +
+      "Every page, the plain one included, keeps two rules of its frame: its summary band " +
+      "holds the page's own figures (Stat / StatGroup / Badge / Text), and at most one " +
+      "figure on the page is its headline.",
     slots: {
       HubPage: {
         components: { HubCard: "hubcard" },
@@ -116,6 +123,22 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
         },
       },
     },
+    // The band a page renders under its title band when it is given a summary (ADR 0169 §4):
+    // the page's own figures. Governed on every page, the plain Page included, because the
+    // band belongs to the frame and not to a body.
+    summary: {
+      components: {
+        Stat: "stat",
+        StatGroup: "stat-group",
+        Badge: "badge",
+        Text: "text",
+      },
+    },
+    // The components whose `headline` prop (rendered as `data-headline`) marks the page's
+    // headline figure, of which a page carries at most one (ADR 0169 §4).
+    headline: {
+      components: { Stat: "stat" },
+    },
   },
 };
 
@@ -135,6 +158,35 @@ export function slotViolationMessage(
     `${allowed.join(" / ")}; found ${found}. Compose the body from those react-core ` +
     "components (recipe: terp guide layouts), move content that needs no contract to a " +
     "plain Page, " +
+    "or opt out on this line with a justified // terp-allow-layout-contract: <reason> " +
+    "marker (counted by the escape-hatch budget)."
+  );
+}
+
+/**
+ * The directive message for a page's summary band (ADR 0169 §4): what it admits, what was
+ * found, and the fix. (Byte-identical to the eslint-boundaries builder; parity-tested.)
+ */
+export function summaryViolationMessage(contractId: string, found: string): string {
+  const allowed = Object.keys(LAYOUT_CONTRACTS[contractId]!.summary.components);
+  return (
+    `Layout contract "${contractId}": a page's summary band accepts only ` +
+    `${allowed.join(" / ")}; found ${found}. The band carries the page's own figures, so ` +
+    "move anything else into the body (recipe: terp guide layouts), " +
+    "or opt out on this line with a justified // terp-allow-layout-contract: <reason> " +
+    "marker (counted by the escape-hatch budget)."
+  );
+}
+
+/**
+ * The directive message for a page that carries more than one headline figure (ADR 0169 §4).
+ * (Byte-identical to the eslint-boundaries builder; parity-tested.)
+ */
+export function headlineViolationMessage(contractId: string, found: string): string {
+  return (
+    `Layout contract "${contractId}": a page carries at most one headline figure; found ` +
+    `${found}. Keep headline on the one figure the page is about and render the others as ` +
+    "ordinary figures (recipe: terp guide layouts), " +
     "or opt out on this line with a justified // terp-allow-layout-contract: <reason> " +
     "marker (counted by the escape-hatch budget)."
   );
@@ -176,12 +228,52 @@ export function verifySlotChildren(
   if (slot === undefined) {
     return null;
   }
+  return firstStranger(slot, children, (found) => slotViolationMessage(contractId, slotOwner, found));
+}
+
+/** The first child whose marker the slot does not admit, phrased by `describe`; or null. */
+function firstStranger(
+  slot: LayoutSlotSpec,
+  children: readonly Element[],
+  describe: (found: string) => string,
+): string | null {
   const allowed = new Set(Object.values(slot.components));
   for (const child of children) {
     const marker = child.getAttribute("data-terp");
     if (marker === null || !allowed.has(marker)) {
-      return slotViolationMessage(contractId, slotOwner, describeElement(child));
+      return describe(describeElement(child));
     }
   }
   return null;
+}
+
+/**
+ * Verify a page's rendered frame against the contract's two frame rules (ADR 0169 §4): the
+ * summary band's children are the figures it admits, and the page carries at most one headline
+ * figure anywhere in it. Returns the directive message, or null when the frame conforms.
+ */
+export function verifyPageFrame(contractId: string, page: Element): string | null {
+  const contract = LAYOUT_CONTRACTS[contractId];
+  if (contract === undefined) {
+    return null;
+  }
+  const summary = [...page.children].find(
+    (child) => child.getAttribute("data-terp") === "page-summary",
+  );
+  const stranger =
+    summary === undefined
+      ? null
+      : firstStranger(contract.summary, [...summary.children], (found) =>
+          summaryViolationMessage(contractId, found),
+        );
+  if (stranger !== null) {
+    return stranger;
+  }
+  const selector = Object.values(contract.headline.components)
+    .map((marker) => `[data-terp="${marker}"][data-headline]`)
+    .join(", ");
+  const headlines = page.querySelectorAll(selector).length;
+  return headlines > 1
+    ? headlineViolationMessage(contractId, `${headlines} figures marked headline`)
+    : null;
 }

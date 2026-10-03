@@ -181,15 +181,25 @@ export type {
 export { Field, FieldRow } from "./Field";
 export { QuietActions } from "./QuietActions";
 export { Meter } from "./Meter";
+export { Stat, StatGroup } from "./Stat";
 export type { FieldProps, FieldRowProps } from "./Field";
 export type { QuietActionsProps } from "./QuietActions";
 export type { MeterProps } from "./Meter";
+export type {
+  StatProps,
+  StatGroupProps,
+  StatDelta,
+  StatPoint,
+  StatSentiment,
+  StatTarget,
+} from "./Stat";
 export { Stack, Grid, Divider, DetailList, DetailListGroup } from "./layout";
 export type {
   StackProps,
   GridProps,
   GridColumns,
   GridMinColumn,
+  GridTemplate,
   DividerProps,
   Responsive,
   DetailListProps,

@@ -1357,3 +1357,91 @@ test("only a page with a sequence changes main's layout and the document's scrol
   // 2.25rem of control, 2 x 0.5rem of padding and a 1px border, at a 16px root.
   expect(await scrollPadding()).toBe("53px");
 });
+
+test("every track template keeps its proportions on a desk and gives up its tracks on a phone", async ({
+  page,
+}) => {
+  // A template's whole claim over a fixed count is the collapse (ADR 0169 §2), and a baseline
+  // shows the picture without saying which rule drew it: these are the resolved tracks.
+  const tracks = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('[data-terp="grid"][data-template]')].map((grid) => ({
+        template: grid.getAttribute("data-template"),
+        widths: getComputedStyle(grid).gridTemplateColumns.split(" ").map(parseFloat),
+      })),
+    );
+  await page.goto("/?theme=midday&only=grid-templates");
+  await page.locator('[data-terp="grid"][data-template]').first().waitFor({ state: "visible" });
+  const desk = await tracks();
+  expect(desk.map(({ template }) => template)).toEqual(["2:1", "1:2", "3:1", "1:1", "1:1:1", "1:1:1:1"]);
+  for (const { template, widths } of desk) {
+    const shares = template!.split(":").map(Number);
+    expect(widths, `${template} keeps one track per share`).toHaveLength(shares.length);
+    // Each track's width over the first's is its share over the first's, to the pixel; the
+    // gap is outside the tracks, so the ratio holds exactly.
+    for (const [index, share] of shares.entries()) {
+      expect(widths[index]! / widths[0]!, `${template}, track ${index + 1}`).toBeCloseTo(
+        share / shares[0]!,
+        1,
+      );
+    }
+  }
+  await page.setViewportSize({ width: 420, height: 900 });
+  await page.goto("/?theme=midday&only=grid-templates-narrow");
+  await page.locator('[data-terp="grid"][data-template]').first().waitFor({ state: "visible" });
+  const phone = await tracks();
+  for (const { template, widths } of phone) {
+    expect(widths, `${template} on a phone`).toHaveLength(template === "1:1:1:1" ? 2 : 1);
+  }
+});
+
+test("the summary band bleeds to the column, flush under the title band", async ({ page }) => {
+  // The bleed is a position, and a negative margin whose sign disagrees with the padding beside
+  // it is exactly the drift a picture can hide under the band's own fill. Measured against the
+  // title band, which is the line both bands promise to share.
+  await page.goto("/?theme=midday&only=app-shell-summary");
+  await page.locator('[data-terp="page-summary"]').waitFor({ state: "visible" });
+  const edges = await page.evaluate(() => {
+    const box = (selector: string) => {
+      const { top, bottom, left, right } = document.querySelector(selector)!.getBoundingClientRect();
+      return { top, bottom, left, right };
+    };
+    return {
+      band: box('[data-terp="page-header"]'),
+      summary: box('[data-terp="page-summary"]'),
+      main: box('[data-terp="appshell-main"]'),
+    };
+  });
+  expect(edges.summary.left).toBeCloseTo(edges.main.left, 0);
+  expect(edges.summary.right).toBeCloseTo(edges.main.right, 0);
+  expect(edges.summary.left).toBeCloseTo(edges.band.left, 0);
+  expect(edges.summary.top, "flush against the title band's border").toBeCloseTo(edges.band.bottom, 0);
+});
+
+test("a group of figures fits two to a line on a phone, and only a line's later figures carry a rule", async ({
+  page,
+}) => {
+  // The rule before a figure is drawn into the column gap and clipped where it falls outside
+  // the group, so "no rule at a line's start" is a position against the group's edge.
+  await page.setViewportSize({ width: 420, height: 900 });
+  await page.goto("/?theme=midday&only=app-shell-summary-narrow");
+  await page.locator('[data-terp="stat-group"]').waitFor({ state: "visible" });
+  const layout = await page.evaluate(() => {
+    const group = document.querySelector('[data-terp="page-summary"] [data-terp="stat-group"]')!;
+    const groupBox = group.getBoundingClientRect();
+    return {
+      columns: getComputedStyle(group).gridTemplateColumns.split(" ").length,
+      overflow: getComputedStyle(group).overflowX,
+      rules: [...group.querySelectorAll(':scope > [data-terp="stat"]')].map((stat) => {
+        const box = stat.getBoundingClientRect();
+        const offset = parseFloat(getComputedStyle(stat, "::before").insetInlineStart);
+        return { inside: box.left + offset >= groupBox.left };
+      }),
+    };
+  });
+  expect(layout.columns).toBe(2);
+  expect(layout.overflow).toBe("hidden");
+  // Four figures, two to a line: the first and third start a line, so their rules fall outside
+  // the group and are clipped; the second and fourth carry theirs.
+  expect(layout.rules.map(({ inside }) => inside)).toEqual([false, true, false, true]);
+});

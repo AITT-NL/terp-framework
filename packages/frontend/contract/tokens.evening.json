@@ -35,7 +35,8 @@
       "subtle": { "value": "#172033" },
       "surface": { "value": "#1e293b" },
       "raised": { "value": "#263449" },
-      "inset": { "value": "#0f172a" }
+      "inset": { "value": "#0f172a" },
+      "summary": { "value": "#15304e" }
     },
     "fg": {
       "default": { "value": "#f1f5f9" },

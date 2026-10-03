@@ -196,6 +196,36 @@ describe("Grid", () => {
     expect(fixed.hasAttribute("data-min-column")).toBe(false);
   });
 
+  it("names a track template, and stamps no count or floor beside it", () => {
+    // A template decides the tracks on its own (ADR 0169 §2). A count stamped beside it would
+    // be a second rule on the same property, won or lost on source order.
+    render(
+      <Grid data-testid="grid" template="2:1">
+        <span>a</span>
+      </Grid>,
+    );
+    const el = screen.getByTestId("grid");
+    expect(el).toHaveAttribute("data-template", "2:1");
+    expect(el.hasAttribute("data-columns")).toBe(false);
+    expect(el.hasAttribute("data-min-column")).toBe(false);
+    expect(el.getAttribute("style")).toBeNull();
+  });
+
+  it("lets a template win over a count an untyped caller passes beside it", () => {
+    // The types refuse the pair; a call the typecheck never saw still stamps one decision.
+    // Mutation: stamp `columns` whatever the template, and data-columns appears.
+    const untyped = { template: "1:1:1", columns: 4, minColumn: "lg" } as never;
+    render(
+      <Grid data-testid="grid" {...(untyped as object)}>
+        <span>a</span>
+      </Grid>,
+    );
+    const el = screen.getByTestId("grid");
+    expect(el).toHaveAttribute("data-template", "1:1:1");
+    expect(el.hasAttribute("data-columns")).toBe(false);
+    expect(el.hasAttribute("data-min-column")).toBe(false);
+  });
+
   it("keeps alignment an attribute, unlike Stack's, and takes no style", () => {
     // The deliberate divergence: Stack's align is an open set of CSS keywords and stays inline
     // (ADR 0094 §3); Grid's is a closed four, so it is an attribute and Grid renders no inline

@@ -371,15 +371,15 @@ describe("cascade structure", () => {
     }
     // And the content measure, which no structural check can reach through a marker: it is the
     // one shell rule keyed on a descendant of an attribute rather than on a marker of its own,
-    // because the mechanism is deliberately NOT a new element (ADR 0097 §2). The `:not(header)`
-    // is the whole band: the header keeps the page grid's full track while its siblings take
-    // the measure.
+    // because the mechanism is deliberately NOT a new element (ADR 0097 §2). The `:not()` is the
+    // whole band: the frame's two bands -- the title band and the summary band (ADR 0169 §4) --
+    // keep the page grid's full track while their siblings take the measure.
     // Selector AND declaration read out of ONE rule body, not as two independent substrings
     // of the layer. Asserted separately, an empty measure rule plus the declaration moved onto
     // some other rule during a consolidation would satisfy both — and the only baseline that
     // moved would read as an intentional layout change.
     const measureRule =
-      /\[data-terp="appshell"\]\[data-content-width="measured"\]\s*\n?\s*\[data-terp="page"\] > \*:not\(\[data-terp="page-header"\]\) \{([^}]*)\}/.exec(
+      /\[data-terp="appshell"\]\[data-content-width="measured"\]\s*\n?\s*\[data-terp="page"\] > \*:not\(\[data-terp="page-header"\], \[data-terp="page-summary"\]\) \{([^}]*)\}/.exec(
         base,
       );
     expect(measureRule, "the content measure must be one rule keyed on the shell's attribute").not

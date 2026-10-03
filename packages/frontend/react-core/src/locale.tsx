@@ -221,6 +221,10 @@ export const LOCALE_NL: LocaleCatalog = {
     pageSequencePrevious: "Vorige: {label}",
     pageSequenceNext: "Volgende: {label}",
     pageSequencePosition: "{current} van {total}",
+    statFavourable: "gunstig",
+    statUnfavourable: "ongunstig",
+    statTrend: "Verloop: {points}",
+    adminHubTotal: "Totaal",
     errorTitle: "Er is iets misgegaan.",
     backendUnreachableTitle: "De applicatie kan de server niet bereiken.",
     backendUnreachableDescription:

@@ -74,8 +74,13 @@ export interface HubCardProps {
   /** Optional leading icon (any rendered node — react-core takes no icon dependency). */
   icon?: ReactNode;
   /**
-   * Optional live summary (e.g. "142 active - 3 inactive"). Turns the hub into a
-   * lightweight dashboard rather than a duplicate of the sidebar.
+   * Optional live summary, which turns the hub into a lightweight dashboard rather than a
+   * duplicate of the sidebar.
+   *
+   * A figure is a `Stat` — `stat={<Stat label={open} value={142} />}` — so a number reads on a
+   * hub card as it does on every other page, in the app's locale and with its delta and its
+   * sparkline (ADR 0169 §5). The card is its frame, so it has none of its own here. A short
+   * line of text that is not a figure ("Needs review") is passed as it is.
    */
   stat?: ReactNode;
   /** Link renderer (default: a plain `<a href>`); pass the stack's `Link`, like `AppShell`. */

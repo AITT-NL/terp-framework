@@ -108,21 +108,20 @@ export type GridColumns = 1 | 2 | 3 | 4 | "auto";
 /** Track floor for an `"auto"` grid: the width below which a column stops being one. */
 export type GridMinColumn = "xs" | "sm" | "md" | "lg";
 
-export interface GridProps extends Omit<HTMLAttributes<HTMLElement>, "style"> {
+/**
+ * A named track template (ADR 0169 §2): the tracks' proportions, read left to right.
+ *
+ * `"2:1"` is a main track twice the width of the one beside it, `"1:2"` the same with the
+ * narrow track first, `"3:1"` a main track with a narrow rail; the equal sets are two, three
+ * and four tracks of one width. Every template collapses at the framework's one cutover: to a
+ * single track, and the four-track set to two, so a row of four small blocks becomes a square
+ * on a phone rather than a column four screens long.
+ */
+export type GridTemplate = "1:1" | "1:1:1" | "1:1:1:1" | "2:1" | "1:2" | "3:1";
+
+interface GridBaseProps extends Omit<HTMLAttributes<HTMLElement>, "style"> {
   /** The rendered element (`"div"` by default; use `"ul"`, `"section"`, `"dl"`, …). */
   as?: ElementType;
-  /**
-   * Columns: a fixed count, or `"auto"` (the default) for as many as fit above
-   * {@link GridProps.minColumn}.
-   *
-   * `"auto"` is the responsive answer and it takes no breakpoint: the track floor makes the
-   * grid reflow to whatever its **container** can hold, which is what a caller almost always
-   * means and is more nearly right than a viewport query — a grid inside a narrow panel
-   * should go one-column whatever the window is doing.
-   */
-  columns?: GridColumns;
-  /** Track floor for an `"auto"` grid (default `"sm"`); ignored at a fixed count. */
-  minColumn?: GridMinColumn;
   /** Gap between cells, as a step on the token spacing scale (default `4`). */
   gap?: SpaceToken;
   /** Inset around the cells, as a step on the token spacing scale (default none). */
@@ -135,6 +134,41 @@ export interface GridProps extends Omit<HTMLAttributes<HTMLElement>, "style"> {
   align?: "start" | "center" | "end" | "stretch";
   children?: ReactNode;
 }
+
+/** How a grid's tracks are decided: by count and floor, or by a named template — never both. */
+type GridTracks =
+  | {
+      /**
+       * Columns: a fixed count, or `"auto"` (the default) for as many as fit above
+       * `minColumn`.
+       *
+       * `"auto"` is the responsive answer and it takes no breakpoint: the track floor makes the
+       * grid reflow to whatever its **container** can hold, which is what a caller almost always
+       * means and is more nearly right than a viewport query — a grid inside a narrow panel
+       * should go one-column whatever the window is doing.
+       */
+      columns?: GridColumns;
+      /** Track floor for an `"auto"` grid (default `"sm"`); ignored at a fixed count. */
+      minColumn?: GridMinColumn;
+      template?: never;
+    }
+  | {
+      /**
+       * A named track template — the asymmetric composition, and the equal sets that collapse
+       * (ADR 0169 §2). See {@link GridTemplate}.
+       *
+       * A template is the layout of a page section: a chart beside the figures that explain
+       * it, a collection beside its summary. A fixed `columns` count keeps its tracks at every
+       * width, so four of them clip on a phone; a template gives up its tracks at the cutover
+       * instead, which is why it, and not a count, is how a section is laid out. Anything finer
+       * is nesting — a `Stack` in the narrow track holding two figures — never a span.
+       */
+      template: GridTemplate;
+      columns?: never;
+      minColumn?: never;
+    };
+
+export type GridProps = GridBaseProps & GridTracks;
 
 /**
  * The two-dimensional layout primitive, and the one that lifts a real ceiling: with `Stack`
@@ -158,17 +192,25 @@ export interface GridProps extends Omit<HTMLAttributes<HTMLElement>, "style"> {
  *   wanting 17.5rem cannot have it, which is the same trade `gap` already makes.
  * - **There is no `span`,** and therefore no twelve-column option. A span system needs a child
  *   component to carry it, and a `columns={12}` with no way to span is a grid of twelve narrow
- *   cells rather than a layout system — worse than not offering it.
+ *   cells rather than a layout system — worse than not offering it. Asymmetry is `template`
+ *   instead (ADR 0169 §2): a closed set on the parent, so a row cannot go ragged — with spans,
+ *   `2 + 2` in three columns leaves a hole that depends on how many children render — and
+ *   every template collapses at the cutover by construction.
  */
 export function Grid({
   as: Component = "div",
   columns = "auto",
   minColumn = "sm",
+  template,
   gap = 4,
   padding,
   align = "stretch",
   ...rest
 }: GridProps) {
+  // A template decides the tracks on its own. The types already refuse a count beside it; this
+  // keeps an untyped caller from stamping both, where the count's rule would sit beside the
+  // template's and win or lose on source order.
+  const tracks = template === undefined ? columns : "auto";
   return (
     <Component
       {...rest}
@@ -176,8 +218,11 @@ export function Grid({
       // The defaults are the base rule, so their attributes match nothing and are left off —
       // the shape density and Button's `md` already use. String(columns) rather than the
       // number, because a `data-` attribute is text and `columns={2}` must produce "2".
-      data-columns={columns === "auto" ? undefined : String(columns)}
-      data-min-column={columns === "auto" && minColumn !== "sm" ? minColumn : undefined}
+      data-columns={tracks === "auto" ? undefined : String(tracks)}
+      data-min-column={
+        template === undefined && tracks === "auto" && minColumn !== "sm" ? minColumn : undefined
+      }
+      data-template={template}
       data-gap={String(gap)}
       data-padding={padding === undefined ? undefined : String(padding)}
       data-align={align === "stretch" ? undefined : align}

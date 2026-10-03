@@ -778,6 +778,26 @@ textarea[data-terp="input"] {
 [data-terp="grid"][data-columns="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 [data-terp="grid"][data-columns="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 [data-terp="grid"][data-columns="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* The named track templates (ADR 0169 §2): proportions read left to right, each track
+   minmax(0, n fr) for the reason the fixed counts above give. A closed set on the parent rather
+   than a span on a child, so a row cannot go ragged whatever renders in it.
+
+   Each one gives up its tracks at the one cutover, which is the property a fixed count lacks
+   and the reason a template exists beside it: columns={4} keeps four tracks on a phone and
+   clips, a template does not. Every template becomes one track there, except the four-track set,
+   which becomes two — four small blocks as a square rather than a column four screens long.
+   The collapse is a viewport query, unlike "auto"'s container reflow, because a template is the
+   layout of a page section and the page changes shape at the cutover with the shell around it. */
+[data-terp="grid"][data-template="1:1"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+[data-terp="grid"][data-template="1:1:1"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+[data-terp="grid"][data-template="1:1:1:1"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+[data-terp="grid"][data-template="2:1"] { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+[data-terp="grid"][data-template="1:2"] { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+[data-terp="grid"][data-template="3:1"] { grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); }
+@media ${NARROW_VIEWPORT} {
+  [data-terp="grid"][data-template] { grid-template-columns: minmax(0, 1fr); }
+  [data-terp="grid"][data-template="1:1:1:1"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 [data-terp="grid"][data-gap="0"] { gap: var(--space-0); }
 [data-terp="grid"][data-gap="1"] { gap: var(--space-1); }
 [data-terp="grid"][data-gap="2"] { gap: var(--space-2); }
@@ -1853,10 +1873,11 @@ textarea[data-terp="input"] {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Visually hidden, five elements, one rule. One is the skip link, which is the whole point of
+/* Visually hidden, one rule. One is the skip link, which is the whole point of
    the block for it: hidden at rest and un-hidden by a rule in terp.state. Two are the drawer's
    focus sentinels, which
-   must stay focusable and so cannot be display: none. The other two are the brand title
+   must stay focusable and so cannot be display: none. Two are a figure's words for what its
+   colours and its sparkline show (see Stat): read out, never drawn. The rest are the brand title
    and the nav labels in the icon rail, which were a style-object TERNARY before this —
    the component picked between two objects per render, and the collapsed branch was
    painted by nothing, because the rail state was internal and no specimen could reach it.
@@ -1864,6 +1885,8 @@ textarea[data-terp="input"] {
 [data-terp="appshell-skip-link"],
 [data-terp="drawer-focus-start"],
 [data-terp="drawer-focus-end"],
+[data-terp="stat-sentiment"],
+[data-terp="stat-trend-data"],
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-brand-title"],
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav-label"],
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav-group-label"] {
@@ -2410,6 +2433,49 @@ textarea[data-terp="input"] {
   padding-inline: var(--shell-gutter);
   background: var(--color-bg-subtle);
 }
+/* The summary band (ADR 0169 §4): the page's own figures, directly under the band that names
+   the page, so what the page is about is the first thing read after its name.
+
+   The fill is --color-bg-summary, a token of its own because the record leaves the fill to the
+   theme: each palette ships it at the brand's soft tint, and an app that wants a calmer band
+   moves that one token without moving the tint the hub tiles and the selected states share.
+   The text it carries is declared against it in token-pairs.json.
+
+   A wrapping flex line. A group of figures takes whatever the line has, a lone figure stays
+   near its own measure beside it -- the grow factors are what say so, 999 against 1 -- and a
+   line of text takes a line of its own. Standalone (the workbench, a narrow form) it is a
+   rounded block on the page; inside a shell it bleeds to the content column's edges as the
+   band above it does, flush against that band's border by cancelling the page's own gap. */
+[data-terp="page-summary"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-6);
+  min-width: 0;
+  padding: var(--space-5) var(--space-4);
+  box-sizing: border-box;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-summary);
+  color: var(--color-fg-default);
+}
+[data-terp="page-summary"] > [data-terp="stat-group"] {
+  flex: 999 1 24rem;
+}
+[data-terp="page-summary"] > [data-terp="stat"] {
+  flex: 1 1 14rem;
+  max-inline-size: 22rem;
+}
+[data-terp="page-summary"] > [data-terp="text"] {
+  flex: 1 1 100%;
+}
+[data-terp="appshell-main"]
+  > [data-terp="page"]:not([data-measure="narrow"])
+  > [data-terp="page-summary"] {
+  margin: calc(-1 * var(--space-4)) calc(-1 * var(--shell-gutter)) 0;
+  padding-inline: var(--shell-gutter);
+  border-radius: 0;
+  border-block-end: 1px solid var(--color-neutral-200);
+}
 /* The content measure, and the subheader band, which are ONE declaration rather than two
    features (ADR 0097 §2). A full-width band only means anything once the column beside it is
    constrained, and constraining the column is what leaves the header spanning the full track.
@@ -2434,7 +2500,9 @@ textarea[data-terp="input"] {
    never asked for, silently. The frame's own header is the only thing meant to span the track,
    and the marker says so. (The layout contract's runtime check still drops the header by TAG
    name, because that check runs where no marker is guaranteed; the two mechanisms answer
-   different questions and only this one is a style.)
+   different questions and only this one is a style.) The summary band is the frame's too, and
+   spans the track for the same reason; a selector list inside the one :not() counts as its
+   most specific argument, so naming it leaves the weight below where it was.
 
    And no backticks in this block, which is not a style note: a backtick here TERMINATES
    TERP_STYLES_CSS and the parse fails somewhere else entirely with "try inserting a
@@ -2462,7 +2530,7 @@ textarea[data-terp="input"] {
    still wins with it. min() rather than a bare token so a track narrower than the measure is
    untouched rather than overflowing. */
 [data-terp="appshell"][data-content-width="measured"]
-  [data-terp="page"] > *:not([data-terp="page-header"]) {
+  [data-terp="page"] > *:not([data-terp="page-header"], [data-terp="page-summary"]) {
   width: min(100%, var(--shell-content-max-width));
 }
 /* The reach-through, for the one body child that generates no box of its own. Markdown is
@@ -4447,6 +4515,198 @@ button[data-terp="input"][data-placeholder="true"] {
   align-self: baseline;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* Figures (ADR 0169) --------------------------------------------------------- */
+/* One figure is a tile on --color-bg-surface, the rung where data is read (ADR 0169 §3): the
+   surface, its hairline and its small shadow, as a boxed card one rung brighter. The value is
+   the largest type on the tile and the label names it, which is the order a Card with a title
+   over a line of text had backwards.
+
+   A column whose items keep their own widths (align-items: flex-start), so the delta's pill
+   and the target's meter are as wide as what they say rather than as wide as the tile; the
+   sparkline asks for the full width itself. */
+[data-terp="stat"] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-4);
+  box-sizing: border-box;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-fg-default);
+}
+[data-terp="stat-label"] {
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--font-line-height-snug);
+}
+/* Tabular figures, so a value that ticks does not change width; anywhere-wrapping, so a long
+   figure in a narrow track breaks rather than widening it. */
+[data-terp="stat-value"] {
+  max-inline-size: 100%;
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-line-height-tight);
+  letter-spacing: var(--font-letter-spacing-tight);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+[data-terp="stat-delta"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-xs);
+  line-height: var(--font-line-height-snug);
+}
+/* The change is a pill with its own soft fill, the badge's construction, and that is what
+   makes its contrast its own: the success ink measures under AA directly on the summary band's
+   tint in the midday theme, and on its soft fill it is the success badge, declared and gated
+   wherever a band or a card puts it. Neutral is muted ink on the neutral wash, a declared
+   pairing too. */
+[data-terp="stat-change"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 1px var(--space-2);
+  border: 1px solid;
+  border-radius: var(--radius-full);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+[data-terp="stat-change"][data-sentiment="positive"] {
+  color: var(--color-status-success);
+  background: var(--color-status-success-soft);
+  border-color: var(--color-status-success-soft);
+}
+[data-terp="stat-change"][data-sentiment="negative"] {
+  color: var(--color-status-danger);
+  background: var(--color-status-danger-soft);
+  border-color: var(--color-status-danger-soft);
+}
+[data-terp="stat-change"][data-sentiment="neutral"] {
+  color: var(--color-fg-muted);
+  background: var(--color-neutral-100);
+  border-color: var(--color-neutral-100);
+}
+[data-terp="stat-arrow"] {
+  flex: none;
+  width: 0.625rem;
+  height: 0.625rem;
+  fill: currentColor;
+}
+/* The sparkline: the full width of its tile at a fixed height, so sparklines side by side
+   share a scale of height. The SVG stretches to its box, and non-scaling-stroke keeps the
+   line at its width through the stretch. The accent is a declared text pairing on every
+   ground a figure stands on -- surface, container, canvas and the summary band -- so the
+   line clears the 3:1 a graphic needs everywhere. The wash under it is reinforcement only. */
+[data-terp="stat-trend"] {
+  display: block;
+  align-self: stretch;
+  margin-block-start: var(--space-1);
+}
+[data-terp="stat-trend-chart"] {
+  display: block;
+  width: 100%;
+  height: 2rem;
+  overflow: visible;
+}
+[data-terp="stat-trend-line"] {
+  fill: none;
+  stroke: var(--color-fg-accent);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+[data-terp="stat-trend-area"] {
+  fill: var(--color-fg-accent);
+  fill-opacity: 0.12;
+  stroke: none;
+}
+/* The target's meter prints its share at the tile's small step, beside the caption's, rather
+   than at the body size it would inherit from a tile that sets none. */
+[data-terp="stat"] > [data-terp="meter"] {
+  margin-block-start: var(--space-1);
+  font-size: var(--font-size-sm);
+}
+[data-terp="stat-caption"] {
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-xs);
+  line-height: var(--font-line-height-snug);
+}
+/* The headline: the one figure on a page filled with the brand colour (ADR 0169 §4), every
+   word on it in the brand's contrast ink -- the primary button's pairing. The delta keeps its
+   pill, which carries its own pairing onto any fill. One shadow step up, so it also stands
+   off the page. */
+[data-terp="stat"][data-headline] {
+  border-color: var(--color-brand-primary);
+  background: var(--color-brand-primary);
+  box-shadow: var(--shadow-md);
+  color: var(--color-brand-primary-contrast);
+}
+[data-terp="stat"][data-headline] [data-terp="stat-label"],
+[data-terp="stat"][data-headline] [data-terp="stat-delta"],
+[data-terp="stat"][data-headline] [data-terp="stat-caption"] {
+  color: var(--color-brand-primary-contrast);
+}
+[data-terp="stat"][data-headline] [data-terp="stat-trend-line"] {
+  stroke: var(--color-brand-primary-contrast);
+}
+[data-terp="stat"][data-headline] [data-terp="stat-trend-area"] {
+  fill: var(--color-brand-primary-contrast);
+}
+/* A group of figures: one ruled row, unframed wherever it is placed. As many figures to a line
+   as fit at 8rem -- two on a phone, which 9rem did not manage inside a summary band at 420px --
+   and the rule between two figures is drawn in the middle of the column gap, from the figure
+   after it. A figure that starts a line has its rule in the
+   gap before the first track, which is outside the group -- and overflow: hidden is what
+   clips it, so no figure at a line's start carries a rule, however the row wraps. */
+[data-terp="stat-group"] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(8rem, 100%), 1fr));
+  gap: var(--space-4) var(--space-6);
+  min-width: 0;
+  overflow: hidden;
+}
+[data-terp="stat-group"] > [data-terp="stat"] {
+  position: relative;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+[data-terp="stat-group"] > [data-terp="stat"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(-1 * var(--space-3));
+  border-inline-start: 1px solid var(--color-neutral-200);
+}
+/* The headline keeps its fill in a group, inset in its own padding, so it reads as the one
+   filled cell of the row. */
+[data-terp="stat-group"] > [data-terp="stat"][data-headline] {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-brand-primary);
+}
+/* In a hub card's stat row the card is the frame, so an ordinary figure has none of its own
+   there. The headline keeps its fill wherever it is. */
+[data-terp="hubcard-stat"] > [data-terp="stat"]:not([data-headline]) {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
 }
 
 /* Tooltips ----------------------------------------------------------------- */

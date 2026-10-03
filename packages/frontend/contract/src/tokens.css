@@ -40,6 +40,7 @@
   --color-bg-surface: #ffffff;
   --color-bg-raised: #ffffff;
   --color-bg-inset: #e5eaf2;
+  --color-bg-summary: #e4edfd;
   --color-fg-default: #0f172a;
   --color-fg-muted: #475569;
   --color-fg-subtle: #56647a;
@@ -176,6 +177,7 @@
   --color-bg-surface: #3a3449;
   --color-bg-raised: #453e57;
   --color-bg-inset: #312c3f;
+  --color-bg-summary: #4b3f72;
   --color-fg-default: #faf8fc;
   --color-fg-muted: #d2c9e2;
   --color-fg-subtle: #c0b4d8;
@@ -234,6 +236,7 @@
   --color-bg-surface: #1e293b;
   --color-bg-raised: #263449;
   --color-bg-inset: #0f172a;
+  --color-bg-summary: #15304e;
   --color-fg-default: #f1f5f9;
   --color-fg-muted: #b4c0d0;
   --color-fg-subtle: #94a3b8;
@@ -292,6 +295,7 @@
   --color-bg-surface: #0d1117;
   --color-bg-raised: #161b22;
   --color-bg-inset: #010409;
+  --color-bg-summary: #0c2d6b;
   --color-fg-default: #f0f6fc;
   --color-fg-muted: #9aa4b2;
   --color-fg-subtle: #8b949e;
@@ -349,6 +353,7 @@
   --color-bg-surface: #ffffff;
   --color-bg-raised: #ffffff;
   --color-bg-inset: #f2f2f2;
+  --color-bg-summary: #e8f0fe;
   --color-fg-default: #000000;
   --color-fg-muted: #141414;
   --color-fg-subtle: #1f1f1f;
@@ -406,6 +411,7 @@
     --color-bg-surface: #0d1117;
     --color-bg-raised: #161b22;
     --color-bg-inset: #010409;
+    --color-bg-summary: #0c2d6b;
     --color-fg-default: #f0f6fc;
     --color-fg-muted: #9aa4b2;
     --color-fg-subtle: #8b949e;

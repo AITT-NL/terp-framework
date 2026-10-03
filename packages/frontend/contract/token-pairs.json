@@ -178,6 +178,28 @@
       "layer": "semantic"
     },
     {
+      "$comment": "The summary band's fill (ADR 0169 §4) and the three inks it carries: a figure's value and label, and the accent a figure's trend line and a link are drawn in. Its own token rather than the brand's soft tint read directly, because the record leaves the fill to the theme: a palette that wants a calmer band moves this one token, and the tint the hub tiles and the selected states share stays where it is. Every theme ships it at its soft tint. A figure's delta is not here: it is a pill with its own soft fill, held by the badge pairings wherever a band or a card puts it.",
+      "id": "body-on-summary",
+      "label": "body text on the summary band",
+      "fg": "--color-fg-default",
+      "bg": "--color-bg-summary",
+      "layer": "semantic"
+    },
+    {
+      "id": "muted-on-summary",
+      "label": "muted text on the summary band",
+      "fg": "--color-fg-muted",
+      "bg": "--color-bg-summary",
+      "layer": "semantic"
+    },
+    {
+      "id": "accent-on-summary",
+      "label": "a link or a trend line on the summary band",
+      "fg": "--color-fg-accent",
+      "bg": "--color-bg-summary",
+      "layer": "semantic"
+    },
+    {
       "id": "accent-on-surface",
       "label": "accent text on a surface",
       "fg": "--color-fg-accent",

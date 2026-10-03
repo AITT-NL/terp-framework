@@ -187,6 +187,14 @@ export interface TerpStrings {
   pageSequenceNext: string;
   /** A page's place in its sequence; `{current}` and `{total}` are replaced. */
   pageSequencePosition: string;
+  /** A figure's change that is good news, read out after it (the pill's colour, as a word). */
+  statFavourable: string;
+  /** A figure's change that is bad news, read out after it (the pill's colour, as a word). */
+  statUnfavourable: string;
+  /** A figure's sparkline as text; `{points}` is the listed points, each a label and a value. */
+  statTrend: string;
+  /** The admin hub: names the total on the users and groups cards. */
+  adminHubTotal: string;
   /** Default {@link ErrorState} title. */
   errorTitle: string;
   /** Title shown by `RequireAuth` when the backend did not answer the boot check. */
@@ -520,6 +528,10 @@ export const DEFAULT_STRINGS: TerpStrings = {
   pageSequencePrevious: "Previous: {label}",
   pageSequenceNext: "Next: {label}",
   pageSequencePosition: "{current} of {total}",
+  statFavourable: "favourable",
+  statUnfavourable: "unfavourable",
+  statTrend: "Over time: {points}",
+  adminHubTotal: "Total",
   errorTitle: "Something went wrong.",
   backendUnreachableTitle: "The application cannot reach its server.",
   backendUnreachableDescription:

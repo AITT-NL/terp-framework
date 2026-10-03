@@ -20,9 +20,13 @@ import { HubCard, HubPage } from "./HubPage";
 import {
   LAYOUT_CONTRACTS,
   LayoutContractContext,
+  headlineViolationMessage,
   slotViolationMessage,
+  summaryViolationMessage,
   verifySlotChildren,
 } from "./layoutContract";
+import { Stat, StatGroup } from "./Stat";
+import { Badge } from "./ui/Badge";
 import { OverviewPage } from "./OverviewPage";
 
 // The public surface, as source: the archetype-coverage check below derives its list from
@@ -103,6 +107,12 @@ describe("layout contract parity (docs/data can't drift)", () => {
   it("phrases the identical directive message on both halves", () => {
     expect(slotViolationMessage("standard", "HubPage", "<div>")).toBe(
       lintLayouts.slotViolationMessage("standard", "HubPage", "<div>"),
+    );
+    expect(summaryViolationMessage("standard", "<div>")).toBe(
+      lintLayouts.summaryViolationMessage("standard", "<div>"),
+    );
+    expect(headlineViolationMessage("standard", "2 figures marked headline")).toBe(
+      lintLayouts.headlineViolationMessage("standard", "2 figures marked headline"),
     );
   });
 });
@@ -606,5 +616,100 @@ describe("what 4b's widening does and does not admit", () => {
       // OverviewPage body above is green under either old form and red under this one.
       await expectAccepted();
     }
+  });
+});
+
+describe("runtime enforcement of the page frame's two rules (ADR 0169 §4)", () => {
+  it("passes a summary of figures, a badge and a line of text", async () => {
+    underContract(
+      <DetailPage
+        title="Record 1"
+        parents={[{ label: "Records", to: "/records" }]}
+        summary={
+          <>
+            <StatGroup>
+              <Stat label="Open" value={3} headline />
+              <Stat label="Closed" value={9} />
+            </StatGroup>
+            <Badge tone="success">Active</Badge>
+            <Text>Synced four minutes ago.</Text>
+          </>
+        }
+      >
+        <Card title="A section">the record</Card>
+      </DetailPage>,
+    );
+    await expectAccepted();
+  });
+
+  it("refuses anything else in a summary, on an archetype, with the directive message", async () => {
+    // Mutation: drop the summary half of verifyPageFrame, and the card is accepted.
+    underContract(
+      <OverviewPage title="Records" summary={<Card title="Not a figure">x</Card>}>
+        <Stack>
+          <span>body</span>
+        </Stack>
+      </OverviewPage>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("refused").textContent).toBe(
+        summaryViolationMessage("standard", '<section data-terp="card">'),
+      );
+    });
+  });
+
+  it("governs the plain Page's summary too, whose body stays free", async () => {
+    // Mutation: run the frame check only under a slot owner again, and this is accepted.
+    underContract(
+      <Page title="Bespoke" summary={<div>loose</div>}>
+        <div>a bespoke body, which the contract leaves alone</div>
+      </Page>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("refused").textContent).toBe(
+        summaryViolationMessage("standard", "<div>"),
+      );
+    });
+  });
+
+  it("refuses a second headline anywhere on the page", async () => {
+    // One in the summary and one in the body is two on the page.
+    // Mutation: count only the summary's figures, and this is accepted.
+    underContract(
+      <Page title="Bespoke" summary={<Stat label="Revenue" value={1} headline />}>
+        <Grid template="1:1">
+          <Stat label="Margin" value={2} headline />
+          <Stat label="Costs" value={3} />
+        </Grid>
+      </Page>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("refused").textContent).toBe(
+        headlineViolationMessage("standard", "2 figures marked headline"),
+      );
+    });
+  });
+
+  it("passes a page with one headline", async () => {
+    underContract(
+      <Page title="Bespoke" summary={<Stat label="Revenue" value={1} headline />}>
+        <Grid template="1:1">
+          <Stat label="Margin" value={2} />
+          <Stat label="Costs" value={3} />
+        </Grid>
+      </Page>,
+    );
+    await expectAccepted();
+  });
+
+  it("checks nothing without a contract", async () => {
+    underContract(
+      <Page title="Bespoke" summary={<div>loose</div>}>
+        <Stat label="A" value={1} headline />
+        <Stat label="B" value={2} headline />
+      </Page>,
+      null,
+    );
+    await expectAccepted();
   });
 });

@@ -17,7 +17,13 @@ import path from "node:path";
 
 import tseslint from "typescript-eslint";
 
-import { LAYOUT_CONTRACTS, LAYOUT_CONTRACT_FILE, slotViolationMessage } from "./layouts.js";
+import {
+  LAYOUT_CONTRACTS,
+  LAYOUT_CONTRACT_FILE,
+  headlineViolationMessage,
+  slotViolationMessage,
+  summaryViolationMessage,
+} from "./layouts.js";
 import { BOUNDARY_SPEC } from "./spec.js";
 
 /** The app-module name a file/import path belongs to (the segment after `modules/`), or null. */
@@ -332,6 +338,7 @@ const UI_TEXT_ATTRIBUTES = new Set([
   "source",
   "stat",
   "subtitle",
+  "summary",
   "title",
   "tooltip",
   "triggerLabel",
@@ -881,6 +888,13 @@ export function activeLayoutContract(dir) {
  * contract allows in that slot. Dynamic children (`{...}` expressions) are deliberately
  * not resolved here — the react-core runtime half verifies the rendered DOM and refuses
  * a non-conforming view, fail closed. Both halves phrase the same directive message.
+ *
+ * Two rules of the page frame ride on the same rule (ADR 0169 §4), on every page element, the
+ * plain `Page` included: a `summary` holds only the contract's summary components, and a page
+ * element carries at most one headline figure in its static JSX. The count takes the larger
+ * branch of a conditional, since only one branch renders, and stops at a nested page element,
+ * which is counted on its own. A headline in a component the page renders from elsewhere is
+ * out of this file's sight; the runtime half counts the rendered page.
  */
 const layoutContract = {
   meta: {
@@ -914,18 +928,17 @@ const layoutContract = {
         },
       };
     }
-    const checkChild = (child, slotOwner, allowed) => {
+    // `describe` phrases the message for what was found, so a body slot and the summary band
+    // share one walk and differ only in their words.
+    const checkChild = (child, allowed, describe) => {
       if (child.type === "JSXText") {
         if (child.value.trim() !== "") {
-          context.report({
-            node: child,
-            message: slotViolationMessage(contractId, slotOwner, "raw text"),
-          });
+          context.report({ node: child, message: describe("raw text") });
         }
         return;
       }
       if (child.type === "JSXFragment") {
-        child.children.forEach((inner) => checkChild(inner, slotOwner, allowed));
+        child.children.forEach((inner) => checkChild(inner, allowed, describe));
         return;
       }
       if (child.type !== "JSXElement") {
@@ -933,20 +946,97 @@ const layoutContract = {
       }
       const name = jsxName(child.openingElement.name);
       if (name !== null && allowed[name] === undefined) {
-        context.report({
-          node: child.openingElement,
-          message: slotViolationMessage(contractId, slotOwner, `<${name}>`),
-        });
+        context.report({ node: child.openingElement, message: describe(`<${name}>`) });
       }
+    };
+    // Every page element: the governed archetypes, and the plain Page, whose body is free and
+    // whose frame is not.
+    const pages = new Set([...Object.keys(contract.slots), "Page"]);
+    const checkSummary = (openingElement) => {
+      const attribute = getJsxAttribute(openingElement, "summary");
+      if (attribute === undefined || attribute.value === null) {
+        return;
+      }
+      const describe = (found) => summaryViolationMessage(contractId, found);
+      const value =
+        attribute.value.type === "JSXExpressionContainer"
+          ? attribute.value.expression
+          : attribute.value;
+      if (value.type === "TemplateLiteral" || (value.type === "Literal" && String(value.value).trim() !== "")) {
+        context.report({ node: attribute, message: describe("raw text") });
+        return;
+      }
+      if (value.type === "JSXElement" || value.type === "JSXFragment") {
+        checkChild(value, contract.summary.components, describe);
+      }
+    };
+    const isHeadline = (node) => {
+      if (node.type !== "JSXElement") {
+        return false;
+      }
+      const name = jsxName(node.openingElement.name);
+      if (name === null || contract.headline.components[name] === undefined) {
+        return false;
+      }
+      const attribute = getJsxAttribute(node.openingElement, "headline");
+      if (attribute === undefined) {
+        return false;
+      }
+      // `headline={false}` is the one spelling that says "not this one" statically.
+      const value = attribute.value;
+      return !(
+        value !== null &&
+        value.type === "JSXExpressionContainer" &&
+        value.expression.type === "Literal" &&
+        value.expression.value === false
+      );
+    };
+    const visitorKeys = context.sourceCode.visitorKeys;
+    // The most headline figures that can render at once under `node`.
+    const headlines = (node, page) => {
+      if (node === null || typeof node !== "object" || typeof node.type !== "string") {
+        return 0;
+      }
+      if (node !== page && node.type === "JSXElement" && pages.has(jsxName(node.openingElement.name))) {
+        return 0;
+      }
+      if (node.type === "ConditionalExpression") {
+        return Math.max(headlines(node.consequent, page), headlines(node.alternate, page));
+      }
+      let total = isHeadline(node) ? 1 : 0;
+      for (const key of visitorKeys[node.type] ?? []) {
+        const child = node[key];
+        for (const inner of Array.isArray(child) ? child : [child]) {
+          total += headlines(inner, page);
+        }
+      }
+      return total;
     };
     return {
       JSXElement(node) {
         const owner = jsxName(node.openingElement.name);
-        const slot = owner !== null ? contract.slots[owner] : undefined;
+        if (owner === null) {
+          return;
+        }
+        if (pages.has(owner)) {
+          checkSummary(node.openingElement);
+          const count = headlines(node, node);
+          if (count > 1) {
+            context.report({
+              node: node.openingElement,
+              message: headlineViolationMessage(contractId, `${count} figures marked headline`),
+            });
+          }
+        }
+        const slot = contract.slots[owner];
         if (slot === undefined) {
           return;
         }
-        node.children.forEach((child) => checkChild(child, owner, slot.components));
+        node.children.forEach((child) =>
+          checkChild(child, slot.components, (found) =>
+            slotViolationMessage(contractId, owner, found),
+          ),
+        );
       },
     };
   },

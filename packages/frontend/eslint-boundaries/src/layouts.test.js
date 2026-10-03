@@ -4,7 +4,12 @@ import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
 
 import terpBoundaries from "./index.js";
-import { LAYOUT_CONTRACTS, slotViolationMessage } from "./layouts.js";
+import {
+  LAYOUT_CONTRACTS,
+  headlineViolationMessage,
+  slotViolationMessage,
+  summaryViolationMessage,
+} from "./layouts.js";
 
 // The build-time half of the slot-typed layout contract control (ADR 0079): prove the
 // `terp/layout-contract` rule fires on a non-conforming slot child, stays quiet on
@@ -97,6 +102,112 @@ describe("terp/layout-contract", () => {
     for (const contract of Object.values(LAYOUT_CONTRACTS)) {
       for (const slot of Object.values(contract.slots)) {
         for (const [name, marker] of Object.entries(slot.components)) {
+          expect(name).toMatch(/^[A-Z]/);
+          expect(marker).toMatch(/^[a-z][a-z-]*$/);
+        }
+      }
+    }
+  });
+});
+
+describe("terp/layout-contract — the page frame's two rules (ADR 0169 §4)", () => {
+  const imports =
+    'import { Badge, Card, DataView, DetailPage, OverviewPage, Page, Stack, Stat, StatGroup, Text } from "@terpjs/react-core";\n';
+
+  it("passes a summary of the page's own figures, on an archetype and on the plain Page", async () => {
+    const code =
+      imports +
+      "export const O = ({title, n}) => <OverviewPage title={title} summary={<StatGroup><Stat label={title} value={n} /></StatGroup>}><DataView /></OverviewPage>;\n" +
+      "export const D = ({title, n}) => <DetailPage title={title} parents={[]} summary={<><Stat label={title} value={n} /><Badge label={title} /><Text>{title}</Text></>}><Card title={title} /></DetailPage>;\n" +
+      "export const P = ({title, n, figures}) => <Page title={title} summary={figures}><div /></Page>;";
+    expect((await lint(code, configWithContract("standard"))).map((m) => m.message)).toEqual([]);
+  });
+
+  it("refuses anything else in a summary, on the plain Page too, with the directive message", async () => {
+    // Mutation: drop checkSummary from the visitor, and both pages lint clean.
+    const code =
+      imports +
+      "export const O = ({title}) => <OverviewPage title={title} summary={<DataView />}><DataView /></OverviewPage>;\n" +
+      "export const P = ({title}) => <Page title={title} summary={<><Stat label={title} value={1} /><Card title={title} /></>}><div /></Page>;";
+    const messages = (await lint(code, configWithContract("standard"))).map((m) => m.message);
+    expect(messages).toEqual([
+      summaryViolationMessage("standard", "<DataView>"),
+      summaryViolationMessage("standard", "<Card>"),
+    ]);
+  });
+
+  it("refuses a summary that is a bare string or a template literal", async () => {
+    const code =
+      imports +
+      'export const A = ({title}) => <Page title={title} summary="Twelve open">{title}</Page>;\n' +
+      "export const B = ({title, n}) => <Page title={title} summary={`${n} open`}>{title}</Page>;";
+    const messages = await lint(code, configWithContract("standard"));
+    expect(
+      messages.filter((m) => m.ruleId === "terp/layout-contract").map((m) => m.message),
+    ).toEqual([
+      summaryViolationMessage("standard", "raw text"),
+      summaryViolationMessage("standard", "raw text"),
+    ]);
+  });
+
+  it("reads a bare-string summary as copy to translate, with or without a contract", async () => {
+    // The band takes rendered nodes, as `actions` does, so a string written there is copy the
+    // app's catalog never sees. Mutation: drop "summary" from UI_TEXT_ATTRIBUTES, and an app
+    // with no contract ships it untranslated.
+    const code =
+      imports + 'export const A = ({title}) => <Page title={title} summary="Twelve open">{title}</Page>;';
+    expect((await lint(code)).map((m) => m.ruleId)).toEqual(["terp/no-untranslated-ui"]);
+  });
+
+  it("refuses a page that carries two headline figures, wherever in its JSX they sit", async () => {
+    // One in the summary and one in the body is still two on the page.
+    // Mutation: report only when the count exceeds 2, and this lints clean.
+    const code =
+      imports +
+      "export const D = ({title}) => <DetailPage title={title} parents={[]} summary={<Stat headline label={title} value={1} />}><Stack><Stat headline label={title} value={2} /></Stack></DetailPage>;";
+    const messages = (await lint(code, configWithContract("standard"))).map((m) => m.message);
+    expect(messages).toEqual([headlineViolationMessage("standard", "2 figures marked headline")]);
+  });
+
+  it("counts one headline per page, so a page with one passes and headline={false} is not one", async () => {
+    const code =
+      imports +
+      "export const D = ({title}) => <DetailPage title={title} parents={[]} summary={<StatGroup><Stat headline label={title} value={1} /><Stat headline={false} label={title} value={2} /></StatGroup>}><Card title={title} /></DetailPage>;";
+    expect((await lint(code, configWithContract("standard"))).map((m) => m.message)).toEqual([]);
+  });
+
+  it("counts the larger branch of a conditional, since only one branch renders", async () => {
+    // Mutation: sum both branches, and this exclusive pair is refused.
+    const exclusive =
+      imports +
+      "export const P = ({title, a}) => <Page title={title} summary={a ? <Stat headline label={title} value={1} /> : <Stat headline label={title} value={2} />}><div /></Page>;";
+    expect((await lint(exclusive, configWithContract("standard"))).map((m) => m.message)).toEqual([]);
+    const both =
+      imports +
+      "export const P = ({title, a}) => <Page title={title} summary={<>{a && <Stat headline label={title} value={1} />}<Stat headline label={title} value={2} /></>}><div /></Page>;";
+    expect((await lint(both, configWithContract("standard"))).map((m) => m.message)).toEqual([
+      headlineViolationMessage("standard", "2 figures marked headline"),
+    ]);
+  });
+
+  it("counts a nested page on its own rather than twice", async () => {
+    const code =
+      imports +
+      "export const P = ({title}) => <Page title={title}><Page title={title} summary={<Stat headline label={title} value={1} />}><div /></Page><Stat headline label={title} value={2} /></Page>;";
+    expect((await lint(code, configWithContract("standard"))).map((m) => m.message)).toEqual([]);
+  });
+
+  it("is inert without an opted-in contract", async () => {
+    const code =
+      imports +
+      "export const P = ({title}) => <Page title={title} summary={<DataView />}><Stat headline label={title} value={1} /><Stat headline label={title} value={2} /></Page>;";
+    expect((await lint(code)).map((m) => m.ruleId)).toEqual([]);
+  });
+
+  it("declares a marker-named runtime marker for every summary and headline component (data sanity)", () => {
+    for (const contract of Object.values(LAYOUT_CONTRACTS)) {
+      for (const table of [contract.summary.components, contract.headline.components]) {
+        for (const [name, marker] of Object.entries(table)) {
           expect(name).toMatch(/^[A-Z]/);
           expect(marker).toMatch(/^[a-z][a-z-]*$/);
         }
