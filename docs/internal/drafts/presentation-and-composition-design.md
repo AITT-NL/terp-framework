@@ -516,6 +516,12 @@ and the briefing an app's agent reads was read the way that agent reads it:
   its neighbours on both sides now, with no rule beside it, measured in the computed lane at
   the desk width and on a phone (three mutations, all red), and the workbench shows the case
   it had no specimen for.
+- **A platform error showed in English on a Dutch screen.** Capturing every screen back to back
+  tripped the rate limiter, and its sentence arrived as written under the framework's Dutch
+  "Er is iets misgegaan.". The UI words a failure by its code, and none of the middleware's
+  codes nor `internal_error` had wording. A gate written for the three seen found six more; all
+  nine are worded in both catalogs now, and the gate reads the codes from where the backend
+  emits them.
 
 ## Open after phase 6
 

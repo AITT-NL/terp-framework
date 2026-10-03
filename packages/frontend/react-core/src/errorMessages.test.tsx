@@ -24,6 +24,23 @@ describe("useErrorMessage", () => {
     );
   });
 
+  it.each([
+    ["rate_limited", 429, "Te veel verzoeken tegelijk. Wacht even en probeer het opnieuw."],
+    ["request_too_large", 413, "Dit is te groot om te versturen. Maak het kleiner en probeer het opnieuw."],
+    ["internal_error", 500, "Er ging iets mis op de server. Probeer het zo opnieuw."],
+    ["idempotency_in_flight", 409, "Dit wordt nog verwerkt. Wacht even en kijk dan opnieuw."],
+    ["non_finite_number", 422, "Sommige velden zijn ongeldig. Controleer het formulier en probeer het opnieuw."],
+  ])("words %s, which the platform's middleware emits, in the active locale", (code, status, words) => {
+    // Their English detail used to reach a Dutch screen as written: the rate limiter's
+    // "Too many requests; please retry later." under "Er is iets misgegaan.".
+    render(
+      <LocaleProvider locales={{ nl: LOCALE_NL, en: LOCALE_EN }} defaultLocale="nl">
+        <Probe error={new ApiError("English detail", { code, status })} />
+      </LocaleProvider>,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(words);
+  });
+
   it("returns null for unknown codes and non-envelope errors", () => {
     render(
       <>

@@ -388,6 +388,10 @@ export const LOCALE_NL: LocaleCatalog = {
       "Dit botst met de huidige stand van zaken. Vernieuw de pagina en probeer het opnieuw.",
     errorCodeStaleData:
       "Iemand anders heeft dit item intussen gewijzigd. Vernieuw de pagina en probeer het opnieuw.",
+    errorCodeRateLimited: "Te veel verzoeken tegelijk. Wacht even en probeer het opnieuw.",
+    errorCodeRequestTooLarge: "Dit is te groot om te versturen. Maak het kleiner en probeer het opnieuw.",
+    errorCodeInternalError: "Er ging iets mis op de server. Probeer het zo opnieuw.",
+    errorCodeStillProcessing: "Dit wordt nog verwerkt. Wacht even en kijk dan opnieuw.",
   },
 };
 

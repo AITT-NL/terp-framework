@@ -37,6 +37,18 @@ function builtInErrorMessages(strings: TerpStrings): ErrorMessages {
     not_found: strings.errorCodeNotFound,
     conflict: strings.errorCodeConflict,
     stale_data: strings.errorCodeStaleData,
+    rate_limited: strings.errorCodeRateLimited,
+    request_too_large: strings.errorCodeRequestTooLarge,
+    internal_error: strings.errorCodeInternalError,
+    // The middleware's own refusals. A malformed or reused idempotency key and a NaN in a body
+    // are the client's mistakes, which a reader can only retry or correct, so they take the
+    // generic wording; a request still running is the one with advice of its own.
+    non_finite_number: strings.errorCodeValidationFailed,
+    invalid_idempotency_key: strings.errorCodeBadRequest,
+    idempotency_key_mismatch: strings.errorCodeBadRequest,
+    idempotency_body_too_large: strings.errorCodeRequestTooLarge,
+    idempotency_unavailable: strings.errorCodeInternalError,
+    idempotency_in_flight: strings.errorCodeStillProcessing,
   };
 }
 

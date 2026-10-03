@@ -504,6 +504,14 @@ export interface TerpStrings {
   errorCodeConflict: string;
   /** Error code `stale_data`. */
   errorCodeStaleData: string;
+  /** Error code `rate_limited`, the rate limiter's refusal. */
+  errorCodeRateLimited: string;
+  /** Error code `request_too_large`, a body over the size limit. */
+  errorCodeRequestTooLarge: string;
+  /** Error code `internal_error`, an unhandled failure on the server. */
+  errorCodeInternalError: string;
+  /** Error code `idempotency_in_flight`: the same request is still being carried out. */
+  errorCodeStillProcessing: string;
 }
 
 export const DEFAULT_STRINGS: TerpStrings = {
@@ -704,6 +712,10 @@ export const DEFAULT_STRINGS: TerpStrings = {
   errorCodeNotFound: "This item could not be found.",
   errorCodeConflict: "This conflicts with the current state. Refresh and try again.",
   errorCodeStaleData: "This item was changed by someone else. Refresh and try again.",
+  errorCodeRateLimited: "Too many requests at once. Wait a moment and try again.",
+  errorCodeRequestTooLarge: "This is too large to send. Make it smaller and try again.",
+  errorCodeInternalError: "Something went wrong on the server. Try again in a moment.",
+  errorCodeStillProcessing: "This is still being processed. Wait a moment, then check again.",
 };
 
 interface UiTextContextValue {

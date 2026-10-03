@@ -160,20 +160,31 @@ first phases, and every app's look moves with them.
   measurements: above if it fits, below if not, clamped inside the viewport, as wide as its
   message, and placed again when its text changes while it is open. Hovering onto the bubble
   still keeps it open (WCAG 1.4.13).
+- **A platform error reads in the app's language.** The UI words a failure by its code and
+  falls back to the backend's English sentence for a code it does not know, and the codes the
+  middleware emits — the rate limiter's, the body-size limit's, the idempotency layer's and the
+  JSON guard's — and the unhandled-exception handler's `internal_error` had no wording. So a
+  Dutch screen said "Er is iets misgegaan." over "Too many requests; please retry later.". Each
+  has wording in both catalogs now, four of them new strings, and a gate reads the codes from
+  where the backend emits them, so a code added there without wording fails the build.
 - **Cards meet the edge in a DataView's card list.** The list padded every card 8px in from the
   edge it shares with the toolbar and the pagination; it has no padding of its own now.
 
 ### Upgrade notes
 
-- **A non-English framework catalog of an app's own supplies thirteen new keys.** `LocaleProvider`
-  and `defineAppLocales` refuse a catalog that lacks any framework string, and this release adds
-  `pageSequencePrevious` ("Previous: {label}"), `pageSequenceNext` ("Next: {label}"),
-  `pageSequencePosition` ("{current} of {total}"), `statFavourable` ("favourable"),
+- **A non-English framework catalog of an app's own supplies seventeen new keys.**
+  `LocaleProvider` and `defineAppLocales` refuse a catalog that lacks any framework string, and
+  this release adds `pageSequencePrevious` ("Previous: {label}"), `pageSequenceNext` ("Next:
+  {label}"), `pageSequencePosition` ("{current} of {total}"), `statFavourable` ("favourable"),
   `statUnfavourable` ("unfavourable"), `statTrend` ("Over time: {points}"), `statusHistoryRuns`
   ("{label}, oldest first: {runs}"), `adminHubTotal` ("Total"), `recordHistory` ("History"),
   `auditActionCreated` ("Created"), `auditActionUpdated` ("Changed"), `auditActionDeleted`
-  ("Deleted") and `auditActionDisclosed` ("Viewed"). Add the thirteen, keeping the placeholders;
-  an app on `LOCALE_NL` or `LOCALE_EN` changes nothing.
+  ("Deleted"), `auditActionDisclosed` ("Viewed"), `errorCodeRateLimited` ("Too many requests at
+  once. Wait a moment and try again."), `errorCodeRequestTooLarge` ("This is too large to send.
+  Make it smaller and try again."), `errorCodeInternalError` ("Something went wrong on the
+  server. Try again in a moment.") and `errorCodeStillProcessing` ("This is still being
+  processed. Wait a moment, then check again."). Add the seventeen, keeping the placeholders; an
+  app on `LOCALE_NL` or `LOCALE_EN` changes nothing.
 - **A `theme.css` that moves the page's backgrounds moves them as a set.** A token declared in
   `theme.css` does not recompute another, so a theme that redeclares `--color-bg-canvas` or
   `--color-bg-surface` redeclares `--color-bg-subtle` too, usually as their midpoint — otherwise
