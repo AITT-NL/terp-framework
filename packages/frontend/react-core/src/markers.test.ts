@@ -157,6 +157,7 @@ const MARKERS = [
   "error-state-icon",
   "error-state-title",
   "field",
+  "field-body",
   "field-error",
   "field-hint",
   "field-label",

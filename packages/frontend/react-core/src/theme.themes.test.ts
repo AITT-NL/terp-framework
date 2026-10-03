@@ -26,7 +26,7 @@ import { DEFAULT_STRINGS } from "./uiText";
 const manifest: {
   base: string;
   systemDark: string;
-  themes: { name: string; label: string; appearance: "light" | "dark" }[];
+  themes: { name: string; label: string; aliases: string[]; appearance: "light" | "dark" }[];
 } = JSON.parse(
   readFileSync(new URL("../../contract/src/tokens.manifest.json", import.meta.url), "utf-8"),
 );
@@ -107,8 +107,13 @@ describe("react-core's theme list", () => {
   it("has a translated label for every theme", () => {
     // The label map is `Record<Theme, string>` so the compiler catches a missing entry, but
     // not one pointing at a string key that does not exist in the catalog.
+    //
+    // A renamed theme's key keeps the name the theme had when the key was written (its first
+    // alias): an app's own language catalog must supply every key, so renaming the keys would
+    // refuse every such catalog for a change no reader sees. midday's label is themeLight.
     for (const name of expected) {
-      const key = `theme${name[0]!.toUpperCase()}${name.slice(1)}`;
+      const keyed = manifest.themes.find((theme) => theme.name === name)?.aliases[0] ?? name;
+      const key = `theme${keyed[0]!.toUpperCase()}${keyed.slice(1)}`;
       expect(
         Object.hasOwn(DEFAULT_STRINGS, key),
         `${name} needs a ${key} string (LOCALE_NL's completeness gate then forces the Dutch one)`,

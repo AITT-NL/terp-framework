@@ -30,9 +30,9 @@ describe("ThemeProvider + ThemeToggle", () => {
       </ThemeProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Theme" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Dark" }));
-    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Evening" }));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("evening");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("evening");
   });
 
   it("hands back the pre-paint bootstrap's inline color-scheme", () => {
@@ -43,9 +43,9 @@ describe("ThemeProvider + ThemeToggle", () => {
     // every rule in every layer, so a viewer who loaded on a dark palette and then chose a
     // light one would keep dark scrollbars, a dark caret and a dark select popup for the
     // rest of the session, on a page that is no longer dark.
-    document.documentElement.setAttribute("data-theme", "dark");
+    document.documentElement.setAttribute("data-theme", "evening");
     document.documentElement.style.colorScheme = "dark";
-    window.localStorage.setItem(THEME_STORAGE_KEY, "dark");
+    window.localStorage.setItem(THEME_STORAGE_KEY, "evening");
 
     render(
       <ThemeProvider>
@@ -55,12 +55,12 @@ describe("ThemeProvider + ThemeToggle", () => {
     // Taken back on mount, while the palette it described is still the live one — so the
     // token sheet's own per-theme declaration is what governs from here.
     expect(document.documentElement.style.getPropertyValue("color-scheme")).toBe("");
-    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("evening");
 
     // And it does not come back when the choice changes, which is the case it exists for.
     fireEvent.click(screen.getByRole("button", { name: "Theme" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Light" }));
-    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Midday" }));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("midday");
     expect(document.documentElement.style.getPropertyValue("color-scheme")).toBe("");
   });
 
@@ -74,9 +74,9 @@ describe("ThemeProvider + ThemeToggle", () => {
       </ThemeProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Theme" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Midnight" }));
-    expect(document.documentElement.getAttribute("data-theme")).toBe("midnight");
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("midnight");
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Night" }));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("night");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("night");
   });
 
   it("offers every shipped theme, not only light and dark", () => {
@@ -88,7 +88,7 @@ describe("ThemeProvider + ThemeToggle", () => {
       </ThemeProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Theme" }));
-    for (const label of ["Light", "Dark", "Midnight", "Twilight", "High contrast", "System"]) {
+    for (const label of ["Midday", "Twilight", "Evening", "Night", "High contrast", "System"]) {
       expect(screen.getByRole("menuitemradio", { name: label })).toBeInTheDocument();
     }
   });
@@ -104,13 +104,39 @@ describe("ThemeProvider + ThemeToggle", () => {
   });
 
   it("restores a persisted choice over the app default", () => {
-    window.localStorage.setItem(THEME_STORAGE_KEY, "light");
+    window.localStorage.setItem(THEME_STORAGE_KEY, "midday");
     render(
-      <ThemeProvider defaultTheme="dark">
+      <ThemeProvider defaultTheme="evening">
         <ThemeToggle />
       </ThemeProvider>,
     );
-    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("midday");
+  });
+
+  it("restores a choice stored before the rename as the theme it now names", () => {
+    // A viewer who picked "Dark" last week has "dark" in storage. The rename must not change
+    // their palette or forget the choice: it resolves to evening, the same colours, and the
+    // menu shows it checked under its new name.
+    // Mutation: validate a stored name against THEMES alone again, and this falls back to the
+    // app default instead.
+    window.localStorage.setItem(THEME_STORAGE_KEY, "dark");
+    render(
+      <ThemeProvider defaultTheme="contrast">
+        <ThemeToggle />
+      </ThemeProvider>,
+    );
+    expect(document.documentElement.getAttribute("data-theme")).toBe("evening");
+    fireEvent.click(screen.getByRole("button", { name: "Theme" }));
+    expect(screen.getByRole("menuitemradio", { name: "Evening" })).toBeChecked();
+  });
+
+  it("accepts an earlier theme name as the app default", () => {
+    render(
+      <ThemeProvider defaultTheme="midnight">
+        <ThemeToggle />
+      </ThemeProvider>,
+    );
+    expect(document.documentElement.getAttribute("data-theme")).toBe("night");
   });
 
   it("restores a persisted SYSTEM choice over the app default", () => {
@@ -121,7 +147,7 @@ describe("ThemeProvider + ThemeToggle", () => {
     // who asked to follow their own platform.
     window.localStorage.setItem(THEME_STORAGE_KEY, "system");
     render(
-      <ThemeProvider defaultTheme="midnight">
+      <ThemeProvider defaultTheme="night">
         <ThemeToggle />
       </ThemeProvider>,
     );
@@ -144,11 +170,11 @@ describe("ThemeProvider + ThemeToggle", () => {
 
   it("switching back to system removes the attribute (OS preference wins)", () => {
     render(
-      <ThemeProvider defaultTheme="dark">
+      <ThemeProvider defaultTheme="evening">
         <ThemeToggle />
       </ThemeProvider>,
     );
-    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("evening");
     fireEvent.click(screen.getByRole("button", { name: "Theme" }));
     fireEvent.click(screen.getByRole("menuitemradio", { name: "System" }));
     expect(document.documentElement.hasAttribute("data-theme")).toBe(false);

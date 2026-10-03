@@ -174,15 +174,15 @@ describe("renderTerpApp", () => {
     // on <html> is the actual observable effect an app ships. A throw here would only prove the
     // file was validated, not that the value reached anything.
     //
-    // Mutations, both red, and both by reading NULL rather than "midnight": `"system"` is the
+    // Mutations, both red, and both by reading NULL rather than "night": `"system"` is the
     // provider's default and it REMOVES the attribute, so neither mutation can produce the
     // string. (An earlier version of this comment said the first one reads "system", which is
     // not a value `data-theme` ever holds.) Pass `options.defaultTheme` to `ThemeProvider`
     // instead of `layout.defaultTheme`, or drop `defaultTheme` from the explicit set handed to
     // the resolver, and the corresponding assertion reads null.
     for (const [label, options] of [
-      ["from the file", { layout: { defaultTheme: "midnight" } }],
-      ["from the option", { defaultTheme: "midnight" as const }],
+      ["from the file", { layout: { defaultTheme: "night" } }],
+      ["from the option", { defaultTheme: "night" as const }],
     ] as const) {
       // A stored choice outranks the default — that is the whole point of a *default* — so the
       // assertion would be about localStorage rather than about the declaration without this.
@@ -201,7 +201,7 @@ describe("renderTerpApp", () => {
           expect(
             document.documentElement.getAttribute("data-theme"),
             `${label}: the declared palette must reach <html>`,
-          ).toBe("midnight"),
+          ).toBe("night"),
         );
       } finally {
         root.remove();
@@ -221,11 +221,11 @@ describe("renderTerpApp", () => {
         renderTerpApp({
           title: "Test",
           modules: { "./modules/notes/module.tsx": notesModule },
-          layout: { defaultTheme: "midnight" },
-          defaultTheme: "midnight",
+          layout: { defaultTheme: "night" },
+          defaultTheme: "night",
           rootElement: root,
         }),
-      ).toThrow(/both declare "defaultTheme" \(file: "midnight", code: "midnight"\)/);
+      ).toThrow(/both declare "defaultTheme" \(file: "night", code: "night"\)/);
     } finally {
       root.remove();
     }

@@ -45,9 +45,14 @@ const registry = JSON.parse(fs.readFileSync(here("../themes.json"), "utf8"));
 const BASE = registry.themes.find((theme) => theme.name === registry.base);
 const OVERLAYS = registry.themes.filter((theme) => theme.name !== registry.base);
 
-/** The base theme lives on `:root`; every other theme on its own attribute selector. */
+/**
+ * The base theme lives on `:root`; every other theme on its own attribute selector -- its name,
+ * then each earlier name it answers to (`aliases`), in ONE rule, so an old name paints exactly
+ * what the new one does.
+ */
 const BASE_SELECTOR = ":root";
-const selectorFor = (theme) => `[data-theme='${theme.name}']`;
+const selectorFor = (theme) =>
+  [theme.name, ...(theme.aliases ?? [])].map((name) => `[data-theme='${name}']`).join(",\n");
 /** The `@media (prefers-color-scheme: dark)` copy of the `systemDark` theme. */
 const SYSTEM_DARK_SELECTOR = ":root:not([data-theme])";
 
@@ -98,6 +103,33 @@ describe("token sheet themes", () => {
     // Both polarities represented: a set of dark variants would not exercise the layer any
     // harder than dark alone did.
     expect([...appearances].sort()).toEqual(["dark", "light"]);
+  });
+
+  it("paints every earlier name exactly as the theme it now names", () => {
+    // The themes were renamed for the time of day they suit, and a rename must not change any
+    // app's palette: a stored choice, a defaultTheme and a hand-written data-theme="dark" all
+    // predate it. So each alias sits in its theme's OWN rule -- the same block, not a copy that
+    // could drift -- and no name is claimed twice. The base's alias needs no rule: the base is
+    // :root, and an attribute no overlay matches leaves it standing.
+    // Mutation: drop the aliases from the generator's selector, and the dark/midnight names
+    // stop matching any rule here.
+    const claimed = new Set();
+    for (const theme of registry.themes) {
+      for (const name of [theme.name, ...(theme.aliases ?? [])]) {
+        expect(claimed.has(name), `${name} is claimed twice`).toBe(false);
+        claimed.add(name);
+      }
+    }
+    const renamed = { light: "midday", dark: "evening", midnight: "night" };
+    for (const [old, now] of Object.entries(renamed)) {
+      const theme = registry.themes.find((entry) => entry.name === now);
+      expect(theme?.aliases, `${now} answers to ${old}`).toContain(old);
+      if (theme.name === registry.base) continue;
+      const rule = ruleFor(selectorFor(theme));
+      expect(rule.selector, `[data-theme='${old}'] shares ${now}'s rule`).toContain(
+        `[data-theme='${old}']`,
+      );
+    }
   });
 
   it("registers every theme source that exists on disk", () => {

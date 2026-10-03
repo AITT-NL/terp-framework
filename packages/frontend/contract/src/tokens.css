@@ -140,8 +140,65 @@
   --font-letter-spacing-wide: 0.08em;
 }
 
-/* Dark: an explicit choice via <html data-theme="dark">.
-   The slate-neutral dark counterpart to light, and the theme the OS dark preference selects. */
+/* Twilight: an explicit choice via <html data-theme="twilight">.
+   A dimmed violet dark between midday and evening: light text on violet-grey surfaces well above evening's near-black, for a room that is getting dark rather than one that is. */
+[data-theme='twilight'] {
+  color-scheme: dark;
+  --appearance-show-light: none;
+  --appearance-show-dark: block;
+  --color-brand-primary: #6d3fc8;
+  --color-brand-primary-contrast: #ffffff;
+  --color-brand-primary-hover: #7c4fd6;
+  --color-brand-primary-soft: #4b3f72;
+  --color-neutral-0: #3a3449;
+  --color-neutral-50: #312c3f;
+  --color-neutral-100: #453e57;
+  --color-neutral-200: #534b68;
+  --color-neutral-300: #675e80;
+  --color-neutral-400: #8579a3;
+  --color-neutral-500: #b2a6ca;
+  --color-neutral-600: #d2c9e2;
+  --color-neutral-700: #e6e0ef;
+  --color-neutral-800: #f1edf7;
+  --color-neutral-900: #faf8fc;
+  --color-status-success: #74e3ad;
+  --color-status-success-soft: #24493a;
+  --color-status-warning: #f2c164;
+  --color-status-warning-soft: #4e3d1f;
+  --color-status-danger: #fa9fa6;
+  --color-status-danger-soft: #572836;
+  --color-status-info: #92c8f6;
+  --color-status-info-soft: #284261;
+  --color-focus-ring: rgba(188,166,255,0.5);
+  --color-bg-canvas: #312c3f;
+  --color-bg-surface: #3a3449;
+  --color-bg-raised: #453e57;
+  --color-bg-inset: #312c3f;
+  --color-fg-default: #faf8fc;
+  --color-fg-muted: #d2c9e2;
+  --color-fg-subtle: #c0b4d8;
+  --color-fg-accent: #c4b0ff;
+  --color-border-default: #534b68;
+  --color-border-strong: #675e80;
+  --color-border-subtle: #453e57;
+  --color-interactive-hover: #453e57;
+  --color-interactive-active: #534b68;
+  --color-interactive-selected: #4b3f72;
+  --color-sidebar-bg: #3a3449;
+  --color-sidebar-fg: #faf8fc;
+  --color-sidebar-muted: #d2c9e2;
+  --color-sidebar-accent: #534b68;
+  --color-sidebar-border: #534b68;
+  --color-chart-1: #c4b0ff;
+  --color-chart-2: #74e3ad;
+  --color-chart-3: #f2c164;
+  --color-chart-4: #92c8f6;
+  --color-chart-5: #f7a0d4;
+}
+
+/* Evening: an explicit choice via <html data-theme="evening">, or its earlier name "dark".
+   The slate-neutral dark counterpart to midday. */
+[data-theme='evening'],
 [data-theme='dark'] {
   color-scheme: dark;
   --appearance-show-light: none;
@@ -196,8 +253,9 @@
   --color-chart-5: #f472b6;
 }
 
-/* Midnight: an explicit choice via <html data-theme="midnight">.
-   A near-black dark for low light and OLED displays: cooler neutrals, a deeper canvas than dark, and a deeper accent that holds a white label at AA. */
+/* Night: an explicit choice via <html data-theme="night">, or its earlier name "midnight".
+   A near-black dark for low light and OLED displays: cooler neutrals, a deeper canvas than evening, and a deeper accent that holds a white label at AA. The theme the OS dark preference selects. */
+[data-theme='night'],
 [data-theme='midnight'] {
   color-scheme: dark;
   --appearance-show-light: none;
@@ -250,62 +308,6 @@
   --color-chart-3: #d29922;
   --color-chart-4: #bc8cff;
   --color-chart-5: #f778ba;
-}
-
-/* Twilight: an explicit choice via <html data-theme="twilight">.
-   A warm violet-tinted dark. Its neutrals sit in a different hue family from dark and midnight, which is what proves a theme is a palette rather than a lightness setting. */
-[data-theme='twilight'] {
-  color-scheme: dark;
-  --appearance-show-light: none;
-  --appearance-show-dark: block;
-  --color-brand-primary: #5b21b6;
-  --color-brand-primary-contrast: #ffffff;
-  --color-brand-primary-hover: #6d28d9;
-  --color-brand-primary-soft: #2b2350;
-  --color-neutral-0: #241f31;
-  --color-neutral-50: #1a1622;
-  --color-neutral-100: #2d2740;
-  --color-neutral-200: #3a3350;
-  --color-neutral-300: #4d4468;
-  --color-neutral-400: #6b5f8a;
-  --color-neutral-500: #9d90b8;
-  --color-neutral-600: #b9aecd;
-  --color-neutral-700: #d8d0e6;
-  --color-neutral-800: #ece7f3;
-  --color-neutral-900: #f6f3fa;
-  --color-status-success: #5ed49a;
-  --color-status-success-soft: #14322a;
-  --color-status-warning: #e8b04b;
-  --color-status-warning-soft: #332612;
-  --color-status-danger: #f58a92;
-  --color-status-danger-soft: #3a1a25;
-  --color-status-info: #7cb8f0;
-  --color-status-info-soft: #1a2c44;
-  --color-focus-ring: rgba(167,139,250,0.5);
-  --color-bg-canvas: #1a1622;
-  --color-bg-surface: #241f31;
-  --color-bg-raised: #2d2740;
-  --color-bg-inset: #1a1622;
-  --color-fg-default: #f6f3fa;
-  --color-fg-muted: #b9aecd;
-  --color-fg-subtle: #a294bd;
-  --color-fg-accent: #a78bfa;
-  --color-border-default: #3a3350;
-  --color-border-strong: #4d4468;
-  --color-border-subtle: #2d2740;
-  --color-interactive-hover: #2d2740;
-  --color-interactive-active: #3a3350;
-  --color-interactive-selected: #2b2350;
-  --color-sidebar-bg: #241f31;
-  --color-sidebar-fg: #f6f3fa;
-  --color-sidebar-muted: #b9aecd;
-  --color-sidebar-accent: #3a3350;
-  --color-sidebar-border: #3a3350;
-  --color-chart-1: #a78bfa;
-  --color-chart-2: #5ed49a;
-  --color-chart-3: #e8b04b;
-  --color-chart-4: #7cb8f0;
-  --color-chart-5: #f58ac8;
 }
 
 /* High contrast: an explicit choice via <html data-theme="contrast">.
@@ -364,59 +366,59 @@
   --color-chart-5: #8c0a4d;
 }
 
-/* Dark: the OS preference, unless the app pinned any theme explicitly. */
+/* Night: the OS preference, unless the app pinned any theme explicitly. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     color-scheme: dark;
     --appearance-show-light: none;
     --appearance-show-dark: block;
-    --color-brand-primary: #1d4ed8;
+    --color-brand-primary: #0b4ea8;
     --color-brand-primary-contrast: #ffffff;
-    --color-brand-primary-hover: #2563eb;
-    --color-brand-primary-soft: #15304e;
-    --color-neutral-0: #1e293b;
-    --color-neutral-50: #0f172a;
-    --color-neutral-100: #263449;
-    --color-neutral-200: #334155;
-    --color-neutral-300: #475569;
-    --color-neutral-400: #64748b;
-    --color-neutral-500: #94a3b8;
-    --color-neutral-600: #b4c0d0;
-    --color-neutral-700: #e2e8f0;
-    --color-neutral-800: #f1f5f9;
-    --color-neutral-900: #f1f5f9;
-    --color-status-success: #4ade80;
-    --color-status-success-soft: #132f21;
-    --color-status-warning: #fbbf24;
-    --color-status-warning-soft: #332711;
-    --color-status-danger: #f87171;
-    --color-status-danger-soft: #3b1a1a;
-    --color-status-info: #38bdf8;
-    --color-status-info-soft: #12303f;
-    --color-focus-ring: rgba(96,165,250,0.45);
-    --color-bg-canvas: #0f172a;
-    --color-bg-surface: #1e293b;
-    --color-bg-raised: #263449;
-    --color-bg-inset: #0f172a;
-    --color-fg-default: #f1f5f9;
-    --color-fg-muted: #b4c0d0;
-    --color-fg-subtle: #94a3b8;
-    --color-fg-accent: #60a5fa;
-    --color-border-default: #334155;
-    --color-border-strong: #475569;
-    --color-border-subtle: #263449;
-    --color-interactive-hover: #263449;
-    --color-interactive-active: #334155;
-    --color-interactive-selected: #15304e;
-    --color-sidebar-bg: #1e293b;
-    --color-sidebar-fg: #f1f5f9;
-    --color-sidebar-muted: #b4c0d0;
-    --color-sidebar-accent: #334155;
-    --color-sidebar-border: #334155;
-    --color-chart-1: #60a5fa;
-    --color-chart-2: #2dd4bf;
-    --color-chart-3: #fbbf24;
-    --color-chart-4: #a78bfa;
-    --color-chart-5: #f472b6;
+    --color-brand-primary-hover: #1158c7;
+    --color-brand-primary-soft: #0c2d6b;
+    --color-neutral-0: #0d1117;
+    --color-neutral-50: #010409;
+    --color-neutral-100: #161b22;
+    --color-neutral-200: #21262d;
+    --color-neutral-300: #30363d;
+    --color-neutral-400: #484f58;
+    --color-neutral-500: #7d8590;
+    --color-neutral-600: #9aa4b2;
+    --color-neutral-700: #c9d1d9;
+    --color-neutral-800: #e6edf3;
+    --color-neutral-900: #f0f6fc;
+    --color-status-success: #3fb950;
+    --color-status-success-soft: #0c2417;
+    --color-status-warning: #d29922;
+    --color-status-warning-soft: #271a06;
+    --color-status-danger: #f85149;
+    --color-status-danger-soft: #2b0d0d;
+    --color-status-info: #58a6ff;
+    --color-status-info-soft: #0b2545;
+    --color-focus-ring: rgba(88,166,255,0.5);
+    --color-bg-canvas: #010409;
+    --color-bg-surface: #0d1117;
+    --color-bg-raised: #161b22;
+    --color-bg-inset: #010409;
+    --color-fg-default: #f0f6fc;
+    --color-fg-muted: #9aa4b2;
+    --color-fg-subtle: #8b949e;
+    --color-fg-accent: #58a6ff;
+    --color-border-default: #30363d;
+    --color-border-strong: #484f58;
+    --color-border-subtle: #21262d;
+    --color-interactive-hover: #161b22;
+    --color-interactive-active: #21262d;
+    --color-interactive-selected: #0c2d6b;
+    --color-sidebar-bg: #0d1117;
+    --color-sidebar-fg: #f0f6fc;
+    --color-sidebar-muted: #9aa4b2;
+    --color-sidebar-accent: #21262d;
+    --color-sidebar-border: #21262d;
+    --color-chart-1: #58a6ff;
+    --color-chart-2: #3fb950;
+    --color-chart-3: #d29922;
+    --color-chart-4: #bc8cff;
+    --color-chart-5: #f778ba;
   }
 }

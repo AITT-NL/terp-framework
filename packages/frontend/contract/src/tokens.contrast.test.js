@@ -128,12 +128,12 @@ const BELOW_AA = new Map([]);
  * only the control-boundary pairings. A new pairing cannot be added to it at all.
  */
 const BELOW_UI = new Map([
-  ["dark/control-boundary-on-canvas", 2.3559],
-  ["dark/control-boundary-on-surface", 1.9305],
-  ["light/control-boundary-on-canvas", 1.419],
-  ["light/control-boundary-on-surface", 1.4847],
-  ["midnight/control-boundary-on-canvas", 1.6826],
-  ["midnight/control-boundary-on-surface", 1.5506],
+  ["evening/control-boundary-on-canvas", 2.3559],
+  ["evening/control-boundary-on-surface", 1.9305],
+  ["midday/control-boundary-on-canvas", 1.419],
+  ["midday/control-boundary-on-surface", 1.4847],
+  ["night/control-boundary-on-canvas", 1.6826],
+  ["night/control-boundary-on-surface", 1.5506],
   ["twilight/control-boundary-on-canvas", 1.982],
   ["twilight/control-boundary-on-surface", 1.7807],
 ]);
@@ -141,9 +141,12 @@ const BELOW_UI = new Map([
 /** The only pairings {@link BELOW_UI} is allowed to name. */
 const CONTROL_BOUNDARY_IDS = ["control-boundary-on-canvas", "control-boundary-on-surface"];
 
-/** The declarations of the one rule whose selector is exactly `selector`. */
+/** The declarations of the one rule whose selector list names `selector`. */
 function declarationsFor(selector) {
-  const matches = parseRules(tokensCss).filter((rule) => rule.selector === selector);
+  const matches = parseRules(tokensCss).filter((rule) =>
+    // A renamed theme's rule lists its earlier names beside its own (themes.json aliases).
+    rule.selector.split(",").map((part) => part.trim()).includes(selector),
+  );
   if (matches.length !== 1) {
     throw new Error(
       `expected exactly one \`${selector}\` rule in tokens.css, found ${matches.length}`,
@@ -283,7 +286,8 @@ describe("token sheet text contrast", () => {
     // A theme authored against this gate has no reason to land below AA, so an allowance for a
     // newer theme would be a design mistake being recorded as history. Naming the two
     // grandfathered themes explicitly is what stops the table from becoming a general amnesty.
-    const grandfathered = new Set(["light", "dark"]);
+    // midday and evening are light and dark renamed (themes.json `aliases`), not new themes.
+    const grandfathered = new Set(["midday", "evening"]);
     const themeOf = (key) => key.slice(0, key.indexOf("/"));
     expect([...BELOW_AA.keys()].filter((key) => !grandfathered.has(themeOf(key)))).toEqual([]);
   });

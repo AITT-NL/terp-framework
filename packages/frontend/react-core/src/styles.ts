@@ -695,29 +695,34 @@ textarea[data-terp="input"] {
     > [data-terp="detail-list"][data-layout="aligned"]:not([data-columns]) {
     grid-template-columns: subgrid;
   }
-  /* FieldRow's wide half: the three shared lines, and the columns that hold them.
+  /* FieldRow's wide half: the two shared lines, and the columns that hold them.
      align-items: start so a field shorter than its neighbour does not stretch, and
      justify-content: start so the row is as wide as its fields rather than as wide as the
-     page. */
+     page.
+
+     TWO lines, label and body, where there were three -- label, control, messages. The
+     messages now live in the field's body under its control (see Field), and that retired
+     the third line's one cost: a line nobody on the row had anything for was still a line,
+     with a gutter on either side of it. */
   [data-terp="field-row"] {
     grid-auto-flow: column;
     grid-auto-columns: minmax(0, auto);
-    grid-template-rows: auto auto auto;
+    grid-template-rows: auto auto;
     align-items: start;
     justify-content: start;
   }
-  /* Each field spans all three and subgrids them, which is what puts every label on one
+  /* Each field spans both lines and subgrids them, which is what puts every label on one
      line and every control on the next whatever any one field has to say. */
   [data-terp="field-row"] > [data-terp="field"] {
     display: grid;
     grid-template-rows: subgrid;
     grid-row: 1 / -1;
   }
-  /* The label element generates no box, so the label TEXT and the control become items of
-     the field and can land on separate shared lines. It stays a <label> wrapping its
-     control in the DOM, which is what names the control -- display: contents changes the
-     box tree, and the accessible name is computed from the DOM. Field additionally points
-     aria-labelledby at the text, so the name is exact either way. */
+  /* The label element generates no box, so the label TEXT and the body become items of the
+     field and can land on separate shared lines. It stays a <label> wrapping its control in
+     the DOM, which is what names the control -- display: contents changes the box tree, and
+     the accessible name is computed from the DOM. Field additionally points aria-labelledby
+     at the text, so the name is exact either way. */
   [data-terp="field-row"] > [data-terp="field"] > [data-terp="field-label"] {
     display: contents;
   }
@@ -790,6 +795,52 @@ textarea[data-terp="input"] {
 [data-terp="grid"][data-padding="4"] { padding: var(--space-4); }
 [data-terp="grid"][data-padding="6"] { padding: var(--space-6); }
 [data-terp="grid"][data-padding="8"] { padding: var(--space-8); }
+/* A grid of fields lines its fields up by itself: every label on one line and every control
+   on the next, in each row of the grid, however long any label runs or whatever any field
+   says under its control. Before this, a grid of fields aligned their TOPS (or, with
+   align="end", their bottoms), so one label that wrapped to two lines pushed its control below
+   its neighbours', and one hint lifted a control above them. FieldRow had the fix, and only
+   for the fields placed in it on purpose; the ordinary composition -- a form's fields in a
+   Grid -- never got it.
+
+   Each field spans two of the grid's rows and subgrids them, label and body, the shape
+   FieldRow uses. Two rows rather than three because the body holds the control AND its
+   messages, so no row is ever empty: a row of fields with no hint has no zero-height messages
+   line carrying the grid's gap twice.
+
+   The grid's row gap is the caller's spacing BETWEEN rows of fields, and that is what it
+   stays. Inside a field the label sits var(--space-1) above its control as it does anywhere
+   else: the subgrid declares that gap, and a subgrid's own gap is honoured by moving its edge
+   items into the parent's gutter, so the label and the control meet at 4px while the grid's
+   tracks keep the caller's spacing.
+
+   Only a grid whose children are ALL fields. A grid mixing fields with other things -- a card,
+   a button -- keeps its ordinary cells, because a one-row item placed among two-row fields
+   would take a field's label line and push the auto-placement out of step for every row after
+   it. A row of fields with an action beside them is FieldRow's job, which puts the action on
+   the control line. */
+[data-terp="grid"]:not(:has(> :not([data-terp="field"]))) > [data-terp="field"] {
+  display: grid;
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+  row-gap: var(--space-1);
+}
+[data-terp="grid"]:not(:has(> :not([data-terp="field"])))
+  > [data-terp="field"]
+  > [data-terp="field-label"] {
+  display: contents;
+}
+/* The label at the FOOT of its line, directly above its control, in a grid of fields and in a
+   field row alike. The line is as tall as the longest label in the row, so a one-line label
+   beside a two-line one has a line of space to stand in, and at the top of it the short label
+   floated a line away from the control it names. Its spare space goes above it instead. */
+[data-terp="grid"]:not(:has(> :not([data-terp="field"])))
+  > [data-terp="field"]
+  > [data-terp="field-label"]
+  > [data-terp="field-label-text"],
+[data-terp="field-row"] > [data-terp="field"] > [data-terp="field-label"] > [data-terp="field-label-text"] {
+  align-self: end;
+}
 
 /* Detail lists ------------------------------------------------------------- */
 /* The term and value are inline boxes inside a block row, which is what makes
@@ -1167,41 +1218,32 @@ textarea[data-terp="input"] {
 [data-terp="card"][data-gap="4"] { gap: var(--space-4); }
 [data-terp="card"][data-gap="6"] { gap: var(--space-6); }
 [data-terp="card"][data-gap="8"] { gap: var(--space-8); }
+/* A card's header is the page band's shape at a card's size: the title, the actions beside it
+   when they fit, and the description on a line of its own under both -- then the body. The
+   card used to put the title and the description in ONE column with the actions in a second
+   one beside the pair, so the actions took their width out of the description: a sentence of
+   description wrapped in a narrow column next to a single button, and grew the header three
+   lines deep to say what one line under the title would have.
+
+   The same wrapping line the band uses (see page-header), for the same reasons. The heading
+   group generates no box, so the title and the description are items of the header itself;
+   order puts the actions straight after the title and the description last, with a full-line
+   basis so it never sits beside them. The title claims 10rem before the actions must wrap, and
+   wrapped actions are pushed to the end and wrap their own buttons.
+
+   align-items: center for the title's line: the actions are controls, a control is taller than
+   a line of title, and the title belongs in the middle of the line it shares with them. The
+   description sits var(--space-2) under that line, and the card's own gap separates the header
+   from the body -- header, a little space, the description, a little more, the content. */
 [data-terp="card-header"] {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
   flex-wrap: wrap;
-  gap: var(--space-3);
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-2);
 }
-/* start rather than center once there is a description, and the condition is the whole point.
-   With a title alone, center is right: the actions slot is a control, so its box is
-   --density-control-min-height tall against a single line box, and start would leave the title
-   riding above it. With two or three lines of description the same declaration floats the
-   control in the middle of the block instead of beside the title it belongs to.
-
-   :has() rather than an attribute Card could stamp, for the reason control-label's disabled
-   states use it (see the note there): the header has no idea what its heading holds, and the
-   alternative is a prop describing the DOM back to the sheet. Specificity (0,2,0) beats the
-   base rule above, so this does not depend on its position. */
-[data-terp="card-header"]:has([data-terp="card-description"]) {
-  align-items: start;
-}
-/* flex: 1 1 0, and the base size is the load-bearing half. Left at the initial 0 1 auto, the
-   heading's hypothetical main size is the max-content width of a block holding a title AND a
-   sentence of description — and flex breaks lines on hypothetical main sizes BEFORE it shrinks
-   anything, so with flex-wrap above the heading claimed the whole line and the actions slot
-   wrapped underneath it. Measured: a 103px header with the button below the description, where
-   the same component with no description rendered inline at 48px. Same prop, two results,
-   depending on whether a sibling prop was set.
-
-   A base size of 0 means both items fit on one line by construction, and the heading then grows
-   into whatever the actions slot does not use. min-width: 0 stays for the other half of that
-   story: a flex item's automatic minimum size is its content's, so a long unbreakable word in a
-   title would otherwise refuse to shrink past it. */
 [data-terp="card-heading"] {
-  flex: 1 1 0;
-  min-width: 0;
+  display: contents;
 }
 /* Chrome off, heading kept. Three declarations removed rather than a second component
    with six markers of its own describing the same DOM: a titled region inside something
@@ -1355,8 +1397,19 @@ textarea[data-terp="input"] {
   inline-size: 1px;
 }
 
+/* The actions: one item, after the title, pushed to the end of whichever line it lands on, and
+   allowed to shrink to that line -- min-width: 0, or a flex item refuses to go below its
+   content and a row of buttons runs past the card's edge. Its own buttons wrap when it does. */
 [data-terp="card-actions"] {
-  flex-shrink: 0;
+  order: 2;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-start: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-2);
 }
 /* lg, and it is no longer "the step below the page title" — page-title moved DOWN to sm in
    0.14.0 when the header became a band, so a section heading is now two steps above the view's
@@ -1374,6 +1427,18 @@ textarea[data-terp="input"] {
   margin: 0;
   color: var(--color-neutral-600);
   font-size: var(--font-size-sm);
+}
+/* Their places in the header line (see card-header): the title first, claiming 10rem before the
+   actions must wrap; the description last, on a line of its own. After the two base rules
+   rather than beside the header's, so the look of each is read first and its placement after. */
+[data-terp="card-header"] [data-terp="card-title"] {
+  order: 1;
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+[data-terp="card-header"] [data-terp="card-description"] {
+  order: 3;
+  flex: 1 1 100%;
 }
 
 /* Tabs --------------------------------------------------------------------- */
@@ -2093,127 +2158,54 @@ textarea[data-terp="input"] {
 
    align-items: center rather than baseline, because the row mixes a heading, pill badges and
    a button cluster: baseline alignment lines up the text and leaves the pills sitting low.
-   Wrapping is kept from the old heading row for the same reason it was there — a long title
-   meeting a wide action cluster takes a second line instead of overflowing — and the band
-   grows past its floor when it does. */
+
+   A WRAPPING FLEX LINE, and this is the third shape the band has had. It was a wrapping flex
+   row first; ADR 0135 made it a grid of named areas, because a source-ordered wrap could not
+   keep the meta group and the cluster as two groups and justify-content: space-between spread
+   a wrapped cluster across the width. Both objections are answered here without areas:
+   order puts the cluster straight after the trail and the meta group after both, and the
+   cluster is ONE item pushed to the end by margin-inline-start: auto, so no free space is ever
+   distributed among buttons.
+
+   What areas could not do is the reason for the change. "Beside the trail if it fits, under it
+   if not" is a question about content, and a grid template answers it per viewport: above the
+   first cutover the cluster stayed beside the trail however wide it was -- squeezing the trail
+   to nothing, and with enough actions running past the window's edge -- and below it the
+   cluster took a row of its own even when a single button would have fitted beside a short
+   title. Reported on exactly the pages that have one action and one crumb: an overview's "New"
+   button sitting alone under its title on a phone. A flex line wraps on what the items need:
+   the cluster shares the trail's line when the WHOLE trail fits beside it, and when it does not
+   it drops to a line of its own and wraps its own buttons there rather than pushing them off
+   screen. */
 [data-terp="page-header"] {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "trail actions";
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2) var(--space-4);
   min-width: 0;
 }
-/* The two-row band. It used to move the action cluster onto the meta row at every width, on
-   the reasoning that a page with badges or a lead line ALREADY spends a second row, so the
-   cluster joining them costs no height and buys the trail the whole first row.
-
-   The second half of that was never true, because the rule that gave the trail the first row
-   never matched (see the trail's own rule below). So the cluster was paying the whole price
-   and the trail collected none of it: measured on a 1280px viewport, an ordinary detail page
-   -- two crumbs, one badge, one button -- put the button on line two with 1028px of empty
-   room beside the trail on line one. That is what "the button wraps before the breadcrumb is
-   long" turns out to be, and it is width-independent: the same at 1440.
-
-   So the cluster keeps its place beside the trail and the meta group takes the row below it,
-   which is also what the one-row band does and therefore one rule for where a page's actions
-   live rather than two. Below the first cutover the band becomes a single column instead --
-   there the cluster genuinely cannot share a line with the title, and the row it used to take
-   from the trail was squeezing the h1 to nothing.
-
-   A grid rather than the flex-wrap this was: wrap order follows source order, so the meta
-   group and the cluster could not share a row while staying two groups, and the moment the
-   band did wrap justify-content: space-between had free space to distribute -- which
-   spread a page's buttons across the full width, or left-aligned a single cluster on a row
-   whose whole job was to right-align it. Areas say where things go and no free space is
-   distributed anywhere, so neither failure has anywhere to happen. */
-[data-terp="page-header"][data-has-meta] {
-  /* auto, not 1fr, and only for the band that is NOT chrome -- the narrow measure's title row,
-     where rows are simply as tall as what is in them. fr rows in an indefinite container
-     resolve to the LARGEST row's content, so the shorter line's item was centred in a track
-     sized by the taller one and the taller line's item filled its track exactly: measured 9px
-     above the content and 0px below it on every two-row page.
-
-     The chrome band does not read this. It sizes every row as a BAR of the one-row band's
-     height (see the chrome rule below), which outranks this on specificity, and that is what
-     gives a band of two lines the same edges as a band of one. */
-  grid-auto-rows: auto;
-}
-/* WHICH meta decides the row, not whether there is any. Badges show at every width, so a band
-   carrying one has its second row at every width. A lead line shows only above the SECOND
-   cutover (see page-description below), so a band whose only meta is a lead line has nothing
-   to put on that row anywhere beneath it -- and a grid row with nothing visible in it is still
-   a row. It was one: the empty meta group took a track, the band's row gap and the multi-row
-   band's block padding came with it, and the whole was stretched to the header floor. Measured
-   below the first cutover on a hub with a lead line, the title sat 6.8px above the centre of a
-   one-line band whose other line showed nothing at all.
-
-   So Page stamps the kind (data-has-meta="badges" or "description"), and a description-only
-   band is a one-row band until the correction at the second cutover gives it its meta row --
-   the same mobile-first shape the lead line itself is written in. Its meta group is taken out
-   of flow there too, and not merely left empty: its grid-area names an area the one-row
-   template does not declare, and an item placed into a missing named area is not dropped but
-   given IMPLICIT lines, which is a new row after all. */
+/* WHICH meta decides whether it shows, not whether there is any. Badges show at every width.
+   A lead line shows only above the SECOND cutover (see page-description below), so a band
+   whose only meta is a lead line has nothing to put on its meta line anywhere beneath it -- and
+   an empty flex item with a full-width basis is still a line, with the band's gap above it.
+   Page stamps the kind (data-has-meta="badges" or "description"), and the description-only
+   group is out of flow until the correction at the second cutover brings it back: the same
+   mobile-first shape the lead line itself is written in. */
 [data-terp="page-header"][data-has-meta="description"] [data-terp="page-meta"] {
   display: none;
 }
-@media ${WIDE_VIEWPORT_QUERY} {
-  [data-terp="page-header"][data-has-meta="badges"] {
-    grid-template-areas:
-      "trail actions"
-      "meta  meta";
-  }
-}
 @media ${ROOMY_VIEWPORT_QUERY} {
-  [data-terp="page-header"][data-has-meta="description"] {
-    grid-template-areas:
-      "trail actions"
-      "meta  meta";
-  }
   [data-terp="page-header"][data-has-meta="description"] [data-terp="page-meta"] {
     display: flex;
   }
 }
-/* Below the first cutover the band is one column and nothing competes for a line. The trail
-   keeps the leaf and one ancestor: every crumb carries min-width: 0 and an ellipsis while the
-   separators are flex: 0 0 auto, so a trail with no room does not degrade to short labels --
-   it degrades to a row of bare chevrons with the h1 among the casualties. Measured at 360px
-   on a six-crumb page: six labels under 8px, no page title on screen at all, and the cluster
-   overlapping the badges by 24px. Dropping the ancestors takes their separators with them,
-   which is the only degradation here that leaves something readable.
-
-   The actions row is declared only when there IS a cluster -- :has() for the same reason
-   card-header and control-label use it, that the alternative is an attribute the component
-   would have to stamp. A named row with nothing in it is still a row, and with the band's
-   gap under it that is 8px of empty space wedged under the trail on every page that has no
-   actions. */
+/* Below the first cutover the trail keeps the leaf and one ancestor: every crumb carries
+   min-width: 0 and an ellipsis while the separators are flex: 0 0 auto, so a trail with no
+   room does not degrade to short labels -- it degrades to a row of bare chevrons with the h1
+   among the casualties. Measured at 360px on a six-crumb page: six labels under 8px and no
+   page title on screen at all. Dropping the ancestors takes their separators with them, which
+   is the only degradation here that leaves something readable. */
 @media ${NARROW_VIEWPORT} {
-  [data-terp="page-header"] {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "trail";
-  }
-  [data-terp="page-header"]:has(> [data-terp="page-actions"]) {
-    grid-template-areas:
-      "trail"
-      "actions";
-  }
-  /* Written AFTER the :has() rule and not before it: the two selectors tie at (0,2,0), so
-     source order is what decides a page that carries meta and no cluster, and it belongs to
-     this one. The combined selector below outranks both at (0,3,0).
-
-     Badges only: this whole block sits below the first cutover, where a lead line never
-     shows, so a description-only band keeps the rows it would have with no meta at all. */
-  [data-terp="page-header"][data-has-meta="badges"] {
-    grid-template-areas:
-      "trail"
-      "meta";
-  }
-  [data-terp="page-header"][data-has-meta="badges"]:has(> [data-terp="page-actions"]) {
-    grid-template-areas:
-      "trail"
-      "meta"
-      "actions";
-  }
   [data-terp="breadcrumbs"] li:not(:last-child):not(:nth-last-child(2)) {
     display: none;
   }
@@ -2224,44 +2216,49 @@ textarea[data-terp="input"] {
   }
 }
 /* The band's left group, and it generates NO box. The trail and the meta group have to be
-   grid items of the band itself -- they sit on different rows -- but the marker is published
-   and a wrapper that boxed them would put them both in one cell. display: contents is the
-   sheet's existing answer to exactly that shape (see the markdown wrapper): the children
-   stay in flow as the grid's own items, and the marker survives for the scanner and for
-   anything reading the DOM.
-
-   The flex basis this used to carry is gone with the box. What it bought -- a heading that
-   shrinks instead of pushing the cluster off the row -- is now the grid's minmax(0, 1fr)
-   first column, which does the same job by construction rather than by getting a flex
-   hypothetical size right. */
+   items of the band itself -- the trail shares a line with the cluster and the meta group
+   takes one of its own -- and a wrapper that boxed them would make them one item.
+   display: contents keeps the marker for the scanner and for anything reading the DOM. */
 [data-terp="page-heading"] {
   display: contents;
 }
-/* The trail's placement, and the combinator is the whole of it. This was a CHILD selector,
-   and the trail is not a child of the band: Page renders it inside page-heading, which is
-   display: contents. That removes the BOX and not the node, and selectors match the tree, so
-   the rule matched nothing at all and the trail was auto-placed with its automatic minimum
-   intact. Both halves below were therefore dead from the day the heading group arrived, and
-   the two-row band above was justified by a benefit this rule was supposed to deliver.
+/* The trail: first, and growing into whatever the cluster leaves. Its basis is auto -- its own
+   full width -- because that is what "fits" means: the cluster joins the trail's line only when
+   the whole trail and the cluster fit on it together, so a short overview title keeps its "New"
+   button beside it, and a title too long to share a line keeps the line and sends the cluster
+   under it rather than being cut short to make room. A fixed claim was tried first (12rem) and
+   answered the wrong question: at a phone's width it moved a single button off a one-word
+   title, and at a desk's it truncated a title the cluster could have wrapped under.
+   min-width: 0 so a trail longer than the whole line still ellipsises rather than widening it.
 
-   Descendant, not child, and scoped to the band: page-header holds the heading group and the
-   cluster and nothing else, so there is no second trail here to catch by accident. */
+   Descendant, not child: Page renders the trail inside page-heading, which is display:
+   contents. That removes the box and not the node, and selectors match the tree -- a child
+   selector here matched nothing for a release, and the trail kept its automatic minimum. */
 [data-terp="page-header"] [data-terp="breadcrumbs"] {
-  grid-area: trail;
+  order: 1;
+  flex: 1 1 auto;
   min-width: 0;
 }
-/* Badges and the lead line, grouped so they share the second row as one left-hand item
-   rather than competing for cells with the cluster opposite them. */
+/* The cluster: one item, pushed to the line's end. It may shrink to the line it is on, and
+   min-width: 0 is what lets it -- a flex item's automatic minimum is its content's, so a
+   cluster wider than the window would otherwise refuse to shrink and run off the edge. Shrunk,
+   its own flex-wrap (see page-actions) breaks its buttons onto further lines. */
+[data-terp="page-header"] > [data-terp="page-actions"] {
+  order: 2;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-start: auto;
+}
+/* Badges and the lead line, grouped as one item with a full-line basis, so they always take a
+   line of their own under the trail and the cluster rather than competing with either. */
 [data-terp="page-meta"] {
-  grid-area: meta;
+  order: 3;
+  flex: 1 1 100%;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2) var(--space-3);
   min-width: 0;
-}
-[data-terp="page-header"] > [data-terp="page-actions"] {
-  grid-area: actions;
 }
 /* The lead line is desktop-only, and it is written as the correction rather than the rule:
    hidden at every width, shown again above the SECOND cutover. Mobile-first in the literal
@@ -2336,92 +2333,57 @@ textarea[data-terp="input"] {
 }
 /* The band's CHROME, which needs no shell above it and so is not gated on one. Its height
    and its border are what make the row a band rather than a title line, and they are correct
-   wherever Page renders — the workbench's specimen cards and the unit tests included. That
-   split is the repair of a real contradiction: these declarations used to sit inside the
-   shell-gated rule below while the comment claimed "standalone, the band is still a bordered
-   row at the header's height", which the rule made false and a test fifteen lines away in
-   styles.test.ts pinned as false. The three page-header specimens were pictures of a plain
-   flex row that the comment described as chrome.
+   wherever Page renders — the workbench's specimen cards and the unit tests included.
 
    box-sizing: border-box so the floor counts the padding, matching appshell-header, whose
-   height this is reading. Without it the two are a padding apart and the "same height as the
-   header above it" claim is off by 1rem.
+   height this is reading. Without it the two are a padding apart.
 
-   padding-block is ZERO for the reason the app header's rule states in full, and this row is
-   where the symptom showed: with var(--space-2) a single action button beat the floor, so the
-   band was 53px on a page with actions and 48px on a page without — the one piece of chrome
-   whose entire promise is that it is the same height as the header above it, changing height
-   per page. var(--space-1) fixed that for the default control and not for the large one, which
-   is why this is zero rather than a step.
+   ONE calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2), spent at the edges and between lines alike. Every line of the band is at least a
+   control tall (the rule after this one), and the inset is what the header height leaves around
+   one control, halved: (48px - 1px rule - 36px) / 2 = 5.5px at comfortable density. So a band
+   of one line is inset + control + inset + rule = the header's 48px exactly, and every line it
+   adds is a control and one more inset -- the second line as far from the first as the first is
+   from the border. The two shapes before this each got half of that wrong: content-sized lines
+   with 4px of padding crammed a multi-line band against its border, and lines a full 47px tall
+   each stacked their centring space where two met, about 26px between the trail and the badges
+   against 13px from the border.
 
-   The one-row band's row is the BAR: the header height less the border, 47px of row and 1px of
-   rule. grid-auto-rows sizes the rows the areas declare (an area row nobody sized takes its
-   size from it), and minmax rather than a fixed size, so an item taller than a bar grows its
-   row rather than spilling out of it. A default control centred in the bar sits 5.5px from
-   each edge, and that 5.5px is the band's inset: the rule after this one keeps it when the
-   band needs more than one line.
+   On EVERY chrome band rather than on the kinds known to be multi-line, which is what the flex
+   line changed: whether the cluster wraps depends on its content, and no selector can see that
+   it did. Spent everywhere, a band that wraps for any reason gets the same inset, and a band
+   that does not is the 48px it always was. The one price is the large control: 2.75rem plus the
+   inset either side is 56px, so a band carrying a size="lg" button grows by 8px, where the
+   zero padding this replaces held it at 48. A band's own actions are default size, and a page
+   that chooses a large one has chosen a taller band.
 
    :not([data-measure="narrow"]) because a form is capped WITH its header (ADR 0098 §3) — a
    Save button a screen-width from its field is worse than one over it — so a form gets the
-   one-row band with no chrome at all: a title row, which is what it wants.
+   band with no chrome at all: a title row, which is what it wants.
 
    padding-BLOCK only. The inline gutter belongs to the bleed below, because standalone there
    is nothing to bleed into and an inline pad with no negative margin would inset the band's
-   content from the body beneath it for no reason. */
+   content from the body beneath it for no reason. The inset is written out rather than named:
+   a custom property declared here is one the token sheet does not publish, which
+   tokens.guard.test.ts refuses. */
 [data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] {
-  padding-block: var(--space-0);
+  padding-block: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2);
+  row-gap: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2);
   min-height: var(--shell-header-height);
   box-sizing: border-box;
   border-block-end: 1px solid var(--color-neutral-200);
-  grid-auto-rows: minmax(calc(var(--shell-header-height) - 1px), auto);
-  row-gap: 0;
 }
-/* The band that needs more than one line keeps the one-row band's inset, ONCE. Each row is a
-   control tall, and the inset -- the bar less a control, halved: 5.5px at comfortable density
-   -- sits above the first row, between rows and below the last. So the first row is exactly
-   the one-row band (inset, control, inset) and every row after it adds a control and one
-   inset: the root bar minus one inset, which is where the second line is no further from the
-   first than the first is from the border.
-
-   This is the third form, and both earlier ones failed on spacing. Content-sized rows with 4px
-   of block padding put a two-line band's content 4px from the border while a one-row band sat
-   its line in the middle of 47px -- crammed at the edges. Then every row a full 47px bar: the
-   edges matched, but where two bars met, each row's centring space stacked, so the trail and
-   the badges sat about 26px apart against 13px from the border -- a double space between the
-   lines. One inset between rows is the space a single bar already spends at its edge.
-
-   Rows are a control tall rather than content-sized for the bottom edge's sake: a badge row is
-   shorter than a control, and centred in a control's height it sits as far from the bottom
-   border as the trail's text sits from the top one. minmax, so an app's taller cluster grows
-   its row rather than spilling out.
-
-   Only the bands that ARE more than one row take this, keyed on the same three cases the meta
-   and actions areas already are: badges at every width, a lead line above the second cutover,
-   and the cluster's own row below the first. The one-row band keeps its zero padding and its
-   47px bar, because it holds the header's height for the largest control the package ships,
-   and a 2.75rem control plus 5.5px either side would beat the floor. The inset is written out
-   rather than named, because a custom property declared here is one the token sheet does not
-   publish (tokens.guard.test.ts refuses it). */
-[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"][data-has-meta="badges"] {
-  padding-block: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2);
-  row-gap: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2);
-  grid-auto-rows: minmax(var(--density-control-min-height), auto);
+/* Every line at least a control tall, so a line of text -- the trail alone, a row of badges --
+   is the same height as a line holding the cluster, and centres in it. The trail's own list
+   is centred inside it by making the nav a flex box here; outside the band a trail is just the
+   list. */
+[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] [data-terp="breadcrumbs"],
+[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] [data-terp="page-meta"],
+[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] > [data-terp="page-actions"] {
+  min-height: var(--density-control-min-height);
 }
-@media ${ROOMY_VIEWPORT_QUERY} {
-  [data-terp="page"]:not([data-measure="narrow"])
-    > [data-terp="page-header"][data-has-meta="description"] {
-    padding-block: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2);
-    row-gap: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2);
-    grid-auto-rows: minmax(var(--density-control-min-height), auto);
-  }
-}
-@media ${NARROW_VIEWPORT} {
-  [data-terp="page"]:not([data-measure="narrow"])
-    > [data-terp="page-header"]:has(> [data-terp="page-actions"]) {
-    padding-block: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2);
-    row-gap: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2);
-    grid-auto-rows: minmax(var(--density-control-min-height), auto);
-  }
+[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] [data-terp="breadcrumbs"] {
+  display: flex;
+  align-items: center;
 }
 /* The BLEED, which does need a shell, because the negative-margin idiom is only correct when
    the box being escaped is appshell-main and that box pads by exactly --shell-gutter. ADR
@@ -3478,12 +3440,21 @@ th[data-terp="dataview-actions-cell"] > span {
 [data-terp="dataview-card-title"] {
   font-weight: var(--font-weight-medium);
 }
+/* The status slot is a PLACE, not a pill. It used to wear one -- a neutral-100 fill, space-2
+   of inline padding and a full radius -- around whatever the status column rendered, and what
+   a status column renders is usually a Badge, which is a pill already: so the card showed a
+   badge inside a slightly wider grey capsule, and a slot carrying a badge AND a date (one cell,
+   two things) put both in it. The fill could only ever be seen as that stray margin.
+
+   Bare now: the column's own content decides how it looks. Plain text still reads as
+   secondary, at the size it had, in --color-fg-muted rather than the neutral-700 it sat in on
+   its own fill: without that fill the text lands on whichever tone wash the card took, and
+   fg-muted is the ink declared and measured against all five (see the meta rule below). */
 [data-terp="dataview-card-status"] {
+  display: inline-flex;
+  align-items: center;
   font-size: var(--font-size-sm);
-  padding: 0 var(--space-2);
-  background: var(--color-neutral-100);
-  border-radius: var(--radius-full);
-  color: var(--color-neutral-700);
+  color: var(--color-fg-muted);
 }
 /* Subtitle and date share one name because they share every declaration. Two
    markers would suggest the sheet distinguishes them, and it does not.
@@ -4111,9 +4082,18 @@ button[data-terp="input"][data-placeholder="true"] {
 
 /* Fields ------------------------------------------------------------------- */
 [data-terp="field"],
-[data-terp="field-label"] {
+[data-terp="field-label"],
+[data-terp="field-body"] {
   display: grid;
   gap: var(--space-1);
+}
+/* The body holds its control at the control's own height. Where fields share lines, a body is
+   stretched to the tallest body on its line -- a neighbour's control AND its hint -- and its
+   grid track stretched with it, so a field with no hint grew a control half again as tall as
+   the one beside it. align-content: start keeps the tracks their content's height and leaves
+   the spare space below, where a hint would have been. */
+[data-terp="field-body"] {
+  align-content: start;
 }
 [data-terp="field-label-text"] {
   font-weight: var(--font-weight-medium);

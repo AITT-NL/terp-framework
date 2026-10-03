@@ -293,19 +293,22 @@ No lint modes — every violation is an error. The governed opt-out is a justifi
 
 ## Theming, language & the user menu (already wired)
 
-- **Themes** — the token stylesheet carries the palettes `light`, `dark`, `midnight`,
-  `twilight` and `contrast`; the **shell header's** theme toggle offers those plus `system`
-  (follow the viewer's platform preference) and switches `<html data-theme>`. Because all
+- **Themes** — the token stylesheet carries the palettes `midday`, `twilight`, `evening`,
+  `night` and `contrast`; the **shell header's** theme toggle offers those plus `system`
+  (follow the viewer's platform preference, whose dark half is `night`) and switches
+  `<html data-theme>`. `light`, `dark` and `midnight` are their earlier names: still accepted
+  where a theme is named, but the toggle writes the new ones. Because all
   styling is token-driven, modules never need theme-specific code.
   - **To change how this app looks**, redefine tokens in `frontend/src/theme.css` — it
     loads last, after the framework's own tokens and after any house style, so it wins.
-    Per palette, use that palette's selector (`[data-theme="dark"] { ... }`). Never inline
+    Per palette, use that palette's selector (`[data-theme="evening"] { ... }`, by the NEW
+    name — `[data-theme="dark"]` no longer matches what the toggle writes). Never inline
     colours.
   - **Never edit `frontend/src/house-style.css`.** It belongs to the organisation's styling
     tool, which rewrites it wholesale; edits there are the ones that vanish. To depart from
     the house style, declare the token in `theme.css` instead — that is the supported way,
     and it survives every rollout.
-  - **To open on a palette other than `light`**, name it as `defaultTheme` in
+  - **To open on a palette other than `midday`**, name it as `defaultTheme` in
     `frontend/layout-contract.json`. Do not restyle one palette to imitate another. That
     file may also be seeded by the organisation's styling tool: a key you change there is
     yours from then on and later rollouts leave it alone, so change it deliberately.

@@ -18,15 +18,8 @@
       "type": "string",
       "minLength": 1,
       "title": "Starting palette",
-      "enum": [
-        "light",
-        "dark",
-        "midnight",
-        "twilight",
-        "contrast",
-        "system"
-      ],
-      "description": "The palette the app opens on, until a person picks another from the theme menu and for as long as they have not. \"system\" opens on whatever light or dark preference the viewer's own device reports."
+      "enum": ["midday", "twilight", "evening", "night", "contrast", "system", "light", "dark", "midnight"],
+      "description": "The palette the app opens on, until a person picks another from the theme menu and for as long as they have not. \"system\" opens on whatever light or dark preference the viewer's own device reports. \"light\", \"dark\" and \"midnight\" are the earlier names of midday, evening and night, accepted and resolved to them."
     },
     "shell": {
       "type": "object",

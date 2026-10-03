@@ -245,7 +245,7 @@ export { GroupCreate } from "./admin/GroupCreate";
 export { GroupDetail } from "./admin/GroupDetail";
 export { AuditLogAdmin } from "./admin/AuditLogAdmin";
 export { ThemeProvider, ThemeToggle, useTheme, THEME_STORAGE_KEY } from "./theme";
-export type { Theme, ThemeProviderProps, ThemeToggleProps } from "./theme";
+export type { LegacyTheme, Theme, ThemeProviderProps, ThemeToggleProps } from "./theme";
 export {
   LocaleProvider,
   defineAppLocales,

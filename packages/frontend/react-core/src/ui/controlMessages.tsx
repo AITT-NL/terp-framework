@@ -54,14 +54,18 @@ export function useControlMessages(
     // arrive as a few pixels of drift on screens nobody touched. With the guard, a field
     // with no messages renders exactly the DOM it rendered before.
     //
-    // What the box buys is FieldRow. There, a field spans three shared lines -- label,
-    // control, messages -- and two loose spans would take two of them, so a field with
-    // both a hint and an error would push its own messages line down and every other
-    // field's with it. As one box they occupy the third line together and stack inside
-    // it, which is also the arrangement they already had.
+    // What the box buys is ONE item under the control. Field puts it in its body, beside the
+    // control and inside the <label>, so a field is two things wherever fields share lines --
+    // its label and its body -- and no line is ever empty: a row where no field has a hint
+    // does not carry a zero-height messages line with a gutter on either side of it.
+    //
+    // A <span> rather than a <div> for that reason: a <label> holds phrasing content, and the
+    // envelope now sits inside one. It is display: grid in the sheet, so the element changes
+    // nothing it renders; the self-labelling controls (Switch, Checkbox, RadioGroup), which
+    // render it outside any label, get the same box.
     messages:
       hint === undefined && !hasError ? null : (
-        <div data-terp="field-messages">
+        <span data-terp="field-messages">
           {hint !== undefined && (
             <span id={hintId} data-terp="field-hint">
               {resolve(hint)}
@@ -72,7 +76,7 @@ export function useControlMessages(
               {error}
             </span>
           )}
-        </div>
+        </span>
       ),
   };
 }

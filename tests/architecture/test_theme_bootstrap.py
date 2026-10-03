@@ -162,12 +162,17 @@ def test_the_bootstrap_knows_which_palettes_are_dark() -> None:
         / "src"
         / "tokens.css"
     ).read_text(encoding="utf-8")
+    # A theme's rule is a selector LIST once it was renamed: its name, then each name it
+    # had before (themes.json ``aliases``). Every name in the list is a palette the sheet
+    # paints, so every one of them belongs in the bootstrap's dark list -- an app declaring
+    # its palette on <html> may still write the earlier name.
     dark_blocks = {
         name
-        for name, body in re.findall(
-            r"\[data-theme='(\w+)'\]\s*\{(.*?)\}", tokens_css, re.DOTALL
+        for selectors, body in re.findall(
+            r"((?:\[data-theme='[\w-]+'\],?\s*)+)\{(.*?)\}", tokens_css, re.DOTALL
         )
         if "color-scheme: dark" in body
+        for name in re.findall(r"\[data-theme='([\w-]+)'\]", selectors)
     }
     assert dark_blocks, "the token sheet should declare color-scheme per theme"
     assert set(_array(_bootstrap(), "DARK")) == dark_blocks, (
