@@ -4821,6 +4821,66 @@ button[data-terp="input"][data-placeholder="true"] {
   white-space: nowrap;
 }
 
+/* Timeline (ADR 0169 §5) ----------------------------------------------------- */
+/* Events in order on a line that joins them: a marker per event, its words beside it, and the
+   line drawn by each event but the last, from under its marker to its foot, so it ends at the
+   last marker rather than running past it. Unframed, so it reads in a card or on the page. The
+   marker takes the event's tone where it has one; the label is always its word. */
+[data-terp="timeline"] {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+[data-terp="timeline-event"] {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  column-gap: var(--space-3);
+  row-gap: 2px;
+  padding-block-end: var(--space-4);
+}
+[data-terp="timeline-event"]:last-child {
+  padding-block-end: 0;
+}
+[data-terp="timeline-event"]:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  inset-block: 1.1rem 0;
+  inset-inline-start: calc(0.5rem - 1px);
+  border-inline-start: 2px solid var(--color-neutral-200);
+}
+[data-terp="timeline-marker"] {
+  grid-row: 1 / span 3;
+  justify-self: center;
+  margin-block-start: 0.3rem;
+  inline-size: 0.625rem;
+  block-size: 0.625rem;
+  border-radius: var(--radius-full);
+  background: var(--color-fg-subtle);
+}
+[data-terp="timeline-event"][data-tone="info"] > [data-terp="timeline-marker"] { background: var(--color-status-info); }
+[data-terp="timeline-event"][data-tone="success"] > [data-terp="timeline-marker"] { background: var(--color-status-success); }
+[data-terp="timeline-event"][data-tone="warning"] > [data-terp="timeline-marker"] { background: var(--color-status-warning); }
+[data-terp="timeline-event"][data-tone="danger"] > [data-terp="timeline-marker"] { background: var(--color-status-danger); }
+[data-terp="timeline-label"] {
+  grid-column: 2;
+  color: var(--color-fg-default);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+[data-terp="timeline-when"] {
+  grid-column: 2;
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+[data-terp="timeline-detail"] {
+  grid-column: 2;
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-sm);
+}
+
 /* The prominent collection (ADR 0169 §5) ------------------------------------- */
 /* A collection's own heading, with its count as part of its name. The card title's step and
    weight, so a titled collection and a titled card are one level of the page; the count is a

@@ -22,6 +22,7 @@ import { useStrings } from "../uiText";
 import { ApiError, unwrap } from "../unwrap";
 
 import { ModuleAccessPanel } from "./ModuleAccessPanel";
+import { RecordHistory } from "./RecordHistory";
 import { adminCrumb, renderAdminCrumb } from "./crumbs";
 
 type GroupRead = components["schemas"]["GroupRead"];
@@ -446,6 +447,8 @@ export function GroupDetail() {
             </Stack>
           }
         />
+        {/* The group's own history from the audit trail, newest first (ADR 0169 §5). */}
+        {record !== null && <RecordHistory targetType="Group" targetId={record.id} />}
       </Stack>
       <ConfirmDialog
         open={deleteOpen}

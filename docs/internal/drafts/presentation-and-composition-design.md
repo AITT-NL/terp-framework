@@ -425,8 +425,15 @@ Every phase ends at a shippable point; nothing is half-wired between them.
       **Framework consumer:** the scaffolded dashboard (phase 6), which ADR 0169 §6 names with the
       `SyncRun` and `WebhookDelivery` data; the workbench's dashboard-shaped specimen is the
       composition it will scaffold.
-- [ ] **5 — Time and state.** `Timeline` for a record's audit trail; `StatusList` only if this
-      phase names its consumer.
+- [x] **5 — Time and state.** `Timeline` for a record's audit trail; `StatusList` only if this
+      phase names its consumer. **Built.** `Timeline` is an ordered list of events, each its
+      words, a `<time>` with its instant, an optional detail and a toned marker. Its consumer
+      needed one backend change: the audit list takes `target_type` and `target_id` (both columns
+      were already indexed), bounded at 128 like the columns, and the packaged user and group
+      screens show their record's own history, newest first, quietly absent when the trail is
+      unreadable or empty. The four audit actions have words in both catalogs, which the audit
+      log's action column uses too. **`StatusList` is not built:** no phase named a consumer for
+      a check list, and the rule this phase was given was to build it only with one.
 - [ ] **6 — The archetype and the guidance.** `DashboardPage`; the scaffold's hub preset becomes a
       dashboard that keeps the Studio wizard's "Kerncijfers" promise; `terp guide layouts`
       rewritten around the vocabulary — a data-shape table an agent can follow — and its stale

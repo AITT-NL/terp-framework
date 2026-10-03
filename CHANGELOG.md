@@ -73,9 +73,15 @@ first phases, and every app's look moves with them.
   page's `summary` band. Every mark is SVG geometry coloured from the sheet — no inline style, so
   a strict `style-src` holds — every number goes through the `format` helpers, nothing is a
   dependency, and the chart ramp's colours are held to 3:1 against the surface.
-- Five framework strings come with the figures and the charts — `statFavourable`,
-  `statUnfavourable`, `statTrend`, `statusHistoryRuns` and `adminHubTotal` — in the English and
-  Dutch catalogs.
+- **A record shows its own history: `Timeline` (ADR 0169 §5).** Events in order on a line that
+  joins them, each its words, its moment in the app's locale and an optional detail, the marker
+  toned where the event changed a state. The audit trail's list takes `target_type` and
+  `target_id`, so a screen can ask for one record's events, and the packaged user and group
+  screens show theirs, newest first; the audit log's action column now says each action in the
+  app's words as well.
+- Ten framework strings come with the figures, the charts and the history — `statFavourable`,
+  `statUnfavourable`, `statTrend`, `statusHistoryRuns`, `adminHubTotal`, `recordHistory` and the
+  four `auditAction…` words — in the English and Dutch catalogs.
 - **A page in a series steps through it from a bar that stays put (ADR 0168).** `Page` — and so
   every archetype — takes `sequence`: the series' `label`, the `previous` and `next` neighbours
   as `{ label, to }`, and an optional `position`. It renders a navigation bar after the page's
@@ -146,13 +152,15 @@ first phases, and every app's look moves with them.
 
 ### Upgrade notes
 
-- **A non-English framework catalog of an app's own supplies eight new keys.** `LocaleProvider`
+- **A non-English framework catalog of an app's own supplies thirteen new keys.** `LocaleProvider`
   and `defineAppLocales` refuse a catalog that lacks any framework string, and this release adds
   `pageSequencePrevious` ("Previous: {label}"), `pageSequenceNext` ("Next: {label}"),
   `pageSequencePosition` ("{current} of {total}"), `statFavourable` ("favourable"),
   `statUnfavourable` ("unfavourable"), `statTrend` ("Over time: {points}"), `statusHistoryRuns`
-  ("{label}, oldest first: {runs}") and `adminHubTotal` ("Total"). Add the eight, keeping the
-  placeholders; an app on `LOCALE_NL` or `LOCALE_EN` changes nothing.
+  ("{label}, oldest first: {runs}"), `adminHubTotal` ("Total"), `recordHistory` ("History"),
+  `auditActionCreated` ("Created"), `auditActionUpdated` ("Changed"), `auditActionDeleted`
+  ("Deleted") and `auditActionDisclosed` ("Viewed"). Add the thirteen, keeping the placeholders;
+  an app on `LOCALE_NL` or `LOCALE_EN` changes nothing.
 - **A `theme.css` that moves the page's backgrounds moves them as a set.** A token declared in
   `theme.css` does not recompute another, so a theme that redeclares `--color-bg-canvas` or
   `--color-bg-surface` redeclares `--color-bg-subtle` too, usually as their midpoint — otherwise

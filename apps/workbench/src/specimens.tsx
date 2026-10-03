@@ -71,6 +71,7 @@ import {
   TerpProvider,
   Textarea,
   ThemeToggle,
+  Timeline,
   ToastProvider,
   Tooltip,
   TrendChart,
@@ -1326,6 +1327,29 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               ]}
             />
           </Grid>
+        ),
+      },
+      {
+        // A record's history as the packaged admin screens show it (ADR 0169 §5): newest first,
+        // each event its words, its moment and who, the marker toned where the event changed a
+        // state, joined by a line that ends at the last marker.
+        id: "timeline",
+        title: "Timeline — a record's history, newest first",
+        node: (
+          <Card title="History">
+            <Timeline
+              label="History"
+              // Local moments, built from their parts, so the printed times are the same on every
+              // recording machine whatever its timezone -- a UTC instant prints 01:00 in one place
+              // and midnight in the pinned container.
+              events={[
+                { label: "Changed", when: new Date(2026, 0, 22, 14, 5), detail: "Actor: 9f2c1b7e" },
+                { label: "Viewed", when: new Date(2026, 0, 22, 9, 40), detail: "Actor: 3a7d0c55", tone: "info" },
+                { label: "Changed", when: new Date(2026, 0, 15, 16, 20), detail: "Actor: 9f2c1b7e" },
+                { label: "Created", when: new Date(2026, 0, 15, 11, 0), tone: "success" },
+              ]}
+            />
+          </Card>
         ),
       },
       {

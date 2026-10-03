@@ -19,6 +19,7 @@ import { unwrap } from "../unwrap";
 
 import { adminCrumb, renderAdminCrumb } from "./crumbs";
 import { ModuleAccessPanel } from "./ModuleAccessPanel";
+import { RecordHistory } from "./RecordHistory";
 import { adminRoleLabel } from "./roles";
 import { useAccessLadder } from "./useAccessLadder";
 
@@ -186,6 +187,8 @@ export function UserDetail() {
           {/* The rung is chosen where the person is: this is the only screen that has a
               subject, and the global role above it is the floor every module strip sits on. */}
           <ModuleAccessPanel subjectId={record.id} globalRank={record.role} />
+          {/* The account's own history from the audit trail, newest first (ADR 0169 §5). */}
+          <RecordHistory targetType="User" targetId={record.id} />
         </Stack>
       )}
       <ConfirmDialog

@@ -2028,6 +2028,10 @@ export interface operations {
     "audit.list_events": {
         parameters: {
             query?: {
+                /** @description Only events about records of this type -- the model's name, e.g. 'User'. */
+                target_type?: string | null;
+                /** @description Only events about the record with this id. */
+                target_id?: string | null;
                 /** @description Rows to skip. */
                 skip?: number;
                 /** @description Maximum rows to return. */

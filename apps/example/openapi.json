@@ -2759,6 +2759,44 @@
         "operationId": "audit.list_events",
         "parameters": [
           {
+            "description": "Only events about records of this type -- the model's name, e.g. 'User'.",
+            "in": "query",
+            "name": "target_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only events about records of this type -- the model's name, e.g. 'User'.",
+              "title": "Target Type"
+            }
+          },
+          {
+            "description": "Only events about the record with this id.",
+            "in": "query",
+            "name": "target_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only events about the record with this id.",
+              "title": "Target Id"
+            }
+          },
+          {
             "description": "Rows to skip.",
             "in": "query",
             "name": "skip",

@@ -226,6 +226,11 @@ export const LOCALE_NL: LocaleCatalog = {
     statTrend: "Verloop: {points}",
     adminHubTotal: "Totaal",
     statusHistoryRuns: "{label}, oudste eerst: {runs}",
+    recordHistory: "Geschiedenis",
+    auditActionCreated: "Aangemaakt",
+    auditActionUpdated: "Gewijzigd",
+    auditActionDeleted: "Verwijderd",
+    auditActionDisclosed: "Ingezien",
     errorTitle: "Er is iets misgegaan.",
     backendUnreachableTitle: "De applicatie kan de server niet bereiken.",
     backendUnreachableDescription:

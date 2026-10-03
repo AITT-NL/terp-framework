@@ -9,7 +9,7 @@ sink inside each mutation's transaction, never through the API.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from terp.core import (
     ADMIN,
@@ -31,8 +31,23 @@ router = APIRouter(tags=["audit"])
 
 @router.get("/", response_model=Page[AuditEventRead])
 @operation(AUDIT_LIST_EVENTS)
-def list_events(session: SessionDep, pagination: PaginationDep) -> Page[AuditEventRead]:
-    rows, total = list_audit_events(session, pagination=pagination)
+def list_events(
+    session: SessionDep,
+    pagination: PaginationDep,
+    target_type: str | None = Query(
+        None,
+        max_length=128,
+        description="Only events about records of this type -- the model's name, e.g. 'User'.",
+    ),
+    target_id: str | None = Query(
+        None,
+        max_length=128,
+        description="Only events about the record with this id.",
+    ),
+) -> Page[AuditEventRead]:
+    rows, total = list_audit_events(
+        session, pagination=pagination, target_type=target_type, target_id=target_id
+    )
     return Page[AuditEventRead].of(
         [AuditEventRead.model_validate(row) for row in rows], total, pagination
     )

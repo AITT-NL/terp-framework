@@ -186,6 +186,8 @@ export { TrendChart } from "./charts/TrendChart";
 export { BarChart } from "./charts/BarChart";
 export { ProportionBar } from "./charts/ProportionBar";
 export { StatusHistory } from "./charts/StatusHistory";
+export { Timeline } from "./Timeline";
+export type { TimelineEvent, TimelineProps } from "./Timeline";
 export type { ChartPoint, ChartSeries, TrendChartProps, TrendMark } from "./charts/TrendChart";
 export type { BarChartProps } from "./charts/BarChart";
 export type { ProportionBarProps, ProportionPart } from "./charts/ProportionBar";

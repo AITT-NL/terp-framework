@@ -258,6 +258,29 @@ def test_access_grants_and_audit_log(app: FastAPI, engine: Engine) -> None:
     assert c.get("/api/v1/audit/").json()["total"] >= 1  # grant + provision were audited
 
 
+def test_audit_log_narrows_to_the_record_a_screen_is_about(app: FastAPI, engine: Engine) -> None:
+    """A detail screen shows its record's own history (ADR 0169's timeline): the trail filtered
+    by target type and id, newest first, and nothing about any other record."""
+    admin = _provision(engine, "admin@x.test", Roles.ADMIN)
+    c = _client(app, admin, Roles.ADMIN)
+    first = c.post("/api/v1/users/", json={"email": "one@x.test", "password": _PASSWORD, "role": int(Roles.EDITOR)})
+    other = c.post("/api/v1/users/", json={"email": "two@x.test", "password": _PASSWORD, "role": int(Roles.EDITOR)})
+    uid = first.json()["id"]
+    assert c.post(f"/api/v1/users/{uid}/deactivate").status_code == 200
+
+    mine = c.get("/api/v1/audit/", params={"target_type": "User", "target_id": uid}).json()
+    assert {event["target_id"] for event in mine["items"]} == {uid}
+    assert [event["action"] for event in mine["items"]] == ["updated", "created"]
+    assert mine["total"] == 2
+
+    # Either filter narrows alone; an id from another record matches nothing of this one.
+    users = c.get("/api/v1/audit/", params={"target_type": "User"}).json()
+    assert {event["target_id"] for event in users["items"]} >= {uid, other.json()["id"]}
+    assert c.get("/api/v1/audit/", params={"target_id": str(uuid.uuid4())}).json()["total"] == 0
+    # Bounded like every other filter, so a query string cannot ask the database anything long.
+    assert c.get("/api/v1/audit/", params={"target_id": "x" * 129}).status_code == 422
+
+
 def test_refusing_a_grant_fails_closed_when_the_app_exposes_no_control_plane() -> None:
     """The defensive half of the catalog check, on the ADR 0016 pattern.
 

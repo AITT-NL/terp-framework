@@ -197,6 +197,16 @@ export interface TerpStrings {
   adminHubTotal: string;
   /** A status history read out; `{label}` is what ran and `{runs}` the listed runs, each a label and its ending. */
   statusHistoryRuns: string;
+  /** A record's own history, from the audit trail, on its admin screen: the section's title. */
+  recordHistory: string;
+  /** An audit event: a record was created. */
+  auditActionCreated: string;
+  /** An audit event: a record was changed. */
+  auditActionUpdated: string;
+  /** An audit event: a record was deleted. */
+  auditActionDeleted: string;
+  /** An audit event: guarded data was shown to someone (ADR 0118). */
+  auditActionDisclosed: string;
   /** Default {@link ErrorState} title. */
   errorTitle: string;
   /** Title shown by `RequireAuth` when the backend did not answer the boot check. */
@@ -535,6 +545,11 @@ export const DEFAULT_STRINGS: TerpStrings = {
   statTrend: "Over time: {points}",
   adminHubTotal: "Total",
   statusHistoryRuns: "{label}, oldest first: {runs}",
+  recordHistory: "History",
+  auditActionCreated: "Created",
+  auditActionUpdated: "Changed",
+  auditActionDeleted: "Deleted",
+  auditActionDisclosed: "Viewed",
   errorTitle: "Something went wrong.",
   backendUnreachableTitle: "The application cannot reach its server.",
   backendUnreachableDescription:

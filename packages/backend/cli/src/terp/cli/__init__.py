@@ -2112,6 +2112,7 @@ Layout contracts (slot-typed layouts, ADR 0079)
       categories compared             -> BarChart, ranked before it is passed
       a whole and its parts           -> ProportionBar, each part a word with its share
       how recent runs ended           -> StatusHistory, or `history` on a DataView column
+      events in order                 -> Timeline: a record's history, newest first
       a collection                    -> DataView (the brightest object on the page)
       a section beside another        -> Grid template="2:1" ("1:2", "3:1", or the equal
                                          "1:1" / "1:1:1" / "1:1:1:1"), which collapses on a

@@ -13,6 +13,7 @@ import type { TerpStrings } from "../uiText";
 import { unwrap } from "../unwrap";
 
 import { adminCrumb, renderAdminCrumb } from "./crumbs";
+import { auditActionWord } from "./RecordHistory";
 
 type AuditEventRead = components["schemas"]["AuditEventRead"];
 
@@ -31,7 +32,8 @@ function buildColumns(
     {
       id: "action",
       header: strings.actionColumn,
-      accessor: (e) => e.action,
+      // The app's words for the four actions, as a record's history says them.
+      accessor: (e) => auditActionWord(strings, e.action),
       meta: { mobileSlot: "status", width: "xs" },
     },
     {

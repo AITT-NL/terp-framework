@@ -906,6 +906,59 @@ describe("the packaged admin area", () => {
     );
   });
 
+  it("shows an account's own history from the audit trail, in the app's words", async () => {
+    // The trail narrowed to the record the screen is about (ADR 0169 §5): the request names
+    // the record, and the events read as a timeline, newest first. Mutation: drop the target
+    // from the query, and the request is the whole trail.
+    const { fetchMock } = renderAdminApp("/admin/users/u1");
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL((input as Request).url);
+      if (url.pathname.endsWith("/api/v1/audit/") && url.searchParams.get("target_id") === "u1") {
+        return jsonResponse({
+          items: [
+            {
+              id: "e2",
+              created_at: "2026-08-21T09:30:00Z",
+              action: "updated",
+              target_type: "User",
+              target_id: "u1",
+              actor_id: "9f2c1b7e-0000-4000-8000-000000000002",
+              request_id: null,
+              payload: null,
+            },
+            {
+              id: "e1",
+              created_at: "2026-08-20T08:00:00Z",
+              action: "created",
+              target_type: "User",
+              target_id: "u1",
+              actor_id: null,
+              request_id: null,
+              payload: null,
+            },
+          ],
+          total: 2,
+          skip: 0,
+          limit: 10,
+        });
+      }
+      return base(input);
+    });
+    const history = await screen.findByRole("list", { name: "History" });
+    const items = within(history).getAllByRole("listitem");
+    expect(items.map((item) => item.querySelector('[data-terp="timeline-label"]')!.textContent)).toEqual([
+      "Changed",
+      "Created",
+    ]);
+    expect(items[0]!.textContent).toContain("Actor: 9f2c1b7e");
+    const asked = fetchMock.mock.calls
+      .map((call) => new URL((call[0] as Request).url))
+      .find((url) => url.pathname.endsWith("/api/v1/audit/"))!;
+    expect(asked.searchParams.get("target_type")).toBe("User");
+    expect(asked.searchParams.get("target_id")).toBe("u1");
+  });
+
   it("names each of a group's collections, and counts the one it has read", async () => {
     // The members and the grants were an h2 the screen placed over an embedded DataView, with
     // the count nowhere; the collection now carries its own name and count (ADR 0169 §5), and
