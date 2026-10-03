@@ -10,6 +10,93 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.31.0 — unreleased
+
+Friction reported from building on 0.30.0. A screen worked through one item after another had
+nowhere for its previous and next links but the end of its body, where they moved with every item
+and could not be links. The page band crammed a second line against its border and, on a phone,
+put a single button on a row of its own; a tooltip ended at a table's edge or opened off the top
+of the window; fields side by side did not line up; and three dark palettes named `dark`,
+`midnight` and `twilight` read as one colour and two moods.
+
+### Added
+
+- **A page in a series steps through it from a bar that stays put (ADR 0168).** `Page` — and so
+  every archetype — takes `sequence`: the series' `label`, the `previous` and `next` neighbours
+  as `{ label, to }`, and an optional `position`. It renders a navigation bar after the page's
+  article: the steps are router links with `rel="prev"` / `rel="next"` and the direction in their
+  accessible name ("Previous: Order 1016"), the position reads "17 of 48", and an absent
+  neighbour leaves its cell empty so the others never move. The bar sticks to the bottom of the
+  viewport over the band's own surface; inside a shell it sits at the bottom of the content
+  column on a short page and pins there on a long one, bleeding to the column's edges like the
+  band at the top, so "next" is in one place for the whole series. While it is on the page the
+  document keeps a focused control scrolled clear of it. A row of buttons at the end of the body
+  had none of that, and an app could not build it: pinning is a style, and module code has none.
+  Three framework strings come with it — `pageSequencePrevious`, `pageSequenceNext` and
+  `pageSequencePosition` — in the English and Dutch catalogs.
+
+### Changed
+
+- **The themes are named for the time of day (ADR 0167).** `midday` (was `light`), `twilight`,
+  `evening` (was `dark`) and `night` (was `midnight`), plus `contrast` and `system`; the
+  operating system's dark preference now selects `night`. `twilight` is a dimmed dark — violet-grey
+  surfaces between `midday` and `evening` — where it used to sit almost as low as `dark`. Every
+  earlier name is an alias rather than a break: a stored choice, `defaultTheme` and
+  `layout-contract.json` resolve through `resolveTheme`, the pre-paint bootstrap resolves them the
+  same way, the stylesheet compiles each alias into its theme's own rule, and the manifest and the
+  layout schema publish them. The translation keys keep their names, so an app's own catalog
+  still loads.
+- **The page band is a wrapping line (ADR 0135, amended).** The action cluster shares the
+  trail's line when the whole trail fits beside it, and otherwise drops to a line of its own and
+  wraps its buttons there; badges and the lead line take the line after. Every line is at least a
+  control tall and the band spends the one-line inset once, at its edges and between lines, so a
+  one-line band is the header's 48px and a wrapped one has no doubled gap. A single "New" button
+  no longer sits alone under a one-word title on a phone.
+- **`PageActions` collapses by count as well as width.** Below the widest region an action with
+  an icon drops its label only when the slot holds more than one action, and on a phone the
+  supporting actions fold into the menu only when there are more than two.
+- **A `Card` header has the band's shape.** Title and actions share a line, the actions wrapping
+  under the title when they do not fit, and the description takes a line of its own at full
+  width instead of losing width to the actions beside it.
+- **Fields line up side by side.** A `Grid` whose children are all fields shares a label line and
+  a body line across each row, each label at the foot of its line above its control, and
+  `FieldRow` does the same; the hint and the error sit in the field's body, so no shared line is
+  ever empty. The accessible name is unchanged.
+- **`DetailList` stacks by default**, label above value — the one layout with no
+  label-to-value spacing to get wrong. `layout="inline"` brings the run back.
+- **A DataView card's status slot loses its grey pill**, which showed as a second, wider pill
+  around a `Badge`; plain status text keeps `--color-fg-muted`.
+
+### Fixed
+
+- **A tooltip stays readable.** The bubble was a positioned child of its anchor, so a scroll
+  container clipped it — a tooltip in a DataView cell ended at the table's edge — it wrapped to its
+  trigger's width, and it always opened above, off the top of the window for a page band's action.
+  It is portalled to the body and placed from measurements: above if it fits, below if not,
+  clamped inside the viewport, as wide as its message. Hovering onto the bubble still keeps it
+  open (WCAG 1.4.13).
+- **Cards meet the edge in a DataView's card list.** The list padded every card 8px in from the
+  edge it shares with the toolbar and the pagination; it has no padding of its own now.
+
+### Upgrade notes
+
+- **A non-English framework catalog of an app's own supplies three new keys.** `LocaleProvider`
+  and `defineAppLocales` refuse a catalog that lacks any framework string, and this release adds
+  `pageSequencePrevious` ("Previous: {label}"), `pageSequenceNext` ("Next: {label}") and
+  `pageSequencePosition` ("{current} of {total}"). Add the three, keeping the placeholders; an
+  app on `LOCALE_NL` or `LOCALE_EN` changes nothing.
+- **A per-palette selector in an app's `theme.css` uses the new theme names.** The theme toggle
+  now writes `midday`, `evening` and `night` to the document, so a rule keyed on
+  `[data-theme="light"]`, `[data-theme="dark"]` or `[data-theme="midnight"]` no longer matches.
+  The aliases cannot cover this one — the old name is in the app's selector, not in the attribute
+  — so rename the selectors. A stored choice and a `defaultTheme` written with an old name keep
+  working.
+- **An app on `system` shows `night` under a dark operating-system preference**, where it showed
+  the slate palette — deliberately (ADR 0167 §2), and visible in every such app. A user who wants
+  the slate palette picks `evening` in the theme toggle.
+- **A `DetailList` without a `layout` now stacks.** Pass `layout="inline"` where the previous run
+  of label and value is wanted.
+
 ## 0.30.0 — 2026-10-02
 
 Friction reported from upgrading apps to Terp 0.29.0. In the dev workbench: a first start
