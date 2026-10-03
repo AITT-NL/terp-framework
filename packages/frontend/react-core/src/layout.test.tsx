@@ -241,6 +241,39 @@ describe("Grid", () => {
   });
 });
 
+describe("DetailList's ruled grid (ADR 0169 §5)", () => {
+  it("stamps the grid layout and follows its container by default", () => {
+    // A grid of one fixed column is a ruled stack; the grid's default is the auto reflow.
+    // Mutation: default the columns to 1 for every layout, and data-columns disappears.
+    render(
+      <DetailList
+        data-testid="list"
+        layout="grid"
+        items={[
+          { label: "Status", value: "Active" },
+          { label: "Owner", value: "Operations" },
+        ]}
+      />,
+    );
+    const list = screen.getByTestId("list");
+    expect(list).toHaveAttribute("data-layout", "grid");
+    expect(list).toHaveAttribute("data-columns", "auto");
+    expect(list.getAttribute("style")).toBeNull();
+  });
+
+  it("keeps a closed count when asked for one", () => {
+    render(
+      <DetailList
+        data-testid="list"
+        layout="grid"
+        columns={2}
+        items={[{ label: "Status", value: "Active" }]}
+      />,
+    );
+    expect(screen.getByTestId("list")).toHaveAttribute("data-columns", "2");
+  });
+});
+
 describe("Divider", () => {
   it("is an hr, so the separation reaches the accessibility tree", () => {
     // A bordered div is what a module reaches for without a primitive, and it says nothing to

@@ -683,3 +683,205 @@ describe("DataView localisation", () => {
     expect(screen.getByRole("button", { name: "Volgende pagina" })).toBeInTheDocument();
   });
 });
+
+describe("DataView as a panel (ADR 0169 §5)", () => {
+  it("names itself in a heading and counts its results once it has read them", async () => {
+    // Mutation: drop the count from the heading, and the name stays "Tickets".
+    render(<DataView title="Tickets" repository={inMemoryRepo()} columns={COLUMNS} />);
+    // No number while the first page loads: the count is a claim, and nothing was read yet.
+    expect(screen.getByRole("heading", { level: 3, name: "Tickets" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 3, name: "Tickets 4" })).toBeInTheDocument();
+  });
+
+  it("prints the count in the app's locale", async () => {
+    const many = Array.from({ length: 1234 }, (_, index) => ({
+      id: String(index),
+      title: `Ticket ${index}`,
+      status: "open",
+    }));
+    render(
+      <LocaleProvider locales={{ nl: LOCALE_NL, en: LOCALE_EN }} defaultLocale="nl">
+        <DataView title="Tickets" repository={inMemoryRepo(many)} columns={COLUMNS} />
+      </LocaleProvider>,
+    );
+    expect(await screen.findByRole("heading", { level: 3, name: "Tickets 1.234" })).toBeInTheDocument();
+  });
+
+  it("claims no count over an error, even with an earlier count in hand", async () => {
+    // A failed query sets the error and leaves the last total where it was, so after one good
+    // page and one failed search the view still holds "4" -- a number about rows it is no
+    // longer showing. Mutation: drop the error from the condition, and the heading keeps "4".
+    let calls = 0;
+    const base = inMemoryRepo();
+    const flaky: DataViewRepository<Ticket> = {
+      capabilities: base.capabilities,
+      getRowId: (t) => t.id,
+      query: (query) =>
+        calls++ === 0 ? base.query(query) : Promise.reject(new Error("upstream is down")),
+    };
+    render(<DataView title="Tickets" repository={flaky} columns={COLUMNS} searchDebounceMs={0} />);
+    await screen.findByRole("heading", { level: 3, name: "Tickets 4" });
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "printer" } });
+    await waitFor(() =>
+      expect(document.querySelector('[data-terp="dataview-error"]')).not.toBeNull(),
+    );
+    expect(screen.getByRole("heading", { level: 3, name: "Tickets" })).toBeInTheDocument();
+    expect(document.querySelector('[data-terp="dataview-count"]')).toBeNull();
+  });
+
+  it("titles an embedded view too, above its toolbar", async () => {
+    render(
+      <DataView
+        title="Tickets"
+        variant="embedded"
+        repository={inMemoryRepo()}
+        columns={COLUMNS}
+        toolbarContent={<button type="button">Add ticket</button>}
+      />,
+    );
+    const heading = await screen.findByRole("heading", { level: 3, name: "Tickets 4" });
+    const add = screen.getByRole("button", { name: "Add ticket" });
+    expect(heading.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe("DataView's cell presentations (ADR 0169 §5)", () => {
+  interface Group {
+    id: string;
+    name: string;
+    members: number;
+    active: boolean;
+  }
+  const GROUPS: Group[] = [
+    { id: "a", name: "Operations", members: 12, active: true },
+    { id: "b", name: "Finance", members: 3, active: false },
+    { id: "c", name: "Support", members: 6, active: true },
+  ];
+  const repo = () =>
+    new InMemoryDataViewRepository(GROUPS, {
+      getRowId: (g) => g.id,
+      getValue: (g, col) => g[col as keyof Group],
+      searchFields: ["name"],
+    });
+
+  it("puts a status dot before the cell's text, in the row's tone", async () => {
+    const columns: DataViewColumn<Group>[] = [
+      { id: "name", header: "Name", accessor: (g) => g.name },
+      {
+        id: "active",
+        header: "Status",
+        accessor: (g) => (g.active ? "Active" : "Paused"),
+        status: (g) => (g.active ? "success" : "neutral"),
+      },
+    ];
+    render(<DataView repository={repo()} columns={columns} />);
+    const paused = await screen.findByText("Paused");
+    const status = paused.closest('[data-terp="dataview-status"]')!;
+    const dot = status.querySelector('[data-terp="dataview-status-dot"]')!;
+    expect(dot).toHaveAttribute("data-tone", "neutral");
+    expect(dot).toHaveAttribute("aria-hidden", "true");
+    // The text is the word the dot stands for, and it is the cell's whole accessible text.
+    expect(status.textContent).toBe("Paused");
+  });
+
+  it("draws no dot beside a cell with no text, since the dot stands for a word", async () => {
+    // Mutation: drop the empty-content guard, and the empty cell gets a bare dot.
+    const columns: DataViewColumn<Group>[] = [
+      { id: "name", header: "Name", accessor: (g) => g.name },
+      { id: "note", header: "Note", accessor: () => null, status: () => "danger" },
+    ];
+    render(<DataView repository={repo()} columns={columns} />);
+    await screen.findByText("Operations");
+    expect(document.querySelector('[data-terp="dataview-status-dot"]')).toBeNull();
+  });
+
+  it("draws a numeric column as bars scaled to the largest value shown", async () => {
+    // Mutation: scale to the row's own value, and every bar is full.
+    const columns: DataViewColumn<Group>[] = [
+      { id: "name", header: "Name", accessor: (g) => g.name },
+      { id: "members", header: "Members", accessor: (g) => g.members, bar: true },
+    ];
+    render(<DataView repository={repo()} columns={columns} />);
+    await screen.findByText("Operations");
+    const meters = screen.getAllByRole("meter", { name: "Members" });
+    expect(meters.map((meter) => meter.getAttribute("max"))).toEqual(["12", "12", "12"]);
+    expect(meters.map((meter) => meter.getAttribute("aria-valuetext"))).toEqual(["12", "3", "6"]);
+  });
+
+  it("scales bars to a declared max, and formats the printed value", async () => {
+    const columns: DataViewColumn<Group>[] = [
+      { id: "name", header: "Name", accessor: (g) => g.name },
+      {
+        id: "members",
+        header: "Members",
+        accessor: (g) => g.members * 1000,
+        bar: { max: 20_000 },
+      },
+    ];
+    render(<DataView repository={repo()} columns={columns} />);
+    await screen.findByText("Operations");
+    const meters = screen.getAllByRole("meter", { name: "Members" });
+    expect(meters[0]).toHaveAttribute("max", "20000");
+    // A plain number in the app's locale -- grouped, where the default cell printed "12000".
+    expect(meters[0]).toHaveAttribute("aria-valuetext", "12,000");
+  });
+
+  it("renders the same presentation in the card layout", async () => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+    const columns: DataViewColumn<Group>[] = [
+      { id: "name", header: "Name", accessor: (g) => g.name, meta: { mobileSlot: "title" } },
+      {
+        id: "active",
+        header: "Status",
+        accessor: (g) => (g.active ? "Active" : "Paused"),
+        status: (g) => (g.active ? "success" : "neutral"),
+        meta: { mobileSlot: "status" },
+      },
+    ];
+    try {
+      render(<DataView repository={repo()} columns={columns} />);
+      await screen.findByText("Operations");
+      expect(document.querySelector('[data-terp="dataview-card-list"]')).not.toBeNull();
+      const card = screen.getByText("Paused").closest('[data-terp="dataview-card-status"]')!;
+      expect(card.querySelector('[data-terp="dataview-status-dot"]')).toHaveAttribute(
+        "data-tone",
+        "neutral",
+      );
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+});
+
+describe("DataView's status dots are declared pairings", () => {
+  it("colours each toned dot in a pairing the contrast gate holds against the surface", async () => {
+    // A dot is the graphical object SC 1.4.11 asks 3:1 of, and the gate measures only what
+    // token-pairs.json declares. Mutation: colour the success dot with the accent, and no
+    // pairing holds it.
+    const { TERP_STYLES_CSS } = await import("../styles");
+    const pairs = (await import("../../../contract/token-pairs.json")).default as {
+      nonTextPairs: { fg?: string; bg?: string }[];
+    };
+    for (const tone of ["info", "success", "warning", "danger"]) {
+      const selector = `[data-terp="dataview-status-dot"][data-tone="${tone}"]`;
+      const at = TERP_STYLES_CSS.indexOf(`${selector} {`);
+      expect(at, `no rule for ${selector}`).toBeGreaterThan(-1);
+      const body = TERP_STYLES_CSS.slice(at, TERP_STYLES_CSS.indexOf("}", at));
+      const fg = /background: var\((--[a-z0-9-]+)\)/.exec(body)![1]!;
+      expect(
+        pairs.nonTextPairs.some((pair) => pair.fg === fg && pair.bg === "--color-bg-surface"),
+        `${tone}: ${fg} on the surface`,
+      ).toBe(true);
+    }
+  });
+});

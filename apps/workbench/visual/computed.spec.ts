@@ -1445,3 +1445,35 @@ test("a group of figures fits two to a line on a phone, and only a line's later 
   // the group and are clipped; the second and fourth carry theirs.
   expect(layout.rules.map(({ inside }) => inside)).toEqual([false, true, false, true]);
 });
+
+test("a ruled grid of facts drops the rule before a row's first cell and above its first row", async ({
+  page,
+}) => {
+  // The ruled grid draws its rules from the cells and lets the list's overflow clip the ones
+  // that fall outside it (ADR 0169 §5), so "no rule at a row's start, none above the first row"
+  // is a position against the list's own box. Seven facts at the desk width: five in the first
+  // row, two in the second.
+  await page.goto("/?theme=midday&only=detail-list-grid");
+  await page.locator('[data-terp="detail-list"][data-layout="grid"]').waitFor({ state: "visible" });
+  const cells = await page.evaluate(() => {
+    const list = document.querySelector('[data-terp="detail-list"][data-layout="grid"]')!;
+    const edge = list.getBoundingClientRect();
+    return {
+      overflow: getComputedStyle(list).overflowX,
+      columns: getComputedStyle(list).gridTemplateColumns.split(" ").length,
+      cells: [...list.querySelectorAll(':scope > [data-terp="detail-list-row"]')].map((cell) => {
+        const box = cell.getBoundingClientRect();
+        const before = parseFloat(getComputedStyle(cell, "::before").insetInlineStart);
+        return { ruleBefore: box.left + before >= edge.left, ruleAbove: box.top - 1 >= edge.top };
+      }),
+    };
+  });
+  expect(cells.overflow).toBe("hidden");
+  expect(cells.columns).toBe(5);
+  expect(cells.cells.map(({ ruleBefore }) => ruleBefore)).toEqual([
+    false, true, true, true, true, false, true,
+  ]);
+  expect(cells.cells.map(({ ruleAbove }) => ruleAbove)).toEqual([
+    false, false, false, false, false, true, true,
+  ]);
+});

@@ -1031,6 +1031,9 @@ describe("cascade structure", () => {
     // 500, near-black — and a card of five labelled values read as a wall of bold text with
     // nothing saying which half of a pair to read first.
     //
+    // The ruled grid (ADR 0169 §5) joins the rule rather than taking a treatment of its own: a
+    // grid cell is a stacked pair with rules around it.
+    //
     // `inline` is deliberately excluded, and that is the half worth pinning: there the term is
     // part of a sentence (the colon comes from a ::after) and muting half a sentence is a
     // different defect. So this asserts the selector list exactly, in both directions.
@@ -1052,6 +1055,7 @@ describe("cascade structure", () => {
     expect(muting[0]!.selectors).toEqual([
       '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-term"]',
       '[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-term"]',
+      '[data-terp="detail-list"][data-layout="grid"] [data-terp="detail-list-term"]',
     ]);
     expect(muting[0]!.body).toContain("var(--font-size-xs)");
     expect(muting[0]!.body).toContain("var(--font-weight-normal)");
@@ -1151,6 +1155,7 @@ describe("cascade structure", () => {
     expect(value[0]!.selectors).toEqual([
       '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-value"]',
       '[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-value"]',
+      '[data-terp="detail-list"][data-layout="grid"] [data-terp="detail-list-value"]',
     ]);
     expect(value[0]!.body, "the value takes the table body cell's step").toContain(cellStep!);
 
@@ -1159,6 +1164,7 @@ describe("cascade structure", () => {
     expect(term[0]!.selectors).toEqual([
       '[data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-term"]',
       '[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-term"]',
+      '[data-terp="detail-list"][data-layout="grid"] [data-terp="detail-list-term"]',
     ]);
     expect(term[0]!.body, "at the table header cell's step").toContain(headerStep!);
   });

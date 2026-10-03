@@ -13,6 +13,12 @@ export interface AlertProps {
   tone?: AlertTone;
   title?: UiText;
   children: ReactNode;
+  /**
+   * What the reader can do about it — one or two `Button`s, rendered inside the alert under its
+   * message (ADR 0169 §5). An action beside an alert used to be a second row the caller built,
+   * which separated the remedy from the problem it remedies and left the alert's tint behind.
+   */
+  actions?: ReactNode;
 }
 
 const glyphProps = {
@@ -68,7 +74,7 @@ const toneIcon: Record<AlertTone, ReactNode> = {
  * frame, the tint and the glyph from it, and the body restates the reading colour so the
  * copy stays neutral while the frame carries the tone (ADR 0094).
  */
-export function Alert({ tone = "info", title, children }: AlertProps) {
+export function Alert({ tone = "info", title, children, actions }: AlertProps) {
   const resolve = useUiText();
   return (
     <div
@@ -80,6 +86,9 @@ export function Alert({ tone = "info", title, children }: AlertProps) {
       <div data-terp="alert-body">
         {title !== undefined && <strong data-terp="alert-title">{resolve(title)}</strong>}
         <div>{children}</div>
+        {actions !== undefined && actions !== null && actions !== false && (
+          <div data-terp="alert-actions">{actions}</div>
+        )}
       </div>
     </div>
   );

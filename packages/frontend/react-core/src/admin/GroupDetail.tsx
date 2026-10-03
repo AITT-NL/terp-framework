@@ -380,72 +380,70 @@ export function GroupDetail() {
           // members through the same expansion that already carries the group's grants.
           <ModuleAccessPanel subjectId={record.id} />
         )}
-        <Stack gap={3}>
-          <h2 data-terp="admin-section-title">
-            {strings.members}
-          </h2>
-          <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onAddMember}>
-            <Field label={strings.userField} error={memberError}>
-              <Input
-                type="email"
-                value={memberQuery}
-                list={suggestionsId}
-                placeholder={strings.email}
-                onChange={(event) => setMemberQuery(event.target.value)}
-                required
-              />
-            </Field>
-            <datalist id={suggestionsId}>
-              {suggestions.map((user) => (
-                <option key={user.id} value={user.email} />
-              ))}
-            </datalist>
-            <Button type="submit" disabled={adding || memberQuery.trim() === ""}>
-              {adding ? strings.working : strings.addMember}
-            </Button>
-          </Stack>
-          <DataView<GroupMemberRead>
-            variant="embedded"
-            repository={membersRepository}
-            columns={memberColumns}
-            rowActions={(member) => [
-              {
-                label: strings.removeMember,
-                variant: "destructive",
-                onClick: () => setPendingMember(member),
-              },
-            ]}
-          />
-        </Stack>
-        <Stack gap={3}>
-          <h2 data-terp="admin-section-title">
-            {strings.permissions}
-          </h2>
-          <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onGrant}>
-            <Field label={strings.permission} error={permissionError}>
-              <Input
-                value={permission}
-                onChange={(event) => setPermission(event.target.value)}
-                required
-              />
-            </Field>
-            <Button type="submit" disabled={granting}>
-              {granting ? strings.working : strings.grantPermission}
-            </Button>
-          </Stack>
-          <DataView<GrantRead>
-            variant="embedded"
-            repository={grantsRepository}
-            columns={grantColumns}
-            rowActions={(grant) => [
-              {
-                label: strings.revoke,
-                variant: "destructive",
-                onClick: () => setPendingGrant(grant),
-              },
-            ]}
-          />
-        </Stack>
+        {/* The collection names itself and counts itself (ADR 0169 §5), and the way to add to it
+            sits in its toolbar, between its name and its rows. */}
+        <DataView<GroupMemberRead>
+          title={strings.members}
+          variant="embedded"
+          repository={membersRepository}
+          columns={memberColumns}
+          rowActions={(member) => [
+            {
+              label: strings.removeMember,
+              variant: "destructive",
+              onClick: () => setPendingMember(member),
+            },
+          ]}
+          toolbarContent={
+            <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onAddMember}>
+              <Field label={strings.userField} error={memberError}>
+                <Input
+                  type="email"
+                  value={memberQuery}
+                  list={suggestionsId}
+                  placeholder={strings.email}
+                  onChange={(event) => setMemberQuery(event.target.value)}
+                  required
+                />
+              </Field>
+              <datalist id={suggestionsId}>
+                {suggestions.map((user) => (
+                  <option key={user.id} value={user.email} />
+                ))}
+              </datalist>
+              <Button type="submit" disabled={adding || memberQuery.trim() === ""}>
+                {adding ? strings.working : strings.addMember}
+              </Button>
+            </Stack>
+          }
+        />
+        <DataView<GrantRead>
+          title={strings.permissions}
+          variant="embedded"
+          repository={grantsRepository}
+          columns={grantColumns}
+          rowActions={(grant) => [
+            {
+              label: strings.revoke,
+              variant: "destructive",
+              onClick: () => setPendingGrant(grant),
+            },
+          ]}
+          toolbarContent={
+            <Stack as="form" direction="row" gap={2} align="end" wrap onSubmit={onGrant}>
+              <Field label={strings.permission} error={permissionError}>
+                <Input
+                  value={permission}
+                  onChange={(event) => setPermission(event.target.value)}
+                  required
+                />
+              </Field>
+              <Button type="submit" disabled={granting}>
+                {granting ? strings.working : strings.grantPermission}
+              </Button>
+            </Stack>
+          }
+        />
       </Stack>
       <ConfirmDialog
         open={deleteOpen}

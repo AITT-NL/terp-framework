@@ -473,6 +473,15 @@ html {
 [data-terp="alert-title"] {
   font-weight: var(--font-weight-semibold);
 }
+/* What to do about it, under what happened, inside the alert's own tint: a wrapping row of
+   buttons, so two actions sit side by side on a desk and stack on a phone without leaving the
+   alert they answer. */
+[data-terp="alert-actions"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
 
 /* Text controls ------------------------------------------------------------ */
 /* Input, Select and Textarea deliberately share one marker, because the focus
@@ -977,10 +986,52 @@ textarea[data-terp="input"] {
   [data-terp="detail-list-row"]:not([data-full="true"]) {
   display: contents;
 }
+/* The ruled grid (ADR 0169 §5): a record's facts as a sheet. Each pair is a cell -- its label
+   above its value -- as many to a row as fit at 11rem, and the rules are drawn by the cells
+   themselves, the technique StatGroup uses: the rule before a cell sits in the middle of the
+   column gap, the rule above it on the cell's own top edge and reaching half the gap either
+   side, and the list's overflow clips whichever of them falls outside it -- so a cell that
+   starts a row has no rule before it and the first row none above it, however many render.
+
+   The rows meet with no gap of their own, because the horizontal rule IS the row boundary and
+   the cells carry the breathing room as block padding. A gap from the gap prop opens space
+   between ruled rows on top of that (its rules are declared later and win on source order). */
+[data-terp="detail-list"][data-layout="grid"] {
+  row-gap: 0;
+  column-gap: var(--space-6);
+  overflow: hidden;
+}
+[data-terp="detail-list"][data-layout="grid"][data-columns="auto"] {
+  grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));
+  column-gap: var(--space-6);
+}
+[data-terp="detail-list"][data-layout="grid"] > [data-terp="detail-list-row"] {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-block: var(--space-3);
+}
+[data-terp="detail-list"][data-layout="grid"] > [data-terp="detail-list-row"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(-1 * var(--space-3));
+  border-inline-start: 1px solid var(--color-neutral-200);
+}
+[data-terp="detail-list"][data-layout="grid"] > [data-terp="detail-list-row"]::after {
+  content: "";
+  position: absolute;
+  inset-block-start: -1px;
+  inset-inline: calc(-1 * var(--space-3));
+  border-block-start: 1px solid var(--color-neutral-200);
+}
 [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-term"],
 [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-value"],
 [data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-term"],
-[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-value"] {
+[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-value"],
+[data-terp="detail-list"][data-layout="grid"] [data-terp="detail-list-term"],
+[data-terp="detail-list"][data-layout="grid"] [data-terp="detail-list-value"] {
   display: block;
 }
 /* The label takes the muted, smaller, regular step so a pair reads as one unit rather than two
@@ -993,7 +1044,8 @@ textarea[data-terp="input"] {
    the ::after above — and muting half a sentence is a different defect from the one this fixes.
    Two layouts diverging was the bug; three converging would be another. */
 [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-term"],
-[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-term"] {
+[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-term"],
+[data-terp="detail-list"][data-layout="grid"] [data-terp="detail-list-term"] {
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-normal);
   color: var(--color-fg-muted);
@@ -1018,7 +1070,8 @@ textarea[data-terp="input"] {
    still renders at the step that Text asked for. That is the correct outcome for a caller who
    said a size and the thing to know about a caller who did not. */
 [data-terp="detail-list"][data-layout="aligned"] [data-terp="detail-list-value"],
-[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-value"] {
+[data-terp="detail-list"][data-layout="stacked"] [data-terp="detail-list-value"],
+[data-terp="detail-list"][data-layout="grid"] [data-terp="detail-list-value"] {
   font-size: var(--font-size-sm);
 }
 /* The gap prop, and this block must stay AFTER the layout rules above. Both
@@ -4515,6 +4568,61 @@ button[data-terp="input"][data-placeholder="true"] {
   align-self: baseline;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* The prominent collection (ADR 0169 §5) ------------------------------------- */
+/* A collection's own heading, with its count as part of its name. The card title's step and
+   weight, so a titled collection and a titled card are one level of the page; the count is a
+   neutral pill -- muted ink on the neutral wash, a declared pairing -- in tabular figures so a
+   count that changes does not move the title. */
+[data-terp="dataview-title"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-fg-default);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-line-height-snug);
+}
+[data-terp="dataview-count"] {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-neutral-100);
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-line-height-base);
+  font-variant-numeric: tabular-nums;
+}
+/* A status column's quiet form: a dot before the cell's text, which is the word the dot stands
+   for. Each tone's dot holds 3:1 against the surface the rows are read on, declared in
+   token-pairs.json; neutral is the subtle ink, whose text pairing on the surface already holds
+   more than that. */
+[data-terp="dataview-status"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+[data-terp="dataview-status-dot"] {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-fg-subtle);
+}
+[data-terp="dataview-status-dot"][data-tone="info"] {
+  background: var(--color-status-info);
+}
+[data-terp="dataview-status-dot"][data-tone="success"] {
+  background: var(--color-status-success);
+}
+[data-terp="dataview-status-dot"][data-tone="warning"] {
+  background: var(--color-status-warning);
+}
+[data-terp="dataview-status-dot"][data-tone="danger"] {
+  background: var(--color-status-danger);
 }
 
 /* Figures (ADR 0169) --------------------------------------------------------- */

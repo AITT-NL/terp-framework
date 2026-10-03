@@ -34,7 +34,9 @@ function buildColumns(
       id: "member_count",
       header: strings.members,
       accessor: (g) => g.member_count,
-      meta: { mobileSlot: "status", width: "sm" },
+      // Group sizes compared at a glance, each still printed (ADR 0169 §5).
+      bar: true,
+      meta: { mobileSlot: "status", width: "md" },
     },
     {
       id: "created_at",

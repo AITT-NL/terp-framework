@@ -513,6 +513,13 @@ describe("the packaged admin area", () => {
     );
     expect(screen.getByRole("button", { name: "Provision user" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("jane.doe@example.com")).toBeInTheDocument());
+    // The status column is the quiet form (ADR 0169 §5): a dot before its word, toned by the
+    // account's state. Mutation: drop `status` from the column, and the dot is gone.
+    const active = screen.getAllByText("Active")[0]!.closest('[data-terp="dataview-status"]')!;
+    expect(active.querySelector('[data-terp="dataview-status-dot"]')).toHaveAttribute(
+      "data-tone",
+      "success",
+    );
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Admin");
 
     fireEvent.click(screen.getByText("jane.doe@example.com"));
@@ -702,6 +709,9 @@ describe("the packaged admin area", () => {
     renderAdminApp("/admin/groups");
     await screen.findByRole("heading", { level: 1, name: "Groups" });
     await screen.findByText("Finance");
+    // Group sizes as bars against the largest shown, each still printed (ADR 0169 §5).
+    // Mutation: drop `bar` from the column, and no meter is named for it.
+    expect(screen.getAllByRole("meter", { name: "Members" }).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Create group" }));
     await screen.findByRole("heading", { level: 1, name: "Create group" });
@@ -866,16 +876,33 @@ describe("the packaged admin area", () => {
     renderAdminApp("/admin/groups/g1");
     const headings = await waitFor(() => {
       const found = document.querySelectorAll('[data-terp="admin-section-title"]');
-      // Access per module, members, granted permissions. The count is here so the loop below
-      // cannot pass by finding nothing, and naming them is what keeps it from being a magic
-      // number the next section silently invalidates.
-      expect(found.length).toBe(3);
+      // Access per module. The count is here so the loop below cannot pass by finding
+      // nothing; the members and the granted permissions were two more, and are collections
+      // that name themselves now (below).
+      expect(found.length).toBe(1);
       return found;
     });
     for (const heading of headings) {
       expect(heading.tagName).toBe("H2");
       expect(heading.getAttribute("style")).toBeNull();
     }
+  });
+
+  it("names each of a group's collections, and counts the one it has read", async () => {
+    // The members and the grants were an h2 the screen placed over an embedded DataView, with
+    // the count nowhere; the collection now carries its own name and count (ADR 0169 §5), and
+    // the way to add to it sits in its toolbar, under the name. The fixture serves one member
+    // and no grants request at all, so only the members heading may claim a number.
+    // Mutation: drop the count from DataView's heading, and "Members 1" is never found.
+    renderAdminApp("/admin/groups/g1");
+    expect(await screen.findByRole("heading", { level: 3, name: "Members 1" })).toBeInTheDocument();
+    const permissions = screen.getByRole("heading", { level: 3, name: /^Permissions/ });
+    expect(permissions.closest('[data-terp="dataview"]')).not.toBeNull();
+    // The add-member form is inside the members collection, after its heading.
+    const members = screen.getByRole("heading", { level: 3, name: "Members 1" });
+    const form = screen.getByRole("button", { name: "Add member" }).closest("form")!;
+    expect(members.closest('[data-terp="dataview"]')!.contains(form)).toBe(true);
+    expect(members.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("speaks the app's language on the audit screen, its table and expanded row included", async () => {

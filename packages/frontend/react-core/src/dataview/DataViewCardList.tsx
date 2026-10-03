@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { ReactNode } from "react";
 
 import type { BadgeTone } from "../ui/Badge";
@@ -5,7 +6,7 @@ import type { UiText } from "../uiText";
 
 import { DataViewExpandToggle } from "./DataViewExpandableRow";
 import { DataViewRowActions } from "./DataViewRowActions";
-import { useCellFormatter, useDataViewText } from "./internal";
+import { barMaxima, useCellRenderer, useDataViewText } from "./internal";
 import type { DataViewColumn, DataViewRowAction } from "./types";
 
 export interface DataViewCardListProps<T> {
@@ -34,16 +35,14 @@ function slotValue<T>(
   columns: DataViewColumn<T>[],
   row: T,
   slot: "title" | "subtitle" | "status" | "date",
-  formatCell: (value: unknown) => ReactNode,
+  renderCell: ReturnType<typeof useCellRenderer>,
+  maxima: ReadonlyMap<string, number>,
 ): ReactNode {
   const column = columns.find((candidate) => candidate.meta?.mobileSlot === slot);
   if (column === undefined) {
     return null;
   }
-  if (column.cell !== undefined) {
-    return column.cell(row);
-  }
-  return formatCell(column.accessor?.(row));
+  return renderCell(column, row, maxima);
 }
 
 /**
@@ -54,6 +53,7 @@ function slotValue<T>(
  */
 export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
   const { strings, resolve, format } = useDataViewText();
+  const maxima = useMemo(() => barMaxima(props.columns, props.rows), [props.columns, props.rows]);
 
   return (
     <ul data-terp="dataview-card-list">
@@ -105,7 +105,7 @@ export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
                   {props.renderCard !== undefined ? (
                     props.renderCard(row)
                   ) : (
-                    <DefaultCardBody row={row} columns={props.columns} />
+                    <DefaultCardBody row={row} columns={props.columns} maxima={maxima} />
                   )}
                 </div>
                 {props.rowActions !== undefined && (
@@ -130,12 +130,20 @@ export function DataViewCardList<T>(props: DataViewCardListProps<T>) {
   );
 }
 
-function DefaultCardBody<T>({ row, columns }: { row: T; columns: DataViewColumn<T>[] }) {
-  const formatCell = useCellFormatter();
-  const title = slotValue(columns, row, "title", formatCell);
-  const subtitle = slotValue(columns, row, "subtitle", formatCell);
-  const status = slotValue(columns, row, "status", formatCell);
-  const date = slotValue(columns, row, "date", formatCell);
+function DefaultCardBody<T>({
+  row,
+  columns,
+  maxima,
+}: {
+  row: T;
+  columns: DataViewColumn<T>[];
+  maxima: ReadonlyMap<string, number>;
+}) {
+  const renderCell = useCellRenderer();
+  const title = slotValue(columns, row, "title", renderCell, maxima);
+  const subtitle = slotValue(columns, row, "subtitle", renderCell, maxima);
+  const status = slotValue(columns, row, "status", renderCell, maxima);
+  const date = slotValue(columns, row, "date", renderCell, maxima);
   return (
     <div data-terp="dataview-card-fields">
       <div data-terp="dataview-card-heading">

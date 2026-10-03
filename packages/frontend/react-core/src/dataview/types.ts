@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import type { BadgeTone } from "../ui/Badge";
 import type { UiText } from "../uiText";
 
 /**
@@ -135,6 +136,17 @@ export interface DataViewColumnMeta {
   width?: ColumnWidth;
 }
 
+/**
+ * A numeric column drawn as an inline bar (ADR 0169 §5): the cell's number beside a `Meter`,
+ * so the column reads as magnitudes at a glance and every value is still printed.
+ */
+export interface DataViewBar {
+  /** The top of every bar's range (default: the largest value among the rows shown). */
+  max?: number;
+  /** How the value prints, as `Intl.NumberFormatOptions` (default: a plain number). */
+  format?: Intl.NumberFormatOptions;
+}
+
 /** Generic, typed column definition for {@link DataView}. */
 export interface DataViewColumn<T> {
   /** Stable id — used for sorting/filter ids, visibility, ordering and sizing. */
@@ -152,6 +164,20 @@ export interface DataViewColumn<T> {
   cell?: (row: T) => ReactNode;
   /** Whether the header offers the 3-state sort toggle (default true). */
   enableSorting?: boolean;
+  /**
+   * A status dot before the cell's text, in the tone the row's state calls for (ADR 0169 §5):
+   * the quiet form of a status column, for a column where most rows are fine and a pill on
+   * every one of them is noise. The text is the word the tone stands for, so a cell with no
+   * text gets no dot; `null` or `undefined` leaves the row's cell plain.
+   */
+  status?: (row: T) => BadgeTone | null | undefined;
+  /**
+   * Draw the column's number as an inline bar (ADR 0169 §5), scaled to the largest value on
+   * the rows shown unless `max` is given — so a page of results compares at a glance and a
+   * page you move to rescales. The accessor's number is what is drawn and printed; a `cell`
+   * renderer is not used for a bar, and a row whose value is not a number renders as text.
+   */
+  bar?: true | DataViewBar;
   meta?: DataViewColumnMeta;
 }
 

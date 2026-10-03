@@ -342,11 +342,66 @@ Every phase ends at a shippable point; nothing is half-wired between them.
       guide theming` saying the three backgrounds move as a set. Four gates mutation-checked,
       on the first build and again on this one. **Owed:** the release note, written against the
       version phases 1–3 ship in.
-- [ ] **2 — Composition and figures.** `Grid` `template`; the `summary` slot; `Stat` and `StatGroup`
+- [x] **2 — Composition and figures.** `Grid` `template`; the `summary` slot; `Stat` and `StatGroup`
       with delta, sentiment and the sparkline (0158's first named kind); the one-headline check;
-      both halves of the contract widened.
-- [ ] **3 — The prominent collection.** DataView panel chrome and cell presentations;
-      `DetailList`'s grid layout; `Alert` actions.
+      both halves of the contract widened. **Built**, on top of phase 1. What the commit decided:
+      - **Templates:** `"2:1"`, `"1:2"`, `"3:1"` and the equal `"1:1"`, `"1:1:1"`, `"1:1:1:1"` —
+        the record's set, without a `"1:3"` it did not name. Every template collapses at the one
+        cutover by a viewport query (one track; the four-track set to two). The types make
+        `template` and `columns` exclusive.
+      - **The summary band** is a second `<header data-terp="page-summary">`, so the body check
+        drops it by tag as it drops the title band; its fill is a new token,
+        `--color-bg-summary`, at each palette's brand soft tint, so the theme decides it
+        without moving the tint other components share. Three text pairings declared on it.
+        It follows the body: absent while the page loads or fails.
+      - **The frame's two rules hold on every page under a contract, the plain `Page`
+        included** — its body stays free, its frame does not. The contract data gained
+        `summary` and `headline` tables beside `slots`; both message builders are
+        parity-tested. The lint takes the larger branch of a conditional and stops at a nested
+        page.
+      - **`Stat`** is phrasing content throughout (a `<span>` root), so it is valid inside a
+        `HubCard`'s link; that is also why the sparkline's data alternative is text (each
+        point's label and value, listed in the app's locale) rather than a table. The delta is
+        a pill on its sentiment's soft fill — success ink on the summary tint measures 4.26 in
+        midday, under AA, and on its own soft fill it is the success badge's declared pairing
+        everywhere. The sentiment is also a word in the accessibility tree ("favourable" /
+        "unfavourable"); the sign is printed, so the arrow is decorative. `target` reuses
+        `Meter`; the ghost series of a comparison period waits for a consumer, the delta's
+        `label` carrying the period meanwhile.
+      - **`StatGroup`** is always unframed; its rules are drawn into the column gap and clipped
+        at a line's start by the group's own overflow.
+      - **The delta's period is `label`,** because the i18n lint reads object keys by name
+        anywhere in app code, and a `period` key would have flagged every `{ period: "month" }`
+        an app sends to its API.
+      - The admin hub's totals render through `Stat`, which is the framework consumer ADR
+        0169 §5 names for "HubCard's `stat` rendered through it".
+      Twenty-two gates mutation-checked; ten specimens with baselines on both platforms; axe
+      clean on them in all five themes; three computed-lane measurements (template tracks, the
+      band's flush bleed, the group's clipped rules).
+- [x] **3 — The prominent collection.** DataView panel chrome and cell presentations;
+      `DetailList`'s grid layout; `Alert` actions. **Built**, on top of phase 2, each piece with
+      a framework consumer in the same commit (ADR 0099):
+      - **`DataView` `title`**, an `<h3>` with the count beside it once the repository has
+        said one, printed in the app's locale and part of the heading's name. Consumer: the
+        packaged group screen, whose members and permissions were an `h2` over an embedded
+        view — they are titled collections now, with the add forms in their toolbars.
+      - **Cell presentations on the column:** `status` (a dot of the row's tone before the
+        cell's word; no word, no dot) and `bar` (the number as a `Meter` against the largest
+        value shown, or a declared `max`). One renderer serves the table and the cards.
+        Consumers: the users overview's status, the groups overview's sizes. Four non-text
+        pairings declared for the toned dots; the neutral dot is the subtle ink, already held
+        by a text pairing.
+      - **`DetailList` `layout="grid"`**, the ruled grid, its rules drawn by the cells and
+        clipped at the list's edge as `StatGroup`'s are; `columns="auto"` by default.
+      - **`Alert` `actions`.** Consumer: the module-access panel's revoke for a retired
+        module's rung, which was a button row beside the alert.
+      **Deferred, each to its consumer:** the footer link goes with the scaffolded dashboard
+      (phase 6), which is what shows a few rows and links to all of them; filters with counts
+      wait for a consumer that has the counts — a count per filter value is a backend
+      capability, and no framework endpoint returns one; `Alert`'s prominent size has no
+      consumer. The count guard DataView first carried for an error was dropped once measured:
+      the query hook already forgets the total on a failed query, and the test that holds
+      that now loads a page before failing one.
 - [ ] **4 — Charts under the amended 0158.** `TrendChart` (line, area, columns), `BarChart`, the
       proportion bar, `StatusHistory`; table alternatives; chart pairings gated, which takes the
       chart tokens off `UNREAD_TOKENS`.

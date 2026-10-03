@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { injectTerpStyles } from "../styles";
@@ -8,7 +8,7 @@ import { DataViewExpandToggle, DataViewExpandableRow } from "./DataViewExpandabl
 import { DataViewRowActions } from "./DataViewRowActions";
 import type { DataViewRowActionsLayout } from "./DataViewRowActions";
 import { SortAscGlyph, SortDescGlyph, SortNoneGlyph } from "./glyphs";
-import { useCellFormatter, useDataViewText } from "./internal";
+import { barMaxima, useCellRenderer, useDataViewText } from "./internal";
 
 injectTerpStyles();
 import type {
@@ -59,7 +59,8 @@ export interface DataViewTableProps<T> {
  */
 export function DataViewTable<T>(props: DataViewTableProps<T>) {
   const { strings, resolve, format } = useDataViewText();
-  const formatCell = useCellFormatter();
+  const renderCell = useCellRenderer();
+  const maxima = useMemo(() => barMaxima(props.columns, props.rows), [props.columns, props.rows]);
   const tableRef = useRef<HTMLTableElement>(null);
 
   // Live widths during a resize drag only — persisted once, on pointer-up.
@@ -275,9 +276,7 @@ export function DataViewTable<T>(props: DataViewTableProps<T>) {
                         }}
                       />
                     )}
-                    {column.cell !== undefined
-                      ? column.cell(row)
-                      : formatCell(column.accessor?.(row))}
+                    {renderCell(column, row, maxima)}
                   </td>
                 ))}
                 {hasActions && (

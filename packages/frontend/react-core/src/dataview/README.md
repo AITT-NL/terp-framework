@@ -130,6 +130,19 @@ versioned envelope; corrupt data falls back to defaults) and
   only a preference the algorithm shrinks to fit, so the px hint this replaced did nothing
   at all. A user resize replaces the step outright rather than competing with it: a resized
   column stops carrying the attribute, so the floor can never spring a drag back.
+- **A titled collection** (ADR 0169 §5): `title` renders the collection's heading — an
+  `<h3>`, the level a `Card` gives a section — with its count beside it once the repository has
+  said how many there are: not while the first page loads, and not over an error. The count is
+  part of the heading's name ("Members 12") and prints in the app's locale. Use it for a
+  collection that is one section of a page; an overview whose page title already names the
+  collection leaves it off.
+- **Cell presentations** (ADR 0169 §5), on a column and the same in the table and the cards:
+  `status: (row) => tone | null` puts a dot of that tone before the cell's text — the quiet
+  form of a status column, where most rows are fine and a pill on every one is noise; the text
+  is the word the dot stands for, so an empty cell gets none. `bar: true` (or
+  `{ max, format }`) draws the column's number as a `Meter` scaled to the largest value among
+  the rows shown — or to `max` — with the value printed beside it in the app's locale; a row
+  whose value is not a number renders as text, and a `cell` renderer is not used for a bar.
 - **Row tone**: `getRowTone={(row) => tone | null}` marks the *row* as being in a
   state (a refused link, a failed run) — the right altitude when the verdict belongs
   to the record, not to one of its cells. The row/card is tinted with the tone's soft

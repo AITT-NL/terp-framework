@@ -329,6 +329,28 @@ const SYNC_COLUMNS: DataViewColumn<SyncRow>[] = [
   },
 ];
 
+/**
+ * The same rows with the column presentations a collection has (ADR 0169 §5): the status as a
+ * dot before its word, and the rows as bars scaled to the largest on the page.
+ */
+const SYNC_PRESENTED_COLUMNS: DataViewColumn<SyncRow>[] = [
+  { id: "name", header: "Name", accessor: (row) => row.name, meta: { mobileSlot: "title" } },
+  {
+    id: "status",
+    header: "Status",
+    accessor: (row) => row.status,
+    status: (row) => SYNC_TONES[row.status],
+    meta: { mobileSlot: "status" },
+  },
+  {
+    id: "rows",
+    header: "Rows",
+    accessor: (row) => row.rows,
+    bar: true,
+    meta: { mobileSlot: "subtitle", width: "md" },
+  },
+];
+
 const syncRepositoryOptions = {
   getRowId: (row: SyncRow) => row.id,
   getValue: (row: SyncRow, columnId: string) => row[columnId as keyof SyncRow],
@@ -922,6 +944,31 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // The remedy inside the alert it answers (ADR 0169 §5), in the tint, under the message:
+        // the packaged module-access panel's orphaned rung is this.
+        id: "alert-actions",
+        title: "Alert — with its actions",
+        node: (
+          <Stack gap={2}>
+            <Alert
+              tone="warning"
+              title="Access to a retired module"
+              actions={
+                <>
+                  <Button variant="danger">Revoke</Button>
+                  <Button variant="secondary">Keep for now</Button>
+                </>
+              }
+            >
+              Editor on Invoices is still held, but the module no longer declares it.
+            </Alert>
+            <Alert tone="info" actions={<Button variant="secondary">Review the changes</Button>}>
+              Three accounts were provisioned since your last visit.
+            </Alert>
+          </Stack>
+        ),
+      },
+      {
         id: "alert-untitled",
         title: "Alert — body only",
         node: <Alert tone="info">A single line, with no heading above it.</Alert>,
@@ -1203,6 +1250,49 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         node: (
           <Card>
             <p style={{ margin: 0 }}>A plain surface with padding and a border.</p>
+          </Card>
+        ),
+      },
+      {
+        // The ruled grid (ADR 0169 §5): a record's many short facts as a sheet, as many to a
+        // row as fit, divided by rules. Seven pairs so the second row is part-filled and the
+        // rules that a row's first cell and the first row drop are both on show, inside a card
+        // as a detail page puts them.
+        id: "detail-list-grid",
+        title: "DetailList — the ruled grid",
+        node: (
+          <Card title="Customer master">
+            <DetailList
+              layout="grid"
+              items={[
+                { label: "Status", value: <Badge tone="success" label="Active" /> },
+                { label: "Schedule", value: "Hourly" },
+                { label: "Last run", value: "Today, 12:04" },
+                { label: "Rows on last run", value: "1,284" },
+                { label: "Owner", value: "Integrations team" },
+                { label: "Direction", value: "Source to destination" },
+                { label: "Revision", value: "14" },
+              ]}
+            />
+          </Card>
+        ),
+      },
+      {
+        id: "detail-list-grid-narrow",
+        title: "DetailList — the ruled grid on a phone",
+        viewport: { width: 420, height: 900 },
+        node: (
+          <Card title="Customer master">
+            <DetailList
+              layout="grid"
+              items={[
+                { label: "Status", value: <Badge tone="success" label="Active" /> },
+                { label: "Schedule", value: "Hourly" },
+                { label: "Last run", value: "Today, 12:04" },
+                { label: "Rows on last run", value: "1,284" },
+                { label: "Owner", value: "Integrations team" },
+              ]}
+            />
           </Card>
         ),
       },
@@ -1930,6 +2020,35 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         id: "dataview-embedded",
         title: "DataView — embedded variant",
         node: <DataView repository={SYNC_REPOSITORY} columns={SYNC_COLUMNS} variant="embedded" />,
+      },
+      {
+        // A collection that names and counts itself (ADR 0169 §5), with its two cell
+        // presentations: the status as a dot before its word, the rows as bars scaled to the
+        // largest on the page, every value still printed.
+        id: "dataview-panel",
+        title: "DataView — titled and counted, with status dots and bars",
+        ready: '[data-terp="dataview-count"]',
+        node: (
+          <DataView title="Sync definitions" repository={SYNC_REPOSITORY} columns={SYNC_PRESENTED_COLUMNS} />
+        ),
+      },
+      {
+        // The same presentations in the card layout, which the shared cell renderer gives the
+        // cards as it gives the table.
+        id: "dataview-panel-cards",
+        title: "DataView — status dots and bars in the card layout",
+        node: (
+          <DataViewCardList
+            rows={SYNC_ROWS}
+            columns={SYNC_PRESENTED_COLUMNS}
+            getRowId={(row) => row.id}
+            selectionEnabled={false}
+            isSelected={() => false}
+            onToggleSelected={() => {}}
+            isExpanded={() => false}
+            onToggleExpanded={() => {}}
+          />
+        ),
       },
       {
         id: "dataview-row-tones",

@@ -51,6 +51,20 @@ first phases, and every app's look moves with them.
   most one figure on the page is its `headline` — refused by the lint from the static JSX of a page
   element and by the frame from the rendered page, each with the fix in its message. The plain
   `Page`'s body stays as free as it was.
+- **A collection reads as one (ADR 0169 §5).** `DataView` takes `title`: the collection's
+  heading, with its count beside it once the repository has said how many there are, printed
+  in the app's locale and part of the heading's name. A column takes `status`, a dot of the
+  row's tone before the cell's word — the quiet form of a status column — or `bar`, its numbers
+  drawn as `Meter`s against the largest value shown, each still printed. The packaged group
+  screen's members and permissions are titled collections now, with the way to add to each in
+  its toolbar; the users overview shows its status as dots and the groups overview its sizes as
+  bars.
+- **`DetailList` has a ruled grid: `layout="grid"`.** Each pair is a cell, its label above its
+  value, as many to a row as fit, divided by hairline rules — a record's many short facts as a
+  sheet you scan across.
+- **`Alert` takes `actions`**, rendered inside the alert under its message. The module-access
+  panel's offer to revoke a retired module's rung is one now, where it was a row of its own
+  beside the alert.
 - Four framework strings come with the figures — `statFavourable`, `statUnfavourable`,
   `statTrend` and `adminHubTotal` — in the English and Dutch catalogs.
 - **A page in a series steps through it from a bar that stays put (ADR 0168).** `Page` — and so

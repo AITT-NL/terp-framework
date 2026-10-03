@@ -291,7 +291,7 @@ export interface DetailItem {
 }
 
 /** How a pair is arranged. */
-export type DetailListLayout = "inline" | "aligned" | "stacked";
+export type DetailListLayout = "inline" | "aligned" | "stacked" | "grid";
 
 export interface DetailListProps extends Omit<HTMLAttributes<HTMLDListElement>, "style"> {
   /** The label/value pairs to render, in order. */
@@ -309,6 +309,13 @@ export interface DetailListProps extends Omit<HTMLAttributes<HTMLDListElement>, 
    * Stacked gives every pair the same shape at any width, needs no label column, and is what a
    * narrow column or a long value wanted anyway. It was `"inline"` until this release, kept for
    * compatibility; an app that wants the run back says `layout="inline"`.
+   *
+   * `"grid"` is the ruled grid (ADR 0169 §5): each pair a cell, its label above its value, the
+   * cells as many to a row as fit at 11rem and divided by hairline rules — a record's facts as a
+   * sheet you scan across, for the record whose facts are many and short. Unframed, like a
+   * group of figures, so it reads on a card or on the page alike; a cell that starts a row
+   * carries no rule before it, and the first row none above it. It takes `columns="auto"`
+   * unless told otherwise.
    */
   layout?: DetailListLayout;
   /**
@@ -402,7 +409,7 @@ export interface DetailListProps extends Omit<HTMLAttributes<HTMLDListElement>, 
 export function DetailList({
   items,
   layout = "stacked",
-  columns = 1,
+  columns = layout === "grid" ? "auto" : 1,
   gap,
   ...rest
 }: DetailListProps) {

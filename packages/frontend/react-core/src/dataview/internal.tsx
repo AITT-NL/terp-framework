@@ -2,12 +2,13 @@ import { createContext, useCallback, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
 
 import { useFormatDate } from "../format";
+import { Meter } from "../Meter";
 import { injectTerpStyles } from "../styles";
 import { Menu, MenuItem } from "../ui/Menu";
 import { fillPlaceholders, isPluralText, usePlural, useStrings, useUiText } from "../uiText";
 import type { PluralText, ResolveUiText, TerpStrings, UiText } from "../uiText";
 
-import type { DataViewStrings } from "./types";
+import type { DataViewColumn, DataViewStrings } from "./types";
 
 injectTerpStyles();
 
@@ -142,6 +143,94 @@ export function useCellFormatter(): (value: unknown) => ReactNode {
       return String(value);
     },
     [formatDate],
+  );
+}
+
+/** A bar's value prints as a plain number unless the column says otherwise. */
+const PLAIN_NUMBER: Intl.NumberFormatOptions = {};
+
+/**
+ * The top of each bar column's range for the rows shown: the column's own `max`, or the largest
+ * number among the rows. Computed once per render of the rows rather than per cell.
+ */
+export function barMaxima<T>(
+  columns: readonly DataViewColumn<T>[],
+  rows: readonly T[],
+): ReadonlyMap<string, number> {
+  const maxima = new Map<string, number>();
+  for (const column of columns) {
+    if (column.bar === undefined) {
+      continue;
+    }
+    const declared = column.bar === true ? undefined : column.bar.max;
+    if (declared !== undefined) {
+      maxima.set(column.id, declared);
+      continue;
+    }
+    let top = 0;
+    for (const row of rows) {
+      const value = column.accessor?.(row);
+      if (typeof value === "number" && Number.isFinite(value) && value > top) {
+        top = value;
+      }
+    }
+    maxima.set(column.id, top);
+  }
+  return maxima;
+}
+
+/**
+ * A cell's content, the same in the table and in the cards: the column's own renderer or the
+ * shared default, and then its presentation — a bar drawn as a `Meter`, or a status dot before
+ * the text.
+ *
+ * One function for both layouts for the reason {@link useCellFormatter} gives: two copies agree
+ * until the first change to either, and then a row renders one way on a desk and another on a
+ * phone.
+ */
+export function useCellRenderer(): <T>(
+  column: DataViewColumn<T>,
+  row: T,
+  maxima: ReadonlyMap<string, number>,
+) => ReactNode {
+  const formatCell = useCellFormatter();
+  return useCallback(
+    <T,>(column: DataViewColumn<T>, row: T, maxima: ReadonlyMap<string, number>) => {
+      if (column.bar !== undefined) {
+        const value = column.accessor?.(row);
+        if (typeof value === "number" && Number.isFinite(value)) {
+          return (
+            <Meter
+              label={column.header}
+              value={value}
+              max={maxima.get(column.id) ?? value}
+              format={(column.bar === true ? undefined : column.bar.format) ?? PLAIN_NUMBER}
+            />
+          );
+        }
+      }
+      const content =
+        column.cell !== undefined ? column.cell(row) : formatCell(column.accessor?.(row));
+      const tone = column.status?.(row);
+      // The dot stands for a word, so it is drawn only beside one.
+      if (
+        tone === undefined ||
+        tone === null ||
+        content === null ||
+        content === undefined ||
+        content === false ||
+        content === ""
+      ) {
+        return content;
+      }
+      return (
+        <span data-terp="dataview-status">
+          <span data-terp="dataview-status-dot" data-tone={tone} aria-hidden="true" />
+          {content}
+        </span>
+      );
+    },
+    [formatCell],
   );
 }
 

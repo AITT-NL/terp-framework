@@ -303,15 +303,12 @@ export function ModuleAccessPanel({ subjectId, globalRank = null }: ModuleAccess
         <Alert tone="danger">{heldError}</Alert>
       )}
       {orphaned.map((entry) => (
-        <Stack key={`orphan:${entry.module}`} gap={2}>
-          <Alert tone="warning">
-            {strings.moduleAccessOrphaned
-              .replace("{role}", entry.role ?? String(entry.role_rank))
-              .replace("{module}", entry.module)}
-          </Alert>
-          <Stack direction="row" gap={2}>
-            {/* The only action the declarations still permit here, so it is the only one
-                offered — a strip would hold rungs the server would refuse to store. */}
+        <Alert
+          key={`orphan:${entry.module}`}
+          tone="warning"
+          actions={
+            // The only action the declarations still permit here, so it is the only one
+            // offered — a strip would hold rungs the server would refuse to store.
             <Button
               variant="danger"
               disabled={busy || settling}
@@ -321,8 +318,12 @@ export function ModuleAccessPanel({ subjectId, globalRank = null }: ModuleAccess
             >
               {strings.revoke}
             </Button>
-          </Stack>
-        </Stack>
+          }
+        >
+          {strings.moduleAccessOrphaned
+            .replace("{role}", entry.role ?? String(entry.role_rank))
+            .replace("{module}", entry.module)}
+        </Alert>
       ))}
       {!loading && settled >= 0 && error === null && assignable.length === 0 && (
         <Alert tone="info">{strings.moduleAccessNoneAssignable}</Alert>

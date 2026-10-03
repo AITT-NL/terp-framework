@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { NARROW_VIEWPORT } from "../breakpoints";
 import { EmptyState } from "../EmptyState";
 import { ErrorState } from "../ErrorState";
+import { useFormatNumber } from "../format";
 import type { BadgeTone } from "../ui/Badge";
 import type { UiText } from "../uiText";
 import { DataViewCardList } from "./DataViewCardList";
@@ -31,6 +32,17 @@ import type {
 const EMBEDDED_PAGE_SIZE = 10_000;
 
 interface DataViewBaseProps<T> {
+  /**
+   * The collection's name, as the panel's heading — with its count beside it once the
+   * repository has said how many there are (ADR 0169 §5).
+   *
+   * For a collection that is one section of a page — a record's members, a run's deliveries —
+   * where a heading over it was a second element the caller placed and the count was nowhere
+   * at all. An `<h3>`, the level `Card` gives a section, and the count is part of its name, so
+   * a screen reader hears "Members 12". An overview whose page title already names the
+   * collection leaves it off.
+   */
+  title?: UiText;
   /** Stable key for persisted view preferences; omit to keep them in memory only. */
   viewId?: string;
   /** The data access seam — DataView never fetches on its own. */
@@ -166,6 +178,7 @@ function useIsMobile(): boolean {
 
 function DataViewInner<T>(props: DataViewProps<T>) {
   const { strings, resolve } = useDataViewText();
+  const formatNumber = useFormatNumber();
   const embedded = props.variant === "embedded";
   // Only the compact value is expressible as an attribute; see the prop's doc comment.
   const densityAttribute = props.density;
@@ -405,6 +418,26 @@ function DataViewInner<T>(props: DataViewProps<T>) {
     );
   })();
 
+  // The count is part of the heading once there is one to tell. The query hook holds none
+  // before the first page and drops it on a failed query, so neither a load nor an error can
+  // put a number about unread records into the name.
+  const knowsCount = totalCount !== undefined;
+  const heading =
+    props.title === undefined ? null : (
+      <h3 data-terp="dataview-title">
+        {resolve(props.title)}
+        {/* A space, so the name reads "Members 12" rather than "Members12": the count is an
+            inline span and the accessible name joins inline text as written. The flex gap does
+            the visual spacing, and a whitespace text node in a flex box renders nothing. */}
+        {knowsCount && (
+          <>
+            {" "}
+            <span data-terp="dataview-count">{formatNumber(totalCount)}</span>
+          </>
+        )}
+      </h3>
+    );
+
   if (embedded) {
     // Stable inputs only: keying this on transient fetch state would pop the
     // whole band in and out on mount and on every background refetch.
@@ -418,6 +451,7 @@ function DataViewInner<T>(props: DataViewProps<T>) {
       props.toolbarTrailing !== undefined;
     return (
       <div data-terp="dataview" data-variant={variantAttribute} data-density={densityAttribute}>
+        {heading}
         {showsEmbeddedToolbar && (
           <DataViewToolbar<T>
             searchEnabled={props.repository.capabilities.search}
@@ -453,6 +487,7 @@ function DataViewInner<T>(props: DataViewProps<T>) {
 
   return (
     <div data-terp="dataview" data-variant={variantAttribute} data-density={densityAttribute}>
+      {heading}
       <DataViewToolbar<T>
         searchEnabled={props.repository.capabilities.search}
         search={state.search}

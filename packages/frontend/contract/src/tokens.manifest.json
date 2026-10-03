@@ -1657,6 +1657,35 @@
       "layer": "semantic"
     },
     {
+      "$comment": "A status column's dot (ADR 0169 §5), the graphical object SC 1.4.11 asks 3:1 of: it is the column's tone at a glance, and the text beside it is the word. Four pairings for the four toned dots; the neutral dot is the subtle ink, which the text pairing subtle-on-surface already holds to more than this.",
+      "id": "status-dot-info-on-surface",
+      "label": "a info status dot in a collection's cell, against the surface",
+      "fg": "--color-status-info",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "id": "status-dot-success-on-surface",
+      "label": "a success status dot in a collection's cell, against the surface",
+      "fg": "--color-status-success",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "id": "status-dot-warning-on-surface",
+      "label": "a warning status dot in a collection's cell, against the surface",
+      "fg": "--color-status-warning",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "id": "status-dot-danger-on-surface",
+      "label": "a danger status dot in a collection's cell, against the surface",
+      "fg": "--color-status-danger",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
       "id": "meter-optimum-on-track",
       "label": "a meter's fill in its optimum band, against its track",
       "fg": "--color-status-success",

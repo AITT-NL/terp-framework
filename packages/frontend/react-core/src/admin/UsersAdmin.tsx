@@ -39,6 +39,9 @@ function buildColumns(
       id: "is_active",
       header: strings.statusColumn,
       accessor: (u) => (u.is_active ? strings.statusActive : strings.statusDeactivated),
+      // A dot rather than a pill: most accounts are active, and a pill on every row is noise
+      // around the one that is not (ADR 0169 §5). The text stays the word.
+      status: (u) => (u.is_active ? "success" : "neutral"),
       meta: { mobileSlot: "status", width: "sm" },
     },
     {
