@@ -95,10 +95,13 @@ export interface PageProps {
  * frame used to append `title` to the trail *and* render it as an `h1`, so every `DetailPage`
  * printed its own name twice, a couple of dozen pixels apart.
  *
- * `badges` and `description` sit after the title and `actions` at the right edge, all on that
- * one line. Inside a shell the band bleeds to the content column's edge and takes the app
- * header's own height and a bottom border, so the two read as one piece of chrome; standalone
- * — the workbench, the unit tests — it is the same row without the bleed. A `measure="narrow"`
+ * `actions` sit at the right end of the title's line when the whole trail fits beside them, and
+ * drop to a line of their own when it does not, wrapping their own buttons there; `badges` and
+ * `description` take a line under both. Every line is a control tall with one inset above,
+ * between and below them, so a one-line band is the app header's own height. Inside a shell
+ * the band bleeds to the content column's edge with a bottom border, so the two read as one
+ * piece of chrome; standalone — the workbench, the unit tests — it is the same band without the
+ * bleed. A `measure="narrow"`
  * frame (`FormPage`, `SettingsPage`) keeps the row and drops the chrome, because a form is
  * capped with its header (ADR 0098 §3).
  *
@@ -181,13 +184,13 @@ export function Page({
     description !== null &&
     description !== false &&
     description !== "";
-  // The band's second row exists when there is meta to put on it, and the action cluster then
-  // shares it at no cost in height. A page with neither keeps the single row, and with it the
-  // measurement the chrome is held to: the band matches the app header above it.
+  // The band's meta line exists when there is meta to put on it. A page with none, and a cluster
+  // that fits beside its trail, keeps the single line, and with it the measurement the chrome is
+  // held to: the band matches the app header above it.
   const hasMeta = badgeList.length > 0 || hasDescription;
-  // WHICH meta, because the two are visible at different widths and the row must follow what
+  // WHICH meta, because the two are visible at different widths and the line must follow what
   // is visible: badges show everywhere, a lead line only above the second cutover. A band whose
-  // only meta is a lead line therefore has an empty second row below that width unless the
+  // only meta is a lead line therefore has an empty meta line below that width unless the
   // sheet can tell it apart, and it could not while this said "true" for both.
   // Hoisted, the density/collapsed idiom: the default stamps nothing, so the expression has a
   // branch rather than a boolean React would render as the string "false".
@@ -219,10 +222,10 @@ export function Page({
               row it used to sit in existed to hold a 2rem floor above the title row, and
               there is no title row to be above. */}
           <Breadcrumbs items={trail} renderLink={renderLink} currentAs="h1" />
-          {/* Badges and the lead line travel together as one grid item: with meta present
-              they share the band's second row with the action cluster, and a group is what
-              lets them be left of it rather than competing for the same cells. Rendered only
-              when there is something in it, because the empty box would still take a row. */}
+          {/* Badges and the lead line travel together as one item: a group with a full-line
+              basis, so they take a line of their own under the trail and the cluster rather
+              than competing with either. Rendered only when there is something in it, because
+              the empty box would still take a line. */}
           {hasMeta && (
             <div data-terp="page-meta">
               {badgeList.length > 0 && (
@@ -239,10 +242,10 @@ export function Page({
           )}
         </div>
         {/* Always a group, never the caller's nodes loose in the band. A page that passed a
-            fragment of buttons used to put each one in the band as its own item, which the
-            grid would now scatter across cells it has no areas for. One wrapper means the
-            cluster is one item wherever the areas put it, whether or not the page reached
-            for PageActions. */}
+            fragment of buttons used to put each one in the band as its own item, each wrapping
+            on its own. One wrapper means the cluster is one item -- beside the trail or on its
+            own line, wrapping its buttons inside itself -- whether or not the page reached
+            for PageActions (which also collapses to icons and a menu as room runs out). */}
         {hasActions && <div data-terp="page-actions">{actions}</div>}
       </header>
       {/* Reset the slot for the body's own subtree, so nested content is never judged

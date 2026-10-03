@@ -533,30 +533,33 @@ describe("cascade structure", () => {
     expect(chrome, "the band is what separates chrome from content").toContain(
       "border-block-end: 1px solid var(--color-neutral-200)",
     );
-    // The block padding, and it has to be the same VALUE in both chrome rows rather than the
-    // same intention. A min-height is only a height while nothing legal can beat it, and
-    // var(--space-2) did not clear that bar: a 2.25rem control plus 8px of padding plus the
-    // 1px border is 53px against a floor of 48, so the app header (which always carries its
-    // toggle) was 53px, a band with an action button was 53px, and a band with only a title
-    // was 48px — the one row whose whole promise is that it matches the header above it,
-    // changing height per page.
+    // The block padding is ONE INSET, and the row gap is the same inset: every line of the
+    // band at least a control tall (pinned below), with the inset at the edges and between
+    // lines alike. The inset is what the header height leaves around one control, halved, so
+    // a one-line band is inset + control + inset + rule = the header's height, which is what
+    // the computed lane reads back. Two earlier shapes each got half of it wrong: zero padding
+    // with content-sized lines crammed a wrapped band against its border, and full 47px lines
+    // doubled the space between them.
     //
-    // Zero, not a step: var(--space-1) leaves 39px of content box, which clears the 2.25rem
-    // control and not the 2.75rem one this package also ships, so a band with a large action
-    // button measured 53px again. Both rows spend the same value, and the resolved heights are
-    // pinned in the computed lane against the largest control there is; what belongs here is
-    // that neither row can move its padding without the other.
-    expect(chrome, "the band's block padding is the app header's").toContain(
-      "padding-block: var(--space-0)",
+    // On EVERY chrome band, not only the kinds known to wrap: the band is a flex line now, and
+    // whether its cluster wraps depends on content no selector can see.
+    const inset = "calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / 2)";
+    expect(chrome, "the inset above the first line and below the last").toContain(
+      `padding-block: ${inset}`,
     );
-    expect(
-      bodyFor('[data-terp="appshell-header"]'),
-      "both chrome rows spend the same block padding under the floor they share",
-    ).toContain("padding: var(--space-0) var(--shell-gutter)");
+    expect(chrome, "and once between lines, not twice").toContain(`row-gap: ${inset}`);
     expect(
       /padding-inline|padding:/.test(chrome),
       "an inline pad with no bleed would inset the band from the body beneath it",
     ).toBe(false);
+    const line = "min-height: var(--density-control-min-height)";
+    for (const item of [
+      '[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] [data-terp="breadcrumbs"]',
+      '[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] [data-terp="page-meta"]',
+      '[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] > [data-terp="page-actions"]',
+    ]) {
+      expect(bodyFor(item), `${item}: every line at least a control tall`).toContain(line);
+    }
 
     // THE BLEED is gated, because the negative-margin idiom is only correct against a box
     // that pads by exactly this token. ADR 0097 section 2 kept "it works with no shell above
@@ -641,6 +644,49 @@ describe("cascade structure", () => {
       base.slice(base.indexOf("{", body) + 1, base.indexOf("}", body)),
       "the body's percentage height is the only thing equalising two cards in a row",
     ).toContain("height: 100%");
+  });
+
+  it("places a tooltip against the window and a card list against the view's own edge", () => {
+    const base = layerBody("terp.base");
+    const bodyFor = (selector: string): string => {
+      for (const match of base.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const selectors = match[1].split(",").map((part) => part.trim().replace(/\s+/g, " "));
+        if (selectors.includes(selector)) return match[2];
+      }
+      throw new Error(`the sheet declares no rule for exactly ${selector}`);
+    };
+    // The bubble is portalled and placed from measured coordinates, so the sheet fixes it to
+    // the window and names no offset of its own. As an absolute child of its anchor it was
+    // clipped by any scroll container above it -- a DataView cell's tooltip ended at the
+    // table's edge -- and its available width was the trigger's, so a message on a button
+    // wrapped one button wide and grew off the top of the window.
+    const bubble = bodyFor('[data-terp="tooltip"]');
+    expect(bubble, "fixed to the window, where no scroll container can clip it").toContain(
+      "position: fixed",
+    );
+    expect(bubble, "the message's width, not the room a containing block leaves").toContain(
+      "inline-size: max-content",
+    );
+    // Portalled, its parent is the body, which no rule gives a typeface: without its own
+    // family the bubble rendered in the browser's default serif.
+    expect(bubble, "the bubble declares its typeface rather than inheriting the body's").toContain(
+      "font-family: var(--font-family-sans)",
+    );
+    expect(
+      /inset-|(^|[^-])(top|left|right|bottom):/.test(bubble),
+      "the coordinates are measured by the component; an offset here would fight them",
+    ).toBe(false);
+    expect(
+      bodyFor('[data-terp="tooltip-anchor"]'),
+      "the anchor is no longer anything's containing block",
+    ).not.toContain("position:");
+    // The card list sits beside the toolbar and the pagination, not inside the table's
+    // frame, so padding of its own inset every card from the edge they share. Measured at a
+    // phone width before: toolbar 16-394px, cards 24-386px.
+    expect(
+      bodyFor('[data-terp="dataview-card-list"]'),
+      "the cards line up with the toolbar and the pagination",
+    ).toContain("padding: 0");
   });
 
   it("puts the DataView's surface on the full variant's TABLE, not on the root or the marker", () => {
@@ -1117,16 +1163,19 @@ describe("cascade structure", () => {
     expect(term[0]!.body, "at the table header cell's step").toContain(headerStep!);
   });
 
-  it("gives a field row three shared lines, and the narrow shape none of them", () => {
-    // The whole of FieldRow is that a field's three parts land on the ROW's tracks rather
-    // than on its own, so these four declarations are one mechanism and a missing one
-    // breaks it silently -- a field that is not a subgrid simply measures itself again and
-    // the row looks like an ordinary Stack.
+  it("gives a field row two shared lines, and the narrow shape none of them", () => {
+    // The whole of FieldRow is that a field's two parts -- its label, and its body (the
+    // control with whatever the field says under it) -- land on the ROW's tracks rather than
+    // on its own, so these declarations are one mechanism and a missing one breaks it
+    // silently: a field that is not a subgrid simply measures itself again and the row looks
+    // like an ordinary Stack.
     //
-    // The pairing that is easiest to get wrong is the last one: display: contents on the
-    // label is what lifts the label TEXT and the control out of the <label> box so they can
-    // sit on separate lines. Without it a field spans three tracks and puts everything on
-    // the first.
+    // Two lines, not the three this used to be (label, control, messages): the messages moved
+    // into the body, so a row where no field has a hint carries no empty line.
+    //
+    // The pairing that is easiest to get wrong is display: contents on the label, which is
+    // what lifts the label TEXT and the body out of the <label> box so they can sit on
+    // separate lines. Without it a field spans both tracks and puts everything on the first.
     const wide = mediaBodies(layerBody("terp.base"), WIDE_VIEWPORT_QUERY);
     const subgrid = /\[data-terp="field-row"\] > \[data-terp="field"\] \{([^}]*)\}/.exec(wide);
     expect(subgrid, "each field subgrids the row").not.toBeNull();
@@ -1134,7 +1183,10 @@ describe("cascade structure", () => {
     expect(subgrid![1], "and spans every line, or it subgrids one of them").toContain(
       "grid-row: 1 / -1",
     );
-    expect(wide, "the row owns three lines for them to share").toContain(
+    expect(wide, "the row owns two lines for them to share").toContain(
+      "grid-template-rows: auto auto",
+    );
+    expect(wide, "not the three it had before the messages moved into the body").not.toContain(
       "grid-template-rows: auto auto auto",
     );
     expect(
@@ -1212,198 +1264,148 @@ describe("cascade structure", () => {
     expect(base.slice(textAt, base.indexOf("}", textAt))).not.toContain("font-weight");
   });
 
-  it("keeps a Card's actions slot on the title's line, description or not", () => {
-    // The measured inconsistency: `actions` is documented as a header-row slot and delivered
-    // one only while `description` was unset. The heading declared min-width: 0 alone, so it
-    // computed flex: 0 1 auto and its hypothetical main size was the max-content width of a
-    // block holding a title AND a sentence — and flex breaks lines on hypothetical main sizes
-    // BEFORE it shrinks anything, so with the header's flex-wrap the heading took the line and
-    // the control wrapped underneath. 103px against 48px for the same component, one prop apart.
-    //
-    // A base size of 0 is what makes both fit by construction. min-width: 0 stays for the other
-    // half: a flex item's automatic minimum is its content's, so a long unbreakable title would
-    // otherwise refuse to shrink past it. Both are asserted, because dropping either brings a
-    // different half of the bug back.
-    const base = layerBody("terp.base");
-    const headingAt = base.indexOf('[data-terp="card-heading"] {');
-    expect(headingAt, "card-heading should have a base rule").toBeGreaterThan(-1);
-    const heading = base.slice(headingAt, base.indexOf("}", headingAt));
-    expect(heading, "a content-sized heading wraps the actions slot onto its own line").toContain(
-      "flex: 1 1 0",
+  it("gives a Card a header line of title and actions, and its description a line of its own", () => {
+    // The page band's shape at a card's size. The card put its title and description in ONE
+    // column and the actions in a second beside the pair, so the actions took their width out
+    // of the description: a sentence wrapped in a narrow column next to one button, three
+    // lines deep. Now the title and the actions share the header's line (the actions wrapping
+    // under it only when they do not fit), and the description takes the next line, full width.
+    const base = baseOnly(layerBody("terp.base")).replace(/\/\*[\s\S]*?\*\//g, "");
+    const ruleFor = (selector: string) => {
+      for (const match of base.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        if (match[1].trim().replace(/\s+/g, " ") === selector) return match[2];
+      }
+      return null;
+    };
+    const header = ruleFor('[data-terp="card-header"]');
+    expect(header, "a line that wraps on its content").toContain("flex-wrap: wrap");
+    expect(header, "the title in the middle of the line it shares with a control").toContain(
+      "align-items: center",
     );
-    expect(heading, "min-width: 0 is what lets an unbreakable title shrink").toContain(
-      "min-width: 0",
+    expect(ruleFor('[data-terp="card-heading"]'), "title and description are items of the header").toContain(
+      "display: contents",
     );
-    // The conditional half. `center` is right for a title alone — the slot is a control, so its
-    // box is taller than one line box — and wrong the moment a description makes the heading a
-    // block, where it floats the control in the middle instead of beside the title.
+    expect(ruleFor('[data-terp="card-header"] [data-terp="card-title"]'), "the title first").toContain(
+      "order: 1",
+    );
+    const actions = ruleFor('[data-terp="card-actions"]');
+    expect(actions, "the actions straight after it, so they can share its line").toContain("order: 2");
+    expect(actions, "pushed to the end as one item").toContain("margin-inline-start: auto");
+    expect(actions, "allowed to shrink to the line they are on").toContain("min-width: 0");
+    expect(actions, "and wrapping their own buttons when they do").toContain("flex-wrap: wrap");
+    const description = ruleFor('[data-terp="card-header"] [data-terp="card-description"]');
+    expect(description, "the description last").toContain("order: 3");
+    expect(description, "on a line of its own, never beside the actions").toContain("flex: 1 1 100%");
     expect(
-      declaresRuleFor(base, '[data-terp="card-header"]:has([data-terp="card-description"])'),
-      "the header's alignment must depend on whether there is a description",
-    ).toBe(true);
-    const conditionalAt = base.indexOf(
-      '[data-terp="card-header"]:has([data-terp="card-description"])',
-    );
-    expect(base.slice(conditionalAt, base.indexOf("}", conditionalAt))).toContain(
-      "align-items: start",
-    );
-    // And the base rule still centres, or the title rides above the control in the common case.
-    const headerAt = base.indexOf('[data-terp="card-header"] {');
-    expect(base.slice(headerAt, base.indexOf("}", headerAt))).toContain("align-items: center");
+      declaresRuleFor(layerBody("terp.base"), '[data-terp="card-header"]:has([data-terp="card-description"])'),
+      "no alignment that depends on the description: it no longer shares the actions' line",
+    ).toBe(false);
   });
 
-  it("lays the page band out in areas, and spends a second row only when one is earned", () => {
-    // What this replaced, and why the argument had to change shape. The band was a wrapping
-    // flex row, and the bug it kept producing was always the same one: flex collects items
-    // into lines using HYPOTHETICAL main sizes and only shrinks what is already on a line, so
-    // any item whose max-content was wide -- a deep trail, an unwrapped sentence -- took the
-    // line and pushed the action cluster onto the next one. A zero basis bought the single
-    // row back, and measured 48px against 76px, which is why it was pinned here.
+  it("lays the page band out as one wrapping line: trail, cluster when it fits, then meta", () => {
+    // The third shape, and why. ADR 0135 made the band a grid of named areas, because a
+    // source-ordered wrapping row could not keep the meta group and the cluster as two groups
+    // and justify-content: space-between spread a wrapped cluster across the width. But areas
+    // answer "where does the cluster go" per VIEWPORT, and the question is about CONTENT: above
+    // the first cutover the cluster stayed beside the trail however wide it was, squeezing the
+    // trail and running past the window with enough actions; below it, it took a row of its own
+    // even when one button fitted beside a short title. Reported on the pages with one action
+    // and one crumb.
     //
-    // Two things that basis could never fix, both of which arrive the moment the band DOES
-    // wrap. Wrap order follows source order, so the meta group and the cluster cannot share a
-    // row while staying two groups. And justify-content: space-between then has free space to
-    // distribute, which scatters a page's buttons across the full width -- or left-aligns a
-    // single cluster on the row whose whole job was to right-align it.
-    //
-    // Areas answer both by construction: nothing is placed by flow and no free space is
-    // distributed anywhere, so neither failure has a place to happen.
+    // A flex line wraps on what the items need, and the two old objections are answered
+    // without areas: `order` puts the cluster straight after the trail and the meta group last,
+    // and the cluster is one item pushed to the end by margin-inline-start: auto, so no free
+    // space is distributed among buttons.
     const base = layerBody("terp.base");
-    const headerAt = base.indexOf('[data-terp="page-header"] {');
-    expect(headerAt, "page-header should have a base rule").toBeGreaterThan(-1);
-    const header = base.slice(headerAt, base.indexOf("}", headerAt));
-    expect(header, "the band places by area, never by flow").toContain("display: grid");
-    // minmax(0, 1fr) rather than 1fr: a grid track's automatic minimum is its content's, so a
-    // long unbreakable title would refuse to shrink past it and push the cluster out of the
-    // band. This is the same job the old zero flex basis did, done by the track instead.
-    expect(header, "the trail column must be allowed to shrink below its content").toContain(
-      "grid-template-columns: minmax(0, 1fr) auto",
+    const flat = (body: string) => body.replace(/\s+/g, " ");
+    // A rule whose WHOLE selector is this one -- not one that merely ends with it, which is
+    // what a bare indexOf found first for page-actions inside the band's longer selector.
+    const ruleFor = (selector: string) => {
+      const all = flat(baseOnly(base).replace(/\/\*[\s\S]*?\*\//g, ""));
+      for (const match of all.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        if (match[1].trim() === selector) return `${selector} {${match[2]}`;
+      }
+      return null;
+    };
+    const header = ruleFor('[data-terp="page-header"]');
+    expect(header, "page-header should have a base rule").not.toBeNull();
+    expect(header, "a line that wraps on its content").toContain("display: flex");
+    expect(header).toContain("flex-wrap: wrap");
+    expect(header, "no areas left to place by viewport").not.toContain("grid-template-areas");
+
+    const trail = ruleFor('[data-terp="page-header"] [data-terp="breadcrumbs"]');
+    expect(trail, "the trail comes first").toContain("order: 1");
+    // What decides "fits": the trail's basis is its own full width, so the cluster joins its line
+    // only when the whole trail fits beside it, and the trail grows into whatever is left.
+    expect(trail, "the cluster shares the line only when the whole trail fits").toContain(
+      "flex: 1 1 auto",
     );
-    expect(header, "with nothing else to show, the band is one row").toContain(
-      'grid-template-areas: "trail actions"',
+    expect(trail, "and it ellipsises inside its share rather than widening the line").toContain(
+      "min-width: 0",
     );
-    // The second row. It used to carry the cluster as well -- "a page with badges already
-    // spends a row, so the cluster joining them costs no height, and it buys the trail the
-    // whole first row" -- and the second clause was false for as long as it was written. The
-    // rule meant to hand the trail that row is a child selector against a display: contents
-    // wrapper (pinned below), so it never matched; the trail was auto-placed into column one
-    // and truncated exactly as early as before. The cluster paid and the trail never
-    // collected. Measured at 1280px on two crumbs, one badge and one button: the button on
-    // line two with 1028px of free room beside the trail on line one, unchanged at 1440.
-    //
-    // So the cluster stays beside the trail and the meta group takes the row under it, which
-    // is the one-row band's arrangement with a row added rather than a second arrangement.
-    const metaAt = base.indexOf('[data-terp="page-header"][data-has-meta] {');
-    expect(metaAt, "the two-row band should have a rule of its own").toBeGreaterThan(-1);
-    const withMeta = base.slice(metaAt, base.indexOf("}", metaAt));
-    // auto, not 1fr. Equal-height lines were the point of 1fr, and in an indefinite container
-    // fr rows resolve to the LARGEST row's content -- so the taller line's item filled its
-    // track exactly and, with the chrome row spending no block padding, sat flush on the
-    // band's border. Measured 9px above the content and 0px below it on every two-row page.
-    // Content-sized rows plus the multi-row band's own padding measure 4px and 4px.
-    expect(withMeta, "rows sized to their content, so neither sits on the border").toContain(
-      "grid-auto-rows: auto",
+
+    const cluster = ruleFor('[data-terp="page-header"] > [data-terp="page-actions"]');
+    expect(cluster, "the cluster straight after the trail, so it can share its line").toContain(
+      "order: 2",
     );
-    // The areas move per cutover, so they are pinned in their own queries rather than here --
-    // and per meta KIND, which "spends the meta row only at the widths where its meta is
-    // visible" below pins.
-    const wideMeta = mediaBodies(base, WIDE_VIEWPORT_QUERY);
-    expect(wideMeta, "above the cutover the cluster keeps its place beside the trail").toContain(
-      '"trail actions"',
+    expect(cluster, "pushed to the end as ONE item -- nothing spreads its buttons").toContain(
+      "margin-inline-start: auto",
     );
-    expect(wideMeta, "meta takes the row under them, spanning both columns").toContain(
-      '"meta  meta"',
+    // A flex item's automatic minimum is its content's: without these the cluster refuses to
+    // shrink past its buttons and runs off the edge instead of wrapping them.
+    expect(cluster, "it may shrink to its line").toContain("flex: 0 1 auto");
+    expect(cluster).toContain("min-width: 0");
+    expect(ruleFor('[data-terp="page-actions"]'), "and its own buttons wrap when it does").toContain(
+      "flex-wrap: wrap",
     );
+
+    const meta = ruleFor('[data-terp="page-meta"]');
+    expect(meta, "badges and the lead line last").toContain("order: 3");
+    expect(meta, "on a line of their own, never beside the cluster").toContain("flex: 1 1 100%");
+
+    // The left group generates no box, which is what makes the trail and the meta group items
+    // of the BAND, so they can sit on different lines. The marker survives for the scanner.
+    expect(ruleFor('[data-terp="page-heading"]'), "a boxed wrapper would make them one item").toContain(
+      "display: contents",
+    );
+
+    // The trail sheds its ancestors rather than its characters below the first cutover.
     const narrowBand = mediaBodies(base, NARROW_VIEWPORT);
-    expect(narrowBand, "below the cutover the band is a single column").toContain(
-      "grid-template-columns: minmax(0, 1fr)",
-    );
-    // The trail sheds its ancestors rather than its characters. Every crumb carries
-    // min-width: 0 and an ellipsis while the separators are flex: 0 0 auto, so a trail with no
-    // room degrades to bare chevrons -- measured at 360px on six crumbs: six labels under 8px
-    // and no h1 on screen at all. Dropping the ancestors takes their separators with them.
     expect(narrowBand, "the narrow trail keeps the leaf and one ancestor").toContain(
       "li:not(:last-child):not(:nth-last-child(2))",
     );
-    // The actions row is declared only where there is a cluster to put in it: a named row with
-    // nothing in it is still a row, and the band's gap under it is 8px wedged beneath the
-    // trail on every page with no actions.
-    expect(narrowBand, "an actions row with no cluster is 8px of nothing").toContain(
-      '[data-terp="page-header"]:has(> [data-terp="page-actions"])',
-    );
-    // The left group generates no box, which is what lets its two children be grid items of
-    // the BAND and therefore sit on different rows. The marker survives for the scanner.
-    const headingAt = base.indexOf('[data-terp="page-heading"] {');
-    expect(headingAt, "page-heading should have a base rule").toBeGreaterThan(-1);
-    const heading = base.slice(headingAt, base.indexOf("}", headingAt));
-    expect(heading, "a boxed wrapper would put the trail and the meta in one cell").toContain(
-      "display: contents",
-    );
-    // The lead line is written as a correction, not a rule: hidden everywhere, shown again
-    // above the SECOND cutover. That is what makes three regions out of two queries -- the
-    // middle one is the width at which this correction has not applied yet.
-    const descAt = base.indexOf('[data-terp="page-description"] {');
-    expect(descAt, "page-description should have a base rule").toBeGreaterThan(-1);
-    const description = base.slice(descAt, base.indexOf("}", descAt));
+
+    // The lead line is a correction, not a rule: hidden everywhere, shown again above the
+    // SECOND cutover, which makes three regions out of two queries.
+    const description = ruleFor('[data-terp="page-description"]');
     expect(description, "the lead line is the first thing to go when room is short").toContain(
       "display: none",
     );
-    // Searched FROM the hiding rule: the meta-kind correction earlier in the band is also a
-    // roomy block, and "the first roomy block in the sheet" stopped meaning this one with it.
-    const roomy = base.indexOf(`@media ${ROOMY_VIEWPORT_QUERY}`, descAt);
-    expect(roomy, "the lead line comes back above the second cutover").toBeGreaterThan(descAt);
-    // And the truncation, which still matters on the row it does get: the sentence shares
-    // that row with the badges, so its max-content must not decide the row's width.
-    const shown = base.slice(base.indexOf('[data-terp="page-description"] {', roomy));
-    expect(shown).toContain("display: block");
-    const full = base.slice(base.lastIndexOf('[data-terp="page-description"] {'));
+    const roomy = mediaBodies(base, ROOMY_VIEWPORT_QUERY);
+    expect(flat(roomy)).toContain('[data-terp="page-description"] { display: block; }');
+    const full = flat(base.slice(base.lastIndexOf('[data-terp="page-description"] {')));
     expect(full).toContain("min-width: 0");
     expect(full).toContain("white-space: nowrap");
     expect(full).toContain("text-overflow: ellipsis");
   });
 
-  it("spends the meta row only at the widths where its meta is visible", () => {
+  it("shows the meta line only where its meta is visible", () => {
     // A lead line is hidden below the second cutover, so a band whose ONLY meta is a lead line
-    // has nothing to show on a second row there. It had the row anyway: the empty meta group
-    // took a track, the row gap and the multi-row padding came with it, and the band stretched
-    // all of that to its floor -- measured below the first cutover, the lone title sat 6.8px
-    // above the centre of a band that showed one line. Badges are visible everywhere and keep
-    // their row everywhere; the lead-line kind earns it only where the lead line is shown.
+    // has nothing to show on a meta line there. An empty flex item with a full-line basis is
+    // still a line, with the band's gap above it -- the same defect the grid version had as an
+    // empty row: measured below the first cutover, a lone title 6.8px off the band's centre.
+    // Badges are visible everywhere; the lead-line kind's group leaves flow until it is shown.
     const base = layerBody("terp.base");
     const always = baseOnly(base);
-    const wide = mediaBodies(base, WIDE_VIEWPORT_QUERY);
-    const narrow = mediaBodies(base, NARROW_VIEWPORT);
     const roomy = mediaBodies(base, ROOMY_VIEWPORT_QUERY);
-    const badges = '[data-terp="page-header"][data-has-meta="badges"]';
-    const lead = '[data-terp="page-header"][data-has-meta="description"]';
-
-    expect(wide, "badges keep their row above the first cutover").toContain(`${badges} {`);
-    expect(narrow, "and below it").toContain(`${badges} {`);
-    expect(wide, "a lead line alone earns no row where it is hidden").not.toContain(lead);
-    expect(narrow, "including below the first cutover").not.toContain(lead);
-    expect(roomy, "the lead line's row comes back with the lead line").toContain(`${lead} {`);
-
-    // The empty group has to leave flow, not just sit empty: its grid-area names an area the
-    // one-row template lacks, and an item placed into a missing named area gets implicit lines.
-    expect(
-      declaresRuleFor(always, `${lead} [data-terp="page-meta"]`),
-      "the lead-line group is out of flow wherever the lead line is",
-    ).toBe(true);
     expect(always).toMatch(
       /\[data-has-meta="description"\] \[data-terp="page-meta"\] \{\s*display: none;/,
     );
     expect(roomy).toMatch(
       /\[data-has-meta="description"\] \[data-terp="page-meta"\] \{\s*display: flex;/,
     );
-
-    // And the padding a multi-row band spends follows the same split: always for badges, only
-    // above the second cutover for a lead line alone.
-    expect(always.replace(/\s+/g, " ")).toContain(
-      `[data-terp="page"]:not([data-measure="narrow"]) > ${badges} { padding-block: var(--space-1);`,
-    );
-    expect(always).not.toContain(`> ${lead} {`);
-    expect(roomy.replace(/\s+/g, " ")).toContain(
-      `[data-terp="page"]:not([data-measure="narrow"]) > ${lead} { padding-block: var(--space-1);`,
+    expect(always, "badges need no rule: their group is always shown").not.toMatch(
+      /\[data-has-meta="badges"\] \[data-terp="page-meta"\] \{\s*display: none;/,
     );
   });
 

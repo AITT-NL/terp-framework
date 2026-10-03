@@ -1,6 +1,6 @@
 import type { NavGroup } from "@terpjs/contract";
 
-import { THEMES } from "./themes";
+import { THEME_ALIASES, THEMES, resolveTheme } from "./themes";
 import type { Theme } from "./themes";
 
 /**
@@ -464,10 +464,15 @@ export function resolveLayoutDeclaration(
     // outright: a fallback is how a declaration ends up doing nothing while looking like it
     // works — `data-theme="midnite"` matches no block, so the app renders the base palette and
     // nothing anywhere says the file was ignored.
-    if (!(THEMES as readonly string[]).includes(declaration.defaultTheme)) {
+    //
+    // A name a theme HAD before the rename ("dark", "midnight", "light") is not unknown: it
+    // resolves to the theme it now names, as it does everywhere else a theme is named.
+    const theme = resolveTheme(declaration.defaultTheme);
+    if (theme === null) {
       throw new Error(
         `${FILE}: "defaultTheme" is "${declaration.defaultTheme}"; expected one of ` +
-          `${THEMES.map((theme) => `"${theme}"`).join(", ")}.`,
+          `${THEMES.map((name) => `"${name}"`).join(", ")} (or an earlier name: ` +
+          `${Object.keys(THEME_ALIASES).map((name) => `"${name}"`).join(", ")}).`,
       );
     }
     if (explicit.defaultTheme !== undefined) {
@@ -475,7 +480,7 @@ export function resolveLayoutDeclaration(
         `"defaultTheme" (file: "${declaration.defaultTheme}", code: "${explicit.defaultTheme}")`,
       );
     }
-    resolved.defaultTheme = declaration.defaultTheme;
+    resolved.defaultTheme = theme;
   }
 
   const declaredBrand = shell.brand;

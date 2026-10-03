@@ -20,7 +20,8 @@ import type { LocaleCatalog } from "./locale";
 import { buildAppRouter } from "./router";
 import type { SsoProvider } from "./sso";
 import { ThemeProvider } from "./theme";
-import type { Theme } from "./theme";
+import type { LegacyTheme, Theme } from "./theme";
+import { resolveTheme } from "./themes";
 import { ToastProvider } from "./toast";
 
 /** A frontend module: its stack-agnostic manifest and the view components it names. */
@@ -225,8 +226,11 @@ export interface RenderTerpAppOptions {
    * `frontend/layout-contract.json` says the same thing in the one document a tool can read and
    * rewrite, which is the whole reason the declaration exists. Declaring it in both places is
    * refused rather than silently resolved.
+   *
+   * Today's name, or a name the theme had before the rename ({@link LegacyTheme}), which
+   * resolves to it.
    */
-  defaultTheme?: Theme;
+  defaultTheme?: Theme | LegacyTheme;
   /**
    * Opt into a slot-typed layout contract (ADR 0079), e.g. `"standard"`: every routed
    * archetype's body slot then accepts only the components the contract allows there,
@@ -354,7 +358,7 @@ export function renderTerpApp(options: RenderTerpAppOptions): void {
     navPlacement: options.navPlacement,
     contentWidth: options.contentWidth,
     navGroups: options.navGroups,
-    defaultTheme: options.defaultTheme,
+    defaultTheme: resolveTheme(options.defaultTheme) ?? undefined,
   });
   const collected = collectModules(options.modules);
   const { manifests, views } = withAdminArea(

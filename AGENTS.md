@@ -147,8 +147,9 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   controls fail closed on missing catalogs/messages, bare static UI copy, verbatim source copies
   without `allowIdentical`, and a half-translated shell. Never bypass these checks to finish a
   feature; add every target translation in the same change.
-- **Five themes ship**, not two: `light`, `dark`, `midnight`, `twilight` and `contrast`, plus
-  `system` to follow the OS preference. They are registered in
+- **Five themes ship**, not two: `midday`, `twilight`, `evening`, `night` and `contrast`, plus
+  `system` to follow the OS preference (its dark half is `night`). `light`, `dark` and `midnight`
+  are the earlier names of midday, evening and night, still accepted where a theme is named. They are registered in
   [packages/frontend/contract/themes.json](packages/frontend/contract/themes.json) and
   published in the token manifest, so a tool or an agent can read the list rather than guess
   it. An app ships on one with `defaultTheme` — never by restyling to imitate it. Every theme

@@ -47,7 +47,7 @@ test("the sheet's transitions resolve through the published motion scale", async
   // Stated as no-preference explicitly rather than inherited, so this test and its
   // reduced-motion counterpart below differ in exactly one input.
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await page.goto("/?theme=light&only=app-shell");
+  await page.goto("/?theme=midday&only=app-shell");
   await page.locator('[data-terp="appshell-sidebar"]').waitFor({ state: "visible" });
 
   // The sidebar's rail collapse: `transition: width var(--motion-duration-fast)
@@ -113,7 +113,7 @@ test("the scrollbar gutter is reserved on a page that fits and one that does not
   // and is deliberately not done: it would also give every INNER scroll container a
   // space-taking bar, starting with the DataView's horizontal overflow, which is a change to
   // component layout wearing a harness change's clothes.
-  for (const url of ["/?theme=light&only=button-variants", "/?theme=light"]) {
+  for (const url of ["/?theme=midday&only=button-variants", "/?theme=midday"]) {
     await page.goto(url);
     await page.locator("[data-specimen]").first().waitFor({ state: "visible" });
     const { root, viewport } = await rootWidth(page);
@@ -131,7 +131,7 @@ test("the three button cursors resolve, and loading beats disabled", async ({ pa
   // loses on layer order and the cursor silently stays `not-allowed`, which tells a user "you
   // may not" where the truth is "not yet". `styles.test.ts` pins the structure that produces
   // the right answer; this reads the answer.
-  await page.goto("/?theme=light&only=button-variants");
+  await page.goto("/?theme=midday&only=button-variants");
   await page.locator('[data-terp="button"]').first().waitFor({ state: "visible" });
   expect(
     await page.evaluate(
@@ -139,7 +139,7 @@ test("the three button cursors resolve, and loading beats disabled", async ({ pa
     ),
   ).toBe("pointer");
 
-  await page.goto("/?theme=light&only=button-disabled");
+  await page.goto("/?theme=midday&only=button-disabled");
   await page.locator('[data-terp="button"]').first().waitFor({ state: "visible" });
   expect(
     await page.evaluate(
@@ -147,7 +147,7 @@ test("the three button cursors resolve, and loading beats disabled", async ({ pa
     ),
   ).toBe("not-allowed");
 
-  await page.goto("/?theme=light&only=button-loading");
+  await page.goto("/?theme=midday&only=button-loading");
   await page.locator('[data-terp="button"]').first().waitFor({ state: "visible" });
   const loading = await page.evaluate(() => {
     const button = document.querySelector('[data-terp="button"][data-loading="true"]')!;
@@ -170,14 +170,14 @@ test("reduced motion reaches the three shapes the sheet names", async ({ page })
   // carrying no marker of their own.
   await page.emulateMedia({ reducedMotion: "reduce" });
 
-  await page.goto("/?theme=light&only=app-shell");
+  await page.goto("/?theme=midday&only=app-shell");
   await page.locator('[data-terp="appshell-sidebar"]').waitFor({ state: "visible" });
   // A marked element, reached by `[data-terp]`.
   expect((await transitionOf(page, '[data-terp="appshell-sidebar"]'))!.duration).toBe("0s");
   // An unmarked descendant, reached only by its own selector.
   expect((await transitionOf(page, '[data-terp="appshell-nav"] a'))!.duration).toBe("0s");
 
-  await page.goto("/?theme=light&only=breadcrumbs");
+  await page.goto("/?theme=midday&only=breadcrumbs");
   await page.locator('[data-terp="breadcrumbs"]').waitFor({ state: "visible" });
   expect((await transitionOf(page, '[data-terp="breadcrumbs"] a'))!.duration).toBe("0s");
 });
@@ -198,7 +198,7 @@ test("the audit payload is a scroll container, not a box that grew", async ({ pa
   // than the box, and the box scrolling rather than the page. Deleting `overflow-x: auto`
   // repaints both payload baselines by ~91,500 pixels AND fails this, which is the pair worth
   // having — one says the picture changed, the other says why.
-  await page.goto("/?theme=light&only=admin-payload");
+  await page.goto("/?theme=midday&only=admin-payload");
   await page.locator('[data-terp="code-block"]').waitFor({ state: "visible" });
   const box = await page.evaluate(() => {
     const pre = document.querySelector('[data-terp="code-block"]')!;
@@ -242,7 +242,7 @@ test("the content measure caps the body and leaves the header on the full track"
   // So both the pinned viewport AND the obvious wider one would have recorded a green baseline
   // over a declaration that never fired.
   await page.setViewportSize({ width: 1920, height: 900 });
-  await page.goto("/?theme=light&only=app-shell-measured");
+  await page.goto("/?theme=midday&only=app-shell-measured");
   await page.locator('[data-terp="page"]').waitFor({ state: "visible" });
 
   const measured = await page.evaluate(() => {
@@ -308,7 +308,7 @@ test("a hovered row keeps the colour it is carrying", async ({ page }) => {
   // animation rather than on the collision. The lane's other tests use the same emulation for
   // the same reason.
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/?theme=light&only=dataview-selection");
+  await page.goto("/?theme=midday&only=dataview-selection");
   const table = page.locator('[data-terp="dataview-table"]');
   await table.waitFor({ state: "visible" });
 
@@ -374,7 +374,7 @@ test("the measure applies to nothing until the shell asks for it", async ({ page
   // demonstrably capped, uncapped by exactly the one input under test. No second specimen, and
   // nothing left to differ except the attribute.
   await page.setViewportSize({ width: 1920, height: 900 });
-  await page.goto("/?theme=light&only=app-shell-measured");
+  await page.goto("/?theme=midday&only=app-shell-measured");
   await page.locator('[data-terp="page"]').waitFor({ state: "visible" });
 
   const bodyWidth = () =>
@@ -429,7 +429,7 @@ test("the measure composes with a component's own narrower measure instead of re
   // cascade interaction across five unrelated components, and a specimen holding all of them
   // would be a kitchen sink whose picture proves nothing about any single one.
   await page.setViewportSize({ width: 1920, height: 900 });
-  await page.goto("/?theme=light&only=app-shell-measured");
+  await page.goto("/?theme=midday&only=app-shell-measured");
   await page.locator('[data-terp="page"]').waitFor({ state: "visible" });
 
   const widths = await page.evaluate(() => {
@@ -489,7 +489,7 @@ test("the header-placed nav is not a scroll container", async ({ page }) => {
       return { x: style.overflowX, y: style.overflowY };
     }, selector);
 
-  await page.goto("/?theme=light&only=app-shell-header-nav");
+  await page.goto("/?theme=midday&only=app-shell-header-nav");
   await page.locator('[data-terp="appshell-nav"]').waitFor({ state: "visible" });
   expect(await page.locator('[data-terp="appshell-sidebar"]').count()).toBe(0);
   expect(await overflowOf('[data-terp="appshell-nav"]')).toEqual({
@@ -497,7 +497,7 @@ test("the header-placed nav is not a scroll container", async ({ page }) => {
     y: "visible",
   });
 
-  await page.goto("/?theme=light&only=app-shell");
+  await page.goto("/?theme=midday&only=app-shell");
   await page.locator('[data-terp="appshell-sidebar"]').waitFor({ state: "visible" });
   expect(await overflowOf('[data-terp="appshell-nav"]')).toEqual({ x: "auto", y: "auto" });
 });
@@ -529,7 +529,7 @@ test("the nav group's stacking margin is scoped to the sidebar, and the header r
     }, selector);
 
   // Header: the second group carries no stacking margin...
-  await page.goto("/?theme=light&only=app-shell-header-nav-groups");
+  await page.goto("/?theme=midday&only=app-shell-header-nav-groups");
   await page.locator('[data-terp="appshell-nav"]').waitFor({ state: "visible" });
   expect(await page.locator('[data-terp="appshell-nav-group"]').count()).toBe(3);
   expect(await marginOf('[data-terp="appshell-nav-group"]')).toBe("0px");
@@ -546,7 +546,7 @@ test("the nav group's stacking margin is scoped to the sidebar, and the header r
   expect(new Set(linkTops.filter((top) => top !== null)).size).toBe(1);
 
   // Sidebar: the same second group DOES carry it. 1rem at the root font size.
-  await page.goto("/?theme=light&only=app-shell-nav-groups");
+  await page.goto("/?theme=midday&only=app-shell-nav-groups");
   await page.locator('[data-terp="appshell-sidebar"]').waitFor({ state: "visible" });
   expect(await marginOf('[data-terp="appshell-nav-group"]')).toBe("16px");
 });
@@ -564,7 +564,7 @@ test("a declared column track binds as a floor a single character could not just
   // character per cell and a two-letter header, so nothing about the content can account for these
   // numbers: 5rem / 6.5rem / 9.5rem at the root font size is 80 / 104 / 152. Deleting any of the
   // three rules leaves the baseline visibly narrower AND fails here, which is the pair worth having.
-  await page.goto("/?theme=light&only=dataview-column-steps");
+  await page.goto("/?theme=midday&only=dataview-column-steps");
   await page.locator('[data-terp="dataview-table"] th[data-width="md"]').waitFor({
     state: "visible",
   });
@@ -589,7 +589,7 @@ test("a user resize replaces the declared track instead of losing to it", async 
   // spring back and the resizer would read as broken. The component prevents that by not emitting
   // the attribute at all once a column has been resized — the two are exclusive by construction,
   // and this reads back the consequence rather than the mechanism.
-  await page.goto("/?theme=light&only=dataview-column-steps");
+  await page.goto("/?theme=midday&only=dataview-column-steps");
   const md = page.locator('[data-terp="dataview-table"] th[data-width="md"]');
   await md.waitFor({ state: "visible" });
   const before = (await md.boundingBox())!;
@@ -625,7 +625,7 @@ test("a password field is named by its label alone, not by the toggle inside it"
   // jsdom's implementation does not walk into a descendant's aria-label, so it reported the name
   // as already correct while the browser disagreed. A test that passes because the environment is
   // wrong in the same direction as the code is worse than no test.
-  await page.goto("/?theme=light&only=admin-user-create");
+  await page.goto("/?theme=midday&only=admin-user-create");
   await page.locator('[data-terp="admin-form"]').waitFor({ state: "visible" });
   const field = page.locator('[data-terp="input-password"] input');
   await expect(field).toHaveAccessibleName("Password");
@@ -645,7 +645,7 @@ async function chromeRow(
   only: string,
   selector: string,
 ) {
-  await page.goto(`/?theme=light&only=${only}`);
+  await page.goto(`/?theme=midday&only=${only}`);
   await page.locator(selector).first().waitFor({ state: "visible" });
   return page.evaluate((css) => {
     const root = document.documentElement;
@@ -760,110 +760,229 @@ async function textRows(page: import("@playwright/test").Page, selectors: string
   }, selectors);
 }
 
-test("a band that earns a second row keeps the same edge above and below", async ({ page }) => {
-  // What replaced "both lines must be the same height". That claim was `grid-auto-rows: 1fr`,
-  // which resolves every row to the LARGEST row's content in a box whose height nobody
-  // declared -- and equal rows are exactly what put the taller row's item flush against the
-  // band's bottom edge, because the item filled its track exactly while the chrome row spends
-  // no block padding of its own. Measured 9px above the content and 0px below it on every
-  // two-row page, which is how it was reported.
-  //
-  // Rows are content-sized now, and the reading 1fr was buying -- one band of two lines rather
-  // than two bands stacked -- is bought with padding instead. A band that has already broken
-  // the one-row height can afford it; the one-row band cannot, since it has to match the app
-  // header, and is untouched.
-  //
-  // Measured from the CONTENT rather than read off the resolved template, because where the ink
-  // lands is the thing that was wrong. A track size says nothing about the gap to the border.
-  for (const [only, what] of [
-    ["page-header", "a band with badges, a lead line and an action"],
-    ["page-header-root", "a band with a badge and an action"],
-    ["page-header-crowded", "the most crowded band the gallery ships"],
-  ] as const) {
-    await page.goto(`/?theme=light&only=${only}`);
-    await page.locator('[data-terp="page-header"]').first().waitFor({ state: "visible" });
-    const edges = await page.evaluate(() => {
-      const band = document.querySelector('[data-terp="page-header"]');
-      if (band === null) return null;
-      // page-heading generates no box, so its children are the band's own grid items.
-      const items: Element[] = [];
-      for (const child of Array.from(band.children)) {
-        if (getComputedStyle(child).display === "contents") items.push(...Array.from(child.children));
-        else items.push(child);
+/**
+ * The band's lines as the browser laid them out: its visible items grouped into flex lines by
+ * where they sit, each line's box, and the band's own edges. Read from the items rather than
+ * from a template, because the band is a wrapping flex line and the lines exist only as layout.
+ */
+async function bandLines(page: import("@playwright/test").Page) {
+  return page.evaluate(() => {
+    const header = document.querySelector('[data-terp="page-header"]');
+    if (header === null) return null;
+    const root = document.documentElement;
+    const rem = Number.parseFloat(getComputedStyle(root).fontSize);
+    const length = (name: string) => {
+      const value = getComputedStyle(header).getPropertyValue(name).trim();
+      return value.endsWith("rem") ? Number.parseFloat(value) * rem : Number.parseFloat(value);
+    };
+    const style = getComputedStyle(header);
+    const box = header.getBoundingClientRect();
+    // page-heading generates no box, so its children are the band's own items.
+    const items: Element[] = [];
+    for (const child of Array.from(header.children)) {
+      if (getComputedStyle(child).display === "contents") items.push(...Array.from(child.children));
+      else items.push(child);
+    }
+    const rects = items
+      .map((item) => ({
+        name: item.getAttribute("data-terp") ?? item.tagName,
+        rect: item.getBoundingClientRect(),
+      }))
+      .filter(({ rect }) => rect.height > 0);
+    // Items on one flex line overlap vertically; sorted by top, one that starts below the
+    // current line's bottom starts the next line.
+    const lines: { top: number; bottom: number; items: string[]; centres: number[] }[] = [];
+    for (const { name, rect } of rects.sort((a, b) => a.rect.top - b.rect.top)) {
+      const last = lines[lines.length - 1];
+      if (last !== undefined && rect.top < last.bottom - 1) {
+        last.bottom = Math.max(last.bottom, rect.bottom);
+        last.items.push(name);
+        last.centres.push(rect.top + rect.height / 2);
+      } else {
+        lines.push({
+          top: rect.top,
+          bottom: rect.bottom,
+          items: [name],
+          centres: [rect.top + rect.height / 2],
+        });
       }
-      const box = band.getBoundingClientRect();
-      const style = getComputedStyle(band);
-      const border = Number.parseFloat(style.borderBottomWidth) || 0;
-      const tops = items.map((item) => item.getBoundingClientRect().top);
-      const bottoms = items.map((item) => item.getBoundingClientRect().bottom);
-      return {
-        above: Number((Math.min(...tops) - box.top).toFixed(2)),
-        below: Number((box.bottom - border - Math.max(...bottoms)).toFixed(2)),
-        rows: style.gridTemplateRows.split(" ").filter((size) => size.length > 0).length,
-      };
-    });
-    expect(edges, `${what} should render`).not.toBeNull();
-    expect(edges!.rows, `${what} should be two rows`).toBe(2);
-    expect(edges!.above, `${what}: the edges must match`).toBeCloseTo(edges!.below, 1);
-    // And neither edge is nothing: the equality would hold trivially at zero, which is the
-    // state this test exists to refuse.
-    expect(edges!.above, `${what}: the content must not sit on the border`).toBeGreaterThan(0);
+    }
+    return {
+      header: length("--shell-header-height"),
+      control: length("--density-control-min-height"),
+      border: Number.parseFloat(style.borderBottomWidth) || 0,
+      height: box.height,
+      lines: lines.map((line) => ({
+        top: line.top - box.top,
+        bottom: line.bottom - box.top,
+        items: line.items,
+        offsets: line.centres.map((centre) => centre - (line.top + line.bottom) / 2),
+      })),
+    };
+  });
+}
+
+test("a band of more than one line keeps the one-line band's inset once, at the edges and between lines", async ({
+  page,
+}) => {
+  // What a band does when it needs more than one line. Its first line is the one-line band --
+  // a control's height with the bar's leftover split above and below, 5.5px at comfortable
+  // density -- and every line after it adds a control's height and ONE more inset. So the
+  // second line is exactly as far from the first as the first is from the border.
+  //
+  // Two earlier forms failed on spacing, which is why this reads the spacing and not only the
+  // height. Content-sized rows padded by 4px put a two-line band's content against its border.
+  // Then every row a full 47px bar: the edges were right, and where two bars met each row's
+  // centring space stacked -- the trail and the badges about 26px apart against 13px from the
+  // border, a double space between the lines.
+  for (const [only, width, expectedLines, what] of [
+    ["page-header", 1280, 2, "badges, a lead line and an action"],
+    ["page-header-root", 1280, 2, "a badge and an action"],
+    ["page-header-crowded", 1280, 2, "the most crowded band the gallery ships"],
+    ["page-header-root-narrow", 430, 3, "a cluster too wide for the trail's line, and a badge"],
+  ] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/?theme=midday&only=${only}`);
+    await page.locator('[data-terp="page-header"]').first().waitFor({ state: "visible" });
+    const band = await bandLines(page);
+    expect(band, `${what} should render`).not.toBeNull();
+    const b = band!;
+    const inset = (b.header - b.border - b.control) / 2;
+    expect(inset, "the inset is the one-line band's: 5.5px at comfortable density").toBeCloseTo(
+      5.5,
+      1,
+    );
+    expect(
+      b.lines.length,
+      `${what}: ${expectedLines} lines (${JSON.stringify(b.lines.map((line) => line.items))})`,
+    ).toBe(expectedLines);
+    for (const line of b.lines) {
+      expect(line.bottom - line.top, `${what}: every line is a control tall`).toBeCloseTo(
+        b.control,
+        0,
+      );
+      for (const offset of line.offsets) {
+        expect(Math.abs(offset), `${what}: each item sits in the middle of its line`).toBeLessThan(1);
+      }
+    }
+    expect(b.lines[0]!.top, `${what}: the inset above the first line`).toBeCloseTo(inset, 0);
+    for (let index = 1; index < b.lines.length; index += 1) {
+      expect(
+        b.lines[index]!.top - b.lines[index - 1]!.bottom,
+        `${what}: and once between lines, not twice`,
+      ).toBeCloseTo(inset, 0);
+    }
+    expect(
+      b.height - b.border - b.lines[b.lines.length - 1]!.bottom,
+      `${what}: and below the last`,
+    ).toBeCloseTo(inset, 0);
   }
 });
 
-test("a lead line alone earns the second row only where it is shown", async ({ page }) => {
+test("an action that fits beside the trail stays on its line, at a phone width too", async ({
+  page,
+}) => {
+  // Reported on exactly this page: one crumb, one action, a phone. The band used to give the
+  // cluster a row of its own below the first cutover whatever it held, so a single "New"
+  // button sat alone under its title. It is a wrapping line now: a cluster that fits beside the
+  // whole trail stays there, and the band is the header's one-line 48px.
+  // Mutation: put the cluster back on its own row below the cutover, and this is two lines.
+  await page.setViewportSize({ width: 430, height: 700 });
+  await page.goto("/?theme=midday&only=page-header-inline-narrow");
+  await page.locator('[data-terp="page-header"]').first().waitFor({ state: "visible" });
+  const band = await bandLines(page);
+  expect(band, "the band should render").not.toBeNull();
+  expect(band!.lines.length, JSON.stringify(band!.lines.map((line) => line.items))).toBe(1);
+  expect(band!.lines[0]!.items).toEqual(expect.arrayContaining(["breadcrumbs", "page-actions"]));
+  expect(band!.height, "one line is the header's height").toBeCloseTo(band!.header, 1);
+});
+
+test("a lead line alone earns its own line only where it is shown", async ({ page }) => {
   // A lead line is hidden below the second cutover, so a band whose only meta is a lead line
-  // shows ONE line there. It used to lay out two: the empty meta group kept a track, the band's
-  // row gap and the multi-row padding came with it, and the rows were stretched to the header
-  // floor -- so the height looked right and the title did not. Measured at a phone width, the
-  // title sat 6.8px above the band's centre. A height check alone passes that band, which is
-  // why this reads the row count and the title's own position as well.
+  // shows ONE line there. It used to lay out two: the empty meta group kept a track and the
+  // band's gap came with it, and the lone title sat 6.8px above the band's centre. A height
+  // check alone passes that band, which is why this reads the line count and the title's own
+  // position as well.
   //
   // Three widths, one per region: a phone and the middle region (both hide the lead line), and
-  // the pinned 1280, above the second cutover, where the lead line shows and earns its row.
+  // the pinned 1280, above the second cutover, where the lead line shows and earns its line.
   for (const [width, shown] of [
     [430, false],
     [900, false],
     [1280, true],
   ] as const) {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/?theme=light&only=page-header-lead-only");
+    await page.goto("/?theme=midday&only=page-header-lead-only");
     await page.locator('[data-terp="page-title"]').waitFor({ state: "visible" });
-    const band = await page.evaluate(() => {
-      const header = document.querySelector('[data-terp="page-header"]');
-      const title = document.querySelector('[data-terp="page-title"]');
-      if (header === null || title === null) return null;
-      const root = document.documentElement;
-      const rem = Number.parseFloat(getComputedStyle(root).fontSize);
-      const declared =
-        Number.parseFloat(getComputedStyle(root).getPropertyValue("--shell-header-height")) * rem;
-      const style = getComputedStyle(header);
-      const border = Number.parseFloat(style.borderBottomWidth) || 0;
-      const box = header.getBoundingClientRect();
-      const ink = title.getBoundingClientRect();
-      return {
-        height: box.height,
-        declared,
-        rows: style.gridTemplateRows.split(" ").filter((size) => size.length > 0).length,
-        above: Number((ink.top - box.top).toFixed(2)),
-        below: Number((box.bottom - border - ink.bottom).toFixed(2)),
-      };
-    });
+    const band = await bandLines(page);
     expect(band, `${width}px: the band should render`).not.toBeNull();
+    const title = await page.evaluate(() => {
+      const header = document.querySelector('[data-terp="page-header"]')!.getBoundingClientRect();
+      const ink = document.querySelector('[data-terp="page-title"]')!.getBoundingClientRect();
+      return { above: ink.top - header.top, below: header.bottom - 1 - ink.bottom };
+    });
     if (shown) {
-      expect(band!.rows, `${width}px: the shown lead line takes its own row`).toBe(2);
-      expect(band!.height, `${width}px: and the band grows for it`).toBeGreaterThan(band!.declared);
+      expect(band!.lines.length, `${width}px: the shown lead line takes its own line`).toBe(2);
+      expect(band!.height, `${width}px: and the band grows for it`).toBeGreaterThan(band!.header);
     } else {
-      expect(band!.rows, `${width}px: a hidden lead line must not keep a row`).toBe(1);
-      expect(band!.height, `${width}px: a one-row band holds the header's height`).toBe(
-        band!.declared,
-      );
-      expect(band!.above, `${width}px: the lone title sits in the band's centre`).toBeCloseTo(
-        band!.below,
+      expect(band!.lines.length, `${width}px: a hidden lead line must not keep a line`).toBe(1);
+      expect(band!.height, `${width}px: a one-line band holds the header's height`).toBeCloseTo(
+        band!.header,
         1,
+      );
+      expect(title.above, `${width}px: the lone title sits in the band's centre`).toBeCloseTo(
+        title.below,
+        0,
       );
     }
   }
+});
+
+test("a grid of fields puts every label on one line and every control on the next", async ({
+  page,
+}) => {
+  // The ordinary composition -- a form's fields in a Grid -- used to align its cells' TOPS, so a
+  // label that wrapped to two lines pushed its own control below its neighbours'. A grid whose
+  // children are all fields now shares a label line and a body line across each row of it, and
+  // the label stands at the foot of its line, directly above its control.
+  // Mutation: drop the grid-of-fields subgrid, and the wrapped label's control sinks.
+  await page.goto("/?theme=midday&only=field-grid");
+  await page.locator('[data-terp="field"]').first().waitFor({ state: "visible" });
+  const fields = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-terp="field"]')).map((field) => {
+      const label = field.querySelector('[data-terp="field-label-text"]')!.getBoundingClientRect();
+      const control = field.querySelector("input, select")!.getBoundingClientRect();
+      return {
+        labelBottom: label.bottom,
+        labelTop: label.top,
+        controlTop: control.top,
+        controlHeight: control.height,
+      };
+    }),
+  );
+  expect(fields).toHaveLength(6);
+  for (const row of [fields.slice(0, 3), fields.slice(3, 6)]) {
+    // And the same HEIGHT: a field with no hint shares a line with one that has one, and its
+    // body was stretched to that line with its control inside it, half again as tall.
+    const heights = row.map((field) => field.controlHeight);
+    expect(Math.max(...heights) - Math.min(...heights), "no control stretched to its line").toBeLessThan(
+      0.5,
+    );
+    const tops = row.map((field) => field.controlTop);
+    expect(Math.max(...tops) - Math.min(...tops), "every control in a row on one line").toBeLessThan(
+      0.5,
+    );
+    for (const field of row) {
+      // var(--space-1) from label to control, the field's own gap, whatever the grid's is.
+      expect(
+        field.controlTop - field.labelBottom,
+        "each label directly above its control",
+      ).toBeCloseTo(4, 0);
+    }
+  }
+  // The wrapped label really is taller, or the alignment above proves nothing.
+  const heights = fields.slice(0, 3).map((field) => field.labelBottom - field.labelTop);
+  expect(Math.max(...heights)).toBeGreaterThan(Math.min(...heights) * 1.5);
 });
 
 test("every crumb in the trail sits on one baseline, leaf included", async ({ page }) => {
@@ -878,7 +997,7 @@ test("every crumb in the trail sits on one baseline, leaf included", async ({ pa
   // DetailPage baseline in the suite held it. A range rect over the text is the only probe
   // that can see it at all, and equality is the assertion — not a tolerance, because the two
   // now inherit ONE declared value and any difference at all means a second one came back.
-  await page.goto("/?theme=light&only=page-header-bare");
+  await page.goto("/?theme=midday&only=page-header-bare");
   await page.locator('[data-terp="page-title"]').waitFor({ state: "visible" });
   const [ancestor, leaf] = await textRows(page, [
     '[data-terp="breadcrumbs"] li a',
@@ -891,7 +1010,7 @@ test("every crumb in the trail sits on one baseline, leaf included", async ({ pa
   // The same rule, on the trail that is not a page title: three levels, a span leaf, no
   // heading anywhere. Both spellings of the leaf go through breadcrumbs-current's own
   // inherited line box, so a fix that only reached the h1 would pass the case above.
-  await page.goto("/?theme=light&only=breadcrumbs");
+  await page.goto("/?theme=midday&only=breadcrumbs");
   await page.locator('[data-terp="breadcrumbs-current"]').waitFor({ state: "visible" });
   const [first, middle, current] = await textRows(page, [
     '[data-terp="breadcrumbs"] li:nth-child(1) a',
@@ -946,7 +1065,7 @@ test("a field row puts every control on one line, hint or no hint", async ({ pag
   // Both specimens are walked: one with a hint on the last field, one with a field carrying
   // a hint AND an error, which is the case that decides whether the messages share a line.
   for (const only of ["field-row", "field-row-messages"]) {
-    await page.goto(`/?theme=light&only=${only}`);
+    await page.goto(`/?theme=midday&only=${only}`);
     await page.locator('[data-terp="field-row"]').waitFor({ state: "visible" });
     const row = await page.evaluate(() => {
       const top = (el: Element) => Math.round(el.getBoundingClientRect().top);
@@ -990,7 +1109,7 @@ test("a field row's messages share one line when a field has two of them", async
   // row's three tracks -- so a field with both would push its own messages line down and
   // every other field's control with it. In one box they stack inside the third line, and
   // the proof is that the box starts where a single-message box would.
-  await page.goto("/?theme=light&only=field-row-messages");
+  await page.goto("/?theme=midday&only=field-row-messages");
   await page.locator('[data-terp="field-messages"]').first().waitFor({ state: "visible" });
   const seen = await page.evaluate(() => {
     const box = document.querySelector('[data-terp="field-messages"]')!;
@@ -1020,7 +1139,7 @@ test("a full row spans the list while its neighbours keep the shared column", as
   // specimen alone said everything was fine. The sheet says it with an exclusion now, and this
   // walks every list in both specimens.
   for (const only of ["detail-list-full", "detail-list-auto"]) {
-    await page.goto(`/?theme=light&only=${only}`);
+    await page.goto(`/?theme=midday&only=${only}`);
     await page.locator('[data-terp="detail-list"]').first().waitFor({ state: "visible" });
     const lists = await detailLists(page);
     expect(lists.length, `${only} should render at least one list`).toBeGreaterThan(0);
@@ -1071,7 +1190,7 @@ test("an aligned pair sits on one baseline, at either column count", async ({ pa
   // and not the outcome. A zero-height inline-block with `vertical-align: baseline` sits with
   // its bottom edge exactly on the line's baseline, which is the thing a reader sees.
   for (const only of ["detail-list-aligned", "detail-list-two-column"]) {
-    await page.goto(`/?theme=light&only=${only}`);
+    await page.goto(`/?theme=midday&only=${only}`);
     await page.locator('[data-terp="detail-list"]').first().waitFor({ state: "visible" });
     const rows = await page.evaluate(() => {
       const baselineOf = (el: Element) => {
@@ -1111,7 +1230,7 @@ test("a group puts every list's values on one line, and a plain stack does not",
   // whose labels differ in width put their values on three different vertical lines. Nothing is
   // wrong by any single list's rules, which is exactly why no test could see it before this one.
   // The FIX: inside a group the lists subgrid into the group's tracks, so there is one line.
-  await page.goto("/?theme=light&only=detail-list-group");
+  await page.goto("/?theme=midday&only=detail-list-group");
   await page.locator('[data-terp="detail-list-group"]').waitFor({ state: "visible" });
 
   const grouped = await leftEdges(
@@ -1143,7 +1262,7 @@ test("an auto list takes its pair count from its container, not from the viewpor
   // pair is two tracks, so four means two pairs. And the overflow check is not decoration — with
   // both floors capped at 100% instead of a share, a pair's floors summed past the container and
   // the list scrolled sideways, measured at 120px.
-  await page.goto("/?theme=light&only=detail-list-auto");
+  await page.goto("/?theme=midday&only=detail-list-auto");
   await page.locator('[data-terp="detail-list"]').first().waitFor({ state: "visible" });
   const lists = await page.evaluate(() =>
     [...document.querySelectorAll('[data-terp="detail-list"][data-columns="auto"]')].map(

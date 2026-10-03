@@ -41,7 +41,8 @@ const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
  * starts failing is refused outright. Every other rule is held at zero with no allowance at
  * all — the list is a statement about *one* known defect class, not a general amnesty.
  *
- * Every key names `light` or `dark`, the two themes that shipped before this lane existed. The
+ * Every key names `midday` or `evening` (`light` and `dark` before the rename), the two themes that
+ * shipped before this lane existed. The
  * themes added since carry none, and `holds no allowance for a theme added after the lane` below
  * refuses one: a palette authored against a working contrast gate has no reason to paint an
  * illegible surface, so an allowance for a new theme would be a design mistake being filed as
@@ -53,7 +54,8 @@ test("holds no allowance for a theme added after the lane", () => {
   // The two themes that predate this list are allowed to carry known defects; nothing else is.
   // Without this, the cheapest way to make a new theme green would be to add its failures here,
   // which is precisely the move the ratchet exists to prevent.
-  const grandfathered = new Set(["light", "dark"]);
+  // midday and evening are light and dark renamed (themes.json `aliases`), not new themes.
+  const grandfathered = new Set(["midday", "evening"]);
   const themeOf = (key: string) => key.slice(0, key.indexOf("/"));
   expect([...KNOWN_CONTRAST_FAILURES].filter((key) => !grandfathered.has(themeOf(key)))).toEqual(
     [],
@@ -72,7 +74,7 @@ test("a meter in a hub card's stat adds its printed value to the link's name, on
   // reads "74%" once. Measured before this existed: with the printed copy left in the tree the
   // name read the value twice, and without aria-valuetext it read the raw 0.74. axe does not
   // judge a name's content, so nothing else here would notice either.
-  await page.goto("/?theme=light&only=meter-hub-card");
+  await page.goto("/?theme=midday&only=meter-hub-card");
   const specimen = page.locator('[data-specimen="meter-hub-card"]');
   await specimen.waitFor({ state: "visible" });
   await expect(specimen.getByRole("link").first()).toHaveAccessibleName(

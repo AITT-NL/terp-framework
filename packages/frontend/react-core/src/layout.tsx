@@ -252,13 +252,18 @@ export interface DetailListProps extends Omit<HTMLAttributes<HTMLDListElement>, 
   /** The label/value pairs to render, in order. */
   items: readonly DetailItem[];
   /**
-   * How each pair reads (default `"inline"` — `Label: value` on one line).
+   * How each pair reads (default `"stacked"` — the label above its value).
    *
-   * `"aligned"` puts every label in a shared left column, so the values line up; `"stacked"`
-   * puts the label above its value, which is what a narrow column or a long value wants.
+   * `"inline"` runs `Label: value` on one line; `"aligned"` puts every label in a shared left
+   * column, so the values line up.
    *
-   * The default is the old behaviour on purpose: this component is in the `standard` layout
-   * contract's detail-page slot, so every governed detail screen already renders one.
+   * Stacked is the default because it is the one layout with no spacing to get wrong between a
+   * label and its value. Inline puts them a colon and a space apart, so how far a value sits
+   * from its label depended on the label's length and the value's, and a row of short labels
+   * beside long values -- the ordinary record card -- read as a ragged column of colons.
+   * Stacked gives every pair the same shape at any width, needs no label column, and is what a
+   * narrow column or a long value wanted anyway. It was `"inline"` until this release, kept for
+   * compatibility; an app that wants the run back says `layout="inline"`.
    */
   layout?: DetailListLayout;
   /**
@@ -351,7 +356,7 @@ export interface DetailListProps extends Omit<HTMLAttributes<HTMLDListElement>, 
  */
 export function DetailList({
   items,
-  layout = "inline",
+  layout = "stacked",
   columns = 1,
   gap,
   ...rest
@@ -361,7 +366,10 @@ export function DetailList({
     <dl
       {...rest}
       data-terp="detail-list"
-      // `inline` and one column are the base rule, so neither stamps an attribute.
+      // `inline` and one column are the base rule, so neither stamps an attribute. Stacked is
+      // the DEFAULT layout but not the base rule, so the default stamps "stacked": the sheet's
+      // stacked rules key on the attribute, and moving them onto the bare marker would have
+      // meant un-declaring them again under [data-layout="inline"] (the shape ADR 0094 avoids).
       data-layout={layout === "inline" ? undefined : layout}
       data-columns={columns === 1 ? undefined : String(columns)}
       // No default to compare against: the default row gap is the LAYOUT's, so an unset gap

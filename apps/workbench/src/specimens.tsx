@@ -336,6 +336,32 @@ const syncRepositoryOptions = {
 const SYNC_REPOSITORY = new InMemoryDataViewRepository(SYNC_ROWS, syncRepositoryOptions);
 
 /**
+ * SYNC_COLUMNS with the first row's name as a control that explains itself, open. The first
+ * row because its bubble opens above the cell, past the table's top edge -- the place the
+ * table's scroller used to cut it off.
+ */
+const TOOLTIP_COLUMNS: DataViewColumn<SyncRow>[] = SYNC_COLUMNS.map((column) =>
+  column.id === "name"
+    ? {
+        ...column,
+        cell: (row: SyncRow) =>
+          row.id === "s1" ? (
+            <Tooltip
+              content="Synced nightly from the ERP. The last run finished without errors, and the next one starts after the warehouse closes its books for the day."
+              defaultOpen
+            >
+              <Button variant="ghost" size="sm">
+                {row.name}
+              </Button>
+            </Tooltip>
+          ) : (
+            row.name
+          ),
+      }
+    : column,
+);
+
+/**
  * Four columns whose CONTENT is one character each, so nothing about the data can explain their
  * widths. Three declare a step and the fourth declares nothing, which is what makes the picture
  * readable: the declared tracks hold a floor a single digit could never justify, and the last
@@ -1513,6 +1539,39 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ),
       },
       {
+        // Fields in an ordinary Grid -- the composition a form reaches for -- with the two things
+        // that used to throw them out of line: a label long enough to wrap and a hint under one
+        // control. Every label sits on one line and every control on the next, in each row of
+        // the grid, because a grid whose children are all fields shares a label line and a body
+        // line across them. Before, the cells aligned their TOPS, so the wrapped label pushed its
+        // control below its neighbours'. Two rows of three, so the second row shows the grid's
+        // own gap between rows of fields while each field keeps 4px from label to control.
+        id: "field-grid",
+        title: "Grid of fields — labels on one line, controls on the next",
+        node: (
+          <Grid columns={3} gap={4}>
+            <Field label="Name">
+              <Input defaultValue="Customer master" />
+            </Field>
+            <Field label="The system this sync reads its records from, and writes nothing back to">
+              <Select defaultValue="erp" options={[{ value: "erp", label: "ERP" }]} />
+            </Field>
+            <Field label="Schedule" hint="Runs after the warehouse closes its books.">
+              <Input defaultValue="Nightly" />
+            </Field>
+            <Field label="Owner">
+              <Input defaultValue="Finance" />
+            </Field>
+            <Field label="Retention" hint="Days a run's report is kept.">
+              <Input defaultValue="30" />
+            </Field>
+            <Field label="Notify">
+              <Input defaultValue="On failure" />
+            </Field>
+          </Grid>
+        ),
+      },
+      {
         // At rest, which is the state the component exists for: five copyable digests and no
         // five copy buttons competing with them. The baseline can only ever picture this
         // half -- Playwright takes a screenshot with no pointer over the page, and the
@@ -2188,25 +2247,60 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         // have been changed, or deleted, with no gate saying anything. `defaultOpen` is the
         // door, the same one `defaultCollapsed` and `defaultDrawerOpen` opened for the shell.
         //
-        // `overlay` because the bubble is position: absolute above its anchor and would be
-        // clipped out of an element-scoped shot — the plainest case of the four the flag
-        // exists for, and the one most likely to be missed.
+        // `overlay` because the bubble is portalled to the body, like Popover's panel, and is not
+        // even a descendant of the specimen an element-scoped shot would clip to.
         id: "tooltip-open",
         title: "Tooltip — the bubble, shown",
         overlay: true,
         node: (
-          // Padded down so the bubble, which sits ABOVE its anchor, clears the specimen's own
-          // title rather than covering it. Worth knowing while reading the picture: the panel is
-          // position: absolute with only inset-inline-start set, so it shrink-to-fits against
-          // the anchor's box — which is why a long string wraps narrow instead of running to the
-          // declared max-inline-size. That clamp may well be unreachable in this geometry; it is
-          // noted rather than asserted, because nothing here has measured it.
+          // Padded down so the bubble, which opens ABOVE its anchor when there is room, clears
+          // the specimen's own title rather than covering it. The note that used to sit here --
+          // that the bubble shrink-to-fit against its anchor, so a long string wrapped narrow and
+          // the declared max-inline-size was probably unreachable -- described the defect the
+          // portal fixed: the bubble's width is its message's now, capped by that clamp.
           <div style={{ paddingBlockStart: "7rem" }}>
             <Tooltip content="Explains the control" defaultOpen>
               <Button variant="ghost">Hover me</Button>
             </Tooltip>
           </div>
         ),
+      },
+      {
+        // The composition an app reported: a page band's primary action, at the top-right of
+        // the window, explaining why it is disabled in a sentence. The bubble opened above, at
+        // the trigger's left edge, one button wide -- a column of words running off the top of
+        // the screen. It is the message's width now, flips below when there is no room above,
+        // and is pushed in from the right edge.
+        id: "tooltip-band-action",
+        title: "Tooltip — a long message on the band's primary action",
+        overlay: true,
+        node: (
+          <Page
+            title="Customer master"
+            breadcrumbs={[{ label: "Records", to: "/records" }]}
+            actions={
+              <Tooltip
+                content="Publishing waits until the two open review comments are resolved; both are listed under the band."
+                defaultOpen
+              >
+                <Button variant="primary">Publish</Button>
+              </Tooltip>
+            }
+          >
+            <p style={{ margin: 0 }}>Body content below the header.</p>
+          </Page>
+        ),
+      },
+      {
+        // A tooltip in a DataView cell, on the first row, where the bubble opens above the
+        // cell and so past the table's top edge. The table's horizontal scroller clipped an
+        // absolutely positioned bubble there whatever its z-index -- it ended at the table's
+        // edge instead of drawing over it. Portalled, nothing above it clips.
+        id: "tooltip-dataview-cell",
+        title: "Tooltip — in a DataView cell, drawn over the table's edge",
+        overlay: true,
+        ready: '[data-terp="tooltip"]:not([hidden])',
+        node: <DataView repository={SYNC_REPOSITORY} columns={TOOLTIP_COLUMNS} />,
       },
       {
         id: "stack-directions",
@@ -2821,6 +2915,49 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
             title="Customers"
             breadcrumbs={[{ label: "Records", to: "/records" }]}
             description="Every customer the ledger knows about, across operating companies."
+          >
+            <p style={{ margin: 0 }}>Body content below the header.</p>
+          </Page>
+        ),
+      },
+      {
+        // The band at its tallest at a phone width: a cluster too wide to share the trail's line
+        // drops to a line of its own, and the badges take the next -- three lines. Each is a
+        // control tall with the one-row band's inset (5.5px) once above, between and below them,
+        // so the lines sit as far from each other as from the border. Two actions, not one: one
+        // button fits beside a short title and stays there (see page-header-inline-narrow).
+        id: "page-header-root-narrow",
+        title: "Page — a badge and a cluster too wide to share the line: three lines",
+        viewport: { width: 430, height: 700 },
+        node: (
+          <Page
+            title="Customer master"
+            breadcrumbs={[{ label: "Records", to: "/records" }]}
+            badges={<Badge tone="neutral">Read only</Badge>}
+            actions={
+              <PageActions
+                primary={<Button variant="primary">Publish</Button>}
+                secondary={<Button variant="secondary">Discard changes</Button>}
+              />
+            }
+          >
+            <p style={{ margin: 0 }}>Body content below the header.</p>
+          </Page>
+        ),
+      },
+      {
+        // The case that was reported: one action and one crumb at a phone width. Below the first
+        // cutover the band used to put the cluster on a row of its own however little it held,
+        // so an overview's single "New" button sat alone under its title and the band was two
+        // rows tall for one line of content. The band is a wrapping line now, and a cluster that
+        // fits beside the trail stays there: one line, the header's 48px.
+        id: "page-header-inline-narrow",
+        title: "Page — one action beside a short title at a phone width",
+        viewport: { width: 430, height: 700 },
+        node: (
+          <Page
+            title="Connections"
+            actions={<Button variant="primary" icon={<Icon name="plus" size="1em" />}>New connection</Button>}
           >
             <p style={{ margin: 0 }}>Body content below the header.</p>
           </Page>

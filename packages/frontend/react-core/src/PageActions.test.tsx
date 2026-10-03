@@ -140,12 +140,16 @@ describe("PageActions", () => {
     expect(screen.queryByRole("button", { name: "More actions" })).toBeNull();
   });
 
-  it("folds supporting actions into the menu below the first cutover", () => {
+  it("folds supporting actions into the menu below the first cutover when there is a crowd", () => {
+    // More than two actions in the slot: the primary and two supporting ones.
     stubRegion("narrow");
     render(
       <PageActions
         primary={<Button>Publish</Button>}
-        secondaryActions={SUPPORTING}
+        secondaryActions={[
+          ...SUPPORTING,
+          { label: "Duplicate", icon: <svg aria-hidden="true" focusable={false} />, onSelect: () => {} },
+        ]}
         overflow={[{ label: "Delete", variant: "destructive", onSelect: () => {} }]}
       />,
     );
@@ -154,7 +158,28 @@ describe("PageActions", () => {
     // ...and present in the menu, above the page's own rare items.
     fireEvent.click(screen.getByRole("button", { name: "More actions" }));
     const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
-    expect(items).toEqual(["Discard", "Delete"]);
+    expect(items).toEqual(["Discard", "Duplicate", "Delete"]);
+  });
+
+  it("keeps one supporting action beside the primary on a phone, as an icon, not in a menu", () => {
+    // Two actions fit a phone's line as a button and an icon; folding the second into a menu
+    // of one made a tap into two. Mutation: fold on density alone again, and Discard is gone.
+    stubRegion("narrow");
+    render(<PageActions primary={<Button>Publish</Button>} secondaryActions={SUPPORTING} />);
+    const discard = screen.getByRole("button", { name: "Discard" });
+    expect(discard).toHaveTextContent("");
+    expect(screen.queryByRole("button", { name: "More actions" })).toBeNull();
+  });
+
+  it("keeps a lone action's label below the widest region", () => {
+    // An icon saves room a cluster of one does not need, and costs the reader a guess.
+    // Mutation: drop the count from the icon condition, and the label goes.
+    for (const region of ["medium", "narrow"] as const) {
+      stubRegion(region);
+      const { unmount } = render(<PageActions secondaryActions={SUPPORTING} />);
+      expect(screen.getByRole("button", { name: "Discard" })).toHaveTextContent("Discard");
+      unmount();
+    }
   });
 
   it("keeps the primary action labelled at every width", () => {

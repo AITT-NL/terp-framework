@@ -62,6 +62,64 @@ two lines. It costs height — a band with meta is 81px against the 48px the tok
 content-sized rows would have been 64px — and that is the price of the second row being a line
 rather than an afterthought.
 
+**Amended after 0.30.0, by keeping the promise this made with a different mechanism.** `1fr`
+did not survive building: equal rows sized by the taller one left the taller line's item filling
+its track exactly, flush on the band's border (9px above the content, 0px below). It was
+replaced by content-sized rows plus 4px of block padding on any band of more than one row —
+which kept the edges equal and broke the reading this decision was for. A band of two or three
+lines then sat its trail, badges and buttons 4px from the border while a band of one centred its
+line in 47px: the same chrome at two insets, and the multi-line one read as crammed against its
+edges. Reported against exactly that, at every width, including the phone width where a badge
+and the cluster each take a row of their own.
+
+The fix went through one more wrong form before the right one, and both are worth keeping.
+Making every row a full bar of the one-row band's height (47px, content centred) fixed the edges
+and doubled the middle: where two bars met, each row's centring space stacked, so the trail and
+the badges sat about 26px apart against 13px from the border.
+
+What holds is the one-row band's **inset**, spent once. A default control centred in the 47px bar
+sits 5.5px from each edge; that is the band's inset. A band of more than one row makes every row a
+control tall (`grid-auto-rows: minmax(var(--density-control-min-height), auto)`) and spends the
+inset as `padding-block` *and* `row-gap`, both `calc((var(--shell-header-height) - 1px -
+var(--density-control-min-height)) / 2)`. Its first row is therefore the one-row band exactly, and
+every row after it is the root bar minus one inset: a control and one inset. The lines are as far
+from each other as the first is from the border, and a badge row, shorter than a control, centres
+in a control's height and so sits as far from the bottom border as the trail's text does from the
+top. Two rows are 89.5px, three 131px.
+
+It first applied only to the bands known to be more than one row (badges at every width, a lead
+line above the second cutover, the cluster's own row below the first), so the one-row band could
+keep zero padding and hold the header's height for the largest control. The next amendment
+retired that split.
+
+**Amended again, by giving up the areas.** Decision 1 placed the band by grid area so a wrapped
+band could not scatter its cluster. But an area answers "where does the cluster go" per
+viewport, and the question is about content: above the first cutover the cluster stayed beside
+the trail however wide it was — squeezing the trail, and with enough actions running off the
+window — and below it the cluster took a row of its own even when one button fitted beside a
+one-word title. Reported on exactly that: an overview's single "New" button alone under its
+title on a phone.
+
+So the band is a wrapping flex line again, and both of decision 1's objections are answered
+without areas. `order` puts the cluster straight after the trail and the meta group last (with a
+full-line basis, so it is always a line of its own); the cluster is one item pushed to the end by
+`margin-inline-start: auto`, so no free space is ever distributed among buttons. The trail's basis
+is its own width (`flex: 1 1 auto`), which is what "fits" means: the cluster shares the trail's
+line only when the whole trail fits beside it, and otherwise drops to a line of its own and wraps
+its own buttons there (`min-width: 0`, so it can shrink to the line instead of running off it).
+A fixed claim for the trail (12rem) was tried first and answered the wrong question — it moved a
+single button off a one-word title at a phone's width.
+
+**The inset is spent on every chrome band.** Whether the cluster wraps now depends on content no
+selector can see, so the inset cannot be keyed on the kinds of band known to wrap. Every chrome
+band pads by the inset and gaps its lines by it, and every line is at least a control tall
+(`min-height: var(--density-control-min-height)` on the trail, the cluster and the meta group). A
+one-line band is inset + control + inset + rule = the header's 48px, exactly as before. The one
+price: a band carrying a `size="lg"` control is 56px, where zero padding held it at 48 — a page
+that puts a large button in its band has chosen a taller band. The computed lane measures every
+line, the gaps between them, the band's edges and each item's centre, at a phone width and a
+desk's, and that one button fits beside a short title at 430px.
+
 **4. Every crumb may be cut; no crumb may be orphaned.** Both the list and its items are
 `nowrap`, and the crumb text carries `min-width: 0` with an ellipsis. A deep trail degrades by
 losing characters rather than by growing the chrome, and a chevron never leaves its label.

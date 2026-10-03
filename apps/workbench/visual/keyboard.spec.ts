@@ -31,7 +31,7 @@ async function focusState(page: import("@playwright/test").Page) {
 }
 
 test("the calendar's cursor keeps DOM focus across a month boundary", async ({ page }) => {
-  await page.goto("/?theme=light&only=date-picker-open");
+  await page.goto("/?theme=midday&only=date-picker-open");
   await page.locator('[role="grid"]').waitFor({ state: "visible" });
   // The opening focus is deferred a tick, because the panel is portalled and positioned in a
   // layout effect.
@@ -62,7 +62,7 @@ test("the calendar's cursor keeps DOM focus across a month boundary", async ({ p
 });
 
 test("the month buttons keep the focus the pointer gave them", async ({ page }) => {
-  await page.goto("/?theme=light&only=date-picker-open");
+  await page.goto("/?theme=midday&only=date-picker-open");
   await page.locator('[role="grid"]').waitFor({ state: "visible" });
   await expect.poll(async () => (await focusState(page)).cursorHoldsFocus).toBe(true);
 
@@ -82,7 +82,7 @@ test("Tab out of an open menu continues the tab order after the trigger", async 
   // overflow trigger, then the secondary button, then the primary one. That order is what makes
   // the APG contract measurable — "Tab closes the popup and moves focus to the next element in
   // the tab sequence after the button".
-  await page.goto("/?theme=light&only=page-actions");
+  await page.goto("/?theme=midday&only=page-actions");
   const trigger = page.getByRole("button", { name: "More actions" });
   await trigger.click();
   await expect(page.locator('[role="menu"]')).toHaveCount(1);
@@ -142,7 +142,7 @@ for (const { name, width, height } of [
     // cannot tell "correct" from "correct here".
     const id = width < 768 ? "split-page-narrow" : "split-page";
     await page.setViewportSize({ width, height });
-    await page.goto(`/?theme=light&only=${id}`);
+    await page.goto(`/?theme=midday&only=${id}`);
     await page.locator('[data-terp="splitpage-panes"]').waitFor({ state: "visible" });
 
     // One full document cycle, then filter to the steps that landed in a pane. Both halves of
@@ -208,7 +208,7 @@ test("a quiet action is visible by the time a keyboard reaches it", async ({ pag
   // control they cannot see, with the focus ring painted at opacity 0. Nothing else in the
   // suite would notice: the CSS-text assertion in QuietActions.test.tsx proves the RULE is
   // written, and only a browser resolves whether it applies.
-  await page.goto("/?theme=light&only=quiet-actions");
+  await page.goto("/?theme=midday&only=quiet-actions");
   const action = page.getByRole("button", { name: /^Copy / }).first();
   await action.waitFor({ state: "attached" });
 
@@ -249,7 +249,7 @@ test("the skip link is the first tab stop, and Enter moves focus into main", asy
   //
   // Probed with a REAL Tab rather than .focus(), because the resting rule hides the link and
   // only :focus-visible reveals it — and a programmatic focus does not match :focus-visible.
-  await page.goto("/?theme=light&only=app-shell");
+  await page.goto("/?theme=midday&only=app-shell");
   await page.locator('[data-terp="appshell"]').waitFor({ state: "visible" });
 
   await page.keyboard.press("Tab");
@@ -300,7 +300,7 @@ test("the open drawer keeps focus, including away from the new skip link", async
   // Asserted in BOTH directions, since only one of them is the interesting one and a test that
   // walked forward alone would say nothing about the route that worries.
   await page.setViewportSize({ width: 420, height: 900 });
-  await page.goto("/?theme=light&only=app-shell-drawer-open");
+  await page.goto("/?theme=midday&only=app-shell-drawer-open");
   await page.locator('[data-terp="appshell-sidebar"]').waitFor({ state: "visible" });
 
   const where = () =>

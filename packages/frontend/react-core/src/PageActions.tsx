@@ -92,13 +92,27 @@ function actionKey(action: OverflowAction): string {
 }
 
 /**
- * Standard right-aligned action cluster for page headers.
+ * Standard right-aligned action cluster for page headers — the way a page's actions should be
+ * written, because it is the one that survives a narrow window.
  *
  * The primary action keeps its label at every width, and that is a decision rather than an
  * oversight: it is the one thing the page is for, and a glyph or a menu line makes the main
- * act of the screen a guess or a second tap. Everything around it gives way instead —
- * `secondaryActions` drop to icons in the middle region and fold into the overflow menu below
- * the first cutover, where they sit above the page's own rare and destructive items.
+ * act of the screen a guess or a second tap. Everything around it gives way instead, by WIDTH
+ * and by COUNT:
+ *
+ * - **Icons when there is company.** In the middle region and on a phone, a supporting action
+ *   that has an icon drops its label for it — but only when the slot holds more than one
+ *   action. A lone action keeps its words: an icon saves space a cluster of one does not need,
+ *   and costs the reader a guess. The label is never dropped, only moved into the accessible
+ *   name and the tooltip.
+ * - **A menu when there is a crowd.** On a phone the supporting actions fold into the overflow
+ *   menu, above the page's own rare and destructive items — but only when the slot holds more
+ *   than two actions. A primary and one supporting action fit a phone's line as a button and
+ *   an icon, and folding the second into a menu of one turned a tap into two.
+ *
+ * Counted: the primary, the `secondary` node, and each of `secondaryActions`. `overflow` is
+ * already behind the menu and does not count. Whatever the form, the cluster wraps rather than
+ * running off the edge (see page-actions in the sheet).
  */
 export function PageActions({
   primary,
@@ -112,11 +126,18 @@ export function PageActions({
   const density = useActionDensity();
   const supporting = secondaryActions ?? [];
   const rare = overflow ?? [];
-  // Below the first cutover the supporting actions stop being buttons and become the top of
-  // the menu. Order is deliberate: what the page offers first, then what it keeps back.
-  const inMenu = density === "menu" ? [...supporting, ...rare] : rare;
-  const asButtons = density === "menu" ? [] : supporting;
+  // How many actions the slot shows, which decides the form as much as the width does.
+  const count =
+    (primary === undefined ? 0 : 1) + (secondary === undefined ? 0 : 1) + supporting.length;
+  // On a phone, and only with more than two, the supporting actions stop being buttons and
+  // become the top of the menu. Order is deliberate: what the page offers first, then what it
+  // keeps back.
+  const fold = density === "menu" && count > 2;
+  const inMenu = fold ? [...supporting, ...rare] : rare;
+  const asButtons = fold ? [] : supporting;
   const hasMenu = inMenu.length > 0;
+  // Below the widest region, an icon stands in for a label only beside other actions.
+  const iconOnly = density !== "labels" && count > 1;
 
   if (
     primary === undefined &&
@@ -155,7 +176,7 @@ export function PageActions({
         // Icon-only still has to SAY what it is: the label moves from the box to the
         // accessible name and the tooltip rather than being dropped, so the control reads the
         // same to a screen reader at every width and hovers legibly for everyone else.
-        return density === "icons" && action.icon !== undefined ? (
+        return iconOnly && action.icon !== undefined ? (
           <Button
             key={actionKey(action)}
             variant={action.variant === "destructive" ? "danger" : "secondary"}

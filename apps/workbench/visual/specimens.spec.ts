@@ -122,7 +122,6 @@ const LINUX_ONLY = new Set([
   // rather than left behind. A baseline whose content is a known defect is worse than none: it
   // certifies the bug.
   "icons",
-  "tooltip-open",
   "app-shell-nav-groups",
   "app-shell-nav-groups-collapsed",
   "app-shell-header-nav-groups",
@@ -195,7 +194,7 @@ test("every specimen is present and uniquely identified", async ({ page }) => {
   // The per-specimen tests above would silently pass over a typo'd id if the locator matched
   // nothing — `waitFor` would fail, but a duplicate id would instead screenshot the first of
   // two elements and never mention the second. Both are caught here once.
-  await page.goto("/?theme=light");
+  await page.goto("/?theme=midday");
   const ids = ALL_SPECIMENS.map((specimen) => specimen.id);
   expect(new Set(ids).size, "specimen ids must be unique").toBe(ids.length);
   for (const id of ids) {

@@ -11,7 +11,7 @@ import {
   SHELL_VALUES,
   TOP_LEVEL_KEYS,
 } from "./layoutDeclaration";
-import { THEMES } from "./themes";
+import { THEME_ALIASES, THEMES } from "./themes";
 
 // The published layout vocabulary against the module that enforces it.
 //
@@ -103,7 +103,9 @@ describe("the published layout vocabulary", () => {
   it("offers every palette this release ships, and no other", () => {
     // Including "system", which is a real thing to declare rather than the absence of one — an
     // absent key leaves whatever was in force alone, this one pins the platform preference.
-    expect(properties.defaultTheme?.enum).toEqual([...THEMES]);
+    // Then the earlier names, which the resolver accepts and maps (THEME_ALIASES): a file
+    // written before the rename is still a valid file, to a tool as to the runtime.
+    expect(properties.defaultTheme?.enum).toEqual([...THEMES, ...Object.keys(THEME_ALIASES)]);
   });
 
   it("offers every layout contract this release knows, and no other", () => {

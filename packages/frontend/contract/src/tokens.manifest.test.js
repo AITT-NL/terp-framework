@@ -26,8 +26,11 @@ const pairsSource = JSON.parse(fs.readFileSync(here("../token-pairs.json"), "utf
 const registry = JSON.parse(fs.readFileSync(here("../themes.json"), "utf8"));
 
 const rules = parseRules(tokensCss);
+// The rule whose selector LIST names `selector`: a renamed theme's rule lists its earlier names
+// beside its own (themes.json aliases).
 const declarationsFor = (selector) =>
-  rules.find((rule) => rule.selector === selector).declarations;
+  rules.find((rule) => rule.selector.split(",").map((part) => part.trim()).includes(selector))
+    .declarations;
 const base = declarationsFor(":root");
 
 /** Each theme's own block: the base on `:root`, every other on its attribute selector. */
@@ -69,10 +72,13 @@ describe("token manifest", () => {
     // a tool a theme it cannot apply.
     expect(manifest.base).toBe(registry.base);
     expect(manifest.systemDark).toBe(registry.systemDark);
+    // `aliases` on every theme, empty where it has none, so a tool mapping a stored or
+    // hand-written old name (dark, midnight, light) to today's needs no special case.
     expect(manifest.themes).toEqual(
-      registry.themes.map(({ name, label, appearance, description, minimumContrast }) => ({
+      registry.themes.map(({ name, label, appearance, description, minimumContrast, aliases }) => ({
         name,
         label,
+        aliases: aliases ?? [],
         appearance,
         description,
         minimumContrast: minimumContrast ?? 4.5,
