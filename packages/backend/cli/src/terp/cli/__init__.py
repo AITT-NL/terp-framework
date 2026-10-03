@@ -2124,6 +2124,16 @@ Layout contracts (slot-typed layouts, ADR 0079)
   Contrast is that ranking — the figures in their band, containers stepped back onto
   --color-bg-subtle, the data forward on the surface — so a block that should stand out
   is a different shape of data, not a custom colour.
+- Pick the archetype by the question the page answers: a landing into the app's areas is
+  a HubPage; one area's collection (how each one is doing) an OverviewPage; how the whole
+  is doing a DashboardPage; one record a DetailPage; entering a record a FormPage;
+  settings a SettingsPage; a list beside the record it selects a SplitPage.
+- Alternate framed and unframed blocks. The frame belongs to the data a reader works with:
+  a collection, a chart and a lone figure sit on the surface, the collection brightest. A
+  boxed Card steps back onto --color-bg-subtle, for a group of controls or one section of
+  a record. Much of a page needs no frame at all: a StatGroup's figures, a DetailList, a
+  Timeline, a line of Text, a titled section as Card variant="plain". A page that boxes
+  every block in a Card reads as one object repeated, however good each block is.
 - Enforcement (never lint-only):
       build time  -> the terp/layout-contract ESLint rule checks the static JSX
                      children of each governed archetype (npm --prefix frontend run lint)

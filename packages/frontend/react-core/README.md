@@ -262,6 +262,14 @@ token spacing scale, so spacing is themed centrally):
 | `Code` | An identifier or a snippet in the mono family. `block` wraps it in a focusable `<pre>`, which is what preserves the whitespace and what makes a long line scrollable by keyboard. |
 | `Link` | A link with themeable ink, routing in-app paths through the surrounding router and degrading to a plain anchor outside one. An external `newTab` gets `rel="noreferrer"`. The boundary lint refuses a raw in-app `<a href="/…">`; this is the thing to use instead. |
 
+**Framed and unframed, alternated** (ADR 0169 §3). The frame belongs to the data a reader works
+with: a `DataView`, a chart and a lone `Stat` sit on the surface, the collection brightest. A
+boxed `Card` steps back onto the container fill, for a group of controls or one section of a
+record. Much of a page needs no frame at all — a `StatGroup`, a `DetailList`, a `Timeline`, a
+line of `Text`, a titled region as `Card variant="plain"`. A page that boxes every block in a
+`Card` reads as one object repeated; which block a shape of data takes is in
+`terp guide layouts`.
+
 ## The packaged admin area
 
 Every Terp backend mounts the base-profile admin capabilities (users, groups +

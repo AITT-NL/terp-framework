@@ -79,7 +79,9 @@ for in-page tab sets and `Markdown` for safe rich text).
    (ADR 0169): the figures it is about in a `StatGroup` in its `summary` band, one figure as a
    `Stat` (at most one per page marked `headline`), a collection as a `DataView`, a section
    beside another as `Grid template="2:1"` — never a colour of your own to make a block stand
-   out.
+   out. Alternate framed and unframed blocks: the frame is for the data a reader works with —
+   a collection, a chart, a lone figure — a boxed `Card` for a group of controls or a record's
+   section, and a `StatGroup`, a `DetailList`, a `Timeline` or a line of `Text` needs none.
 6. Import from `@terpjs/*` package roots only — no deep `src/` / `dist/` imports.
 7. A module's UI is wired by its `module.tsx` manifest (routes + nav + views) — no
    central registry to edit.

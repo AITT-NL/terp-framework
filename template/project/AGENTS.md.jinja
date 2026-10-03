@@ -275,14 +275,31 @@ so there is nothing to keep in sync. The same file is where the app's shell shap
 (`defaultTheme`) are declared; passing any of
 them as a bootstrap option as well is refused when the router is composed. The contract itself: each archetype's body slot accepts only the contract's components (hub bodies:
 `HubCard`; overview bodies: `DataView` / `ResourceList` / `Stack` / `Card` / `Divider` /
-`Text` + framework states; detail bodies: those plus `Grid`, `DetailList` and `Tabs` —
-`Grid` is a detail-body component and not an overview one, because an overview body is a
-collection and a grid of summary cards is a hub; direct children only, and an allowed
-container's subtree is yours), checked at lint time
+`Text` + framework states; detail bodies: those plus `Grid`, `DetailList` and `Tabs`;
+dashboard bodies: templated `Grid` sections, the figure and chart families, `DataView`,
+`Timeline`, `Card` and `Stack` + framework states — `Grid` is not an overview-body component,
+because an overview body is a collection, a grid of cards into each area is a hub, and
+sections of figures and charts are a dashboard; the form, settings and split bodies are in
+`uv run terp guide layouts`; direct children only, and an allowed container's subtree is
+yours), checked at lint time
 *and* at runtime — the plain `Page`'s body stays free for bespoke screens, and every failure
 message states the fix (`uv run terp guide layouts`). Two rules of the page frame hold on
 every page, the plain one included: a page's `summary` band admits only `Stat` / `StatGroup` /
 `StatusHistory` / `Badge` / `Text`, and at most one figure per page is its `headline`.
+
+Security defaults are refused too: `dangerouslySetInnerHTML` and DOM HTML-injection
+sinks (render text, or `Markdown` for rich text), `eval()` / `new Function()`,
+`javascript:` URLs, a static `target="_blank"` without `rel="noopener"`, and raw
+`navigator.clipboard` (use `useCopyToClipboard` / `copyText` — the browser's own API
+rejects without a user gesture, throws in an insecure context, and is missing entirely
+in some embedded webviews, so every call site that used it directly grew a different
+half-handled failure).
+
+No lint modes — every violation is an error. The governed opt-out is a justified
+`// terp-allow-<rule>: <reason>` marker, counted exactly against
+`frontend/escape-hatch-budget.json` (`npm run lint` runs the ratchet).
+
+### Composing a page
 
 **Compose a page from the shape of its data** (ADR 0169). Decide what each block *is* and use
 the component made for it — there are no style variants to pick, and the framework owns how
@@ -298,17 +315,20 @@ another is `Grid template="2:1"` (or `"1:2"`, `"3:1"`, or the equal `"1:1"` / `"
 page `headline` at most. Contrast comes from that ranking — the figures in their band,
 containers stepped back, the data forward — so never reach for a colour of your own to make a
 block stand out.
-Security defaults are refused too: `dangerouslySetInnerHTML` and DOM HTML-injection
-sinks (render text, or `Markdown` for rich text), `eval()` / `new Function()`,
-`javascript:` URLs, a static `target="_blank"` without `rel="noopener"`, and raw
-`navigator.clipboard` (use `useCopyToClipboard` / `copyText` — the browser's own API
-rejects without a user gesture, throws in an insecure context, and is missing entirely
-in some embedded webviews, so every call site that used it directly grew a different
-half-handled failure).
 
-No lint modes — every violation is an error. The governed opt-out is a justified
-`// terp-allow-<rule>: <reason>` marker, counted exactly against
-`frontend/escape-hatch-budget.json` (`npm run lint` runs the ratchet).
+**Pick the archetype by the question the page answers.** A landing into the app's areas is a
+`HubPage`; one area's collection — how each one is doing — an `OverviewPage`; how the whole is
+doing, its figures in the band and sections of charts below, a `DashboardPage`; one record a
+`DetailPage`; entering a record a `FormPage`; settings a `SettingsPage`; a list beside the
+record it selects a `SplitPage`; and a screen none of these fit, the plain `Page`.
+
+**Alternate framed and unframed blocks.** The frame belongs to the data a reader works with:
+a collection, a chart and a lone figure sit on the surface, the collection brightest of all. A
+boxed `Card` steps back, for a group of controls or one section of a record. Much of a page
+needs no frame at all — a `StatGroup`'s figures, a `DetailList`, a `Timeline`, a line of
+`Text`, a titled section as `Card variant="plain"`. A page that boxes every block in a `Card`
+reads as one object repeated, however good each block is; a page that alternates reads in the
+order its content matters.
 
 ## Theming, language & the user menu (already wired)
 
