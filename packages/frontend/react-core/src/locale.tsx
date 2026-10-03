@@ -218,6 +218,9 @@ export const LOCALE_NL: LocaleCatalog = {
     breadcrumbsLabel: "Kruimelpad",
     moduleNavigationLabel: "Modulenavigatie",
     moreActions: "Meer acties",
+    pageSequencePrevious: "Vorige: {label}",
+    pageSequenceNext: "Volgende: {label}",
+    pageSequencePosition: "{current} van {total}",
     errorTitle: "Er is iets misgegaan.",
     backendUnreachableTitle: "De applicatie kan de server niet bereiken.",
     backendUnreachableDescription:

@@ -1287,3 +1287,73 @@ test("an auto list takes its pair count from its container, not from the viewpor
     expect(list.overflows, `a ${list.container}px container must not scroll sideways`).toBe(false);
   }
 });
+
+test("the sequence bar pins to the column's bottom and comes to rest on the same line", async ({
+  page,
+}) => {
+  // The bar's whole claim is a POSITION, and no element screenshot can hold the moving half of
+  // it. The specimen's box is the bar's scroll container (see app-shell-sequence), so both
+  // halves are measured here against one shell: scrolled to the top, the column runs on below
+  // the box and the bar is pinned to the box's bottom edge; scrolled to the end, it rests at
+  // the bottom of main — the same line, which is what puts "next" in one place for a short page
+  // and a long one alike.
+  await page.goto("/?theme=light&only=app-shell-sequence");
+  await page.locator('[data-terp="page-sequence"]').waitFor({ state: "visible" });
+  const measure = () =>
+    page.evaluate(() => {
+      const edges = (selector: string) => {
+        const { top, bottom, left, right } = document.querySelector(selector)!.getBoundingClientRect();
+        return { top, bottom, left, right };
+      };
+      const box = document.querySelector('[data-testid="sequence-scroller"]')!;
+      const frame = box.getBoundingClientRect();
+      return {
+        bar: edges('[data-terp="page-sequence"]'),
+        main: edges('[data-terp="appshell-main"]'),
+        page: edges('[data-terp="page"]'),
+        band: edges('[data-terp="page-header"]'),
+        visibleBottom: frame.top + box.clientTop + box.clientHeight,
+      };
+    });
+
+  const pinned = await measure();
+  expect(pinned.main.bottom, "the column runs on below the box").toBeGreaterThan(pinned.visibleBottom);
+  expect(pinned.bar.bottom).toBeCloseTo(pinned.visibleBottom, 0);
+  // The bleed: the bar reaches the column's edges, as the band at the top does.
+  expect(pinned.bar.left).toBeCloseTo(pinned.main.left, 0);
+  expect(pinned.bar.right).toBeCloseTo(pinned.main.right, 0);
+  expect(pinned.bar.left).toBeCloseTo(pinned.band.left, 0);
+
+  await page.getByTestId("sequence-scroller").evaluate((box) => {
+    box.scrollTop = box.scrollHeight;
+  });
+  const resting = await measure();
+  // At rest on main's bottom edge, not after the body: the page took the free height, which is
+  // the flex-grow a short page needs or the bar would sit wherever its content ended.
+  expect(resting.bar.bottom).toBeCloseTo(resting.main.bottom, 0);
+  expect(resting.bar.top - resting.page.bottom, "one page gap above the bar").toBeCloseTo(16, 0);
+});
+
+test("only a page with a sequence changes main's layout and the document's scroll padding", async ({
+  page,
+}) => {
+  // The :has() scope is the promise that the bar changes nothing for any other page: main has
+  // been a block since the shell was written, and every shell specimen was recorded against it.
+  const mainDisplay = () =>
+    page.evaluate(
+      () => getComputedStyle(document.querySelector('[data-terp="appshell-main"]')!).display,
+    );
+  // The document's bottom scroll padding is the same promise for focus: a focused control is
+  // scrolled clear of a bar that is there, and nothing is reserved where there is none.
+  const scrollPadding = () =>
+    page.evaluate(() => getComputedStyle(document.documentElement).scrollPaddingBottom);
+  await page.goto("/?theme=light&only=app-shell");
+  await page.locator('[data-terp="appshell-main"]').waitFor({ state: "visible" });
+  expect(await mainDisplay()).toBe("block");
+  expect(await scrollPadding()).toBe("auto");
+  await page.goto("/?theme=light&only=app-shell-sequence");
+  await page.locator('[data-terp="page-sequence"]').waitFor({ state: "visible" });
+  expect(await mainDisplay()).toBe("flex");
+  // 2.25rem of control, 2 x 0.5rem of padding and a 1px border, at a 16px root.
+  expect(await scrollPadding()).toBe("53px");
+});
