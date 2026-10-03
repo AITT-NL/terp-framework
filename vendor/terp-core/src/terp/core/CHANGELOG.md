@@ -17,10 +17,42 @@ nowhere for its previous and next links but the end of its body, where they move
 and could not be links. The page band crammed a second line against its border and, on a phone,
 put a single button on a row of its own; a tooltip ended at a table's edge or opened off the top
 of the window; fields side by side did not line up; and three dark palettes named `dark`,
-`midnight` and `twilight` read as one colour and two moods.
+`midnight` and `twilight` read as one colour and two moods. And every page was one object
+repeated: cards and collections on one white, a figure printed as a card's title over its
+own number, nowhere to put the figures a page is about, and no section but equal columns. ADR
+0169 decided how a page is composed from the shape of its data instead; this release ships its
+first phases, and every app's look moves with them.
 
 ### Added
 
+- **A figure has a shape of its own: `Stat` and `StatGroup` (ADR 0169).** A `Stat` prints its
+  `label` over a `value` in the app's locale through the `format` helpers (a string prints as
+  written, `null` the dash), and optionally a `delta` — a pill carrying the change's sign, toned
+  by the sentiment the caller declares (`"positive"`, `"negative"` or `"neutral"`: more
+  rejections is up and bad, and only the module knows it) and read out as a word as well — a
+  `trend` of labelled points drawn as a sparkline and read out as text, a `target` drawn with
+  `Meter` against its range and bands, and a `caption`. On its own it is a tile on the surface;
+  a `StatGroup` is one ruled row of figures with no tile each. `headline` fills one figure with
+  the brand colour. Everything is SVG geometry and sheet rules — no inline style, so a strict
+  `style-src` holds — and a figure is phrasing content, valid inside a `HubCard`'s link: the
+  packaged admin hub's totals render through it.
+- **A page has a band for its own figures: `summary` (ADR 0169 §4).** `Page` — and so every
+  archetype — takes `summary`, rendered directly under the title band and full-bleed inside a
+  shell on `--color-bg-summary`, a new token each palette ships at its brand soft tint: a
+  `StatGroup`, a headline `Stat`, a `Badge` or a line of `Text`. It is data, so it is not
+  rendered while the page loads or shows its error.
+- **`Grid` lays out a section: `template` (ADR 0169 §2).** `"2:1"`, `"1:2"` and `"3:1"` put a main
+  track beside a narrower one, and `"1:1"`, `"1:1:1"` and `"1:1:1:1"` are equal tracks. Every
+  template gives up its tracks at the one cutover — to one track, the four-track set to two —
+  which a fixed `columns` count does not, so a template is how a section is written and a row of
+  four never clips on a phone. The types refuse a template beside a count.
+- **The layout contract holds the page frame's two rules.** On every page under a contract, the
+  plain `Page` included, a `summary` admits only `Stat`, `StatGroup`, `Badge` and `Text`, and at
+  most one figure on the page is its `headline` — refused by the lint from the static JSX of a page
+  element and by the frame from the rendered page, each with the fix in its message. The plain
+  `Page`'s body stays as free as it was.
+- Four framework strings come with the figures — `statFavourable`, `statUnfavourable`,
+  `statTrend` and `adminHubTotal` — in the English and Dutch catalogs.
 - **A page in a series steps through it from a bar that stays put (ADR 0168).** `Page` — and so
   every archetype — takes `sequence`: the series' `label`, the `previous` and `next` neighbours
   as `{ label, to }`, and an optional `position`. It renders a navigation bar after the page's
@@ -37,6 +69,13 @@ of the window; fields side by side did not line up; and three dark palettes name
 
 ### Changed
 
+- **The page steps back and the data comes forward (ADR 0169 §3).** The page's ground is
+  `--color-bg-canvas`, read for the first time by the body, the shell and the sign-in view;
+  containers and chrome — a boxed `Card`, a `HubCard`, the profile card, the page band and the
+  sequence bar — sit on `--color-bg-subtle`, a new token at the midpoint of canvas and surface in
+  every palette; and the full `DataView` frame keeps the surface and gains `--shadow-md`, so the
+  collection is the brightest object on a page. Every app's screens look different after the
+  upgrade, by design.
 - **The themes are named for the time of day (ADR 0167).** `midday` (was `light`), `twilight`,
   `evening` (was `dark`) and `night` (was `midnight`), plus `contrast` and `system`; the
   operating system's dark preference now selects `night`. `twilight` is a dimmed dark — violet-grey
@@ -84,11 +123,18 @@ of the window; fields side by side did not line up; and three dark palettes name
 
 ### Upgrade notes
 
-- **A non-English framework catalog of an app's own supplies three new keys.** `LocaleProvider`
+- **A non-English framework catalog of an app's own supplies seven new keys.** `LocaleProvider`
   and `defineAppLocales` refuse a catalog that lacks any framework string, and this release adds
-  `pageSequencePrevious` ("Previous: {label}"), `pageSequenceNext` ("Next: {label}") and
-  `pageSequencePosition` ("{current} of {total}"). Add the three, keeping the placeholders; an
-  app on `LOCALE_NL` or `LOCALE_EN` changes nothing.
+  `pageSequencePrevious` ("Previous: {label}"), `pageSequenceNext` ("Next: {label}"),
+  `pageSequencePosition` ("{current} of {total}"), `statFavourable` ("favourable"),
+  `statUnfavourable` ("unfavourable"), `statTrend` ("Over time: {points}") and `adminHubTotal`
+  ("Total"). Add the seven, keeping the placeholders; an app on `LOCALE_NL` or `LOCALE_EN`
+  changes nothing.
+- **A `theme.css` that moves the page's backgrounds moves them as a set.** A token declared in
+  `theme.css` does not recompute another, so a theme that redeclares `--color-bg-canvas` or
+  `--color-bg-surface` redeclares `--color-bg-subtle` too, usually as their midpoint — otherwise
+  its containers keep the shipped tone, between two rungs the app no longer has
+  (`terp guide theming`). A theme that wants a calmer summary band moves `--color-bg-summary`.
 - **A per-palette selector in an app's `theme.css` uses the new theme names.** The theme toggle
   now writes `midday`, `evening` and `night` to the document, so a rule keyed on
   `[data-theme="light"]`, `[data-theme="dark"]` or `[data-theme="midnight"]` no longer matches.

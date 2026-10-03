@@ -75,7 +75,11 @@ for in-page tab sets and `Markdown` for safe rich text).
    `frontend/layout-contract.json` and read by both halves — the lint rule finds the file,
    `main.tsx` imports it: each archetype's body slot accepts only the contract's
    components, enforced at lint time and runtime with a message that states the fix —
-   recipe: `uv run terp guide layouts`.
+   recipe: `uv run terp guide layouts`. Compose a page from the shape of its data
+   (ADR 0169): the figures it is about in a `StatGroup` in its `summary` band, one figure as a
+   `Stat` (at most one per page marked `headline`), a collection as a `DataView`, a section
+   beside another as `Grid template="2:1"` — never a colour of your own to make a block stand
+   out.
 6. Import from `@terpjs/*` package roots only — no deep `src/` / `dist/` imports.
 7. A module's UI is wired by its `module.tsx` manifest (routes + nav + views) — no
    central registry to edit.

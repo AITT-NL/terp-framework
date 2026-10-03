@@ -1978,6 +1978,10 @@ Theming and branding (design tokens, palettes, the brand mark)
         --color-bg-surface: #ffffff;
       }
 
+  The page's summary band — the figures under its title — sits on its own token,
+  `--color-bg-summary`, which every palette ships at its brand soft tint. A theme that wants
+  a calmer band moves that one token; the tint the hub tiles share stays where it is.
+
 - TO SHIP ON A PALETTE OTHER THAN midday, name it in the layout declaration — never by
   restyling one palette to imitate another:
 
@@ -2073,10 +2077,33 @@ Layout contracts (slot-typed layouts, ADR 0079)
   archetype. Heading is admitted nowhere: a heading in a governed body must OWN its
   section, and Card (boxed, or variant="plain" for no chrome) is how a section is
   owned; a bare heading with siblings after it is a grouping the check cannot see.
-  The plain Page stays unconstrained — it is the sanctioned home for a bespoke screen.
-  Only the slot's DIRECT children are governed: an allowed container's own subtree
+  The plain Page's BODY stays unconstrained — it is the sanctioned home for a bespoke
+  screen. Only the slot's DIRECT children are governed: an allowed container's own subtree
   (a Card's body, a Stack's rows) is yours to compose — nesting content inside an
   allowed component is sanctioned composition, not an escape.
+- Two rules belong to the page FRAME rather than to a body, so they hold on every page,
+  the plain Page included (ADR 0169 §4):
+      summary   -> Stat / StatGroup / Badge / Text only: the band under the title holds
+                   the page's own figures, nothing else
+      headline  -> at most ONE figure per page is the headline (the brand-filled one);
+                   the lint counts a page element's static JSX, the runtime the rendered
+                   page, and both say the fix
+- Compose a page from the shape of its data (ADR 0169). Decide what each block IS and use
+  the component made for it — there are no style variants to pick, and the framework owns
+  how each one looks:
+      the figures the page is about   -> a StatGroup in the page's `summary`
+      one figure, with its context    -> Stat: `delta` (the sentiment is yours to declare —
+                                         more rejections is up and bad), `trend` (a
+                                         sparkline), `target` (a range, drawn as a Meter)
+      the figure that matters most    -> Stat `headline`, once per page
+      facts about one record          -> DetailList
+      a collection                    -> DataView (the brightest object on the page)
+      a section beside another        -> Grid template="2:1" ("1:2", "3:1", or the equal
+                                         "1:1" / "1:1:1" / "1:1:1:1"), which collapses on a
+                                         phone where columns={4} would clip
+  Contrast is that ranking — the figures in their band, containers stepped back onto
+  --color-bg-subtle, the data forward on the surface — so a block that should stand out
+  is a different shape of data, not a custom colour.
 - Enforcement (never lint-only):
       build time  -> the terp/layout-contract ESLint rule checks the static JSX
                      children of each governed archetype (npm --prefix frontend run lint)

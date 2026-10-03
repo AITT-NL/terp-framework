@@ -277,8 +277,22 @@ them as a bootstrap option as well is refused when the router is composed. The c
 `Grid` is a detail-body component and not an overview one, because an overview body is a
 collection and a grid of summary cards is a hub; direct children only, and an allowed
 container's subtree is yours), checked at lint time
-*and* at runtime — the plain `Page` stays free for bespoke screens, and every failure
-message states the fix (`uv run terp guide layouts`).
+*and* at runtime — the plain `Page`'s body stays free for bespoke screens, and every failure
+message states the fix (`uv run terp guide layouts`). Two rules of the page frame hold on
+every page, the plain one included: a page's `summary` band admits only `Stat` / `StatGroup` /
+`Badge` / `Text`, and at most one figure per page is its `headline`.
+
+**Compose a page from the shape of its data** (ADR 0169). Decide what each block *is* and use
+the component made for it — there are no style variants to pick, and the framework owns how
+each looks: the figures a page is about are a `StatGroup` in its `summary` band, directly
+under the title; one figure with its context is a `Stat` (`delta` with the sentiment you
+declare, `trend` for a sparkline, `target` for a range); facts about a record are a
+`DetailList`; a collection is a `DataView`, the brightest object on the page; a section beside
+another is `Grid template="2:1"` (or `"1:2"`, `"3:1"`, or the equal `"1:1"` / `"1:1:1"` /
+`"1:1:1:1"`), which collapses on a phone where `columns={4}` would clip. Mark one figure per
+page `headline` at most. Contrast comes from that ranking — the figures in their band,
+containers stepped back, the data forward — so never reach for a colour of your own to make a
+block stand out.
 Security defaults are refused too: `dangerouslySetInnerHTML` and DOM HTML-injection
 sinks (render text, or `Markdown` for rich text), `eval()` / `new Function()`,
 `javascript:` URLs, a static `target="_blank"` without `rel="noopener"`, and raw
