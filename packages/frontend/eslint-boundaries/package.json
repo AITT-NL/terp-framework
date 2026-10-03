@@ -22,12 +22,12 @@
     "eslint": ">=9"
   },
   "dependencies": {
-    "typescript-eslint": "^8.69.0"
+    "typescript-eslint": "^8.71.0"
   },
   "devDependencies": {
     "@terpjs/spec": "0.39.0",
     "eslint": "^10.11.0",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.2"
   },
   "license": "Apache-2.0",
   "repository": {

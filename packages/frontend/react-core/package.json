@@ -14,7 +14,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@tanstack/react-router": "^1.170.38",
+    "@tanstack/react-router": "^1.170.40",
     "@terpjs/contract": "^0.30.0"
   },
   "peerDependencies": {
@@ -31,8 +31,8 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^5.9.3",
-    "vite": "^8.3.0",
-    "vitest": "^5.0.0"
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2"
   },
   "license": "Apache-2.0",
   "repository": {
