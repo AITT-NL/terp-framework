@@ -2,6 +2,7 @@ import {
   Alert,
   AppShell,
   Badge,
+  BarChart,
   Breadcrumbs,
   Button,
   Card,
@@ -51,6 +52,7 @@ import {
   Page,
   PageActions,
   Popover,
+  ProportionBar,
   ProfileView,
   Radio,
   RadioGroup,
@@ -62,6 +64,7 @@ import {
   Stack,
   Stat,
   StatGroup,
+  StatusHistory,
   Switch,
   Text,
   Tabs,
@@ -70,6 +73,7 @@ import {
   ThemeToggle,
   ToastProvider,
   Tooltip,
+  TrendChart,
   UserCreate,
   useToast,
   UserMenu,
@@ -697,6 +701,54 @@ const FAILURES = [9, 7, 11, 8, 12, 10, 14, 13, 15, 12, 16, 18].map((value, index
   value,
 }));
 
+/** Twelve weeks of the same figure in the period before, for the comparison specimens. */
+const EARLIER_WEEKS = [101, 108, 112, 109, 118, 115, 121, 126, 124, 131, 129, 137].map((value, index) => ({
+  label: `Week ${index + 1}`,
+  value,
+}));
+
+/** Eight months of an amount that accumulates, for the area specimen. */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"].map((label, index) => ({
+  label,
+  value: [1500, 2300, 2100, 3400, 3900, 3600, 4800, 5200][index]!,
+}));
+
+/** Fourteen days of a count, for the columns specimen. */
+const DAYS = [12, 18, 9, 22, 25, 14, 8, 16, 21, 19, 27, 23, 11, 17].map((value, index) => ({
+  label: `${index + 1} Jan`,
+  value,
+}));
+
+/** How runs end, each declared once and reused by every run that ends that way. */
+const SUCCEEDED = { label: "Succeeded", tone: "success" } as const;
+const FAILED = { label: "Failed", tone: "danger" } as const;
+const PARTIAL = { label: "Partly applied", tone: "warning" } as const;
+
+/** Twelve runs, oldest first, per sync definition. */
+const RUN_HISTORY: Record<string, { label: string; outcome: { label: string; tone: BadgeTone } }[]> = {
+  s1: Array.from({ length: 12 }, (_, index) => ({ label: `Run ${index + 1}`, outcome: SUCCEEDED })),
+  s2: Array.from({ length: 12 }, (_, index) => ({
+    label: `Run ${index + 1}`,
+    outcome: index > 8 ? FAILED : index === 6 ? PARTIAL : SUCCEEDED,
+  })),
+  s3: Array.from({ length: 6 }, (_, index) => ({ label: `Run ${index + 1}`, outcome: index === 2 ? PARTIAL : SUCCEEDED })),
+  s4: Array.from({ length: 12 }, (_, index) => ({
+    label: `Run ${index + 1}`,
+    outcome: index === 3 ? FAILED : SUCCEEDED,
+  })),
+};
+
+/** The sync rows with the presentations a dashboard's collection carries: status, rows, history. */
+const SYNC_HISTORY_COLUMNS: DataViewColumn<SyncRow>[] = [
+  ...SYNC_PRESENTED_COLUMNS,
+  {
+    id: "history",
+    header: "Recent runs",
+    history: (row) => RUN_HISTORY[row.id] ?? [],
+    enableSorting: false,
+  },
+];
+
 /** A record's figures, as a page's summary band holds them: one headline and a ruled group. */
 function SyncSummary() {
   return (
@@ -1185,6 +1237,176 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               stat="Needs review"
             />
           </HubPage>
+        ),
+      },
+    ],
+  },
+  {
+    id: "charts",
+    title: "Charts",
+    specimens: [
+      {
+        // A level over time against the same weeks of the period before: the series a line in
+        // the ramp's first colour, the comparison dashed in the subtle ink behind it, both named
+        // in the legend and both columns of the hidden table. A line's axis starts where the
+        // data does, so the change it is drawn to show is not flattened against zero.
+        id: "trend-chart-line",
+        title: "TrendChart — a line against the period before",
+        node: (
+          <TrendChart
+            label="Rows synced per week"
+            series={{ label: "This quarter", points: WEEKS }}
+            comparison={{ label: "Last quarter", points: EARLIER_WEEKS }}
+          />
+        ),
+      },
+      {
+        // An amount that accumulates, as an area from zero, in the app's currency: the axis's
+        // three ticks are round amounts, each on its gridline.
+        id: "trend-chart-area",
+        title: "TrendChart — an area, from zero, in currency",
+        node: (
+          <TrendChart
+            label="Revenue per month"
+            mark="area"
+            format={{ style: "currency", currency: "EUR", maximumFractionDigits: 0 }}
+            series={{ label: "Revenue", points: MONTHS }}
+          />
+        ),
+      },
+      {
+        // A count per period as columns, fourteen of them: every label holds its slot under its
+        // column and only the ends and the middle are printed, so the axis is readable at any
+        // count.
+        id: "trend-chart-columns",
+        title: "TrendChart — columns, a count per day",
+        node: <TrendChart label="Runs per day" mark="columns" series={{ label: "Runs", points: DAYS }} />,
+      },
+      {
+        // Categories ranked by the caller, as a table whose middle column is the bar: the row
+        // headers and the printed values are the chart's data for every reader.
+        id: "bar-chart",
+        title: "BarChart — categories, ranked",
+        node: (
+          <BarChart
+            label="Rows by source"
+            bars={[
+              { label: "Ledger entries", value: 9310 },
+              { label: "Customer master", value: 1284 },
+              { label: "Sales orders", value: 407 },
+              { label: "Warehouse stock", value: 52 },
+            ]}
+          />
+        ),
+      },
+      {
+        // A whole and its parts, twice: a run's outcomes, whose parts are states and take their
+        // tones, and sources with no state, which take the chart ramp in order. The legend says
+        // every part, its count and its share.
+        id: "proportion-bar",
+        title: "ProportionBar — a run's outcomes, and sources in the ramp",
+        node: (
+          <Grid template="1:1">
+            <ProportionBar
+              label="Last run"
+              parts={[
+                { label: "Created", value: 412, tone: "success" },
+                { label: "Updated", value: 1180, tone: "info" },
+                { label: "Failed", value: 37, tone: "danger" },
+              ]}
+            />
+            <ProportionBar
+              label="Rows by source"
+              parts={[
+                { label: "Ledger", value: 9310 },
+                { label: "Customers", value: 1284 },
+                { label: "Orders", value: 407 },
+                { label: "Stock", value: 52 },
+                { label: "Other", value: 210 },
+              ]}
+            />
+          </Grid>
+        ),
+      },
+      {
+        // A collection whose rows are things that run: each row's last runs as a status history,
+        // the latest ending in words, beside the status dot and the rows' bars.
+        id: "dataview-history",
+        title: "DataView — a status history per row",
+        ready: '[data-terp="status-history"]',
+        node: <DataView title="Sync definitions" repository={SYNC_REPOSITORY} columns={SYNC_HISTORY_COLUMNS} />,
+      },
+      {
+        // The shape a dashboard takes (ADR 0169): the figures in the summary band, a trend
+        // beside a ranking in a 2:1 section, and the collection, brightest, at the foot -- each
+        // block chosen by the shape of its data rather than by a style.
+        id: "dashboard-shape",
+        title: "A dashboard's shape — figures, a trend beside a ranking, the collection",
+        ready: '[data-terp="status-history"]',
+        node: (
+          <div style={{ height: "60rem", overflow: "hidden", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV}
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <Page title="Overview" summary={<SyncSummary />}>
+                <Grid template="2:1">
+                  <TrendChart
+                    label="Rows synced per week"
+                    mark="area"
+                    series={{ label: "This quarter", points: WEEKS }}
+                  />
+                  <BarChart
+                    label="Rows by source"
+                    bars={[
+                      { label: "Ledger", value: 9310 },
+                      { label: "Customers", value: 1284 },
+                      { label: "Orders", value: 407 },
+                      { label: "Stock", value: 52 },
+                    ]}
+                  />
+                </Grid>
+                <DataView title="Sync definitions" repository={SYNC_REPOSITORY} columns={SYNC_HISTORY_COLUMNS} />
+              </Page>
+            </AppShell>
+          </div>
+        ),
+      },
+      {
+        id: "dashboard-shape-narrow",
+        title: "A dashboard's shape on a phone",
+        viewport: { width: 420, height: 900 },
+        ready: '[data-terp="trend-chart"]',
+        node: (
+          <div style={{ height: "60rem", overflow: "hidden", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV}
+              renderLink={(item, children) => (
+                <a href={item.to} aria-current={item.to === "/" ? "page" : undefined}>
+                  {children}
+                </a>
+              )}
+            >
+              <Page title="Overview" summary={<SyncSummary />}>
+                <Grid template="2:1">
+                  <TrendChart label="Rows synced per week" mark="area" series={{ label: "This quarter", points: WEEKS }} />
+                  <BarChart
+                    label="Rows by source"
+                    bars={[
+                      { label: "Ledger", value: 9310 },
+                      { label: "Customers", value: 1284 },
+                    ]}
+                  />
+                </Grid>
+              </Page>
+            </AppShell>
+          </div>
         ),
       },
     ],

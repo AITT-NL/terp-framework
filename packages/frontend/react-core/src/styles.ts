@@ -1929,6 +1929,8 @@ textarea[data-terp="input"] {
 [data-terp="drawer-focus-end"],
 [data-terp="stat-sentiment"],
 [data-terp="stat-trend-data"],
+[data-terp="chart-table"],
+[data-terp="status-history-data"],
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-brand-title"],
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav-label"],
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav-group-label"] {
@@ -4557,6 +4559,265 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp="meter-value"] {
   align-self: baseline;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Charts (ADR 0158, ADR 0169 §6) -------------------------------------------- */
+/* A chart is a tile on the surface, the rung where data is read, as a figure is: the surface,
+   its hairline and its small shadow. Every mark is SVG geometry in attributes and every colour
+   is a rule here, keyed on the markers and on data-series / data-tone, so nothing is styled
+   inline. The marks' colours hold 3:1 against the surface, declared in token-pairs.json; the
+   gridlines are decorative and declare nothing. */
+[data-terp="trend-chart"],
+[data-terp="bar-chart"],
+[data-terp="proportion-bar"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-4);
+  box-sizing: border-box;
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-fg-default);
+}
+[data-terp="chart-caption"] {
+  color: var(--color-fg-default);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--font-line-height-snug);
+}
+/* The plot beside its value axis, and the period labels under the plot only. The axis takes
+   three ticks in two equal steps, so space-between puts each label on its gridline with no
+   position of its own; the plot's height is the axis's height. */
+[data-terp="chart-body"] {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--space-2);
+  row-gap: var(--space-1);
+}
+[data-terp="chart-axis"] {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  block-size: 10rem;
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-xs);
+  line-height: var(--font-line-height-tight);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+/* The top and foot labels straddle their gridlines rather than hang from the one and stand on
+   the other: half a line out of the axis's box each, so all three sit centred on their lines. */
+[data-terp="chart-axis"] > :first-child {
+  margin-block-start: -0.6em;
+}
+[data-terp="chart-axis"] > :last-child {
+  margin-block-end: -0.6em;
+}
+[data-terp="chart-plot"] {
+  display: block;
+  inline-size: 100%;
+  block-size: 10rem;
+  overflow: visible;
+}
+[data-terp="chart-gridline"] {
+  stroke: var(--color-neutral-200);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+[data-terp="trend-chart-line"] {
+  fill: none;
+  stroke: var(--color-chart-1);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+[data-terp="trend-chart-area"] {
+  fill: var(--color-chart-1);
+  fill-opacity: 0.15;
+}
+[data-terp="trend-chart-column"] {
+  fill: var(--color-chart-1);
+}
+/* The earlier period: the subtle ink, dashed, behind the series, so the two read apart by
+   weight and by pattern as well as by colour. */
+[data-terp="trend-chart-comparison"] {
+  fill: none;
+  stroke: var(--color-fg-subtle);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+/* The period labels: a line's first, middle and last at the ends and the centre; a column
+   chart's under each column in a slot of its own, the ones not printed still holding their
+   place, so a label sits under its column. */
+[data-terp="chart-labels"] {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-xs);
+}
+/* No gap between a column chart's label slots: each is exactly its column's band, or the
+   labels drift off their columns by the gaps they add up. */
+[data-terp="chart-labels"][data-mark="columns"] {
+  gap: 0;
+}
+[data-terp="chart-labels"][data-mark="columns"] > span {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+}
+[data-terp="chart-labels"] > [data-quiet="true"] {
+  visibility: hidden;
+}
+/* The legend: a word for every colour on the chart, and a swatch drawn the way its mark is. */
+[data-terp="chart-legend"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-xs);
+}
+[data-terp="chart-legend-item"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+[data-terp="chart-legend-value"] {
+  color: var(--color-fg-default);
+  font-variant-numeric: tabular-nums;
+}
+[data-terp="chart-swatch"] {
+  flex: none;
+  inline-size: 0.75rem;
+  block-size: 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-chart-1);
+}
+/* A line's swatch is a line, as a comparison's is a dashed one. */
+[data-terp="trend-chart"][data-mark="line"] [data-terp="chart-swatch"][data-series="main"] {
+  block-size: 0;
+  border-radius: 0;
+  border-block-start: 2px solid var(--color-chart-1);
+  background: none;
+}
+[data-terp="chart-swatch"][data-series="comparison"] {
+  block-size: 0;
+  border-radius: 0;
+  border-block-start: 2px dashed var(--color-fg-subtle);
+  background: none;
+}
+/* The chart ramp, for a part or a swatch with no tone of its own, in order. */
+[data-terp="chart-swatch"][data-series="2"],
+[data-terp="proportion-bar-part"][data-series="2"] { background: var(--color-chart-2); fill: var(--color-chart-2); }
+[data-terp="chart-swatch"][data-series="3"],
+[data-terp="proportion-bar-part"][data-series="3"] { background: var(--color-chart-3); fill: var(--color-chart-3); }
+[data-terp="chart-swatch"][data-series="4"],
+[data-terp="proportion-bar-part"][data-series="4"] { background: var(--color-chart-4); fill: var(--color-chart-4); }
+[data-terp="chart-swatch"][data-series="5"],
+[data-terp="proportion-bar-part"][data-series="5"] { background: var(--color-chart-5); fill: var(--color-chart-5); }
+[data-terp="proportion-bar-part"] { fill: var(--color-chart-1); }
+/* A part that is a state takes its state's tone, the status dots' colours, declared the same. */
+[data-terp="chart-swatch"][data-tone="neutral"],
+[data-terp="proportion-bar-part"][data-tone="neutral"],
+[data-terp="status-history-cell"][data-tone="neutral"] { background: var(--color-fg-subtle); fill: var(--color-fg-subtle); }
+[data-terp="chart-swatch"][data-tone="info"],
+[data-terp="proportion-bar-part"][data-tone="info"],
+[data-terp="status-history-cell"][data-tone="info"] { background: var(--color-status-info); fill: var(--color-status-info); }
+[data-terp="chart-swatch"][data-tone="success"],
+[data-terp="proportion-bar-part"][data-tone="success"],
+[data-terp="status-history-cell"][data-tone="success"] { background: var(--color-status-success); fill: var(--color-status-success); }
+[data-terp="chart-swatch"][data-tone="warning"],
+[data-terp="proportion-bar-part"][data-tone="warning"],
+[data-terp="status-history-cell"][data-tone="warning"] { background: var(--color-status-warning); fill: var(--color-status-warning); }
+[data-terp="chart-swatch"][data-tone="danger"],
+[data-terp="proportion-bar-part"][data-tone="danger"],
+[data-terp="status-history-cell"][data-tone="danger"] { background: var(--color-status-danger); fill: var(--color-status-danger); }
+/* The proportion bar: one bar the width of its tile, its parts parted by a hairline of the
+   surface so two near colours still read as two. */
+[data-terp="proportion-bar-track"] {
+  display: block;
+  inline-size: 100%;
+  block-size: 0.75rem;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+[data-terp="proportion-bar-gap"] {
+  stroke: var(--color-bg-surface);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+/* The bar chart is a table: a category's name, its bar and its value, one row each, the bars
+   scaled to the largest. The name column takes what its longest name needs up to a third of
+   the tile; the bar takes the rest. */
+[data-terp="bar-chart-table"] {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+[data-terp="bar-chart-label"] {
+  inline-size: 1%;
+  max-inline-size: 33%;
+  padding: var(--space-1) var(--space-3) var(--space-1) 0;
+  color: var(--color-fg-default);
+  font-weight: var(--font-weight-normal);
+  text-align: start;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-terp="bar-chart-bar"] {
+  padding: var(--space-1) 0;
+}
+[data-terp="bar-chart-bar"] > svg {
+  display: block;
+  inline-size: 100%;
+  block-size: 0.875rem;
+}
+[data-terp="bar-chart-mark"] {
+  fill: var(--color-chart-1);
+}
+[data-terp="bar-chart-value"] {
+  inline-size: 1%;
+  padding: var(--space-1) 0 var(--space-1) var(--space-3);
+  color: var(--color-fg-default);
+  text-align: end;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* A status history: one small cell per run, oldest first, and the latest run's ending in words
+   beside them. Inline, so it sits in a sentence, a collection's cell or a summary band. */
+[data-terp="status-history"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-inline-size: 100%;
+}
+[data-terp="status-history-cells"] {
+  display: inline-flex;
+  gap: 2px;
+}
+[data-terp="status-history-cell"] {
+  inline-size: 0.5rem;
+  block-size: 0.875rem;
+  border-radius: 2px;
+}
+[data-terp="status-history-latest"] {
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-xs);
   white-space: nowrap;
 }
 

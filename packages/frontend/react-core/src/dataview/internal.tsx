@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
 
 import { useFormatDate } from "../format";
+import { StatusHistory } from "../charts/StatusHistory";
 import { Meter } from "../Meter";
 import { injectTerpStyles } from "../styles";
 import { Menu, MenuItem } from "../ui/Menu";
@@ -209,6 +210,10 @@ export function useCellRenderer(): <T>(
   const formatCell = useCellFormatter();
   return useCallback(
     <T,>(column: DataViewColumn<T>, row: T, maxima: ReadonlyMap<string, number>) => {
+      if (column.history !== undefined) {
+        const runs = column.history(row);
+        return runs.length === 0 ? null : <StatusHistory label={column.header} runs={runs} />;
+      }
       if (column.bar !== undefined) {
         const value = column.accessor?.(row);
         if (typeof value === "number" && Number.isFinite(value)) {

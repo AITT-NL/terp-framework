@@ -225,6 +225,7 @@ export const LOCALE_NL: LocaleCatalog = {
     statUnfavourable: "ongunstig",
     statTrend: "Verloop: {points}",
     adminHubTotal: "Totaal",
+    statusHistoryRuns: "{label}, oudste eerst: {runs}",
     errorTitle: "Er is iets misgegaan.",
     backendUnreachableTitle: "De applicatie kan de server niet bereiken.",
     backendUnreachableDescription:

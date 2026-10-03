@@ -404,9 +404,27 @@ Every phase ends at a shippable point; nothing is half-wired between them.
       consumer. The count guard DataView first carried for an error was dropped once measured:
       the query hook already forgets the total on a failed query, and the test that holds
       that now loads a page before failing one.
-- [ ] **4 — Charts under the amended 0158.** `TrendChart` (line, area, columns), `BarChart`, the
+- [x] **4 — Charts under the amended 0158.** `TrendChart` (line, area, columns), `BarChart`, the
       proportion bar, `StatusHistory`; table alternatives; chart pairings gated, which takes the
-      chart tokens off `UNREAD_TOKENS`.
+      chart tokens off `UNREAD_TOKENS`. **Built**, on top of the first release's three phases.
+      What the commit settled:
+      - **The axis has three round ticks in two equal steps,** so its labels stand on their
+        gridlines through `space-between` with no position of their own — measured in the
+        browser, as is a column chart's labels standing under their columns. A line's axis starts
+        where its data does; an area's and columns' keep zero.
+      - **`BarChart` is its own table** — row headers, printed values, the bar a cell for the eye —
+        where `TrendChart` carries a visually hidden one; `ProportionBar`'s legend is its data
+        (name, count, share); `StatusHistory` prints its latest ending and reads every run out.
+      - **A run's ending is an outcome object** (`{ label, tone }`), not a `status` string: the
+        i18n lint reads every public text property as a key it checks anywhere in app code, and
+        a `status` key would have flagged every `{ status: "paused" }` an app writes.
+      - **The summary band admits `StatusHistory`** in both halves of the contract, as ADR 0169
+        §4 says; a `DataView` column takes `history`.
+      - The chart ramp is declared at 3:1 against the surface and the status cells against the
+        summary band; the five chart tokens came off `UNREAD_TOKENS`.
+      **Framework consumer:** the scaffolded dashboard (phase 6), which ADR 0169 §6 names with the
+      `SyncRun` and `WebhookDelivery` data; the workbench's dashboard-shaped specimen is the
+      composition it will scaffold.
 - [ ] **5 — Time and state.** `Timeline` for a record's audit trail; `StatusList` only if this
       phase names its consumer.
 - [ ] **6 — The archetype and the guidance.** `DashboardPage`; the scaffold's hub preset becomes a

@@ -51,7 +51,8 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
       "body is two SplitPanes and nothing else. A screen that needs no contract " +
       "composes the plain Page, whose body this contract deliberately leaves unconstrained. " +
       "Every page, the plain one included, keeps two rules of its frame: its summary band " +
-      "holds the page's own figures (Stat / StatGroup / Badge / Text), and at most one " +
+      "holds the page's own figures (Stat / StatGroup / StatusHistory / Badge / Text), and " +
+      "at most one " +
       "figure on the page is its headline.",
     slots: {
       HubPage: {
@@ -130,6 +131,7 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
       components: {
         Stat: "stat",
         StatGroup: "stat-group",
+        StatusHistory: "status-history",
         Badge: "badge",
         Text: "text",
       },

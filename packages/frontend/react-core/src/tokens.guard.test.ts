@@ -111,17 +111,13 @@ const UNREAD_TOKENS: Record<string, string[]> = {
   // --color-bg-surface came off it when the surface model went back to filling its in-flow
   // blocks. --color-bg-canvas came off it when ADR 0169's surface ladder gave the page ground a
   // reader: the body, the AppShell and the login view name it now. --color-bg-subtle, the
-  // ladder's new rung, shipped with its readers in the same change and so never joined.
+  // ladder's new rung, shipped with its readers in the same change and so never joined. The
+  // chart ramp came off it with the charts of ADR 0169's fourth phase, which read all five.
   "--color-": [
     "--color-bg-raised",
     "--color-border-default",
     "--color-border-strong",
     "--color-border-subtle",
-    "--color-chart-1",
-    "--color-chart-2",
-    "--color-chart-3",
-    "--color-chart-4",
-    "--color-chart-5",
     "--color-interactive-active",
     "--color-neutral-500",
     "--color-neutral-800",

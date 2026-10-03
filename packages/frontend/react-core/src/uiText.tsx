@@ -195,6 +195,8 @@ export interface TerpStrings {
   statTrend: string;
   /** The admin hub: names the total on the users and groups cards. */
   adminHubTotal: string;
+  /** A status history read out; `{label}` is what ran and `{runs}` the listed runs, each a label and its ending. */
+  statusHistoryRuns: string;
   /** Default {@link ErrorState} title. */
   errorTitle: string;
   /** Title shown by `RequireAuth` when the backend did not answer the boot check. */
@@ -532,6 +534,7 @@ export const DEFAULT_STRINGS: TerpStrings = {
   statUnfavourable: "unfavourable",
   statTrend: "Over time: {points}",
   adminHubTotal: "Total",
+  statusHistoryRuns: "{label}, oldest first: {runs}",
   errorTitle: "Something went wrong.",
   backendUnreachableTitle: "The application cannot reach its server.",
   backendUnreachableDescription:

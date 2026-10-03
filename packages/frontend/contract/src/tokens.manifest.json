@@ -1743,6 +1743,71 @@
       "layer": "semantic"
     },
     {
+      "$comment": "The chart ramp against the surface every chart tile is drawn on (ADR 0158, ADR 0169 §6): each mark is the graphical object SC 1.4.11 asks 3:1 of. The ramp's lowest is chart-3 in midday, which these pairings hold at 3:1 rather than leave to a comment.",
+      "id": "chart-1-on-surface",
+      "label": "a chart's first mark -- a line, an area's edge, a column, a bar -- against the surface",
+      "fg": "--color-chart-1",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "id": "chart-2-on-surface",
+      "label": "a chart's mark in the ramp's colour 2, against the surface",
+      "fg": "--color-chart-2",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "id": "chart-3-on-surface",
+      "label": "a chart's mark in the ramp's colour 3, against the surface",
+      "fg": "--color-chart-3",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "id": "chart-4-on-surface",
+      "label": "a chart's mark in the ramp's colour 4, against the surface",
+      "fg": "--color-chart-4",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "id": "chart-5-on-surface",
+      "label": "a chart's mark in the ramp's colour 5, against the surface",
+      "fg": "--color-chart-5",
+      "bg": "--color-bg-surface",
+      "layer": "semantic"
+    },
+    {
+      "$comment": "A status history in a page's summary band: its cells against the band's fill. The neutral cell is the subtle ink, which subtle-on-summary already holds to AA.",
+      "id": "status-cell-info-on-summary",
+      "label": "an info cell of a status history on the summary band",
+      "fg": "--color-status-info",
+      "bg": "--color-bg-summary",
+      "layer": "semantic"
+    },
+    {
+      "id": "status-cell-success-on-summary",
+      "label": "a success cell of a status history on the summary band",
+      "fg": "--color-status-success",
+      "bg": "--color-bg-summary",
+      "layer": "semantic"
+    },
+    {
+      "id": "status-cell-warning-on-summary",
+      "label": "a warning cell of a status history on the summary band",
+      "fg": "--color-status-warning",
+      "bg": "--color-bg-summary",
+      "layer": "semantic"
+    },
+    {
+      "id": "status-cell-danger-on-summary",
+      "label": "a danger cell of a status history on the summary band",
+      "fg": "--color-status-danger",
+      "bg": "--color-bg-summary",
+      "layer": "semantic"
+    },
+    {
       "id": "meter-optimum-on-track",
       "label": "a meter's fill in its optimum band, against its track",
       "fg": "--color-status-success",

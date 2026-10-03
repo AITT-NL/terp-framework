@@ -26,6 +26,7 @@ import {
   verifySlotChildren,
 } from "./layoutContract";
 import { Stat, StatGroup } from "./Stat";
+import { StatusHistory } from "./charts/StatusHistory";
 import { Badge } from "./ui/Badge";
 import { OverviewPage } from "./OverviewPage";
 
@@ -751,6 +752,26 @@ describe("a page counts the headlines that register with it (ADR 0169 §4)", () 
           <div>inner body</div>
         </Page>
         <Stat label="Outer" value={2} headline />
+      </Page>,
+    );
+    await expectAccepted();
+  });
+});
+
+describe("the summary band admits a status history (ADR 0169 §4)", () => {
+  it("passes a page whose summary holds the recent runs", async () => {
+    // Mutation: drop StatusHistory from the summary table, and this is refused.
+    underContract(
+      <Page
+        title="Customer master"
+        summary={
+          <StatusHistory
+            label="Runs"
+            runs={[{ label: "Mon", outcome: { label: "Succeeded", tone: "success" } }]}
+          />
+        }
+      >
+        <div>body</div>
       </Page>,
     );
     await expectAccepted();

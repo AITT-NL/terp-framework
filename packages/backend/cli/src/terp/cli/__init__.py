@@ -2093,8 +2093,8 @@ Layout contracts (slot-typed layouts, ADR 0079)
   allowed component is sanctioned composition, not an escape.
 - Two rules belong to the page FRAME rather than to a body, so they hold on every page,
   the plain Page included (ADR 0169 §4):
-      summary   -> Stat / StatGroup / Badge / Text only: the band under the title holds
-                   the page's own figures, nothing else
+      summary   -> Stat / StatGroup / StatusHistory / Badge / Text only: the band under
+                   the title holds the page's own figures, nothing else
       headline  -> at most ONE figure per page is the headline (the brand-filled one);
                    the lint counts a page element's static JSX, the runtime the rendered
                    page, and both say the fix
@@ -2107,6 +2107,11 @@ Layout contracts (slot-typed layouts, ADR 0079)
                                          sparkline), `target` (a range, drawn as a Meter)
       the figure that matters most    -> Stat `headline`, once per page
       facts about one record          -> DetailList
+      values over time                -> TrendChart: mark "line", "area" or "columns",
+                                         `comparison` for the period before
+      categories compared             -> BarChart, ranked before it is passed
+      a whole and its parts           -> ProportionBar, each part a word with its share
+      how recent runs ended           -> StatusHistory, or `history` on a DataView column
       a collection                    -> DataView (the brightest object on the page)
       a section beside another        -> Grid template="2:1" ("1:2", "3:1", or the equal
                                          "1:1" / "1:1:1" / "1:1:1:1"), which collapses on a

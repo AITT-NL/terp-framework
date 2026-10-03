@@ -913,3 +913,28 @@ describe("DataView's status dots are declared pairings", () => {
     }
   });
 });
+
+describe("DataView's status history cell (ADR 0169 §6)", () => {
+  it("draws a column as each row's recent runs, its latest ending in words", async () => {
+    // Mutation: drop the history branch from the shared renderer, and the column is empty.
+    const SUCCEEDED = { label: "Succeeded", tone: "success" as const };
+    const FAILED = { label: "Failed", tone: "danger" as const };
+    const columns: DataViewColumn<Ticket>[] = [
+      { id: "title", header: "Title", accessor: (t) => t.title },
+      {
+        id: "runs",
+        header: "Recent runs",
+        history: (t) =>
+          t.status === "open"
+            ? [{ label: "Mon", outcome: SUCCEEDED }, { label: "Tue", outcome: FAILED }]
+            : [],
+      },
+    ];
+    render(<DataView repository={inMemoryRepo()} columns={columns} />);
+    await screen.findByText("Broken printer");
+    const histories = document.querySelectorAll('[data-terp="status-history"]');
+    // Three open tickets have runs; the closed one renders no history rather than an empty one.
+    expect(histories).toHaveLength(3);
+    expect(histories[0]!.querySelector('[data-terp="status-history-latest"]')!.textContent).toBe("Failed");
+  });
+});

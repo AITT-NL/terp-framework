@@ -114,6 +114,13 @@ describe("terp/layout-contract — the page frame's two rules (ADR 0169 §4)", (
   const imports =
     'import { Badge, Card, DataView, DetailPage, OverviewPage, Page, Stack, Stat, StatGroup, Text } from "@terpjs/react-core";\n';
 
+  it("passes a status history in the summary", async () => {
+    const code =
+      'import { Page, StatusHistory } from "@terpjs/react-core";\n' +
+      "export const P = ({title, runs}) => <Page title={title} summary={<StatusHistory label={title} runs={runs} />}><div /></Page>;";
+    expect((await lint(code, configWithContract("standard"))).map((m) => m.message)).toEqual([]);
+  });
+
   it("passes a summary of the page's own figures, on an archetype and on the plain Page", async () => {
     const code =
       imports +

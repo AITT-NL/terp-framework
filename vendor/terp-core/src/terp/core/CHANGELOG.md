@@ -65,8 +65,17 @@ first phases, and every app's look moves with them.
 - **`Alert` takes `actions`**, rendered inside the alert under its message. The module-access
   panel's offer to revoke a retired module's rung is one now, where it was a row of its own
   beside the alert.
-- Four framework strings come with the figures — `statFavourable`, `statUnfavourable`,
-  `statTrend` and `adminHubTotal` — in the English and Dutch catalogs.
+- **Charts, under ADR 0158's contract (ADR 0169 §6).** `TrendChart` draws values over time as a
+  line, an area or columns, with an optional comparison period dashed behind it; `BarChart`
+  compares categories, and is itself the table of its data; `ProportionBar` splits a whole into
+  its parts with a legend that says each one's count and share; `StatusHistory` shows how the
+  recent runs of something ended, also as a `DataView` cell (`history` on a column) and in a
+  page's `summary` band. Every mark is SVG geometry coloured from the sheet — no inline style, so
+  a strict `style-src` holds — every number goes through the `format` helpers, nothing is a
+  dependency, and the chart ramp's colours are held to 3:1 against the surface.
+- Five framework strings come with the figures and the charts — `statFavourable`,
+  `statUnfavourable`, `statTrend`, `statusHistoryRuns` and `adminHubTotal` — in the English and
+  Dutch catalogs.
 - **A page in a series steps through it from a bar that stays put (ADR 0168).** `Page` — and so
   every archetype — takes `sequence`: the series' `label`, the `previous` and `next` neighbours
   as `{ label, to }`, and an optional `position`. It renders a navigation bar after the page's
@@ -137,13 +146,13 @@ first phases, and every app's look moves with them.
 
 ### Upgrade notes
 
-- **A non-English framework catalog of an app's own supplies seven new keys.** `LocaleProvider`
+- **A non-English framework catalog of an app's own supplies eight new keys.** `LocaleProvider`
   and `defineAppLocales` refuse a catalog that lacks any framework string, and this release adds
   `pageSequencePrevious` ("Previous: {label}"), `pageSequenceNext` ("Next: {label}"),
   `pageSequencePosition` ("{current} of {total}"), `statFavourable` ("favourable"),
-  `statUnfavourable` ("unfavourable"), `statTrend` ("Over time: {points}") and `adminHubTotal`
-  ("Total"). Add the seven, keeping the placeholders; an app on `LOCALE_NL` or `LOCALE_EN`
-  changes nothing.
+  `statUnfavourable` ("unfavourable"), `statTrend` ("Over time: {points}"), `statusHistoryRuns`
+  ("{label}, oldest first: {runs}") and `adminHubTotal` ("Total"). Add the eight, keeping the
+  placeholders; an app on `LOCALE_NL` or `LOCALE_EN` changes nothing.
 - **A `theme.css` that moves the page's backgrounds moves them as a set.** A token declared in
   `theme.css` does not recompute another, so a theme that redeclares `--color-bg-canvas` or
   `--color-bg-surface` redeclares `--color-bg-subtle` too, usually as their midpoint — otherwise

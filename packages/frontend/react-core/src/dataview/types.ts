@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import type { StatusRun } from "../charts/StatusHistory";
 import type { BadgeTone } from "../ui/Badge";
 import type { UiText } from "../uiText";
 
@@ -184,6 +185,12 @@ export interface DataViewColumn<T> {
    * renderer is not used for a bar, and a row whose value is not a number renders as text.
    */
   bar?: true | DataViewBar;
+  /**
+   * Draw the column as a status history (ADR 0169 §6): one cell per run, oldest first, the
+   * latest run's ending in words, every run read out. For a collection of things that run --
+   * syncs, webhooks, checks -- where the column's question is "how have its recent runs gone".
+   */
+  history?: (row: T) => readonly StatusRun[];
   meta?: DataViewColumnMeta;
 }
 

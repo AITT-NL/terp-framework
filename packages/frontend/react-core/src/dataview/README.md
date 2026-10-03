@@ -145,6 +145,9 @@ versioned envelope; corrupt data falls back to defaults) and
   whose value is not a number renders as text, and a `cell` renderer is not used for a bar. A
   percent column is drawn against 100%, its rates' own range, because a `Meter` prints a
   percentage as the share of its range; a `max` beside a percent format is refused.
+  `history: (row) => runs` draws each row's recent runs as a `StatusHistory` — one cell per run,
+  the latest ending in words — for a collection of things that run; a row with no runs renders
+  none.
 - **Row tone**: `getRowTone={(row) => tone | null}` marks the *row* as being in a
   state (a refused link, a failed run) — the right altitude when the verdict belongs
   to the record, not to one of its cells. The row/card is tinted with the tone's soft

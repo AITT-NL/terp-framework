@@ -1486,3 +1486,40 @@ test("a ruled grid of facts drops the rule before a row's first cell and above i
   // A focus ring inside the first column keeps its side: 6px of room inside the clip.
   expect(cells.room).toBeGreaterThanOrEqual(6);
 });
+
+test("a chart's axis labels sit on their gridlines, and a column's label under its column", async ({
+  page,
+}) => {
+  // The labels have no positions of their own -- three ticks in two equal steps, laid out by
+  // space-between, the ends pulled half a line out -- so whether each stands on its line is a
+  // measurement, not something the markup says.
+  await page.goto("/?theme=midday&only=trend-chart-line");
+  await page.locator('[data-terp="chart-axis"]').waitFor({ state: "visible" });
+  const axis = await page.evaluate(() => {
+    const plot = document.querySelector('[data-terp="chart-plot"]')!.getBoundingClientRect();
+    const labels = [...document.querySelectorAll('[data-terp="chart-axis"] > span')].map((label) => {
+      const box = label.getBoundingClientRect();
+      return box.top + box.height / 2;
+    });
+    return { lines: [plot.top, plot.top + plot.height / 2, plot.bottom], labels };
+  });
+  axis.labels.forEach((centre, index) => {
+    expect(Math.abs(centre - axis.lines[index]!), `tick ${index + 1}`).toBeLessThanOrEqual(2);
+  });
+
+  await page.goto("/?theme=midday&only=trend-chart-columns");
+  await page.locator('[data-terp="trend-chart-column"]').first().waitFor({ state: "visible" });
+  const columns = await page.evaluate(() => {
+    const centre = (element: Element) => {
+      const box = element.getBoundingClientRect();
+      return box.left + box.width / 2;
+    };
+    const bars = [...document.querySelectorAll('[data-terp="trend-chart-column"]')].map(centre);
+    const labels = [...document.querySelectorAll('[data-terp="chart-labels"] > span')].map(centre);
+    return { bars, labels };
+  });
+  expect(columns.labels).toHaveLength(columns.bars.length);
+  columns.labels.forEach((centre, index) => {
+    expect(Math.abs(centre - columns.bars[index]!), `column ${index + 1}`).toBeLessThanOrEqual(2);
+  });
+});

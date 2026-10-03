@@ -280,14 +280,16 @@ container's subtree is yours), checked at lint time
 *and* at runtime — the plain `Page`'s body stays free for bespoke screens, and every failure
 message states the fix (`uv run terp guide layouts`). Two rules of the page frame hold on
 every page, the plain one included: a page's `summary` band admits only `Stat` / `StatGroup` /
-`Badge` / `Text`, and at most one figure per page is its `headline`.
+`StatusHistory` / `Badge` / `Text`, and at most one figure per page is its `headline`.
 
 **Compose a page from the shape of its data** (ADR 0169). Decide what each block *is* and use
 the component made for it — there are no style variants to pick, and the framework owns how
 each looks: the figures a page is about are a `StatGroup` in its `summary` band, directly
 under the title; one figure with its context is a `Stat` (`delta` with the sentiment you
 declare, `trend` for a sparkline, `target` for a range); facts about a record are a
-`DetailList`; a collection is a `DataView`, the brightest object on the page; a section beside
+`DetailList`; values over time are a `TrendChart`, categories compared a `BarChart`, a whole and
+its parts a `ProportionBar`, how recent runs ended a `StatusHistory`; a collection is a
+`DataView`, the brightest object on the page; a section beside
 another is `Grid template="2:1"` (or `"1:2"`, `"3:1"`, or the equal `"1:1"` / `"1:1:1"` /
 `"1:1:1:1"`), which collapses on a phone where `columns={4}` would clip. Mark one figure per
 page `headline` at most. Contrast comes from that ranking — the figures in their band,
