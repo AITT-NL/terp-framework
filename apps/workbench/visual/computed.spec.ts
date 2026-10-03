@@ -1555,3 +1555,109 @@ test("a headline in a group of figures keeps its fill inside the content edge, w
     expect(geometry.nextRule, `${only}: no rule after it`).toBe("none");
   }
 });
+
+test("a line's labels stand at its first, middle and last points", async ({ page }) => {
+  // The labels have no position of their own: space-between puts them at the plot's ends and
+  // centre, which is where the first and last points are, and the middle one only when the count
+  // is odd. Measured, because a middle label off its point is one place in a picture.
+  await page.goto("/?theme=midday&only=trend-chart-so-far");
+  await page.locator('[data-terp="chart-plot"]').waitFor({ state: "visible" });
+  const geometry = await page.evaluate(() => {
+    const plot = document.querySelector('[data-terp="chart-plot"]')!.getBoundingClientRect();
+    const textBox = (element: Element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      return range.getBoundingClientRect();
+    };
+    const labels = [...document.querySelectorAll('[data-terp="chart-labels"] > span')].map((label) => {
+      const box = textBox(label);
+      return { text: label.textContent, left: box.left, right: box.right, centre: box.left + box.width / 2 };
+    });
+    return { plot: { left: plot.left, right: plot.right, centre: plot.left + plot.width / 2 }, labels };
+  });
+  // Thirty points across the plot, so the middle is the fifteenth and a half: no middle label.
+  expect(geometry.labels.map(({ text }) => text)).toEqual(["Day 1", "Day 30"]);
+  expect(geometry.labels[0]!.left).toBeCloseTo(geometry.plot.left, 0);
+  expect(geometry.labels[1]!.right).toBeCloseTo(geometry.plot.right, 0);
+});
+
+test("a column's printed label stands centred under it, uncut, however narrow the band", async ({ page }) => {
+  // Fourteen columns at a phone's width make a band narrower than "14 Jan": the label overflows
+  // its slot to both sides instead of being clipped to it and pushed off centre.
+  await page.setViewportSize({ width: 420, height: 900 });
+  await page.goto("/?theme=midday&only=trend-chart-columns-narrow");
+  await page.locator('[data-terp="trend-chart-column"]').first().waitFor({ state: "visible" });
+  const labels = await page.evaluate(() => {
+    const columns = [...document.querySelectorAll('[data-terp="trend-chart-column"]')].map((column) => {
+      const box = column.getBoundingClientRect();
+      return box.left + box.width / 2;
+    });
+    return [...document.querySelectorAll('[data-terp="chart-labels"] > span')]
+      .map((slot, index) => ({ slot, index }))
+      .filter(({ slot }) => slot.getAttribute("data-quiet") !== "true")
+      .map(({ slot, index }) => {
+        const range = document.createRange();
+        range.selectNodeContents(slot);
+        const text = range.getBoundingClientRect();
+        return {
+          centre: text.left + text.width / 2,
+          column: columns[index]!,
+          textWidth: text.width,
+          slotWidth: slot.getBoundingClientRect().width,
+          overflow: getComputedStyle(slot).overflowX,
+        };
+      });
+  });
+  expect(labels).toHaveLength(3);
+  // The case this is about: at least one printed label is wider than its band.
+  expect(labels.some(({ textWidth, slotWidth }) => textWidth > slotWidth)).toBe(true);
+  for (const label of labels) {
+    expect(label.overflow).toBe("visible");
+    expect(Math.abs(label.centre - label.column)).toBeLessThan(1);
+  }
+});
+
+test("a bar chart's long names stop at a third of the chart, and every value stays inside it", async ({
+  page,
+}) => {
+  // A table cell's max-inline-size does nothing in an automatic table layout, so the cap is on
+  // the name, in units of the chart's width. Without it the longest name took the row and pushed
+  // the values out of the tile.
+  await page.setViewportSize({ width: 420, height: 900 });
+  await page.goto("/?theme=midday&only=bar-chart-long-names");
+  await page.locator('[data-terp="bar-chart-table"]').waitFor({ state: "visible" });
+  const rows = await page.evaluate(() => {
+    const chart = document.querySelector('[data-terp="bar-chart"]')!;
+    const style = getComputedStyle(chart);
+    const content = chart.getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const table = document.querySelector('[data-terp="bar-chart-table"]')!.getBoundingClientRect();
+    return [...document.querySelectorAll('[data-terp="bar-chart-table"] tr')].map((row) => ({
+      name: row.querySelector('[data-terp="bar-chart-name"]')!.getBoundingClientRect().width,
+      bar: row.querySelector('[data-terp="bar-chart-bar"]')!.getBoundingClientRect().width,
+      valueRight: row.querySelector('[data-terp="bar-chart-value"]')!.getBoundingClientRect().right,
+      third: content / 3,
+      tableRight: table.right,
+    }));
+  });
+  for (const row of rows) {
+    expect(row.name).toBeLessThanOrEqual(row.third + 0.5);
+    expect(row.bar).toBeGreaterThan(40);
+    expect(row.valueRight).toBeLessThanOrEqual(row.tableRight + 0.5);
+  }
+});
+
+test("a point with no neighbour is drawn as a round dot", async ({ page }) => {
+  // A polyline of one point is never stroked; the dot is a zero-length stroke with a round cap,
+  // which the screenshot shows and this pins: the cap and the width are what make it visible.
+  await page.goto("/?theme=midday&only=trend-chart-so-far");
+  await page.locator('[data-terp="trend-chart-dot"]').first().waitFor({ state: "attached" });
+  const dot = await page.evaluate(() => {
+    const element = document.querySelector('[data-terp="trend-chart-dot"]:not([data-series])')!;
+    const style = getComputedStyle(element);
+    return { cap: style.strokeLinecap, width: parseFloat(style.strokeWidth), points: element.getAttribute("points") };
+  });
+  expect(dot.cap).toBe("round");
+  expect(dot.width).toBeGreaterThanOrEqual(5);
+  const [from, to] = dot.points!.split(" ");
+  expect(from).toBe(to);
+});

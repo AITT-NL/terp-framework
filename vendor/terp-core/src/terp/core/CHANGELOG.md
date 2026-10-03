@@ -66,8 +66,11 @@ first phases, and every app's look moves with them.
   panel's offer to revoke a retired module's rung is one now, where it was a row of its own
   beside the alert.
 - **Charts, under ADR 0158's contract (ADR 0169 §6).** `TrendChart` draws values over time as a
-  line, an area or columns, with an optional comparison period dashed behind it; `BarChart`
-  compares categories, and is itself the table of its data; `ProportionBar` splits a whole into
+  line, an area or columns, with an optional comparison period dashed behind it — over columns,
+  where behind them it would be hidden — on one index scale with the series, so a period still
+  running stops short of the one it is compared with; a point between two gaps is a dot, and an
+  axis of counts steps in whole numbers. `BarChart` compares categories, is itself the table of
+  its data, and ends a long name at a third of its width; `ProportionBar` splits a whole into
   its parts with a legend that says each one's count and share; `StatusHistory` shows how the
   recent runs of something ended, also as a `DataView` cell (`history` on a column) and in a
   page's `summary` band. Every mark is SVG geometry coloured from the sheet — no inline style, so
@@ -81,11 +84,13 @@ first phases, and every app's look moves with them.
   app's words as well.
 - **A page that answers "how is the whole doing": `DashboardPage` (ADR 0169 §4).** Where an
   overview answers "how is each one doing", a dashboard puts its figures in the `summary` band
-  and composes its body from the shape of its data: templated `Grid` sections holding figures
-  and charts side by side, the `DataView` the figures summarise, a `Timeline`, an `Alert` where
-  something needs action. Under the `standard` layout contract its body admits exactly those and
-  the framework states — refused by the lint and by the frame like every other archetype's slot,
-  each with the fix in its message.
+  and composes its body from the shape of its data: `Grid` sections, written with a template,
+  holding figures and charts side by side, the `DataView` the figures summarise, a `Timeline`,
+  an `Alert` where something needs action. Under the `standard` layout contract its body admits
+  `Grid`, `Stack`, `Card`, `DataView`, the figure family, the chart family with
+  `StatusHistory`, `Timeline`, `Divider`, `Text`, `Alert`, `ConfirmDialog` and the framework
+  states — refused by the lint and by the frame like every other archetype's slot, each with
+  the fix in its message. The contract admits any `Grid`; the template is the guide's ask.
 - Ten framework strings come with the figures, the charts and the history — `statFavourable`,
   `statUnfavourable`, `statTrend`, `statusHistoryRuns`, `adminHubTotal`, `recordHistory` and the
   four `auditAction…` words — in the English and Dutch catalogs.
@@ -162,11 +167,15 @@ first phases, and every app's look moves with them.
   still keeps it open (WCAG 1.4.13).
 - **A platform error reads in the app's language.** The UI words a failure by its code and
   falls back to the backend's English sentence for a code it does not know, and the codes the
-  middleware emits — the rate limiter's, the body-size limit's, the idempotency layer's and the
-  JSON guard's — and the unhandled-exception handler's `internal_error` had no wording. So a
-  Dutch screen said "Er is iets misgegaan." over "Too many requests; please retry later.". Each
-  has wording in both catalogs now, four of them new strings, and a gate reads the codes from
-  where the backend emits them, so a code added there without wording fails the build.
+  core's middleware emits — the rate limiter's, the body-size limit's, the idempotency layer's
+  and the JSON guard's — the unhandled-exception handler's `internal_error` and the core's lease
+  and sealed-configuration refusals had no wording. So a Dutch screen said "Er is iets
+  misgegaan." over "Too many requests; please retry later.". Each has wording in both catalogs
+  now, four of them new strings, and the packaged admin screens' notices use it too, where they
+  printed the backend's sentence as written. A gate reads every code the core emits from where
+  it is emitted, so a code added there without wording fails the build; a weak password keeps
+  its detail on purpose, since it names the policy's numbers. The capabilities' own codes are
+  not covered yet.
 - **Cards meet the edge in a DataView's card list.** The list padded every card 8px in from the
   edge it shares with the toolbar and the pagination; it has no padding of its own now.
 

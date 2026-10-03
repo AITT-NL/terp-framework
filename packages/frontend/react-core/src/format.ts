@@ -74,6 +74,7 @@ const DATE_TIME_OPTIONS: Intl.DateTimeFormatOptions = {
  */
 const DATE_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
 const NUMBER_FORMATTERS = new Map<string, Intl.NumberFormat>();
+const LIST_FORMATTERS = new Map<string, Intl.ListFormat>();
 
 function dateFormatter(locale: string | undefined, withTime: boolean): Intl.DateTimeFormat {
   const key = `${withTime ? "t" : "d"}|${locale ?? ""}`;
@@ -99,6 +100,20 @@ function numberFormatter(
     NUMBER_FORMATTERS.set(key, formatter);
   }
   return formatter;
+}
+
+/**
+ * Items joined as the locale joins a list -- "A, B and C", "A, B en C" -- for a sentence that
+ * reads a figure's points or a history's runs aloud. A history column calls it once per row.
+ */
+export function formatList(items: readonly string[], locale: string | undefined): string {
+  const key = locale ?? "";
+  let formatter = LIST_FORMATTERS.get(key);
+  if (formatter === undefined) {
+    formatter = new Intl.ListFormat(locale, { style: "long", type: "conjunction" });
+    LIST_FORMATTERS.set(key, formatter);
+  }
+  return formatter.format(items);
 }
 
 /** Locale-explicit short date, e.g. `7 jul 2026` under `nl`. `EMPTY` for absent or unparseable. */

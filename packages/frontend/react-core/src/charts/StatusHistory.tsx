@@ -1,3 +1,4 @@
+import { formatList } from "../format";
 import { useLocale } from "../locale";
 import { injectTerpStyles } from "../styles";
 import type { BadgeTone } from "../ui/Badge";
@@ -40,17 +41,22 @@ export interface StatusHistoryProps {
  * A tone is always also a word: the latest run's ending is printed beside the cells, and every
  * run is read out, its label and its ending, in the order drawn — the cells themselves are
  * hidden from assistive technology. Phrasing content throughout, so it sits in a page's summary
- * band, a collection's cell or a hub card's link alike.
+ * band, a collection's cell or a hub card's link alike. With no runs there is nothing to say,
+ * and it renders nothing rather than a sentence that stops at its colon.
  */
 export function StatusHistory({ label, runs }: StatusHistoryProps) {
   const resolve = useUiText();
   const strings = useStrings();
   const locale = useLocale()?.locale;
   const latest = runs.at(-1);
+  if (latest === undefined) {
+    return null;
+  }
   const text = fillPlaceholders(strings.statusHistoryRuns, {
     label: resolve(label),
-    runs: new Intl.ListFormat(locale, { style: "long", type: "conjunction" }).format(
+    runs: formatList(
       runs.map((run) => `${resolve(run.label)}: ${resolve(run.outcome.label)}`),
+      locale,
     ),
   });
   return (
@@ -60,11 +66,9 @@ export function StatusHistory({ label, runs }: StatusHistoryProps) {
           <span key={index} data-terp="status-history-cell" data-tone={run.outcome.tone} />
         ))}
       </span>
-      {latest !== undefined && (
-        <span data-terp="status-history-latest" aria-hidden="true">
-          {resolve(latest.outcome.label)}
-        </span>
-      )}
+      <span data-terp="status-history-latest" aria-hidden="true">
+        {resolve(latest.outcome.label)}
+      </span>
       <span data-terp="status-history-data">{text}</span>
     </span>
   );

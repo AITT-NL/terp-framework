@@ -18,13 +18,21 @@ export interface ValueAxis {
   ticks: readonly [number, number, number];
 }
 
-/** The smallest of 1, 2, 2.5 and 5 times a power of ten that is at least `raw`. */
-export function niceStep(raw: number): number {
+/**
+ * The smallest of 1, 2, 2.5 and 5 times a power of ten that is at least `raw`. An axis of
+ * `counts` steps in whole numbers instead -- 1, 2, 3 and 5 times a power of ten, and never
+ * below 1 -- since half a run is a label nobody can read, and a format that rounds it prints a
+ * tick the gridline is not at.
+ */
+export function niceStep(raw: number, counts = false): number {
   if (!(raw > 0) || !Number.isFinite(raw)) {
     return 1;
   }
+  if (counts && raw <= 1) {
+    return 1;
+  }
   const power = 10 ** Math.floor(Math.log10(raw));
-  for (const factor of [1, 2, 2.5, 5, 10]) {
+  for (const factor of counts ? [1, 2, 3, 5, 10] : [1, 2, 2.5, 5, 10]) {
     if (factor * power >= raw - power * 1e-9) {
       return factor * power;
     }
@@ -38,9 +46,10 @@ export function niceStep(raw: number): number {
  *
  * `fromZero` keeps zero on the axis — required where a mark's length is its value (an area, a
  * column), and left off for a line, where an axis from zero flattens the change the line is
- * there to show. An empty or a flat series still gets an axis with height.
+ * there to show. An empty or a flat series still gets an axis with height. `counts` steps it in
+ * whole numbers, for values that are counts.
  */
-export function valueAxis(values: readonly number[], fromZero: boolean): ValueAxis {
+export function valueAxis(values: readonly number[], fromZero: boolean, counts = false): ValueAxis {
   const finite = values.filter((value) => Number.isFinite(value));
   let min = finite.length === 0 ? 0 : Math.min(...finite);
   let max = finite.length === 0 ? 0 : Math.max(...finite);
@@ -50,18 +59,18 @@ export function valueAxis(values: readonly number[], fromZero: boolean): ValueAx
   }
   if (min === max) {
     // A flat series: give it a step either side of itself, or one step above zero.
-    const pad = niceStep(Math.abs(max) || 1);
+    const pad = niceStep(Math.abs(max) || 1, counts);
     min = fromZero && min >= 0 ? 0 : min - pad;
     max = max + pad;
   }
-  let step = niceStep((max - min) / 2);
+  let step = niceStep((max - min) / 2, counts);
   for (;;) {
     const low = Math.floor(min / step) * step;
     const high = low + 2 * step;
     if (high >= max - step * 1e-9) {
       return { low: clean(low), high: clean(high), ticks: [clean(high), clean(low + step), clean(low)] };
     }
-    step = niceStep(step * 1.01);
+    step = niceStep(step * 1.01, counts);
   }
 }
 
@@ -77,6 +86,11 @@ export function yOf(value: number, axis: ValueAxis): number {
 /** The x coordinate of point `index` of `count`, the first at the left edge and the last at the right. */
 export function xOf(index: number, count: number): number {
   return count <= 1 ? PLOT_WIDTH / 2 : round((index / (count - 1)) * PLOT_WIDTH);
+}
+
+/** The middle of band `index` of `count`: where a column stands, and a line drawn over columns bends. */
+export function bandCentre(index: number, count: number): number {
+  return round(((index + 0.5) * PLOT_WIDTH) / count);
 }
 
 /** A column's left edge and width, in a band of its own: each of `count` bands holds one column. */

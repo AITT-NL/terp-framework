@@ -519,9 +519,55 @@ and the briefing an app's agent reads was read the way that agent reads it:
 - **A platform error showed in English on a Dutch screen.** Capturing every screen back to back
   tripped the rate limiter, and its sentence arrived as written under the framework's Dutch
   "Er is iets misgegaan.". The UI words a failure by its code, and none of the middleware's
-  codes nor `internal_error` had wording. A gate written for the three seen found six more; all
-  nine are worded in both catalogs now, and the gate reads the codes from where the backend
-  emits them.
+  codes nor `internal_error` had wording. A gate written for the three seen found six more, and
+  the review below found that it read one file of the core's error classes; it reads the whole
+  core now.
+
+## What the review of phases 4 to 6 found
+
+An independent review of everything after phase 3, read against ADR 0169 and this draft, found
+these. Each is fixed with a test or a measurement that fails without the fix, and every one of
+those was mutation-checked.
+
+- **A comparison series was scaled to itself.** "This month so far" against last month drew the
+  shorter month stretched to the full width, and the table paired them by index and dropped
+  the longer one's rest. Both series stand on one index scale now, the table lists the longer
+  one whole, and over columns the comparison bends at the columns' centres and is drawn above
+  them, where behind them it was hidden.
+- **A line's middle label stood between two points** whenever the count was even: the labels sit
+  at the plot's ends and centre, and only an odd count has a point at the centre. The middle
+  label is printed for an odd count only, measured in the computed lane.
+- **A point with no neighbour drew nothing** — a series of one point, or a value between two
+  gaps — because a polyline of one point is never stroked. It is a dot.
+- **Printed column labels were cut to their band** on a narrow tile, and **a bar chart's long
+  names never ellipsised**, because a table cell's max-inline-size is ignored in an automatic
+  table layout. Labels overflow their band centred, and a name stops at a third of the chart in
+  container units; both are measured at a phone's width on specimens of their own.
+- **An axis of counts could step by 2.5**, printing "2.5" for a number of runs, or "3" under a
+  format that rounds. An axis whose values are whole numbers steps in whole numbers.
+- **The error-code gate read one file of the core's error classes**, and claimed every code the
+  platform emits. It reads every module of the core, checks that it read every envelope call,
+  and keeps the one code that keeps its detail on purpose — a weak password's, which names the
+  policy's numbers — in a list with its reason. The packaged admin screens printed the
+  backend's detail in their notices whatever the code; they word it now.
+- **Two tests could not fail.** The audit filter's test passed with the record type ignored,
+  over a trail of users only; a group's event is in it now. The router's refusal of an
+  unframed view passed before the view had even mounted; it waits for the view, then for the
+  refusal, and checks that the refusal names every archetype — which it now reads from the
+  contract, where it had named four.
+- **The descriptions disagreed with the contract.** The dashboard's body was described as
+  "exactly" a shorter list than the one the contract admits, "templated" as a rule the
+  contract does not check, and the run history as a chart the body refused. The body admits
+  the run history now, and the README, the changelog and the ADR say what the contract does;
+  the guide no longer calls every landing into the areas a hub when the hub preset is a
+  dashboard. The repository's own briefing named four archetypes, and the archetype gate reads
+  it now.
+- **Accessibility:** the timeline states its list role, which WebKit drops once the markers are
+  gone; the trend chart's table is named by the caption instead of repeating it; the bar
+  chart's table is named, and its bar cell hidden rather than read as blank; and a proportion's
+  name and count are no longer read as one word.
+- A run history with no runs rendered half a sentence; it renders nothing. The list joins
+  behind a figure's and a history's text alternative are kept, like the other formatters.
 
 ## Open after phase 6
 
@@ -532,6 +578,11 @@ and the briefing an app's agent reads was read the way that agent reads it:
   read from the audit capability, since counting a paginated list in the browser is not one;
   or packaged screens for sync runs and webhook deliveries, which needs those capabilities in
   the typed client the framework's own screens use.
+- **The capabilities' error codes.** The core's are worded; the capabilities' own — files,
+  multi-factor sign-in, users, auth, access, single sign-on, egress, mail, tenancy and webhooks
+  — still reach a screen as the backend's English detail. Several carry specifics a fixed
+  wording would drop, so each wants its own decision, and some want the envelope to carry
+  their numbers.
 - **The release.** ADR 0169 §8 ships phases 1–3 together and 4–6 after. All six are on this
   branch, under one unreleased section of the changelog; cutting them as one release or two is
   the owner's call.

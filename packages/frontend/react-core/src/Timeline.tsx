@@ -40,7 +40,9 @@ function isoOf(value: FormattableDate): string | undefined {
  * — a record's audit trail on its detail page, a request's steps.
  *
  * An ordered list, so a screen reader announces how many events there are and where it is
- * among them, and each `when` is a `<time>` carrying its machine-readable instant. The marker is
+ * among them -- with the list role stated, because WebKit drops a list's semantics once the
+ * sheet takes its markers away -- and each `when` is a `<time>` carrying its machine-readable
+ * instant. The marker is
  * decoration: the label says what its tone shows. Unframed, so it reads in a card or on the page
  * alike.
  */
@@ -48,7 +50,7 @@ export function Timeline({ label, events }: TimelineProps) {
   const resolve = useUiText();
   const formatDateTime = useFormatDateTime();
   return (
-    <ol data-terp="timeline" aria-label={resolve(label)}>
+    <ol data-terp="timeline" role="list" aria-label={resolve(label)}>
       {events.map((event, index) => (
         <li key={index} data-terp="timeline-event" data-tone={event.tone}>
           <span data-terp="timeline-marker" aria-hidden="true" />

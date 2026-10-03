@@ -112,6 +112,7 @@ export const LAYOUT_CONTRACTS = {
           TrendChart: "trend-chart",
           BarChart: "bar-chart",
           ProportionBar: "proportion-bar",
+          StatusHistory: "status-history",
           Timeline: "timeline",
           Divider: "divider",
           Text: "text",

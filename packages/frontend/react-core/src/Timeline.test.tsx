@@ -30,6 +30,8 @@ describe("Timeline", () => {
     renderIn("en", <Timeline label="History" events={EVENTS} />);
     const list = screen.getByRole("list", { name: "History" });
     expect(list.tagName).toBe("OL");
+    // Mutation: drop the stated role, and VoiceOver reads a list without markers as no list.
+    expect(list).toHaveAttribute("role", "list");
     expect(within(list).getAllByRole("listitem")).toHaveLength(2);
   });
 

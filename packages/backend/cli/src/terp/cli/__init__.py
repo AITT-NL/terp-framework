@@ -2083,9 +2083,9 @@ Layout contracts (slot-typed layouts, ADR 0079)
                       Card sections, no collection
       SplitPage    -> SplitPane only: a list beside the record it selects
       DashboardPage -> Grid / Stack / Card / DataView / Stat / StatGroup / TrendChart /
-                      BarChart / ProportionBar / Timeline / Divider / Text + the same
-                      states and ConfirmDialog: "how is the whole doing", its figures in
-                      the summary band
+                      BarChart / ProportionBar / StatusHistory / Timeline / Divider / Text +
+                      the same states and ConfirmDialog: "how is the whole doing", its
+                      figures in the summary band
   Grid is not an overview-body component, deliberately: an overview body is a data
   collection, a grid of cards into each area is a hub, and sections of figures and charts
   are a dashboard — each has its own archetype. Heading is admitted nowhere: a heading in a governed body must OWN its
@@ -2124,10 +2124,11 @@ Layout contracts (slot-typed layouts, ADR 0079)
   Contrast is that ranking — the figures in their band, containers stepped back onto
   --color-bg-subtle, the data forward on the surface — so a block that should stand out
   is a different shape of data, not a custom colour.
-- Pick the archetype by the question the page answers: a landing into the app's areas is
-  a HubPage; one area's collection (how each one is doing) an OverviewPage; how the whole
-  is doing a DashboardPage; one record a DetailPage; entering a record a FormPage;
-  settings a SettingsPage; a list beside the record it selects a SplitPage.
+- Pick the archetype by the question the page answers: a landing that only leads into the
+  app's areas is a HubPage; one area's collection (how each one is doing) an OverviewPage;
+  how the whole is doing a DashboardPage -- a landing that also carries the app's figures is
+  one, as the hub preset scaffolds it; one record a DetailPage; entering a record a
+  FormPage; settings a SettingsPage; a list beside the record it selects a SplitPage.
 - Alternate framed and unframed blocks. The frame belongs to the data a reader works with:
   a collection, a chart and a lone figure sit on the surface, the collection brightest. A
   boxed Card steps back onto --color-bg-subtle, for a group of controls or one section of

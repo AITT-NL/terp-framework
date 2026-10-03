@@ -716,6 +716,22 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"].map((lab
 }));
 
 /** Fourteen days of a count, for the columns specimen. */
+/**
+ * A month so far: eleven days, two of them unmeasured, so day 5 stands alone between gaps.
+ * Labelled by the day of the month, as a comparison of periods of different lengths is, since
+ * the axis and the table read a day's label from whichever series has that day.
+ */
+const SO_FAR = [41, 44, 46, Number.NaN, 47, Number.NaN, 52, 50, 55, 57, 56].map((value, index) => ({
+  label: `Day ${index + 1}`,
+  value,
+}));
+
+/** The whole month before, to set the month so far against. */
+const LAST_MONTH = Array.from({ length: 30 }, (_, index) => ({
+  label: `Day ${index + 1}`,
+  value: 38 + Math.round(10 * Math.sin(index / 4) + index / 3),
+}));
+
 const DAYS = [12, 18, 9, 22, 25, 14, 8, 16, 21, 19, 27, 23, 11, 17].map((value, index) => ({
   label: `${index + 1} Jan`,
   value,
@@ -1322,6 +1338,30 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         node: <TrendChart label="Runs per day" mark="columns" series={{ label: "Runs", points: DAYS }} />,
       },
       {
+        // A month so far against the whole month before: both on one index scale, so the month
+        // so far stops at its eleventh day; a day measured between two unmeasured ones is a dot,
+        // since a line needs two points; and with an odd count of points the middle label stands
+        // under the middle point.
+        id: "trend-chart-so-far",
+        title: "TrendChart — a month so far against the month before, with gaps",
+        node: (
+          <TrendChart
+            label="Deliveries per day"
+            series={{ label: "October so far", points: SO_FAR }}
+            comparison={{ label: "September", points: LAST_MONTH }}
+          />
+        ),
+      },
+      {
+        // Fourteen columns at a phone's width, a band narrower than a label: the printed labels
+        // stand centred under their columns and spill over the empty bands beside them rather
+        // than being cut to their own.
+        id: "trend-chart-columns-narrow",
+        title: "TrendChart — fourteen columns on a phone",
+        viewport: { width: 420, height: 900 },
+        node: <TrendChart label="Runs per day" mark="columns" series={{ label: "Runs", points: DAYS }} />,
+      },
+      {
         // Categories ranked by the caller, as a table whose middle column is the bar: the row
         // headers and the printed values are the chart's data for every reader.
         id: "bar-chart",
@@ -1334,6 +1374,23 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               { label: "Customer master", value: 1284 },
               { label: "Sales orders", value: 407 },
               { label: "Warehouse stock", value: 52 },
+            ]}
+          />
+        ),
+      },
+      {
+        // Long category names on a phone: a name stops at a third of the chart in an ellipsis,
+        // so the bars keep their room and every value stays inside the tile.
+        id: "bar-chart-long-names",
+        title: "BarChart — long names on a phone",
+        viewport: { width: 420, height: 900 },
+        node: (
+          <BarChart
+            label="Rows by source"
+            bars={[
+              { label: "Ledger entries from the general ledger export", value: 9310 },
+              { label: "Customer master records", value: 1284 },
+              { label: "Sales orders", value: 407 },
             ]}
           />
         ),

@@ -161,11 +161,13 @@ the letter of ADR 0158's contract, so they are recorded here.
 
 ## Amendment (2026-10-03): what building phases 4 to 6 settled
 
-- **The dashboard's body admits more than §4 lists.** Besides templated `Grid`s, the figure and
-  chart families, `DataView`, `Alert` and `Card`, it admits `Stack` — §2 makes nesting the way
-  to anything finer than a template, and `Stack` is what nests a column — `Timeline`, which §5
-  lists, `Divider` and `Text`, the framework's states, and `ConfirmDialog` for an alert's action,
-  as every other archetype with a free body does.
+- **The dashboard's body admits more than §4 lists.** Besides `Grid`s, the figure and chart
+  families (the chart family with `StatusHistory`), `DataView`, `Alert` and `Card`, it admits
+  `Stack` — §2 makes nesting the way to anything finer than a template, and `Stack` is what
+  nests a column — `Timeline`, which §5 lists, `Divider` and `Text`, the framework's states, and
+  `ConfirmDialog` for an alert's action, as every other archetype with a free body does. §4's
+  "templated" is the guide's ask rather than the contract's: the slot admits any `Grid`, as the
+  detail and form bodies do.
 - **The scaffolded dashboard draws figures, not charts.** A new app has no data over time, so
   the hub preset's dashboard carries three key figures in its summary band, each the dash
   until a module gives it a value, and the area cards in a templated section. A chart there

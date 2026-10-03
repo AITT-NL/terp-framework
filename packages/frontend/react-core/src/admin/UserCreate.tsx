@@ -12,6 +12,7 @@ import { useToast } from "../toast";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
+import { useErrorMessage } from "../errorMessages";
 import { useStrings } from "../uiText";
 import { unwrap } from "../unwrap";
 
@@ -30,6 +31,7 @@ export function UserCreate() {
   const client = useTerpClient();
   const navigate = useNavigate();
   const strings = useStrings();
+  const messageForCode = useErrorMessage();
   const toast = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -73,7 +75,7 @@ export function UserCreate() {
       const { shown, leftover } = routeFieldErrors(error, RENDERED_FIELDS);
       setFieldErrors(shown);
       if (Object.keys(shown).length === 0 || leftover) {
-        toast.warning(error instanceof Error ? error.message : strings.requestFailed);
+        toast.warning(messageForCode(error) ?? (error instanceof Error ? error.message : strings.requestFailed));
       }
     } finally {
       setCreating(false);

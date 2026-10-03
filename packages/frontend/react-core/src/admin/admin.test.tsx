@@ -829,6 +829,33 @@ describe("the packaged admin area", () => {
     ).toBeInTheDocument();
   });
 
+  it("words a refusal by its code in the app's language, not in the backend's English", async () => {
+    // The admin screens toasted the backend's detail as written, so a rate-limited create said
+    // "Too many requests; please retry later." on a Dutch screen. Mutation: toast error.message
+    // again, and the English sentence is what appears.
+    const { fetchMock } = renderAdminApp("/admin/groups/new", 30, true, DUTCH);
+    await screen.findByRole("heading", { level: 1, name: "Groep aanmaken" });
+    const passthrough = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input as Request;
+      if (request.method === "POST" && request.url.endsWith("/api/v1/groups/")) {
+        return jsonResponse(
+          { code: "rate_limited", detail: "Too many requests; please retry later.", request_id: "-" },
+          429,
+        );
+      }
+      return passthrough(input, init);
+    });
+
+    fireEvent.change(screen.getByLabelText("Naam"), { target: { value: "Redactie" } });
+    fireEvent.click(screen.getByRole("button", { name: "Groep aanmaken" }));
+
+    expect(
+      await screen.findByText("Te veel verzoeken tegelijk. Wacht even en probeer het opnieuw."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Too many requests; please retry later.")).toBeNull();
+  });
+
   it("renders its dates through the framework helper, not the built-in", async () => {
     // What this gates is the CONVERSION, not the locale channel, and the distinction is worth
     // naming: `renderAdminApp` mounts no `LocaleProvider`, so `useFormatDateTime` resolves an
@@ -957,6 +984,71 @@ describe("the packaged admin area", () => {
       .find((url) => url.pathname.endsWith("/api/v1/audit/"))!;
     expect(asked.searchParams.get("target_type")).toBe("User");
     expect(asked.searchParams.get("target_id")).toBe("u1");
+  });
+
+  it("shows a group's own history, asked for by the group", async () => {
+    // Mutation: ask GroupDetail's history for the wrong record type, and this group's events are
+    // never asked for.
+    const { fetchMock } = renderAdminApp("/admin/groups/g1");
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL((input as Request).url);
+      if (
+        url.pathname.endsWith("/api/v1/audit/") &&
+        url.searchParams.get("target_type") === "Group" &&
+        url.searchParams.get("target_id") === "g1"
+      ) {
+        return jsonResponse({
+          items: [
+            {
+              id: "g-e1",
+              created_at: "2026-08-20T08:00:00Z",
+              action: "created",
+              target_type: "Group",
+              target_id: "g1",
+              actor_id: null,
+              request_id: null,
+              payload: null,
+            },
+          ],
+          total: 1,
+          skip: 0,
+          limit: 10,
+        });
+      }
+      return base(input);
+    });
+    const history = await screen.findByRole("list", { name: "History" });
+    expect(within(history).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      expect.stringContaining("Created"),
+    ]);
+  });
+
+  it.each([
+    ["a trail the caller may not read", () => jsonResponse({ code: "permission_denied", detail: "No.", request_id: "-" }, 403)],
+    ["a trail with nothing about the record", () => jsonResponse({ items: [], total: 0, skip: 0, limit: 10 })],
+  ])("renders no history section for %s, and nothing in its place", async (_case, answer) => {
+    // The history is context: the screen is whole without it. Mutation: render an error state
+    // when the trail cannot be read, or the card when it is empty, and a section appears here.
+    const { fetchMock } = renderAdminApp("/admin/users/u1");
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL((input as Request).url);
+      return url.pathname.endsWith("/api/v1/audit/") ? answer() : base(input);
+    });
+    await screen.findByRole("heading", { level: 1 });
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => new URL((call[0] as Request).url).pathname.endsWith("/api/v1/audit/")),
+      ).toBe(true),
+    );
+    // Let the answer land and the component settle before looking for what it must not draw.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.queryByRole("heading", { name: "History" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "History" })).toBeNull();
+    expect(document.querySelector('[data-terp="error-state"]')).toBeNull();
   });
 
   it("names each of a group's collections, and counts the one it has read", async () => {

@@ -4,13 +4,14 @@ import { useFormatNumber } from "../format";
 import { injectTerpStyles } from "../styles";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
-import { PLOT_HEIGHT, PLOT_WIDTH, columnOf, valueAxis, xOf, yOf } from "./scale";
+import { PLOT_HEIGHT, PLOT_WIDTH, bandCentre, columnOf, valueAxis, xOf, yOf } from "./scale";
+import type { ValueAxis } from "./scale";
 
 injectTerpStyles();
 
-/** One point of a series: when, and how much. */
+/** One point of a series, or one bar: what it is, and how much. */
 export interface ChartPoint {
-  /** When — a period's name or a formatted date. */
+  /** What the point is — a period's name or a date in a trend, a category in a bar chart. */
   label: UiText;
   /** How much, in the chart's format. A value that is not a number is printed as the dash and drawn as a gap. */
   value: number;
@@ -32,8 +33,13 @@ export interface TrendChartProps {
   /** The values over time. */
   series: ChartSeries;
   /**
-   * The same measure for an earlier period, drawn as a dashed line behind the series and
-   * listed beside it in the table — the comparison a figure's delta summarises.
+   * The same measure for an earlier period, drawn as a dashed line — behind a line or an area,
+   * over columns, where behind them it would be hidden — and listed beside the series in the
+   * table: the comparison a figure's delta summarises. Point `i` of
+   * either series stands at the same place, so a period still running stops short of the one it
+   * is compared with, as "this month so far" against last month should. Where the two differ in
+   * length, label points by their place in the period ("Day 3"): the axis and the table read a
+   * point's label from whichever series has that point.
    */
   comparison?: ChartSeries;
   /**
@@ -47,19 +53,22 @@ export interface TrendChartProps {
   format?: Intl.NumberFormatOptions;
 }
 
-/** Points as a polyline's coordinates, a gap where a value is not a number. */
-function polyline(points: readonly ChartPoint[], axis: ReturnType<typeof valueAxis>): string[] {
-  const runs: string[] = [];
+/**
+ * Points as runs of coordinates, broken where a value is not a number. `x` places point `i`;
+ * a run of one point is kept, and drawn as a dot, since a line needs two.
+ */
+function runsOf(points: readonly ChartPoint[], axis: ValueAxis, x: (index: number) => number): string[][] {
+  const runs: string[][] = [];
   let current: string[] = [];
   points.forEach((point, index) => {
     if (!Number.isFinite(point.value)) {
-      if (current.length > 0) runs.push(current.join(" "));
+      if (current.length > 0) runs.push(current);
       current = [];
       return;
     }
-    current.push(`${xOf(index, points.length)},${yOf(point.value, axis)}`);
+    current.push(`${x(index)},${yOf(point.value, axis)}`);
   });
-  if (current.length > 0) runs.push(current.join(" "));
+  if (current.length > 0) runs.push(current);
   return runs;
 }
 
@@ -71,7 +80,8 @@ function polyline(points: readonly ChartPoint[], axis: ReturnType<typeof valueAx
  * is styled inline; numbers through the `format` helpers in the app's locale; no dependency;
  * and the data as a table — visually hidden here, read by assistive technology in place of the
  * picture, which is hidden from it. The axis takes three ticks in two equal steps, so its labels
- * stand at the top, the middle and the foot of the plot without a position of their own.
+ * stand at the top, the middle and the foot of the plot without a position of their own; an
+ * axis of counts steps in whole numbers.
  *
  * A tile on the surface, the rung where data is read (ADR 0169 §3), like a figure.
  */
@@ -81,18 +91,36 @@ export function TrendChart({ label, series, comparison, mark = "line", format }:
   const captionId = useId();
   const points = series.points;
   const earlier = comparison?.points ?? [];
-  const axis = valueAxis(
-    [...points.map((point) => point.value), ...earlier.map((point) => point.value)],
-    mark !== "line",
-  );
+  // One index scale for both series, as long as the longer of them.
+  const count = Math.max(points.length, earlier.length);
+  const values = [...points, ...earlier].map((point) => point.value);
+  const counts = values.filter((value) => Number.isFinite(value)).every((value) => Number.isInteger(value));
+  const axis = valueAxis(values, mark !== "line", counts);
   const base = yOf(Math.min(Math.max(0, axis.low), axis.high), axis);
-  const lines = polyline(points, axis);
+  // A line's point stands at its index across the plot; a column's in the middle of its band,
+  // where a comparison drawn over columns puts its vertices too.
+  const x = mark === "columns" ? (index: number) => bandCentre(index, count) : (index: number) => xOf(index, count);
+  const lines = runsOf(points, axis, x);
+  const before = runsOf(earlier, axis, x);
   const caption = resolve(label);
-  // Which labels the x axis prints: the ends, and the middle where there are enough points
-  // for one. Columns print theirs under each column, the rest held in place but not drawn.
-  const middle = Math.floor((points.length - 1) / 2);
+  const labelAt = (index: number) => resolve(points[index]?.label ?? earlier[index]?.label ?? "");
+  // Which labels the x axis prints: the ends, and the middle where there are enough points for
+  // one. A column chart prints under its columns, so its middle band always has one; a line's
+  // middle label sits at the plot's centre, where only an odd number of points puts a point.
+  const middle = (count - 1) / 2;
   const shown = (index: number) =>
-    index === 0 || index === points.length - 1 || (points.length >= 5 && index === middle);
+    index === 0 ||
+    index === count - 1 ||
+    (count >= 5 && (mark === "columns" ? index === Math.floor(middle) : index === middle));
+  const indices = Array.from({ length: count }, (_, index) => index);
+  const comparisonMarks = before.map((run, index) =>
+    run.length === 1 ? (
+      // A zero-length stroke with a round cap: a dot the plot's stretch cannot flatten.
+      <polyline key={`c${index}`} data-terp="trend-chart-dot" data-series="comparison" points={`${run[0]} ${run[0]}`} />
+    ) : (
+      <polyline key={`c${index}`} data-terp="trend-chart-comparison" points={run.join(" ")} />
+    ),
+  );
   return (
     // Named by its caption explicitly: the figure-from-figcaption name is the HTML mapping
     // browsers implement and not every accessibility tree computes.
@@ -127,57 +155,61 @@ export function TrendChart({ label, series, comparison, mark = "line", format }:
           {[0, PLOT_HEIGHT / 2, PLOT_HEIGHT].map((y) => (
             <line key={y} data-terp="chart-gridline" x1={0} x2={PLOT_WIDTH} y1={y} y2={y} />
           ))}
-          {comparison !== undefined &&
-            polyline(earlier, axis).map((run, index) => (
-              <polyline key={index} data-terp="trend-chart-comparison" points={run} />
-            ))}
+          {mark !== "columns" && comparisonMarks}
           {mark === "area" &&
-            lines.map((run, index) => {
-              const first = run.split(" ")[0]!.split(",")[0];
-              const last = run.split(" ").at(-1)!.split(",")[0];
-              return (
-                <polygon
-                  key={index}
-                  data-terp="trend-chart-area"
-                  points={`${first},${base} ${run} ${last},${base}`}
-                />
-              );
-            })}
+            lines
+              .filter((run) => run.length > 1)
+              .map((run, index) => {
+                const first = run[0]!.split(",")[0];
+                const last = run.at(-1)!.split(",")[0];
+                return (
+                  <polygon
+                    key={index}
+                    data-terp="trend-chart-area"
+                    points={`${first},${base} ${run.join(" ")} ${last},${base}`}
+                  />
+                );
+              })}
           {mark !== "columns" &&
-            lines.map((run, index) => (
-              <polyline key={index} data-terp="trend-chart-line" points={run} />
-            ))}
+            lines.map((run, index) =>
+              run.length === 1 ? (
+                <polyline key={index} data-terp="trend-chart-dot" points={`${run[0]} ${run[0]}`} />
+              ) : (
+                <polyline key={index} data-terp="trend-chart-line" points={run.join(" ")} />
+              ),
+            )}
           {mark === "columns" &&
             points.map((point, index) => {
               if (!Number.isFinite(point.value)) {
                 return null;
               }
-              const { x, width } = columnOf(index, points.length);
+              const column = columnOf(index, count);
               const y = yOf(point.value, axis);
               return (
                 <rect
                   key={index}
                   data-terp="trend-chart-column"
-                  x={x}
+                  x={column.x}
                   y={Math.min(y, base)}
-                  width={width}
+                  width={column.width}
                   height={Math.abs(base - y)}
                 />
               );
             })}
+          {mark === "columns" && comparisonMarks}
         </svg>
         <span data-terp="chart-labels" data-mark={mark}>
-          {points.map((point, index) =>
+          {indices.map((index) =>
             mark === "columns" || shown(index) ? (
               <span key={index} data-quiet={mark === "columns" && !shown(index) ? "true" : undefined}>
-                {resolve(point.label)}
+                {labelAt(index)}
               </span>
             ) : null,
           )}
         </span>
       </div>
-      <table data-terp="chart-table">
-        <caption>{caption}</caption>
+      {/* Named by the same caption rather than a <caption> of its own, so it is not read twice. */}
+      <table data-terp="chart-table" aria-labelledby={captionId}>
         <thead>
           <tr>
             <td />
@@ -186,10 +218,10 @@ export function TrendChart({ label, series, comparison, mark = "line", format }:
           </tr>
         </thead>
         <tbody>
-          {points.map((point, index) => (
+          {indices.map((index) => (
             <tr key={index}>
-              <th scope="row">{resolve(point.label)}</th>
-              <td>{formatNumber(point.value, format)}</td>
+              <th scope="row">{labelAt(index)}</th>
+              <td>{formatNumber(points[index]?.value, format)}</td>
               {comparison !== undefined && <td>{formatNumber(earlier[index]?.value, format)}</td>}
             </tr>
           ))}

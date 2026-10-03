@@ -18,9 +18,11 @@ export interface DashboardPageProps extends Omit<PageProps, "breadcrumbs"> {
  * its data — templated `Grid` sections holding charts and figures side by side, the collection
  * the figures summarise, an `Alert` where something needs action. With a layout contract active
  * (ADR 0079) the body accepts exactly those: `Grid`, `Stack`, `Card`, `DataView`, the figure
- * family (`Stat`, `StatGroup`), the chart family (`TrendChart`, `BarChart`, `ProportionBar`),
- * `Timeline`, `Divider`, `Text`, `Alert`, `ConfirmDialog` and the framework states — refused
- * fail closed otherwise. ADR 0098 named the condition for this archetype as "a `Grid` decision", and the
+ * family (`Stat`, `StatGroup`), the chart family (`TrendChart`, `BarChart`, `ProportionBar`,
+ * `StatusHistory`), `Timeline`, `Divider`, `Text`, `Alert`, `ConfirmDialog` and the framework
+ * states — refused fail closed otherwise. A section is written with a `Grid` template, which
+ * collapses on a phone; the contract admits any `Grid`, and the guide is what asks for the
+ * template. ADR 0098 named the condition for this archetype as "a `Grid` decision", and the
  * track templates were that decision.
  */
 export function DashboardPage({ parents, ...page }: DashboardPageProps): ReactNode {

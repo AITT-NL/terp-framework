@@ -4653,6 +4653,20 @@ button[data-terp="input"][data-placeholder="true"] {
   stroke-dasharray: 4 3;
   vector-effect: non-scaling-stroke;
 }
+/* A point with no neighbour -- a series of one, or a value between two gaps -- is a dot: a line
+   needs two points, and a polyline of one is never stroked. It is a zero-length stroke with a
+   round cap, so the plot's stretch cannot turn it into an ellipse the way a circle would. */
+[data-terp="trend-chart-dot"] {
+  fill: none;
+  stroke: var(--color-chart-1);
+  stroke-width: 6;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+[data-terp="trend-chart-dot"][data-series="comparison"] {
+  stroke: var(--color-fg-subtle);
+  stroke-width: 4;
+}
 /* The period labels: a line's first, middle and last at the ends and the centre; a column
    chart's under each column in a slot of its own, the ones not printed still holding their
    place, so a label sits under its column. */
@@ -4670,12 +4684,18 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp="chart-labels"][data-mark="columns"] {
   gap: 0;
 }
+/* A printed label is centred on its column and may be wider than its band: it overflows to
+   both sides, over the neighbours that print nothing, rather than being cut to the band. */
 [data-terp="chart-labels"][data-mark="columns"] > span {
   flex: 1 1 0;
   min-width: 0;
-  overflow: hidden;
-  text-align: center;
+  display: flex;
+  justify-content: center;
   white-space: nowrap;
+}
+/* A single point stands in the middle of the plot, and so does its label. */
+[data-terp="chart-labels"] > :only-child {
+  margin-inline: auto;
 }
 [data-terp="chart-labels"] > [data-quiet="true"] {
   visibility: hidden;
@@ -4762,7 +4782,12 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 /* The bar chart is a table: a category's name, its bar and its value, one row each, the bars
    scaled to the largest. The name column takes what its longest name needs up to a third of
-   the tile; the bar takes the rest. */
+   the tile; the bar takes the rest. A table cell's max-inline-size is ignored in an automatic
+   table layout, so the cap is on the name inside the cell, in units of the chart's own width:
+   the chart is a container for exactly that. */
+[data-terp="bar-chart"] {
+  container-type: inline-size;
+}
 [data-terp="bar-chart-table"] {
   inline-size: 100%;
   border-collapse: collapse;
@@ -4770,14 +4795,17 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 [data-terp="bar-chart-label"] {
   inline-size: 1%;
-  max-inline-size: 33%;
   padding: var(--space-1) var(--space-3) var(--space-1) 0;
   color: var(--color-fg-default);
   font-weight: var(--font-weight-normal);
   text-align: start;
-  white-space: nowrap;
+}
+[data-terp="bar-chart-name"] {
+  display: block;
+  max-inline-size: 33cqi;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 [data-terp="bar-chart-bar"] {
   padding: var(--space-1) 0;

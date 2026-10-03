@@ -28,10 +28,11 @@ export interface BarChartProps {
  * bar and its value, the bars scaled to the largest.
  *
  * The chart IS its table. ADR 0158 asks every chart for its data as a table, and a bar chart's
- * data is one row per bar — so the rows are a `<table>` with each category as a row header and
- * each value printed, and the bar is a cell of its own drawn for the eye and hidden from
- * assistive technology, which reads the row instead. Nothing is hidden twice and nothing is
- * read twice.
+ * data is one row per bar — so the rows are a `<table>`, named by the caption, with each
+ * category as a row header and each value printed, and the bar is a cell of its own drawn for
+ * the eye and hidden from assistive technology with its cell, so a row reads as its name and
+ * its value and never as a blank between them. A name longer than a third of the tile ends in
+ * an ellipsis rather than squeezing the bars; its whole text is still what is read.
  *
  * The bars are SVG geometry with the chart's first colour from the sheet, so nothing is styled
  * inline, and a value that is not a number draws no bar and prints the dash.
@@ -47,7 +48,7 @@ export function BarChart({ label, bars, format, max }: BarChartProps) {
       <figcaption id={captionId} data-terp="chart-caption">
         {resolve(label)}
       </figcaption>
-      <table data-terp="bar-chart-table">
+      <table data-terp="bar-chart-table" aria-labelledby={captionId}>
         <tbody>
           {bars.map((bar, index) => {
             const share =
@@ -55,10 +56,10 @@ export function BarChart({ label, bars, format, max }: BarChartProps) {
             return (
               <tr key={index}>
                 <th scope="row" data-terp="bar-chart-label">
-                  {resolve(bar.label)}
+                  <span data-terp="bar-chart-name">{resolve(bar.label)}</span>
                 </th>
-                <td data-terp="bar-chart-bar">
-                  <svg viewBox="0 0 100 1" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+                <td data-terp="bar-chart-bar" aria-hidden="true">
+                  <svg viewBox="0 0 100 1" preserveAspectRatio="none" focusable="false">
                     <rect data-terp="bar-chart-mark" x={0} y={0} width={round(share * 100)} height={1} />
                   </svg>
                 </td>

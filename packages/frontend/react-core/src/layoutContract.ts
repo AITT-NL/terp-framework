@@ -117,6 +117,7 @@ export const LAYOUT_CONTRACTS: Readonly<Record<string, LayoutContractSpec>> = {
           TrendChart: "trend-chart",
           BarChart: "bar-chart",
           ProportionBar: "proportion-bar",
+          StatusHistory: "status-history",
           Timeline: "timeline",
           Divider: "divider",
           Text: "text",

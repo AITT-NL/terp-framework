@@ -39,6 +39,7 @@ from terp.core._internal.session_guard import WriteGuardedSession
 
 import terp.capabilities.access.models  # noqa: F401  (register Grant table)
 import terp.capabilities.audit.models  # noqa: F401  (register AuditEvent table)
+from terp.capabilities.audit.models import AuditEvent
 import terp.capabilities.identity.models  # noqa: F401  (register User table)
 from terp.capabilities.access import (
     ACCESS_ASSIGN_MODULE_ROLE,
@@ -273,9 +274,20 @@ def test_audit_log_narrows_to_the_record_a_screen_is_about(app: FastAPI, engine:
     assert [event["action"] for event in mine["items"]] == ["updated", "created"]
     assert mine["total"] == 2
 
-    # Either filter narrows alone; an id from another record matches nothing of this one.
+    # Either filter narrows alone. The trail holds a group's event too, so a type filter that
+    # was ignored would show it: a check that the users' events were all present could not tell.
+    # This app mounts no groups router, so the group's event is written as the sink would.
+    group_id = str(uuid.uuid4())
+    with Session(engine) as session:
+        session.add(AuditEvent(action="created", target_type="Group", target_id=group_id))
+        session.commit()
     users = c.get("/api/v1/audit/", params={"target_type": "User"}).json()
+    assert {event["target_type"] for event in users["items"]} == {"User"}
     assert {event["target_id"] for event in users["items"]} >= {uid, other.json()["id"]}
+    groups = c.get("/api/v1/audit/", params={"target_type": "Group"}).json()
+    assert [event["target_id"] for event in groups["items"]] == [group_id]
+    # The type and the id are both conditions: this user's id under the group type is nothing.
+    assert c.get("/api/v1/audit/", params={"target_type": "Group", "target_id": uid}).json()["total"] == 0
     assert c.get("/api/v1/audit/", params={"target_id": str(uuid.uuid4())}).json()["total"] == 0
     # Bounded like every other filter, so a query string cannot ask the database anything long.
     assert c.get("/api/v1/audit/", params={"target_id": "x" * 129}).status_code == 422

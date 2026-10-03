@@ -14,6 +14,7 @@ import { useToast } from "../toast";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { useFormatDateTime } from "../format";
+import { useErrorMessage } from "../errorMessages";
 import { useStrings } from "../uiText";
 import { unwrap } from "../unwrap";
 
@@ -34,6 +35,7 @@ export function UserDetail() {
   const userId = useDeclaredParam("userId");
   const client = useTerpClient();
   const strings = useStrings();
+  const messageForCode = useErrorMessage();
   const formatDateTime = useFormatDateTime();
   const toast = useToast();
   const [pendingLifecycle, setPendingLifecycle] = useState<PendingLifecycle | null>(null);
@@ -65,7 +67,7 @@ export function UserDetail() {
   const record = user.item;
 
   function failed(error: unknown): void {
-    toast.warning(error instanceof Error ? error.message : strings.requestFailed);
+    toast.warning(messageForCode(error) ?? (error instanceof Error ? error.message : strings.requestFailed));
   }
 
   async function onConfirmLifecycle() {

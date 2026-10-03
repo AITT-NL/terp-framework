@@ -431,7 +431,8 @@ describe("layout contract survives the roots the styling migration renames", () 
         Object.values(slot.components),
       ),
     );
-    // The dashboard's body (ADR 0169 §4) added the figure and chart families and the timeline.
+    // The dashboard's body (ADR 0169 §4) added the figure and chart families -- the run history
+    // among the charts -- and the timeline.
     expect([...named].sort()).toEqual([
       "alert",
       "bar-chart",
@@ -453,6 +454,7 @@ describe("layout contract survives the roots the styling migration renames", () 
       "stack",
       "stat",
       "stat-group",
+      "status-history",
       "tabs",
       "text",
       "timeline",
@@ -799,6 +801,8 @@ describe("the dashboard's body (ADR 0169 §4)", () => {
         </Grid>
         <TrendChart label="Rows" mark="columns" series={{ label: "Rows", points: [{ label: "Mon", value: 3 }] }} />
         <Stat label="Failed runs" value={3} />
+        {/* Mutation: drop StatusHistory from the dashboard's table, and this is refused. */}
+        <StatusHistory label="Runs" runs={[{ label: "Mon", outcome: { label: "Succeeded", tone: "success" } }]} />
       </DashboardPage>,
     );
     await expectAccepted();

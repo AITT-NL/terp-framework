@@ -105,7 +105,7 @@ export function ProportionBar({ label, parts, format }: ProportionBarProps) {
               data-series={part.tone === undefined ? series(index) : undefined}
               aria-hidden="true"
             />
-            <span>{resolve(part.label)}</span>
+            <span>{resolve(part.label)}</span>{" "}
             <span data-terp="chart-legend-value">
               {formatNumber(part.value, format)}
               {total > 0 && ` · ${formatNumber(counted[index]! / total, PERCENT)}`}

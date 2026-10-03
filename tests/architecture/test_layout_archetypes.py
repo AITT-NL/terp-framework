@@ -41,6 +41,9 @@ _ENUMERATING_DOCS = (
     "template/project/AGENTS.md.jinja",
     "template/AGENTS.md",
     "packages/frontend/react-core/README.md",
+    # The repository's own briefing, which named four archetypes for releases after the other
+    # four shipped, because this tuple did not hold it.
+    "AGENTS.md",
 )
 
 

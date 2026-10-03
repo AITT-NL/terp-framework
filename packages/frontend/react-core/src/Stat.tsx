@@ -1,7 +1,7 @@
 import { useContext, useEffect } from "react";
 import type { ReactNode } from "react";
 
-import { useFormatNumber } from "./format";
+import { formatList, useFormatNumber } from "./format";
 import { HeadlineContext } from "./layoutContract";
 import { useLocale } from "./locale";
 import { Meter } from "./Meter";
@@ -233,8 +233,9 @@ export function Stat({
     points.length === 0
       ? undefined
       : fillPlaceholders(strings.statTrend, {
-          points: new Intl.ListFormat(locale, { style: "long", type: "conjunction" }).format(
+          points: formatList(
             points.map((point) => `${resolve(point.label)}: ${formatNumber(point.value, format)}`),
+            locale,
           ),
         });
   const drawable = points.map((point) => point.value).filter((value) => Number.isFinite(value));

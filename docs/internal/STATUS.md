@@ -904,9 +904,9 @@ frontend design-system track below.
       phase 6 (`DashboardPage`, and the hub preset scaffolded as one) complete the second.
 - [ ] Owed: the release cut (one release or two, ADR 0169 §8), the Studio's pin after it, and
       which screen draws the charts first — open in the draft.
-- [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list all
-      seven now, and `test_layout_archetypes.py` reads every guide topic as well as the two
-      `AGENTS.md` files and the react-core README.
+- [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
+      every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
+      the template's two `AGENTS.md` files, the repository's own and the react-core README.
 
 ## Active execution track
 

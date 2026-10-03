@@ -82,6 +82,16 @@ export const PROFILE_PATH = "/profile";
 const ARCHETYPE_GRACE_MS = 2_000;
 
 /**
+ * Every page archetype by name, the plain `Page` first and the rest read from the standard
+ * contract's slot table, for the refusal's message: written out by hand, it named the four
+ * archetypes it was first written with for releases after four more shipped.
+ */
+const ARCHETYPE_NAMES = (() => {
+  const names = ["Page", ...Object.keys(LAYOUT_CONTRACTS.standard?.slots ?? {})];
+  return `${names.slice(0, -1).join(", ")} or ${names.at(-1)}`;
+})();
+
+/**
  * Translate a manifest path into TanStack Router's dialect.
  *
  * `ModuleManifest` is stack-agnostic (the same manifest is meant to drive a SvelteKit
@@ -606,8 +616,7 @@ export function buildAppRouter(
       if (unframed && !marked.current) {
         throw new Error(
           `Terp routed view "${viewName}" must render a react-core page archetype ` +
-            "(Page, OverviewPage, DetailPage or HubPage) so every screen keeps the " +
-            "breadcrumb/title/error frame.",
+            `(${ARCHETYPE_NAMES}) so every screen keeps the breadcrumb/title/error frame.`,
         );
       }
       if (!allowed) {

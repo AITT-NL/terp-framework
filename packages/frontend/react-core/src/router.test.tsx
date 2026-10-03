@@ -629,9 +629,9 @@ describe("buildAppRouter", () => {
   });
 
   it("refuses a routed view that skips the page archetypes (fail closed)", async () => {
-    // The runtime half of the page-archetype control: a view rendering bare markup (no Page /
-    // OverviewPage / DetailPage / HubPage in its tree) is refused after mount, not shown.
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // The runtime half of the page-archetype control: a view rendering bare markup (no page
+    // archetype in its tree) is refused after mount, not shown.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const fetchMock = vi.fn<typeof fetch>(async (input) => {
       const url = (input as Request).url;
       if (url.endsWith("/api/v1/auth/login")) {
@@ -660,9 +660,21 @@ describe("buildAppRouter", () => {
     // The bare view mounts, the post-mount check bites, and the screen is torn down. The
     // timeout clears the guard's grace budget: this is the one test that waits out the whole
     // window, because it is the one asserting the refusal actually arrives.
+    // Seen first: a check that only waited for the heading's absence passed before the view had
+    // mounted at all, while sign-in was still on its way.
+    await screen.findByRole("heading", { name: "Bare view" }, { timeout: 4000 });
     await waitFor(
       () => expect(screen.queryByRole("heading", { name: "Bare view" })).not.toBeInTheDocument(),
       { timeout: 4000 },
+    );
+    // The refusal names every archetype there is, read from the contract's table. Mutation: write
+    // the list out by hand again, and it names the four it once did.
+    const logged = consoleError.mock.calls
+      .flat()
+      .map((argument) => (argument instanceof Error ? argument.message : String(argument)))
+      .join(" ");
+    expect(`${logged} ${document.body.textContent ?? ""}`).toContain(
+      "(Page, HubPage, OverviewPage, FormPage, SettingsPage, SplitPage, DashboardPage or DetailPage)",
     );
   });
 

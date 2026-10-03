@@ -276,8 +276,8 @@ so there is nothing to keep in sync. The same file is where the app's shell shap
 them as a bootstrap option as well is refused when the router is composed. The contract itself: each archetype's body slot accepts only the contract's components (hub bodies:
 `HubCard`; overview bodies: `DataView` / `ResourceList` / `Stack` / `Card` / `Divider` /
 `Text` + framework states; detail bodies: those plus `Grid`, `DetailList` and `Tabs`;
-dashboard bodies: templated `Grid` sections, the figure and chart families, `DataView`,
-`Timeline`, `Card` and `Stack` + framework states — `Grid` is not an overview-body component,
+dashboard bodies: `Grid` sections (write them with a template), the figure and chart
+families, `DataView`, `Timeline`, `Card` and `Stack` + framework states — `Grid` is not an overview-body component,
 because an overview body is a collection, a grid of cards into each area is a hub, and
 sections of figures and charts are a dashboard; the form, settings and split bodies are in
 `uv run terp guide layouts`; direct children only, and an allowed container's subtree is
@@ -316,9 +316,11 @@ page `headline` at most. Contrast comes from that ranking — the figures in the
 containers stepped back, the data forward — so never reach for a colour of your own to make a
 block stand out.
 
-**Pick the archetype by the question the page answers.** A landing into the app's areas is a
-`HubPage`; one area's collection — how each one is doing — an `OverviewPage`; how the whole is
-doing, its figures in the band and sections of charts below, a `DashboardPage`; one record a
+**Pick the archetype by the question the page answers.** A landing that only leads into the
+app's areas is a `HubPage`; one area's collection — how each one is doing — an `OverviewPage`;
+how the whole is doing, its figures in the band and sections of charts below, a
+`DashboardPage` — a landing that also carries the app's figures is one, as this app's own
+landing may be; one record a
 `DetailPage`; entering a record a `FormPage`; settings a `SettingsPage`; a list beside the
 record it selects a `SplitPage`; and a screen none of these fit, the plain `Page`.
 

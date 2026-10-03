@@ -18,6 +18,7 @@ import { useToast } from "../toast";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { useFormatDate, useFormatDateTime } from "../format";
+import { useErrorMessage } from "../errorMessages";
 import { useStrings } from "../uiText";
 import { ApiError, unwrap } from "../unwrap";
 
@@ -48,6 +49,7 @@ export function GroupDetail() {
   const navigate = useNavigate();
   const toast = useToast();
   const strings = useStrings();
+  const messageForCode = useErrorMessage();
   const suggestionsId = useId();
 
   const formatDate = useFormatDate();
@@ -194,7 +196,7 @@ export function GroupDetail() {
   );
 
   function failed(error: unknown): void {
-    toast.warning(error instanceof Error ? error.message : strings.requestFailed);
+    toast.warning(messageForCode(error) ?? (error instanceof Error ? error.message : strings.requestFailed));
   }
 
   /**
