@@ -5112,13 +5112,21 @@ button[data-terp="input"][data-placeholder="true"] {
   background: none;
   box-shadow: -1px 0 0 0 var(--color-neutral-200);
 }
-/* The headline keeps its fill in a group, inset in its own padding and held off the next
-   figure by half a gap, so it reads as the one filled cell of the row. */
+/* The headline keeps its fill in a group, inset in its own padding and held off the figures
+   on either side by half a gap, so it reads as the one filled cell of the row. The group
+   reaches out by half a gap so a focus ring has room; the fill must not reach out with it, or
+   a headline that starts a line pokes past the edge every other block on the page keeps --
+   with the margin, its fill starts where the band's content does. The fill is its own
+   division, so no rule is drawn on either side of it. */
 [data-terp="stat-group"] > [data-terp="stat"][data-headline] {
-  margin-inline-end: var(--space-3);
+  margin-inline: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-lg);
   background: var(--color-brand-primary);
+  box-shadow: none;
+}
+[data-terp="stat-group"] > [data-terp="stat"][data-headline] + [data-terp="stat"] {
+  box-shadow: none;
 }
 /* In a hub card's stat row the card is the frame, so an ordinary figure has none of its own
    there. The headline keeps its fill wherever it is. */

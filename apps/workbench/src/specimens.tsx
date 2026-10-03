@@ -772,6 +772,19 @@ function SyncSummary() {
   );
 }
 
+/** A summary band's figures with the headline among them, the first of the row. */
+function HeadlineGroup() {
+  return (
+    <StatGroup>
+      <Stat headline label="Definitions" value={12} />
+      <Stat label="Succeeded" value={9} />
+      <Stat label="Failed" value={2} />
+      <Stat label="Paused" value={1} />
+      <Stat label="Sources" value={4} />
+    </StatGroup>
+  );
+}
+
 const LONG_DIGEST = "9f2c1b7ae4d08c3f5a6b2e1d4c7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f";
 
 /** Long enough that the measure caps it — at two words the cap paints nothing. */
@@ -1214,6 +1227,30 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
             <Stat label="Median duration" value="4 m 12 s" />
             <Stat label="Last run" value="12:04" caption="Succeeded" />
           </StatGroup>
+        ),
+      },
+      {
+        // A headline inside a group, which is how a summary band usually carries the figure
+        // that matters most: the fill starts at the band's content edge, where the other
+        // blocks' edges are, and is held off its neighbours with no rule beside it.
+        id: "stat-group-headline",
+        title: "StatGroup — the headline as one of the row's figures",
+        node: (
+          <Page title="Overview" summary={<HeadlineGroup />}>
+            <Card title="Sync definitions">The body starts under the band.</Card>
+          </Page>
+        ),
+      },
+      {
+        // The same band on a phone: the headline starts the first line at the gutter, not
+        // past it, and the line under it starts at the gutter too.
+        id: "stat-group-headline-narrow",
+        title: "StatGroup — the headline in a row on a phone",
+        viewport: { width: 420, height: 900 },
+        node: (
+          <Page title="Overview" summary={<HeadlineGroup />}>
+            <Card title="Sync definitions">The body starts under the band.</Card>
+          </Page>
         ),
       },
       {

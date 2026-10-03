@@ -1523,3 +1523,35 @@ test("a chart's axis labels sit on their gridlines, and a column's label under i
     expect(Math.abs(centre - columns.bars[index]!), `column ${index + 1}`).toBeLessThanOrEqual(2);
   });
 });
+
+test("a headline in a group of figures keeps its fill inside the content edge, with no rule beside it", async ({
+  page,
+}) => {
+  // The group reaches out by half a gap so a focus ring has room (the test above); a filled
+  // headline reaching out with it poked its tile past the edge every other block keeps. So a
+  // headline that starts a line begins its fill where the band's content does, at the desk
+  // width and on a phone, and the fill is its own division: no rule on either side of it.
+  for (const [only, width] of [
+    ["stat-group-headline", 1280],
+    ["stat-group-headline-narrow", 420],
+  ] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/?theme=midday&only=${only}`);
+    await page.locator('[data-terp="stat"][data-headline]').waitFor({ state: "visible" });
+    const geometry = await page.evaluate(() => {
+      const summary = document.querySelector('[data-terp="page-summary"]')!;
+      const style = getComputedStyle(summary);
+      const contentLeft =
+        summary.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+      const headline = summary.querySelector('[data-terp="stat"][data-headline]')!;
+      return {
+        fillLeft: headline.getBoundingClientRect().left - contentLeft,
+        ownRule: getComputedStyle(headline).boxShadow,
+        nextRule: getComputedStyle(headline.nextElementSibling!).boxShadow,
+      };
+    });
+    expect(geometry.fillLeft, `${only}: the fill starts at the content edge`).toBeCloseTo(0, 0);
+    expect(geometry.ownRule, `${only}: no rule before the fill`).toBe("none");
+    expect(geometry.nextRule, `${only}: no rule after it`).toBe("none");
+  }
+});

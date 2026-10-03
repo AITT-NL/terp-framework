@@ -495,6 +495,28 @@ each fixed in one follow-up with a test that fails without the fix:
   dashboard of phase 6 as their framework consumer; until it lands the admin hub's totals are
   the one consumer in the framework.
 
+## What the end-to-end pass found
+
+After phase 6, the scaffolded hub app and an existing app were run on this branch in a browser,
+and the briefing an app's agent reads was read the way that agent reads it:
+
+- **The briefing named no dashboard body and said nothing about alternation.** The generated
+  `AGENTS.md` listed the hub, overview and detail bodies only, and still called `Grid` a
+  detail-body component, while the app it describes now lands on a dashboard; and nothing told
+  an agent that a page of boxed cards is the monotony ADR 0169 exists to end. The app's
+  `AGENTS.md`, `terp guide layouts`, the template's own `AGENTS.md` and the react-core README
+  now say how to pick the archetype by the question a page answers and how to alternate
+  framed and unframed blocks — the frame for the data a reader works with, a boxed `Card` for
+  a group of controls or a record's section, and the figures, facts, events and prose on the
+  page. The existing app's overview, rebuilt on exactly that guidance, read as one designed
+  page where it had read as four boxes.
+- **A headline in a group of figures poked past the content edge.** The review's focus-ring
+  fix let the group reach out by half a gap, and a filled headline reached out with it: 12px
+  past the edge every other block keeps, 4px from the screen's edge on a phone. It is held off
+  its neighbours on both sides now, with no rule beside it, measured in the computed lane at
+  the desk width and on a phone (three mutations, all red), and the workbench shows the case
+  it had no specimen for.
+
 ## Open after phase 6
 
 - **Which screen draws the charts first.** The charts are built and gated, and a module can
