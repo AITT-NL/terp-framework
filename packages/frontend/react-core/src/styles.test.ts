@@ -533,9 +533,9 @@ describe("cascade structure", () => {
     expect(chrome, "the band is what separates chrome from content").toContain(
       "border-block-end: 1px solid var(--color-neutral-200)",
     );
-    // The block padding is ONE INSET, and the row gap is the same inset: every line of the
-    // band at least a control tall (pinned below), with the inset at the edges and between
-    // lines alike. The inset is what the header height leaves around one control, halved, so
+    // The block padding is ONE INSET, and the row gap is the same inset: every control's line
+    // of the band at least a control tall (pinned below), with the inset at the edges and
+    // between lines alike. The inset is what the header height leaves around one control, halved, so
     // a one-line band is inset + control + inset + rule = the header's height, which is what
     // the computed lane reads back. Two earlier shapes each got half of it wrong: zero padding
     // with content-sized lines crammed a wrapped band against its border, and full 47px lines
@@ -555,11 +555,21 @@ describe("cascade structure", () => {
     const line = "min-height: var(--density-control-min-height)";
     for (const item of [
       '[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] [data-terp="breadcrumbs"]',
-      '[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] [data-terp="page-meta"]',
       '[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] > [data-terp="page-actions"]',
     ]) {
-      expect(bodyFor(item), `${item}: every line at least a control tall`).toContain(line);
+      expect(bodyFor(item), `${item}: a control's line at least a control tall`).toContain(line);
     }
+    // The meta line is not a control's line (ADR 0135, amended 2026-10-04): it takes its own
+    // height, meets the line above it by cancelling the band's gap, and keeps --space-2 under
+    // its ink, so a lead sentence reads as the title's subtitle rather than as a line of its own.
+    const meta = bodyFor(
+      '[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] [data-terp="page-meta"]',
+    );
+    expect(meta, "the meta line takes its own height").not.toContain(line);
+    expect(meta, "and meets the line above it").toContain(
+      `margin-block-start: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / -2)`,
+    );
+    expect(meta, "with room under its ink").toContain("padding-block-end: var(--space-2)");
 
     // THE BLEED is gated, because the negative-margin idiom is only correct against a box
     // that pads by exactly this token. ADR 0097 section 2 kept "it works with no shell above
