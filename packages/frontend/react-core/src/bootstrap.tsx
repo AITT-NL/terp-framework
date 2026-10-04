@@ -306,7 +306,7 @@ export function withAdminArea(
     return { manifests, views };
   }
   const merged = { ...views };
-  const allSections = sections.users && sections.groups && sections.audit;
+  const allSections = sections.users && sections.groups && sections.audit && sections.access;
   for (const route of routes) {
     if (route.view === "TerpAdminHub" && !allSections) {
       // The hub mirrors the selection: one card per kept section (and no stat

@@ -506,6 +506,19 @@ describe("the packaged admin area", () => {
     expect(probed.some((url) => url.includes("/api/v1/groups/"))).toBe(false);
   });
 
+  it("drops the access card with the access section, the one a full hub always drew", async () => {
+    // The selective hub replaced the full one only when users, groups or audit was dropped, so
+    // `{ access: false }` alone removed the route and kept the card that leads to it.
+    renderAdminApp("/admin", 30, { access: false });
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1, name: "Admin" })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("link", { name: /Users/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Groups/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Audit log/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^Access/ })).not.toBeInTheDocument();
+  });
+
   it("uses the users overview action and clickable rows for dedicated pages", async () => {
     renderAdminApp("/admin/users");
     await waitFor(() =>

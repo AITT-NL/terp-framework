@@ -204,6 +204,9 @@ first phases, and every app's look moves with them.
   it is emitted, so a code added there without wording fails the build; a weak password keeps
   its detail on purpose, since it names the policy's numbers. The capabilities' own codes are
   not covered yet.
+- **An admin area without its access section has no access card.** `adminArea: { access: false }`
+  removed the access screen's route and kept the hub's card that leads to it, because the hub
+  only switched to its section-aware form when users, groups or audit was dropped.
 - **Cards meet the edge in a DataView's card list.** The list padded every card 8px in from the
   edge it shares with the toolbar and the pagination; it has no padding of its own now.
 
