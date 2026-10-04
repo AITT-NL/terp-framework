@@ -155,6 +155,31 @@ function LogInOnMount() {
 
 const emptyPage = { items: [], total: 0, skip: 0, limit: 1 };
 
+/** A day of the hub's activity fixture: `offset` days after 5 September 2026. */
+function activityDay(offset: number, count: number) {
+  return { date: new Date(Date.UTC(2026, 8, 5 + offset)).toISOString().slice(0, 10), count };
+}
+
+/**
+ * The trail's activity as the hub reads it: thirty days ending 4 October, one change a day
+ * except the last week's 21, so the figure reads 21 against the 7 of the week before.
+ */
+const LAST_WEEK = [5, 4, 6, 3, 2, 0, 1];
+const ACTIVITY = {
+  time_zone: "Europe/Amsterdam",
+  days: Array.from({ length: 30 }, (_, index) =>
+    activityDay(index, index >= 23 ? LAST_WEEK[index - 23]! : 1),
+  ),
+  previous_days: Array.from({ length: 30 }, (_, index) => activityDay(index - 30, 2)),
+  by_action: [
+    { action: "updated", count: 30 },
+    { action: "created", count: 12 },
+    { action: "deleted", count: 2 },
+  ],
+  by_target_type: [{ target_type: "User", count: 44 }],
+  total: 44,
+};
+
 /**
  * Held open, the access-model response does not land. Set by the one test that needs the
  * role ladder to still be in flight while it looks at the form, so the window in which the
@@ -275,6 +300,10 @@ function stubAdminFetch() {
           limit: 20,
         });
       }
+      // The hub counts its active accounts as a total under the status filter.
+      if (url.searchParams.get("is_active") === "true") {
+        return jsonResponse({ items: [], total: 5, skip: 0, limit: 1 });
+      }
       return jsonResponse({
         items: [
           {
@@ -367,6 +396,9 @@ function stubAdminFetch() {
         skip: 0,
         limit: 10,
       });
+    }
+    if (path.endsWith("/api/v1/audit/activity")) {
+      return jsonResponse(ACTIVITY);
     }
     if (path.endsWith("/api/v1/audit/")) {
       // One row, and it earns its place rather than padding the fixture: the audit screen's
@@ -469,6 +501,20 @@ function renderAdminApp(
  * to wait on. This is that thing, and it is the condition that actually gates the click
  * rather than a proxy for it.
  */
+/** A figure on the page, read by its label: its value, caption, delta and whether it leads. */
+function figure(label: string) {
+  const stat = [...document.querySelectorAll('[data-terp="stat"]')].find(
+    (node) => node.querySelector('[data-terp="stat-label"]')?.textContent === label,
+  );
+  if (stat === undefined) return undefined;
+  return {
+    value: stat.querySelector('[data-terp="stat-value"]')?.textContent,
+    caption: stat.querySelector('[data-terp="stat-caption"]')?.textContent,
+    delta: stat.querySelector('[data-terp="stat-change"]')?.textContent,
+    headline: stat.hasAttribute("data-headline"),
+  };
+}
+
 async function enabledSubmitControl(): Promise<HTMLElement> {
   const control = await screen.findByRole("button", { name: "Provision user" });
   await waitFor(() => expect(control).toBeEnabled());
@@ -476,34 +522,52 @@ async function enabledSubmitControl(): Promise<HTMLElement> {
 }
 
 describe("the packaged admin area", () => {
-  it("serves the hub at /admin with cards into users, groups and audit", async () => {
-    renderAdminApp("/admin");
+  it("serves the hub at /admin as a dashboard: the figures, the areas, then the trail", async () => {
+    const { fetchMock } = renderAdminApp("/admin");
     await waitFor(() =>
       expect(screen.getByRole("heading", { level: 1, name: "Admin" })).toBeInTheDocument(),
     );
-    expect(screen.getByRole("link", { name: /Users/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Groups/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Audit log/ })).toBeInTheDocument();
-    // Live totals from the limit=1 probes reach the cards.
-    await waitFor(() => expect(screen.getByText("7")).toBeInTheDocument());
-    expect(screen.getByText("3")).toBeInTheDocument();
+    for (const area of [/Users/, /Groups/, /Audit log/, /^Access/]) {
+      expect(screen.getByRole("link", { name: area })).toBeInTheDocument();
+    }
+    // The summary band's figures, each read by its label: the active accounts as a total under
+    // the status filter, with the rest deactivated; the groups; and the trail's last week
+    // against the week before, from one activity read.
+    await waitFor(() => expect(figure("Changes, last 7 days")?.value).toBe("21"));
+    expect(figure("Active accounts")).toMatchObject({ value: "5", caption: "2 deactivated", headline: true });
+    expect(figure("Groups")?.value).toBe("3");
+    expect(figure("Changes, last 7 days")?.delta).toContain("14");
+    // Then the trail per day against the days before, and the kinds of change in the app's words.
+    expect(screen.getByText("Changes per day")).toBeInTheDocument();
+    expect(screen.getByText("Changes by kind, last 30 days")).toBeInTheDocument();
+    expect(screen.getAllByText("Changed").length).toBeGreaterThan(0);
+    const reads = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url));
+    const activity = reads.find((url) => url.pathname.endsWith("/api/v1/audit/activity"))!;
+    expect(activity.searchParams.get("days")).toBe("30");
+    expect(activity.searchParams.get("time_zone")).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
     // The sidebar carries the single admin-gated entry.
     expect(screen.getByRole("link", { name: "Admin" })).toBeInTheDocument();
   });
 
-  it("serves a capability-selective hub: dropped sections lose card, route and stat call", async () => {
-    const { fetchMock } = renderAdminApp("/admin", 30, { groups: false });
+  it("serves a capability-selective hub: dropped sections lose card, figure and read", async () => {
+    const { fetchMock } = renderAdminApp("/admin", 30, { groups: false, audit: false });
     await waitFor(() =>
       expect(screen.getByRole("heading", { level: 1, name: "Admin" })).toBeInTheDocument(),
     );
     expect(screen.getByRole("link", { name: /Users/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Audit log/ })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Groups/ })).not.toBeInTheDocument();
-    // The users stat still arrives; the groups endpoint is never probed (its
-    // capability may not be mounted at all).
-    await waitFor(() => expect(screen.getByText("7")).toBeInTheDocument());
+    expect(screen.queryByRole("link", { name: /Audit log/ })).not.toBeInTheDocument();
+    // The users figure still arrives; the groups and the trail are never read (their
+    // capabilities may not be mounted at all), and the audit section takes its charts along.
+    await waitFor(() => expect(figure("Active accounts")?.value).toBe("5"));
+    expect(figure("Groups")).toBeUndefined();
+    expect(figure("Changes, last 7 days")).toBeUndefined();
+    expect(screen.queryByText("Changes per day")).not.toBeInTheDocument();
     const probed = fetchMock.mock.calls.map((call) => (call[0] as Request).url);
     expect(probed.some((url) => url.includes("/api/v1/groups/"))).toBe(false);
+    expect(probed.some((url) => url.includes("/api/v1/audit/"))).toBe(false);
   });
 
   it("drops the access card with the access section, the one a full hub always drew", async () => {

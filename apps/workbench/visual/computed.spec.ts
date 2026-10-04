@@ -1755,3 +1755,44 @@ test("a bar in a table cell takes the table's shorter measure, the same in every
     expect(width).toBeCloseTo(96, 0);
   }
 });
+
+test("a list of cards without figures keeps no figure row, and a card beside a full one does", async ({ page }) => {
+  // The admin hub's areas sit under the figures they used to carry. Each card reserved a row
+  // for a figure and a 10rem floor, so a row of bare cards ended in blank space; where no card
+  // in the list has a figure, the row and the floor go, and the cards end with their text.
+  await page.goto("/?theme=midday&only=admin-hub");
+  await page.locator('[data-terp="proportion-bar"]').first().waitFor({ state: "visible" });
+  const bare = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-terp="hubcard-body"]')].map((body) => {
+      const description = body.querySelector('[data-terp="hubcard-description"]')!;
+      return {
+        height: body.getBoundingClientRect().height,
+        stat: getComputedStyle(body.querySelector('[data-terp="hubcard-stat"]')!).display,
+        // From the description's last line to the card's inner edge: the padding and no more.
+        below:
+          body.getBoundingClientRect().bottom -
+          description.getBoundingClientRect().bottom -
+          Number.parseFloat(getComputedStyle(body).paddingBottom),
+      };
+    }),
+  );
+  expect(bare).toHaveLength(4);
+  for (const card of bare) {
+    expect(card.stat).toBe("none");
+    expect(card.height).toBeLessThan(160);
+  }
+  // The cards in the row still share one height, the tallest description's.
+  expect(Math.max(...bare.map(({ height }) => height)) - Math.min(...bare.map(({ height }) => height))).toBeLessThanOrEqual(1);
+  expect(Math.min(...bare.map(({ below }) => below))).toBeLessThanOrEqual(1);
+
+  // Beside a card that does carry a figure, a bare card keeps its placeholder row, so the two
+  // stay flush.
+  await page.goto("/?theme=midday&only=hub-card-bare");
+  await page.locator('[data-terp="hubcard-body"]').first().waitFor({ state: "visible" });
+  const mixed = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-terp="hubcard-stat"]')].map(
+      (stat) => getComputedStyle(stat).display,
+    ),
+  );
+  expect(mixed).not.toContain("none");
+});

@@ -3080,6 +3080,23 @@ html:has([data-terp="page-sequence"]) {
 [data-terp="hubcard-stat"][data-empty="true"] {
   visibility: hidden;
 }
+/* A list none of whose cards carries a figure keeps no figure row. The placeholder is there so
+   a bare card stays flush with a full one beside it; with no full one there is nothing to stay
+   flush with, and the row and the 10rem floor it helped pad out were blank space at the foot
+   of every card — the admin hub's areas under its figures, an app's landing before its first
+   figure. The cards in a row still share a height: the grid stretches them, and the
+   description's track takes the slack. */
+:is(ul, ol):not(:has([data-terp="hubcard-stat"]:not([data-empty="true"])))
+  > [data-terp="hubcard"]
+  [data-terp="hubcard-body"] {
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+}
+:is(ul, ol):not(:has([data-terp="hubcard-stat"]:not([data-empty="true"])))
+  > [data-terp="hubcard"]
+  [data-terp="hubcard-stat"] {
+  display: none;
+}
 
 /* DataView: the composition root ------------------------------------------- */
 /* One display for both return paths, so it belongs on the bare marker rather than

@@ -1,4 +1,5 @@
 import {
+  AdminHub,
   Alert,
   AppShell,
   Badge,
@@ -622,7 +623,15 @@ function moduleNavSpecimen(): ReactNode {
  */
 function adminScreenSpecimen(node: ReactNode, path: string): ReactNode {
   const rootRoute = createRootRoute();
-  const routes = ["/admin", "/admin/users", "/admin/users/new", "/admin/users/$userId"].map(
+  const routes = [
+    "/admin",
+    "/admin/users",
+    "/admin/users/new",
+    "/admin/users/$userId",
+    "/admin/groups",
+    "/admin/audit",
+    "/admin/access",
+  ].map(
     (routePath) =>
       createRoute({
         getParentRoute: () => rootRoute,
@@ -4798,6 +4807,17 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         ready: '[data-terp="admin-form"]',
         title: "UserCreate — the packaged provisioning form",
         node: adminScreenSpecimen(<UserCreate />, "/admin/users/new"),
+      },
+      {
+        // The real `AdminHub` (ADR 0171), mounted the way the app mounts it. Its four reads --
+        // the accounts, the active ones, the groups and the trail's activity -- are answered by
+        // the dev server with a fixed thirty days ending 4 October (see vite.config.ts), so the
+        // figures and both charts are the same on every run; `ready` waits for the last chart,
+        // so neither lane reads the frame before the answers land.
+        id: "admin-hub",
+        ready: '[data-terp="proportion-bar"]',
+        title: "AdminHub — the administration as a dashboard",
+        node: adminScreenSpecimen(<AdminHub />, "/admin"),
       },
       {
         // `admin-section-title` reproduced in place: two `h3`s heading two sections of a

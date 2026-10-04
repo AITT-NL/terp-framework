@@ -44,6 +44,49 @@ const DECLARED_LADDER = {
   modules: [],
 };
 
+/**
+ * The answers behind `admin-hub`, which mounts the real `AdminHub` (ADR 0171).
+ *
+ * The hub reads four things on mount: the accounts, the active ones (a total under the status
+ * filter), the groups, and the trail's activity per day. Fixed here on the same determinism
+ * grounds as the user and the ladder above, as a fixture whose parts agree with each other:
+ * thirty days ending 4 October that hold 616 changes, broken down by kind and by record type
+ * into the same 616, and a last week of 157 against the 147 before it. The dates are fixed
+ * rather than relative to today, so the picture does not move with the calendar.
+ */
+const ADMIN_HUB_COUNTS = [
+  4, 2, 28, 35, 22, 31, 19, 6, 3, 33, 41, 27, 30, 24, 5, 2, 26, 33, 22, 41, 19, 4, 2, 31, 27, 38,
+  29, 24, 5, 3,
+];
+const ADMIN_HUB_COUNTS_BEFORE = [
+  3, 1, 21, 29, 25, 18, 22, 3, 2, 27, 30, 19, 26, 21, 4, 3, 24, 22, 28, 31, 17, 2, 1, 25, 29, 23,
+  20, 26, 3, 2,
+];
+const hubDay = (offset: number, count: number) => ({
+  date: new Date(Date.UTC(2026, 8, 5 + offset)).toISOString().slice(0, 10),
+  count,
+});
+const ADMIN_HUB_ACTIVITY = {
+  time_zone: "Europe/Amsterdam",
+  days: ADMIN_HUB_COUNTS.map((count, index) => hubDay(index, count)),
+  previous_days: ADMIN_HUB_COUNTS_BEFORE.map((count, index) => hubDay(index - 30, count)),
+  by_action: [
+    { action: "updated", count: 352 },
+    { action: "created", count: 158 },
+    { action: "disclosed", count: 86 },
+    { action: "deleted", count: 20 },
+  ],
+  by_target_type: [
+    { target_type: "Order", count: 221 },
+    { target_type: "User", count: 132 },
+    { target_type: "Customer", count: 118 },
+    { target_type: "GroupMember", count: 96 },
+    { target_type: "Group", count: 49 },
+  ],
+  total: 616,
+};
+const page = (total: number) => ({ items: [], total, skip: 0, limit: 1 });
+
 function mockAuth(): Plugin {
   return {
     name: "workbench-mock-auth",
@@ -62,6 +105,22 @@ function mockAuth(): Plugin {
         if (req.url === "/api/v1/access/model" && req.method === "GET") {
           res.setHeader("content-type", "application/json");
           res.end(JSON.stringify(DECLARED_LADDER));
+          return;
+        }
+        const url = new URL(req.url ?? "/", "http://workbench");
+        const hubAnswer =
+          req.method !== "GET"
+            ? undefined
+            : url.pathname === "/api/v1/users/"
+              ? page(url.searchParams.get("is_active") === "true" ? 42 : 45)
+              : url.pathname === "/api/v1/groups/"
+                ? page(7)
+                : url.pathname === "/api/v1/audit/activity"
+                  ? ADMIN_HUB_ACTIVITY
+                  : undefined;
+        if (hubAnswer !== undefined) {
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify(hubAnswer));
           return;
         }
         next();

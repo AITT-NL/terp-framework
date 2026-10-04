@@ -111,7 +111,13 @@ _ALLOWED: dict[str, str] = {
     ),
     "packages/frontend/react-core/src/admin/admin.test.tsx": (
         "asserts the old spelling is ABSENT from the rendered audit row — the "
-        "negative half of the gate that proves the column was converted"
+        "negative half of the gate that proves the column was converted — and reads the "
+        "viewer's time zone to check the admin hub sends it"
+    ),
+    "packages/frontend/react-core/src/viewerTimeZone.ts": (
+        "reads the viewer's time zone and formats nothing: a calendar day is the viewer's, "
+        "and the app has no time-zone setting to ask instead (ADR 0171). The one read sits "
+        "in a module of its own so this allowance covers nothing that formats"
     ),
 }
 

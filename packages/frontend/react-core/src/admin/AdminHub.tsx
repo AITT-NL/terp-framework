@@ -1,126 +1,254 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
-import { HubCard, HubPage } from "../HubPage";
+import type { components } from "@terpjs/contract";
+
+import { ProportionBar } from "../charts/ProportionBar";
+import { TrendChart } from "../charts/TrendChart";
+import type { ChartPoint } from "../charts/TrendChart";
+import { DashboardPage } from "../DashboardPage";
+import { useFormatDate, useFormatNumber } from "../format";
+import { HubCard } from "../HubPage";
 import type { RenderHubCardLink } from "../HubPage";
 import type { AdminAreaSections } from "../bootstrap";
 import { NavIcon } from "../icons";
-import { Stat } from "../Stat";
+import { Grid } from "../layout";
+import { Stat, StatGroup } from "../Stat";
 import { useTerpClient } from "../TerpProvider";
 import { unwrap } from "../unwrap";
-import { useStrings } from "../uiText";
+import { fillPlaceholders, useStrings } from "../uiText";
+import { viewerTimeZone } from "../viewerTimeZone";
+import { auditActionTone, auditActionWord } from "./RecordHistory";
+
+type AuditActivityRead = components["schemas"]["AuditActivityRead"];
+type AuditDayCount = components["schemas"]["AuditDayCount"];
 
 const renderLink: RenderHubCardLink = ({ to, children }) => <Link to={to}>{children}</Link>;
 
-interface HubStats {
-  users: number | null;
+/** The days the hub's activity chart draws; the read returns as many days before them too. */
+const ACTIVITY_DAYS = 30;
+
+/** The days the activity figure sums, read from the end of the same days. */
+const FIGURE_DAYS = 7;
+
+interface HubData {
+  accounts: number | null;
+  activeAccounts: number | null;
   groups: number | null;
+  activity: AuditActivityRead | null;
+}
+
+/** A `YYYY-MM-DD` day as that day, wherever the browser is: `new Date(day)` would read UTC. */
+function localDay(isoDate: string): Date {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  return new Date(year!, month! - 1, day!);
 }
 
 /**
- * Live totals for the hub cards (a `limit=1` page carries the exact total).
- * A section the app dropped never fires its call — its capability may not be
- * mounted at all.
+ * The hub's figures and the trail's activity, each read on its own so one that fails leaves the
+ * others standing. A section the app dropped never fires its reads: its capability may not be
+ * mounted at all. The active accounts are a total under the status filter, and the activity is
+ * counted on the server, so nothing is counted from a page in the browser.
  */
-function useHubStats(sections: Required<AdminAreaSections>): HubStats {
+function useHubData(sections: Required<AdminAreaSections>): HubData {
   const client = useTerpClient();
-  const [stats, setStats] = useState<HubStats>({ users: null, groups: null });
-  const { users: wantUsers, groups: wantGroups } = sections;
+  const [data, setData] = useState<HubData>({
+    accounts: null,
+    activeAccounts: null,
+    groups: null,
+    activity: null,
+  });
+  const { users: wantUsers, groups: wantGroups, audit: wantAudit } = sections;
   useEffect(() => {
     const controller = new AbortController();
-    void (async () => {
-      try {
-        const [users, groups] = await Promise.all([
-          wantUsers
-            ? client.GET("/api/v1/users/", {
-                params: { query: { limit: 1 } },
-                signal: controller.signal,
-              })
-            : null,
-          wantGroups
-            ? client.GET("/api/v1/groups/", {
-                params: { query: { limit: 1 } },
-                signal: controller.signal,
-              })
-            : null,
-        ]);
-        setStats({
-          users: users !== null ? unwrap(users).total : null,
-          groups: groups !== null ? unwrap(groups).total : null,
-        });
-      } catch {
-        // The cards stay navigable without their stat lines (e.g. offline, races).
-      }
-    })();
+    const signal = controller.signal;
+    const keep = <K extends keyof HubData>(key: K, read: () => Promise<HubData[K]>) => {
+      void read().then(
+        (value) => {
+          if (!signal.aborted) setData((current) => ({ ...current, [key]: value }));
+        },
+        // The page stays usable without the figure: it keeps its dash (offline, a race).
+        () => undefined,
+      );
+    };
+    if (wantUsers) {
+      keep("accounts", async () =>
+        unwrap(await client.GET("/api/v1/users/", { params: { query: { limit: 1 } }, signal })).total,
+      );
+      keep("activeAccounts", async () =>
+        unwrap(
+          await client.GET("/api/v1/users/", {
+            params: { query: { is_active: true, limit: 1 } },
+            signal,
+          }),
+        ).total,
+      );
+    }
+    if (wantGroups) {
+      keep("groups", async () =>
+        unwrap(await client.GET("/api/v1/groups/", { params: { query: { limit: 1 } }, signal })).total,
+      );
+    }
+    if (wantAudit) {
+      keep("activity", async () =>
+        unwrap(
+          await client.GET("/api/v1/audit/activity", {
+            params: { query: { days: ACTIVITY_DAYS, time_zone: viewerTimeZone() } },
+            signal,
+          }),
+        ),
+      );
+    }
     return () => controller.abort();
-  }, [client, wantUsers, wantGroups]);
-  return stats;
+  }, [client, wantUsers, wantGroups, wantAudit]);
+  return data;
+}
+
+function sum(days: readonly AuditDayCount[]): number {
+  return days.reduce((total, day) => total + day.count, 0);
 }
 
 /**
- * The packaged admin hub (`/admin`): one card per administration area — users,
- * groups and the audit log — with live totals where they are cheap to know, each a `Stat`
- * so a count reads here as it does on every other page (ADR 0169 §5).
- * The sidebar's single "Admin" entry opens this hub; the overviews breadcrumb
- * back to it, keeping the hub -> overview -> detail layering every Terp screen
- * follows. `sections` (default: all) mirrors the app's `adminArea` selection —
- * a dropped section loses its card and its stat call.
+ * The packaged admin hub (`/admin`): a dashboard of the administration (ADR 0171). The summary
+ * band carries the active accounts — the headline — the groups and the trail's last week; the
+ * areas follow as cards, getting to one being the hub's first job; then the trail per day
+ * against the days before, and the kinds of change. The sidebar's single "Admin" entry opens
+ * it, and the overviews breadcrumb back to it, keeping the hub -> overview -> detail layering
+ * every Terp screen follows. `sections` (default: all) mirrors the app's `adminArea` selection:
+ * a dropped section loses its card, its figure, its reads and, for the audit log, its charts.
  */
 export function AdminHub({ sections }: { sections?: AdminAreaSections } = {}) {
   const strings = useStrings();
+  const formatDate = useFormatDate();
+  const formatNumber = useFormatNumber();
   const selected = {
     users: sections?.users !== false,
     groups: sections?.groups !== false,
     audit: sections?.audit !== false,
     access: sections?.access !== false,
   };
-  const stats = useHubStats(selected);
+  const data = useHubData(selected);
+  const activity = data.activity;
+  const points = (days: readonly AuditDayCount[]): ChartPoint[] =>
+    days.map((day) => ({ label: formatDate(localDay(day.date)), value: day.count }));
+  const lastWeek = activity === null ? null : activity.days.slice(-FIGURE_DAYS);
+  const weekBefore =
+    activity === null ? null : activity.days.slice(-2 * FIGURE_DAYS, -FIGURE_DAYS);
+  const deactivated =
+    data.accounts === null || data.activeAccounts === null
+      ? null
+      : data.accounts - data.activeAccounts;
+
+  const figures = [
+    selected.users && (
+      <Stat
+        key="accounts"
+        headline
+        label={strings.adminHubActiveAccounts}
+        value={data.activeAccounts}
+        caption={
+          deactivated === null
+            ? undefined
+            : fillPlaceholders(strings.adminHubDeactivated, { count: formatNumber(deactivated) })
+        }
+      />
+    ),
+    selected.groups && <Stat key="groups" label={strings.adminGroups} value={data.groups} />,
+    selected.audit && (
+      <Stat
+        key="changes"
+        label={fillPlaceholders(strings.adminHubChangesWeek, { count: FIGURE_DAYS })}
+        value={lastWeek === null ? null : sum(lastWeek)}
+        delta={
+          lastWeek === null || weekBefore === null
+            ? undefined
+            : {
+                value: sum(lastWeek) - sum(weekBefore),
+                sentiment: "neutral",
+                label: strings.adminHubVsWeekBefore,
+              }
+        }
+        trend={lastWeek === null ? undefined : points(lastWeek)}
+      />
+    ),
+  ].filter(Boolean);
+
+  const cards = [
+    selected.users && (
+      <HubCard
+        key="users"
+        to="/admin/users"
+        title={strings.adminUsers}
+        description={strings.adminUsersDescription}
+        icon={<NavIcon name="users" label={strings.adminUsers} />}
+        renderLink={renderLink}
+      />
+    ),
+    selected.groups && (
+      <HubCard
+        key="groups"
+        to="/admin/groups"
+        title={strings.adminGroups}
+        description={strings.adminGroupsDescription}
+        icon={<NavIcon name="shield" label={strings.adminGroups} />}
+        renderLink={renderLink}
+      />
+    ),
+    selected.audit && (
+      <HubCard
+        key="audit"
+        to="/admin/audit"
+        title={strings.adminAudit}
+        description={strings.adminAuditDescription}
+        icon={<NavIcon name="audit" label={strings.adminAudit} />}
+        renderLink={renderLink}
+      />
+    ),
+    selected.access && (
+      <HubCard
+        key="access"
+        to="/admin/access"
+        title={strings.adminAccess}
+        description={strings.adminAccessDescription}
+        icon={<NavIcon name="shield" label={strings.adminAccess} />}
+        renderLink={renderLink}
+      />
+    ),
+  ].filter(Boolean);
+
   return (
-    <HubPage title={strings.admin} parents={[{ label: strings.home, to: "/" }]}>
-      {selected.users && (
-        <HubCard
-          to="/admin/users"
-          title={strings.adminUsers}
-          description={strings.adminUsersDescription}
-          icon={<NavIcon name="users" label={strings.adminUsers} />}
-          stat={
-            stats.users !== null ? <Stat label={strings.adminHubTotal} value={stats.users} /> : undefined
-          }
-          renderLink={renderLink}
+    <DashboardPage
+      title={strings.admin}
+      parents={[{ label: strings.home, to: "/" }]}
+      summary={figures.length > 0 ? <StatGroup>{figures}</StatGroup> : undefined}
+    >
+      <Grid as="ul" template={cards.length === 4 ? "1:1:1:1" : "1:1:1"}>
+        {cards}
+      </Grid>
+      {selected.audit && activity !== null && (
+        <TrendChart
+          label={strings.adminHubChangesPerDay}
+          mark="columns"
+          series={{
+            label: fillPlaceholders(strings.adminHubLastDays, { count: ACTIVITY_DAYS }),
+            points: points(activity.days),
+          }}
+          comparison={{
+            label: fillPlaceholders(strings.adminHubDaysBefore, { count: ACTIVITY_DAYS }),
+            points: points(activity.previous_days),
+          }}
         />
       )}
-      {selected.groups && (
-        <HubCard
-          to="/admin/groups"
-          title={strings.adminGroups}
-          description={strings.adminGroupsDescription}
-          icon={<NavIcon name="shield" label={strings.adminGroups} />}
-          stat={
-            stats.groups !== null ? (
-              <Stat label={strings.adminHubTotal} value={stats.groups} />
-            ) : undefined
-          }
-          renderLink={renderLink}
+      {selected.audit && activity !== null && activity.by_action.length > 0 && (
+        <ProportionBar
+          label={fillPlaceholders(strings.adminHubChangesByKind, { count: ACTIVITY_DAYS })}
+          parts={activity.by_action.map((row) => ({
+            label: auditActionWord(strings, row.action),
+            value: row.count,
+            tone: auditActionTone(row.action),
+          }))}
         />
       )}
-      {selected.audit && (
-        <HubCard
-          to="/admin/audit"
-          title={strings.adminAudit}
-          description={strings.adminAuditDescription}
-          icon={<NavIcon name="audit" label={strings.adminAudit} />}
-          renderLink={renderLink}
-        />
-      )}
-      {selected.access && (
-        <HubCard
-          to="/admin/access"
-          title={strings.adminAccess}
-          description={strings.adminAccessDescription}
-          icon={<NavIcon name="shield" label={strings.adminAccess} />}
-          renderLink={renderLink}
-        />
-      )}
-    </HubPage>
+    </DashboardPage>
   );
 }

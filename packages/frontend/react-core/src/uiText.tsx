@@ -193,8 +193,29 @@ export interface TerpStrings {
   statUnfavourable: string;
   /** A figure's sparkline as text; `{points}` is the listed points, each a label and a value. */
   statTrend: string;
-  /** The admin hub: names the total on the users and groups cards. */
+  /**
+   * Named the total on the admin hub's users and groups cards until the hub became a dashboard,
+   * whose figures name what they count. Not read by the framework since; kept because a
+   * catalog that leaves out a framework string, or carries one the framework does not know, is
+   * refused, so an app's catalog written for 0.31.0 still loads.
+   */
   adminHubTotal: string;
+  /** The admin hub's headline figure: the accounts that can sign in. */
+  adminHubActiveAccounts: string;
+  /** Under that figure; `{count}` is the number of deactivated accounts. */
+  adminHubDeactivated: string;
+  /** The admin hub's figure for the audit trail's last days; `{count}` is how many. */
+  adminHubChangesWeek: string;
+  /** What that figure's change is measured against. */
+  adminHubVsWeekBefore: string;
+  /** The admin hub's chart of the trail per day. */
+  adminHubChangesPerDay: string;
+  /** That chart's series; `{count}` is how many days it draws. */
+  adminHubLastDays: string;
+  /** That chart's comparison, drawn dashed; `{count}` is how many days it covers. */
+  adminHubDaysBefore: string;
+  /** The admin hub's share of each kind of change; `{count}` is how many days it covers. */
+  adminHubChangesByKind: string;
   /** A status history read out; `{label}` is what ran and `{runs}` the listed runs, each a label and its ending. */
   statusHistoryRuns: string;
   /** A record's own history, from the audit trail, on its admin screen: the section's title. */
@@ -552,6 +573,14 @@ export const DEFAULT_STRINGS: TerpStrings = {
   statUnfavourable: "unfavourable",
   statTrend: "Over time: {points}",
   adminHubTotal: "Total",
+  adminHubActiveAccounts: "Active accounts",
+  adminHubDeactivated: "{count} deactivated",
+  adminHubChangesWeek: "Changes, last {count} days",
+  adminHubVsWeekBefore: "vs the week before",
+  adminHubChangesPerDay: "Changes per day",
+  adminHubLastDays: "Last {count} days",
+  adminHubDaysBefore: "The {count} days before",
+  adminHubChangesByKind: "Changes by kind, last {count} days",
   statusHistoryRuns: "{label}, oldest first: {runs}",
   recordHistory: "History",
   auditActionCreated: "Created",

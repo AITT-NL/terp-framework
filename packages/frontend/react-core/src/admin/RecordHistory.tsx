@@ -29,6 +29,11 @@ const ACTION_TONES: Record<string, BadgeTone | undefined> = {
   disclosed: "info",
 };
 
+/** The tone an audit action is drawn in: a change is neutral, a deletion danger. */
+export function auditActionTone(action: string): BadgeTone {
+  return ACTION_TONES[action] ?? "neutral";
+}
+
 /** An audit action in the app's words, or as recorded where it is not one the framework names. */
 export function auditActionWord(strings: TerpStrings, action: string): string {
   const key = ACTION_WORDS[action];

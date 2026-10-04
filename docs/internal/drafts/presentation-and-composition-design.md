@@ -613,11 +613,12 @@ shipped as ADR 0170:
 
 ## Open after phase 6
 
-- **Which screen draws the charts first: the admin hub, as a dashboard** (the owner's call). It
-  is the base profile's own data — users by status, the audit trail's activity — and needs an
-  aggregate read from the audit capability, since counting a paginated list in the browser is
-  not one. A proposal comes before the build, because it reshapes a packaged surface. Packaged
-  screens for sync runs and webhook deliveries stay the later candidate.
+- [x] **Which screen draws the charts first: the admin hub, as a dashboard** (the owner's
+  call), built for 0.32.0 as ADR 0171. The proposal put three rendered directions and two data
+  decisions forward and the owner took all three recommendations: the areas right under the
+  figures, the trail counted by the viewer's own calendar days, and active accounts as a total
+  under a status filter. Packaged screens for sync runs and webhook deliveries stay the later
+  candidate.
 - **The capabilities' error codes.** The core's are worded; the capabilities' own — files,
   multi-factor sign-in, users, auth, access, single sign-on, egress, mail, tenancy and webhooks
   — still reach a screen as the backend's English detail. Several carry specifics a fixed

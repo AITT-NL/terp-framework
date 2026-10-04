@@ -10,6 +10,58 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.32.0 — unreleased
+
+The charts' first framework screen. The admin hub printed two totals on its cards; it is a
+dashboard of the administration now (ADR 0171), which took a count the audit trail could not
+give and a filter the users list did not have.
+
+### Added
+
+- **The audit trail counts its activity per calendar day (ADR 0171).**
+  `GET /api/v1/audit/activity?days=30&time_zone=Europe/Amsterdam` returns the last `days`
+  calendar days of that zone, oldest first and ending today, as many days before them for a
+  comparison, and the counts per kind of change and per type of record over the last `days`.
+  A day is the zone's own, so one that daylight saving makes 23 or 25 hours long keeps its
+  length; every day is counted in one query that reads the same on SQLite and PostgreSQL. It is
+  admin-only like the trail, at most 90 days, and the operation is `audit.read_activity`.
+- **The users list filters by status.** `GET /api/v1/users/?is_active=true` lists the active
+  accounts and `false` the deactivated ones, and it narrows together with `?email=`.
+
+### Changed
+
+- **The admin hub is a dashboard (ADR 0171).** The summary band carries the active accounts as
+  the headline, with the deactivated ones under them, the groups, and the trail's last seven days
+  against the seven before. The area cards follow, then the trail per day for thirty days against
+  the thirty before, and the kinds of change. Its dates are the viewer's: the hub sends the
+  browser's time zone. An `adminArea` selection still applies, and a dropped audit section takes
+  its figure and both charts along.
+- **A list of hub cards without figures keeps no figure row.** Each card reserved a row for a
+  figure and a 10rem floor, so a row of bare cards ended in blank space. Beside a card that
+  carries a figure, a bare card still keeps both and stays flush with it.
+
+### Fixed
+
+- **The users list's email search is a literal match.** An `_` or a `%` in the search text went
+  to `LIKE` unescaped, where both are wildcards, so a search for `team_a` also found `teamxa`.
+
+### Upgrade notes
+
+- **A non-English framework catalog of an app's own supplies eight new keys.**
+  `adminHubActiveAccounts` ("Active accounts"), `adminHubDeactivated` ("{count} deactivated"),
+  `adminHubChangesWeek` ("Changes, last {count} days"), `adminHubVsWeekBefore` ("vs the week
+  before"), `adminHubChangesPerDay` ("Changes per day"), `adminHubLastDays` ("Last {count}
+  days"), `adminHubDaysBefore` ("The {count} days before") and `adminHubChangesByKind` ("Changes
+  by kind, last {count} days"). Keep the placeholders. `adminHubTotal` stays: the hub no longer
+  reads it, and a catalog without it would be refused. An app on `LOCALE_NL` or `LOCALE_EN`
+  changes nothing.
+- **`terp-cap-audit` depends on `tzdata`**, the zone database the activity read resolves a time
+  zone with on a host that has none of its own.
+- **An operation catalog that names the audit capability's operations one by one refuses to
+  boot** until it adds `AUDIT_READ_ACTIVITY`: a route may only declare an operation its app's
+  catalog carries. Splat `*AUDIT_OPERATIONS` instead (ADR 0126), and the capability's next route
+  will not refuse the boot either. A catalog that already splats changes nothing.
+
 ## 0.31.0 — 2026-10-04
 
 Friction reported from building on 0.30.0. A screen worked through one item after another had

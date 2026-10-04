@@ -175,3 +175,10 @@ the letter of ADR 0158's contract, so they are recorded here.
   family and the templates, and the charts stand on the framework's own data alone, which no
   packaged screen draws yet: `SyncRun` and `WebhookDelivery` are not in the base profile the
   typed client covers. Which screen should draw them first is left open.
+
+## Amendment (2026-10-04): the first screen to draw the charts
+
+The second amendment left this open. The admin hub draws them, as a dashboard of the
+administration: [ADR 0171](0171-the-admin-hub-is-a-dashboard-of-the-administration.md) records
+its shape, the activity read it needed from the audit trail, and the status filter on the
+users list.
