@@ -114,7 +114,8 @@ single button off a one-word title at a phone's width.
 selector can see, so the inset cannot be keyed on the kinds of band known to wrap. Every chrome
 band pads by the inset and gaps its lines by it, and every line is at least a control tall
 (`min-height: var(--density-control-min-height)` on the trail, the cluster and the meta group). A
-one-line band is inset + control + inset + rule = the header's 48px, exactly as before. The one
+one-line band is inset + control + inset + rule = the header's 48px, exactly as before. *(Amended
+for the meta line, below: it is no longer a control tall.)* The one
 price: a band carrying a `size="lg"` control is 56px, where zero padding held it at 48 — a page
 that puts a large button in its band has chosen a taller band. The computed lane measures every
 line, the gaps between them, the band's edges and each item's centre, at a phone width and a
@@ -157,3 +158,14 @@ that have nothing else to show. That is a deliberate narrowing of ADR 0097's cla
 an abandonment of it: the row the app header is matched against is still there, and a page that
 earns a second row was previously getting one anyway — just a taller, unaligned one with its
 buttons in the wrong place.
+
+## Amendment (2026-10-04): the meta line is not a control's line
+
+Making every line a control tall gave the meta line — badges, the lead sentence — a 36px line
+of its own with the inset above it, so a one-line lead sentence sat 42px under a 14px title, in
+a 90px band: two lines that read as unrelated rather than as a title and its subtitle. The
+trail's line and the cluster's keep their control height and their inset, since a control sits
+on them. The meta line takes its own height, directly under the line above it (the band's gap
+cancelled), and keeps `--space-2` under it: with the inset, the room the title has above its ink.
+The computed lane measures the control lines and their insets, that the meta line meets the line
+above it, and that the room under its ink matches the room above the title's.

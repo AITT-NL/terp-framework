@@ -822,19 +822,21 @@ async function bandLines(page: import("@playwright/test").Page) {
   });
 }
 
-test("a band of more than one line keeps the one-line band's inset once, at the edges and between lines", async ({
+test("a band's control lines keep the one-line inset, and its meta line sits under the title with the title's room below it", async ({
   page,
 }) => {
   // What a band does when it needs more than one line. Its first line is the one-line band --
   // a control's height with the bar's leftover split above and below, 5.5px at comfortable
-  // density -- and every line after it adds a control's height and ONE more inset. So the
-  // second line is exactly as far from the first as the first is from the border.
+  // density -- and a line the cluster wraps to adds a control's height and ONE more inset. The
+  // meta line is not a control's line: badges and the lead sentence take their own height,
+  // directly under the line above them, and the band leaves as much room under their ink as it
+  // leaves above the title's, so neither hugs a border.
   //
-  // Two earlier forms failed on spacing, which is why this reads the spacing and not only the
+  // Three earlier forms failed on spacing, which is why this reads the spacing and not only the
   // height. Content-sized rows padded by 4px put a two-line band's content against its border.
-  // Then every row a full 47px bar: the edges were right, and where two bars met each row's
-  // centring space stacked -- the trail and the badges about 26px apart against 13px from the
-  // border, a double space between the lines.
+  // Every row a full 47px bar stacked each row's centring space where two met. And every line a
+  // control tall with the inset between set the lead sentence 42px under a 14px title, a
+  // subtitle that read as a second, unrelated line.
   for (const [only, width, expectedLines, what] of [
     ["page-header", 1280, 2, "badges, a lead line and an action"],
     ["page-header-root", 1280, 2, "a badge and an action"],
@@ -856,8 +858,10 @@ test("a band of more than one line keeps the one-line band's inset once, at the 
       b.lines.length,
       `${what}: ${expectedLines} lines (${JSON.stringify(b.lines.map((line) => line.items))})`,
     ).toBe(expectedLines);
-    for (const line of b.lines) {
-      expect(line.bottom - line.top, `${what}: every line is a control tall`).toBeCloseTo(
+    const meta = b.lines.length - 1;
+    expect(b.lines[meta]!.items, `${what}: the meta line is the last`).toEqual(["page-meta"]);
+    for (const line of b.lines.slice(0, meta)) {
+      expect(line.bottom - line.top, `${what}: a trail's or a cluster's line is a control tall`).toBeCloseTo(
         b.control,
         0,
       );
@@ -866,16 +870,31 @@ test("a band of more than one line keeps the one-line band's inset once, at the 
       }
     }
     expect(b.lines[0]!.top, `${what}: the inset above the first line`).toBeCloseTo(inset, 0);
-    for (let index = 1; index < b.lines.length; index += 1) {
+    for (let index = 1; index < meta; index += 1) {
       expect(
         b.lines[index]!.top - b.lines[index - 1]!.bottom,
-        `${what}: and once between lines, not twice`,
+        `${what}: and once between control lines, not twice`,
       ).toBeCloseTo(inset, 0);
     }
     expect(
-      b.height - b.border - b.lines[b.lines.length - 1]!.bottom,
-      `${what}: and below the last`,
-    ).toBeCloseTo(inset, 0);
+      b.lines[meta]!.top - b.lines[meta - 1]!.bottom,
+      `${what}: the meta line sits directly under the line above it`,
+    ).toBeCloseTo(0, 0);
+    // The ink, not the boxes: the title's room above it and the meta line's below it.
+    const ink = await page.evaluate(() => {
+      const band = document.querySelector('[data-terp="page-header"]')!.getBoundingClientRect();
+      const inkOf = (selector: string) => {
+        const range = document.createRange();
+        range.selectNodeContents(document.querySelector(selector)!);
+        return range.getBoundingClientRect();
+      };
+      return {
+        above: inkOf('[data-terp="page-title"]').top - band.top,
+        below: band.bottom - 1 - inkOf('[data-terp="page-meta"]').bottom,
+      };
+    });
+    expect(ink.below, `${what}: room under the meta line, so it does not hug the border`).toBeGreaterThanOrEqual(10);
+    expect(Math.abs(ink.below - ink.above), `${what}: as much as the title has above it`).toBeLessThanOrEqual(3);
   }
 });
 

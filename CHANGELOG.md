@@ -130,10 +130,12 @@ first phases, and every app's look moves with them.
   still loads.
 - **The page band is a wrapping line (ADR 0135, amended).** The action cluster shares the
   trail's line when the whole trail fits beside it, and otherwise drops to a line of its own and
-  wraps its buttons there; badges and the lead line take the line after. Every line is at least a
-  control tall and the band spends the one-line inset once, at its edges and between lines, so a
-  one-line band is the header's 48px and a wrapped one has no doubled gap. A single "New" button
-  no longer sits alone under a one-word title on a phone.
+  wraps its buttons there; badges and the lead line take the line after. The trail's line and the
+  cluster's are a control tall and the band spends the one-line inset once, at its edges and
+  between them, so a one-line band is the header's 48px and a wrapped one has no doubled gap. The
+  badges and the lead line sit directly under the title as its subtitle, with the title's room
+  below them, instead of a control-tall line of their own 42px down. A single "New" button no
+  longer sits alone under a one-word title on a phone.
 - **`PageActions` collapses by count as well as width.** Below the widest region an action with
   an icon drops its label only when the slot holds more than one action, and on a phone the
   supporting actions fold into the menu only when there are more than two. Only actions that

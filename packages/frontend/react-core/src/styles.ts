@@ -2447,14 +2447,21 @@ textarea[data-terp="input"] {
   box-sizing: border-box;
   border-block-end: 1px solid var(--color-neutral-200);
 }
-/* Every line at least a control tall, so a line of text -- the trail alone, a row of badges --
-   is the same height as a line holding the cluster, and centres in it. The trail's own list
-   is centred inside it by making the nav a flex box here; outside the band a trail is just the
-   list. */
+/* The trail's line and the cluster's are at least a control tall, so the trail alone is the
+   same height as a line holding the cluster, and centres in it. The trail's own list is centred
+   inside it by making the nav a flex box here; outside the band a trail is just the list. */
 [data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] [data-terp="breadcrumbs"],
-[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] [data-terp="page-meta"],
 [data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] > [data-terp="page-actions"] {
   min-height: var(--density-control-min-height);
+}
+/* The meta line -- badges, the lead sentence -- is not a control's line. It takes its own height
+   and sits directly under the line above it, the band's gap cancelled, and keeps --space-2 under
+   it: with the band's inset that is the room the title has above its ink, so the band reads as a
+   title and its subtitle and neither hugs a border. As a control-tall line of its own, the lead
+   sentence sat 42px under a 14px title, in a band nearly twice the header's height. */
+[data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] [data-terp="page-meta"] {
+  margin-block-start: calc((var(--shell-header-height) - 1px - var(--density-control-min-height)) / -2);
+  padding-block-end: var(--space-2);
 }
 [data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-header"] [data-terp="breadcrumbs"] {
   display: flex;
