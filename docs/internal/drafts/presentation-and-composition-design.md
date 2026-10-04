@@ -624,8 +624,11 @@ shipped as ADR 0170:
   — still reach a screen as the backend's English detail. Several carry specifics a fixed
   wording would drop, so each wants its own decision, and some want the envelope to carry
   their numbers.
-- **The release: one, as 0.31.0** (the owner's call), with the design pass, the band's
-  subtitle and the contrast pass in it. The Studio's framework pin moves after it.
+- [x] **The release: one, as 0.31.0** (the owner's call), with the design pass, the band's
+  subtitle and the contrast pass in it. Released 2026-10-04.
+- **The Studio's framework pin** still names 0.30.0. Moving it is the Studio's own change: its
+  contrast audit expects the control outlines ADR 0170 fixed to fail.
+- **0.32.0** carries ADR 0171's admin dashboard, built and not yet released.
 
 ## Found along the way
 
@@ -667,6 +670,13 @@ Recorded so they are not lost; this proposal does not fix them on its own.
 - `test_spec_catalog.py::test_frontend_catalog_covers_every_named_plugin_rule` fails on that
   workstation with or without this branch — the local terp-spec candidate lacks
   `no-framework-markers` (ADR 0160) — so it is an environment fact, not a regression.
+- **A badge does not wrap and has no width cap.** `[data-terp="badge"]` is `white-space: nowrap`
+  with no `max-inline-size`, so a label longer than its container runs out of it. Seen in a
+  downstream app on 0.31.0 that put a whole phrase in a badge, a count of days with the date
+  written out: in a `Grid minColumn="xs"` at phone width each badge overran its column of about
+  165px, covered the next one and widened the page by 50px. The app now keeps its badges to a
+  word or two. Whether a long label should wrap, truncate or be refused is a design question for
+  the framework; not acted on here.
 
 ## What would change this
 
