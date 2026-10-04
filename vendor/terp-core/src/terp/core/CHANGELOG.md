@@ -32,8 +32,9 @@ first phases, and every app's look moves with them.
   rejections is up and bad, and only the module knows it) and read out as a word as well — a
   `trend` of labelled points drawn as a sparkline and read out as text, a `target` drawn with
   `Meter` against its range and bands, and a `caption`. On its own it is a tile on the surface;
-  a `StatGroup` is one ruled row of figures with no tile each. `headline` fills one figure with
-  the brand colour. Everything is SVG geometry and sheet rules — no inline style, so a strict
+  a `StatGroup` is one ruled row of figures with no tile each, and in a boxed card a lone figure
+  takes the card as its frame. `headline` fills one figure with the brand colour, and in a row or
+  a summary band every figure's label still reads on one line and its value on the next. Everything is SVG geometry and sheet rules — no inline style, so a strict
   `style-src` holds — and a figure is phrasing content, valid inside a `HubCard`'s link: the
   packaged admin hub's totals render through it.
 - **A page has a band for its own figures: `summary` (ADR 0169 §4).** `Page` — and so every
@@ -55,7 +56,8 @@ first phases, and every app's look moves with them.
   heading, with its count beside it once the repository has said how many there are, printed
   in the app's locale and part of the heading's name. A column takes `status`, a dot of the
   row's tone before the cell's word — the quiet form of a status column — or `bar`, its numbers
-  drawn as `Meter`s against the largest value shown, each still printed. The packaged group
+  drawn as `Meter`s against the largest value shown, each still printed, at a measure a table
+  can afford beside its other columns. The packaged group
   screen's members and permissions are titled collections now, with the way to add to each in
   its toolbar; the users overview shows its status as dots and the groups overview its sizes as
   bars.
@@ -147,6 +149,8 @@ first phases, and every app's look moves with them.
   click on the control.
 - **`DetailList` stacks by default**, label above value — the one layout with no
   label-to-value spacing to get wrong. `layout="inline"` brings the run back.
+- **An identifier in a table cell stays on one line.** A `Code` in a DataView cell no longer
+  breaks at a hyphen, where its chip became two chips on two lines; the column widens to it.
 - **A DataView card's status slot loses its grey pill**, which showed as a second, wider pill
   around a `Badge`; plain status text keeps `--color-fg-muted`.
 - **A new app's hub landing is a dashboard.** The `hub` layout scaffolds `/` as a

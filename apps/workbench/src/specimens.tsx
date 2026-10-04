@@ -365,6 +365,31 @@ const syncRepositoryOptions = {
 
 const SYNC_REPOSITORY = new InMemoryDataViewRepository(SYNC_ROWS, syncRepositoryOptions);
 
+/** Rows whose key is an identifier with hyphens in it, the kind a narrow column broke in two. */
+interface KeyedRow {
+  id: string;
+  name: string;
+  key: string;
+  rows: number;
+}
+
+const KEYED_ROWS: KeyedRow[] = [
+  { id: "k1", name: "Customer master", key: "customer-master-nightly", rows: 1284 },
+  { id: "k2", name: "Sales orders", key: "sales-orders-hourly", rows: 407 },
+  { id: "k3", name: "Ledger entries", key: "ledger-entries-real-time", rows: 9310 },
+];
+
+const KEYED_COLUMNS: DataViewColumn<KeyedRow>[] = [
+  { id: "name", header: "Name", accessor: (row) => row.name, meta: { mobileSlot: "title" } },
+  { id: "key", header: "Key", accessor: (row) => row.key, cell: (row) => <Code>{row.key}</Code> },
+  { id: "rows", header: "Rows", accessor: (row) => row.rows, bar: true, meta: { width: "md" } },
+];
+
+const KEYED_REPOSITORY = new InMemoryDataViewRepository(KEYED_ROWS, {
+  getRowId: (row: KeyedRow) => row.id,
+  getValue: (row: KeyedRow, columnId: string) => row[columnId as keyof KeyedRow],
+});
+
 /**
  * SYNC_COLUMNS with the first row's name as a control that explains itself, open. The first
  * row because its bubble opens above the cell, past the table's top edge -- the place the
@@ -1267,6 +1292,35 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
           <Page title="Overview" summary={<HeadlineGroup />}>
             <Card title="Sync definitions">The body starts under the band.</Card>
           </Page>
+        ),
+      },
+      {
+        // A lone figure in a boxed card takes the card as its frame, as a hub card's figure
+        // does: no tile inside a box. A plain card has no frame to lend, so there the figure
+        // keeps its tile.
+        id: "stat-in-card",
+        title: "Stat — in a boxed card, and in a plain one",
+        node: (
+          <Grid template="1:1">
+            <Card title="Spend">
+              <Stat
+                label="Spent"
+                value={5.89}
+                format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}
+                target={{ max: 25 }}
+                caption="of a 25.00 budget"
+              />
+            </Card>
+            <Card variant="plain" title="Spend">
+              <Stat
+                label="Spent"
+                value={5.89}
+                format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}
+                target={{ max: 25 }}
+                caption="of a 25.00 budget"
+              />
+            </Card>
+          </Grid>
         ),
       },
       {
@@ -2315,6 +2369,17 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
     id: "collections",
     title: "Collections",
     specimens: [
+      {
+        // A key column in a table too narrow for its identifiers: each stays one chip on one
+        // line, the column widening to it, where a break at a hyphen made two chips of one key.
+        id: "dataview-code-narrow",
+        title: "DataView — identifiers in a narrow table",
+        node: (
+          <div style={{ maxWidth: "34rem" }}>
+            <DataView repository={KEYED_REPOSITORY} columns={KEYED_COLUMNS} />
+          </div>
+        ),
+      },
       {
         id: "dataview-full",
         title: "DataView — toolbar, table and pagination",

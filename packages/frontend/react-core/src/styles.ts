@@ -1406,6 +1406,11 @@ textarea[data-terp="input"] {
   background: var(--color-neutral-100);
   color: var(--color-fg-default);
 }
+/* An identifier in a table cell stays one token. Broken at a hyphen, its chip became two chips
+   on two lines; whole, the column widens to it, and the table scrolls where the page cannot. */
+[data-terp="dataview-table"] td [data-terp="code"] {
+  white-space: nowrap;
+}
 /* The same wash as inline code, and that is new: the block was --color-neutral-50 while
    the chip above it was --color-neutral-100, so two renderings of one thing disagreed —
    and the block's half was the canvas, which a card with no fill would have shown
@@ -2489,11 +2494,15 @@ textarea[data-terp="input"] {
    near its own measure beside it -- the grow factors are what say so, 999 against 1 -- and a
    line of text takes a line of its own. Standalone (the workbench, a narrow form) it is a
    rounded block on the page; inside a shell it bleeds to the content column's edges as the
-   band above it does, flush against that band's border by cancelling the page's own gap. */
+   band above it does, flush against that band's border by cancelling the page's own gap.
+
+   Its items hang from the top, and a lone figure takes the block padding a group's cells do,
+   so every label in the band reads on one line and every value on the next. Centred, a
+   headline tile with a sparkline set the group beside it 20px lower than its own label. */
 [data-terp="page-summary"] {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-4) var(--space-6);
   min-width: 0;
   padding: var(--space-5) var(--space-4);
@@ -2508,6 +2517,7 @@ textarea[data-terp="input"] {
 [data-terp="page-summary"] > [data-terp="stat"] {
   flex: 1 1 14rem;
   max-inline-size: 22rem;
+  padding: var(--space-3) var(--space-4);
 }
 [data-terp="page-summary"] > [data-terp="text"] {
   flex: 1 1 100%;
@@ -4498,6 +4508,13 @@ button[data-terp="input"][data-placeholder="true"] {
   border-radius: var(--radius-full);
   background: var(--color-bg-inset);
 }
+/* In a table cell the measure is shorter, and still one measure for the whole column, so its
+   bars compare as any meters do. An automatic table layout sizes a column from what its cells
+   cannot shrink below, and a 10rem bar beside its value made a bar column some 13rem wide
+   however narrow it was declared -- the names and identifiers beside it wrapped to make room. */
+[data-terp="dataview-table"] td [data-terp="meter-bar"] {
+  inline-size: 6rem;
+}
 /* Blink draws the track and the fill as pseudo-elements, one per region, and this is the
    block the screenshot lane sees; WebKit documents the same pseudo-elements, and no lane runs
    it. Each engine's selectors are their own rules and must
@@ -5133,8 +5150,10 @@ button[data-terp="input"][data-placeholder="true"] {
   margin-inline: calc(-1 * var(--space-3));
   overflow: hidden;
 }
+/* Every cell takes the block padding the headline's fill needs, so a row with a headline in it
+   keeps its labels on one line: padded alone, the headline's label sat 12px under the rest. */
 [data-terp="stat-group"] > [data-terp="stat"] {
-  padding: 0 var(--space-3);
+  padding: var(--space-3);
   border: 0;
   border-radius: 0;
   background: none;
@@ -5154,6 +5173,17 @@ button[data-terp="input"][data-placeholder="true"] {
   box-shadow: none;
 }
 [data-terp="stat-group"] > [data-terp="stat"][data-headline] + [data-terp="stat"] {
+  box-shadow: none;
+}
+/* A lone figure in a boxed card: the card is its frame, so the figure takes no tile of its own
+   -- a tile inside a box is a frame inside a frame. A group's cells keep theirs, and the
+   headline keeps its fill wherever it is. A plain card has no frame to lend, so a figure in one
+   keeps its tile. */
+[data-terp="card"]:not([data-variant]) [data-terp="stat"]:not([data-headline], [data-terp="stat-group"] > *) {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
   box-shadow: none;
 }
 /* In a hub card's stat row the card is the frame, so an ordinary figure has none of its own

@@ -523,6 +523,28 @@ and the briefing an app's agent reads was read the way that agent reads it:
   the review below found that it read one file of the core's error classes; it reads the whole
   core now.
 
+## What a design pass over the example app found
+
+Read as a designer reads screens, the example app's redesign still had faults the framework
+owned, each fixed with a measurement in the computed lane and mutation-checked:
+
+- **A row of figures did not share a line.** The summary band centred its items, so a headline
+  tile with a sparkline set the group beside it 20px lower; inside a row, only the headline had
+  block padding, so its label sat 12px under the rest. The band hangs its items from the top,
+  and every cell takes the headline's block padding.
+- **A lone figure in a boxed card was a tile inside a box.** The card is its frame now, as a hub
+  card's is; a plain card has no frame to lend, so there the figure keeps its tile.
+- **A bar column took some 13rem whatever it was declared**, because the meter's 10rem measure
+  is what an automatic table layout cannot shrink, and the names beside it wrapped. In a table
+  cell the measure is 6rem, one for the whole column, so its bars still compare.
+- **An identifier in a table cell broke at its hyphen** into two chips on two lines; it stays
+  whole, and its column widens to it.
+
+The same pass changed the example app itself: the collection names and counts itself, notes are
+notes, the limits are a plain list, a search's counts are its figures in the band, and the
+basis tab's verdicts are status dots. And it raised one question for the owner: the page band
+makes every line a control tall (#138), which sets a lead line 43px under a small title.
+
 ## What the review of phases 4 to 6 found
 
 An independent review of everything after phase 3, read against ADR 0169 and this draft, found

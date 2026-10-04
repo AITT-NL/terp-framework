@@ -1661,3 +1661,78 @@ test("a point with no neighbour is drawn as a round dot", async ({ page }) => {
   const [from, to] = dot.points!.split(" ");
   expect(from).toBe(to);
 });
+
+test("every figure in a summary band reads its label on one line and its value on the next", async ({
+  page,
+}) => {
+  // The band hangs its items from the top and every cell takes the headline's block padding.
+  // Centred, a headline tile with a sparkline put the group beside it 20px lower than its own
+  // label; inside a row, the padded headline's label sat 12px under the rest.
+  for (const only of ["dashboard-shape", "stat-group-headline"]) {
+    await page.goto(`/?theme=midday&only=${only}`);
+    await page.locator('[data-terp="page-summary"] [data-terp="stat-value"]').first().waitFor({ state: "visible" });
+    const tops = await page.evaluate(() => {
+      const top = (marker: string) =>
+        [...document.querySelectorAll(`[data-terp="page-summary"] [data-terp="${marker}"]`)].map(
+          (element) => element.getBoundingClientRect().top,
+        );
+      return { labels: top("stat-label"), values: top("stat-value") };
+    });
+    expect(tops.labels.length).toBeGreaterThan(2);
+    for (const line of [tops.labels, tops.values]) {
+      expect(Math.max(...line) - Math.min(...line), `${only}: one line`).toBeLessThanOrEqual(1);
+    }
+  }
+});
+
+test("a lone figure in a boxed card has no tile of its own, and keeps it in a plain card", async ({ page }) => {
+  await page.goto("/?theme=midday&only=stat-in-card");
+  await page.locator('[data-terp="stat"]').first().waitFor({ state: "visible" });
+  const frames = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-terp="card"]')].map((card) => {
+      const style = getComputedStyle(card.querySelector('[data-terp="stat"]')!);
+      return {
+        variant: card.getAttribute("data-variant") ?? "boxed",
+        border: style.borderTopWidth,
+        shadow: style.boxShadow,
+        background: style.backgroundColor,
+      };
+    }),
+  );
+  const boxed = frames.find(({ variant }) => variant === "boxed")!;
+  const plain = frames.find(({ variant }) => variant === "plain")!;
+  // The box is the frame: no border, no shadow, no fill of the figure's own.
+  expect(boxed.border).toBe("0px");
+  expect(boxed.shadow).toBe("none");
+  expect(boxed.background).toBe("rgba(0, 0, 0, 0)");
+  // On the canvas a figure is still a tile.
+  expect(plain.border).toBe("1px");
+  expect(plain.shadow).not.toBe("none");
+});
+
+test("an identifier in a narrow table stays one chip on one line", async ({ page }) => {
+  await page.goto("/?theme=midday&only=dataview-code-narrow");
+  await page.locator('[data-terp="dataview-table"] [data-terp="code"]').first().waitFor({ state: "visible" });
+  const lines = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-terp="dataview-table"] td [data-terp="code"]')].map(
+      (code) => code.getClientRects().length,
+    ),
+  );
+  expect(lines).toEqual([1, 1, 1]);
+});
+
+test("a bar in a table cell takes the table's shorter measure, the same in every row", async ({ page }) => {
+  // A 10rem bar made its column some 13rem wide whatever it was declared, and the columns
+  // beside it wrapped their names to pay for it.
+  await page.goto("/?theme=midday&only=dataview-code-narrow");
+  await page.locator('[data-terp="dataview-table"] [data-terp="meter-bar"]').first().waitFor({ state: "visible" });
+  const widths = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-terp="dataview-table"] td [data-terp="meter-bar"]')].map(
+      (bar) => bar.getBoundingClientRect().width,
+    ),
+  );
+  expect(widths).toHaveLength(3);
+  for (const width of widths) {
+    expect(width).toBeCloseTo(96, 0);
+  }
+});
