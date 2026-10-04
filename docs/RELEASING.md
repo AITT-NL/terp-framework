@@ -213,7 +213,11 @@ create packages.
    warning below is that a version only one registry accepted can neither be completed nor
    withdrawn, and approving once then walking away lands in exactly that state.
 5. Verify installability from a clean project: `uv add terp-core terp-cli` and
-   `npm install @terpjs/react-core` resolve at the new version.
+   `npm install @terpjs/react-core` resolve at the new version. Give npm a few minutes
+   first: it accepts a publish and serves the version some minutes later (0.31.0 took about
+   four), and until then the version 404s and `latest` still names the previous release. And
+   ask it past your own cache, with `npm install --prefer-online`, or `npm view` answers from
+   the copy it fetched before the publish, which reads exactly like a publish that failed.
 
 ### If a publish job fails partway
 
