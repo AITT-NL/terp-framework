@@ -1,147 +1,177 @@
 {
-  "$comment": "The sidebar's edge (--color-sidebar-border against the canvas) is deliberately NOT declared: WCAG 1.4.11 covers UI components and graphical objects needed to understand content, and a decorative separator beside a sidebar that already differs in background is neither. Declaring it would fail at ~1.2:1 in four themes and the only ways out would be darkening a decorative line everywhere or booking an allowance the ratchet may not grow. Token pairings the framework renders, as data, in two sections held to two different bars. `textPairs` are foreground/background pairs painted as TEXT and held to WCAG 2.1 AA for normal text; `nonTextPairs` are the visual boundaries and state indicators SC 1.4.11 asks 3:1 of — a focus indicator, the border that says which control is active, the outline of a control against its surface. Two consumers read both: tokens.contrast.test.js measures each pairing at its own bar, and the generated token manifest publishes them so a theme editor or an agent can tell which tokens must stay legible against which. A pair of token names appears in one section only: the text bar is the stricter of the two, so restating a text pairing under a non-text name would add a case that cannot fail unless the stricter one already has, and would overstate how much the ratchets cover. Purely decorative marks stay absent from both sections — WCAG sets no ratio for a divider or for an aria-hidden ornament, and asserting one would teach the next reader to ignore this file. Names are CSS custom properties because that is the vocabulary a theme author writes and a manifest consumer reads. A pairing earns its place here even when no specimen paints it, and two of them are exactly that: axe measures the pixels a lane renders, so a surface that only appears on a state no specimen can reach - a failed sign-in, a failed create - has no lane coverage at all, and the declared pairing is the only gate it will ever have.",
+  "$comment": "The sidebar's edge (--color-sidebar-border against the canvas) is deliberately NOT declared: WCAG 1.4.11 covers UI components and graphical objects needed to understand content, and a decorative separator beside a sidebar that already differs in background is neither. Declaring it would fail at ~1.2:1 in four themes and the only ways out would be darkening a decorative line everywhere or booking an allowance the ratchet may not grow. Token pairings the framework renders, as data, in two sections held to two different bars. `textPairs` are foreground/background pairs painted as TEXT and held to WCAG 2.1 AA for normal text; `nonTextPairs` are the visual boundaries and state indicators SC 1.4.11 asks 3:1 of — a focus indicator, the border that says which control is active, the outline of a control against its surface. Each text pairing also says how it is READ, and is held to that reading's APCA lightness contrast as well as to the WCAG ratio: `body` for running text and values (Lc 90), `secondary` for the short text a reader still has to take in, a label, a hint, a link, a badge, an error (Lc 75), and `incidental` for a count or a position that orients rather than informs (Lc 60). The floors are published in the manifest, and the reason both models are held is that WCAG 2's ratio flatters light text on a dark ground: the three dark themes shipped secondary text, links and badges as low as Lc 41 while every pairing passed AA. Two consumers read both: tokens.contrast.test.js measures each pairing at its own bar, and the generated token manifest publishes them so a theme editor or an agent can tell which tokens must stay legible against which. A pair of token names appears in one section only: the text bar is the stricter of the two, so restating a text pairing under a non-text name would add a case that cannot fail unless the stricter one already has, and would overstate how much the ratchets cover. Purely decorative marks stay absent from both sections — WCAG sets no ratio for a divider or for an aria-hidden ornament, and asserting one would teach the next reader to ignore this file. Names are CSS custom properties because that is the vocabulary a theme author writes and a manifest consumer reads. A pairing earns its place here even when no specimen paints it, and two of them are exactly that: axe measures the pixels a lane renders, so a surface that only appears on a state no specimen can reach - a failed sign-in, a failed create - has no lane coverage at all, and the declared pairing is the only gate it will ever have.",
   "textPairs": [
     {
       "id": "body-on-card",
       "label": "body text on a white surface — a control, an overlay, the sign-in card",
       "fg": "--color-neutral-900",
       "bg": "--color-neutral-0",
-      "layer": "primitive"
+      "layer": "primitive",
+      "reading": "body"
     },
     {
       "id": "body-on-canvas-primitive",
       "label": "body text on the canvas",
       "fg": "--color-neutral-900",
       "bg": "--color-neutral-50",
-      "layer": "primitive"
+      "layer": "primitive",
+      "reading": "body"
     },
     {
       "id": "muted-on-card",
       "label": "muted text on a white surface — a control, an overlay, the sign-in card",
       "fg": "--color-neutral-600",
       "bg": "--color-neutral-0",
-      "layer": "primitive"
+      "layer": "primitive",
+      "reading": "secondary"
     },
     {
       "id": "muted-on-canvas-primitive",
       "label": "muted text on the canvas",
       "fg": "--color-neutral-600",
       "bg": "--color-neutral-50",
-      "layer": "primitive"
+      "layer": "primitive",
+      "reading": "secondary"
     },
     {
       "id": "danger-on-card",
       "label": "danger text on a white surface — a control, an overlay, the sign-in card",
       "fg": "--color-status-danger",
       "bg": "--color-neutral-0",
-      "layer": "primitive"
+      "layer": "primitive",
+      "reading": "secondary"
     },
     {
       "id": "danger-on-canvas",
       "label": "danger text on the canvas",
       "fg": "--color-status-danger",
       "bg": "--color-neutral-50",
-      "layer": "primitive"
+      "layer": "primitive",
+      "reading": "secondary"
     },
     {
       "id": "body-on-container-primitive",
       "label": "body text on a container — a boxed card, the page band",
       "fg": "--color-neutral-900",
       "bg": "--color-bg-subtle",
-      "layer": "primitive"
+      "layer": "primitive",
+      "reading": "body"
     },
     {
       "id": "muted-on-container-primitive",
       "label": "muted text on a container — a boxed card, the page band",
       "fg": "--color-neutral-600",
       "bg": "--color-bg-subtle",
-      "layer": "primitive"
+      "layer": "primitive",
+      "reading": "secondary"
     },
     {
       "id": "danger-on-container",
       "label": "danger text on a container — a boxed card, the page band",
       "fg": "--color-status-danger",
       "bg": "--color-bg-subtle",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "primary-button-label",
       "label": "primary button label",
       "fg": "--color-brand-primary-contrast",
       "bg": "--color-brand-primary",
-      "layer": "primitive"
+      "layer": "primitive",
+      "reading": "secondary"
+    },
+    {
+      "id": "danger-button-label",
+      "label": "danger button label",
+      "fg": "--color-status-danger-fill-contrast",
+      "bg": "--color-status-danger-fill",
+      "layer": "semantic",
+      "reading": "secondary",
+      "$comment": "The danger as a filled surface (ADR 0170 §6). It was painted in the danger INK with the surface's own colour for a label, a pairing nothing declared: in night that label read at Lc 44 on #f85149 while passing WCAG at 5.65:1, and once the ink was lifted to read on the app's ground the button turned pale pink. Its own fill and label, like the accent's (ADR 0093 §5), keep it a deep red with a white label in every palette."
     },
     {
       "id": "success-badge",
       "label": "success badge",
       "fg": "--color-status-success",
       "bg": "--color-status-success-soft",
-      "layer": "primitive"
+      "layer": "primitive",
+      "reading": "secondary"
     },
     {
       "id": "warning-badge",
       "label": "warning badge",
       "fg": "--color-status-warning",
       "bg": "--color-status-warning-soft",
-      "layer": "primitive"
+      "layer": "primitive",
+      "reading": "secondary"
     },
     {
       "id": "danger-badge",
       "label": "danger badge",
       "fg": "--color-status-danger",
       "bg": "--color-status-danger-soft",
-      "layer": "primitive"
+      "layer": "primitive",
+      "reading": "secondary"
     },
     {
       "id": "info-badge",
       "label": "info badge",
       "fg": "--color-status-info",
       "bg": "--color-status-info-soft",
-      "layer": "primitive"
+      "layer": "primitive",
+      "reading": "secondary"
     },
     {
       "id": "body-on-surface",
       "label": "body text on a surface",
       "fg": "--color-fg-default",
       "bg": "--color-bg-surface",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "body"
     },
     {
       "id": "body-on-canvas",
       "label": "body text on the canvas",
       "fg": "--color-fg-default",
       "bg": "--color-bg-canvas",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "body"
     },
     {
       "id": "body-on-raised",
       "label": "body text on a raised surface",
       "fg": "--color-fg-default",
       "bg": "--color-bg-raised",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "body"
     },
     {
       "id": "muted-on-surface",
       "label": "muted text on a surface",
       "fg": "--color-fg-muted",
       "bg": "--color-bg-surface",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "muted-on-canvas",
       "label": "muted text on the canvas",
       "fg": "--color-fg-muted",
       "bg": "--color-bg-canvas",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "subtle-on-surface",
       "label": "subtle text on a surface",
       "fg": "--color-fg-subtle",
       "bg": "--color-bg-surface",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "incidental"
     },
     {
+      "reading": "incidental",
       "$comment": "Subtle ink on the CANVAS, which is the half that was missing. Only the surface pairing was declared, and the two are not the same measurement once the canvas is tinted away from the surface: in light this reads 5.29:1 where the surface reads 6.13, and at the previous #64748b it was 4.20 against a canvas the surface pairing still passed at 4.76. Every consumer that sits on the page rather than in a card — the DataView toolbar's result count, a section's lead line — failed axe while the declared pairing stayed green, which is exactly the coverage claim this file exists to make honest.",
       "id": "subtle-on-canvas",
       "label": "subtle text on the canvas",
@@ -154,30 +184,35 @@
       "label": "body text on a container",
       "fg": "--color-fg-default",
       "bg": "--color-bg-subtle",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "body"
     },
     {
       "id": "muted-on-subtle",
       "label": "muted text on a container",
       "fg": "--color-fg-muted",
       "bg": "--color-bg-subtle",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "subtle-on-subtle",
       "label": "subtle text on a container",
       "fg": "--color-fg-subtle",
       "bg": "--color-bg-subtle",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "incidental"
     },
     {
       "id": "accent-on-subtle",
       "label": "a link on a container",
       "fg": "--color-fg-accent",
       "bg": "--color-bg-subtle",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
+      "reading": "body",
       "$comment": "The summary band's fill (ADR 0169 §4) and the three inks it carries: a figure's value and label, and the accent a figure's trend line and a link are drawn in. Its own token rather than the brand's soft tint read directly, because the record leaves the fill to the theme: a palette that wants a calmer band moves this one token, and the tint the hub tiles and the selected states share stays where it is. Every theme ships it at its soft tint, except night, whose band is a step darker than its tint so the subtle ink a line of Text may carry clears AA on it. A figure's delta is not here: it is a pill with its own soft fill, held by the badge pairings wherever a band or a card puts it.",
       "id": "body-on-summary",
       "label": "body text on the summary band",
@@ -190,58 +225,67 @@
       "label": "muted text on the summary band",
       "fg": "--color-fg-muted",
       "bg": "--color-bg-summary",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "subtle-on-summary",
       "label": "subtle text on the summary band",
       "fg": "--color-fg-subtle",
       "bg": "--color-bg-summary",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "incidental"
     },
     {
       "id": "accent-on-summary",
       "label": "a link or a trend line on the summary band",
       "fg": "--color-fg-accent",
       "bg": "--color-bg-summary",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "accent-on-surface",
       "label": "accent text on a surface",
       "fg": "--color-fg-accent",
       "bg": "--color-bg-surface",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "accent-on-soft",
       "label": "accent text on the accent wash",
       "fg": "--color-fg-accent",
       "bg": "--color-brand-primary-soft",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "muted-on-soft",
       "label": "muted text on the accent wash",
       "fg": "--color-fg-muted",
       "bg": "--color-brand-primary-soft",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "sidebar-text",
       "label": "sidebar text",
       "fg": "--color-sidebar-fg",
       "bg": "--color-sidebar-bg",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "sidebar-muted-text",
       "label": "sidebar muted text",
       "fg": "--color-sidebar-muted",
       "bg": "--color-sidebar-bg",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
+      "reading": "secondary",
       "$comment": "The nav link's two raised states, which are one pairing: hover has painted sidebar-fg on sidebar-accent since the sidebar family was wired, and the active route joined it when its brand fill moved to neutral. It went undeclared through both, and the gap had teeth — the version of the active rule that kept accent ink on the same wash measured 4.07:1 in dark and 4.36 in twilight, and only the axe lane caught it, per specimen, at the end of a 26-minute run. Declared here it is arithmetic over five themes instead.",
       "id": "sidebar-text-on-accent",
       "label": "sidebar text on the hovered or active nav item",
@@ -254,49 +298,56 @@
       "label": "muted text on a neutral-toned row or card",
       "fg": "--color-fg-muted",
       "bg": "--color-neutral-100",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "muted-on-tone-info",
       "label": "muted text on an info-toned row or card",
       "fg": "--color-fg-muted",
       "bg": "--color-status-info-soft",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "muted-on-tone-success",
       "label": "muted text on a success-toned row or card",
       "fg": "--color-fg-muted",
       "bg": "--color-status-success-soft",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "muted-on-tone-warning",
       "label": "muted text on a warning-toned row or card",
       "fg": "--color-fg-muted",
       "bg": "--color-status-warning-soft",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "muted-on-tone-danger",
       "label": "muted text on a danger-toned row or card",
       "fg": "--color-fg-muted",
       "bg": "--color-status-danger-soft",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "muted-on-selection",
       "label": "muted text on a selected row",
       "fg": "--color-fg-muted",
       "bg": "--color-interactive-selected",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     },
     {
       "id": "sidebar-nav-link-hover",
       "label": "a hovered sidebar navigation link",
       "fg": "--color-sidebar-fg",
       "bg": "--color-sidebar-accent",
-      "layer": "semantic"
+      "layer": "semantic",
+      "reading": "secondary"
     }
   ],
   "nonTextPairs": [
@@ -359,16 +410,16 @@
     {
       "id": "control-boundary-on-surface",
       "label": "a control's outline on a card",
-      "fg": "--color-neutral-300",
+      "fg": "--color-border-strong",
       "bg": "--color-neutral-0",
-      "layer": "primitive"
+      "layer": "semantic"
     },
     {
       "id": "control-boundary-on-canvas",
       "label": "a control's outline on the canvas",
-      "fg": "--color-neutral-300",
+      "fg": "--color-border-strong",
       "bg": "--color-neutral-50",
-      "layer": "primitive"
+      "layer": "semantic"
     },
     {
       "$comment": "A Meter's fill against its track, which is the graphical object SC 1.4.11 asks 3:1 of: the fill's extent IS the value, and a fill that blends into its track is a bar that says nothing. Four pairings for the four fills the sheet paints — the unbanded accent and the three band tones — each against the one track they sit in. The track itself is not held against the page: it is a recess whose end the printed value makes redundant, and WCAG sets no ratio for that. The fill is --color-fg-accent rather than --color-brand-primary on purpose, and this file is where that choice is enforced: the brand fill measures 1.98 to 2.66 against this track in the three dark themes, because it is a surface for light text rather than a mark on the app's own ground.",

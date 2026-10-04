@@ -307,11 +307,14 @@ html {
 [data-terp="button"][data-variant="secondary"] {
   background: var(--color-neutral-0);
   color: var(--color-neutral-900);
-  border-color: var(--color-neutral-300);
+  border-color: var(--color-border-strong);
 }
+/* The danger as a filled surface, on tokens of its own (ADR 0170 §6, the split ADR 0093 §5
+   made for the accent): the danger INK is light in a dark palette so it reads on the app's own
+   ground, and a fill in that ink is a pale button that outshouts the primary one. */
 [data-terp="button"][data-variant="danger"] {
-  background: var(--color-status-danger);
-  color: var(--color-neutral-0);
+  background: var(--color-status-danger-fill);
+  color: var(--color-status-danger-fill-contrast);
 }
 [data-terp="button"][data-variant="ghost"] {
   background: transparent;
@@ -367,7 +370,7 @@ html {
   white-space: nowrap;
 }
 [data-terp="badge"][data-tone="neutral"] {
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
   background: var(--color-neutral-100);
   border-color: var(--color-neutral-100);
 }
@@ -440,7 +443,7 @@ html {
    row already spell for the same tone. It was --color-neutral-50, which is the canvas: on
    a card with no fill the alert kept its border and lost its wash entirely. */
 [data-terp="alert"][data-tone="neutral"] {
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
   background: var(--color-neutral-100);
 }
 [data-terp="alert"][data-tone="info"] {
@@ -490,7 +493,7 @@ html {
    carries that — no second attribute for a distinction the tag name already
    makes. */
 [data-terp="input"] {
-  border: 1px solid var(--color-neutral-300);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   color: var(--color-neutral-900);
   background: var(--color-neutral-0);
@@ -1160,7 +1163,7 @@ textarea[data-terp="input"] {
   flex-direction: column;
   gap: var(--space-1);
   padding: var(--space-3);
-  border: 1px solid var(--color-neutral-300);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-neutral-0);
   cursor: pointer;
@@ -1200,9 +1203,14 @@ textarea[data-terp="input"] {
 }
 [data-terp="tile-body"] {
   font-size: var(--font-size-xs);
-  color: var(--color-fg-subtle);
+  color: var(--color-fg-muted);
   display: grid;
   gap: var(--space-1);
+}
+/* A tile's body is read to make the choice, so it carries the muted ink rather than the
+   subtle one; a disabled tile is not a choice, and its body fades with the rest of it. */
+[data-terp="tile"][aria-disabled="true"] [data-terp="tile-body"] {
+  color: inherit;
 }
 [data-terp="radio-group"] {
   display: grid;
@@ -1495,7 +1503,7 @@ textarea[data-terp="input"] {
 }
 [data-terp="card-description"] {
   margin: 0;
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
   font-size: var(--font-size-sm);
 }
 /* Their places in the header line (see card-header): the title first, claiming 10rem before the
@@ -1532,7 +1540,7 @@ textarea[data-terp="input"] {
   padding: var(--space-2) var(--space-3);
   border: 0;
   border-block-end: 2px solid transparent;
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
   background: transparent;
   cursor: pointer;
   margin-block-end: -1px;
@@ -1571,7 +1579,7 @@ textarea[data-terp="input"] {
   display: inline-flex;
   align-items: center;
   padding: var(--space-2) 0;
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
   text-decoration: none;
   border-block-end: 2px solid transparent;
 }
@@ -1605,7 +1613,7 @@ textarea[data-terp="input"] {
 [data-terp="breadcrumbs"] {
   font-size: var(--font-size-sm);
   line-height: var(--font-line-height-snug);
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
 }
 /* NOWRAP on both, and the li is the one that matters. A crumb's chevron lives inside the li
    beside its label, so a wrapping li let a long label push its own separator onto the next
@@ -1651,7 +1659,7 @@ textarea[data-terp="input"] {
   font-weight: var(--font-weight-medium);
 }
 [data-terp="breadcrumbs"] a {
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
   text-decoration: none;
   transition: color var(--motion-duration-fast) var(--motion-easing-standard);
 }
@@ -2287,7 +2295,7 @@ textarea[data-terp="input"] {
   [data-terp="breadcrumbs"] li:nth-last-child(2):not(:first-child)::before {
     content: "…";
     margin-inline-end: var(--space-2);
-    color: var(--color-neutral-600);
+    color: var(--color-fg-muted);
   }
 }
 /* The band's left group, and it generates NO box. The trail and the meta group have to be
@@ -2400,7 +2408,7 @@ textarea[data-terp="input"] {
   margin: 0;
   flex: 1 1 0;
   min-width: 0;
-  color: var(--color-fg-subtle);
+  color: var(--color-fg-muted);
   font-size: var(--font-size-sm);
   overflow: hidden;
   white-space: nowrap;
@@ -2902,7 +2910,7 @@ html:has([data-terp="page-sequence"]) {
 }
 [data-terp="profile-role"] {
   margin: 0;
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
 }
 
 /* The built-in admin screens ----------------------------------------------- */
@@ -3046,7 +3054,7 @@ html:has([data-terp="page-sequence"]) {
 /* neutral-600 rather than fg-muted, and it is not the tinted-surface case: this text
    sits on the card's own neutral-0 and measures 7.58 / 7.94 / 7.50 / 7.60 / 18.42. */
 [data-terp="hubcard-description"] {
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
   font-size: var(--font-size-sm);
   line-height: 1.5;
 }
@@ -3381,13 +3389,9 @@ input[data-terp="input"][type="password"]::-ms-reveal {
   gap: var(--space-1);
 }
 /* The two toggles at rest, which is to say INACTIVE. 2rem stays a literal, pager
-   reasoning. Their border is the neutral-300 control boundary, which measures
-   1.42-2.36:1 across the surfaces a bordered control sits on in four themes — below
-   the 3:1 SC 1.4.11 asks of a control boundary. Still not fixed here, because a token
-   clearing 3:1 repaints every bordered control in the package, but no longer only a
-   sentence: control-boundary-on-surface and control-boundary-on-canvas are declared
-   pairings held at their measured floors by BELOW_UI in tokens.contrast.test.js, so
-   the debt can only shrink and emptying that table is the acceptance criterion. */
+   reasoning. Their border is the control boundary every bordered control shares,
+   --color-border-strong, which control-boundary-on-surface and control-boundary-on-canvas
+   in token-pairs.json hold at the 3:1 SC 1.4.11 asks of it in every theme. */
 [data-terp="dataview-toolbar-layout"] > [data-terp="iconbutton"] {
   display: inline-flex;
   align-items: center;
@@ -3395,7 +3399,7 @@ input[data-terp="input"][type="password"]::-ms-reveal {
   min-height: 2rem;
   padding: var(--space-1) var(--space-2);
   background: transparent;
-  border: 1px solid var(--color-neutral-300);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   cursor: pointer;
   color: var(--color-fg-subtle);
@@ -3822,7 +3826,7 @@ th[data-terp="dataview-actions-cell"] > span {
   min-height: 2rem;
   padding: var(--space-1) var(--space-2);
   background: var(--color-neutral-0);
-  border: 1px solid var(--color-neutral-300);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   cursor: pointer;
   color: var(--color-neutral-700);
@@ -3855,7 +3859,7 @@ th[data-terp="dataview-actions-cell"] > span {
   gap: var(--space-1);
   padding: var(--space-1) var(--space-2);
   background: transparent;
-  border: 1px solid var(--color-neutral-300);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   cursor: pointer;
   color: var(--color-neutral-700);
@@ -3953,7 +3957,7 @@ th[data-terp="dataview-actions-cell"] > span {
   color: var(--color-status-danger);
 }
 [data-terp="resource-list-empty"] {
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
 }
 [data-terp="resource-list-items"] {
   list-style: none;
@@ -3985,7 +3989,7 @@ th[data-terp="dataview-actions-cell"] > span {
   gap: var(--space-3);
   padding: var(--space-8) var(--space-6);
   text-align: center;
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
   background: var(--color-bg-surface);
   border: 1px dashed var(--color-neutral-300);
   border-radius: var(--radius-lg);
@@ -4019,7 +4023,7 @@ th[data-terp="dataview-actions-cell"] > span {
   font-weight: var(--font-weight-semibold);
 }
 [data-terp="empty-state-description"] {
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
   font-size: var(--font-size-sm);
   line-height: 1.5;
   max-width: 36ch;
@@ -4137,7 +4141,7 @@ input[data-terp="input"][role="combobox"] {
   align-items: center;
   gap: var(--space-1);
   padding: var(--space-1);
-  border: 1px solid var(--color-neutral-300);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-neutral-0);
 }
@@ -4173,7 +4177,7 @@ input[data-terp="input"][role="combobox"] {
   min-inline-size: var(--space-4);
   min-block-size: var(--space-4);
   padding: 0;
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
@@ -4278,7 +4282,7 @@ button[data-terp="input"][data-placeholder="true"] {
   justify-content: center;
   width: 2rem;
   height: 2rem;
-  border: 1px solid var(--color-neutral-300);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-neutral-700);
@@ -4382,7 +4386,7 @@ button[data-terp="input"][data-placeholder="true"] {
   justify-items: start;
 }
 [data-terp="field-hint"] {
-  color: var(--color-fg-subtle);
+  color: var(--color-fg-muted);
   font-size: var(--font-size-xs);
 }
 [data-terp="field-error"] {
@@ -5270,7 +5274,7 @@ button[data-terp="input"][data-placeholder="true"] {
   padding: var(--space-1) var(--space-2);
   background: transparent;
   color: var(--color-neutral-700);
-  border: 1px solid var(--color-neutral-300);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   cursor: pointer;
   font-family: var(--font-family-sans);
@@ -5341,7 +5345,7 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 [data-terp="theme-toggle-label"],
 [data-terp="language-switcher-label"] {
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
 }
 
 /* Account menu -------------------------------------------------------------- */
@@ -5391,7 +5395,7 @@ button[data-terp="input"][data-placeholder="true"] {
    outside this selector by construction) and the panel keeps the neutral. The sheet already
    argues this exact split for the drawer close button. */
 [data-terp="user-menu-role"] {
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
 }
 [data-terp="user-menu"] [data-terp="user-menu-role"] {
   color: var(--color-sidebar-muted);
@@ -5581,7 +5585,7 @@ button[data-terp="input"][data-placeholder="true"] {
   color: var(--color-neutral-900);
 }
 [data-terp="dialog-description"] {
-  color: var(--color-neutral-600);
+  color: var(--color-fg-muted);
   font-size: var(--font-size-sm);
   line-height: 1.5;
 }
@@ -5740,7 +5744,7 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 [data-terp="button"][data-variant="secondary"]:hover:not(:disabled) {
   background: var(--color-neutral-100);
-  border-color: var(--color-neutral-300);
+  border-color: var(--color-border-strong);
 }
 [data-terp="button"][data-variant="ghost"]:hover:not(:disabled) {
   background: var(--color-neutral-100);
@@ -5851,7 +5855,7 @@ button[data-terp="input"][data-placeholder="true"] {
    user is pointing at the thing they need to fix. Narrowing the aggressor rather than adding a
    competing [aria-invalid="true"]:hover rule is this sheet's convention. */
 [data-terp="input"]:hover:not(:disabled):not(:focus):not([aria-invalid="true"]) {
-  border-color: var(--color-neutral-400);
+  border-color: var(--color-neutral-500);
 }
 [data-terp="input"]:focus,
 [data-terp="input"]:focus-visible {

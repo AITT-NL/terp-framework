@@ -902,8 +902,11 @@ frontend design-system track below.
       release's three phases; phase 4 (`TrendChart`, `BarChart`, `ProportionBar`,
       `StatusHistory`), phase 5 (`Timeline`, and the audit trail narrowed to one record) and
       phase 6 (`DashboardPage`, and the hub preset scaffolded as one) complete the second.
-- [ ] Owed: the release cut (one release or two, ADR 0169 §8), the Studio's pin after it, and
-      which screen draws the charts first — open in the draft.
+- [x] A contrast pass before the release (ADR 0170): text held to APCA by its reading beside
+      WCAG, the dark palettes' secondary inks lifted, the control outline at 3:1 on
+      `--color-border-strong`, and the danger button on a fill of its own.
+- [ ] Owed: the release cut — one release, 0.31.0, the owner's call — the Studio's pin after
+      it, and the admin hub as the charts' first screen, proposed before it is built.
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
       every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
       the template's two `AGENTS.md` files, the repository's own and the react-core README.

@@ -113,13 +113,15 @@ const UNREAD_TOKENS: Record<string, string[]> = {
   // reader: the body, the AppShell and the login view name it now. --color-bg-subtle, the
   // ladder's new rung, shipped with its readers in the same change and so never joined. The
   // chart ramp came off it with the charts of ADR 0169's fourth phase, which read all five.
+  // --color-border-strong came off it when every control's outline moved onto it from the raw
+  // neutral-300 step (ADR 0170), and --color-neutral-500 with it, as the hovered field's border
+  // one step past that outline: a theme now retunes the boundary of every control without
+  // repainting the disabled ink and the scrollbar that still read the ramp step.
   "--color-": [
     "--color-bg-raised",
     "--color-border-default",
-    "--color-border-strong",
     "--color-border-subtle",
     "--color-interactive-active",
-    "--color-neutral-500",
     "--color-neutral-800",
   ],
 };

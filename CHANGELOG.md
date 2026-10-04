@@ -110,6 +110,15 @@ first phases, and every app's look moves with them.
   Three framework strings come with it — `pageSequencePrevious`, `pageSequenceNext` and
   `pageSequencePosition` — in the English and Dutch catalogs.
 
+- **Text is held to how it reads, not only to WCAG's ratio (ADR 0170).** Each pairing in
+  `token-pairs.json` declares its `reading` — `body`, `secondary` or `incidental` — and the
+  contrast gate holds it to APCA's lightness contrast for that reading (Lc 90, 75 and 60) as
+  well as to the WCAG ratio. The token manifest publishes the floors as `apca`, with the APCA
+  build they were measured under, so a theme editor or an agent can hold an app's own palette to
+  them. WCAG's ratio alone flatters light text on a dark ground: every pairing passed it while
+  the dark palettes' secondary text, links and badges read as low as Lc 41. The gate also fails
+  a neutral ramp step that passes its neighbour.
+
 ### Changed
 
 - **The page steps back and the data comes forward (ADR 0169 §3).** The page's ground is
@@ -162,6 +171,19 @@ first phases, and every app's look moves with them.
   the agent to make them the app's live figures, one of them the headline. The process and
   portal landings are unchanged.
 
+- **The dark palettes' secondary text reads (ADR 0170).** In `twilight`, `evening` and `night`
+  the muted and subtle inks, links, the four status inks and the sidebar's muted text are lifted
+  until each reads at its floor on every surface it sits on — night's lead line from Lc 44,
+  its links from 52. Night's main text eases from Lc 101 to 95, the far end of comfortable on
+  near-black, and midday's badges and links deepen by a shade. Every app's dark screens change,
+  by design: secondary text sits closer to the main text, which stays brighter.
+- **A page's lead line, a field's hint and a tile's description use the muted ink.** They are
+  read, and the subtle ink is now for what orients rather than informs — a result count, a
+  position, a timestamp — at a lower floor.
+- **A danger button is a deep red with a white label in every palette (ADR 0170 §6).** The dark
+  palettes filled it with the danger ink and labelled it in the surface's colour, at Lc 44 to 57;
+  it is filled from tokens of its own now, `--color-status-danger-fill` and
+  `--color-status-danger-fill-contrast` — the split ADR 0093 made for the accent.
 ### Fixed
 
 - **A tooltip stays readable.** The bubble was a positioned child of its anchor, so a scroll
@@ -185,6 +207,11 @@ first phases, and every app's look moves with them.
 - **Cards meet the edge in a DataView's card list.** The list padded every card 8px in from the
   edge it shares with the toolbar and the pagination; it has no padding of its own now.
 
+- **A control's edge is visible.** Inputs, selects, secondary buttons, tiles, the menu trigger
+  and the DataView's toggles and pager drew their outline in `--color-neutral-300`, at 1.4 to
+  2.4:1 against their surface in four palettes — below the 3:1 SC 1.4.11 asks of a control's
+  boundary. They draw it in `--color-border-strong` now, at 3:1 in every palette, and a hovered
+  field's border is a step past it.
 ### Upgrade notes
 
 - **A non-English framework catalog of an app's own supplies seventeen new keys.**
@@ -222,6 +249,14 @@ first phases, and every app's look moves with them.
   upgrade does not touch it. To give it the dashboard's shape, render `DashboardPage` in place of
   `HubPage`, with its figures as the `summary` and its cards — list items — in a
   `<Grid as="ul" template="1:1:1">` (`terp guide layouts`).
+- **A `theme.css` that retuned control borders redeclares `--color-border-strong`.** Controls
+  no longer read `--color-neutral-300`, which still paints the scrollbar and disabled ink. One
+  that recoloured the danger button through `--color-status-danger` sets
+  `--color-status-danger-fill` instead, and its `-contrast` with it. A theme that moves a text
+  ink checks it against the manifest's `apca` floors as well as the WCAG ratio
+  (`terp guide theming`).
+- **`Text tone="subtle"` is for what orients.** It is held to Lc 60; a note or a hint a reader
+  has to take in is `tone="muted"`.
 
 ## 0.30.0 — 2026-10-02
 

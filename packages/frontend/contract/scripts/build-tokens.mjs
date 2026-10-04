@@ -48,6 +48,24 @@ const AA_NORMAL_TEXT = 4.5;
  */
 const UI_COMPONENT = 3;
 
+/**
+ * The APCA lightness contrast (Lc) each way of reading a text pairing must reach, beside the
+ * WCAG ratio rather than instead of it (ADR 0170). WCAG 2's ratio flatters light text on a dark
+ * ground, so a dark theme can pass AA everywhere and still set its secondary text at a level
+ * APCA rates as hard to read; Lc is measured the way a reader perceives it in both polarities.
+ *
+ * Published with the algorithm's version because an Lc means nothing without its constants:
+ * a consumer measuring with another APCA build would hold the same palette to different
+ * numbers. The floors are APCA's own levels: 90 its preferred level for fluent text, 75 its
+ * minimum for body text, 60 its minimum for content text that is not read as body text, which
+ * is how this sheet reads a count or a position. Every theme is held to them, the
+ * high-contrast one included, because the reading belongs to the text and not to the palette.
+ */
+const APCA = {
+  version: "0.0.98G-4g",
+  minimumLc: { body: 90, secondary: 75, incidental: 60 },
+};
+
 const registry = read("themes.json");
 const themes = registry.themes;
 const base = themes.find((theme) => theme.name === registry.base);
@@ -284,6 +302,8 @@ const manifest = {
   // The floor for the `nonTextPairs` section below — flat across themes, unlike the per-theme
   // text floor above. Named at the top level so the two sections cannot be read as sharing a bar.
   nonTextMinimumContrast: UI_COMPONENT,
+  // The second bar a text pairing is held to, keyed by the `reading` each pairing declares.
+  apca: APCA,
   textPairs: pairs.textPairs,
   // Both sections, because a consumer that can only see the text pairings would read the
   // absence of a boundary pairing as "no requirement" rather than "held elsewhere".

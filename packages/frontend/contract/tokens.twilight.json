@@ -14,19 +14,21 @@
       "300": { "value": "#675e80" },
       "400": { "value": "#8579a3" },
       "500": { "value": "#b2a6ca" },
-      "600": { "value": "#d2c9e2" },
+      "600": { "value": "#e2ddec" },
       "700": { "value": "#e6e0ef" },
       "800": { "value": "#f1edf7" },
       "900": { "value": "#faf8fc" }
     },
     "status": {
-      "success": { "value": "#74e3ad" },
+      "success": { "value": "#a1ecc7" },
       "successSoft": { "value": "#24493a" },
-      "warning": { "value": "#f2c164" },
+      "warning": { "value": "#f7d79a" },
       "warningSoft": { "value": "#4e3d1f" },
-      "danger": { "value": "#fa9fa6" },
+      "danger": { "value": "#fccbce" },
       "dangerSoft": { "value": "#572836" },
-      "info": { "value": "#92c8f6" },
+      "dangerFill": { "value": "#b91c1c" },
+      "dangerFillContrast": { "value": "#ffffff" },
+      "info": { "value": "#c1e0fa" },
       "infoSoft": { "value": "#284261" }
     },
     "focusRing": { "value": "rgba(188,166,255,0.5)" },
@@ -40,13 +42,13 @@
     },
     "fg": {
       "default": { "value": "#faf8fc" },
-      "muted": { "value": "#d2c9e2" },
-      "subtle": { "value": "#c0b4d8" },
-      "accent": { "value": "#c4b0ff" }
+      "muted": { "value": "#e2ddec" },
+      "subtle": { "value": "#cbc2df" },
+      "accent": { "value": "#e3daff" }
     },
     "border": {
       "default": { "value": "#534b68" },
-      "strong": { "value": "#675e80" },
+      "strong": { "value": "#8f89a2" },
       "subtle": { "value": "#453e57" }
     },
     "interactive": {
@@ -57,7 +59,7 @@
     "sidebar": {
       "bg": { "value": "#3a3449" },
       "fg": { "value": "#faf8fc" },
-      "muted": { "value": "#d2c9e2" },
+      "muted": { "value": "#dbd4e8" },
       "accent": { "value": "#534b68" },
       "border": { "value": "#534b68" }
     },

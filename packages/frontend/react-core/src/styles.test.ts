@@ -843,6 +843,20 @@ describe("cascade structure", () => {
     ).not.toContain("box-shadow");
   });
 
+  it("draws a control's outline in the boundary token, never in the raw ramp step", () => {
+    // ADR 0170 §4. --color-border-strong is the outline of every control, and the contrast
+    // gate's control-boundary pairings hold it at 3:1 against the surfaces controls sit on. The
+    // gate measures tokens, not rules, so it cannot see a rule that draws an edge in
+    // --color-neutral-300 instead — the step every control used before, at 1.4 to 2.4:1, which
+    // still paints the scrollbar and disabled ink. Any border drawn in the step is refused here,
+    // with one exception: the empty state's dashed outline frames no control, and WCAG sets no
+    // ratio for a decorative edge.
+    const offenders = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((rule) => /(?:^|;)\s*border[\w-]*\s*:[^;]*var\(--color-neutral-300\)/.test(rule[2]!))
+      .map((rule) => rule[1]!.trim().replace(/\s+/g, " "));
+    expect(offenders).toEqual(['[data-terp="empty-state"]']);
+  });
+
   it("keeps the focus-within tint scoped to rows something will actually open", () => {
     // The row marker is unconditional, so this selector reaches every row unless it says
     // otherwise. Unguarded it paints a brand wash on any row holding focus — a selection

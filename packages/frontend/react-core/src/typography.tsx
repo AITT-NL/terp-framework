@@ -108,7 +108,11 @@ export type TextWeight = "normal" | "medium" | "semibold";
 export interface TextProps extends Omit<HTMLAttributes<HTMLElement>, "style"> {
   /** The rendered element — `"p"` by default; `"span"` for text inside a line. */
   as?: "p" | "span" | "div";
-  /** Ink tone (default `"default"`; `"muted"` for secondary copy, `"subtle"` for hints). */
+  /**
+   * Ink tone (default `"default"`). `"muted"` for secondary copy a reader still has to take in
+   * — a note, a hint, a caption. `"subtle"` only for what orients rather than informs — a
+   * count, a position, a timestamp — because it is held to a lower contrast (ADR 0170).
+   */
   tone?: TextTone;
   /** Type step (default `"base"`). */
   size?: TextSize;

@@ -332,6 +332,11 @@ needs no frame at all — a `StatGroup`'s figures, a `DetailList`, a `Timeline`,
 reads as one object repeated, however good each block is; a page that alternates reads in the
 order its content matters.
 
+**Quiet text is still read.** `Text tone="muted"` is for anything a reader has to take in — a
+note, a hint, a caption. `tone="subtle"` is only for what orients, such as a count or a
+timestamp: the palettes hold it to a lower contrast (ADR 0170), so a sentence set in it is a
+sentence some readers cannot read.
+
 ## Theming, language & the user menu (already wired)
 
 - **Themes** — the token stylesheet carries the palettes `midday`, `twilight`, `evening`,
@@ -344,7 +349,8 @@ order its content matters.
     loads last, after the framework's own tokens and after any house style, so it wins.
     Per palette, use that palette's selector (`[data-theme="evening"] { ... }`, by the NEW
     name — `[data-theme="dark"]` no longer matches what the toggle writes). Never inline
-    colours.
+    colours. An ink you move must still clear the WCAG ratio and the APCA floor of every
+    surface it sits on; the token manifest publishes both (`uv run terp guide theming`).
   - **Never edit `frontend/src/house-style.css`.** It belongs to the organisation's styling
     tool, which rewrites it wholesale; edits there are the ones that vanish. To depart from
     the house style, declare the token in `theme.css` instead — that is the supported way,

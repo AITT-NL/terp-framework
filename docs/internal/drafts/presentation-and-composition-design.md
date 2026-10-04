@@ -591,23 +591,40 @@ those was mutation-checked.
 - A run history with no runs rendered half a sentence; it renders nothing. The list joins
   behind a figure's and a history's text alternative are kept, like the other formatters.
 
+## What the contrast pass settled (ADR 0170)
+
+Asked before the release whether the palettes' contrast is right for maximum readability, the
+measurement said: in midday, nearly; in the three darks, no. WCAG 2's ratio passed every declared
+pairing while APCA put the darks' secondary text, links and badges as low as Lc 41, and the
+control outline failed SC 1.4.11 in four palettes. The owner chose the maximum level, and it
+shipped as ADR 0170:
+
+- [x] Every text pairing declares its `reading` and is held to APCA (body Lc 90, secondary 75,
+      incidental 60) beside WCAG; the manifest publishes the floors with the APCA build.
+- [x] The darks' muted, subtle, accent, status and sidebar-muted inks lifted by the least change
+      that reaches each floor; night's main text eased from Lc 101 to 95.
+- [x] The lead line, a field's hint and a tile's description moved from the subtle ink to the
+      muted one; `Text`'s `subtle` tone documented as the incidental reading.
+- [x] The control outline moved onto `--color-border-strong` at 3:1, and `BELOW_UI` removed.
+      Darkening `neutral-300` was tried first and broke the ramp (300 past 400, a hovered
+      field's border lighter than its resting one), which is why a ramp-order gate came with it.
+- [x] The danger button filled from tokens of its own, a deep red with a white label: its old
+      dark-palette label read at Lc 44 to 57, and the lifted ink made it pale pink.
+
 ## Open after phase 6
 
-- **Which screen draws the charts first.** The charts are built and gated, and a module can
-  use them today, but no packaged screen does (ADR 0169's second amendment). Two candidates,
-  neither started, because each reshapes a surface: the admin hub as a dashboard over the base
-  profile's own data — users by status, the audit trail's activity — which needs an aggregate
-  read from the audit capability, since counting a paginated list in the browser is not one;
-  or packaged screens for sync runs and webhook deliveries, which needs those capabilities in
-  the typed client the framework's own screens use.
+- **Which screen draws the charts first: the admin hub, as a dashboard** (the owner's call). It
+  is the base profile's own data — users by status, the audit trail's activity — and needs an
+  aggregate read from the audit capability, since counting a paginated list in the browser is
+  not one. A proposal comes before the build, because it reshapes a packaged surface. Packaged
+  screens for sync runs and webhook deliveries stay the later candidate.
 - **The capabilities' error codes.** The core's are worded; the capabilities' own — files,
   multi-factor sign-in, users, auth, access, single sign-on, egress, mail, tenancy and webhooks
   — still reach a screen as the backend's English detail. Several carry specifics a fixed
   wording would drop, so each wants its own decision, and some want the envelope to carry
   their numbers.
-- **The release.** ADR 0169 §8 ships phases 1–3 together and 4–6 after. All six are on this
-  branch, under one unreleased section of the changelog; cutting them as one release or two is
-  the owner's call.
+- **The release: one, as 0.31.0** (the owner's call), with the design pass, the band's
+  subtitle and the contrast pass in it. The Studio's framework pin moves after it.
 
 ## Found along the way
 
@@ -622,11 +639,13 @@ Recorded so they are not lost; this proposal does not fix them on its own.
 - A fixed `columns={4}` row that clips at phone width is not a bug under ADR 0097 §3, but it is a
   legal configuration that renders broken. Templates remove the reason to write it; whether fixed
   counts should collapse too is a question for the ADR.
-- A control on a boxed card now sits on `--color-bg-subtle`, and its `--color-neutral-300`
-  outline measures between the two control-boundary floors already recorded in `BELOW_UI`
-  (on canvas and on surface), because `subtle` is their midpoint. It is the same recorded defect,
-  fixed by the same token value, and it is deliberately not declared as a third pairing: the
-  ratchet admits no new control-boundary entry.
+- ~~A control on a boxed card sits on `--color-bg-subtle`, between the two control-boundary
+  floors `BELOW_UI` recorded.~~ Fixed by ADR 0170: the outline is `--color-border-strong`, solved
+  at 3:1 against the subtle rung as well as the canvas, the surface and a raised panel.
+- `sidebar-text-on-accent` and `sidebar-nav-link-hover` in `token-pairs.json` name the same two
+  tokens, so one pairing is measured twice under two ids. Harmless to the gate, but it overstates
+  the coverage by one pairing, which the non-text section refuses for its own entries. Not
+  acted on here.
 - `visual/specimens.spec.ts` says win32 baselines cannot be recorded "on the machine these were
   authored on" because group policy blocks the browser. On the workstation phase 1 was built on,
   sixteen untouched specimens matched their win32 baselines pixel for pixel and the lane recorded
@@ -660,4 +679,4 @@ Recorded so they are not lost; this proposal does not fix them on its own.
 1. Forks 1–5. The recommendations are C, B, B, B, and B with C.
 2. `DashboardPage` as a new archetype (recommended), or a wider `OverviewPage` slot table.
 3. The summary band's default fill: the brand's soft tint (recommended), the surface, or the brand.
-4. The release grouping above.
+4. ~~The release grouping above.~~ One release, 0.31.0.

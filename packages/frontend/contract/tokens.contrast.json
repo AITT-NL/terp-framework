@@ -26,6 +26,8 @@
       "warningSoft": { "value": "#fdf1e0" },
       "danger": { "value": "#96000c" },
       "dangerSoft": { "value": "#fce8e8" },
+      "dangerFill": { "value": "#96000c" },
+      "dangerFillContrast": { "value": "#ffffff" },
       "info": { "value": "#0b4a8f" },
       "infoSoft": { "value": "#e5f0fb" }
     },
@@ -46,7 +48,7 @@
     },
     "border": {
       "default": { "value": "#595959" },
-      "strong": { "value": "#000000" },
+      "strong": { "value": "#404040" },
       "subtle": { "value": "#767676" }
     },
     "interactive": {

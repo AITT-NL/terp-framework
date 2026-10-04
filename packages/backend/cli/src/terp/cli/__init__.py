@@ -2024,9 +2024,18 @@ Theming and branding (design tokens, palettes, the brand mark)
   a palette may vary it). Spacing, corners, typography, motion and z-index are
   theme-INVARIANT by design — declare them once in `:root`. An app whose spacing
   changed when someone switched palette is not what anyone means by a theme.
-- CONTRAST is measurable, so measure it: @terpjs/contract carries a WCAG contrast suite
-  over the shipped palettes. If you override a foreground or a background, check the
-  pairing rather than trusting the eye.
+- CONTRAST is measurable, so measure it. @terpjs/contract holds every pairing the shipped
+  palettes paint to two models (ADR 0170): the WCAG ratio, and APCA lightness contrast at
+  the level the text's reading asks for -- Lc 90 for body text, 75 for secondary text a
+  reader still has to take in (a label, a hint, a link, a badge), 60 for a count or a
+  position. The manifest publishes both: each of `textPairs` names its `reading`, and
+  `apca.minimumLc` the floors. If you override a foreground or a background, check its
+  pairings against both rather than trusting the eye: WCAG's ratio alone passes light text
+  on a dark ground that reads poorly. In module code the same split is `Text`'s tone:
+  `muted` for anything read, `subtle` only for what orients.
+- A CONTROL'S OUTLINE is `--color-border-strong`, held at 3:1 against the surfaces controls
+  sit on. Move that token to retune the edge of every input, select and secondary button;
+  `--color-neutral-300` is the scrollbar and disabled ink, not a border.
 """,
     "layouts": """\
 Layout contracts (slot-typed layouts, ADR 0079)

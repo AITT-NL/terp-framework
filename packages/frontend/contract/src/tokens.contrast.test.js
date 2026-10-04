@@ -13,9 +13,10 @@ import { parseRules } from "./css-rules.js";
 // checks spelling, the theme test checks completeness, and neither knows that
 // `--color-status-warning` is only ever painted on `--color-status-warning-soft`.
 //
-// So the pairings are declared here, as data, and held to WCAG 2.1 contrast. Each entry is
-// a pairing some framework component actually renders as text; decorative boundaries are
-// deliberately absent, because WCAG sets no ratio for a divider and asserting one would
+// So the pairings are declared here, as data, and held to WCAG 2.1 contrast — and the text
+// pairings to APCA lightness contrast as well, at the level their reading asks for (ADR 0170).
+// Each entry is a pairing some framework component actually renders; decorative boundaries
+// are deliberately absent, because WCAG sets no ratio for a divider and asserting one would
 // only teach the next reader to ignore this file.
 
 const here = (name) => fileURLToPath(new URL(name, import.meta.url));
@@ -107,39 +108,20 @@ const NON_TEXT_PAIRS = PAIRS.nonTextPairs;
 const BELOW_AA = new Map([]);
 
 /**
- * Non-text pairings that do not reach 3:1 today, with the ratio measured when they were
- * recorded. Same ratchet contract as {@link BELOW_AA}: a floor may only rise, and a pairing
- * that reaches the bar must leave the table.
- *
- * Every entry is the same defect. `--color-neutral-300` is the control outline — the border on
- * an input, a secondary button, a card, a combobox, a menu, the layout toggles — and against
- * the surfaces those controls sit on it measures 1.42 to 2.36, so a bordered control's edge is
- * effectively invisible to anyone who needs the boundary in order to see the control. That is a
- * genuine SC 1.4.11 failure in four of the five themes, deliberately recorded rather than
- * fixed: the fix is the token value, and moving it repaints every bordered control in the
- * package, which is a decision about how the framework looks and not a side effect of adding a
- * gate. The contrast theme already clears it at 10.37, which is what shows the fix is a value
- * and not a structure.
- *
- * Unlike {@link BELOW_AA} the entries are not confined to the themes that predate the gate, and
- * pretending otherwise would be the dishonest option — every palette inherited the same
- * 300-step boundary, so the defect is one token's value seen five times rather than five
- * independent mistakes. The guard below is therefore different in kind: the allowance may name
- * only the control-boundary pairings. A new pairing cannot be added to it at all.
+ * The APCA build {@link apcaContrast} implements, which the manifest must name: an Lc floor is
+ * only a number under the constants it was measured with, so a manifest that moved to another
+ * build would be publishing floors this gate no longer measures.
  */
-const BELOW_UI = new Map([
-  ["evening/control-boundary-on-canvas", 2.3559],
-  ["evening/control-boundary-on-surface", 1.9305],
-  ["midday/control-boundary-on-canvas", 1.419],
-  ["midday/control-boundary-on-surface", 1.4847],
-  ["night/control-boundary-on-canvas", 1.6826],
-  ["night/control-boundary-on-surface", 1.5506],
-  ["twilight/control-boundary-on-canvas", 1.982],
-  ["twilight/control-boundary-on-surface", 1.7807],
-]);
+const APCA_VERSION = "0.0.98G-4g";
 
-/** The only pairings {@link BELOW_UI} is allowed to name. */
-const CONTROL_BOUNDARY_IDS = ["control-boundary-on-canvas", "control-boundary-on-surface"];
+/**
+ * The Lc each way of reading a text pairing must reach, read from the MANIFEST for the reason
+ * {@link floorFor} gives: the published floor and the enforced floor are one number.
+ */
+const MINIMUM_LC = manifest.apca.minimumLc;
+
+/** The ordered steps of the neutral ramp: 0 and 50 are the surface and the canvas, not steps. */
+const RAMP_STEPS = [100, 200, 300, 400, 500, 600, 700, 800, 900];
 
 /** The declarations of the one rule whose selector list names `selector`. */
 function declarationsFor(selector) {
@@ -175,13 +157,16 @@ function linearise(channel) {
   return scaled <= 0.04045 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
 }
 
-/** Relative luminance of a `#rrggbb` value. */
-function relativeLuminance(hex) {
+/** The red, green and blue channels of a `#rrggbb` value, 0 – 255. */
+function channels(hex) {
   const match = /^#([0-9a-f]{6})$/i.exec(hex);
   if (!match) throw new Error(`not a six-digit hex colour: ${hex}`);
-  const [red, green, blue] = [0, 2, 4].map((offset) =>
-    linearise(Number.parseInt(match[1].slice(offset, offset + 2), 16)),
-  );
+  return [0, 2, 4].map((offset) => Number.parseInt(match[1].slice(offset, offset + 2), 16));
+}
+
+/** Relative luminance of a `#rrggbb` value. */
+function relativeLuminance(hex) {
+  const [red, green, blue] = channels(hex).map(linearise);
   return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
 
@@ -191,6 +176,32 @@ function contrastRatio(a, b) {
     (x, y) => x - y,
   );
   return (lighter + 0.05) / (darker + 0.05);
+}
+
+/**
+ * APCA lightness contrast (Lc) of `text` on `background`, by the APCA-W3 0.0.98G-4g constants.
+ *
+ * Unlike the WCAG ratio it is not symmetric: dark text on a light ground is measured with one
+ * pair of exponents and light text on a dark ground with another, which is what lets it rate
+ * light-on-dark the way it reads instead of flattering it. Positive for dark text on light,
+ * negative for light text on dark; a floor is held against the magnitude. Near-black is
+ * soft-clamped before the exponents, and a result under the low clip reads as no contrast.
+ */
+function apcaContrast(text, background) {
+  const luminance = (hex) => {
+    const [red, green, blue] = channels(hex).map((channel) => (channel / 255) ** 2.4);
+    const y = 0.2126729 * red + 0.7151522 * green + 0.072175 * blue;
+    return y > 0.022 ? y : y + (0.022 - y) ** 1.414;
+  };
+  const textY = luminance(text);
+  const backgroundY = luminance(background);
+  if (Math.abs(backgroundY - textY) < 0.0005) return 0;
+  if (backgroundY > textY) {
+    const sapc = (backgroundY ** 0.56 - textY ** 0.57) * 1.14;
+    return sapc < 0.1 ? 0 : (sapc - 0.027) * 100;
+  }
+  const sapc = (backgroundY ** 0.65 - textY ** 0.62) * 1.14;
+  return sapc > -0.1 ? 0 : (sapc + 0.027) * 100;
 }
 
 /**
@@ -228,7 +239,7 @@ const casesFor = (list, floorOf) =>
 /** Every text pairing, in every registered theme, tagged with its `BELOW_AA` key. */
 const cases = casesFor(TEXT_PAIRS, floorFor);
 
-/** The measured ratio for one case, with the painted values for the failure message. */
+/** The measured ratio and Lc for one case, with the painted values for the failure message. */
 function measure({ fg, bg, declarations }) {
   const foreground = declarations.get(fg);
   const background = declarations.get(bg);
@@ -236,6 +247,7 @@ function measure({ fg, bg, declarations }) {
   expect(background, `${bg} is not declared`).toBeDefined();
   return {
     ratio: contrastRatio(foreground, background),
+    lc: apcaContrast(foreground, background),
     painted: `${fg} (${foreground}) on ${bg} (${background})`,
   };
 }
@@ -243,10 +255,11 @@ function measure({ fg, bg, declarations }) {
 const meetsAa = cases.filter(({ key }) => !BELOW_AA.has(key));
 const knownGaps = cases.filter(({ key }) => BELOW_AA.has(key));
 
-/** The same three lists for the non-text section. Its bar is flat, so every floor is the same. */
+/** The same text cases, tagged with the Lc their reading asks for. No ratchet: none falls short. */
+const lcCases = cases.map((testCase) => ({ ...testCase, minimumLc: MINIMUM_LC[testCase.reading] }));
+
+/** The non-text section. Its bar is flat, so every floor is the same. */
 const uiCases = casesFor(NON_TEXT_PAIRS, () => UI_COMPONENT);
-const meetsUi = uiCases.filter(({ key }) => !BELOW_UI.has(key));
-const uiGaps = uiCases.filter(({ key }) => BELOW_UI.has(key));
 
 describe("token sheet text contrast", () => {
   it("measures a known ratio correctly", () => {
@@ -256,6 +269,40 @@ describe("token sheet text contrast", () => {
     expect(contrastRatio("#ffffff", "#ffffff")).toBeCloseTo(1, 5);
     // A published mid-tone pair, so the curve is checked and not just its endpoints.
     expect(contrastRatio("#767676", "#ffffff")).toBeCloseTo(4.5422, 4);
+  });
+
+  it("measures a known lightness contrast correctly", () => {
+    // The reference values APCA publishes for this build, so each constant is pinned by a case
+    // that moves when it does: both polarities, the soft clamp near black (#000, #123), and the
+    // low clip that reads a faint difference as none at all.
+    expect(apcaContrast("#888888", "#ffffff")).toBeCloseTo(63.056469930209424, 10);
+    expect(apcaContrast("#ffffff", "#888888")).toBeCloseTo(-68.54146436644962, 10);
+    expect(apcaContrast("#000000", "#aaaaaa")).toBeCloseTo(58.146262578561334, 10);
+    expect(apcaContrast("#aaaaaa", "#000000")).toBeCloseTo(-56.24113336839742, 10);
+    expect(apcaContrast("#112233", "#ddeeff")).toBeCloseTo(91.66830811481631, 10);
+    expect(apcaContrast("#ddeeff", "#112233")).toBeCloseTo(-93.06770049484275, 10);
+    expect(apcaContrast("#112233", "#444444")).toBeCloseTo(8.32326136957393, 10);
+    expect(apcaContrast("#444444", "#112233")).toBeCloseTo(-7.526878460278154, 10);
+    expect(apcaContrast("#fafafa", "#ffffff")).toBe(0);
+    expect(apcaContrast("#ffffff", "#fafafa")).toBe(0);
+  });
+
+  it("measures with the APCA build the manifest names", () => {
+    expect(manifest.apca.version).toBe(APCA_VERSION);
+  });
+
+  it("says how every text pairing is read, in a reading the manifest publishes a floor for", () => {
+    // A pairing without a reading would be held to WCAG alone, which is the model that let the
+    // dark themes' secondary text through at Lc 41 — so a missing or misspelt reading fails here
+    // rather than quietly measuring against an undefined floor.
+    const readings = Object.keys(MINIMUM_LC);
+    expect(
+      TEXT_PAIRS.filter((pair) => !readings.includes(pair.reading)).map((pair) => pair.id),
+    ).toEqual([]);
+    // And every reading is used, so the manifest never publishes a floor nothing is held to.
+    expect(
+      readings.filter((reading) => !TEXT_PAIRS.some((pair) => pair.reading === reading)),
+    ).toEqual([]);
   });
 
   it("gives every pairing a unique id, across both sections", () => {
@@ -305,6 +352,11 @@ describe("token sheet text contrast", () => {
   it.each(meetsAa)("$theme: $id ($label) reaches $floor:1 for normal text", (testCase) => {
     const { ratio, painted } = measure(testCase);
     expect(ratio, painted).toBeGreaterThanOrEqual(testCase.floor);
+  });
+
+  it.each(lcCases)("$theme: $id ($label) reads at Lc $minimumLc as $reading text", (testCase) => {
+    const { lc, painted } = measure(testCase);
+    expect(Math.abs(lc), painted).toBeGreaterThanOrEqual(testCase.minimumLc);
   });
 
   it("holds the high-contrast theme to AAA rather than AA", () => {
@@ -373,38 +425,45 @@ describe("token sheet non-text contrast", () => {
     expect(uiCases).toHaveLength(registry.themes.length * NON_TEXT_PAIRS.length);
   });
 
-  it("holds every pairing in exactly one of the two sets", () => {
-    expect(meetsUi.length + uiGaps.length).toBe(uiCases.length);
-    expect(uiGaps).toHaveLength(BELOW_UI.size);
-    const known = new Set(uiCases.map(({ key }) => key));
-    expect([...BELOW_UI.keys()].filter((key) => !known.has(key))).toEqual([]);
-    expect([...BELOW_UI.keys()]).toEqual([...BELOW_UI.keys()].sort());
-  });
-
-  it("lets the allowance name the control boundary and nothing else", () => {
-    // The one guard that keeps this from becoming a general amnesty. BELOW_AA restricts its
-    // allowance by THEME, which works there because a new theme has no excuse to ship below AA.
-    // That reasoning does not transfer: this defect is one token value that every palette
-    // inherited, so it shows up in themes that postdate the gate through no fault of their own.
-    // Restricting by PAIRING instead says the same thing the theme rule says — no new debt —
-    // without pretending the existing debt is older than it is.
-    const idOf = (key) => key.slice(key.indexOf("/") + 1);
-    expect([...BELOW_UI.keys()].filter((key) => !CONTROL_BOUNDARY_IDS.includes(idOf(key)))).toEqual(
-      [],
-    );
-  });
-
-  it.each(meetsUi)("$theme: $id ($label) reaches $floor:1 as a non-text pairing", (testCase) => {
+  // No allowance table, unlike the text suite. This one held the control outline at its
+  // measured floors until the outline moved onto its own token at 3:1 (ADR 0170), and those two
+  // pairings were the only ones it was allowed to name — so with them paid, a non-text pairing
+  // below the bar is a failure rather than a gap to record.
+  it.each(uiCases)("$theme: $id ($label) reaches $floor:1 as a non-text pairing", (testCase) => {
     const { ratio, painted } = measure(testCase);
     expect(ratio, painted).toBeGreaterThanOrEqual(testCase.floor);
   });
+});
 
-  it.each(uiGaps)("$theme: $id ($label) is a known non-text gap, held at its floor", (testCase) => {
-    const { ratio, painted } = measure(testCase);
-    const floor = BELOW_UI.get(testCase.key);
-    expect(ratio, `${painted} regressed below its recorded floor`).toBeGreaterThanOrEqual(floor);
-    expect(ratio, `${painted} now reaches 3:1 — remove it from BELOW_UI`).toBeLessThan(
-      UI_COMPONENT,
+describe("token sheet neutral ramp", () => {
+  // The steps are read as an order: disabled ink short of the label it disables, a field's label
+  // past the hint under it, a scrollbar's hover past its rest. A value moved for contrast on its
+  // own can land past its neighbour and invert those without a single pairing failing, which is
+  // what the first draft of ADR 0170's palette did in three of the four themes it moved.
+  // Measured from 100 because 0 and 50 are the surface and the canvas, whose order is the
+  // theme's own: a dark theme sets its canvas below its surface.
+  it.each(registry.themes)("$name: the neutral ramp runs one way, away from the ground", (theme) => {
+    expect(["light", "dark"], `${theme.name} appearance`).toContain(theme.appearance);
+    const declarations = THEMES[theme.name];
+    const luminance = RAMP_STEPS.map((step) =>
+      relativeLuminance(declarations.get(`--color-neutral-${step}`)),
     );
+    const outward = theme.appearance === "dark" ? 1 : -1;
+    const backwards = RAMP_STEPS.filter(
+      (step, index) => index > 0 && (luminance[index] - luminance[index - 1]) * outward < 0,
+    );
+    expect(backwards, "steps that turn back towards the ground").toEqual([]);
+  });
+
+  // The hovered field's border is neutral-500 and its resting outline --color-border-strong, so
+  // the hover reads as a step towards the reader only while 500 sits past the outline. The ramp
+  // test cannot see that — the outline is not a step — and the contrast theme's first outline,
+  // #000000, put its hover border back towards the ground.
+  it.each(registry.themes)("$name: a hovered field's border sits past its resting outline", (theme) => {
+    const declarations = THEMES[theme.name];
+    const outline = relativeLuminance(declarations.get("--color-border-strong"));
+    const hover = relativeLuminance(declarations.get("--color-neutral-500"));
+    const outward = theme.appearance === "dark" ? 1 : -1;
+    expect((hover - outline) * outward, "neutral-500 against border-strong").toBeGreaterThan(0);
   });
 });

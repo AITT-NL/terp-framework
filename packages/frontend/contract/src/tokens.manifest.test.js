@@ -118,6 +118,14 @@ describe("token manifest", () => {
         `${theme.name}: the non-text bar must not exceed the text bar`,
       ).toBeLessThan(theme.minimumContrast);
     }
+    // The APCA floors, which the gate reads back the same way, published with the build they
+    // were measured under because an Lc means nothing without its constants. Pinned whole: a
+    // floor that moved is a decision for ADR 0170 to record, not a side effect of editing the
+    // builder, and the gate would follow it silently because it reads this value.
+    expect(manifest.apca).toEqual({
+      version: "0.0.98G-4g",
+      minimumLc: { body: 90, secondary: 75, incidental: 60 },
+    });
   });
 
   it("records the value each token resolves to, in every theme", () => {
