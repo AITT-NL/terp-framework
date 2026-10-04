@@ -337,6 +337,96 @@
         "title": "AccessToken",
         "type": "object"
       },
+      "AuditActionCount": {
+        "description": "How many events in the window record one action.",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action",
+          "count"
+        ],
+        "title": "AuditActionCount",
+        "type": "object"
+      },
+      "AuditActivityRead": {
+        "description": "The trail's activity over the last ``days`` calendar days, counted in one time zone.\n\n``days`` runs oldest first and ends today, with a zero for a day that holds nothing, so a\nchart can draw it as it comes. ``previous_days`` is the same number of days just before,\nfor a comparison. The two breakdowns and ``total`` cover ``days`` only, and\n``by_target_type`` is the most changed types, most first.",
+        "properties": {
+          "by_action": {
+            "items": {
+              "$ref": "#/components/schemas/AuditActionCount"
+            },
+            "title": "By Action",
+            "type": "array"
+          },
+          "by_target_type": {
+            "items": {
+              "$ref": "#/components/schemas/AuditTargetCount"
+            },
+            "title": "By Target Type",
+            "type": "array"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/AuditDayCount"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "previous_days": {
+            "items": {
+              "$ref": "#/components/schemas/AuditDayCount"
+            },
+            "title": "Previous Days",
+            "type": "array"
+          },
+          "time_zone": {
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "time_zone",
+          "days",
+          "previous_days",
+          "by_action",
+          "by_target_type",
+          "total"
+        ],
+        "title": "AuditActivityRead",
+        "type": "object"
+      },
+      "AuditDayCount": {
+        "description": "How many events one calendar day of the requested time zone holds.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "count"
+        ],
+        "title": "AuditDayCount",
+        "type": "object"
+      },
       "AuditEventRead": {
         "properties": {
           "action": {
@@ -408,6 +498,25 @@
           "created_at"
         ],
         "title": "AuditEventRead",
+        "type": "object"
+      },
+      "AuditTargetCount": {
+        "description": "How many events in the window are about records of one type.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "target_type": {
+            "title": "Target Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_type",
+          "count"
+        ],
+        "title": "AuditTargetCount",
         "type": "object"
       },
       "AuthorizationRequest": {
@@ -2852,6 +2961,68 @@
         ]
       }
     },
+    "/api/v1/audit/activity": {
+      "get": {
+        "operationId": "audit.read_activity",
+        "parameters": [
+          {
+            "description": "How many calendar days to count, ending today; the days before are counted too.",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "How many calendar days to count, ending today; the days before are counted too.",
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The IANA time zone whose calendar days are counted, e.g. 'Europe/Amsterdam'.",
+            "in": "query",
+            "name": "time_zone",
+            "required": false,
+            "schema": {
+              "default": "UTC",
+              "description": "The IANA time zone whose calendar days are counted, e.g. 'Europe/Amsterdam'.",
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$",
+              "title": "Time Zone",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditActivityRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "View how much the audit trail records per day",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "operationId": "auth.login",
@@ -4717,6 +4888,24 @@
               ],
               "description": "Filter to users whose email contains this text (case-insensitive).",
               "title": "Email"
+            }
+          },
+          {
+            "description": "Filter to active accounts (true) or deactivated ones (false).",
+            "in": "query",
+            "name": "is_active",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter to active accounts (true) or deactivated ones (false).",
+              "title": "Is Active"
             }
           },
           {

@@ -53,7 +53,7 @@ from terp.capabilities.access import (
     enforce_permission,
     require_permission,
 )
-from terp.capabilities.audit import AUDIT_LIST_EVENTS, persist_audit
+from terp.capabilities.audit import AUDIT_OPERATIONS, persist_audit
 from terp.capabilities.auth import (
     AUTH_LOGIN,
     AUTH_LOGOUT,
@@ -101,7 +101,9 @@ _OPERATIONS = OperationCatalog(
         ACCESS_GET_SUBJECT,
         ACCESS_ASSIGN_MODULE_ROLE,
         ACCESS_REVOKE_MODULE_ROLE,
-        AUDIT_LIST_EVENTS,
+        # The audit capability's whole set, splatted (ADR 0126): it gained a route in 0.32.0,
+        # and naming its operations one at a time refused this boot until it was added here.
+        *AUDIT_OPERATIONS,
     )
 )
 

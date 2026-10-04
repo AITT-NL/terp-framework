@@ -22,9 +22,14 @@ from terp.core import (
     operation,
 )
 
-from terp.capabilities.audit.operations import AUDIT_LIST_EVENTS
-from terp.capabilities.audit.schemas import AuditEventRead
-from terp.capabilities.audit.service import list_audit_events
+from terp.capabilities.audit.operations import AUDIT_LIST_EVENTS, AUDIT_READ_ACTIVITY
+from terp.capabilities.audit.schemas import AuditActivityRead, AuditEventRead
+from terp.capabilities.audit.service import (
+    ACTIVITY_MAX_DAYS,
+    audit_activity,
+    list_audit_events,
+    resolve_time_zone,
+)
 
 router = APIRouter(tags=["audit"])
 
@@ -51,6 +56,27 @@ def list_events(
     return Page[AuditEventRead].of(
         [AuditEventRead.model_validate(row) for row in rows], total, pagination
     )
+
+
+@router.get("/activity", response_model=AuditActivityRead)
+@operation(AUDIT_READ_ACTIVITY)
+def read_activity(
+    session: SessionDep,
+    days: int = Query(
+        30,
+        ge=1,
+        le=ACTIVITY_MAX_DAYS,
+        description="How many calendar days to count, ending today; the days before are counted too.",
+    ),
+    time_zone: str = Query(
+        "UTC",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$",
+        description="The IANA time zone whose calendar days are counted, e.g. 'Europe/Amsterdam'.",
+    ),
+) -> AuditActivityRead:
+    return audit_activity(session, days=days, zone=resolve_time_zone(time_zone))
 
 
 module = ModuleSpec(

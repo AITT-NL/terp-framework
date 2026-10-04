@@ -103,6 +103,53 @@ def test_users_list_filters_by_email_substring(app_db: FastAPI, make_user) -> No
     assert client.get("/api/v1/users/", params={"email": "no-such"}).json()["total"] == 0
 
 
+def test_users_list_filters_by_status(app_db: FastAPI, make_user) -> None:
+    """`?is_active=` narrows to active or deactivated accounts, and composes with `?email=`.
+
+    It is how the admin hub counts its active accounts: one total for the filter, rather
+    than a page counted in the browser.
+    """
+    make_user("still.here@example.com", "correct horse battery", Roles.EDITOR)
+    gone = make_user("long.gone@example.com", "correct horse battery", Roles.EDITOR)
+    client = _client_as(app_db, Roles.ADMIN)
+    assert client.post(f"/api/v1/users/{gone}/deactivate").status_code == 200
+
+    deactivated = client.get("/api/v1/users/", params={"is_active": "false"}).json()
+    assert [item["email"] for item in deactivated["items"]] == ["long.gone@example.com"]
+    active = client.get("/api/v1/users/", params={"is_active": "true"}).json()
+    emails = {item["email"] for item in active["items"]}
+    assert "still.here@example.com" in emails
+    assert "long.gone@example.com" not in emails
+    everyone = client.get("/api/v1/users/").json()["total"]
+    assert active["total"] + deactivated["total"] == everyone
+    # The two filters narrow together.
+    both = client.get("/api/v1/users/", params={"is_active": "true", "email": "gone"}).json()
+    assert both["total"] == 0
+
+
+def test_users_email_filter_reads_an_underscore_as_itself(app_db: FastAPI, make_user) -> None:
+    """A search for `a_b` finds `a_b`, not every address with one character between a and b.
+
+    The filter is the declared literal-substring match; it used to pass the text to LIKE
+    unescaped, where `_` and `%` are wildcards.
+    """
+    make_user("team_a@example.com", "correct horse battery", Roles.EDITOR)
+    make_user("teamxa@example.com", "correct horse battery", Roles.EDITOR)
+    client = _client_as(app_db, Roles.ADMIN)
+    found = client.get("/api/v1/users/", params={"email": "team_a"}).json()
+    assert [item["email"] for item in found["items"]] == ["team_a@example.com"]
+
+
+def test_list_matching_is_the_declared_email_filter(db_session, make_user) -> None:
+    """`UsersService.list_matching` reads as the list route's `?email=` does."""
+    from terp.capabilities.users import UsersService
+
+    make_user("billing.desk@example.com", "correct horse battery", Roles.EDITOR)
+    rows, total = UsersService().list_matching(db_session, email="BILLING", skip=0, limit=10)
+    assert total == 1
+    assert [row.email for row in rows] == ["billing.desk@example.com"]
+
+
 def test_users_router_denies_non_admin(app_db: FastAPI) -> None:
     client = _client_as(app_db, Roles.VIEWER)
     assert client.get("/api/v1/users/").status_code == 403

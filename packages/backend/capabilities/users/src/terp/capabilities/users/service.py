@@ -19,10 +19,10 @@ from collections.abc import Callable
 from threading import RLock
 from typing import ClassVar
 
-from sqlmodel import Session, col, select
+from sqlmodel import Session, select
 
 from terp.capabilities.auth import hash_password
-from terp.core import AppError, AuditAction, BaseService, Roles, validate_password
+from terp.core import AppError, AuditAction, BaseService, FilterField, Roles, validate_password
 
 from terp.capabilities.identity import User
 from terp.capabilities.users.schemas import UserAdminUpdate, UserProvision
@@ -55,6 +55,14 @@ class SelfAdminActionError(AppError):
 class UsersService(BaseService[User, UserProvision, UserAdminUpdate]):
     model = User
     _admin_invariant_lock: ClassVar[RLock] = RLock()
+
+    #: What the admin list narrows by: part of an address, and whether the account is
+    #: active -- which is how the admin hub counts its active accounts without counting a
+    #: page in the browser.
+    filterable = (
+        FilterField("email", User.email, op="contains"),
+        FilterField("is_active", User.is_active),
+    )
 
     def __init__(
         self, refresh_revoker: Callable[[Session, uuid.UUID], None] | None = None
@@ -96,14 +104,9 @@ class UsersService(BaseService[User, UserProvision, UserAdminUpdate]):
         The directory-lookup primitive behind the admin surface's ``?email=``
         filter: member pickers and admin searches resolve an account by typing
         part of its address instead of paging through the whole directory.
-        Builds on ``base_query`` like every read.
+        It is the declared ``email`` filter, so it reads as the list route does.
         """
-        return self._paginate(
-            session,
-            self.base_query().where(col(User.email).icontains(email)),
-            skip=skip,
-            limit=limit,
-        )
+        return self.list(session, skip=skip, limit=limit, filters={"email": email})
 
     def ensure_user(self, session: Session, data: UserProvision) -> User:
         """Idempotent provisioning: return the existing user for ``data.email``, else create one.

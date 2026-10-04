@@ -69,3 +69,45 @@ def test_audit_list_is_paginated(client_factory, editor) -> None:
     assert body["total"] == 3
     assert len(body["items"]) == 2
     assert body["limit"] == 2
+
+
+def test_activity_counts_a_mutation_on_todays_date_in_the_requested_zone(
+    client_factory, editor
+) -> None:
+    client_factory(editor).post("/api/v1/notes/", json={"title": "counted"})
+
+    response = _admin(client_factory).get(
+        "/api/v1/audit/activity", params={"days": 7, "time_zone": "Europe/Amsterdam"}
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["time_zone"] == "Europe/Amsterdam"
+    assert len(body["days"]) == 7
+    assert len(body["previous_days"]) == 7
+    # Oldest first, ending today, so the mutation just made is on the last day.
+    assert body["days"][-1]["count"] >= 1
+    assert body["total"] == sum(day["count"] for day in body["days"])
+    assert {"action": "created", "count": 1} in body["by_action"]
+    assert {"target_type": "Note", "count": 1} in body["by_target_type"]
+
+
+def test_activity_is_admin_only(client_factory, editor) -> None:
+    denied = client_factory(editor).get("/api/v1/audit/activity")
+    assert denied.status_code == 403
+    assert denied.json()["code"] == "permission_denied"
+
+
+def test_activity_refuses_a_time_zone_it_does_not_know(client_factory) -> None:
+    admin = _admin(client_factory)
+    unknown = admin.get("/api/v1/audit/activity", params={"time_zone": "Mars/Olympus"})
+    assert unknown.status_code == 400
+    assert unknown.json()["code"] == "validation_failed"
+    # A name shaped like a path never reaches the zone database.
+    assert admin.get("/api/v1/audit/activity", params={"time_zone": "../etc"}).status_code == 422
+
+
+def test_activity_counts_between_one_and_ninety_days(client_factory) -> None:
+    admin = _admin(client_factory)
+    assert admin.get("/api/v1/audit/activity", params={"days": 0}).status_code == 422
+    assert admin.get("/api/v1/audit/activity", params={"days": 91}).status_code == 422
+    assert len(admin.get("/api/v1/audit/activity", params={"days": 90}).json()["days"]) == 90

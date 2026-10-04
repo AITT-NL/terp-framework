@@ -79,6 +79,7 @@
         "admin.webhooks.toast.updateFailed": "Bijwerken mislukt",
         "app.title": "Terp-voorbeeld",
         "audit.list_events": "Bekijk het auditlogboek",
+        "audit.read_activity": "Bekijk hoeveel het auditlogboek per dag vastlegt",
         "auth.dex.label": "Dex",
         "auth.login": "Log in met een e-mailadres en wachtwoord",
         "auth.logout": "Log uit bij de huidige sessie",

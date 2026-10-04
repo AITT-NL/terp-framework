@@ -127,6 +127,19 @@
           ],
           "path": "/api/v1/audit/",
           "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/audit/activity",
+          "requirement": "role:admin"
         }
       ],
       "name": "audit",

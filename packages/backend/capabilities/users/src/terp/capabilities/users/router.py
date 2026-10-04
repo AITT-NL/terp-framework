@@ -62,15 +62,18 @@ def list_users(
         max_length=254,
         description="Filter to users whose email contains this text (case-insensitive).",
     ),
+    is_active: bool | None = Query(
+        None,
+        description="Filter to active accounts (true) or deactivated ones (false).",
+    ),
 ) -> Page[UserRead]:
-    if email:
-        rows, total = _service.list_matching(
-            session, email=email, skip=pagination.skip, limit=pagination.limit
-        )
-    else:
-        rows, total = _service.list(
-            session, skip=pagination.skip, limit=pagination.limit
-        )
+    rows, total = _service.list(
+        session,
+        skip=pagination.skip,
+        limit=pagination.limit,
+        # An empty address narrows nothing, as it never has.
+        filters={"email": email or None, "is_active": is_active},
+    )
     return Page[UserRead].of(
         [UserRead.model_validate(row) for row in rows], total, pagination
     )

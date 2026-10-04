@@ -141,6 +141,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/audit/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** View how much the audit trail records per day */
+        get: operations["audit.read_activity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -531,6 +548,52 @@ export interface components {
              */
             token_type: string;
         };
+        /**
+         * AuditActionCount
+         * @description How many events in the window record one action.
+         */
+        AuditActionCount: {
+            /** Action */
+            action: string;
+            /** Count */
+            count: number;
+        };
+        /**
+         * AuditActivityRead
+         * @description The trail's activity over the last ``days`` calendar days, counted in one time zone.
+         *
+         *     ``days`` runs oldest first and ends today, with a zero for a day that holds nothing, so a
+         *     chart can draw it as it comes. ``previous_days`` is the same number of days just before,
+         *     for a comparison. The two breakdowns and ``total`` cover ``days`` only, and
+         *     ``by_target_type`` is the most changed types, most first.
+         */
+        AuditActivityRead: {
+            /** By Action */
+            by_action: components["schemas"]["AuditActionCount"][];
+            /** By Target Type */
+            by_target_type: components["schemas"]["AuditTargetCount"][];
+            /** Days */
+            days: components["schemas"]["AuditDayCount"][];
+            /** Previous Days */
+            previous_days: components["schemas"]["AuditDayCount"][];
+            /** Time Zone */
+            time_zone: string;
+            /** Total */
+            total: number;
+        };
+        /**
+         * AuditDayCount
+         * @description How many events one calendar day of the requested time zone holds.
+         */
+        AuditDayCount: {
+            /** Count */
+            count: number;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+        };
         /** AuditEventRead */
         AuditEventRead: {
             /** Action */
@@ -555,6 +618,16 @@ export interface components {
             request_id: string | null;
             /** Target Id */
             target_id: string;
+            /** Target Type */
+            target_type: string;
+        };
+        /**
+         * AuditTargetCount
+         * @description How many events in the window are about records of one type.
+         */
+        AuditTargetCount: {
+            /** Count */
+            count: number;
             /** Target Type */
             target_type: string;
         };
@@ -1260,6 +1333,40 @@ export interface operations {
             };
         };
     };
+    "audit.read_activity": {
+        parameters: {
+            query?: {
+                /** @description How many calendar days to count, ending today; the days before are counted too. */
+                days?: number;
+                /** @description The IANA time zone whose calendar days are counted, e.g. 'Europe/Amsterdam'. */
+                time_zone?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditActivityRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     "auth.login": {
         parameters: {
             query?: never;
@@ -1619,6 +1726,8 @@ export interface operations {
             query?: {
                 /** @description Filter to users whose email contains this text (case-insensitive). */
                 email?: string | null;
+                /** @description Filter to active accounts (true) or deactivated ones (false). */
+                is_active?: boolean | null;
                 /** @description Rows to skip. */
                 skip?: number;
                 /** @description Maximum rows to return. */

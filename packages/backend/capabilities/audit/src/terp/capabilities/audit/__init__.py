@@ -16,17 +16,33 @@ every module is recorded with zero per-module code. It depends only on
 from __future__ import annotations
 
 from terp.capabilities.audit.models import AuditEvent
-from terp.capabilities.audit.operations import AUDIT_LIST_EVENTS, AUDIT_OPERATIONS
+from terp.capabilities.audit.operations import (
+    AUDIT_LIST_EVENTS,
+    AUDIT_OPERATIONS,
+    AUDIT_READ_ACTIVITY,
+)
 from terp.capabilities.audit.router import module, router
-from terp.capabilities.audit.schemas import AuditEventRead
-from terp.capabilities.audit.service import list_audit_events
+from terp.capabilities.audit.schemas import (
+    AuditActionCount,
+    AuditActivityRead,
+    AuditDayCount,
+    AuditEventRead,
+    AuditTargetCount,
+)
+from terp.capabilities.audit.service import audit_activity, list_audit_events
 from terp.capabilities.audit.sink import persist_audit
 
 __all__ = [
     "AUDIT_LIST_EVENTS",
     "AUDIT_OPERATIONS",
+    "AUDIT_READ_ACTIVITY",
+    "AuditActionCount",
+    "AuditActivityRead",
+    "AuditDayCount",
     "AuditEvent",
     "AuditEventRead",
+    "AuditTargetCount",
+    "audit_activity",
     "list_audit_events",
     "module",
     "persist_audit",

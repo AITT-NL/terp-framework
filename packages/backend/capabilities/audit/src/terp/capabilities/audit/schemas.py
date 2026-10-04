@@ -20,4 +20,48 @@ class AuditEventRead(BaseSchema):
     created_at: datetime.datetime
 
 
-__all__ = ["AuditEventRead"]
+class AuditDayCount(BaseSchema):
+    """How many events one calendar day of the requested time zone holds."""
+
+    date: datetime.date
+    count: int
+
+
+class AuditActionCount(BaseSchema):
+    """How many events in the window record one action."""
+
+    action: str
+    count: int
+
+
+class AuditTargetCount(BaseSchema):
+    """How many events in the window are about records of one type."""
+
+    target_type: str
+    count: int
+
+
+class AuditActivityRead(BaseSchema):
+    """The trail's activity over the last ``days`` calendar days, counted in one time zone.
+
+    ``days`` runs oldest first and ends today, with a zero for a day that holds nothing, so a
+    chart can draw it as it comes. ``previous_days`` is the same number of days just before,
+    for a comparison. The two breakdowns and ``total`` cover ``days`` only, and
+    ``by_target_type`` is the most changed types, most first.
+    """
+
+    time_zone: str
+    days: list[AuditDayCount]
+    previous_days: list[AuditDayCount]
+    by_action: list[AuditActionCount]
+    by_target_type: list[AuditTargetCount]
+    total: int
+
+
+__all__ = [
+    "AuditActionCount",
+    "AuditActivityRead",
+    "AuditDayCount",
+    "AuditEventRead",
+    "AuditTargetCount",
+]
