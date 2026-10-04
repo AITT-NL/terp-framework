@@ -905,8 +905,11 @@ frontend design-system track below.
 - [x] A contrast pass before the release (ADR 0170): text held to APCA by its reading beside
       WCAG, the dark palettes' secondary inks lifted, the control outline at 3:1 on
       `--color-border-strong`, and the danger button on a fill of its own.
-- [ ] Owed: the release cut — one release, 0.31.0, the owner's call — the Studio's pin after
-      it, and the admin hub as the charts' first screen, proposed before it is built.
+- [x] Released together as 0.31.0 (2026-10-04), the owner's call: all six phases, the design
+      pass and the contrast pass.
+- [ ] Owed: the Studio's pin to 0.31.0, and the admin hub as the charts' first screen —
+      decided from the proposal (areas first, activity counted by the viewer's own days,
+      active accounts by a status filter on the users list) and being built for 0.32.0.
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
       every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
       the template's two `AGENTS.md` files, the repository's own and the react-core README.

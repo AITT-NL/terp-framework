@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.31.0 — unreleased
+## 0.31.0 — 2026-10-04
 
 Friction reported from building on 0.30.0. A screen worked through one item after another had
 nowhere for its previous and next links but the end of its body, where they moved with every item
@@ -20,8 +20,11 @@ of the window; fields side by side did not line up; and three dark palettes name
 `midnight` and `twilight` read as one colour and two moods. And every page was one object
 repeated: cards and collections on one white, a figure printed as a card's title over its
 own number, nowhere to put the figures a page is about, and no section but equal columns. ADR
-0169 decided how a page is composed from the shape of its data instead; this release ships its
-first phases, and every app's look moves with them.
+0169 decided how a page is composed from the shape of its data instead, and this release ships
+all six of its phases: the figures and their band, the track templates, the charts, a record's
+history and the dashboard. The palettes are held to how their text reads as well as to WCAG's
+ratio (ADR 0170), so the dark ones lift their secondary text, links and badges, and every
+control's edge clears 3:1. Every app's look moves with them.
 
 ### Added
 
