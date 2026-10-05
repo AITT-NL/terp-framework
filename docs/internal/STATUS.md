@@ -911,6 +911,10 @@ frontend design-system track below.
       the trail counted by the viewer's own calendar days, active accounts by a status filter.
 - [x] Released as 0.32.0 (2026-10-05): the admin dashboard, the screen review's six changes, a
       review pass over the whole release, and issues #136 and #12.
+- [x] Built for 0.33.0, from what the owner saw on the released screens: a block at rest is
+      flat and a shadow means a layer (ADR 0172), a page spaces its sections a step wider than
+      their blocks (ADR 0174), and a breadcrumb keeps what it knows (ADR 0173). Both baseline
+      sets re-recorded; not yet released.
 - [ ] Owed: the Studio's pin to 0.32.0. It brings the Studio's theme catalog along: its parity
       gates read the framework's palettes, and three of them failed against this main on
       2026-10-05 (none against its 0.30.0 pin).
