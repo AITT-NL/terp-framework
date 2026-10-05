@@ -23,7 +23,9 @@ So the room that ends a section was the room between two cards in it. On the adm
 of area cards was exactly as far from the chart below it as the cards were from each other. Until
 ADR 0172 a resting shadow gave each block a soft edge that did some of the separating. With the
 blocks flat, only spacing can say where one section stops. Looking at the flat screens, the owner
-asked for "a little bit more space between sections on a page to separate them better".
+asked for "a little bit more space between sections on a page to separate them better". The
+[composition draft](../internal/drafts/presentation-and-composition-design.md) already names this
+as its first principle for current interfaces: hierarchy from type and space more than boxes.
 
 ## Decision
 
@@ -49,8 +51,9 @@ Two rules follow the gap and name the same token:
 - The title band to the first section is 24px as well. That matches the shell's 24px side gutter
   on desktop, so the body sits in an even inset under the band.
 - A section's title belongs to its block: a `Card`'s or a `DataView`'s `title`, or a chart's
-  `label`. A loose `Heading` placed as a body child of its own sits a section gap from what it
-  names, and reads as a section without content.
+  `label`. A section heading on the canvas, unframed, is a `Card` with `variant="plain"`, as the
+  detail-page specimen does. A loose `Heading` placed as a body child of its own sits a section
+  gap from what it names, and reads as a section without content.
 - `Markdown` generates no box, so placed directly in a page its paragraphs are rows of the page's
   grid and take the section gap between them. Prose that is one section goes in a `Stack` or a
   `Card`, at the gap it wants.

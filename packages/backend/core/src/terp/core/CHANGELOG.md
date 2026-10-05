@@ -12,11 +12,12 @@ decision, 0001 onwards.
 
 ## 0.33.0 — unreleased
 
-Two things the owner saw in apps built on the framework. Shadows meant three things on one scale,
-so the table floated above the cards beside it and the chrome did not float at all; a block at
-rest is flat now (ADR 0172). And the breadcrumb rebuilt its labels on every navigation, so a
-detail page printed its parent's name and then its own; the trail keeps what it knows now
-(ADR 0173).
+Three things the owner saw in apps built on the framework. Shadows meant three things on one
+scale, so the table floated above the cards beside it and the chrome did not float at all; a
+block at rest is flat now (ADR 0172). With the blocks flat, a page's sections ran together, since
+a section ended with the same room a card left its neighbour; sections stand further apart now
+(ADR 0174). And the breadcrumb rebuilt its labels on every navigation, so a detail page printed
+its parent's name and then its own; the trail keeps what it knows now (ADR 0173).
 
 ### Changed
 
@@ -25,6 +26,11 @@ detail page printed its parent's name and then its own; the trail keeps what it 
   shadow any more. Each is told apart by its fill and its hairline. A shadow means a layer over
   the page: the tooltip and the toast (`--shadow-md`), and the popover, the combobox list, the
   dialog and the phone's nav drawer (`--shadow-lg`).
+- **A page spaces its sections wider than their blocks (ADR 0174).** The page's gap between its
+  header and its body's sections is `--space-6` (24px), up from `--space-4` (16px), which a
+  `Grid` and the hub's cards keep between the blocks of one section. It is one value at every
+  width. The summary band stays flush under the title band, and the sequence bar keeps the same
+  room above it as the band leaves below.
 
 ### Fixed
 
@@ -45,6 +51,11 @@ detail page printed its parent's name and then its own; the trail keeps what it 
 - **Nothing on the page casts a resting shadow, and a theme cannot bring one back**: no rule reads
   a shadow token at rest. The three shadow tokens stay in the contract, and `--shadow-sm` is read
   by nothing in the framework's sheet now.
+- **A page's sections sit 8px further apart, and a page grows by that much per section
+  boundary.** An app that cancels the page's gap itself, with a negative margin in an escape
+  hatch, follows it to `--space-6`. A section's title belongs to its block (a `Card`'s or a
+  `DataView`'s `title`): a loose `Heading` as a body child of its own sits a section gap from what
+  it names.
 
 ## 0.32.0 — 2026-10-05
 
