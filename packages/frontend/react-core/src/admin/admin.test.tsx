@@ -673,6 +673,58 @@ describe("the packaged admin area", () => {
     expect(figure("Active accounts")?.caption).toBe("0 deactivated");
   });
 
+  it("titles a user being read by nothing yet, then by the user, and by the user on a return (ADR 0173)", async () => {
+    const { fetchMock, router } = renderAdminApp("/admin/users/u1");
+    const answer = fetchMock.getMockImplementation()!;
+    let release!: () => void;
+    let held: Promise<void> = new Promise((resolve) => (release = resolve));
+    fetchMock.mockImplementation(async (input, init) => {
+      const request = input as Request;
+      if (new URL(request.url).pathname.endsWith("/api/v1/users/u1") && request.method === "GET") {
+        await held;
+      }
+      return answer(input, init);
+    });
+    // While the user is read: a placeholder, never the parent's name as a stand-in title.
+    const loading = await screen.findByRole("heading", { level: 1 });
+    expect(loading).toHaveTextContent("Loading...");
+    expect(loading).not.toHaveTextContent("Users");
+    await act(async () => release());
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("jane.doe@example.com"),
+    );
+    // Away and back, and this time the read never answers: the trail still knows the place.
+    held = new Promise(() => {});
+    await act(async () => {
+      await router.navigate({ to: "/admin/users" });
+    });
+    await act(async () => {
+      await router.navigate({ to: "/admin/users/u1" });
+    });
+    // The detail's own trail, where Users is an ancestor link again.
+    const trail = await screen.findByRole("navigation", { name: "Breadcrumb" });
+    await waitFor(() => expect(within(trail).getByRole("link", { name: "Users" })).toBeInTheDocument());
+    // Mutation: no memory in the shell, which put the placeholder back on every visit.
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("jane.doe@example.com");
+    expect(document.querySelector('[data-terp="breadcrumbs-pending"]')).toBeNull();
+  });
+
+  it("titles a group being read by nothing yet, never by its parent", async () => {
+    const { fetchMock } = renderAdminApp("/admin/groups/g1");
+    const answer = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => {
+      const request = input as Request;
+      if (new URL(request.url).pathname.endsWith("/api/v1/groups/g1") && request.method === "GET") {
+        return new Promise<Response>(() => {});
+      }
+      return answer(input, init);
+    });
+    const heading = await screen.findByRole("heading", { level: 1 });
+    // Mutation: `record?.name ?? strings.adminGroups`, the parent's name as a stand-in title.
+    expect(heading).toHaveTextContent("Loading...");
+    expect(heading).not.toHaveTextContent("Groups");
+  });
+
   it("drops the access card with the access section, the one a full hub always drew", async () => {
     // The selective hub replaced the full one only when users, groups or audit was dropped, so
     // `{ access: false }` alone removed the route and kept the card that leads to it.

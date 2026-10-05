@@ -346,7 +346,7 @@ export function GroupDetail() {
   const record = group.item;
   return (
     <DetailPage
-      title={record?.name ?? strings.adminGroups}
+      title={record?.name ?? null}
       parents={[
         { ...adminCrumb(strings), to: "/admin" },
         { label: strings.adminGroups, to: "/admin/groups" },

@@ -1696,6 +1696,19 @@ textarea[data-terp="input"] {
 [data-terp="breadcrumbs"] li > [data-terp="breadcrumbs-separator"] {
   flex: 0 0 auto;
 }
+/* A crumb whose label is not known yet and never was at this path (ADR 0173): a quiet bar of
+   one width where its words will be, in em so it scales with the crumb or the heading it sits
+   in. Not a stand-in word: the parent's name in the leaf was a wrong title for as long as the
+   record loaded. The words are its visually hidden "Loading", read where the bar is shown. */
+[data-terp="breadcrumbs-pending"] {
+  display: inline-block;
+  inline-size: 8em;
+  max-inline-size: 100%;
+  block-size: 0.9em;
+  vertical-align: middle;
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-100);
+}
 /* Keyed on our own marker, not on [aria-current="page"]. The trail's ancestor
    crumbs are the app router's links, and TanStack stamps aria-current="page" on
    every link whose path is a PREFIX of the current one — which every ancestor
@@ -1991,6 +2004,7 @@ textarea[data-terp="input"] {
 [data-terp="stat-trend-data"],
 [data-terp="chart-table"],
 [data-terp="status-history-data"],
+[data-terp="breadcrumbs-pending-text"],
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-brand-title"],
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav-label"],
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav-group-label"] {
