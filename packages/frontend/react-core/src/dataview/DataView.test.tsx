@@ -959,7 +959,8 @@ describe("DataView page size", () => {
   it("offers it where the rows are more than the smallest page holds", async () => {
     render(<DataView repository={inMemoryRepo()} columns={COLUMNS} pageSizeOptions={[3, 10]} />);
     await screen.findByText("Broken printer");
-    // Mutation: comparing with the largest option, or the page size in force.
+    // Mutation: comparing with the largest option. (The page in force is 3 here too, so the
+    // test below is the one that tells it apart from the smallest option.)
     expect(screen.getByRole("button", { name: "Rows per page" })).toBeInTheDocument();
   });
 
