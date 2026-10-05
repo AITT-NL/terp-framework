@@ -4831,24 +4831,32 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         // the rule a section outranks the view it sits in, and the two have to be in one frame
         // to see it. And `margin: 0` only shows against a sibling to collapse into, which is
         // why there are two sections rather than one.
+        //
+        // Each heading is grouped with what it names, in a `Stack` at the gap the packaged
+        // module access panel uses. Placed loose in the page, a heading would sit a full section
+        // gap from its own list (ADR 0174), as far as from the section above it.
         id: "admin-section-title",
         title: "Admin section headings — h3 under the page h1",
         node: (
           <Page title="Warehouse operators">
-            <h3 data-terp="admin-section-title">Members</h3>
-            <DetailList
-              items={[
-                { label: "Direct members", value: "14" },
-                { label: "Inherited", value: "3" },
-              ]}
-            />
-            <h3 data-terp="admin-section-title">Permission grants</h3>
-            <DetailList
-              items={[
-                { label: "records.read", value: "Granted" },
-                { label: "records.publish", value: "Granted" },
-              ]}
-            />
+            <Stack gap={3}>
+              <h3 data-terp="admin-section-title">Members</h3>
+              <DetailList
+                items={[
+                  { label: "Direct members", value: "14" },
+                  { label: "Inherited", value: "3" },
+                ]}
+              />
+            </Stack>
+            <Stack gap={3}>
+              <h3 data-terp="admin-section-title">Permission grants</h3>
+              <DetailList
+                items={[
+                  { label: "records.read", value: "Granted" },
+                  { label: "records.publish", value: "Granted" },
+                ]}
+              />
+            </Stack>
           </Page>
         ),
       },
