@@ -42,6 +42,14 @@ give and a filter the users list did not have.
 
 ### Fixed
 
+- **`terp verify` calls an empty `node_modules` missing, not "installed for a different
+  platform".** A directory that holds none of the lockfile's platform-neutral packages (an
+  install that never ran, or a freshly created mount point) was reported as a tree installed on
+  another machine. That sent the reader, and an agent repairing on their behalf, looking for a
+  platform mismatch that was not there. It now reads
+  `frontend/node_modules is missing (the directory is there, but holds none of the lockfile's
+  packages)`, with the same `npm --prefix frontend ci` fix. A tree that is merely incomplete still
+  stays silent, as before.
 - **The users list's email search is a literal match.** An `_` or a `%` in the search text went
   to `LIKE` unescaped, where both are wildcards, so a search for `team_a` also found `teamxa`.
 

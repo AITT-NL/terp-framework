@@ -1043,6 +1043,24 @@ def _node_modules_problem(root: pathlib.Path, workspace: str) -> str | None:
     except (OSError, ValueError):
         return None
 
+    # A directory with none of the lockfile's platform-neutral packages in it is not
+    # a tree for another platform but no tree at all -- an install that never ran,
+    # or a fresh mount point. Calling it "a different platform" sends the reader
+    # looking for a second machine that does not exist. Neutral ones only: every
+    # platform installs those, so not one of them present means nothing was.
+    neutral = [
+        name
+        for name, entry in packages.items()
+        if name.startswith("node_modules/")
+        and isinstance(entry, dict)
+        and not (entry.get("os") or entry.get("cpu") or entry.get("libc"))
+    ]
+    if neutral and not any((directory / name).exists() for name in neutral):
+        return (
+            f"{label} is missing (the directory is there, but holds none of the "
+            f"lockfile's packages) — {subject} cannot run.\n  Fix: {fix}"
+        )
+
     system, arch = _node_platform()
     libc = _node_libc(system)
     missing = [
