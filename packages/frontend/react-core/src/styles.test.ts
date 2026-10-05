@@ -2457,6 +2457,17 @@ describe("what a review of the screens in use changed", () => {
     expect(badge).toContain("border-radius: var(--radius-lg)");
   });
 
+  it("breaks a badge inside a word only when the word alone does not fit", () => {
+    const badge = ruleBody(always, '[data-terp="badge"]');
+    // Measured in Chromium: with `anywhere` a badge's narrowest width is one glyph, so a
+    // squeezed auto-layout table split "Cancelled" mid-word into a 43x56 box; with
+    // break-word on an inline block it stays the 75x23 pill. An inline flex keeps the
+    // longest word too, but no longer breaks a single word wider than its column.
+    expect(badge).toContain("overflow-wrap: break-word");
+    expect(badge).toContain("display: inline-block");
+    expect(badge).not.toContain("anywhere");
+  });
+
   it("closes up a band's rows of figures on a narrow screen, two to a line still", () => {
     const narrow = mediaBodies(base, NARROW_VIEWPORT);
     const group = ruleBody(narrow, '[data-terp="stat-group"]');

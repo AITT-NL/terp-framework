@@ -628,7 +628,7 @@ shipped as ADR 0170:
   subtitle and the contrast pass in it. Released 2026-10-04.
 - **The Studio's framework pin** still names 0.30.0. Moving it is the Studio's own change: its
   contrast audit expects the control outlines ADR 0170 fixed to fail.
-- **0.32.0** carries ADR 0171's admin dashboard, built and not yet released.
+- [x] **0.32.0** carries ADR 0171's admin dashboard. Released 2026-10-05.
 
 ## Found along the way
 

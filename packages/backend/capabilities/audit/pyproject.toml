@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-audit"
-version = "0.31.0"
+version = "0.32.0"
 description = "Terp audit capability — the durable, append-only sink for the core audit seam."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.31.0",
+    "terp-core==0.32.0",
     # The zone database for the activity read's calendar days (zoneinfo). A Linux image
     # usually has one; Windows has none, and a time zone must resolve the same on both.
     "tzdata>=2025.1",

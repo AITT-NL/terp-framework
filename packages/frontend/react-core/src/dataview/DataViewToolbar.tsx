@@ -44,6 +44,9 @@ export interface DataViewToolbarProps<T> {
   trailing?: ReactNode;
 }
 
+/** The page sizes a view offers when its caller names none. */
+export const DATA_VIEW_PAGE_SIZES: readonly number[] = [10, 25, 50, 100];
+
 /**
  * The DataView toolbar. In its normal mode it hosts search, caller filter controls,
  * the page-size selector, the table/cards toggle and the column-settings menu; when
@@ -58,9 +61,6 @@ export interface DataViewToolbarProps<T> {
  * instead of being reached as `[data-terp="dataview-toolbar"] > [role="status"]`: owning
  * one instance of an attribute is not owning every element such a selector reaches.
  */
-/** The page sizes a view offers when its caller names none. */
-export const DATA_VIEW_PAGE_SIZES: readonly number[] = [10, 25, 50, 100];
-
 export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
   const { strings, resolve, format, formatCount } = useDataViewText();
   const search = useViewSearch(props.search, props.onSearchChange, props.searchDebounceMs ?? 0);

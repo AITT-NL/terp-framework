@@ -10,18 +10,24 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.32.0 — unreleased
+## 0.32.0 — 2026-10-05
 
 The charts' first framework screen. The admin hub printed two totals on its cards; it is a
 dashboard of the administration now (ADR 0171), which took a count the audit trail could not
-give and a filter the users list did not have.
+give and a filter the users list did not have. A review of an app's screens on a desk and on a
+phone found six things only the framework could change: tab strips that wrapped, night's loud
+summary band, a band of figures three rows deep, a page size that changed nothing, a dash that
+read as a broken bar, and badges that ran out of their column. And two upgrade frictions are
+closed: a workbench from before 0.30.0 kept serving its first boot's frontend packages (#136),
+and an upgrade's dry run disclosed nothing of what the update would do (#12).
 
 ### Added
 
 - **The audit trail counts its activity per calendar day (ADR 0171).**
   `GET /api/v1/audit/activity?days=30&time_zone=Europe/Amsterdam` returns the last `days`
   calendar days of that zone, oldest first and ending today, as many days before them for a
-  comparison, and the counts per kind of change and per type of record over the last `days`.
+  comparison, and the counts per kind of change and per type of record (the eight most changed)
+  over the last `days`.
   A day is the zone's own, so one that daylight saving makes 23 or 25 hours long keeps its
   length; every day is counted in one query that reads the same on SQLite and PostgreSQL. It is
   admin-only like the trail, at most 90 days, and the operation is `audit.read_activity`.
@@ -34,11 +40,14 @@ give and a filter the users list did not have.
   the headline, with the deactivated ones under them, the groups, and the trail's last seven days
   against the seven before. The area cards follow, then the trail per day for thirty days against
   the thirty before, and the kinds of change. Its dates are the viewer's: the hub sends the
-  browser's time zone. An `adminArea` selection still applies, and a dropped audit section takes
-  its figure and both charts along.
+  browser's time zone, and counts in UTC where the server's zone database does not know it. The
+  area cards take as many tracks as there are cards. An `adminArea` selection still applies, and
+  a dropped audit section takes its figure and both charts along.
 - **A list of hub cards without figures keeps no figure row.** Each card reserved a row for a
   figure and a 10rem floor, so a row of bare cards ended in blank space. Beside a card that
-  carries a figure, a bare card still keeps both and stays flush with it.
+  carries a figure, a bare card still keeps both and stays flush with it. A card whose figure
+  arrives with a read passes `stat={<Stat value={null} />}` while it loads: with no `stat` at all
+  it is bare until the figure lands, and the row then grows under the reader.
 - **A tab strip is one line that scrolls where its tabs do not fit.** `Tabs` and `ModuleNav`
   wrapped, which on a phone put the second line's tabs under the first line's selected edge and
   the strip's rule under the second line. Each is one line now that scrolls sideways, with the
@@ -52,9 +61,11 @@ give and a filter the users list did not have.
   have half the gap and the summary band less padding, so a band of five figures no longer puts
   the page's content half a phone's height down. Two figures to a line stays.
 - **A collection that fits its smallest page offers no page size.** A `DataView` whose rows all
-  fit on its smallest page-size option shows no rows-per-page control, which changed nothing
-  there. The view and column controls stay at every size, and the page size stays while the total
-  is still loading.
+  fit on its smallest page shows no rows-per-page control, which changed nothing there. The
+  smallest page is the smaller of its smallest option and the page in force, so a view that
+  `initialPageSize` or a restored state put on a smaller page, and that pages, keeps the control.
+  The view and column controls stay at every size, and the page size stays while the total is
+  still loading.
 - **A figure with no value draws a quiet dash.** A `Stat` without a value printed the dash in the
   value's full ink and weight, which read as a broken bar. It is the subtle ink at normal weight
   now, marked `data-empty`; a headline keeps its own ink.
@@ -73,8 +84,25 @@ give and a filter the users list did not have.
   to `LIKE` unescaped, where both are wildcards, so a search for `team_a` also found `teamxa`.
 - **A badge stays inside its container.** A `Badge` never wrapped and had no width cap, so a label
   longer than its column ran out of it, covered the next one and widened a phone's page. It wraps
-  inside its container now. One line is still a pill, drawn exactly as before, and a wrapped badge
-  is a rounded box.
+  inside its container now: between words, and inside a word only when the word alone is wider
+  than the container, so a table never squeezes a badge below its longest word. One line is still
+  a pill, drawn exactly as before, and a wrapped badge is a rounded box.
+- **`terp docker dev` brings a workbench from before 0.30.0 onto its `tmpfs` mask (#136).** 0.30.0
+  made the frontend's `node_modules` mask a `tmpfs`, but a stack that was already up kept its old
+  anonymous volume: Compose reattaches it on a recreate, and the dev server went on serving the
+  first boot's packages with every container healthy. Before it starts, `terp docker dev` now
+  finds a container whose mount at a path the compose file declares `tmpfs` is still a volume,
+  removes that container and that one volume, and says so; Compose then creates both fresh. A
+  named volume, a bind and every other volume are left alone. A removal that fails prints the
+  command to run by hand.
+- **An upgrade says where its effects show (#12).** `terp version`'s re-render recipe says that
+  Copier's `--pretend` lists none of what the update rewrites, so the update is reviewed as its
+  own diff on the clean tree the recipe already asks for, and that a conflict is left as markers
+  in the file, or as a `*.rej` beside it under `--conflict rej`. Its container note says how a
+  stack from before 0.30.0 catches up.
+- **A re-render leaves the frontend's escape-hatch budget alone.** `frontend/escape-hatch-budget.json`,
+  the ratchet `@terpjs/eslint-boundaries` reads, is seeded once and the app's afterwards, like the
+  backend's budget beside it. The template's `{}` would have reset its counts.
 
 ### Upgrade notes
 
@@ -95,6 +123,11 @@ give and a filter the users list did not have.
   boot** until it adds `AUDIT_READ_ACTIVITY`: a route may only declare an operation its app's
   catalog carries. Splat `*AUDIT_OPERATIONS` instead (ADR 0126), and the capability's next route
   will not refuse the boot either. A catalog that already splats changes nothing.
+- **A workbench from before 0.30.0 that is started with plain `docker compose`** still serves its
+  old frontend packages. Recreate the frontend once with
+  `docker compose up -d --no-deps --force-recreate --renew-anon-volumes web`, then remove the
+  volume it leaves orphaned (the example app's `web` holds three such masks, renewed together).
+  `terp docker dev` does both itself.
 
 ## 0.31.0 — 2026-10-04
 

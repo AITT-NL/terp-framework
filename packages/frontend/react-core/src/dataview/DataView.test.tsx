@@ -959,7 +959,17 @@ describe("DataView page size", () => {
   it("offers it where the rows are more than the smallest page holds", async () => {
     render(<DataView repository={inMemoryRepo()} columns={COLUMNS} pageSizeOptions={[3, 10]} />);
     await screen.findByText("Broken printer");
-    // Mutation: comparing with the largest option, or the page size in force.
+    // Mutation: comparing with the largest option. (The page in force is 3 here too, so the
+    // test below is the one that tells it apart from the smallest option.)
+    expect(screen.getByRole("button", { name: "Rows per page" })).toBeInTheDocument();
+  });
+
+  it("offers it while the page in force is smaller than every option, and the view pages", async () => {
+    // Four rows on pages of three: two pages, and the default options all start at ten.
+    // Mutation: comparing with the smallest option alone, which hid the control and left the
+    // view paging with no way to show the rows at once.
+    render(<DataView repository={inMemoryRepo()} columns={COLUMNS} initialPageSize={3} />);
+    await screen.findByText("Broken printer");
     expect(screen.getByRole("button", { name: "Rows per page" })).toBeInTheDocument();
   });
 

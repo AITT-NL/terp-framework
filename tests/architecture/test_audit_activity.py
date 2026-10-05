@@ -88,6 +88,35 @@ def test_counts_each_calendar_day_of_the_zone(session: Session) -> None:
     assert activity.total == 4
 
 
+def test_an_event_at_midnight_opens_its_day(session: Session) -> None:
+    """A day runs from its midnight up to, not including, the next one.
+
+    Every other instant in this module sits away from a bound, so a `>` for the `>=` or a
+    `<=` for the `<` would pass them all. These sit exactly on one: the window's first
+    midnight, the midnight between the two windows, today's, and tomorrow's.
+    """
+    utc = ZoneInfo("UTC")
+    now = at(2026, 9, 30, 12)
+    record(session, at(2026, 9, 26, 23, 59, 59, 999999))  # a microsecond before the window
+    record(session, at(2026, 9, 27))  # the window's first midnight: the 27th
+    record(session, at(2026, 9, 29))  # where the two windows meet: the 29th, in the current one
+    record(session, at(2026, 9, 30))  # today's midnight: today
+    record(session, at(2026, 10, 1))  # tomorrow's midnight: not counted
+    session.commit()
+
+    activity = audit_activity(session, days=2, zone=utc, now=now)
+
+    assert [(day.date.isoformat(), day.count) for day in activity.previous_days] == [
+        ("2026-09-27", 1),
+        ("2026-09-28", 0),
+    ]
+    assert [(day.date.isoformat(), day.count) for day in activity.days] == [
+        ("2026-09-29", 1),
+        ("2026-09-30", 1),
+    ]
+    assert activity.total == 2
+
+
 def test_the_same_instants_fall_on_other_days_in_another_zone(session: Session) -> None:
     # 22:30 UTC on 24 October is already the 25th in Amsterdam and still the 24th in UTC.
     record(session, at(2026, 10, 24, 22, 30))

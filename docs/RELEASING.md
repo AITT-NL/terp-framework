@@ -27,7 +27,7 @@ Projects (one publisher each — the distribution names, not the repository name
 
 | Kernel & tooling | Capabilities |
 |---|---|
-| `terp-core` | `terp-cap-access`, `terp-cap-audit`, `terp-cap-auth`, `terp-cap-egress`, `terp-cap-eventbus`, `terp-cap-files`, `terp-cap-groups`, `terp-cap-identity`, `terp-cap-jobs-celery`, `terp-cap-leases`, `terp-cap-mail`, `terp-cap-oidc`, `terp-cap-outbox`, `terp-cap-realtime`, `terp-cap-redis`, `terp-cap-scheduler-apscheduler`, `terp-cap-scheduler-celery-beat`, `terp-cap-sync`, `terp-cap-tenancy`, `terp-cap-users`, `terp-cap-webhooks` |
+| `terp-core` | `terp-cap-access`, `terp-cap-audit`, `terp-cap-auth`, `terp-cap-egress`, `terp-cap-eventbus`, `terp-cap-files`, `terp-cap-groups`, `terp-cap-identity`, `terp-cap-jobs-celery`, `terp-cap-leases`, `terp-cap-mail`, `terp-cap-mfa`, `terp-cap-oidc`, `terp-cap-outbox`, `terp-cap-realtime`, `terp-cap-redis`, `terp-cap-scheduler-apscheduler`, `terp-cap-scheduler-celery-beat`, `terp-cap-sync`, `terp-cap-tenancy`, `terp-cap-users`, `terp-cap-webhooks` |
 | `terp-arch` | |
 | `terp-cli` | |
 | `terp-migrations` | |
@@ -229,8 +229,8 @@ publishes only what is still missing.
 The two registry legs run in sequence, PyPI first, so a failure there leaves npm
 untouched. That ordering is deliberate and load-bearing: both registries are immutable,
 so a version only one of them accepted can neither be completed nor withdrawn — the
-number is burned for all twenty-seven published artifacts while still being pinnable
-(23 PyPI distributions and 4 npm packages). PyPI goes
+number is burned for every published artifact while still being pinnable (each
+distribution in the table above, and each `@terpjs/*` package). PyPI goes
 first because it is the leg that publishes a built artifact and can therefore fail on
 one. (`terp-spec` 0.21.0 is the worked example of the alternative.)
 
