@@ -490,7 +490,12 @@ function DataViewInner<T>(props: DataViewProps<T>) {
   // Only once the total is known, so the control does not blink out while the first page loads;
   // the view and column controls stay at every size, since they work on any collection and a
   // toolbar that rearranged itself as a filter narrowed the rows would move under the pointer.
-  const smallestPage = Math.min(...(props.pageSizeOptions ?? DATA_VIEW_PAGE_SIZES));
+  // The page in force counts too: `initialPageSize`, a restored view or a server query can set
+  // one smaller than every option, and a view that pages must keep the control that ends it.
+  const smallestPage = Math.min(
+    ...(props.pageSizeOptions ?? DATA_VIEW_PAGE_SIZES),
+    state.pagination.pageSize,
+  );
   const fitsSmallestPage = totalCount !== undefined && totalCount <= smallestPage;
 
   return (
