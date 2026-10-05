@@ -3779,7 +3779,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
         // it the shape the layout contract actually admits: 4b widened the overview slot to
         // take `Text` as a lead paragraph and `Divider` as a rule between sections, and no
         // specimen has ever rendered either inside a governed body. Three children also put
-        // TWO of the page grid's `gap: var(--space-4)` rows between body siblings in frame;
+        // TWO of the page grid's section gaps (`--space-6`, ADR 0174) between body siblings in frame;
         // `page-header` has one body child, so it only ever exercised the header-to-body gap.
         //
         // No `parents`, which is the overview's own trail contract: a module's top-level

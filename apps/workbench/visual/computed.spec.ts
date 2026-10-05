@@ -1350,7 +1350,7 @@ test("the sequence bar pins to the column's bottom and comes to rest on the same
   // At rest on main's bottom edge, not after the body: the page took the free height, which is
   // the flex-grow a short page needs or the bar would sit wherever its content ended.
   expect(resting.bar.bottom).toBeCloseTo(resting.main.bottom, 0);
-  expect(resting.bar.top - resting.page.bottom, "one page gap above the bar").toBeCloseTo(16, 0);
+  expect(resting.bar.top - resting.page.bottom, "one section gap above the bar").toBeCloseTo(24, 0);
 });
 
 test("only a page with a sequence changes main's layout and the document's scroll padding", async ({
@@ -1435,6 +1435,40 @@ test("the summary band bleeds to the column, flush under the title band", async 
   expect(edges.summary.right).toBeCloseTo(edges.main.right, 0);
   expect(edges.summary.left).toBeCloseTo(edges.band.left, 0);
   expect(edges.summary.top, "flush against the title band's border").toBeCloseTo(edges.band.bottom, 0);
+});
+
+test("a page's sections stand a step further apart than the blocks inside one", async ({ page }) => {
+  // ADR 0174. A picture shows the room but not which rule made it, and the regression worth
+  // catching is the two becoming equal again: the page's gap back at the grid's, or a grid
+  // widened to the page's. The dashboard has a section of two charts between the summary band
+  // and the table; its phone frame stacks those charts on the same axis as the sections, which
+  // is where the two gaps are easiest to confuse.
+  for (const { id, viewport } of [
+    { id: "dashboard-shape", viewport: { width: 1280, height: 900 } },
+    { id: "dashboard-shape-narrow", viewport: { width: 420, height: 900 } },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/?theme=midday&only=${id}`);
+    await page.locator('[data-terp="trend-chart"]').waitFor({ state: "visible" });
+    const gaps = await page.evaluate(() => {
+      const box = (element: Element) => element.getBoundingClientRect();
+      const summary = box(document.querySelector('[data-terp="page-summary"]')!);
+      const grid = document.querySelector('[data-terp="page"] > [data-terp="grid"]')!;
+      const [first, second] = [...grid.children].map(box);
+      const table = document.querySelector('[data-terp="page"] > [data-terp="dataview"]');
+      return {
+        afterSummary: box(grid).top - summary.bottom,
+        beforeTable: table === null ? null : box(table).top - box(grid).bottom,
+        // Side by side on the desktop, stacked on the phone: whichever axis the grid used.
+        inside: first!.right <= second!.left ? second!.left - first!.right : second!.top - first!.bottom,
+      };
+    });
+    expect(gaps.afterSummary, `${id}: the summary band to the next section`).toBeCloseTo(24, 0);
+    if (gaps.beforeTable !== null) {
+      expect(gaps.beforeTable, `${id}: the charts to the table`).toBeCloseTo(24, 0);
+    }
+    expect(gaps.inside, `${id}: the two charts of one section`).toBeCloseTo(16, 0);
+  }
 });
 
 test("a group of figures fits two to a line on a phone, and only a line's later figures carry a rule", async ({

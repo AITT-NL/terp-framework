@@ -2252,11 +2252,18 @@ textarea[data-terp="input"] {
    content — the loading and error frames, where the body is one small block. With
    the default the two rows would spread to fill the height. It needs something to
    stretch the article before it is observable at all, which is why page-loading and
-   page-error render inside a grid box rather than a plain tall div. */
+   page-error render inside a grid box rather than a plain tall div.
+
+   The gap is the room between SECTIONS (ADR 0174), and it is a step wider than the gap inside
+   one: --space-6 against the --space-4 a grid and a hub's cards keep between the blocks of a
+   section. At one shared --space-4, a row of cards was as far from
+   the table under it as the cards were from each other, so nothing said where a section
+   ended. Two rules below cancel or repeat this value and name the same token: the summary
+   band's flush margin and the sequence bar's room above it. */
 [data-terp="page"] {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-4);
+  gap: var(--space-6);
   align-content: start;
   min-width: 0;
 }
@@ -2601,7 +2608,7 @@ textarea[data-terp="input"] {
 [data-terp="appshell-main"]
   > [data-terp="page"]:not([data-measure="narrow"])
   > [data-terp="page-summary"] {
-  margin: calc(-1 * var(--space-4)) calc(-1 * var(--shell-gutter)) 0;
+  margin: calc(-1 * var(--space-6)) calc(-1 * var(--shell-gutter)) 0;
   padding-inline: var(--shell-gutter);
   border-radius: 0;
   border-block-end: 1px solid var(--color-neutral-200);
@@ -2707,7 +2714,9 @@ textarea[data-terp="input"] {
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-3);
-  margin-block-start: var(--space-4);
+  /* The page's own section gap, so the body ends as far above the bar as it starts below the
+     band. */
+  margin-block-start: var(--space-6);
   padding-block: var(--space-2) max(var(--space-2), env(safe-area-inset-bottom));
   border-block-start: 1px solid var(--color-neutral-200);
   background: var(--color-bg-subtle);
