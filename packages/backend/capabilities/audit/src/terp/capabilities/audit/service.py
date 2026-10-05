@@ -65,8 +65,11 @@ def list_audit_events(
 def resolve_time_zone(name: str) -> ZoneInfo:
     """The IANA time zone *name* names, or a validation failure that says which name it was.
 
-    The zone database is the ``tzdata`` package where the system has none (Windows), so a
-    name resolves the same on every host.
+    The zone database is the ``tzdata`` package where the system has none (Windows), so
+    every IANA name resolves on every host. How strictly a name is matched is still the
+    host's: a case-insensitive filesystem also accepts ``utc``, and a system database may
+    know a few names ``tzdata`` does not (``posixrules``). The canonical spelling resolves
+    everywhere, and that is the one the hub sends.
     """
     try:
         return ZoneInfo(name)

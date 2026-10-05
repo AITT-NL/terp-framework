@@ -147,14 +147,21 @@ jobs:
             exit 1
           }
 
-      - name: Run the migrations conformance suite against PostgreSQL
+      - name: Run every test that takes terp_db_url against PostgreSQL
         env:
           TERP_TEST_POSTGRES_URL: postgresql+psycopg://postgres:terp@localhost:5432/postgres
           # A skipped backup check is green, which is the worst outcome available: the
           # green implies the drill ran. This lane installs a matching client on
           # purpose, so here a skip is a failure.
           TERP_REQUIRE_POSTGRES_LANE: "1"
-        run: uv run pytest tests/architecture/test_migrations_conformance.py -q
+        # Every module that takes the `terp_db_url` fixture runs here, because this is
+        # the only job with a server: anywhere else its PostgreSQL half skips, and a skip
+        # is green. The audit activity's per-day counts were claimed for both dialects
+        # while only SQLite ever ran them.
+        run: >-
+          uv run pytest -q
+          tests/architecture/test_migrations_conformance.py
+          tests/architecture/test_audit_activity.py
 
   # Generic, tool-independent backstops layered ON TOP of the gate — they never
   # replace terp-arch. Blocking: ruff bandit (`S`) + the import-linter layer-0
