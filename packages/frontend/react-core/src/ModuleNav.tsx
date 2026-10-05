@@ -1,5 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
+import { useRef } from "react";
 
+import { useCurrentInView } from "./currentInView";
 import { activeNavPath } from "./navActive";
 import { useStrings, useUiText } from "./uiText";
 import type { UiText } from "./uiText";
@@ -49,6 +51,8 @@ export function ModuleNav({ items, ariaLabel }: ModuleNavProps) {
   // diverged from its own Link in both directions, as the sheet's comment on the active rule
   // says. Longest match wins, so `/records` does not steal from `/records/mapping`.
   const activeTo = activeNavPath(pathname, items);
+  const list = useRef<HTMLUListElement>(null);
+  useCurrentInView(list, activeTo, '[data-active="true"]');
 
   if (items.length === 0) {
     return null;
@@ -56,7 +60,7 @@ export function ModuleNav({ items, ariaLabel }: ModuleNavProps) {
 
   return (
     <nav aria-label={resolve(ariaLabel ?? strings.moduleNavigationLabel)} data-terp="module-nav">
-      <ul data-terp="module-nav-list">
+      <ul ref={list} data-terp="module-nav-list">
         {items.map((item) => {
           const label = resolve(item.label);
           const isActive = item.to === activeTo;

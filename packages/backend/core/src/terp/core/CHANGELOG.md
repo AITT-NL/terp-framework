@@ -39,6 +39,25 @@ give and a filter the users list did not have.
 - **A list of hub cards without figures keeps no figure row.** Each card reserved a row for a
   figure and a 10rem floor, so a row of bare cards ended in blank space. Beside a card that
   carries a figure, a bare card still keeps both and stays flush with it.
+- **A tab strip is one line that scrolls where its tabs do not fit.** `Tabs` and `ModuleNav`
+  wrapped, which on a phone put the second line's tabs under the first line's selected edge and
+  the strip's rule under the second line. Each is one line now that scrolls sideways, with the
+  current tab brought into the strip's view as it changes; the page never scrolls for it. Where
+  the tabs fit, nothing moves.
+- **Night's summary band is a tone of the page.** Its fill was the brand's soft tint, a saturated
+  navy that made the band the loudest object on every night page, where in the other palettes it
+  is the quietest fill on it. It is the surface with a fifth of the brand in it now, `#0d1d34`,
+  about as far from the page as midday's band is from its own, and every ink on it gains contrast.
+- **A band's figures sit closer on a phone.** Below the narrow cutover the rows of a `StatGroup`
+  have half the gap and the summary band less padding, so a band of five figures no longer puts
+  the page's content half a phone's height down. Two figures to a line stays.
+- **A collection that fits its smallest page offers no page size.** A `DataView` whose rows all
+  fit on its smallest page-size option shows no rows-per-page control, which changed nothing
+  there. The view and column controls stay at every size, and the page size stays while the total
+  is still loading.
+- **A figure with no value draws a quiet dash.** A `Stat` without a value printed the dash in the
+  value's full ink and weight, which read as a broken bar. It is the subtle ink at normal weight
+  now, marked `data-empty`; a headline keeps its own ink.
 
 ### Fixed
 
@@ -52,6 +71,10 @@ give and a filter the users list did not have.
   stays silent, as before.
 - **The users list's email search is a literal match.** An `_` or a `%` in the search text went
   to `LIKE` unescaped, where both are wildcards, so a search for `team_a` also found `teamxa`.
+- **A badge stays inside its container.** A `Badge` never wrapped and had no width cap, so a label
+  longer than its column ran out of it, covered the next one and widened a phone's page. It wraps
+  inside its container now. One line is still a pill, drawn exactly as before, and a wrapped badge
+  is a rounded box.
 
 ### Upgrade notes
 
@@ -65,6 +88,9 @@ give and a filter the users list did not have.
   changes nothing.
 - **`terp-cap-audit` depends on `tzdata`**, the zone database the activity read resolves a time
   zone with on a host that has none of its own.
+- **A badge's corners follow `--radius-lg`.** They followed `--radius-full`. On one line the two
+  draw the same pill, so nothing moves unless a `theme.css` redeclares `--radius-lg`, which now
+  rounds a badge too.
 - **An operation catalog that names the audit capability's operations one by one refuses to
   boot** until it adds `AUDIT_READ_ACTIVITY`: a route may only declare an operation its app's
   catalog carries. Splat `*AUDIT_OPERATIONS` instead (ADR 0126), and the capability's next route

@@ -357,17 +357,24 @@ html {
 /* Badges ------------------------------------------------------------------- */
 /* The border matches the soft fill exactly, so it reads as one flat pill while
    still occupying a border box — which is what keeps a Badge the same height
-   next to a bordered control. */
+   next to a bordered control.
+
+   A label longer than its container wraps inside it. It did not: nowrap with no width cap let a
+   phrase in a narrow column run out of it, cover the next one and widen a phone's page. The
+   radius is what keeps one line a pill. 0.75rem is more than half a one-line badge's height,
+   so the corners clamp to a full round, exactly as 9999px did, and less than half of two lines',
+   so a wrapped badge is a rounded box rather than a lozenge. */
 [data-terp="badge"] {
   display: inline-flex;
   align-items: center;
+  max-inline-size: 100%;
   border: 1px solid;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-lg);
   padding: 2px var(--space-2);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
   line-height: 1.4;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 [data-terp="badge"][data-tone="neutral"] {
   color: var(--color-fg-muted);
@@ -1520,17 +1527,33 @@ textarea[data-terp="input"] {
 }
 
 /* Tabs --------------------------------------------------------------------- */
-/* The tab strip sits one pixel over the list's bottom rule, so the selected
-   tab's own 2px edge covers it rather than stacking beside it. */
+/* The strip is one line that scrolls sideways where it does not fit. It wrapped, and a wrapped
+   strip put the second line's tabs under the first line's selected edge and the rule under the
+   second line, so on a phone it read as two strips with one tab marked between them. The
+   current tab is scrolled into the strip's view as it changes (useCurrentInView).
+
+   The rule is a 1px background on the content box's last row rather than a bottom border. A
+   scroll container clips at its padding edge, and the selected tab's 2px edge reached a pixel
+   into the border to cover it; drawn inside, the rule sits under that edge and nothing is cut.
+   The padding is room for the focus ring, which the container would clip as well, and the
+   negative margin gives the layout that room back, so the strip sits where it did. */
 [data-terp="tabs"] {
   display: grid;
   gap: var(--space-3);
 }
 [data-terp="tab-list"] {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-1);
-  border-block-end: 1px solid var(--color-neutral-200);
+  margin: calc(-1 * var(--space-1));
+  padding: var(--space-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: linear-gradient(var(--color-neutral-200), var(--color-neutral-200)) no-repeat
+    var(--space-1) calc(100% - var(--space-1)) / calc(100% - 2 * var(--space-1)) 1px;
+}
+[data-terp="tab-list"]::-webkit-scrollbar {
+  display: none;
 }
 [data-terp="tab"] {
   font-family: var(--font-family-sans);
@@ -1543,7 +1566,8 @@ textarea[data-terp="input"] {
   color: var(--color-fg-muted);
   background: transparent;
   cursor: pointer;
-  margin-block-end: -1px;
+  flex: none;
+  white-space: nowrap;
   border-top-left-radius: var(--radius-sm);
   border-top-right-radius: var(--radius-sm);
   transition:
@@ -1563,17 +1587,28 @@ textarea[data-terp="input"] {
 
    The edges are logical (border-block-end) to match tab and appshell-footer rather
    than the physical borderBottom the component declared. Identical in every writing
-   mode this framework ships, and the sheet already had one convention. */
+   mode this framework ships, and the sheet already had one convention.
+
+   One line that scrolls sideways where it does not fit, as the tab strip is and for its
+   reason: wrapped, the strip's rule sat under the second line and the first line's active
+   edge floated above it. The rule stays the nav's own border, outside the scrolling list, so
+   nothing clips it; the list's padding is the focus ring's room and its negative margin gives
+   the layout that room back. */
 [data-terp="module-nav"] {
   border-block-end: 1px solid var(--color-neutral-200);
 }
 [data-terp="module-nav-list"] {
   list-style: none;
-  margin: 0;
-  padding: 0;
+  margin: calc(-1 * var(--space-1));
+  padding: var(--space-1);
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-3);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+[data-terp="module-nav-list"]::-webkit-scrollbar {
+  display: none;
 }
 [data-terp="module-nav-link"] {
   display: inline-flex;
@@ -1581,6 +1616,7 @@ textarea[data-terp="input"] {
   padding: var(--space-2) 0;
   color: var(--color-fg-muted);
   text-decoration: none;
+  white-space: nowrap;
   border-block-end: 2px solid transparent;
 }
 
@@ -5049,6 +5085,13 @@ button[data-terp="input"][data-placeholder="true"] {
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
+/* A figure with nothing to show prints a dash, and the dash is an absence rather than a number:
+   in the value's full ink and weight it read as a broken bar. A headline keeps its own ink, the
+   one its fill was measured against. */
+[data-terp="stat"]:not([data-headline]) [data-terp="stat-value"][data-empty] {
+  color: var(--color-fg-subtle);
+  font-weight: var(--font-weight-normal);
+}
 [data-terp="stat-delta"] {
   display: flex;
   flex-wrap: wrap;
@@ -5202,6 +5245,19 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 [data-terp="stat-group"] > [data-terp="stat"][data-headline] + [data-terp="stat"] {
   box-shadow: none;
+}
+/* On a narrow screen the rows of figures, and the band they sit in, close up: a band of five
+   figures is three rows deep there, and with a full gap between them and the band's full padding
+   around them it put the page's own content half a phone's height down. The floor above stays,
+   two to a line: three were tried, and a figure such as "4 m 12 s" then broke over two lines
+   and its label over two more, which made the group taller rather than shorter. */
+@media ${NARROW_VIEWPORT} {
+  [data-terp="stat-group"] {
+    row-gap: var(--space-2);
+  }
+  [data-terp="page-summary"] {
+    padding-block: var(--space-3);
+  }
 }
 /* A lone figure in a boxed card: the card is its frame, so the figure takes no tile of its own
    -- a tile inside a box is a frame inside a frame. A group's cells keep theirs, and the

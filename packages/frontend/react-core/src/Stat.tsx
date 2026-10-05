@@ -244,7 +244,9 @@ export function Stat({
   return (
     <span data-terp="stat" data-headline={headline ? "true" : undefined}>
       <span data-terp="stat-label">{resolve(label)}</span>
-      <span data-terp="stat-value">{printed}</span>
+      <span data-terp="stat-value" data-empty={printed === DASH ? "true" : undefined}>
+        {printed}
+      </span>
       {delta !== undefined && direction !== undefined && (
         <span data-terp="stat-delta">
           <span data-terp="stat-change" data-sentiment={sentiment}>

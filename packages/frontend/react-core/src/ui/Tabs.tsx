@@ -1,6 +1,7 @@
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 
+import { useCurrentInView } from "../currentInView";
 import { injectTerpStyles } from "../styles";
 import { useUiText } from "../uiText";
 import type { UiText } from "../uiText";
@@ -37,6 +38,8 @@ export function Tabs({ tabs, value, defaultValue, onChange, label }: TabsProps) 
   // Nothing reports that — axe sees a well-formed reference to nothing. The same refusal to
   // interpolate caller strings into ids is written out at AppShell's nav-group labels.
   const selectedIndex = tabs.findIndex((tab) => tab.value === selectedTab?.value);
+  const list = useRef<HTMLDivElement>(null);
+  useCurrentInView(list, selectedTab?.value, '[aria-selected="true"]');
 
   // One usable tab is not a choice, so it gets no chrome. A tablist over a single tab costs
   // a row of the screen to offer nothing, and it is worse than decorative to a screen
@@ -92,7 +95,7 @@ export function Tabs({ tabs, value, defaultValue, onChange, label }: TabsProps) 
 
   return (
     <div data-terp="tabs">
-      <div role="tablist" data-terp="tab-list" aria-label={label === undefined ? undefined : resolve(label)} onKeyDown={onKeyDown}>
+      <div ref={list} role="tablist" data-terp="tab-list" aria-label={label === undefined ? undefined : resolve(label)} onKeyDown={onKeyDown}>
         {tabs.map((tab, index) => {
           const selected = tab.value === selectedTab?.value;
           return (

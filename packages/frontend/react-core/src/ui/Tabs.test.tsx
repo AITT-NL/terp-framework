@@ -55,3 +55,47 @@ describe("Tabs with a single tab", () => {
     expect(screen.getByRole("tab", { name: "Only" })).toBeDisabled();
   });
 });
+
+describe("Tabs on a strip too narrow for them", () => {
+  // jsdom lays nothing out, so the boxes are given: the strip is 100 to 300, and whichever tab
+  // is selected sits where each test puts it.
+  function boxes(selected: [number, number]) {
+    return vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const at = (left: number, right: number) =>
+          ({ left, right, top: 0, bottom: 20, width: right - left, height: 20, x: left, y: 0 }) as DOMRect;
+        if (this.dataset.terp === "tab-list") return at(100, 300);
+        if (this.getAttribute("aria-selected") === "true") return at(...selected);
+        return at(0, 0);
+      });
+  }
+
+  it("scrolls the strip forward to a selected tab past its end, and follows the selection", () => {
+    const spy = boxes([320, 360]);
+    try {
+      render(<Tabs label="Sections" tabs={tabs} defaultValue="audit" />);
+      const list = screen.getByRole("tablist");
+      // Mutation: no scroll, which leaves the selected tab out of sight on a phone.
+      expect(list.scrollLeft).toBe(60);
+      fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+      // Mutation: scrolling on mount only, not as the selection moves.
+      expect(list.scrollLeft).toBe(120);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("scrolls it back to a selected tab before its start", () => {
+    // jsdom keeps a negative scroll position where a browser clamps it, which is what makes the
+    // backward step visible here.
+    const spy = boxes([60, 90]);
+    try {
+      render(<Tabs label="Sections" tabs={tabs} defaultValue="audit" />);
+      // Mutation: scrolling only forwards, which leaves a tab before the strip's start hidden.
+      expect(screen.getByRole("tablist").scrollLeft).toBe(-40);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

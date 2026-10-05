@@ -339,3 +339,38 @@ describe("Stat's colours are declared pairings", () => {
     }
   });
 });
+
+describe("a figure with no value", () => {
+  it("marks its dash as empty, and a zero as a value", () => {
+    const { container } = renderIn(
+      "en",
+      <>
+        <Stat label="Nothing" value={null} />
+        <Stat label="Blank" value="" />
+        <Stat label="Zero" value={0} />
+      </>,
+    );
+    const values = [...container.querySelectorAll('[data-terp="stat-value"]')].map((value) => [
+      value.textContent,
+      value.getAttribute("data-empty"),
+    ]);
+    // Mutations: no mark, so the dash keeps the value's ink; or a zero taken for nothing.
+    expect(values).toEqual([
+      ["—", "true"],
+      ["—", "true"],
+      ["0", null],
+    ]);
+  });
+
+  it("draws the dash in the quiet ink, and leaves a headline's ink alone", () => {
+    const rule =
+      /\[data-terp="stat"\]:not\(\[data-headline\]\) \[data-terp="stat-value"\]\[data-empty\] \{([^}]*)\}/.exec(
+        TERP_STYLES_CSS,
+      );
+    // Mutation: the rule without :not([data-headline]), which would put the subtle ink on the
+    // headline's brand fill, the one surface it was never measured against.
+    expect(rule, "an empty value has a rule of its own, outside a headline").not.toBeNull();
+    expect(rule![1]).toContain("color: var(--color-fg-subtle)");
+    expect(rule![1]).toContain("font-weight: var(--font-weight-normal)");
+  });
+});

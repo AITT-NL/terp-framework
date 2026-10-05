@@ -2416,3 +2416,58 @@ describe("cascade structure", () => {
     }
   });
 });
+
+describe("what a review of the screens in use changed", () => {
+  const base = layerBody("terp.base");
+  const always = baseOnly(base);
+  const ruleBody = (body: string, selector: string) => {
+    const match = [...body.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(
+      (rule) => rule[1]!.trim().replace(/\s+/g, " ") === selector,
+    );
+    expect(match, `${selector} has no rule of its own`).toBeDefined();
+    return match![2]!;
+  };
+
+  it("lays a tab strip out as one line that scrolls, never a wrap", () => {
+    for (const selector of ['[data-terp="tab-list"]', '[data-terp="module-nav-list"]']) {
+      const rule = ruleBody(always, selector);
+      // Mutation: flex-wrap back to wrap, which splits the strip and its rule apart on a phone.
+      expect(rule, selector).toContain("flex-wrap: nowrap");
+      expect(rule, selector).toContain("overflow-x: auto");
+      // The focus ring's room inside the scroll container, given back outside it.
+      expect(rule, selector).toContain("padding: var(--space-1)");
+      expect(rule, selector).toContain("margin: calc(-1 * var(--space-1))");
+    }
+    // The tab strip's rule is drawn inside its content box: a border would be clipped by the
+    // scroll container, and the selected tab's edge with it.
+    const tabList = ruleBody(always, '[data-terp="tab-list"]');
+    expect(tabList).not.toContain("border-block-end");
+    expect(tabList).toContain("linear-gradient(var(--color-neutral-200), var(--color-neutral-200))");
+    expect(ruleBody(always, '[data-terp="tab"]')).not.toContain("margin-block-end: -1px");
+    expect(ruleBody(always, '[data-terp="module-nav-link"]')).toContain("white-space: nowrap");
+  });
+
+  it("lets a badge wrap inside its container, and keeps one line a pill", () => {
+    const badge = ruleBody(always, '[data-terp="badge"]');
+    // Mutation: nowrap back, or no cap, which let a long label run out of a phone's column.
+    expect(badge).not.toContain("white-space: nowrap");
+    expect(badge).toContain("max-inline-size: 100%");
+    // A radius above half a one-line badge's height clamps to a full round; a full radius
+    // would make a two-line badge a lozenge.
+    expect(badge).toContain("border-radius: var(--radius-lg)");
+  });
+
+  it("closes up a band's rows of figures on a narrow screen, two to a line still", () => {
+    const narrow = mediaBodies(base, NARROW_VIEWPORT);
+    const group = ruleBody(narrow, '[data-terp="stat-group"]');
+    // Mutations: the full gap kept between rows on a phone, or the band's full padding.
+    expect(group).toContain("row-gap: var(--space-2)");
+    expect(ruleBody(narrow, '[data-terp="page-summary"]')).toContain("padding-block: var(--space-3)");
+    // Two to a line stays: a third column broke a figure like "4 m 12 s" over two lines.
+    // Mutation: a narrower floor for the phone.
+    expect(group).not.toContain("grid-template-columns");
+    expect(ruleBody(always, '[data-terp="stat-group"]')).toContain(
+      "grid-template-columns: repeat(auto-fit, minmax(min(9.5rem, 100%), 1fr))",
+    );
+  });
+});

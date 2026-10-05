@@ -11,7 +11,7 @@ import { DataViewCardList } from "./DataViewCardList";
 import { DataViewPagination } from "./DataViewPagination";
 import type { DataViewRowActionsLayout } from "./DataViewRowActions";
 import { DataViewTable } from "./DataViewTable";
-import { DataViewToolbar } from "./DataViewToolbar";
+import { DATA_VIEW_PAGE_SIZES, DataViewToolbar } from "./DataViewToolbar";
 import { useDataViewQuery } from "./hooks/useDataViewQuery";
 import { useDataViewState } from "./hooks/useDataViewState";
 import type { DataViewControlledQuery } from "./hooks/useDataViewState";
@@ -485,6 +485,14 @@ function DataViewInner<T>(props: DataViewProps<T>) {
     );
   }
 
+  // A collection that fits on its smallest page has nothing to page through, so it is offered no
+  // page size: above a one-row table the control changed nothing and still led the toolbar.
+  // Only once the total is known, so the control does not blink out while the first page loads;
+  // the view and column controls stay at every size, since they work on any collection and a
+  // toolbar that rearranged itself as a filter narrowed the rows would move under the pointer.
+  const smallestPage = Math.min(...(props.pageSizeOptions ?? DATA_VIEW_PAGE_SIZES));
+  const fitsSmallestPage = totalCount !== undefined && totalCount <= smallestPage;
+
   return (
     <div data-terp="dataview" data-variant={variantAttribute} data-density={densityAttribute}>
       {heading}
@@ -507,8 +515,10 @@ function DataViewInner<T>(props: DataViewProps<T>) {
         onLayoutChange={setManualLayout}
         pageSize={state.pagination.pageSize}
         pageSizeOptions={props.pageSizeOptions}
-        onPageSizeChange={(pageSize) =>
-          state.setPagination({ pageIndex: 0, pageSize })
+        onPageSizeChange={
+          fitsSmallestPage
+            ? undefined
+            : (pageSize) => state.setPagination({ pageIndex: 0, pageSize })
         }
         selectedCount={selectedIds.size}
         totalCount={totalCount ?? 0}
