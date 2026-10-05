@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.32.0 — unreleased
+## 0.32.0 — 2026-10-05
 
 The charts' first framework screen. The admin hub printed two totals on its cards; it is a
 dashboard of the administration now (ADR 0171), which took a count the audit trail could not

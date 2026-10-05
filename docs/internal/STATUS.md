@@ -909,7 +909,11 @@ frontend design-system track below.
       pass and the contrast pass.
 - [x] The admin hub as the charts' first screen, built for 0.32.0 (ADR 0171): areas first,
       the trail counted by the viewer's own calendar days, active accounts by a status filter.
-- [ ] Owed: the Studio's pin to 0.31.0.
+- [x] Released as 0.32.0 (2026-10-05): the admin dashboard, the screen review's six changes, a
+      review pass over the whole release, and issues #136 and #12.
+- [ ] Owed: the Studio's pin to 0.32.0. It brings the Studio's theme catalog along: its parity
+      gates read the framework's palettes, and three of them failed against this main on
+      2026-10-05 (none against its 0.30.0 pin).
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
       every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
       the template's two `AGENTS.md` files, the repository's own and the react-core README.
@@ -1684,7 +1688,7 @@ every pixel in every consuming app with nothing watching.
 | 5 | The component gap | ✅ | Field-level 422s, app-locale formatting, declared column widths as steps, `Avatar`, the password reveal — and thirteen candidate components refused with the evidence that decided each. ADR 0099, 0.10.0. |
 | 6 | The Studio's styling editor, built from the token manifest | 🚧 | Lands in **terp-studio**, not here. What this repo owes it is already published: the manifest carries every token's category, per-theme values and themeable flag, plus the pairings the contrast gate enforces (ADR 0093 §4). |
 | 7 | Layout editable in the Studio | ⬜ | Lands in **terp-studio**. Unblocked by phase 3 (attribute-keyed styling), phase 4 (archetypes, density and nav placement as props rather than frozen constants) and, in 0.10.0, the two seams a file-editing tool actually needs: the layout declaration as the one document holding the shell's shape (ADR 0100) and the development-only channel that lets a tool ask a running app about its own structure instead of asking the operator to describe it (ADR 0101). |
-| 8 | Presentation and page composition | 🚧 | Decided in ADR 0169; tracked in [presentation-and-composition-design.md](drafts/presentation-and-composition-design.md). A presentation vocabulary keyed on the shape of the data, a surface ladder with a midpoint between canvas and surface, `Grid` track templates, a `summary` band, one headline per page, and charts under ADR 0158's contract. Shipped in 0.31.0 with ADR 0170's contrast pass; ADR 0171's admin dashboard waits for 0.32.0, and the draft's "Open after phase 6" and "Found along the way" lists hold the rest. |
+| 8 | Presentation and page composition | 🚧 | Decided in ADR 0169; tracked in [presentation-and-composition-design.md](drafts/presentation-and-composition-design.md). A presentation vocabulary keyed on the shape of the data, a surface ladder with a midpoint between canvas and surface, `Grid` track templates, a `summary` band, one headline per page, and charts under ADR 0158's contract. Shipped in 0.31.0 with ADR 0170's contrast pass; ADR 0171's admin dashboard shipped in 0.32.0, and the draft's "Open after phase 6" and "Found along the way" lists hold the rest. |
 
 **Releases:** phases 0–2 shipped as **0.7.0**, phase 3 across **0.8.0** and **0.9.0**. Phases 4
 and 5 shipped together as **0.10.0**, held back until the whole build order was finished so
