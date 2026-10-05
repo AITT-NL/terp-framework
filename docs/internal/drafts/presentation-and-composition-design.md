@@ -670,13 +670,13 @@ Recorded so they are not lost; this proposal does not fix them on its own.
 - `test_spec_catalog.py::test_frontend_catalog_covers_every_named_plugin_rule` fails on that
   workstation with or without this branch — the local terp-spec candidate lacks
   `no-framework-markers` (ADR 0160) — so it is an environment fact, not a regression.
-- **A badge does not wrap and has no width cap.** `[data-terp="badge"]` is `white-space: nowrap`
-  with no `max-inline-size`, so a label longer than its container runs out of it. Seen in a
+- ~~**A badge does not wrap and has no width cap.**~~ Fixed for 0.32.0: a badge wraps inside
+  its container, and its radius, `--radius-lg`, still draws one line as a pill. Found in a
   downstream app on 0.31.0 that put a whole phrase in a badge, a count of days with the date
   written out: in a `Grid minColumn="xs"` at phone width each badge overran its column of about
-  165px, covered the next one and widened the page by 50px. The app now keeps its badges to a
-  word or two. Whether a long label should wrap, truncate or be refused is a design question for
-  the framework; not acted on here.
+  165px, covered the next one and widened the page by 50px. Wrapping was chosen over truncating,
+  which hides what the label says, and over refusing a long label, which no rule can see before
+  the label is rendered.
 
 ## What would change this
 

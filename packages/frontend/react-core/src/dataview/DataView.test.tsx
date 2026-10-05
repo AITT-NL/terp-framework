@@ -600,10 +600,16 @@ describe("DataView localisation", () => {
   });
 
   it("speaks the app's locale without a strings prop, and follows a switch", async () => {
+    // A smallest page of two, so four rows have pages and the page-size control is offered.
     render(
       <LocaleProvider locales={{ en: LOCALE_EN, nl: LOCALE_NL }}>
         <LanguageSwitcher />
-        <DataView repository={inMemoryRepo()} columns={COLUMNS} />
+        <DataView
+          repository={inMemoryRepo()}
+          columns={COLUMNS}
+          pageSizeOptions={[2, 10]}
+          initialPageSize={10}
+        />
       </LocaleProvider>,
     );
     expect(await screen.findByText("1–4 of 4 results")).toBeInTheDocument();
@@ -936,5 +942,36 @@ describe("DataView's status history cell (ADR 0169 §6)", () => {
     // Three open tickets have runs; the closed one renders no history rather than an empty one.
     expect(histories).toHaveLength(3);
     expect(histories[0]!.querySelector('[data-terp="status-history-latest"]')!.textContent).toBe("Failed");
+  });
+});
+
+describe("DataView page size", () => {
+  it("offers no page size for a collection that fits on its smallest page", async () => {
+    render(<DataView repository={inMemoryRepo()} columns={COLUMNS} />);
+    await screen.findByText("Broken printer");
+    // Four rows against a smallest page of ten: the control changed nothing. Mutation:
+    // offering it at any size.
+    expect(screen.queryByRole("button", { name: "Rows per page" })).not.toBeInTheDocument();
+    // The controls that work at any size stay.
+    expect(screen.getByRole("button", { name: "View options" })).toBeInTheDocument();
+  });
+
+  it("offers it where the rows are more than the smallest page holds", async () => {
+    render(<DataView repository={inMemoryRepo()} columns={COLUMNS} pageSizeOptions={[3, 10]} />);
+    await screen.findByText("Broken printer");
+    // Mutation: comparing with the largest option, or the page size in force.
+    expect(screen.getByRole("button", { name: "Rows per page" })).toBeInTheDocument();
+  });
+
+  it("keeps it while the total is not known yet", () => {
+    const repository: DataViewRepository<Ticket> = {
+      query: () => new Promise(() => {}),
+      getRowId: (ticket) => ticket.id,
+      capabilities: { serverSide: true, search: false, searchScope: false },
+    };
+    render(<DataView repository={repository} columns={COLUMNS} />);
+    // Mutation: reading an unknown total as none, which takes the control away during every
+    // first load and puts it back when a large collection arrives.
+    expect(screen.getByRole("button", { name: "Rows per page" })).toBeInTheDocument();
   });
 });
