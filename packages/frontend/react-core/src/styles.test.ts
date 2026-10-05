@@ -2482,3 +2482,30 @@ describe("what a review of the screens in use changed", () => {
     );
   });
 });
+
+describe("flat at rest (ADR 0172)", () => {
+  /** Every rule whose body reads a shadow token, by its selector. */
+  function shadowReaders(): string[] {
+    const readers: string[] = [];
+    for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (/var\(--shadow-/.test(match[2]!)) readers.push(match[1]!.trim().replace(/\s+/g, " "));
+    }
+    return readers.sort();
+  }
+
+  it("lets only a layer cast a shadow, and never a block on the page", () => {
+    // A shadow means something over the page: the six layers below. A card, a hub card, a
+    // figure, a chart, a button and the table frame are told apart by fill and hairline.
+    // Mutation: any resting block given a shadow again, or a layer that loses its own.
+    expect(shadowReaders()).toEqual(
+      [
+        '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-sidebar"]',
+        '[data-terp="combobox-list"]',
+        '[data-terp="dialog"]',
+        '[data-terp="popover-panel"]',
+        '[data-terp="toast"]',
+        '[data-terp="tooltip"]',
+      ].sort(),
+    );
+  });
+});

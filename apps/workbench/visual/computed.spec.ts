@@ -1724,9 +1724,10 @@ test("a lone figure in a boxed card has no tile of its own, and keeps it in a pl
   expect(boxed.border).toBe("0px");
   expect(boxed.shadow).toBe("none");
   expect(boxed.background).toBe("rgba(0, 0, 0, 0)");
-  // On the canvas a figure is still a tile.
+  // On the canvas a figure is still a tile: its hairline is the tile, and a block at rest casts
+  // no shadow (ADR 0172).
   expect(plain.border).toBe("1px");
-  expect(plain.shadow).not.toBe("none");
+  expect(plain.shadow).toBe("none");
 });
 
 test("an identifier in a narrow table stays one chip on one line", async ({ page }) => {

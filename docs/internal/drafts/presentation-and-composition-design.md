@@ -169,7 +169,7 @@ per-theme values (ADR 0093), and one role per level:
 |---|---|---|---|---|---|---|---|
 | The page | `--color-bg-canvas` (now read) | `#eef1f6` | `#312c3f` | `#0f172a` | `#010409` | `#ffffff` | body, AppShell, the login view |
 | Containers and chrome | `--color-bg-subtle` (new) | `#f7f8fb` | `#363044` | `#172033` | `#070b10` | `#ffffff` | page band, sequence bar, boxed Card, HubCard, profile card |
-| Where data is read | `--color-bg-surface` | `#ffffff` | `#3a3449` | `#1e293b` | `#0d1117` | `#ffffff` | DataView frame (raised to `--shadow-md`), charts, stat tiles |
+| Where data is read | `--color-bg-surface` | `#ffffff` | `#3a3449` | `#1e293b` | `#0d1117` | `#ffffff` | DataView frame (raised to `--shadow-md` until ADR 0172 made every block flat at rest), charts, stat tiles |
 | The one headline | `--color-brand-primary` | | | | | | the headline figure |
 
 **C.** Darken the canvas a step instead.

@@ -302,7 +302,6 @@ html {
 [data-terp="button"][data-variant="primary"] {
   background: var(--color-brand-primary);
   color: var(--color-brand-primary-contrast);
-  box-shadow: var(--shadow-sm);
 }
 [data-terp="button"][data-variant="secondary"] {
   background: var(--color-neutral-0);
@@ -1284,7 +1283,16 @@ textarea[data-terp="input"] {
    step down from the page, in light; the dark themes invert both, which is the direction a
    recess wants in each. --color-bg-inset cannot do that job — in three themes it is
    declared AS the canvas value, so an inset named from it would be the one thing that
-   disappears. */
+   disappears.
+
+   Flat at rest (ADR 0172). The blocks are told apart by their fill and their hairline, never
+   by a shadow: a card, a hub card, a figure, a chart and the table frame all sit on the page
+   at one height. A shadow means a LAYER — something over the page that the page goes on
+   under: a tooltip, a toast, a popover, a dropdown list, a dialog, the phone's nav drawer.
+   It used to mean importance as well — the table frame raised to --shadow-md, the headline
+   figure too, everything else at --shadow-sm and the chrome at none — and three meanings on
+   one scale read as no system at all. Importance is the fill's job (the headline's brand
+   fill, the table's surface), and the chrome's edges were hairlines already. */
 [data-terp="card"] {
   display: flex;
   flex-direction: column;
@@ -1292,7 +1300,6 @@ textarea[data-terp="input"] {
   background: var(--color-bg-subtle);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
   padding: var(--space-4);
   min-width: 0;
 }
@@ -1347,7 +1354,6 @@ textarea[data-terp="input"] {
 [data-terp="card"][data-variant="plain"] {
   background: none;
   border-color: transparent;
-  box-shadow: none;
   padding: 0;
 }
 
@@ -2848,7 +2854,6 @@ html:has([data-terp="page-sequence"]) {
   background: var(--color-neutral-0);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
 }
 [data-terp="login-brand"] {
   display: flex;
@@ -3058,7 +3063,6 @@ html:has([data-terp="page-sequence"]) {
   background: var(--color-bg-subtle);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
   color: var(--color-neutral-900);
   box-sizing: border-box;
   transition: border-color var(--motion-duration-fast) var(--motion-easing-standard);
@@ -3184,11 +3188,11 @@ html:has([data-terp="page-sequence"]) {
    leaves the toolbar inside a surface, and leaves two nested frames whenever the view
    is empty (the empty state's dashed frame inside the card's solid one).
 
-   What the slot carries is the surface itself — a fill, a border and a radius — and the
-   page's one raised shadow. The collection is where data is read, so under ADR 0169's
-   surface ladder it keeps --color-bg-surface while the containers around it step back to
-   --color-bg-subtle, and --shadow-md lifts it above them: the table is the brightest object
-   on the page by rule. None of that moves the ownership settled above: the frame is the
+   What the slot carries is the surface itself — a fill, a border and a radius. The
+   collection is where data is read, so under ADR 0169's surface ladder it keeps
+   --color-bg-surface while the containers around it step back to --color-bg-subtle: the
+   table is the brightest object on the page by rule. It was raised by --shadow-md as well,
+   and no longer is: a block at rest is flat (ADR 0172), and the fill already says it. None of that moves the ownership settled above: the frame is the
    table's, not the view's.
 
    Keyed on [data-variant="full"] rather than the bare marker for the reason the
@@ -3201,7 +3205,6 @@ html:has([data-terp="page-sequence"]) {
   background: var(--color-bg-surface);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
 }
 /* The horizontal scroll container the reset's scrollbar comment already names. A
    marker rather than [data-terp="dataview"] > div, which also matches the toolbar.
@@ -3704,7 +3707,6 @@ th[data-terp="dataview-actions-cell"] > span {
   background: var(--color-bg-surface);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
 }
 [data-terp="dataview-card"][data-clickable="true"] {
   cursor: pointer;
@@ -4667,7 +4669,6 @@ button[data-terp="input"][data-placeholder="true"] {
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
   background: var(--color-bg-surface);
-  box-shadow: var(--shadow-sm);
   color: var(--color-fg-default);
 }
 [data-terp="chart-caption"] {
@@ -5070,7 +5071,6 @@ button[data-terp="input"][data-placeholder="true"] {
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
   background: var(--color-bg-surface);
-  box-shadow: var(--shadow-sm);
   color: var(--color-fg-default);
 }
 [data-terp="stat-label"] {
@@ -5191,7 +5191,6 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp="stat"][data-headline] {
   border-color: var(--color-brand-primary);
   background: var(--color-brand-primary);
-  box-shadow: var(--shadow-md);
   color: var(--color-brand-primary-contrast);
 }
 [data-terp="stat"][data-headline] [data-terp="stat-label"],
@@ -5273,7 +5272,6 @@ button[data-terp="input"][data-placeholder="true"] {
   border: 0;
   border-radius: 0;
   background: none;
-  box-shadow: none;
 }
 /* In a hub card's stat row the card is the frame, so an ordinary figure has none of its own
    there. The headline keeps its fill wherever it is. */
@@ -5282,7 +5280,6 @@ button[data-terp="input"][data-placeholder="true"] {
   border: 0;
   border-radius: 0;
   background: none;
-  box-shadow: none;
 }
 
 /* Tooltips ----------------------------------------------------------------- */

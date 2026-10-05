@@ -182,3 +182,10 @@ The second amendment left this open. The admin hub draws them, as a dashboard of
 administration: [ADR 0171](0171-the-admin-hub-is-a-dashboard-of-the-administration.md) records
 its shape, the activity read it needed from the audit trail, and the status filter on the
 users list.
+
+## Amendment (2026-10-05): a block at rest is flat
+
+§3's rung "Where data is read" raised the DataView frame to `--shadow-md`. That is superseded by
+[ADR 0172](0172-a-block-at-rest-is-flat-and-a-shadow-means-a-layer.md): a block at rest casts no
+shadow, and a shadow means a layer over the page. The ladder's fills stand, and they carry
+what the shadow was for: the table keeps the brightest fill on the page.
