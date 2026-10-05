@@ -28,6 +28,17 @@ from terp.cli.docker import (  # noqa: E402
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_docker_unless_injected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The start's stale-mask check asks Docker before `watch` (terp.cli.docker_masks).
+
+    A test that injects only a runner must not reach a real daemon through the default
+    capture, so the module's default answers "not available" unless a test injects one.
+    The real helper stays imported above for the test that exercises it directly.
+    """
+    monkeypatch.setattr("terp.cli.docker._capture", lambda argv: (1, "no docker in a unit test"))
+
+
 def test_docker_dev_argv_is_a_compose_watch() -> None:
     assert docker_dev_argv("/x/docker-compose.yml") == (
         "docker",
@@ -248,7 +259,8 @@ def test_a_successful_workbench_runs_no_diagnostics(tmp_path: pathlib.Path) -> N
         runner=lambda argv: 0,
         capture=lambda argv: calls.append(argv) or (0, ""),
     )
-    assert calls == []
+    # The start's own stale-mask check asks for the config first; no logs are read.
+    assert [argv for argv in calls if "logs" in argv] == []
     assert message == "docker compose watch exited with status 0"
 
 

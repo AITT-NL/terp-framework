@@ -29,6 +29,8 @@ import subprocess
 from collections.abc import Callable, Sequence
 
 from terp.cli import ports
+from terp.cli._output import emit
+from terp.cli.docker_masks import clear_stale_masks
 
 _DEFAULT_COMPOSE = "docker-compose.yml"
 
@@ -229,6 +231,18 @@ def run_docker_dev_command(
     _, note = ports.ensure_assigned(path.parent)
     if note:
         print(note)
+    # Before `watch` creates anything: a workbench from before 0.30.0 holds its
+    # node_modules mask as a volume, which Compose would reattach over the tmpfs the
+    # compose file now declares and keep serving old packages from
+    # (terp.cli.docker_masks). No docker on PATH is `watch`'s to report, in its own
+    # words, not this check's.
+    try:
+        cleared = clear_stale_masks(path, project_name=project_name, capture=capture or _capture)
+    except OSError:
+        cleared = ""
+    if cleared:
+        # Through the CLI's one output seam, and flushed: `watch` holds the terminal next.
+        emit(cleared)
     status = (runner or _run)(docker_dev_argv(path, project_name=project_name))
     message = f"docker compose watch exited with status {status}"
     if status == 0:
