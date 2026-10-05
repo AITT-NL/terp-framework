@@ -13,6 +13,7 @@ import type { RenderHubCardLink } from "../HubPage";
 import type { AdminAreaSections } from "../bootstrap";
 import { NavIcon } from "../icons";
 import { Grid } from "../layout";
+import type { GridTemplate } from "../layout";
 import { Stat, StatGroup } from "../Stat";
 import { useTerpClient } from "../TerpProvider";
 import { unwrap } from "../unwrap";
@@ -30,6 +31,9 @@ const ACTIVITY_DAYS = 30;
 
 /** The days the activity figure sums, read from the end of the same days. */
 const FIGURE_DAYS = 7;
+
+/** The area cards' tracks, one per card; a single card takes the row (`columns={1}`). */
+const CARD_TEMPLATES: Record<number, GridTemplate> = { 2: "1:1", 3: "1:1:1", 4: "1:1:1:1" };
 
 interface HubData {
   accounts: number | null;
@@ -90,14 +94,20 @@ function useHubData(sections: Required<AdminAreaSections>): HubData {
       );
     }
     if (wantAudit) {
-      keep("activity", async () =>
-        unwrap(
-          await client.GET("/api/v1/audit/activity", {
-            params: { query: { days: ACTIVITY_DAYS, time_zone: viewerTimeZone() } },
+      keep("activity", async () => {
+        const read = (time_zone: string) =>
+          client.GET("/api/v1/audit/activity", {
+            params: { query: { days: ACTIVITY_DAYS, time_zone } },
             signal,
-          }),
-        ),
-      );
+          });
+        const zone = viewerTimeZone();
+        const answer = await read(zone);
+        // A zone the server's database does not know is refused (400). Counted in UTC the
+        // trail is a day off at worst; refused, the figure kept its dash and both charts were
+        // gone, with nothing on the page to say why.
+        if (answer.response.status === 400 && zone !== "UTC") return unwrap(await read("UTC"));
+        return unwrap(answer);
+      });
     }
     return () => controller.abort();
   }, [client, wantUsers, wantGroups, wantAudit]);
@@ -134,10 +144,11 @@ export function AdminHub({ sections }: { sections?: AdminAreaSections } = {}) {
   const lastWeek = activity === null ? null : activity.days.slice(-FIGURE_DAYS);
   const weekBefore =
     activity === null ? null : activity.days.slice(-2 * FIGURE_DAYS, -FIGURE_DAYS);
+  // Two reads that run side by side, so an account made between them could make this -1.
   const deactivated =
     data.accounts === null || data.activeAccounts === null
       ? null
-      : data.accounts - data.activeAccounts;
+      : Math.max(0, data.accounts - data.activeAccounts);
 
   const figures = [
     selected.users && (
@@ -157,7 +168,7 @@ export function AdminHub({ sections }: { sections?: AdminAreaSections } = {}) {
     selected.audit && (
       <Stat
         key="changes"
-        label={fillPlaceholders(strings.adminHubChangesWeek, { count: FIGURE_DAYS })}
+        label={fillPlaceholders(strings.adminHubChangesWeek, { count: formatNumber(FIGURE_DAYS) })}
         value={lastWeek === null ? null : sum(lastWeek)}
         delta={
           lastWeek === null || weekBefore === null
@@ -222,26 +233,34 @@ export function AdminHub({ sections }: { sections?: AdminAreaSections } = {}) {
       parents={[{ label: strings.home, to: "/" }]}
       summary={figures.length > 0 ? <StatGroup>{figures}</StatGroup> : undefined}
     >
-      <Grid as="ul" template={cards.length === 4 ? "1:1:1:1" : "1:1:1"}>
-        {cards}
-      </Grid>
+      {/* As many tracks as cards: a fixed three left a blank column beside two cards and gave
+          one card a third of the row. */}
+      {cards.length > 1 ? (
+        <Grid as="ul" template={CARD_TEMPLATES[cards.length]}>
+          {cards}
+        </Grid>
+      ) : (
+        <Grid as="ul" columns={1}>
+          {cards}
+        </Grid>
+      )}
       {selected.audit && activity !== null && (
         <TrendChart
           label={strings.adminHubChangesPerDay}
           mark="columns"
           series={{
-            label: fillPlaceholders(strings.adminHubLastDays, { count: ACTIVITY_DAYS }),
+            label: fillPlaceholders(strings.adminHubLastDays, { count: formatNumber(ACTIVITY_DAYS) }),
             points: points(activity.days),
           }}
           comparison={{
-            label: fillPlaceholders(strings.adminHubDaysBefore, { count: ACTIVITY_DAYS }),
+            label: fillPlaceholders(strings.adminHubDaysBefore, { count: formatNumber(ACTIVITY_DAYS) }),
             points: points(activity.previous_days),
           }}
         />
       )}
       {selected.audit && activity !== null && activity.by_action.length > 0 && (
         <ProportionBar
-          label={fillPlaceholders(strings.adminHubChangesByKind, { count: ACTIVITY_DAYS })}
+          label={fillPlaceholders(strings.adminHubChangesByKind, { count: formatNumber(ACTIVITY_DAYS) })}
           parts={activity.by_action.map((row) => ({
             label: auditActionWord(strings, row.action),
             value: row.count,

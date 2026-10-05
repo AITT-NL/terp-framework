@@ -161,14 +161,16 @@ function activityDay(offset: number, count: number) {
 }
 
 /**
- * The trail's activity as the hub reads it: thirty days ending 4 October, one change a day
- * except the last week's 21, so the figure reads 21 against the 7 of the week before.
+ * The trail's activity as the hub reads it: thirty days ending 4 October. The last week sums to
+ * 21 and the week before to 16, so the figure reads 21, 5 up. The days before the last week
+ * count 1, 2, 3, 4 in turn: with one change on each, any seven of them summed to 7, and a
+ * comparison read a day off still printed the right delta.
  */
 const LAST_WEEK = [5, 4, 6, 3, 2, 0, 1];
 const ACTIVITY = {
   time_zone: "Europe/Amsterdam",
   days: Array.from({ length: 30 }, (_, index) =>
-    activityDay(index, index >= 23 ? LAST_WEEK[index - 23]! : 1),
+    activityDay(index, index >= 23 ? LAST_WEEK[index - 23]! : (index % 4) + 1),
   ),
   previous_days: Array.from({ length: 30 }, (_, index) => activityDay(index - 30, 2)),
   by_action: [
@@ -536,7 +538,8 @@ describe("the packaged admin area", () => {
     await waitFor(() => expect(figure("Changes, last 7 days")?.value).toBe("21"));
     expect(figure("Active accounts")).toMatchObject({ value: "5", caption: "2 deactivated", headline: true });
     expect(figure("Groups")?.value).toBe("3");
-    expect(figure("Changes, last 7 days")?.delta).toContain("14");
+    // 21 against the 16 of the seven days just before. Mutation: those seven read a day off.
+    expect(figure("Changes, last 7 days")?.delta).toMatch(/(^|\D)5(\D|$)/);
     // Then the trail per day against the days before, and the kinds of change in the app's words.
     expect(screen.getByText("Changes per day")).toBeInTheDocument();
     expect(screen.getByText("Changes by kind, last 30 days")).toBeInTheDocument();
@@ -568,6 +571,106 @@ describe("the packaged admin area", () => {
     const probed = fetchMock.mock.calls.map((call) => (call[0] as Request).url);
     expect(probed.some((url) => url.includes("/api/v1/groups/"))).toBe(false);
     expect(probed.some((url) => url.includes("/api/v1/audit/"))).toBe(false);
+  });
+
+  it("keeps every other figure when one read fails (ADR 0171)", async () => {
+    const { fetchMock } = renderAdminApp("/admin");
+    const answer = fetchMock.getMockImplementation()!;
+    // The failing read lands last, after the others have drawn their figures, so a failure
+    // that took the page's other reads down with it shows here rather than being overwritten.
+    let fail!: () => void;
+    const failing = new Promise<void>((resolve) => (fail = resolve));
+    fetchMock.mockImplementation(async (input, init) => {
+      if (!new URL((input as Request).url).pathname.endsWith("/api/v1/groups/")) {
+        return answer(input, init);
+      }
+      await failing;
+      return jsonResponse({ detail: "unavailable" }, 503);
+    });
+    await waitFor(() => expect(figure("Changes, last 7 days")?.value).toBe("21"));
+    await waitFor(() => expect(figure("Active accounts")?.value).toBe("5"));
+    await act(async () => {
+      fail();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    // Mutation: the reads awaited together behind one catch, so one failure dashed them all.
+    expect(figure("Changes, last 7 days")?.value).toBe("21");
+    expect(figure("Active accounts")?.value).toBe("5");
+    expect(figure("Groups")?.value).toBe("—");
+  });
+
+  it("draws the days before as the comparison, not the last thirty again", async () => {
+    renderAdminApp("/admin");
+    const chart = await screen.findByRole("figure", { name: "Changes per day" });
+    const comparison = within(chart)
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => within(row).getAllByRole("cell").at(-1)!.textContent);
+    // Every day before counts 2 in the fixture; the last thirty never do all at once.
+    expect(comparison).toHaveLength(30);
+    expect(new Set(comparison)).toEqual(new Set(["2"]));
+  });
+
+  it("counts the trail in the viewer's zone, whatever the host running the test is in", async () => {
+    const real = Intl.DateTimeFormat.prototype.resolvedOptions;
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockImplementation(function (
+      this: Intl.DateTimeFormat,
+    ) {
+      return { ...real.call(this), timeZone: "Pacific/Chatham" };
+    });
+    const { fetchMock } = renderAdminApp("/admin");
+    await waitFor(() => expect(figure("Changes, last 7 days")?.value).toBe("21"));
+    const activity = fetchMock.mock.calls
+      .map((call) => new URL((call[0] as Request).url))
+      .find((url) => url.pathname.endsWith("/api/v1/audit/activity"))!;
+    expect(activity.searchParams.get("time_zone")).toBe("Pacific/Chatham");
+  });
+
+  it("counts in UTC rather than drawing nothing when the server refuses the viewer's zone", async () => {
+    const real = Intl.DateTimeFormat.prototype.resolvedOptions;
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockImplementation(function (
+      this: Intl.DateTimeFormat,
+    ) {
+      return { ...real.call(this), timeZone: "Etc/Unknown" };
+    });
+    const { fetchMock } = renderAdminApp("/admin");
+    const answer = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = new URL((input as Request).url);
+      return url.pathname.endsWith("/api/v1/audit/activity") &&
+        url.searchParams.get("time_zone") === "Etc/Unknown"
+        ? jsonResponse({ detail: "'Etc/Unknown' is not a time zone this server knows." }, 400)
+        : answer(input, init);
+    });
+    // Mutation: no second read, and the figure keeps its dash with both charts gone.
+    await waitFor(() => expect(figure("Changes, last 7 days")?.value).toBe("21"));
+    expect(screen.getByRole("figure", { name: "Changes per day" })).toBeInTheDocument();
+    const zones = fetchMock.mock.calls
+      .map((call) => new URL((call[0] as Request).url))
+      .filter((url) => url.pathname.endsWith("/api/v1/audit/activity"))
+      .map((url) => url.searchParams.get("time_zone"));
+    expect(zones).toEqual(["Etc/Unknown", "UTC"]);
+  });
+
+  it("lays the area cards out on as many tracks as there are cards", async () => {
+    // Two cards on a fixed three left a blank third column; one card took a third of the row.
+    renderAdminApp("/admin", 30, { groups: false, audit: false });
+    const users = await screen.findByRole("link", { name: /Users/ });
+    expect(users.closest('[data-terp="grid"]')).toHaveAttribute("data-template", "1:1");
+  });
+
+  it("never counts fewer than no deactivated accounts", async () => {
+    // The total and the active count are two reads; an account made between them made -1.
+    const { fetchMock } = renderAdminApp("/admin", 30, { groups: false, audit: false });
+    const answer = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = new URL((input as Request).url);
+      return url.pathname.endsWith("/api/v1/users/") && url.searchParams.get("is_active") === "true"
+        ? jsonResponse({ items: [], total: 8, skip: 0, limit: 1 })
+        : answer(input, init);
+    });
+    await waitFor(() => expect(figure("Active accounts")?.value).toBe("8"));
+    expect(figure("Active accounts")?.caption).toBe("0 deactivated");
   });
 
   it("drops the access card with the access section, the one a full hub always drew", async () => {
