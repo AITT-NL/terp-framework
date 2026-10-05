@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { injectTerpStyles } from "./styles";
 import { useNavLink } from "./navLink";
+import { useTrailMemory } from "./trailMemory";
 import { useStrings, useUiText } from "./uiText";
 import type { UiText } from "./uiText";
 
@@ -9,8 +10,13 @@ injectTerpStyles();
 
 /** One breadcrumb: a label plus, for ancestor levels, the path it links back to. */
 export interface BreadcrumbItem {
-  /** The crumb text (e.g. the module title, or the record's display name). */
-  label: UiText;
+  /**
+   * The crumb text (e.g. the module title, or the record's display name). `null` (or `""`)
+   * while it is not known yet, such as a record still loading: the crumb then shows the last
+   * label it had at its path (ADR 0173), or a placeholder where it never had one. Never a
+   * stand-in such as the parent's name, which is a wrong name for as long as it shows.
+   */
+  label: UiText | null;
   /** Destination path for ancestor crumbs; the current page's crumb omits it. */
   to?: string;
 }
@@ -80,15 +86,42 @@ export function Breadcrumbs({ items, renderLink, currentAs = "span" }: Breadcrum
       : (item: { label: string; to: string }) => navLink({ to: item.to, children: item.label }));
   const strings = useStrings();
   const resolve = useUiText();
+  const memory = useTrailMemory();
+  // Not known yet: a quiet bar of fixed width, read as "Loading" by assistive technology.
+  const pending = (
+    <span data-terp="breadcrumbs-pending">
+      <span data-terp="breadcrumbs-pending-text">{strings.loading}</span>
+    </span>
+  );
   return (
     <nav aria-label={strings.breadcrumbsLabel} data-terp="breadcrumbs">
       <ol>
         {items.map((item, index) => {
           const isLast = index === items.length - 1;
-          const label = resolve(item.label);
+          // The place a crumb names: its link, or for the leaf the page the reader is on.
+          const path = item.to ?? (isLast ? memory?.pathname : undefined);
+          const given = item.label === null ? "" : resolve(item.label);
+          if (given !== "" && path !== undefined) memory?.remember(path, given);
+          const label = given !== "" ? given : path === undefined ? "" : (memory?.recall(path) ?? "");
           return (
-            <li key={`${index}-${label}`}>
-              {!isLast && item.to !== undefined ? (
+            // Keyed by position, never by text: a label that arrives, or changes, is the same
+            // crumb with new words, so React updates it in place rather than replacing it.
+            <li key={index}>
+              {label === "" ? (
+                isLast && currentAs === "h1" ? (
+                  <h1 aria-current="page" aria-busy="true" data-terp="page-title">
+                    {pending}
+                  </h1>
+                ) : isLast ? (
+                  <span aria-current="page" aria-busy="true" data-terp="breadcrumbs-current">
+                    {pending}
+                  </span>
+                ) : (
+                  // An ancestor not known yet is not a link either: a link with no words is
+                  // one a screen reader announces as nothing.
+                  <span>{pending}</span>
+                )
+              ) : !isLast && item.to !== undefined ? (
                 renderCrumbLink({ label, to: item.to })
               ) : isLast && currentAs === "h1" ? (
                 // Two spelled-out branches rather than one element with a computed tag and a

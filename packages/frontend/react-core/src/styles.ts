@@ -302,7 +302,6 @@ html {
 [data-terp="button"][data-variant="primary"] {
   background: var(--color-brand-primary);
   color: var(--color-brand-primary-contrast);
-  box-shadow: var(--shadow-sm);
 }
 [data-terp="button"][data-variant="secondary"] {
   background: var(--color-neutral-0);
@@ -1284,7 +1283,16 @@ textarea[data-terp="input"] {
    step down from the page, in light; the dark themes invert both, which is the direction a
    recess wants in each. --color-bg-inset cannot do that job — in three themes it is
    declared AS the canvas value, so an inset named from it would be the one thing that
-   disappears. */
+   disappears.
+
+   Flat at rest (ADR 0172). The blocks are told apart by their fill and their hairline, never
+   by a shadow: a card, a hub card, a figure, a chart and the table frame all sit on the page
+   at one height. A shadow means a LAYER — something over the page that the page goes on
+   under: a tooltip, a toast, a popover, a dropdown list, a dialog, the phone's nav drawer.
+   It used to mean importance as well — the table frame raised to --shadow-md, the headline
+   figure too, everything else at --shadow-sm and the chrome at none — and three meanings on
+   one scale read as no system at all. Importance is the fill's job (the headline's brand
+   fill, the table's surface), and the chrome's edges were hairlines already. */
 [data-terp="card"] {
   display: flex;
   flex-direction: column;
@@ -1292,7 +1300,6 @@ textarea[data-terp="input"] {
   background: var(--color-bg-subtle);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
   padding: var(--space-4);
   min-width: 0;
 }
@@ -1347,7 +1354,6 @@ textarea[data-terp="input"] {
 [data-terp="card"][data-variant="plain"] {
   background: none;
   border-color: transparent;
-  box-shadow: none;
   padding: 0;
 }
 
@@ -1690,6 +1696,19 @@ textarea[data-terp="input"] {
 [data-terp="breadcrumbs"] li > [data-terp="breadcrumbs-separator"] {
   flex: 0 0 auto;
 }
+/* A crumb whose label is not known yet and never was at this path (ADR 0173): a quiet bar of
+   one width where its words will be, in em so it scales with the crumb or the heading it sits
+   in. Not a stand-in word: the parent's name in the leaf was a wrong title for as long as the
+   record loaded. The words are its visually hidden "Loading", read where the bar is shown. */
+[data-terp="breadcrumbs-pending"] {
+  display: inline-block;
+  inline-size: 8em;
+  max-inline-size: 100%;
+  block-size: 0.9em;
+  vertical-align: middle;
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-100);
+}
 /* Keyed on our own marker, not on [aria-current="page"]. The trail's ancestor
    crumbs are the app router's links, and TanStack stamps aria-current="page" on
    every link whose path is a PREFIX of the current one — which every ancestor
@@ -1985,6 +2004,7 @@ textarea[data-terp="input"] {
 [data-terp="stat-trend-data"],
 [data-terp="chart-table"],
 [data-terp="status-history-data"],
+[data-terp="breadcrumbs-pending-text"],
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-brand-title"],
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav-label"],
 [data-terp="appshell-sidebar"][data-collapsed="true"] [data-terp="appshell-nav-group-label"] {
@@ -2232,11 +2252,18 @@ textarea[data-terp="input"] {
    content — the loading and error frames, where the body is one small block. With
    the default the two rows would spread to fill the height. It needs something to
    stretch the article before it is observable at all, which is why page-loading and
-   page-error render inside a grid box rather than a plain tall div. */
+   page-error render inside a grid box rather than a plain tall div.
+
+   The gap is the room between SECTIONS (ADR 0174), and it is a step wider than the gap inside
+   one: --space-6 against the --space-4 a grid and a hub's cards keep between the blocks of a
+   section. At one shared --space-4, a row of cards was as far from
+   the table under it as the cards were from each other, so nothing said where a section
+   ended. Two rules below cancel or repeat this value and name the same token: the summary
+   band's flush margin and the sequence bar's room above it. */
 [data-terp="page"] {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-4);
+  gap: var(--space-6);
   align-content: start;
   min-width: 0;
 }
@@ -2581,7 +2608,7 @@ textarea[data-terp="input"] {
 [data-terp="appshell-main"]
   > [data-terp="page"]:not([data-measure="narrow"])
   > [data-terp="page-summary"] {
-  margin: calc(-1 * var(--space-4)) calc(-1 * var(--shell-gutter)) 0;
+  margin: calc(-1 * var(--space-6)) calc(-1 * var(--shell-gutter)) 0;
   padding-inline: var(--shell-gutter);
   border-radius: 0;
   border-block-end: 1px solid var(--color-neutral-200);
@@ -2687,7 +2714,9 @@ textarea[data-terp="input"] {
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-3);
-  margin-block-start: var(--space-4);
+  /* The page's own section gap, so the body ends as far above the bar as it starts below the
+     band. */
+  margin-block-start: var(--space-6);
   padding-block: var(--space-2) max(var(--space-2), env(safe-area-inset-bottom));
   border-block-start: 1px solid var(--color-neutral-200);
   background: var(--color-bg-subtle);
@@ -2848,7 +2877,6 @@ html:has([data-terp="page-sequence"]) {
   background: var(--color-neutral-0);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
 }
 [data-terp="login-brand"] {
   display: flex;
@@ -3058,7 +3086,6 @@ html:has([data-terp="page-sequence"]) {
   background: var(--color-bg-subtle);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
   color: var(--color-neutral-900);
   box-sizing: border-box;
   transition: border-color var(--motion-duration-fast) var(--motion-easing-standard);
@@ -3184,11 +3211,11 @@ html:has([data-terp="page-sequence"]) {
    leaves the toolbar inside a surface, and leaves two nested frames whenever the view
    is empty (the empty state's dashed frame inside the card's solid one).
 
-   What the slot carries is the surface itself — a fill, a border and a radius — and the
-   page's one raised shadow. The collection is where data is read, so under ADR 0169's
-   surface ladder it keeps --color-bg-surface while the containers around it step back to
-   --color-bg-subtle, and --shadow-md lifts it above them: the table is the brightest object
-   on the page by rule. None of that moves the ownership settled above: the frame is the
+   What the slot carries is the surface itself — a fill, a border and a radius. The
+   collection is where data is read, so under ADR 0169's surface ladder it keeps
+   --color-bg-surface while the containers around it step back to --color-bg-subtle: the
+   table is the brightest object on the page by rule. It was raised by --shadow-md as well,
+   and no longer is: a block at rest is flat (ADR 0172), and the fill already says it. None of that moves the ownership settled above: the frame is the
    table's, not the view's.
 
    Keyed on [data-variant="full"] rather than the bare marker for the reason the
@@ -3201,7 +3228,6 @@ html:has([data-terp="page-sequence"]) {
   background: var(--color-bg-surface);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
 }
 /* The horizontal scroll container the reset's scrollbar comment already names. A
    marker rather than [data-terp="dataview"] > div, which also matches the toolbar.
@@ -3704,7 +3730,6 @@ th[data-terp="dataview-actions-cell"] > span {
   background: var(--color-bg-surface);
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
 }
 [data-terp="dataview-card"][data-clickable="true"] {
   cursor: pointer;
@@ -4667,7 +4692,6 @@ button[data-terp="input"][data-placeholder="true"] {
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
   background: var(--color-bg-surface);
-  box-shadow: var(--shadow-sm);
   color: var(--color-fg-default);
 }
 [data-terp="chart-caption"] {
@@ -5070,7 +5094,6 @@ button[data-terp="input"][data-placeholder="true"] {
   border: 1px solid var(--color-neutral-200);
   border-radius: var(--radius-lg);
   background: var(--color-bg-surface);
-  box-shadow: var(--shadow-sm);
   color: var(--color-fg-default);
 }
 [data-terp="stat-label"] {
@@ -5191,7 +5214,6 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp="stat"][data-headline] {
   border-color: var(--color-brand-primary);
   background: var(--color-brand-primary);
-  box-shadow: var(--shadow-md);
   color: var(--color-brand-primary-contrast);
 }
 [data-terp="stat"][data-headline] [data-terp="stat-label"],
@@ -5273,7 +5295,6 @@ button[data-terp="input"][data-placeholder="true"] {
   border: 0;
   border-radius: 0;
   background: none;
-  box-shadow: none;
 }
 /* In a hub card's stat row the card is the frame, so an ordinary figure has none of its own
    there. The headline keeps its fill wherever it is. */
@@ -5282,7 +5303,6 @@ button[data-terp="input"][data-placeholder="true"] {
   border: 0;
   border-radius: 0;
   background: none;
-  box-shadow: none;
 }
 
 /* Tooltips ----------------------------------------------------------------- */

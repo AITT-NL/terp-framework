@@ -2482,3 +2482,66 @@ describe("what a review of the screens in use changed", () => {
     );
   });
 });
+
+describe("flat at rest (ADR 0172)", () => {
+  /** Every rule whose body reads a shadow token, by its selector. */
+  function shadowReaders(): string[] {
+    const readers: string[] = [];
+    for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (/var\(--shadow-/.test(match[2]!)) readers.push(match[1]!.trim().replace(/\s+/g, " "));
+    }
+    return readers.sort();
+  }
+
+  it("lets only a layer cast a shadow, and never a block on the page", () => {
+    // A shadow means something over the page: the six layers below. A card, a hub card, a
+    // figure, a chart, a button and the table frame are told apart by fill and hairline.
+    // Mutation: any resting block given a shadow again, or a layer that loses its own.
+    expect(shadowReaders()).toEqual(
+      [
+        '[data-terp="appshell"][data-variant="mobile"] [data-terp="appshell-sidebar"]',
+        '[data-terp="combobox-list"]',
+        '[data-terp="dialog"]',
+        '[data-terp="popover-panel"]',
+        '[data-terp="toast"]',
+        '[data-terp="tooltip"]',
+      ].sort(),
+    );
+  });
+});
+
+describe("a page's sections stand further apart than a section's blocks (ADR 0174)", () => {
+  const always = baseOnly(layerBody("terp.base"));
+  const ruleBody = (selector: string) => {
+    const match = [...always.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(
+      (rule) => rule[1]!.trim().replace(/\s+/g, " ") === selector,
+    );
+    expect(match, `${selector} has no rule of its own`).toBeDefined();
+    return match![2]!;
+  };
+  const sectionGap = () => /(?:^|[;\s])gap: (var\(--space-\d+\))/.exec(ruleBody('[data-terp="page"]'))?.[1];
+
+  it("spaces the page's sections a step wider than a hub spaces its cards", () => {
+    // Mutation: the page's gap back to --space-4, the hub grid's own, so a row of cards is as
+    // far from the chart under it as from its neighbour again. Grid's side of the same promise
+    // is its default `gap = 4`, a prop it always stamps, so it is measured in the workbench's
+    // computed lane rather than read from a rule here.
+    expect(sectionGap()).toBe("var(--space-6)");
+    expect(ruleBody('[data-terp="hubpage-grid"]')).toContain("gap: var(--space-4)");
+  });
+
+  it("cancels and repeats the section gap with the page's own token", () => {
+    // Read from the page rule rather than written out, so moving the gap again moves these
+    // with it or fails here. Mutation: either one left at --space-4 while the page moves,
+    // which drops the summary band 8px under the title band, or sets the body nearer the
+    // sequence bar than the band.
+    const gap = sectionGap();
+    expect(gap).toBeDefined();
+    expect(
+      ruleBody(
+        '[data-terp="appshell-main"] > [data-terp="page"]:not([data-measure="narrow"]) > [data-terp="page-summary"]',
+      ),
+    ).toContain(`margin: calc(-1 * ${gap})`);
+    expect(ruleBody('[data-terp="page-sequence"]')).toContain(`margin-block-start: ${gap}`);
+  });
+});

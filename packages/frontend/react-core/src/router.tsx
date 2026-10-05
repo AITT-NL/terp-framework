@@ -6,6 +6,7 @@ import {
   Outlet,
   useNavigate,
   useParams,
+  useMatch,
   useRouter,
   useRouterState,
   useSearch,
@@ -13,7 +14,7 @@ import {
   type RouterHistory,
 } from "@tanstack/react-router";
 import type { ComponentType, ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleManifest, NavGroup, UiText } from "@terpjs/contract";
 
 import { AppShell } from "./AppShell";
@@ -35,6 +36,7 @@ import { isDeclarationVisible, visibleNav } from "./nav";
 import { NavLinkContext } from "./navLink";
 import type { NavLinkRenderer } from "./navLink";
 import { PageMarkerContext } from "./pageMarker";
+import { TrailLabelsContext, TrailMemoryContext, trailMemory } from "./trailMemory";
 import {
   RouteSearchContext,
   declaredSearchKeys,
@@ -514,11 +516,16 @@ export function buildAppRouter(
       ),
       [],
     );
+    // What the trail has said about each place, for as long as the app runs (ADR 0173): one map
+    // for the shell's lifetime, so a page mounted by the next navigation still finds it. Each
+    // routed view binds it to its own path (RouteComponent), never to this location.
+    const trailLabels = useRef(new Map<string, string>()).current;
     return (
       // Publish the router's Link so every layout component that renders an in-app link
       // (Breadcrumbs, HubCard) navigates client-side by default. Forgetting `renderLink`
       // used to degrade the app silently: a raw anchor, a full page reload, no error.
       <NavLinkContext.Provider value={renderNavLink}>
+      <TrailLabelsContext.Provider value={trailLabels}>
       <AppShell
         title={options.title}
         logo={brandMark(layout.brand?.logo) ?? options.logo}
@@ -570,6 +577,7 @@ export function buildAppRouter(
       >
         <Outlet />
       </AppShell>
+      </TrailLabelsContext.Provider>
       </NavLinkContext.Provider>
     );
   }
@@ -584,6 +592,14 @@ export function buildAppRouter(
   ): AnyRoute {
     function RouteComponent() {
       const user = useAuth().currentUser();
+      // The trail's memory, bound to the path THIS view's match is at (ADR 0173): the leaf is
+      // remembered as this page's name, never as the name of a location the router has moved on to.
+      const trailLabels = useContext(TrailLabelsContext);
+      const ownPath = useMatch({ strict: false }).pathname;
+      const memory = useMemo(
+        () => (trailLabels === null ? null : trailMemory(trailLabels, ownPath)),
+        [trailLabels, ownPath],
+      );
       const rank = user?.role_rank ?? null;
       // The same resolution the sidebar uses, and using it here is what stops `permission` from
       // becoming a cosmetic gate: hiding a link while leaving its route reachable by URL is not
@@ -624,6 +640,7 @@ export function buildAppRouter(
       }
       return (
         <RouteSearchContext.Provider value={searchKeys}>
+          <TrailMemoryContext.Provider value={memory}>
           <LayoutContractContext.Provider value={layoutContract}>
             <PageMarkerContext.Provider
               value={() => {
@@ -633,6 +650,7 @@ export function buildAppRouter(
               <View />
             </PageMarkerContext.Provider>
           </LayoutContractContext.Provider>
+          </TrailMemoryContext.Provider>
         </RouteSearchContext.Provider>
       );
     }

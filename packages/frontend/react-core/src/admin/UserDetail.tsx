@@ -129,7 +129,7 @@ export function UserDetail() {
 
   return (
     <DetailPage
-      title={record?.email ?? strings.adminUsers}
+      title={record?.email ?? null}
       parents={[
         { ...adminCrumb(strings), to: "/admin" },
         { label: strings.adminUsers, to: "/admin/users" },

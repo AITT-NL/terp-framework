@@ -21,8 +21,13 @@ import { resolveUiTextNode, useUiText } from "./uiText";
 import type { UiText, UiTextNode } from "./uiText";
 
 export interface PageProps {
-  /** The page heading (rendered as the single `h1`). */
-  title: UiText;
+  /**
+   * The page heading (rendered as the single `h1`). `null` while it is not known yet — a
+   * detail page's record still loading: the heading then keeps the name it had at this path,
+   * or a placeholder on a first visit (ADR 0173). Pass `record?.name ?? null`, never the
+   * parent's name as a stand-in, which is a wrong heading for as long as it shows.
+   */
+  title: UiText | null;
   /** Ancestor breadcrumb trail, outermost first; the current page's crumb is appended automatically. */
   breadcrumbs?: readonly BreadcrumbItem[];
   /** Link renderer for ancestor crumbs; defaults to the surrounding router's `Link` (see {@link Breadcrumbs}). */

@@ -75,6 +75,8 @@ const MARKERS = [
   "bar-chart-value",
   "breadcrumbs",
   "breadcrumbs-current",
+  "breadcrumbs-pending",
+  "breadcrumbs-pending-text",
   "breadcrumbs-separator",
   "button",
   "button-icon",

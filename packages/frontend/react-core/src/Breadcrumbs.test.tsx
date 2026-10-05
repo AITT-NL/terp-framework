@@ -2,7 +2,10 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { ReactNode } from "react";
+
 import { Breadcrumbs } from "./Breadcrumbs";
+import { TrailMemoryContext, trailMemory } from "./trailMemory";
 
 afterEach(cleanup);
 
@@ -95,5 +98,80 @@ describe("Breadcrumbs", () => {
     // Both ancestors claim aria-current here, which is exactly the router behaviour that
     // made the old selector wrong — and none of them may pick up the current styling.
     expect(container.querySelectorAll('[aria-current="page"]')).toHaveLength(3);
+  });
+});
+
+// A trail that keeps what it knows (ADR 0173): a label not known yet is never a stand-in, the
+// trail recalls what it said at a path before, and a crumb is updated in place rather than
+// replaced, so going deeper only adds a crumb.
+describe("a trail that keeps what it knows", () => {
+  function within(pathname: string, labels: Map<string, string>, node: ReactNode) {
+    return (
+      <TrailMemoryContext.Provider value={trailMemory(labels, pathname)}>{node}</TrailMemoryContext.Provider>
+    );
+  }
+
+  it("shows a placeholder, read as loading, for a leaf never seen before", () => {
+    render(<Breadcrumbs items={[{ label: "Users", to: "/users" }, { label: null }]} currentAs="h1" />);
+    const heading = screen.getByRole("heading", { level: 1 });
+    // Mutation: the parent's name as the stand-in, which is a wrong title for as long as it shows.
+    expect(heading).toHaveTextContent("Loading...");
+    expect(heading).not.toHaveTextContent("Users");
+    expect(heading).toHaveAttribute("aria-busy", "true");
+    expect(heading.querySelector('[data-terp="breadcrumbs-pending"]')).not.toBeNull();
+  });
+
+  it("recalls the leaf's last label at its path while the page reloads it", () => {
+    const labels = new Map<string, string>();
+    const { rerender } = render(within("/users/u1", labels, <Breadcrumbs items={[{ label: "Jane" }]} />));
+    // The same place, mounted again (a tab of the detail, or coming back): its record loads again.
+    rerender(within("/users/u1/", labels, <Breadcrumbs items={[{ label: "" }]} />));
+    expect(screen.getByText("Jane")).toHaveAttribute("aria-current", "page");
+    expect(document.querySelector('[data-terp="breadcrumbs-pending"]')).toBeNull();
+  });
+
+  it("recalls a parent one level down, where only the child page has loaded", () => {
+    const labels = new Map([["/users/u1", "Jane"]]);
+    render(
+      within(
+        "/users/u1/history",
+        labels,
+        <Breadcrumbs
+          items={[{ label: "Users", to: "/users" }, { label: null, to: "/users/u1?tab=a" }, { label: "History" }]}
+        />,
+      ),
+    );
+    // Mutation: a pending ancestor looked up by its raw `to`, query and all.
+    expect(screen.getByRole("link", { name: "Jane" })).toHaveAttribute("href", "/users/u1?tab=a");
+  });
+
+  it("does not remember one place's label for another", () => {
+    const labels = new Map<string, string>();
+    const { rerender } = render(within("/users/u1", labels, <Breadcrumbs items={[{ label: "Jane" }]} />));
+    rerender(within("/users/u2", labels, <Breadcrumbs items={[{ label: null }]} />));
+    expect(screen.queryByText("Jane")).toBeNull();
+    expect(screen.getByText("Loading...")).toBeInTheDocument();
+  });
+
+  it("updates a crumb in place when its label arrives", () => {
+    const { rerender } = render(<Breadcrumbs items={[{ label: "Users", to: "/users" }, { label: null }]} />);
+    const [, leaf] = screen.getAllByRole("listitem");
+    rerender(<Breadcrumbs items={[{ label: "Users", to: "/users" }, { label: "Jane" }]} />);
+    // Mutation: keyed by its text, which replaced the crumb when the words arrived.
+    expect(screen.getAllByRole("listitem")[1]).toBe(leaf);
+    expect(leaf).toHaveTextContent("Jane");
+  });
+
+  it("only adds a crumb when the trail goes one level deeper", () => {
+    const { rerender } = render(<Breadcrumbs items={[{ label: "Users", to: "/users" }, { label: "Jane" }]} />);
+    const [root, jane] = screen.getAllByRole("listitem");
+    rerender(
+      <Breadcrumbs items={[{ label: "Users", to: "/users" }, { label: "Jane", to: "/users/u1" }, { label: "History" }]} />,
+    );
+    const after = screen.getAllByRole("listitem");
+    expect(after).toHaveLength(3);
+    expect(after[0]).toBe(root);
+    expect(after[1]).toBe(jane);
+    expect(screen.getByRole("link", { name: "Jane" })).toHaveAttribute("href", "/users/u1");
   });
 });
