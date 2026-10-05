@@ -488,3 +488,23 @@ def test_the_dropdown_lists_each_distribution_once() -> None:
     assert duplicates == [], (
         f"release.yml lists these paths more than once: {duplicates}"
     )
+
+
+def _releasing_table_names() -> set[str]:
+    """Every distribution the publisher table in ``docs/RELEASING.md`` names."""
+    text = (_REPO_ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
+    start = text.index("| Kernel & tooling | Capabilities |")
+    table = text[start : text.index("\n\n", start)]
+    return set(re.findall(r"`(terp-[a-z0-9-]+)`", table))
+
+
+def test_the_publisher_table_names_every_backend_distribution() -> None:
+    """Each distribution needs a trusted publisher before its first tag, and the table in
+    docs/RELEASING.md is the list a maintainer sets them up from. It still lacked
+    `terp-cap-mfa` after that capability had been published: a list kept by hand drifts
+    the moment nothing reads it back."""
+    assert _releasing_table_names() == _BACKEND_INTERNAL, (
+        "docs/RELEASING.md's publisher table and the backend pyproject.toml files disagree: "
+        f"missing {sorted(_BACKEND_INTERNAL - _releasing_table_names())}, "
+        f"extra {sorted(_releasing_table_names() - _BACKEND_INTERNAL)}"
+    )
