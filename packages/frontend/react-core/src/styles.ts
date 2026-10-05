@@ -363,10 +363,15 @@ html {
    phrase in a narrow column run out of it, cover the next one and widen a phone's page. The
    radius is what keeps one line a pill. 0.75rem is more than half a one-line badge's height,
    so the corners clamp to a full round, exactly as 9999px did, and less than half of two lines',
-   so a wrapped badge is a rounded box rather than a lozenge. */
+   so a wrapped badge is a rounded box rather than a lozenge.
+
+   It wraps between words, and inside a word only once a word alone is wider than the
+   container. break-word on an inline block, not anywhere on an inline flex: anywhere also
+   shrinks the badge's narrowest width to one glyph, so an auto-layout table squeezed the
+   badge column first and split "Cancelled" mid-word over three lines. A badge holds text
+   only, so the inline block draws one line exactly as the inline flex did. */
 [data-terp="badge"] {
-  display: inline-flex;
-  align-items: center;
+  display: inline-block;
   max-inline-size: 100%;
   border: 1px solid;
   border-radius: var(--radius-lg);
@@ -374,7 +379,7 @@ html {
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
   line-height: 1.4;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 [data-terp="badge"][data-tone="neutral"] {
   color: var(--color-fg-muted);
