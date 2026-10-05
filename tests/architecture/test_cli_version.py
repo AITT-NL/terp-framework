@@ -388,6 +388,31 @@ def test_the_re_render_recipe_names_the_two_structural_conflicts(
     assert "control_plane/app_operations.py" in report
 
 
+def test_the_re_render_recipe_says_a_dry_run_shows_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Copier's ``--pretend`` printed one line for an update that stripped a diverged
+    app's dependencies and overwrote a generated file (issue #12). A destructive
+    operation whose dry run discloses nothing teaches people to stop checking, so the
+    recipe says where the disclosure is instead: the update's own diff, on the clean
+    tree step 2 made, before anything is installed on top of it."""
+    report = _offered(monkeypatch, _answers(tmp_path / "app", "v0.5.7"))
+    review = report.index("--pretend lists none of")
+    assert report.index("copier update") < review < report.index("uv sync --refresh")
+    assert "git status, git diff" in report
+    assert "a *.rej beside it" in report
+
+
+def test_the_re_render_recipe_says_how_a_stack_from_before_the_tmpfs_mask_catches_up(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """A stack already up keeps its old node_modules volume where 0.30.0 declares a
+    tmpfs, and serves its old packages with every container healthy (issue #136)."""
+    report = _offered(monkeypatch, _answers(tmp_path / "app", "v0.5.7"))
+    assert "`terp docker dev` removes it before it starts" in report
+    assert "up --force-recreate --renew-anon-volumes" in report
+
+
 def test_the_re_render_recipe_warns_about_a_containerised_dev_stack(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
