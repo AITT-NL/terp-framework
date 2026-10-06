@@ -57,6 +57,10 @@ covers all of `src/` (ADR 0175).
   exactly the token pipeline's three stylesheets, `@terpjs/contract/tokens.css`,
   `./house-style.css` and `./theme.css`, and is held to every other rule. A library's stylesheet
   is refused there as anywhere.
+- **The READMEs name every capability.** The root README's architecture row left out `egress`,
+  `leases`, `mfa` and `realtime`, and the capabilities README's list and table left out `mfa`
+  and `realtime`. `test_docs_parity.py` now reads both against the packages that exist, so a new
+  capability cannot ship unlisted.
 
 ### Upgrade notes
 

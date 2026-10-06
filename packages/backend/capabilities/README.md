@@ -2,8 +2,8 @@
 
 Opt‑in cross‑cutting capabilities, each its own `terp-cap-*` distribution.
 Built so far: **`auth`, `identity`, `access`, `audit`, `eventbus`, `tenancy`,
-`users`, `groups`, `files`, `webhooks`, `oidc`, `outbox`, `leases`, `sync`, `egress`, `mail`,
-`redis`,
+`users`, `groups`, `files`, `webhooks`, `oidc`, `mfa`, `outbox`, `leases`, `sync`, `egress`,
+`mail`, `realtime`, `redis`,
 `jobs_celery`, `scheduler_apscheduler`, and `scheduler_celery_beat`**.
 Capabilities that expose a router
 **self‑register** via a `terp.capabilities` entry point
@@ -31,10 +31,12 @@ Built capabilities (design §3.1, §6):
 | **eventbus** | `terp-cap-eventbus` | `terp.capabilities.eventbus` |
 | **webhooks** (outbound webhooks, sealed secrets) | `terp-cap-webhooks` | `terp.capabilities.webhooks` |
 | **oidc** (SSO via OpenID Connect) | `terp-cap-oidc` | `terp.capabilities.oidc` |
+| **mfa** (a TOTP second factor with recovery codes, sealed at rest and recorded in the token that results, ADR 0151) | `terp-cap-mfa` | `terp.capabilities.mfa` |
 | **outbox** (durable event delivery) | `terp-cap-outbox` | `terp.capabilities.outbox` |
 | **egress** (library; the declared way out of the process — allowlisted, SSRF-guarded, time-bounded outbound HTTP with an observable attempt, ADR 0117) | `terp-cap-egress` | `terp.capabilities.egress` |
 | **mail** (library; outbound e-mail through one declared relay — encrypted and certificate-verified, a fixed sender, delivered by the jobs seam so a send commits with its write, ADR 0150) | `terp-cap-mail` | `terp.capabilities.mail` |
 | **leases** (library; expiring, fenced custody of work + the stale-claim reaper, ADR 0095) | `terp-cap-leases` | `terp.capabilities.leases` |
+| **realtime** (typed, policy-gated SSE and WebSocket channels with one-use connection tickets) | `terp-cap-realtime` | `terp.capabilities.realtime` |
 | **sync** (data synchronisation) | `terp-cap-sync` | `terp.capabilities.sync` |
 | **redis** (shared Idempotency/Throttle/Cache stores, ADR 0078; realtime tickets / OIDC state behind `[realtime]` / `[oidc]`, or both with `[all]`) | `terp-cap-redis` | `terp.capabilities.redis` |
 | **jobs_celery** (Celery job backend) | `terp-cap-jobs-celery` | `terp.capabilities.jobs_celery` |
