@@ -19,6 +19,10 @@ a section ended with the same room a card left its neighbour; sections stand fur
 (ADR 0174). And the breadcrumb rebuilt its labels on every navigation, so a detail page printed
 its parent's name and then its own; the trail keeps what it knows now (ADR 0173).
 
+And a write could point a reference at a row its author could never read: another tenant's,
+or a soft-deleted one. The write chokepoint now holds references to the same row scope the reads
+obey (ADR 0178).
+
 ### Changed
 
 - **A block at rest is flat (ADR 0172).** A card, a hub card, a figure (the headline too), a
@@ -41,6 +45,15 @@ its parent's name and then its own; the trail keeps what it knows now (ADR 0173)
   parent's name. A crumb whose label arrives changes its words in place, and going one level
   deeper only adds a crumb. The packaged user and group details no longer title themselves with
   their parent while they load.
+- **A reference stays inside the writer's row scope (ADR 0178).** `BaseService._save` looks up
+  every reference a write sets (all of them on a create, the changed ones on an update) under the
+  target model's row scope: soft delete, tenancy, and an opt-in owner read scope. Before, a row
+  in one tenant could be written pointing at a row in another, because the foreign key only
+  checks that the target exists. An out-of-scope target now fails exactly like a missing one,
+  with the same 409 `ConflictError` in the same words, so the refusal does not reveal which rows
+  exist elsewhere; the reason is in `log_context` only. An untouched pointer to a row that has
+  since been soft-deleted does not block an unrelated edit. A target with no scope is left to the
+  foreign key, with no extra query.
 
 ### Upgrade notes
 
@@ -56,6 +69,11 @@ its parent's name and then its own; the trail keeps what it knows now (ADR 0173)
   hatch, follows it to `--space-6`. A section's title belongs to its block (a `Card`'s or a
   `DataView`'s `title`): a loose `Heading` as a body child of its own sits a section gap from what
   it names.
+- **A write that points a reference out of its scope now fails with a 409.** That includes
+  another tenant's row, a soft-deleted row, and, with `register_owner_read_scope`, another
+  user's owned row. Such a write always pointed at something its author could not read. Code
+  that did it on purpose, such as a seed linking rows across tenants, sets the right
+  `tenant_context` for each write.
 
 ## 0.32.0 — 2026-10-05
 
