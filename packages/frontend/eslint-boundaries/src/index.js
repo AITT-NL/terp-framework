@@ -27,6 +27,9 @@ import {
 } from "./layouts.js";
 import { BOUNDARY_SPEC } from "./spec.js";
 
+/** The usual ways an app imports its own source by a root-anchored path (`@/`, `~/`, `/`, `src/`). */
+const APP_ROOT_ALIAS = /^(?:@\/|~\/|\/|src\/)/;
+
 /** The app-module name a file/import path belongs to (the segment after `modules/`), or null. */
 function moduleOf(filePath) {
   const parts = String(filePath).split(/[/\\]/);
@@ -63,10 +66,15 @@ const noCrossModuleImports = {
       if (typeof source !== "string") {
         return;
       }
+      // A relative path is resolved; a non-relative one names the app only through an app-root
+      // alias. Any other bare specifier is a dependency, and a `modules` segment in a package's
+      // own path (`core-js/modules/es.promise`) is not an app module.
       const target = source.startsWith(".")
         ? path.resolve(path.dirname(filename), source)
-        : source;
-      const other = moduleOf(target);
+        : APP_ROOT_ALIAS.test(source)
+          ? source
+          : null;
+      const other = target === null ? null : moduleOf(target);
       if (other === null || other === own) {
         return;
       }

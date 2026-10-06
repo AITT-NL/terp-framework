@@ -413,6 +413,26 @@ describe("terpBoundaries", () => {
     // A helper beside the modules is still shared code, whatever its folder is called.
     expect(await lint('import { W } from "./modules/widgets/Widget";\nexport const X = W;', HELPER_FILE))
       .toEqual(["terp/no-cross-module-imports"]);
+    // An app-root alias names the app's own modules as surely as a relative path does.
+    expect(await lint('export { secret } from "@/modules/billing/internal/secret";', bridge)).toEqual([
+      "terp/no-cross-module-imports",
+    ]);
+  });
+
+  it("does not take a package's own modules folder for an app module", async () => {
+    // A polyfill path has a `modules` segment and is a dependency, from shared code and from a
+    // module alike: the rule is about the app's modules, not every path with the word in it.
+    const bridge = path.join(LINT_ROOT, "src/shared/polyfills.ts");
+    const orders = path.join(LINT_ROOT, "src/modules/orders/Orders.tsx");
+    for (const file of [bridge, orders, BOOTSTRAP_FILE]) {
+      expect(await lint('import "core-js/modules/es.promise";\nexport {};', file), file).not.toContain(
+        "terp/no-cross-module-imports",
+      );
+    }
+    // A module reaching a sibling through the alias is still refused.
+    expect(
+      await lint('import { secret } from "@/modules/billing/internal/secret";\nexport const s = secret;', orders),
+    ).toContain("terp/no-cross-module-imports");
   });
 
   it("lets a module import shared code beside the modules", async () => {
