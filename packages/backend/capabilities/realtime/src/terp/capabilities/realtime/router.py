@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from inspect import isawaitable, iscoroutinefunction
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, Request, WebSocket
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session
 from starlette.responses import StreamingResponse
@@ -38,9 +38,8 @@ from terp.core import (
 )
 
 from terp.capabilities.realtime.broker import (
-    BackpressureError,
-    audience_topic,
-    get_broker,
+    SubscriptionEnded,
+    require_shared_broker as _require_shared_broker,
 )
 from terp.capabilities.realtime.channel import RealtimeChannel, get_channel
 from terp.capabilities.realtime.operations import (
@@ -49,6 +48,12 @@ from terp.capabilities.realtime.operations import (
     REALTIME_SUBSCRIBE_WEBSOCKET,
 )
 from terp.capabilities.realtime.tickets import ConnectionTicket, get_ticket_store
+from terp.capabilities.realtime.transport import (
+    RealtimeUnavailableError,
+    _settle_websocket_tasks,
+    _sse_data,
+    open_subscription,
+)
 
 TICKET_TTL_SECONDS = 30
 HEARTBEAT_SECONDS = 15.0
@@ -79,6 +84,7 @@ def configure_realtime(
     permission_enforcer: PermissionEnforcer | None = None,
     principal_validator: PrincipalValidator | None = None,
     message_session_provider: MessageSessionProvider | None = None,
+    require_shared_broker: bool | None = None,
 ) -> None:
     """Wire optional authorization/revocation seams at composition time.
 
@@ -87,17 +93,21 @@ def configure_realtime(
     long-lived connections at handshake/heartbeat/frame boundaries; without it,
     authority is the live principal captured by the 30-second ticket mint.
     ``message_session_provider`` supplies one fresh session per inbound frame;
-    the core request-session provider is the default.
+    the core request-session provider is the default. ``require_shared_broker=True``
+    promises a broker shared across processes and refuses a per-process one (ADR 0176);
+    ``None`` leaves the promise as it stands, so a later call for the other seams keeps it.
     """
     global _permission_enforcer, _principal_validator, _message_session_provider
+    if require_shared_broker is not None:
+        _require_shared_broker(require_shared_broker)
     _permission_enforcer = permission_enforcer
     _principal_validator = principal_validator
     _message_session_provider = message_session_provider
 
 
 def reset_realtime_configuration() -> None:
-    """Restore optional seam defaults (test isolation)."""
-    configure_realtime()
+    """Restore optional seam defaults and withdraw the shared-broker promise (tests)."""
+    configure_realtime(require_shared_broker=False)
 
 
 def _authorize_requirement(
@@ -260,23 +270,13 @@ def _consume_ticket(
     )
 
 
-def _sse_data(payload: str) -> bytes:
-    # The broker accepts only Pydantic-produced compact JSON; replace CR/LF as
-    # defense in depth so one payload can never inject an SSE field/event.
-    safe = payload.replace("\r", "").replace("\n", "")
-    return f"data: {safe}\n\n".encode("utf-8")
-
-
 async def _sse_stream(
-    channel: RealtimeChannel,
+    messages: AsyncIterator[str],
     ticket: ConnectionTicket,
     *,
     heartbeat_seconds: float = HEARTBEAT_SECONDS,
 ) -> AsyncIterator[bytes]:
-    iterator = get_broker().stream(
-        audience_topic(channel.name, ticket.audience)
-    ).__aiter__()
-    pending = asyncio.create_task(anext(iterator))
+    pending = asyncio.create_task(anext(messages))
     try:
         while True:
             done, _ = await asyncio.wait(
@@ -289,17 +289,17 @@ async def _sse_stream(
                 continue
             try:
                 payload = pending.result()
-            except (StopAsyncIteration, BackpressureError):
+            except (StopAsyncIteration, SubscriptionEnded):
                 return
             if not await _validate_live_async(ticket):
                 return
             yield _sse_data(payload)
-            pending = asyncio.create_task(anext(iterator))
+            pending = asyncio.create_task(anext(messages))
     finally:
         pending.cancel()
-        # asyncio.wait, never gather — see _settle_websocket_tasks.
+        # asyncio.wait, never gather — see transport._settle_websocket_tasks.
         await asyncio.wait({pending})
-        await iterator.aclose()
+        await messages.aclose()
 
 
 @router.get(
@@ -314,22 +314,28 @@ async def _sse_stream(
     )
 )
 @operation(REALTIME_SUBSCRIBE_SSE)
-def subscribe_sse(
+async def subscribe_sse(
     channel_name: str,
     ticket: Annotated[str, Query(min_length=1, max_length=200)],
 ) -> StreamingResponse:
     channel = get_channel(channel_name)
-    redeemed = _consume_ticket(ticket, channel_name=channel_name, transport="sse")
-    if channel is None or channel.mode != "sse" or redeemed is None:
+    redeemed = await asyncio.to_thread(
+        _consume_ticket, ticket, channel_name=channel_name, transport="sse"
+    )
+    if (
+        channel is None
+        or channel.mode != "sse"
+        or redeemed is None
+        or not await _validate_live_async(redeemed)
+    ):
         from terp.core import AuthenticationError
 
         raise AuthenticationError()
-    if not _validate_live(redeemed):
-        from terp.core import AuthenticationError
-
-        raise AuthenticationError()
+    # Subscribe before answering: the 200 tells the browser it is subscribed, so a
+    # subscription that cannot start is a 503 here, never a stream that ends at once.
+    messages = await open_subscription(channel.name, redeemed.audience)
     return StreamingResponse(
-        _sse_stream(channel, redeemed),
+        _sse_stream(messages, redeemed),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-store",
@@ -339,11 +345,9 @@ def subscribe_sse(
 
 
 async def _websocket_outbound(
-    websocket: WebSocket, channel: RealtimeChannel, ticket: ConnectionTicket
+    websocket: WebSocket, messages: AsyncIterator[str], ticket: ConnectionTicket
 ) -> None:
-    async for payload in get_broker().stream(
-        audience_topic(channel.name, ticket.audience)
-    ):
+    async for payload in messages:
         if not await _validate_live_async(ticket):
             await websocket.close(code=1008, reason="session no longer valid")
             return
@@ -391,38 +395,6 @@ async def _websocket_inbound(
         await _run_inbound_handler(channel.on_message, ticket, message)
 
 
-def _raise_unexpected_task_results(results: list[object]) -> None:
-    for result in results:
-        if isinstance(result, BaseException) and not isinstance(
-            result,
-            (WebSocketDisconnect, BackpressureError, asyncio.CancelledError),
-        ):
-            raise result
-
-
-async def _settle_websocket_tasks(*tasks: asyncio.Task[None]) -> None:
-    """Run until the first task settles, then cancel and drain the rest.
-
-    The drain awaits ``asyncio.wait`` — never ``asyncio.gather``: when the
-    host task is cancelled mid-drain (server shutdown, test-portal teardown),
-    a cancelled gather re-raises the *last child's* CancelledError instead of
-    the host's own. The child's copy carries no cancel-scope message, so the
-    surrounding anyio cancel scope refuses to absorb it and the teardown
-    crashes the connection task.
-    """
-    _done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-    for task in pending:
-        task.cancel()
-    await asyncio.wait(tasks)
-    results: list[object] = []
-    for task in tasks:
-        if task.cancelled():
-            continue
-        exc = task.exception()
-        results.append(exc if exc is not None else task.result())
-    _raise_unexpected_task_results(results)
-
-
 @router.websocket("/ws/{channel_name}")
 @route_policy(
     Policy.public_write(
@@ -454,9 +426,15 @@ async def subscribe_websocket(
     # ticket-authenticated public route. Release it before the long-lived socket;
     # each inbound frame gets a fresh, bounded message unit of work instead.
     handshake_session.close()
+    # Subscribe before accepting: an accepted socket tells the browser it is subscribed.
+    try:
+        messages = await open_subscription(channel.name, redeemed.audience)
+    except RealtimeUnavailableError:
+        await websocket.close(code=1013, reason="realtime unavailable; try again later")
+        return
     await websocket.accept()
     outbound = asyncio.create_task(
-        _websocket_outbound(websocket, channel, redeemed)
+        _websocket_outbound(websocket, messages, redeemed)
     )
     inbound = asyncio.create_task(
         _websocket_inbound(websocket, channel, redeemed)

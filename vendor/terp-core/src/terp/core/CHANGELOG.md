@@ -19,6 +19,42 @@ a section ended with the same room a card left its neighbour; sections stand fur
 (ADR 0174). And the breadcrumb rebuilt its labels on every navigation, so a detail page printed
 its parent's name and then its own; the trail keeps what it knows now (ADR 0173).
 
+And realtime reached only the process that published. A job handler in `terp jobs worker`
+published to nobody, even with one web replica. There is a shared broker now, and a promise that
+refuses the per-process one (ADR 0176).
+
+### Added
+
+- **`RedisRealtimeBroker`, a realtime broker shared across processes (ADR 0176).** It ships in
+  `terp-cap-redis[realtime]`, beside `RedisConnectionTicketStore`. A publish goes to Redis
+  pub/sub, and every process holding a subscriber on that topic receives it: another replica's,
+  or the web process's when a job handler in `terp jobs worker` published. Pub/sub is
+  server-wide, so the channel names carry the database index; deployments that share a server
+  and a database use distinct namespaces. Each subscriber holds its own pub/sub connection while
+  its transport is open. A connection Redis drops (a consumer too far behind), one that stays
+  silent past a ping, and one redis-py reconnected by itself end the stream as
+  `SubscriptionEnded`, so the transport closes and the browser reconnects. Delivery stays
+  fire-and-forget, as in process: a publish Redis does not take (connecting and the reply are
+  each bounded at two seconds) is dropped with a warning in the log, and never fails the write
+  that published it.
+- **A realtime transport subscribes before it answers.** `RealtimeBroker.subscribe(channel)`
+  starts a subscription and returns its messages once it is live; the default returns
+  `stream(channel)`, and the Redis broker has Redis confirm the SUBSCRIBE first. SSE and the
+  WebSocket handshake call it before their `200` / `accept`, so a subscription that cannot start
+  answers `503` (`RealtimeUnavailableError`, code `realtime_unavailable`) or closes the socket
+  `1013` before accept, and the browser backs off instead of reconnecting every second to a
+  stream that ends at once.
+- **`configure_realtime(require_shared_broker=True)`.** It promises that a publish in any process
+  reaches a subscriber in any other. A per-process broker is refused at once if it is installed
+  before or after the promise. The lazy default is refused at its first use, so a missing
+  `configure_broker` fails the first publish instead of dropping it, and it is not installed, so
+  wiring the shared broker afterwards still works. A later `configure_realtime` call that leaves
+  the argument out keeps the promise; `False` or `reset_realtime_configuration()` withdraws it.
+  `mark_shared_broker` and `is_shared_broker` follow core's `mark_shared_*` markers, for an app's
+  own adapter.
+- **`SubscriptionEnded`.** The broker ended a subscription and its client must reconnect.
+  `BackpressureError` is now one kind of it, and the transports close on either.
+
 ### Changed
 
 - **A block at rest is flat (ADR 0172).** A card, a hub card, a figure (the headline too), a
@@ -41,6 +77,10 @@ its parent's name and then its own; the trail keeps what it knows now (ADR 0173)
   parent's name. A crumb whose label arrives changes its words in place, and going one level
   deeper only adds a crumb. The packaged user and group details no longer title themselves with
   their parent while they load.
+- **`terp guide realtime` says when the per-process default breaks.** It said "when you run more
+  than one replica". It breaks with one replica too, once a job handler publishes from
+  `terp jobs worker`. The topic now says so, and shows the wiring: both Redis adapters and the
+  promise.
 
 ### Upgrade notes
 
@@ -56,6 +96,16 @@ its parent's name and then its own; the trail keeps what it knows now (ADR 0173)
   hatch, follows it to `--space-6`. A section's title belongs to its block (a `Card`'s or a
   `DataView`'s `title`): a loose `Heading` as a body child of its own sits a section gap from what
   it names.
+- **An app that publishes realtime messages from a job worker, or runs more than one replica,
+  wires the shared broker.** Install `terp-cap-redis[realtime]` and, in the composition root
+  the web process and the worker both run: `configure_broker(RedisRealtimeBroker.from_url(url))`,
+  `configure_ticket_store(RedisConnectionTicketStore.from_url(url))`, and
+  `configure_realtime(..., require_shared_broker=True)` where it runs as a deployment. Nothing
+  changes for an app that sets none of it. `terp-cap-redis` now requires `redis>=5.0.1`, the
+  first release with the asyncio `aclose()` the subscriber closes with.
+- **A realtime broker adapter of an app's own whose subscription can fail to start overrides
+  `subscribe`** and raises `SubscriptionEnded` there, so the transports refuse the browser rather
+  than answer it. One that cannot fail needs no change: `subscribe` defaults to `stream`.
 
 ## 0.32.0 — 2026-10-05
 

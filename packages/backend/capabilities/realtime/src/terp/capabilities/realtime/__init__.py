@@ -16,9 +16,13 @@ from terp.capabilities.realtime.broker import (
     BackpressureError,
     InMemoryRealtimeBroker,
     RealtimeBroker,
+    SharedBrokerRequiredError,
+    SubscriptionEnded,
     audience_topic,
     configure_broker,
     get_broker,
+    is_shared_broker,
+    mark_shared_broker,
 )
 from terp.capabilities.realtime.channel import (
     AudienceResolver,
@@ -56,6 +60,7 @@ from terp.capabilities.realtime.tickets import (
     configure_ticket_store,
     get_ticket_store,
 )
+from terp.capabilities.realtime.transport import RealtimeUnavailableError
 
 
 async def publish(
@@ -91,6 +96,9 @@ __all__ = [
     "RealtimeAuthzRef",
     "RealtimeBroker",
     "RealtimeChannel",
+    "RealtimeUnavailableError",
+    "SharedBrokerRequiredError",
+    "SubscriptionEnded",
     "TICKET_TTL_SECONDS",
     "audience_topic",
     "clear_channels",
@@ -101,6 +109,8 @@ __all__ = [
     "get_channel",
     "get_ticket_store",
     "global_audience",
+    "is_shared_broker",
+    "mark_shared_broker",
     "module",
     "principal_audience",
     "publish",

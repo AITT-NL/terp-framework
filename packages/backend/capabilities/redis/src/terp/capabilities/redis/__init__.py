@@ -27,8 +27,12 @@ Two capability-facing adapters live behind optional extras, so the base distribu
 depends only on ``terp-core`` (shared throttling/idempotency never installs another
 capability):
 
-* ``terp-cap-redis[realtime]`` — :class:`RedisConnectionTicketStore`
-  (:mod:`terp.capabilities.redis.realtime`), shared one-use realtime connection tickets.
+* ``terp-cap-redis[realtime]`` — :class:`RedisConnectionTicketStore` and
+  :class:`RedisRealtimeBroker` (:mod:`terp.capabilities.redis.realtime`): shared one-use
+  realtime connection tickets, and pub/sub fan-out so a publish in one process reaches a
+  subscriber in another (ADR 0176). Pub/sub is server-wide, so its channel names carry
+  the database index; deployments sharing a server *and* a database use distinct
+  namespaces.
 * ``terp-cap-redis[oidc]`` — :class:`RedisOIDCStateStore`
   (:mod:`terp.capabilities.redis.oidc`), shared single-use OIDC authorization state for
   multi-replica SSO.
@@ -54,6 +58,11 @@ from terp.capabilities.redis.stores import (
 # lazily here: the base install (no extras) can `import terp.capabilities.redis` freely.
 _EXTRA_EXPORTS = {
     "RedisConnectionTicketStore": (
+        "terp.capabilities.redis.realtime",
+        "terp.capabilities.realtime",
+        "realtime",
+    ),
+    "RedisRealtimeBroker": (
         "terp.capabilities.redis.realtime",
         "terp.capabilities.realtime",
         "realtime",
