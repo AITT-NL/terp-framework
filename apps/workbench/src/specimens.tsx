@@ -6,6 +6,7 @@ import {
   BarChart,
   Breadcrumbs,
   Button,
+  CanvasHost,
   Card,
   Checkbox,
   Code,
@@ -80,6 +81,7 @@ import {
   UserCreate,
   useToast,
   UserMenu,
+  WorkspacePage,
 } from "@terpjs/react-core";
 import type { BadgeTone, DataViewColumn, DataViewRepository, Resource } from "@terpjs/react-core";
 import type { IconName, NavGroup, NavItem } from "@terpjs/contract";
@@ -256,6 +258,13 @@ const BRAND_MARK_DARK = (
     <path d="M8 19 14 8l6 11Z" fill="#0f172a" />
   </svg>
 );
+
+/** The workspace specimen's three steps and where each sits on the canvas. */
+const WORKSPACE_STEPS: readonly (readonly [string, number])[] = [
+  ["Intake", 30],
+  ["Review", 250],
+  ["Archive", 470],
+];
 
 const SHELL_NAV: readonly NavItem[] = [
   { label: "Overview", to: "/", icon: "home" },
@@ -4033,6 +4042,69 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
               </Card>
             </SplitPane>
           </SplitPage>
+        ),
+      },
+      {
+        // The workspace (ADR 0179), inside a real shell, because filling the height the shell
+        // leaves is the whole of what it does: standalone it would show only the 24rem floor.
+        // The same fixed box as app-shell, for the same reason: the shell is at least the
+        // viewport tall, and its footer has to be in the picture to show the canvas stops at it.
+        //
+        // What is drawn on the canvas is the app's, and it is drawn the way app code must draw
+        // it: an svg painted through attributes naming tokens, no style and no class. That is
+        // the composition the page exists to make possible without an escape hatch.
+        id: "workspace-page",
+        ready: '[data-terp="canvas-host"]',
+        title: "WorkspacePage — one canvas that fills the screen",
+        node: (
+          <div style={{ height: "60rem", border: "1px solid var(--color-neutral-200)" }}>
+            <AppShell
+              title="Terp workbench"
+              nav={SHELL_NAV}
+              renderLink={(item, children) => <a href={item.to}>{children}</a>}
+            >
+              <WorkspacePage
+                title="Approval flow"
+                parents={[{ label: "Processes", to: "/processes" }]}
+                actions={<Button variant="primary">Add step</Button>}
+              >
+                <CanvasHost label="Approval flow diagram">
+                  <svg
+                    viewBox="0 0 640 240"
+                    role="img"
+                    aria-label="Intake leads to review, and review leads to archive"
+                  >
+                    <g stroke="var(--color-fg-subtle)" strokeWidth="2">
+                      <line x1="170" y1="120" x2="250" y2="120" />
+                      <line x1="390" y1="120" x2="470" y2="120" />
+                    </g>
+                    {WORKSPACE_STEPS.map(([label, x]) => (
+                      <g key={label}>
+                        <rect
+                          x={x}
+                          y="90"
+                          width="140"
+                          height="60"
+                          rx="8"
+                          fill="var(--color-bg-subtle)"
+                          stroke="var(--color-neutral-200)"
+                        />
+                        <text
+                          x={x + 70}
+                          y="125"
+                          textAnchor="middle"
+                          fill="var(--color-fg-default)"
+                          fontSize="14"
+                        >
+                          {label}
+                        </text>
+                      </g>
+                    ))}
+                  </svg>
+                </CanvasHost>
+              </WorkspacePage>
+            </AppShell>
+          </div>
         ),
       },
       {

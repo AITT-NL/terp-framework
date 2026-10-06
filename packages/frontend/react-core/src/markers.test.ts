@@ -87,6 +87,7 @@ const MARKERS = [
   "calendar-title",
   "calendar-week",
   "calendar-weekday",
+  "canvas-host",
   "card",
   "card-actions",
   "card-description",

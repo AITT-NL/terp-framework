@@ -276,13 +276,21 @@ export function Page({
   // branch, and a conditional written at the attribute is the form the marker scanner reads
   // every string literal out of.
   const measureAttribute = measure === "narrow" ? "narrow" : undefined;
+  // A workspace fills the height the shell leaves it (ADR 0179). Read from the slot owner the
+  // archetype already provides, so there is no prop for any other page to set.
+  const fillAttribute = slotOwner === "WorkspacePage" ? "workspace" : undefined;
   // The same renderability test as the band's meta: `summary={figures && <StatGroup/>}` hands
   // this `false` before the figures arrive, and an empty band would still take its padding.
   const hasSummary =
     showsBody && summary !== undefined && summary !== null && summary !== false && summary !== "";
   return (
     <HeadlineContext.Provider value={headlineRegistry}>
-      <article ref={articleRef} data-terp="page" data-measure={measureAttribute}>
+      <article
+        ref={articleRef}
+        data-terp="page"
+        data-measure={measureAttribute}
+        data-fill={fillAttribute}
+      >
         {/* A <header> ELEMENT, and it has to stay one. The slot check above drops the header
             from the body set by tagName, so re-rendering this as a marked <div> would put it
             back in and fail every governed OverviewPage / DetailPage closed. The marker is

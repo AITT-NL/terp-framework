@@ -674,7 +674,7 @@ describe("buildAppRouter", () => {
       .map((argument) => (argument instanceof Error ? argument.message : String(argument)))
       .join(" ");
     expect(`${logged} ${document.body.textContent ?? ""}`).toContain(
-      "(Page, HubPage, OverviewPage, FormPage, SettingsPage, SplitPage, DashboardPage or DetailPage)",
+      "(Page, HubPage, OverviewPage, FormPage, SettingsPage, SplitPage, DashboardPage, WorkspacePage or DetailPage)",
     );
   });
 

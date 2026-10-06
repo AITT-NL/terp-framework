@@ -2830,6 +2830,55 @@ html:has([data-terp="page-sequence"]) {
   min-width: 0;
 }
 
+/* The workspace (ADR 0179) ------------------------------------------------ */
+/* One canvas that fills the screen. Every other page lays its body out as blocks that take
+   the height of their content; a canvas has none of its own and takes the box it is given, so
+   the box has to come from here or from an inline style app code may not write.
+
+   The same scoping the page-sequence bar uses: the shell's main area becomes a flex column
+   only when it holds a workspace, the page grows into it, and inside the page the host grows
+   into what the band and the summary leave. No other page changes. The page keeps its own gap,
+   because a flex column honours gap exactly as the grid did. */
+[data-terp="appshell-main"]:has(> [data-terp="page"][data-fill="workspace"]) {
+  display: flex;
+  flex-direction: column;
+}
+[data-terp="appshell-main"] > [data-terp="page"][data-fill="workspace"] {
+  flex-grow: 1;
+}
+[data-terp="page"][data-fill="workspace"] {
+  display: flex;
+  flex-direction: column;
+}
+[data-terp="page"][data-fill="workspace"] > [data-terp="canvas-host"] {
+  flex: 1 1 auto;
+}
+/* The host is a block of the page, painted as one: the surface fill, and the hairline and
+   radius a card uses. It clips, so a canvas panned past its edge never paints over the band.
+   Each child is laid over the whole box, so a component that sizes itself to its container gets
+   all of it and an svg scales by its viewBox. The floor keeps a canvas a canvas where nothing
+   gives it height: standalone, and on a viewport shorter than the band plus the floor.
+
+   The child takes an explicit 100% as well as the inset, because an svg is a replaced element:
+   absolutely positioned with inset 0 and auto size it takes its width from the box and its
+   height from its viewBox's ratio, so a wide diagram sat at the top of a tall canvas instead of
+   in its middle. The first recording of the workspace baseline showed exactly that. */
+[data-terp="canvas-host"] {
+  position: relative;
+  min-height: 24rem;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+}
+[data-terp="canvas-host"] > * {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
 /* The sign-in screen ------------------------------------------------------- */
 /* The one screen an unauthenticated user sees, and the only full-viewport page in
    the package: a 100vh grid centring one card. The reset layer's box-sizing note

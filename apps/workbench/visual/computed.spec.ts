@@ -1831,3 +1831,40 @@ test("a list of cards without figures keeps no figure row, and a card beside a f
   );
   expect(mixed).not.toContain("none");
 });
+
+test("a workspace's canvas takes every pixel the shell leaves below the band (ADR 0179)", async ({
+  page,
+}) => {
+  // The screenshot shows a tall canvas; this says which rule made it tall. The canvas runs from
+  // under the band to main's content edge, so it is the leftover height and not its 24rem floor,
+  // and the svg inside it is the canvas's own size rather than its viewBox's ratio.
+  await page.goto("/?theme=midday&only=workspace-page");
+  await page.locator('[data-terp="canvas-host"]').waitFor({ state: "visible" });
+  const geometry = await page.evaluate(() => {
+    const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+    const main = document.querySelector('[data-terp="appshell-main"]')!;
+    const padding = parseFloat(getComputedStyle(main).paddingBlockEnd);
+    return {
+      mainContentBottom: rect('[data-terp="appshell-main"]').bottom - padding,
+      mainDisplay: getComputedStyle(main).display,
+      host: rect('[data-terp="canvas-host"]'),
+      drawing: rect('[data-terp="canvas-host"] > svg'),
+      floor: parseFloat(getComputedStyle(document.documentElement).fontSize) * 24,
+    };
+  });
+  expect(geometry.mainDisplay).toBe("flex");
+  // Mutation: drop flex-grow from the workspace page, and the canvas stops at its floor.
+  expect(geometry.host.bottom).toBeCloseTo(geometry.mainContentBottom, 0);
+  expect(geometry.host.height).toBeGreaterThan(geometry.floor);
+  // Mutation: drop the child's explicit size, and the svg is its viewBox's height, not the host's.
+  expect(geometry.drawing.height).toBeCloseTo(geometry.host.height - 2, 0);
+});
+
+test("a page that is not a workspace keeps main a block (ADR 0179)", async ({ page }) => {
+  await page.goto("/?theme=midday&only=app-shell");
+  await page.locator('[data-terp="appshell-main"]').waitFor({ state: "visible" });
+  const display = await page
+    .locator('[data-terp="appshell-main"]')
+    .evaluate((main) => getComputedStyle(main).display);
+  expect(display).toBe("block");
+});

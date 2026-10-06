@@ -2545,3 +2545,54 @@ describe("a page's sections stand further apart than a section's blocks (ADR 017
     expect(ruleBody('[data-terp="page-sequence"]')).toContain(`margin-block-start: ${gap}`);
   });
 });
+
+describe("a workspace fills the height the shell leaves it (ADR 0179)", () => {
+  const always = baseOnly(layerBody("terp.base"));
+  const ruleBody = (selector: string) => {
+    const match = [...always.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(
+      (rule) => rule[1]!.trim().replace(/\s+/g, " ") === selector,
+    );
+    expect(match, `${selector} has no rule of its own`).toBeDefined();
+    return match![2]!;
+  };
+  const workspace = '[data-terp="page"][data-fill="workspace"]';
+
+  it("turns the shell's main into a column only when it holds a workspace", () => {
+    // Mutation: drop the :has() scope, and every page's main becomes a flex column.
+    const main = ruleBody(`[data-terp="appshell-main"]:has(> ${workspace})`);
+    expect(main).toContain("display: flex");
+    expect(main).toContain("flex-direction: column");
+    expect(ruleBody(`[data-terp="appshell-main"] > ${workspace}`)).toContain("flex-grow: 1");
+    // Every other page keeps the grid it always had.
+    expect(ruleBody('[data-terp="page"]')).toContain("display: grid");
+  });
+
+  it("gives the canvas what the band and the summary leave, and a floor where nothing does", () => {
+    expect(ruleBody(workspace)).toContain("flex-direction: column");
+    expect(ruleBody(`${workspace} > [data-terp="canvas-host"]`)).toContain("flex: 1 1 auto");
+    const host = ruleBody('[data-terp="canvas-host"]');
+    // Mutation: drop the floor, and a standalone canvas collapses to nothing.
+    expect(host).toContain("min-height: 24rem");
+    // Mutation: drop the clip, and a canvas panned past its edge paints over the band.
+    expect(host).toContain("overflow: hidden");
+    expect(host).toContain("position: relative");
+  });
+
+  it("paints the host from tokens only, as a block of the page", () => {
+    const host = ruleBody('[data-terp="canvas-host"]');
+    expect(host).toContain("background: var(--color-bg-surface)");
+    expect(host).toContain("border: 1px solid var(--color-neutral-200)");
+    expect(host).toContain("border-radius: var(--radius-lg)");
+    expect(host).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(/i);
+  });
+
+  it("lays every child over the whole host", () => {
+    const child = ruleBody('[data-terp="canvas-host"] > *');
+    expect(child).toContain("position: absolute");
+    expect(child).toContain("inset: 0");
+    // Mutation: drop the explicit size, and an svg takes its height from its viewBox's ratio
+    // and sits at the top of a tall canvas instead of filling it.
+    expect(child).toContain("width: 100%");
+    expect(child).toContain("height: 100%");
+  });
+});

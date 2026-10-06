@@ -19,6 +19,23 @@ a section ended with the same room a card left its neighbour; sections stand fur
 (ADR 0174). And the breadcrumb rebuilt its labels on every navigation, so a detail page printed
 its parent's name and then its own; the trail keeps what it knows now (ADR 0173).
 
+And a canvas had nowhere to go. No page gave a diagram the height of the screen, so a
+diagram-first app could size one only with a style it may not write. `WorkspacePage` gives it
+that height (ADR 0179).
+
+### Added
+
+- **`WorkspacePage` and `CanvasHost`: one canvas that fills the screen (ADR 0179).** A page
+  archetype for work done on a surface: a diagram of nodes and connections, a plan, a board. It
+  keeps the page band. Below it, the body takes every pixel the shell leaves: the shell's main
+  area becomes a flex column only when it holds a workspace, so no other page changes. Its slot
+  admits only a `CanvasHost` or a framework state. `CanvasHost` is a named region painted from
+  tokens, clipped, with a 24rem floor outside a shell, and it lays its child over the whole box,
+  so an `<svg>` scales by its `viewBox` and a canvas component that sizes itself to its
+  container gets all of it. A diagram drawn as an svg painted through token attributes needs no
+  style and no escape hatch. A canvas library's own stylesheet is not covered: until the
+  framework ships a bridge for one, it is a budgeted `terp-allow-no-style-imports` marker.
+
 ### Changed
 
 - **A block at rest is flat (ADR 0172).** A card, a hub card, a figure (the headline too), a
