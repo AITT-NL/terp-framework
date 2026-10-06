@@ -373,13 +373,14 @@ describe("cascade structure", () => {
     // one shell rule keyed on a descendant of an attribute rather than on a marker of its own,
     // because the mechanism is deliberately NOT a new element (ADR 0097 §2). The `:not()` is the
     // whole band: the frame's two bands -- the title band and the summary band (ADR 0169 §4) --
-    // keep the page grid's full track while their siblings take the measure.
+    // keep the page grid's full track while their siblings take the measure, and so does a
+    // workspace's canvas host (ADR 0179), which is not read along a line.
     // Selector AND declaration read out of ONE rule body, not as two independent substrings
     // of the layer. Asserted separately, an empty measure rule plus the declaration moved onto
     // some other rule during a consolidation would satisfy both — and the only baseline that
     // moved would read as an intentional layout change.
     const measureRule =
-      /\[data-terp="appshell"\]\[data-content-width="measured"\]\s*\n?\s*\[data-terp="page"\] > \*:not\(\[data-terp="page-header"\], \[data-terp="page-summary"\]\) \{([^}]*)\}/.exec(
+      /\[data-terp="appshell"\]\[data-content-width="measured"\]\s*\n?\s*\[data-terp="page"\] > \*:not\(\[data-terp="page-header"\], \[data-terp="page-summary"\], \[data-terp="canvas-host"\]\) \{([^}]*)\}/.exec(
         base,
       );
     expect(measureRule, "the content measure must be one rule keyed on the shell's attribute").not
@@ -2548,13 +2549,14 @@ describe("a page's sections stand further apart than a section's blocks (ADR 017
 
 describe("a workspace fills the height the shell leaves it (ADR 0179)", () => {
   const always = baseOnly(layerBody("terp.base"));
-  const ruleBody = (selector: string) => {
-    const match = [...always.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(
+  const ruleIn = (body: string, selector: string) => {
+    const match = [...body.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(
       (rule) => rule[1]!.trim().replace(/\s+/g, " ") === selector,
     );
     expect(match, `${selector} has no rule of its own`).toBeDefined();
     return match![2]!;
   };
+  const ruleBody = (selector: string) => ruleIn(always, selector);
   const workspace = '[data-terp="page"][data-fill="workspace"]';
 
   it("turns the shell's main into a column only when it holds a workspace", () => {
@@ -2574,8 +2576,37 @@ describe("a workspace fills the height the shell leaves it (ADR 0179)", () => {
     // Mutation: drop the floor, and a standalone canvas collapses to nothing.
     expect(host).toContain("min-height: 24rem");
     // Mutation: drop the clip, and a canvas panned past its edge paints over the band.
-    expect(host).toContain("overflow: hidden");
+    // clip, not hidden: hidden makes the host a scroll container that focus can scroll.
+    expect(host).toContain("overflow: clip");
+    expect(host).not.toContain("overflow: hidden");
     expect(host).toContain("position: relative");
+  });
+
+  it("lets a state in the canvas's place take the canvas's box, so the frame does not jump", () => {
+    // Mutation: drop this rule, and a loading workspace is a short block that jumps to the full
+    // height when the canvas arrives.
+    const states = ruleBody(
+      ["loading-state", "error-state", "empty-state"]
+        .map((marker) => `${workspace} > [data-terp="${marker}"]`)
+        .join(", "),
+    );
+    expect(states).toContain("flex: 1 1 auto");
+    expect(states).toContain("min-height: 24rem");
+    // Centred in the taller box, rather than the grid states' rows spreading down it.
+    expect(states).toContain("align-content: center");
+  });
+
+  it("leaves the host out of a measured shell's measure, as it does the bands", () => {
+    // Mutation: drop canvas-host from the :not(), and in a measured shell the canvas stops at
+    // the measure and sits against the start of the track.
+    const measure = [...always.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((rule) =>
+      rule[1]!
+        .replace(/\s+/g, " ")
+        .includes('[data-content-width="measured"] [data-terp="page"] > *:not('),
+    );
+    expect(measure, "the content measure has no rule").toBeDefined();
+    expect(measure![1]).toContain('[data-terp="canvas-host"]');
+    expect(measure![2]).toContain("width: min(100%, var(--shell-content-max-width))");
   });
 
   it("paints the host from tokens only, as a block of the page", () => {
@@ -2586,13 +2617,41 @@ describe("a workspace fills the height the shell leaves it (ADR 0179)", () => {
     expect(host).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(/i);
   });
 
-  it("lays every child over the whole host", () => {
-    const child = ruleBody('[data-terp="canvas-host"] > *');
-    expect(child).toContain("position: absolute");
-    expect(child).toContain("inset: 0");
+  it("lays its canvas over the whole host, through a layer of its own with a definite size", () => {
+    // The layer, not the canvas, is what is positioned: a canvas library's root is positioned
+    // by the library's own sheet, which beats a layered rule.
+    const layer = ruleBody('[data-terp="canvas-host-layer"]');
+    expect(layer).toContain("position: absolute");
+    expect(layer).toContain("inset: 0");
+    expect(declaresRuleFor(always, '[data-terp="canvas-host"] > *')).toBe(false);
     // Mutation: drop the explicit size, and an svg takes its height from its viewBox's ratio
     // and sits at the top of a tall canvas instead of filling it.
+    const child = ruleBody('[data-terp="canvas-host-layer"] > :not([data-terp="dialog"])');
     expect(child).toContain("width: 100%");
     expect(child).toContain("height: 100%");
+    expect(child).not.toContain("position");
+  });
+
+  it("draws the shared focus ring on the host while its canvas has keyboard focus", () => {
+    // The canvas fills the host edge to edge, so a ring around it lies wholly in what the host
+    // clips. Mutation: drop this rule, and a keyboard user on the canvas sees no indicator.
+    // In terp.state with the shared ring, and its declarations copied rather than restated:
+    // the ring is one indicator wherever it is drawn.
+    const state = baseOnly(layerBody("terp.state"));
+    const declarations = (body: string) =>
+      body
+        .split(";")
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0);
+    const ring = declarations(ruleIn(state, "[data-terp]:focus-visible"));
+    expect(ring).toContain("outline: 2px solid var(--color-fg-accent)");
+    expect(
+      declarations(
+        ruleIn(
+          state,
+          '[data-terp="canvas-host"]:has(> [data-terp="canvas-host-layer"] > :focus-visible)',
+        ),
+      ),
+    ).toEqual(ring);
   });
 });

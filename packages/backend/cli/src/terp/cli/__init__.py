@@ -2095,8 +2095,10 @@ Layout contracts (slot-typed layouts, ADR 0079)
                       BarChart / ProportionBar / StatusHistory / Timeline / Divider / Text +
                       the same states and ConfirmDialog: "how is the whole doing", its
                       figures in the summary band
-      WorkspacePage -> CanvasHost only (+ EmptyState / ErrorState / LoadingState / Alert):
-                      one canvas that fills the screen; what is drawn ON it is yours
+      WorkspacePage -> ONE CanvasHost + the same states and ConfirmDialog: one canvas that
+                      fills the screen. The host takes ONE canvas child (an svg, or a
+                      canvas library's root) and sizes it to the whole box; what is
+                      drawn ON it is yours. The trail is `parents`, as on DashboardPage
   Grid is not an overview-body component, deliberately: an overview body is a data
   collection, a grid of cards into each area is a hub, and sections of figures and charts
   are a dashboard — each has its own archetype. Heading is admitted nowhere: a heading in a governed body must OWN its

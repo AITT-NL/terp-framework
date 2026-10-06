@@ -45,8 +45,8 @@ export const LAYOUT_CONTRACTS = {
       "collection; a split " +
       "body is two SplitPanes and nothing else; and a dashboard body is its figures and " +
       "charts in Grid sections, the collection they summarise and the framework states. " +
-      "A workspace body is one CanvasHost, the surface that fills the screen, and the " +
-      "framework states. " +
+      "A workspace body is one CanvasHost, the surface that fills the screen, the " +
+      "framework states and a ConfirmDialog. " +
       "A screen that needs no contract " +
       "composes the plain Page, whose body this contract deliberately leaves unconstrained. " +
       "Every page, the plain one included, keeps two rules of its frame: its summary band " +
@@ -132,6 +132,7 @@ export const LAYOUT_CONTRACTS = {
           ErrorState: "error-state",
           LoadingState: "loading-state",
           Alert: "alert",
+          ConfirmDialog: "dialog",
         },
       },
       DetailPage: {

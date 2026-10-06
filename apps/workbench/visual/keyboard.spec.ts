@@ -322,3 +322,55 @@ test("the open drawer keeps focus, including away from the new skip link", async
     expect(await where(), `Shift+Tab step ${step + 1} left the drawer`).toBeNull();
   }
 });
+
+test("a canvas reached by Tab shows the shared ring, drawn on its host (ADR 0179)", async ({
+  page,
+}) => {
+  // This lane's criterion again: whether the place a Tab landed on can be SEEN. The canvas fills
+  // its host edge to edge and the host clips, so a ring drawn around the canvas is cut away
+  // entirely; the host draws the ring on itself instead. A real Tab rather than .focus(),
+  // because the rule keys on :focus-visible.
+  //
+  // Read against the ring a marked control shows on the way there, so the claim is that it is
+  // the SAME indicator, not merely an outline of some kind. Under reduced motion, because a
+  // button's ring fades in through its transition and a read on arrival catches the first frame.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/?theme=midday&only=workspace-page");
+  await page.locator('[data-terp="canvas-host"]').waitFor({ state: "visible" });
+
+  const ringOf = (selector: string) =>
+    page.locator(selector).evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        outline: `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`,
+        offset: style.outlineOffset,
+        shadow: style.boxShadow,
+      };
+    });
+  const host = '[data-terp="canvas-host"]';
+  // At rest there is no ring, or the assertion after the Tab witnesses nothing.
+  expect((await ringOf(host)).outline).toContain("none");
+
+  let controlRing: Awaited<ReturnType<typeof ringOf>> | null = null;
+  for (let step = 0; step < 30; step += 1) {
+    await page.keyboard.press("Tab");
+    const where = await page.evaluate(() => ({
+      marker: document.activeElement?.getAttribute("data-terp") ?? null,
+      onCanvas: document.activeElement?.closest('[data-terp="canvas-host-layer"]') !== null,
+    }));
+    if (where.marker === "button") {
+      controlRing = await ringOf(":focus-visible");
+    }
+    if (where.onCanvas) {
+      break;
+    }
+  }
+  expect(
+    await page.evaluate(() => document.activeElement?.tagName.toLowerCase()),
+    "Tab must reach the canvas",
+  ).toBe("svg");
+  expect(controlRing, "a marked control is passed on the way, to read the shared ring from").not
+    .toBeNull();
+  // Mutation: drop the host's :has() rule, and the host has no outline while the canvas is focused.
+  expect(await ringOf(host)).toEqual(controlRing);
+});

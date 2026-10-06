@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import * as lintLayouts from "../../eslint-boundaries/src/layouts.js";
 
 import { BarChart } from "./charts/BarChart";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { TrendChart } from "./charts/TrendChart";
 import { DashboardPage } from "./DashboardPage";
 import { DetailPage } from "./DetailPage";
@@ -845,6 +846,24 @@ describe("the workspace's body (ADR 0179)", () => {
     underContract(
       <WorkspacePage title="Network">
         <EmptyState title="No nodes yet" />
+      </WorkspacePage>,
+    );
+    await expectAccepted();
+  });
+
+  it("passes a confirm dialog beside the canvas, for an action taken on it", async () => {
+    // Mutation: drop ConfirmDialog from the slot table, and deleting a node has nowhere to ask.
+    underContract(
+      <WorkspacePage title="Network">
+        <CanvasHost label="Network diagram">
+          <svg viewBox="0 0 100 100" role="img" aria-label="Two nodes" />
+        </CanvasHost>
+        <ConfirmDialog
+          open={false}
+          onOpenChange={() => {}}
+          onConfirm={() => {}}
+          title="Delete this node?"
+        />
       </WorkspacePage>,
     );
     await expectAccepted();

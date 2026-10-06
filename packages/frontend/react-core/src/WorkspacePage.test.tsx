@@ -34,7 +34,7 @@ describe("WorkspacePage (ADR 0179)", () => {
     }
   });
 
-  it("takes its parent trail as parents, the alias every nested archetype uses", () => {
+  it("takes its parent trail as parents, as DashboardPage does", () => {
     render(
       <WorkspacePage title="Network" parents={[{ label: "Sites", to: "/sites" }]}>
         <CanvasHost label="Network diagram">
@@ -55,8 +55,15 @@ describe("CanvasHost", () => {
     );
     const region = screen.getByRole("region", { name: "Network diagram" });
     expect(region.getAttribute("data-terp")).toBe("canvas-host");
-    expect(region.contains(screen.getByTestId("drawing"))).toBe(true);
+    // The canvas sits in the host's one layer, which is what gives it a definite box.
+    // Mutation: render the children straight into the section, and a canvas root that sizes
+    // to its container resolves its percentage height against a flex-grown box.
+    const layer = region.firstElementChild;
+    expect(region.children).toHaveLength(1);
+    expect(layer?.getAttribute("data-terp")).toBe("canvas-host-layer");
+    expect(layer?.firstElementChild).toBe(screen.getByTestId("drawing"));
     // It renders no inline style: its geometry is the stylesheet's.
     expect(region.hasAttribute("style")).toBe(false);
+    expect(layer?.hasAttribute("style")).toBe(false);
   });
 });

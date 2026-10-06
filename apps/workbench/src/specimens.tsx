@@ -4047,12 +4047,15 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
       {
         // The workspace (ADR 0179), inside a real shell, because filling the height the shell
         // leaves is the whole of what it does: standalone it would show only the 24rem floor.
-        // The same fixed box as app-shell, for the same reason: the shell is at least the
-        // viewport tall, and its footer has to be in the picture to show the canvas stops at it.
+        // The same fixed 60rem box as app-shell: the shell is at least the viewport tall, so the
+        // box holds all of it, and the picture shows the canvas ending at main's padding. No
+        // footer is passed, so the shell renders none.
         //
-        // What is drawn on the canvas is the app's, and it is drawn the way app code must draw
-        // it: an svg painted through attributes naming tokens, no style and no class. That is
-        // the composition the page exists to make possible without an escape hatch.
+        // What is drawn on the canvas is the app's. Here it is an svg painted through attributes
+        // naming tokens, with no style and no class, which is the part the page exists to make
+        // possible without an escape hatch. Its strings are literals, as everywhere in the
+        // workbench; in app code they would be message descriptors. It takes focus, as a canvas
+        // that answers keys does, so the keyboard lane can hold the ring the host draws for it.
         id: "workspace-page",
         ready: '[data-terp="canvas-host"]',
         title: "WorkspacePage — one canvas that fills the screen",
@@ -4072,6 +4075,7 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
                   <svg
                     viewBox="0 0 640 240"
                     role="img"
+                    tabIndex={0}
                     aria-label="Intake leads to review, and review leads to archive"
                   >
                     <g stroke="var(--color-fg-subtle)" strokeWidth="2">
