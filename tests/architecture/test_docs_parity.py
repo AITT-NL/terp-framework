@@ -478,6 +478,42 @@ def test_every_base_profile_claim_names_the_capabilities_that_are_installed(
     )
 
 
+#: The two places a reader browsing this repository learns which capabilities exist, and the
+#: spelling each must use for every one of them.
+#:
+#: Neither list is generated, and both fell behind. The root README's architecture row named
+#: eighteen of twenty-two packages, missing egress, leases, mfa and realtime. The capabilities
+#: README's list and table missed mfa and realtime. The checks above only stop a document from
+#: naming a capability that does not exist. Nothing stopped one from leaving a real one out.
+_CAPABILITY_CATALOGS = (
+    (
+        "README.md",
+        lambda: (_REPO_ROOT / "README.md").read_text(encoding="utf-8"),
+        lambda name: (f"`{name}`",),
+    ),
+    (
+        "packages/backend/capabilities/README.md",
+        lambda: (_CAPABILITY_PACKAGES / "README.md").read_text(encoding="utf-8"),
+        # The list names the package and the table names its distribution.
+        lambda name: (f"`{name}`", f"`terp-cap-{name.replace('_', '-')}`"),
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "label,read,spellings", _CAPABILITY_CATALOGS, ids=[entry[0] for entry in _CAPABILITY_CATALOGS]
+)
+def test_every_capability_catalog_names_every_shipped_capability(label, read, spellings) -> None:
+    """A capability the catalog leaves out is one a reader concludes does not exist."""
+    text = read()
+    missing = sorted(
+        name
+        for name in _shipped_capabilities()
+        if not all(spelling in text for spelling in spellings(name))
+    )
+    assert not missing, f"{label} does not list these shipped capabilities: {missing}"
+
+
 def test_no_agent_surface_invents_a_capability() -> None:
     """A capability named in the docs must be a package that exists.
 

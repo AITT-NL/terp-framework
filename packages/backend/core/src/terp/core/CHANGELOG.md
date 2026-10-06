@@ -30,6 +30,10 @@ for every library that reaches the network through Python's `socket` module (ADR
 And a write could point a reference at a row its author could never read: another tenant's,
 or a soft-deleted one. The write chokepoint now holds references to the same row scope the reads
 obey (ADR 0178).
+And one hole in the frontend boundary. Its structural and security rules covered only the
+module tree, so a component beside the modules could import a stylesheet, set `style`, call
+`eval` and write `innerHTML` with no finding, and a module could render it. Every rule now
+covers all of `src/` (ADR 0175).
 ### Added
 
 - **`RedisRealtimeBroker`, a realtime broker shared across processes (ADR 0176).** It ships in
@@ -122,6 +126,27 @@ obey (ADR 0178).
   exist elsewhere; the reason is in `log_context` only. An untouched pointer to a row that has
   since been soft-deleted does not block an unrelated edit. A target with no scope is left to the
   foreign key, with no extra query.
+- **The frontend boundary covers all of `src/`, not only `src/modules/` (ADR 0175).** Every
+  rule in `@terpjs/eslint-boundaries` applies to every app-authored file under `src/`: the raw
+  elements, `style` and `className`, stylesheet imports, deep imports, `fetch` and the other raw
+  transports, `innerHTML`, `dangerouslySetInnerHTML`, `eval` and unsafe links. Before this, all of
+  them stopped at the module tree. A component in, say, `src/diagram/` did all of it with no
+  finding, and a module that rendered it lint-passed too, so moving a file out of `modules/` was
+  an escape hatch with no reason and no budget. Every script extension under `src/` is held, so
+  a `.jsx` or `.mts` file is no way out either, and the escape-hatch budget counts its markers.
+  `no-cross-module-imports` now reads both directions: a module never imports a sibling, and code
+  outside every module never imports from one, so a shared file can no longer re-export one
+  module's internals to another. The bootstrap's `import.meta.glob` of the modules is not an
+  import and is untouched. The bootstrap (`src/main.tsx`) may import exactly the token
+  pipeline's three stylesheets, `@terpjs/contract/tokens.css`, `./house-style.css` and
+  `./theme.css`, matched exactly and case-sensitively (`./THEME.css`, `./theme.css?inline` and a
+  nested `src/main.tsx` are refused), and is held to every other rule. A library's stylesheet is
+  refused there as anywhere, and a stylesheet loaded through `import()` or `import.meta.glob` is
+  refused like an imported one.
+- **The READMEs name every capability.** The root README's architecture row left out `egress`,
+  `leases`, `mfa` and `realtime`, and the capabilities README's list and table left out `mfa`
+  and `realtime`. `test_docs_parity.py` now reads both against the packages that exist, so a new
+  capability cannot ship unlisted.
 
 ### Upgrade notes
 
@@ -161,6 +186,22 @@ obey (ADR 0178).
   that did it on purpose, such as a seed linking rows across tenants or a job that runs with no
   tenant bound, sets the right `tenant_context` for each write. The 409 is worded like a missing
   target, on purpose; the log names `reference_out_of_scope`.
+- **Code outside `src/modules/` is linted now, and may fail.** A helper, a page component or a
+  replaced framework screen beside the modules meets the same rules a module always did, and so
+  does a `.js`, `.jsx`, `.mjs`, `.cjs`, `.mts` or `.cts` file anywhere under `src/`. The fix
+  is the module fix: compose the react-core primitives and the generated client, or justify the
+  exception with a `terp-allow-*` marker and budget it. A bootstrap that imports a stylesheet
+  other than the three is refused; move what it carried into `theme.css` as tokens.
+- **Shared code that imports from a module is refused.** A file outside `src/modules/` that
+  imports from `modules/<name>/` fails `no-cross-module-imports`. Move what the shared file needs
+  out of the module, or keep the code inside the module that owns it. A bootstrap that imports a
+  module by hand instead of through `import.meta.glob` is refused too; the glob is how modules
+  are wired.
+- **`BOUNDARY_SPEC.moduleFiles` is gone.** `terpBoundaries()` read it for the module-scoped
+  block, which this release removes, so nothing reads it after this change and it would
+  describe a scope that no longer exists. `BOUNDARY_SPEC.appFiles` is the scope of every
+  rule; `bootstrapFiles` and `bootstrapStylesheets` describe the bootstrap's one allowance, and
+  `sourceExtensions` the extensions `appFiles` names.
 
 ## 0.32.0 — 2026-10-05
 
