@@ -19,9 +19,68 @@ a section ended with the same room a card left its neighbour; sections stand fur
 (ADR 0174). And the breadcrumb rebuilt its labels on every navigation, so a detail page printed
 its parent's name and then its own; the trail keeps what it knows now (ADR 0173).
 
+And realtime reached only the process that published. A job handler in `terp jobs worker`
+published to nobody, even with one web replica. There is a shared broker now, and a promise that
+refuses the per-process one (ADR 0176).
+
+And a vendor SDK's traffic met neither the egress allowlist nor the SSRF denylist, because the
+build-time rule reads only the app's own imports. The declaration can now be held at the socket,
+for every library that reaches the network through Python's `socket` module (ADR 0177).
+
 And a write could point a reference at a row its author could never read: another tenant's,
 or a soft-deleted one. The write chokepoint now holds references to the same row scope the reads
 obey (ADR 0178).
+### Added
+
+- **`RedisRealtimeBroker`, a realtime broker shared across processes (ADR 0176).** It ships in
+  `terp-cap-redis[realtime]`, beside `RedisConnectionTicketStore`. A publish goes to Redis
+  pub/sub, and every process holding a subscriber on that topic receives it: another replica's,
+  or the web process's when a job handler in `terp jobs worker` published. Pub/sub is
+  server-wide, so the channel names carry the database index; deployments that share a server
+  and a database use distinct namespaces. Each subscriber holds its own pub/sub connection while
+  its transport is open. A connection Redis drops (a consumer too far behind), one that stays
+  silent past a ping, and one redis-py reconnected by itself end the stream as
+  `SubscriptionEnded`, so the transport closes and the browser reconnects. Delivery stays
+  fire-and-forget, as in process: a publish Redis does not take (connecting and the reply are
+  each bounded at two seconds) is dropped with a warning in the log, and never fails the write
+  that published it.
+- **A realtime transport subscribes before it answers.** `RealtimeBroker.subscribe(channel)`
+  starts a subscription and returns its messages once it is live; the default returns
+  `stream(channel)`, and the Redis broker has Redis confirm the SUBSCRIBE first. SSE and the
+  WebSocket handshake call it before their `200` / `accept`, so a subscription that cannot start
+  answers `503` (`RealtimeUnavailableError`, code `realtime_unavailable`) or closes the socket
+  `1013` before accept, and the browser backs off instead of reconnecting every second to a
+  stream that ends at once.
+- **`configure_realtime(require_shared_broker=True)`.** It promises that a publish in any process
+  reaches a subscriber in any other. A per-process broker is refused at once if it is installed
+  before or after the promise. The lazy default is refused at its first use, so a missing
+  `configure_broker` fails the first publish instead of dropping it, and it is not installed, so
+  wiring the shared broker afterwards still works. A later `configure_realtime` call that leaves
+  the argument out keeps the promise; `False` or `reset_realtime_configuration()` withdraws it.
+  `mark_shared_broker` and `is_shared_broker` follow core's `mark_shared_*` markers, for an app's
+  own adapter.
+- **`SubscriptionEnded`.** The broker ended a subscription and its client must reconnect.
+  `BackpressureError` is now one kind of it, and the transports close on either.
+- **`install_egress_guard`: the egress declaration held at the socket (ADR 0177).** A Python
+  audit hook holds the process to `EgressGuard(hosts=..., infrastructure=...)`, whichever library
+  makes the call. It holds the standard library's socket events on IPv4 and IPv6 sockets. A
+  lookup of an undeclared hostname (`getaddrinfo`, `gethostbyname`, `gethostbyname_ex`) is refused
+  before it is made. A connect or datagram (`connect`, `connect_ex`, `sendto`, `sendmsg`) into a
+  private, loopback, link-local, site-local or metadata range is refused unless it is declared
+  infrastructure (a hostname, an IP literal or a CIDR). A peer given by name, `localhost`
+  included, is resolved by the guard and each of its addresses is held the same way. A resolved
+  infrastructure name never sanctions a cloud metadata address; only a literal or a CIDR can. The
+  refusal is `EgressRefusedError`, the egress client's 502, and deliberately not an `OSError`, so
+  a library's own connection-error handling does not swallow it; the egress client reports it as
+  a refusal, and under an async client (httpx on anyio) it can arrive inside an `ExceptionGroup`.
+  `EgressGuard.for_policies(...)` builds the guard from the declared policies, and a policy with
+  `allow_private_addresses` contributes its hosts as infrastructure. What it cannot hold is named:
+  **uvloop** resolves and connects inside libuv with no audit event, so `install_egress_guard`
+  raises `EgressGuardUnsupportedError` in a process that imports or runs it, and the hook refuses
+  `import uvloop` after install. Native drivers that open their own sockets (libpq, gRPC's C core)
+  are out of its reach, a public IP literal passes, a connect by name reaches DNS before its
+  event, and on Windows asyncio's `socketpair` connects to loopback, so a new event loop is
+  refused there unless loopback is declared.
 
 ### Changed
 
@@ -45,6 +104,13 @@ obey (ADR 0178).
   parent's name. A crumb whose label arrives changes its words in place, and going one level
   deeper only adds a crumb. The packaged user and group details no longer title themselves with
   their parent while they load.
+- **`terp guide realtime` says when the per-process default breaks.** It said "when you run more
+  than one replica". It breaks with one replica too, once a job handler publishes from
+  `terp jobs worker`. The topic now says so, and shows the wiring: both Redis adapters and the
+  promise.
+- **The SSRF denylist covers IPv6 site-local space (`fec0::/10`).** It is deprecated but still
+  routable, and `ipaddress` does not count it as private, so an egress client call or a webhook
+  delivery to it passed the check.
 - **A reference stays inside the writer's row scope (ADR 0178).** Every flush looks up every
   reference it writes (all of them on an insert, the changed ones on an update) under the target
   model's row scope: soft delete, tenancy, and an opt-in owner read scope. It runs at the flush,
@@ -71,6 +137,24 @@ obey (ADR 0178).
   hatch, follows it to `--space-6`. A section's title belongs to its block (a `Card`'s or a
   `DataView`'s `title`): a loose `Heading` as a body child of its own sits a section gap from what
   it names.
+- **An app that publishes realtime messages from a job worker, or runs more than one replica,
+  wires the shared broker.** Install `terp-cap-redis[realtime]` and, in the composition root
+  the web process and the worker both run: `configure_broker(RedisRealtimeBroker.from_url(url))`,
+  `configure_ticket_store(RedisConnectionTicketStore.from_url(url))`, and
+  `configure_realtime(..., require_shared_broker=True)` where it runs as a deployment. Nothing
+  changes for an app that sets none of it. `terp-cap-redis` now requires `redis>=5.0.1`, the
+  first release with the asyncio `aclose()` the subscriber closes with.
+- **A realtime broker adapter of an app's own whose subscription can fail to start overrides
+  `subscribe`** and raises `SubscriptionEnded` there, so the transports refuse the browser rather
+  than answer it. One that cannot fail needs no change: `subscribe` defaults to `stream`.
+- **An app that calls a vendor SDK installs the egress guard.** In the composition root that the
+  web process and the worker both run:
+  `install_egress_guard(EgressGuard.for_policies(*policies, hosts=(sdk hosts), infrastructure=(db, redis, relay)))`.
+  Everything the process reaches must then be declared, its own infrastructure included, so
+  declare it before switching the guard on in production. Serve it with `uvicorn --loop asyncio`
+  and run its worker and scheduler with `asyncio.run`: `uvicorn[standard]` picks uvloop by
+  default, which the guard cannot see, so it refuses to start beside it. Nothing changes for an
+  app that does not install it.
 - **A write that points a reference out of its scope now fails with a 409.** That includes
   another tenant's row, a soft-deleted row, and, with `register_owner_read_scope`, another
   user's owned row. Such a write always pointed at something its author could not read. Code

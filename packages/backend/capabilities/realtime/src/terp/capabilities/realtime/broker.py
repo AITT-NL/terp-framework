@@ -3,8 +3,16 @@
 The broker is the fan-out seam: publishers submit already-validated JSON and
 each subscriber gets a bounded queue. A slow consumer is disconnected instead
 of growing memory without bound; its transport observes ``BackpressureError``
-and closes. Multi-replica deployments replace this per-process adapter with a
-shared broker (Redis/pubsub, managed messaging) through ``configure_broker``.
+and closes.
+
+The in-process default reaches only subscribers in the process that published,
+so it is right only while every publish and every subscriber share one process
+(ADR 0176). A second replica breaks that, and so does a job handler running in
+``terp jobs worker``: the worker serves no transport, so its publish reaches
+nobody. Such a deployment installs a shared broker through ``configure_broker``
+(``RedisRealtimeBroker`` from ``terp-cap-redis[realtime]``, or its own adapter
+marked with :func:`mark_shared_broker`) and can promise it with
+``configure_realtime(require_shared_broker=True)``.
 """
 
 from __future__ import annotations
@@ -14,9 +22,19 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from threading import RLock
+from typing import TypeVar
 
 
-class BackpressureError(RuntimeError):
+class SubscriptionEnded(RuntimeError):
+    """The broker ended a subscription, and its client must reconnect.
+
+    A transport closes on it rather than failing the connection: the cause is the
+    broker's (a consumer that fell behind, a shared backend that dropped the
+    connection), never the client's request.
+    """
+
+
+class BackpressureError(SubscriptionEnded):
     """A subscriber fell behind its bounded queue and must reconnect."""
 
 
@@ -40,10 +58,28 @@ class RealtimeBroker(ABC):
     """Publish validated JSON and subscribe to one declared channel name."""
 
     @abstractmethod
-    async def publish(self, channel: str, payload: str) -> None: ...
+    async def publish(self, channel: str, payload: str) -> None:
+        """Deliver *payload* to the channel's current subscribers, fire-and-forget.
+
+        A publish usually rides a write path (a service, an ``_after_write`` hook, a job
+        handler), so a broker whose backend is unreachable drops the message and logs it
+        rather than failing the write it reports.
+        """
 
     @abstractmethod
     def stream(self, channel: str) -> AsyncIterator[str]: ...
+
+    async def subscribe(self, channel: str) -> AsyncIterator[str]:
+        """Start a subscription now and return its messages.
+
+        The transports call this before they answer the browser, so a subscription that
+        cannot start is refused rather than reported as open (ADR 0176). A broker whose
+        subscription can fail to start (a shared backend that is unreachable) overrides
+        it to connect and subscribe before it returns, and raises
+        :class:`SubscriptionEnded` when it cannot. The default returns :meth:`stream`,
+        which subscribes at its first read.
+        """
+        return self.stream(channel)
 
 
 @dataclass(eq=False)
@@ -121,22 +157,86 @@ class InMemoryRealtimeBroker(RealtimeBroker):
             self._subscribers.clear()
 
 
+_SHARED_BROKER_ATTR = "__terp_shared_realtime_broker__"
+
+_Broker = TypeVar("_Broker", bound=RealtimeBroker)
+
+
+def mark_shared_broker(broker: _Broker) -> _Broker:
+    """Mark *broker* as shared across processes, and return it.
+
+    Shared means a publish in any process reaches a subscriber in any other. The
+    in-process default stays unmarked; ``require_shared_broker`` refuses it.
+    """
+    setattr(broker, _SHARED_BROKER_ATTR, True)
+    return broker
+
+
+def is_shared_broker(broker: RealtimeBroker | None) -> bool:
+    """Return whether *broker* is marked as shared across processes."""
+    return bool(getattr(broker, _SHARED_BROKER_ATTR, False))
+
+
+class SharedBrokerRequiredError(RuntimeError):
+    """A shared broker was promised, and the broker in force is per process."""
+
+
+def _refuse_unshared(broker_type: type[RealtimeBroker]) -> None:
+    raise SharedBrokerRequiredError(
+        "configure_realtime(require_shared_broker=True) promises that a publish in any "
+        f"process reaches a subscriber in any other, but the broker in force "
+        f"({broker_type.__name__}) is per process. Install a shared one with "
+        "configure_broker(RedisRealtimeBroker.from_url(...)) from terp-cap-redis[realtime], "
+        "or mark your own adapter with mark_shared_broker(...) - or drop "
+        "require_shared_broker if every publish and subscriber share one process."
+    )
+
+
 _configured_broker: RealtimeBroker | None = None
+_shared_broker_required = False
 _configuration_lock = RLock()
 
 
 def configure_broker(broker: RealtimeBroker | None) -> None:
-    """Install *broker* process-wide (``None`` resets to the lazy default)."""
+    """Install *broker* process-wide (``None`` resets to the lazy default).
+
+    Refused at once when a shared broker is required and *broker* is not one.
+    """
     global _configured_broker
     with _configuration_lock:
+        if broker is not None and _shared_broker_required and not is_shared_broker(broker):
+            _refuse_unshared(type(broker))
         _configured_broker = broker
 
 
+def require_shared_broker(required: bool) -> None:
+    """Record whether this deployment promised a shared broker.
+
+    ``configure_realtime(require_shared_broker=...)`` is the public spelling. A broker
+    already installed is checked now; the lazy default is checked when first used.
+    """
+    global _shared_broker_required
+    with _configuration_lock:
+        if required and _configured_broker is not None and not is_shared_broker(_configured_broker):
+            _refuse_unshared(type(_configured_broker))
+        _shared_broker_required = required
+
+
 def get_broker() -> RealtimeBroker:
-    """The configured broker, creating the bounded in-memory default lazily."""
+    """The configured broker, creating the bounded in-memory default lazily.
+
+    Every publish and every transport reaches the broker through here, so a promised
+    shared broker that was never installed fails the first use instead of
+    publishing into a process nobody subscribes in. The refused default is never
+    installed, so a ``configure_broker`` that comes later still keeps the promise.
+    ``configure_broker`` and ``require_shared_broker`` refuse an installed per-process
+    broker themselves, so the lazy default is the only one left to refuse here.
+    """
     global _configured_broker
     with _configuration_lock:
         if _configured_broker is None:
+            if _shared_broker_required:
+                _refuse_unshared(InMemoryRealtimeBroker)
             _configured_broker = InMemoryRealtimeBroker()
         return _configured_broker
 
@@ -145,7 +245,12 @@ __all__ = [
     "BackpressureError",
     "InMemoryRealtimeBroker",
     "RealtimeBroker",
+    "SharedBrokerRequiredError",
+    "SubscriptionEnded",
     "audience_topic",
     "configure_broker",
     "get_broker",
+    "is_shared_broker",
+    "mark_shared_broker",
+    "require_shared_broker",
 ]

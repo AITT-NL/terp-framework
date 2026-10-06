@@ -27,6 +27,13 @@ the timeout has no per-call override, every address is checked against the SSRF
 denylist and the connection is pinned to the one that passed, and every attempt —
 including a refusal — reaches the :class:`EgressAttempt` observer, which is where
 metering and egress auditing attach.
+
+The client holds the calls made through it. A vendor SDK builds its own client, so the
+declaration is also held at the socket: :func:`install_egress_guard` refuses a lookup of
+an undeclared name, and a connection into a denied range that is not declared
+infrastructure, whichever library makes it through Python's ``socket`` module. It refuses
+to install beside uvloop, which it cannot see; ``terp.capabilities.egress.guard`` names
+what else it cannot hold (ADR 0177).
 """
 
 from __future__ import annotations
@@ -38,6 +45,14 @@ from terp.capabilities.egress.client import (
     send_pinned,
 )
 from terp.capabilities.egress.errors import EgressFailedError, EgressRefusedError
+from terp.capabilities.egress.guard import (
+    INFRASTRUCTURE_REFRESH_SECONDS,
+    EgressGuard,
+    EgressGuardUnsupportedError,
+    install_egress_guard,
+    installed_egress_guard,
+    uninstall_egress_guard,
+)
 from terp.capabilities.egress.policy import EgressAttempt, EgressPolicy, Observer
 from terp.capabilities.egress.ssrf import (
     CLOUD_METADATA_ADDRESS,
@@ -53,15 +68,21 @@ __all__ = [
     "EgressAttempt",
     "EgressClient",
     "EgressFailedError",
+    "EgressGuard",
+    "EgressGuardUnsupportedError",
     "EgressPolicy",
     "EgressRefusedError",
     "EgressResponse",
+    "INFRASTRUCTURE_REFRESH_SECONDS",
     "Observer",
     "PinnedTarget",
     "Resolver",
     "Sender",
     "as_ip_literal",
+    "install_egress_guard",
+    "installed_egress_guard",
     "is_denied_address",
     "resolve_host",
     "send_pinned",
+    "uninstall_egress_guard",
 ]
