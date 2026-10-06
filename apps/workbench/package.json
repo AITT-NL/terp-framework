@@ -16,7 +16,7 @@
     "visual:update": "playwright test --update-snapshots"
   },
   "dependencies": {
-    "@tanstack/react-router": "^1.170.40",
+    "@tanstack/react-router": "^1.170.41",
     "@terpjs/contract": "*",
     "@terpjs/react-core": "*",
     "react": "^19.3.0",
@@ -30,7 +30,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
     "typescript": "^5.9.3",
-    "vite": "^8.3.1"
+    "vite": "^8.3.2"
   },
   "license": "Apache-2.0"
 }
