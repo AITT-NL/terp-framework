@@ -31,7 +31,9 @@ metering and egress auditing attach.
 The client holds the calls made through it. A vendor SDK builds its own client, so the
 declaration is also held at the socket: :func:`install_egress_guard` refuses a lookup of
 an undeclared name, and a connection into a denied range that is not declared
-infrastructure, whichever library makes it (ADR 0177).
+infrastructure, whichever library makes it through Python's ``socket`` module. It refuses
+to install beside uvloop, which it cannot see; ``terp.capabilities.egress.guard`` names
+what else it cannot hold (ADR 0177).
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ from terp.capabilities.egress.errors import EgressFailedError, EgressRefusedErro
 from terp.capabilities.egress.guard import (
     INFRASTRUCTURE_REFRESH_SECONDS,
     EgressGuard,
+    EgressGuardUnsupportedError,
     install_egress_guard,
     installed_egress_guard,
     uninstall_egress_guard,
@@ -66,6 +69,7 @@ __all__ = [
     "EgressClient",
     "EgressFailedError",
     "EgressGuard",
+    "EgressGuardUnsupportedError",
     "EgressPolicy",
     "EgressRefusedError",
     "EgressResponse",

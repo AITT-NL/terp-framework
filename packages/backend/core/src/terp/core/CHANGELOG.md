@@ -21,20 +21,30 @@ its parent's name and then its own; the trail keeps what it knows now (ADR 0173)
 
 And a vendor SDK's traffic met neither the egress allowlist nor the SSRF denylist, because the
 build-time rule reads only the app's own imports. The declaration can now be held at the socket,
-for every library in the process (ADR 0177).
+for every library that reaches the network through Python's `socket` module (ADR 0177).
 
 ### Added
 
 - **`install_egress_guard`: the egress declaration held at the socket (ADR 0177).** A Python
-  audit hook holds every library in the process to `EgressGuard(hosts=..., infrastructure=...)`.
-  A lookup of an undeclared hostname is refused before it resolves. A connection or datagram into
-  a private, loopback, link-local or metadata range is refused unless it is declared
-  infrastructure (a hostname, an IP literal or a CIDR). The refusal is `EgressRefusedError`, the
-  egress client's 502, and deliberately not an `OSError`, so a library's own connection-error
-  handling does not swallow it. `EgressGuard.for_policies(...)` builds the guard from the declared
-  policies, and a policy with `allow_private_addresses` contributes its hosts as infrastructure.
-  Native drivers that open their own sockets (libpq, gRPC's C core) raise no Python event and are
-  out of its reach.
+  audit hook holds the process to `EgressGuard(hosts=..., infrastructure=...)`, whichever library
+  makes the call. It holds the standard library's socket events on IPv4 and IPv6 sockets. A
+  lookup of an undeclared hostname (`getaddrinfo`, `gethostbyname`, `gethostbyname_ex`) is refused
+  before it is made. A connect or datagram (`connect`, `connect_ex`, `sendto`, `sendmsg`) into a
+  private, loopback, link-local, site-local or metadata range is refused unless it is declared
+  infrastructure (a hostname, an IP literal or a CIDR). A peer given by name, `localhost`
+  included, is resolved by the guard and each of its addresses is held the same way. A resolved
+  infrastructure name never sanctions a cloud metadata address; only a literal or a CIDR can. The
+  refusal is `EgressRefusedError`, the egress client's 502, and deliberately not an `OSError`, so
+  a library's own connection-error handling does not swallow it; the egress client reports it as
+  a refusal, and under an async client (httpx on anyio) it can arrive inside an `ExceptionGroup`.
+  `EgressGuard.for_policies(...)` builds the guard from the declared policies, and a policy with
+  `allow_private_addresses` contributes its hosts as infrastructure. What it cannot hold is named:
+  **uvloop** resolves and connects inside libuv with no audit event, so `install_egress_guard`
+  raises `EgressGuardUnsupportedError` in a process that imports or runs it, and the hook refuses
+  `import uvloop` after install. Native drivers that open their own sockets (libpq, gRPC's C core)
+  are out of its reach, a public IP literal passes, a connect by name reaches DNS before its
+  event, and on Windows asyncio's `socketpair` connects to loopback, so a new event loop is
+  refused there unless loopback is declared.
 
 ### Changed
 
@@ -58,6 +68,9 @@ for every library in the process (ADR 0177).
   parent's name. A crumb whose label arrives changes its words in place, and going one level
   deeper only adds a crumb. The packaged user and group details no longer title themselves with
   their parent while they load.
+- **The SSRF denylist covers IPv6 site-local space (`fec0::/10`).** It is deprecated but still
+  routable, and `ipaddress` does not count it as private, so an egress client call or a webhook
+  delivery to it passed the check.
 
 ### Upgrade notes
 
@@ -77,8 +90,10 @@ for every library in the process (ADR 0177).
   web process and the worker both run:
   `install_egress_guard(EgressGuard.for_policies(*policies, hosts=(sdk hosts), infrastructure=(db, redis, relay)))`.
   Everything the process reaches must then be declared, its own infrastructure included, so
-  declare it before switching the guard on in production. Nothing changes for an app that does
-  not install it.
+  declare it before switching the guard on in production. Serve it with `uvicorn --loop asyncio`
+  and run its worker and scheduler with `asyncio.run`: `uvicorn[standard]` picks uvloop by
+  default, which the guard cannot see, so it refuses to start beside it. Nothing changes for an
+  app that does not install it.
 
 ## 0.32.0 — 2026-10-05
 

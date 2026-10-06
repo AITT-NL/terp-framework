@@ -72,6 +72,7 @@ def _client(policy: EgressPolicy, **kwargs: object) -> EgressClient:
         "::1",  # IPv6 loopback
         "fc00::1",  # IPv6 unique-local
         "fe80::1",  # IPv6 link-local
+        "fec0::1",  # IPv6 site-local: deprecated, not "private" to ipaddress, still internal
         "::ffff:127.0.0.1",  # IPv4-mapped IPv6 — the classic bypass
         "::ffff:10.0.0.1",  # ... and again with private space
     ],
@@ -371,6 +372,22 @@ def test_a_typed_failure_from_the_sender_is_observed() -> None:
     with pytest.raises(EgressFailedError):
         client.get("https://api.example.com/")
     assert len(seen) == 1
+
+
+def test_a_refusal_from_the_transport_is_a_refusal_and_is_observed_as_one() -> None:
+    """The egress guard refuses inside the transport (ADR 0177): not a failure of the far end."""
+    seen: list[EgressAttempt] = []
+
+    def _guarded(*args: object) -> EgressResponse:
+        raise EgressRefusedError(log_context={"reason": "denied_address", "control": "egress_guard"})
+
+    client = _client(
+        EgressPolicy(allowed_hosts=("api.example.com",)), sender=_guarded, observer=seen.append
+    )
+    with pytest.raises(EgressRefusedError) as caught:
+        client.get("https://api.example.com/")
+    assert caught.value.log_context["control"] == "egress_guard"
+    assert [(a.host, a.status_code, a.refused) for a in seen] == [("api.example.com", None, True)]
 
 
 def test_an_observer_that_raises_does_not_change_what_happened() -> None:

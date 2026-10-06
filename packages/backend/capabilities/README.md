@@ -32,7 +32,7 @@ Built capabilities (design §3.1, §6):
 | **webhooks** (outbound webhooks, sealed secrets) | `terp-cap-webhooks` | `terp.capabilities.webhooks` |
 | **oidc** (SSO via OpenID Connect) | `terp-cap-oidc` | `terp.capabilities.oidc` |
 | **outbox** (durable event delivery) | `terp-cap-outbox` | `terp.capabilities.outbox` |
-| **egress** (library; the declared way out of the process — allowlisted, SSRF-guarded, time-bounded outbound HTTP with an observable attempt, ADR 0117; the same declaration held at the socket for every library in the process, ADR 0177) | `terp-cap-egress` | `terp.capabilities.egress` |
+| **egress** (library; the declared way out of the process — allowlisted, SSRF-guarded, time-bounded outbound HTTP with an observable attempt, ADR 0117; the same declaration held at the socket — name lookups and IPv4/IPv6 connects through Python's `socket` module, whichever library makes them; uvloop, which it cannot see, is refused — ADR 0177) | `terp-cap-egress` | `terp.capabilities.egress` |
 | **mail** (library; outbound e-mail through one declared relay — encrypted and certificate-verified, a fixed sender, delivered by the jobs seam so a send commits with its write, ADR 0150) | `terp-cap-mail` | `terp.capabilities.mail` |
 | **leases** (library; expiring, fenced custody of work + the stale-claim reaper, ADR 0095) | `terp-cap-leases` | `terp.capabilities.leases` |
 | **sync** (data synchronisation) | `terp-cap-sync` | `terp.capabilities.sync` |
