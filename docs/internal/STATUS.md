@@ -914,8 +914,12 @@ frontend design-system track below.
 - [x] Built for 0.33.0, from what the owner saw on the released screens: a block at rest is
       flat and a shadow means a layer (ADR 0172), a page spaces its sections a step wider than
       their blocks (ADR 0174), and a breadcrumb keeps what it knows (ADR 0173). Both baseline
-      sets re-recorded; not yet released.
-- [ ] Owed: the Studio's pin to 0.32.0. It brings the Studio's theme catalog along: its parity
+      sets re-recorded.
+- [x] Released as 0.33.0 (2026-10-06): those three, with a hardening pass (the frontend
+      boundary over all of src, ADR 0175; the workspace page, ADR 0179; a shared realtime broker,
+      ADR 0176; the egress guard at the socket, ADR 0177; references held to the row scope, ADR
+      0178) and a chart's hidden table that made a fitting page scroll.
+- [ ] Owed: the Studio's pin to 0.33.0. It brings the Studio's theme catalog along: its parity
       gates read the framework's palettes, and three of them failed against this main on
       2026-10-05 (none against its 0.30.0 pin).
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list

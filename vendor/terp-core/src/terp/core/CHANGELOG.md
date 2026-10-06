@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.33.0 — unreleased
+## 0.33.0 — 2026-10-06
 
 Three things the owner saw in apps built on the framework. Shadows meant three things on one
 scale, so the table floated above the cards beside it and the chrome did not float at all; a
@@ -19,24 +19,18 @@ a section ended with the same room a card left its neighbour; sections stand fur
 (ADR 0174). And the breadcrumb rebuilt its labels on every navigation, so a detail page printed
 its parent's name and then its own; the trail keeps what it knows now (ADR 0173).
 
-And realtime reached only the process that published. A job handler in `terp jobs worker`
-published to nobody, even with one web replica. There is a shared broker now, and a promise that
-refuses the per-process one (ADR 0176).
-
-And a vendor SDK's traffic met neither the egress allowlist nor the SSRF denylist, because the
-build-time rule reads only the app's own imports. The declaration can now be held at the socket,
-for every library that reaches the network through Python's `socket` module (ADR 0177).
-
-And a write could point a reference at a row its author could never read: another tenant's,
-or a soft-deleted one. The write chokepoint now holds references to the same row scope the reads
-obey (ADR 0178).
-And one hole in the frontend boundary. Its structural and security rules covered only the
-module tree, so a component beside the modules could import a stylesheet, set `style`, call
-`eval` and write `innerHTML` with no finding, and a module could render it. Every rule now
-covers all of `src/` (ADR 0175).
-And a canvas had nowhere to go. No page gave a diagram the height of the screen, so a
-diagram-first app could size one only with a style it may not write. `WorkspacePage` gives it
-that height (ADR 0179).
+And a hardening pass over promises the framework made and did not yet hold. The frontend
+boundary stopped at the module tree, so a component beside the modules could import a
+stylesheet, set `style`, call `eval` and write `innerHTML` with no finding; every rule now
+covers all of `src/` (ADR 0175). A canvas had nowhere to go, so a diagram-first app could size
+one only with a style it may not write; `WorkspacePage` gives it the screen's height (ADR 0179).
+Realtime reached only the process that published, so a job handler in `terp jobs worker`
+published to nobody; there is a shared broker now, and a promise that refuses the per-process one
+(ADR 0176). A vendor SDK's traffic met neither the egress allowlist nor the SSRF denylist; the
+declaration can now be held at the socket (ADR 0177). A write could point a reference at another
+tenant's row, or a soft-deleted one; every flush now holds references to the scope reads obey
+(ADR 0178). And a chart's hidden data table made a page that fitted the screen scroll, and carried
+the shell's sidebar away with it.
 
 ### Added
 
