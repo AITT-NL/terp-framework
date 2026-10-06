@@ -683,6 +683,11 @@ Stored references (Ref + OnDelete)
   chosen), and a database reports its default action as absent rather than as the
   words NO ACTION -- which is why emitting the literal would make every
   model-versus-database comparison report drift on that constraint forever.
+- A reference you WRITE must point at a row you could READ. The foreign key checks that
+  the target exists; every flush also checks it against the target's row scope
+  (tenancy, soft-delete, an owner read scope), on insert and whenever an update changes
+  the reference - however the flush is reached, an autoflush included. Out of scope
+  reads exactly like missing: the same 409.
 - Ref() forwards everything else to Field(), and indexes by default: an unindexed
   foreign key turns every parent delete and every join into a table scan.
       owner_id: uuid.UUID | None = Ref("user.id", on_delete=OnDelete.SET_NULL,
@@ -1007,6 +1012,11 @@ Multi-tenant rows (tenancy capability)
       class Doc(BaseTable, TenantScopedMixin, table=True): ...
       class DocService(TenantScopedService[Doc, DocCreate, DocUpdate]): model = Doc
 - Never filter tenant_id by hand — the framework owns the predicate (the gate forbids it).
+- A reference stays inside its tenant. Every flush checks each Ref it writes against
+  the target model's row scope, so a row cannot point at another
+  tenant's row (nor at a soft-deleted one): the write fails with the same 409 a missing
+  target gets, and says nothing about the other tenant. Nothing to wire - it follows from
+  the predicate the mixin registers.
 - The current tenant comes from the request (TenantMiddleware binds the JWT `tenant`
   claim); in tests use tenant_context(tenant_id).
 - Wire it through the create_app middleware seam — never add_middleware (the gate
@@ -1454,8 +1464,23 @@ Realtime push (realtime capability)
 - Wire the runtime seams once at the composition root:
       configure_realtime(permission_enforcer=..., principal_validator=...,
                          message_session_provider=...)
-  configure_broker / configure_ticket_store replace the in-memory defaults when you run
-  more than one replica (the in-memory ones are per process).
+- The default broker and ticket store are PER PROCESS: a publish reaches only subscribers
+  connected to the process that published. That breaks with a second replica, and it
+  breaks with ONE replica too once a job handler runs in `terp jobs worker` - the worker
+  serves no transport, so its publish reaches nobody. Share both through Redis
+  (terp-cap-redis[realtime]) and promise it, so a missing wiring fails instead of
+  dropping messages:
+      configure_broker(RedisRealtimeBroker.from_url(settings.REDIS_URL))
+      configure_ticket_store(RedisConnectionTicketStore.from_url(settings.REDIS_URL))
+      configure_realtime(..., require_shared_broker=settings.is_production)
+  The worker runs the same composition root, so it wires the same broker. Pub/sub is
+  server-wide: the database index is in the channel names, but two deployments sharing
+  one Redis server AND database need distinct namespace=... values. Delivery is
+  fire-and-forget either way: a message published while nobody listens is gone, and a
+  publish Redis does not take (connecting and the reply are each bounded at 2s) is
+  dropped with a logged warning - it never fails the write that published it. A
+  transport subscribes before it answers, so an unreachable Redis is an SSE 503 or a
+  WebSocket closed 1013 before accept, and the browser backs off.
 - Transport is TICKET-based, never a token in a URL: the client POSTs
   /api/v1/realtime/tickets, receives a one-use short-lived ticket, then connects to
   /api/v1/realtime/sse/<channel>?ticket=... (or /ws/<channel> in websocket mode). The
@@ -1579,6 +1604,26 @@ Using capabilities
   and egress auditing attach. A sanctioned internal target is a declared
   `allow_private_addresses=True`, visible in the composition root, never a quiet
   exception inside the client.
+- A vendor SDK builds its own HTTP client, so neither the rule (it reads YOUR imports)
+  nor EgressClient sees its traffic. Hold the whole process to the declaration at the
+  socket, in the composition root the web process and the worker both run:
+      install_egress_guard(EgressGuard.for_policies(
+          rates_policy,                              # every EgressPolicy you declared
+          hosts=("api.vendor.example",),             # what an SDK calls, by exact name
+          infrastructure=("db", "redis", "smtp.relay.internal"),  # names, IPs or CIDRs
+      ))
+  It holds what goes through Python's socket module on IPv4/IPv6, whichever library
+  calls it: a lookup of an undeclared name (getaddrinfo, gethostbyname) is refused
+  before it is made, and a connect or datagram into a private / loopback / link-local /
+  metadata range is refused unless it is declared infrastructure; a peer given by name
+  (localhost too) is resolved and every address held. The refusal is EgressRefusedError
+  (502); under an async client it can arrive inside an ExceptionGroup. It cannot see
+  uvloop, so it refuses to install beside it and refuses `import uvloop` after it: run
+  uvicorn with --loop asyncio (uvicorn[standard] picks uvloop otherwise), and a worker
+  or scheduler with asyncio.run. Native drivers that open their own sockets (libpq,
+  gRPC's C core) are invisible to it and a public IP literal passes; the deployment's
+  network policy holds those. Built for Linux: on Windows asyncio's socketpair connects
+  to loopback, so a new event loop is refused unless loopback is declared.
 - Credentials never live in module source: a credential-shaped assignment (password,
   api_key, token, ...) to a string literal — or a recognizable secret-token literal
   anywhere — is refused by the no_hardcoded_credentials rule. Wire secrets through

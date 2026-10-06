@@ -33,12 +33,12 @@ Built capabilities (design §3.1, §6):
 | **oidc** (SSO via OpenID Connect) | `terp-cap-oidc` | `terp.capabilities.oidc` |
 | **mfa** (a TOTP second factor with recovery codes, sealed at rest and recorded in the token that results, ADR 0151) | `terp-cap-mfa` | `terp.capabilities.mfa` |
 | **outbox** (durable event delivery) | `terp-cap-outbox` | `terp.capabilities.outbox` |
-| **egress** (library; the declared way out of the process — allowlisted, SSRF-guarded, time-bounded outbound HTTP with an observable attempt, ADR 0117) | `terp-cap-egress` | `terp.capabilities.egress` |
+| **egress** (library; the declared way out of the process — allowlisted, SSRF-guarded, time-bounded outbound HTTP with an observable attempt, ADR 0117; the same declaration held at the socket — name lookups and IPv4/IPv6 connects through Python's `socket` module, whichever library makes them; uvloop, which it cannot see, is refused — ADR 0177) | `terp-cap-egress` | `terp.capabilities.egress` |
 | **mail** (library; outbound e-mail through one declared relay — encrypted and certificate-verified, a fixed sender, delivered by the jobs seam so a send commits with its write, ADR 0150) | `terp-cap-mail` | `terp.capabilities.mail` |
 | **leases** (library; expiring, fenced custody of work + the stale-claim reaper, ADR 0095) | `terp-cap-leases` | `terp.capabilities.leases` |
 | **realtime** (typed, policy-gated SSE and WebSocket channels with one-use connection tickets) | `terp-cap-realtime` | `terp.capabilities.realtime` |
 | **sync** (data synchronisation) | `terp-cap-sync` | `terp.capabilities.sync` |
-| **redis** (shared Idempotency/Throttle/Cache stores, ADR 0078; realtime tickets / OIDC state behind `[realtime]` / `[oidc]`, or both with `[all]`) | `terp-cap-redis` | `terp.capabilities.redis` |
+| **redis** (shared Idempotency/Throttle/Cache stores, ADR 0078; realtime tickets and the cross-process realtime broker (ADR 0176) / OIDC state behind `[realtime]` / `[oidc]`, or both with `[all]`) | `terp-cap-redis` | `terp.capabilities.redis` |
 | **jobs_celery** (Celery job backend) | `terp-cap-jobs-celery` | `terp.capabilities.jobs_celery` |
 | **scheduler_apscheduler** (APScheduler backend) | `terp-cap-scheduler-apscheduler` | `terp.capabilities.scheduler_apscheduler` |
 | **scheduler_celery_beat** (Celery beat backend) | `terp-cap-scheduler-celery-beat` | `terp.capabilities.scheduler_celery_beat` |

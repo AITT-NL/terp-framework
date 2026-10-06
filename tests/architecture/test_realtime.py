@@ -32,6 +32,9 @@ from terp.capabilities.realtime import (
     InMemoryRealtimeBroker,
     RealtimeBroker,
     RealtimeChannel,
+    RealtimeUnavailableError,
+    SharedBrokerRequiredError,
+    SubscriptionEnded,
     clear_channels,
     configure_broker,
     configure_realtime,
@@ -46,6 +49,8 @@ from terp.capabilities.realtime import (
     registered_channels,
     reset_realtime_configuration,
     global_audience,
+    is_shared_broker,
+    mark_shared_broker,
 )
 from terp.capabilities import realtime as realtime_package
 from terp.capabilities.realtime.router import TicketRequest, mint_ticket, subscribe_sse
@@ -56,8 +61,11 @@ from terp.capabilities.realtime.router import (
     _websocket_inbound,
     _websocket_liveness,
     _websocket_outbound,
-    _raise_unexpected_task_results,
     subscribe_websocket,
+)
+from terp.capabilities.realtime.transport import (
+    _raise_unexpected_task_results,
+    open_subscription,
 )
 from terp.core import AuthorizationRequirement
 from terp.core import (
@@ -166,6 +174,11 @@ def test_realtime_public_surface_and_module_posture_are_explicit() -> None:
         "configure_realtime",
         "configure_ticket_store",
         "global_audience",
+        "SubscriptionEnded",
+        "SharedBrokerRequiredError",
+        "RealtimeUnavailableError",
+        "is_shared_broker",
+        "mark_shared_broker",
     } <= set(realtime_package.__all__)
     assert module.name == "realtime" and module.router is not None
     assert module.policy is not None and module.policy.allows_public_writes
@@ -359,6 +372,92 @@ def test_broker_disconnects_a_slow_subscriber_on_overflow() -> None:
     broker.reset()
 
 
+def test_backpressure_is_one_way_a_subscription_ends() -> None:
+    # Transports close on SubscriptionEnded, so a shared broker that loses its
+    # connection ends a stream the same clean way a slow consumer does (ADR 0176).
+    assert issubclass(BackpressureError, SubscriptionEnded)
+
+
+def test_only_a_marked_broker_counts_as_shared() -> None:
+    assert is_shared_broker(InMemoryRealtimeBroker()) is False
+    assert is_shared_broker(None) is False
+    marked = _FiniteBroker()
+    assert mark_shared_broker(marked) is marked
+    assert is_shared_broker(marked) is True
+
+
+def test_a_promised_shared_broker_refuses_the_per_process_default_at_first_use() -> None:
+    # The forgotten wiring: nothing was installed, so the lazy default would publish
+    # into a process nobody subscribes in. The first use fails instead.
+    channel = register_channel(RealtimeChannel("notes.shared", Notice))
+    configure_realtime(require_shared_broker=True)
+    with pytest.raises(SharedBrokerRequiredError, match="RedisRealtimeBroker"):
+        get_broker()
+    with pytest.raises(SharedBrokerRequiredError):
+        asyncio.run(publish(channel, Notice(sequence=1, text="x"), audience="user-a"))
+    shared = mark_shared_broker(InMemoryRealtimeBroker())
+    configure_broker(shared)
+    assert get_broker() is shared
+    asyncio.run(publish(channel, Notice(sequence=2, text="y"), audience="user-a"))
+
+
+def test_a_promised_shared_broker_refuses_an_installed_per_process_one_at_once() -> None:
+    # Either order of wiring fails at composition, not at the first publish.
+    configure_broker(InMemoryRealtimeBroker())
+    with pytest.raises(SharedBrokerRequiredError, match="InMemoryRealtimeBroker"):
+        configure_realtime(require_shared_broker=True)
+
+    configure_broker(None)
+    configure_realtime(require_shared_broker=True)
+    with pytest.raises(SharedBrokerRequiredError):
+        configure_broker(InMemoryRealtimeBroker())
+    configure_broker(None)  # resetting stays allowed
+
+    reset_realtime_configuration()
+    configure_broker(InMemoryRealtimeBroker())
+    assert isinstance(get_broker(), InMemoryRealtimeBroker)
+
+
+def test_a_refused_lazy_default_is_never_installed() -> None:
+    # A use that came before the wiring is refused, and leaves nothing behind: the
+    # promise can be made again, and the shared broker installed after it either way.
+    shared = mark_shared_broker(InMemoryRealtimeBroker())
+
+    configure_realtime(require_shared_broker=True)
+    with pytest.raises(SharedBrokerRequiredError):
+        get_broker()
+    configure_realtime(require_shared_broker=True)  # nothing per-process was installed
+    configure_broker(shared)
+    assert get_broker() is shared
+
+    reset_realtime_configuration()
+    configure_broker(None)
+    configure_realtime(require_shared_broker=True)
+    with pytest.raises(SharedBrokerRequiredError):
+        get_broker()
+    configure_broker(shared)
+    configure_realtime(require_shared_broker=True)  # promised again, after the install
+    assert get_broker() is shared
+
+
+def test_a_later_configure_realtime_keeps_the_promise_until_reset() -> None:
+    # Wiring the other seams in a second call must not drop the promise silently.
+    configure_realtime(require_shared_broker=True)
+    configure_realtime(principal_validator=lambda _principal, _credential: True)
+    with pytest.raises(SharedBrokerRequiredError):
+        get_broker()
+    with pytest.raises(SharedBrokerRequiredError):
+        configure_broker(InMemoryRealtimeBroker())
+
+    configure_realtime(require_shared_broker=False)  # withdrawn explicitly
+    assert isinstance(get_broker(), InMemoryRealtimeBroker)
+
+    configure_broker(None)
+    configure_realtime(require_shared_broker=True)
+    reset_realtime_configuration()  # and the reset withdraws it too
+    assert isinstance(get_broker(), InMemoryRealtimeBroker)
+
+
 class _WebSocketDouble:
     def __init__(self, messages: list[str] | None = None) -> None:
         self.messages = list(messages or [])
@@ -394,6 +493,23 @@ class _FiniteBroker(RealtimeBroker):
         return values()
 
 
+class _LostBroker(RealtimeBroker):
+    """A shared broker whose backend dropped the subscriber."""
+
+    async def publish(self, channel: str, payload: str) -> None:
+        del channel, payload
+
+    def stream(self, channel: str):
+        del channel
+
+        async def values():
+            if False:
+                yield ""
+            raise SubscriptionEnded("lost")
+
+        return values()
+
+
 class _BackpressureBroker(RealtimeBroker):
     async def publish(self, channel: str, payload: str) -> None:
         del channel, payload
@@ -407,6 +523,27 @@ class _BackpressureBroker(RealtimeBroker):
             raise BackpressureError("slow")
 
         return values()
+
+
+class _UnreachableBroker(RealtimeBroker):
+    """A shared broker whose backend cannot be reached when a transport subscribes."""
+
+    async def publish(self, channel: str, payload: str) -> None:
+        del channel, payload
+
+    def stream(self, channel: str):
+        raise AssertionError("the transports subscribe through subscribe()")
+
+    async def subscribe(self, channel: str):
+        del channel
+        raise SubscriptionEnded("unreachable")
+
+
+async def _sse_for(
+    channel: RealtimeChannel, ticket: ConnectionTicket, *, heartbeat_seconds: float
+):
+    messages = await open_subscription(channel.name, ticket.audience)
+    return _sse_stream(messages, ticket, heartbeat_seconds=heartbeat_seconds)
 
 
 def test_sse_protocol_strips_newlines_emits_payload_and_heartbeat() -> None:
@@ -424,7 +561,7 @@ def test_sse_protocol_strips_newlines_emits_payload_and_heartbeat() -> None:
     )
 
     async def exercise() -> None:
-        stream = _sse_stream(channel, ticket, heartbeat_seconds=0.001)
+        stream = await _sse_for(channel, ticket, heartbeat_seconds=0.001)
         heartbeat = await anext(stream)
         assert heartbeat == b": keepalive\n\n"
         pending = asyncio.create_task(anext(stream))
@@ -448,17 +585,20 @@ def test_sse_protocol_strips_newlines_emits_payload_and_heartbeat() -> None:
     configure_broker(_BackpressureBroker())
 
     async def backpressure() -> None:
-        stream = _sse_stream(channel, ticket, heartbeat_seconds=1)
+        stream = await _sse_for(channel, ticket, heartbeat_seconds=1)
         with pytest.raises(StopAsyncIteration):
             await anext(stream)
 
+    asyncio.run(backpressure())
+
+    configure_broker(_LostBroker())
     asyncio.run(backpressure())
 
     configure_broker(InMemoryRealtimeBroker())
     configure_realtime(principal_validator=lambda _p, _c: False)
 
     async def revoked_at_heartbeat() -> None:
-        stream = _sse_stream(channel, ticket, heartbeat_seconds=0.001)
+        stream = await _sse_for(channel, ticket, heartbeat_seconds=0.001)
         with pytest.raises(StopAsyncIteration):
             await anext(stream)
 
@@ -468,7 +608,7 @@ def test_sse_protocol_strips_newlines_emits_payload_and_heartbeat() -> None:
     configure_realtime(principal_validator=lambda _p, _c: False)
 
     async def revoked_before_payload() -> None:
-        stream = _sse_stream(channel, ticket, heartbeat_seconds=1)
+        stream = await _sse_for(channel, ticket, heartbeat_seconds=1)
         with pytest.raises(StopAsyncIteration):
             await anext(stream)
 
@@ -505,12 +645,14 @@ def test_websocket_inbound_close_paths_and_outbound_delivery() -> None:
 
         outbound_socket = _WebSocketDouble()
         configure_broker(_FiniteBroker())
-        await _websocket_outbound(outbound_socket, channel, ticket)  # type: ignore[arg-type]
+        messages = await open_subscription(channel.name, ticket.audience)
+        await _websocket_outbound(outbound_socket, messages, ticket)  # type: ignore[arg-type]
         assert outbound_socket.sent == ['{"sequence":3,"text":"pushed"}']
 
         configure_realtime(principal_validator=lambda _p, _c: False)
         revoked_outbound = _WebSocketDouble()
-        await _websocket_outbound(revoked_outbound, channel, ticket)  # type: ignore[arg-type]
+        messages = await open_subscription(channel.name, ticket.audience)
+        await _websocket_outbound(revoked_outbound, messages, ticket)  # type: ignore[arg-type]
         assert revoked_outbound.sent == []
         assert revoked_outbound.closed == [(1008, "session no longer valid")]
 
@@ -750,8 +892,16 @@ def test_invalid_websocket_ticket_closes_before_accept() -> None:
 
 
 def test_websocket_task_results_ignore_expected_and_raise_unexpected() -> None:
+    # SubscriptionEnded itself, not only its BackpressureError kind: a shared broker
+    # that lost its connection ends the socket as cleanly as a slow consumer does.
     _raise_unexpected_task_results(
-        [None, WebSocketDisconnect(1000), BackpressureError(), asyncio.CancelledError()]
+        [
+            None,
+            WebSocketDisconnect(1000),
+            BackpressureError(),
+            SubscriptionEnded("lost"),
+            asyncio.CancelledError(),
+        ]
     )
     with pytest.raises(RuntimeError, match="boom"):
         _raise_unexpected_task_results([RuntimeError("boom")])
@@ -774,7 +924,7 @@ def test_sse_rejects_a_ticket_that_fails_live_validation() -> None:
     from terp.core import AuthenticationError
 
     with pytest.raises(AuthenticationError):
-        subscribe_sse(channel.name, token)
+        asyncio.run(subscribe_sse(channel.name, token))
 
 
 def _app(principal: Principal):
@@ -819,12 +969,82 @@ def test_sse_ticket_endpoint_is_authenticated_and_single_use() -> None:
         # A real SSE response intentionally stays open, so exercise the route
         # boundary directly: first redemption returns the stream response;
         # replay is rejected before streaming begins.
-        response = subscribe_sse(channel.name, ticket)
+        response = asyncio.run(subscribe_sse(channel.name, ticket))
         assert response.media_type == "text/event-stream"
         from terp.core import AuthenticationError
 
         with pytest.raises(AuthenticationError):
-            subscribe_sse(channel.name, ticket)
+            asyncio.run(subscribe_sse(channel.name, ticket))
+
+
+class _SessionDouble:
+    def close(self) -> None:
+        return None
+
+
+def _mint(client: TestClient, channel: RealtimeChannel) -> str:
+    minted = client.post(
+        "/api/v1/realtime/tickets",
+        json={"channel": channel.name, "transport": channel.mode},
+    )
+    assert minted.status_code == 201, minted.text
+    return minted.json()["ticket"]
+
+
+def test_a_subscription_that_cannot_start_is_refused_not_reported_open() -> None:
+    # A 200 or an accepted socket tells the browser it is subscribed, and it resets its
+    # reconnect backoff on either. A broker that cannot subscribe must produce neither:
+    # SSE answers 503, and the socket closes 1013 (try again later) before any accept.
+    sse = register_channel(RealtimeChannel("notes.down", Notice))
+    live = register_channel(RealtimeChannel("notes.down-live", Notice, mode="websocket"))
+    configure_broker(_UnreachableBroker())
+    with TestClient(_app(_principal(EDITOR))) as client:
+        response = client.get(
+            f"/api/v1/realtime/sse/{sse.name}", params={"ticket": _mint(client, sse)}
+        )
+        assert response.status_code == 503
+        assert response.json()["code"] == "realtime_unavailable"
+
+        with pytest.raises(WebSocketDisconnect) as refused:
+            with client.websocket_connect(
+                f"/api/v1/realtime/ws/{live.name}?ticket={_mint(client, live)}"
+            ):
+                pass
+        assert refused.value.code == 1013
+
+    principal = _principal(EDITOR)
+    socket = _WebSocketDouble()
+    token = get_ticket_store().issue(
+        ConnectionTicket(principal, live.name, "websocket", audience=str(principal.id)),
+        ttl_seconds=30,
+    )
+    asyncio.run(subscribe_websocket(socket, live.name, token, _SessionDouble()))  # type: ignore[arg-type]
+    assert socket.accepted is False
+    assert socket.closed == [(1013, "realtime unavailable; try again later")]
+
+
+def test_a_missing_shared_broker_fails_the_handshake_instead_of_a_truncated_200() -> None:
+    # The promised shared broker was never installed: a wiring fault, so a 500 the server
+    # logs (the SSE ticket is spent either way) - never a 200 that ends at once.
+    sse = register_channel(RealtimeChannel("notes.unwired", Notice))
+    live = register_channel(RealtimeChannel("notes.unwired-live", Notice, mode="websocket"))
+    configure_realtime(require_shared_broker=True)
+    with TestClient(_app(_principal(EDITOR)), raise_server_exceptions=False) as client:
+        response = client.get(
+            f"/api/v1/realtime/sse/{sse.name}", params={"ticket": _mint(client, sse)}
+        )
+    assert response.status_code == 500
+    assert response.json()["code"] == "internal_error"
+
+    principal = _principal(EDITOR)
+    socket = _WebSocketDouble()
+    token = get_ticket_store().issue(
+        ConnectionTicket(principal, live.name, "websocket", audience=str(principal.id)),
+        ttl_seconds=30,
+    )
+    with pytest.raises(SharedBrokerRequiredError):
+        asyncio.run(subscribe_websocket(socket, live.name, token, _SessionDouble()))  # type: ignore[arg-type]
+    assert socket.accepted is False
 
 
 def test_websocket_bidirectional_round_trip_and_ticket_replay_refusal() -> None:
