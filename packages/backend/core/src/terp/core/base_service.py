@@ -436,6 +436,11 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         hand-writes no ownership check (the ``no_manual_ownership_checks`` rule forbids
         it). The check is keyed off the *entity* (``isinstance``), so a bespoke
         ``_save`` of a non-mapped stand-in is unaffected.
+
+        So is reference scope (ADR 0178), though not here: every flush holds the references
+        it writes to the target's row scope (another tenant's row, or a soft-deleted one,
+        fails exactly as a missing one does), so the flush below enforces it for this write
+        and for any other the unit carries.
         """
         if isinstance(entity, ActorStampedMixin):
             actor = audit_actor_ctx.get()

@@ -27,6 +27,9 @@ And a vendor SDK's traffic met neither the egress allowlist nor the SSRF denylis
 build-time rule reads only the app's own imports. The declaration can now be held at the socket,
 for every library that reaches the network through Python's `socket` module (ADR 0177).
 
+And a write could point a reference at a row its author could never read: another tenant's,
+or a soft-deleted one. The write chokepoint now holds references to the same row scope the reads
+obey (ADR 0178).
 ### Added
 
 - **`RedisRealtimeBroker`, a realtime broker shared across processes (ADR 0176).** It ships in
@@ -108,6 +111,17 @@ for every library that reaches the network through Python's `socket` module (ADR
 - **The SSRF denylist covers IPv6 site-local space (`fec0::/10`).** It is deprecated but still
   routable, and `ipaddress` does not count it as private, so an egress client call or a webhook
   delivery to it passed the check.
+- **A reference stays inside the writer's row scope (ADR 0178).** Every flush looks up every
+  reference it writes (all of them on an insert, the changed ones on an update) under the target
+  model's row scope: soft delete, tenancy, and an opt-in owner read scope. It runs at the flush,
+  so an autoflush or a sibling's commit cannot carry a reference past it, and a target inserted
+  earlier in the same unit is found. Before, a row
+  in one tenant could be written pointing at a row in another, because the foreign key only
+  checks that the target exists. An out-of-scope target now fails exactly like a missing one,
+  with the same 409 `ConflictError` in the same words, so the refusal does not reveal which rows
+  exist elsewhere; the reason is in `log_context` only. An untouched pointer to a row that has
+  since been soft-deleted does not block an unrelated edit. A target with no scope is left to the
+  foreign key, with no extra query.
 
 ### Upgrade notes
 
@@ -141,6 +155,12 @@ for every library that reaches the network through Python's `socket` module (ADR
   and run its worker and scheduler with `asyncio.run`: `uvicorn[standard]` picks uvloop by
   default, which the guard cannot see, so it refuses to start beside it. Nothing changes for an
   app that does not install it.
+- **A write that points a reference out of its scope now fails with a 409.** That includes
+  another tenant's row, a soft-deleted row, and, with `register_owner_read_scope`, another
+  user's owned row. Such a write always pointed at something its author could not read. Code
+  that did it on purpose, such as a seed linking rows across tenants or a job that runs with no
+  tenant bound, sets the right `tenant_context` for each write. The 409 is worded like a missing
+  target, on purpose; the log names `reference_out_of_scope`.
 
 ## 0.32.0 — 2026-10-05
 

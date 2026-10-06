@@ -683,6 +683,11 @@ Stored references (Ref + OnDelete)
   chosen), and a database reports its default action as absent rather than as the
   words NO ACTION -- which is why emitting the literal would make every
   model-versus-database comparison report drift on that constraint forever.
+- A reference you WRITE must point at a row you could READ. The foreign key checks that
+  the target exists; every flush also checks it against the target's row scope
+  (tenancy, soft-delete, an owner read scope), on insert and whenever an update changes
+  the reference - however the flush is reached, an autoflush included. Out of scope
+  reads exactly like missing: the same 409.
 - Ref() forwards everything else to Field(), and indexes by default: an unindexed
   foreign key turns every parent delete and every join into a table scan.
       owner_id: uuid.UUID | None = Ref("user.id", on_delete=OnDelete.SET_NULL,
@@ -1007,6 +1012,11 @@ Multi-tenant rows (tenancy capability)
       class Doc(BaseTable, TenantScopedMixin, table=True): ...
       class DocService(TenantScopedService[Doc, DocCreate, DocUpdate]): model = Doc
 - Never filter tenant_id by hand — the framework owns the predicate (the gate forbids it).
+- A reference stays inside its tenant. Every flush checks each Ref it writes against
+  the target model's row scope, so a row cannot point at another
+  tenant's row (nor at a soft-deleted one): the write fails with the same 409 a missing
+  target gets, and says nothing about the other tenant. Nothing to wire - it follows from
+  the predicate the mixin registers.
 - The current tenant comes from the request (TenantMiddleware binds the JWT `tenant`
   claim); in tests use tenant_context(tenant_id).
 - Wire it through the create_app middleware seam — never add_middleware (the gate
