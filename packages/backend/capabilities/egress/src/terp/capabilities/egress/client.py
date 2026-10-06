@@ -249,6 +249,21 @@ class EgressClient:
                 self._policy.timeout_seconds,
                 self._policy.max_response_bytes,
             )
+        except EgressRefusedError:
+            # The egress guard refused the connection the transport opened (ADR 0177). That
+            # is the declaration saying no, so it is observed and raised as a refusal, never
+            # wrapped as a failure of the far end.
+            self._observe(
+                EgressAttempt(
+                    method=method.upper(),
+                    host=target.host,
+                    status_code=None,
+                    duration_seconds=self._clock() - started,
+                    response_bytes=0,
+                    refused=True,
+                )
+            )
+            raise
         except EgressFailedError:
             self._observe(
                 EgressAttempt(

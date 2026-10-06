@@ -1594,6 +1594,26 @@ Using capabilities
   and egress auditing attach. A sanctioned internal target is a declared
   `allow_private_addresses=True`, visible in the composition root, never a quiet
   exception inside the client.
+- A vendor SDK builds its own HTTP client, so neither the rule (it reads YOUR imports)
+  nor EgressClient sees its traffic. Hold the whole process to the declaration at the
+  socket, in the composition root the web process and the worker both run:
+      install_egress_guard(EgressGuard.for_policies(
+          rates_policy,                              # every EgressPolicy you declared
+          hosts=("api.vendor.example",),             # what an SDK calls, by exact name
+          infrastructure=("db", "redis", "smtp.relay.internal"),  # names, IPs or CIDRs
+      ))
+  It holds what goes through Python's socket module on IPv4/IPv6, whichever library
+  calls it: a lookup of an undeclared name (getaddrinfo, gethostbyname) is refused
+  before it is made, and a connect or datagram into a private / loopback / link-local /
+  metadata range is refused unless it is declared infrastructure; a peer given by name
+  (localhost too) is resolved and every address held. The refusal is EgressRefusedError
+  (502); under an async client it can arrive inside an ExceptionGroup. It cannot see
+  uvloop, so it refuses to install beside it and refuses `import uvloop` after it: run
+  uvicorn with --loop asyncio (uvicorn[standard] picks uvloop otherwise), and a worker
+  or scheduler with asyncio.run. Native drivers that open their own sockets (libpq,
+  gRPC's C core) are invisible to it and a public IP literal passes; the deployment's
+  network policy holds those. Built for Linux: on Windows asyncio's socketpair connects
+  to loopback, so a new event loop is refused unless loopback is declared.
 - Credentials never live in module source: a credential-shaped assignment (password,
   api_key, token, ...) to a string literal — or a recognizable secret-token literal
   anywhere — is refused by the no_hardcoded_credentials rule. Wire secrets through
