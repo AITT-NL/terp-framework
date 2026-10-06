@@ -208,25 +208,31 @@ export function TrendChart({ label, series, comparison, mark = "line", format }:
           )}
         </span>
       </div>
-      {/* Named by the same caption rather than a <caption> of its own, so it is not read twice. */}
-      <table data-terp="chart-table" aria-labelledby={captionId}>
-        <thead>
-          <tr>
-            <td />
-            <th scope="col">{resolve(series.label)}</th>
-            {comparison !== undefined && <th scope="col">{resolve(comparison.label)}</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {indices.map((index) => (
-            <tr key={index}>
-              <th scope="row">{labelAt(index)}</th>
-              <td>{formatNumber(points[index]?.value, format)}</td>
-              {comparison !== undefined && <td>{formatNumber(earlier[index]?.value, format)}</td>}
+      {/* Named by the same caption rather than a <caption> of its own, so it is not read twice.
+          Hidden by a wrapper, never by the table itself: a table's width and height are
+          minimums, so the visually-hidden rule could not shrink one, and the full-size table
+          hung below the chart, stretched the page and let a page that fitted scroll. A block
+          takes the 1px box, and its overflow clip holds the table inside it. */}
+      <div data-terp="chart-table">
+        <table aria-labelledby={captionId}>
+          <thead>
+            <tr>
+              <td />
+              <th scope="col">{resolve(series.label)}</th>
+              {comparison !== undefined && <th scope="col">{resolve(comparison.label)}</th>}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {indices.map((index) => (
+              <tr key={index}>
+                <th scope="row">{labelAt(index)}</th>
+                <td>{formatNumber(points[index]?.value, format)}</td>
+                {comparison !== undefined && <td>{formatNumber(earlier[index]?.value, format)}</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }

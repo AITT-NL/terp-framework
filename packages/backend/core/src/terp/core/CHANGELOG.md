@@ -97,6 +97,14 @@ obey (ADR 0178).
 
 ### Fixed
 
+- **A chart's hidden table no longer makes a page scroll.** `TrendChart`'s data table, its words
+  for screen readers, is visually hidden, and the rule that hides it shrinks a box to 1px. A
+  table's width and height are minimums, so marked on the table itself it kept its full size:
+  placed absolutely below the chart, it stretched the document. A dashboard whose content fitted
+  the screen could scroll, and the shell's sticky sidebar scrolled away with it, leaving the
+  navigation short of the screen's bottom. The table is now hidden through a wrapper (the
+  `chart-table` marker sits on a `div` around it), which takes the 1px box and clips the table. A
+  computed check holds it: removing the hidden content no longer changes the page's height.
 - **A breadcrumb keeps what it knows (ADR 0173).** The trail remembers the label it showed at
   each path for as long as the app runs. A detail page whose record is still loading shows the
   name it had at that path: on a tab of the detail, on a return to it, and on the parent crumb one

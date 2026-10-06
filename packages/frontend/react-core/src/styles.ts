@@ -1996,7 +1996,13 @@ textarea[data-terp="input"] {
    and the nav labels in the icon rail, which were a style-object TERNARY before this —
    the component picked between two objects per render, and the collapsed branch was
    painted by nothing, because the rail state was internal and no specimen could reach it.
-   That is what defaultCollapsed is for. */
+   That is what defaultCollapsed is for.
+
+   Every element named here is a block or an inline box, never a table: a table's width and
+   height are minimums, so this rule cannot shrink one. A chart's data table is hidden through
+   its wrapper for that reason. Marked on the table itself, it kept its full size, hung below the
+   chart, stretched the document, and a page whose content fitted could scroll, carrying the
+   shell's sticky sidebar away with it. */
 [data-terp="appshell-skip-link"],
 [data-terp="drawer-focus-start"],
 [data-terp="drawer-focus-end"],
