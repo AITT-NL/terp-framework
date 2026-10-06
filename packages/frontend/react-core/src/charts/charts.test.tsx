@@ -80,6 +80,17 @@ describe("TrendChart", () => {
     { label: "W3", value: 180 },
   ];
 
+  it("hides its table through a block, which the visually-hidden rule can shrink", () => {
+    // A table's width and height are minimums, so marking the table itself left a full-size box
+    // hanging below the chart that stretched the page. Mutation: put the marker back on the
+    // <table>, and the hidden part is a table again.
+    renderIn("en", <TrendChart label="Rows synced" series={{ label: "This month", points: WEEKS }} />);
+    const hidden = part("chart-table")!;
+    expect(hidden.tagName).toBe("DIV");
+    expect(hidden.children).toHaveLength(1);
+    expect(hidden.firstElementChild?.tagName).toBe("TABLE");
+  });
+
   it("is a captioned figure whose picture is hidden and whose data is a table", () => {
     renderIn("en", <TrendChart label="Rows synced" series={{ label: "This month", points: WEEKS }} />);
     const figure = screen.getByRole("figure", { name: "Rows synced" });

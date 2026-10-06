@@ -1916,3 +1916,30 @@ test("a workspace's canvas takes the full track in a measured shell (ADR 0179)",
   // Mutation: drop canvas-host from the measure's :not(), and the canvas stops at 1280.
   expect(widths.host).toBe(widths.article);
 });
+
+test("a chart's hidden table takes no room on the page", async ({ page }) => {
+  // The chart's words for screen readers are visually hidden. The rule shrinks a box to 1px,
+  // and a table's width and height are minimums, so a hidden <table> kept its full size: placed
+  // absolutely below the chart it stretched the document, a page whose content fitted could
+  // scroll, and the shell's sticky sidebar scrolled away with it. Removing the hidden content
+  // must not change how tall the document is.
+  await page.goto("/?theme=midday&only=admin-hub");
+  await page.locator('[data-terp="trend-chart"]').first().waitFor({ state: "visible" });
+  const heights = await page.evaluate(() => {
+    const scroll = () => document.documentElement.scrollHeight;
+    const hidden = [...document.querySelectorAll('[data-terp="chart-table"]')];
+    const boxes = hidden.map((element) => {
+      const { width, height } = element.getBoundingClientRect();
+      return { width, height };
+    });
+    const before = scroll();
+    for (const element of hidden) element.remove();
+    return { count: hidden.length, boxes, before, after: scroll() };
+  });
+  expect(heights.count).toBeGreaterThan(0);
+  for (const box of heights.boxes) {
+    expect(box.width).toBeLessThanOrEqual(1);
+    expect(box.height).toBeLessThanOrEqual(1);
+  }
+  expect(heights.before).toBe(heights.after);
+});
