@@ -1163,7 +1163,8 @@ const randomUuidMessage =
 const deepImportMessage =
   "Import from the package root (@terpjs/react-core, @terpjs/contract), not its internals.";
 const styleImportMessage =
-  "Module-authored stylesheets are forbidden; theming flows from the design tokens " +
+  "App-authored stylesheets are forbidden, a library's included; theming flows from the " +
+  "design tokens, which only the bootstrap loads (tokens.css, house-style.css, theme.css), " +
   "and layout from the react-core components (Stack, the page archetypes).";
 
 /**
@@ -1187,7 +1188,7 @@ function restrictedSyntaxWithCatalogIds() {
     catalogId: "frontend/no-inline-styling",
     selector: `JSXAttribute[name.name='${attribute}']`,
     message:
-      `The ${attribute} attribute is forbidden in app modules; layout comes from the ` +
+      `The ${attribute} attribute is forbidden in app source; layout comes from the ` +
       "react-core components (Stack, Page, ...) and styling from the design tokens.",
   }));
   const inAppAnchors = BOUNDARY_SPEC.restrictInAppAnchors
@@ -1518,11 +1519,42 @@ function escapeHatchProcessor() {
 }
 
 /**
- * The Terp frontend boundary config (an ESLint flat-config array), scoped to app modules. Spread it
- * into a repo's `eslint.config.js`:
+ * The `no-restricted-imports` entry: deep imports are refused everywhere, and so is every
+ * stylesheet except the ones `allowedStylesheets` names. Negated patterns, so the allowance is
+ * an exact specifier and never a shape a library's stylesheet could also match.
+ */
+function restrictedImports(allowedStylesheets = []) {
+  return [
+    "error",
+    {
+      patterns: [
+        {
+          group: BOUNDARY_SPEC.internalImportPatterns,
+          message: deepImportMessage,
+        },
+        {
+          group: [
+            ...BOUNDARY_SPEC.styleImportPatterns,
+            ...allowedStylesheets.map((sheet) => `!${sheet}`),
+          ],
+          message: styleImportMessage,
+        },
+      ],
+    },
+  ];
+}
+
+/**
+ * The Terp frontend boundary config (an ESLint flat-config array) over all app-authored source.
+ * Spread it into a repo's `eslint.config.js`:
  *
  *   import terpBoundaries from "@terpjs/eslint-boundaries";
  *   export default [{ ignores: ["dist/**", "src/api/**"] }, ...terpBoundaries];
+ *
+ * One block holds every rule, over every file under `src/` (ADR 0175). It used to be two, and
+ * the structural and security rules sat in the second, scoped to `modules/`: a component beside
+ * the modules carried a stylesheet, `style`, `className`, a raw element and `eval` with no
+ * finding, and a module imported it. The bootstrap block after it widens one thing only.
  */
 export function terpBoundaries() {
   return [
@@ -1542,21 +1574,8 @@ export function terpBoundaries() {
       plugins: { terp: terpPlugin },
       rules: {
         "terp/locale-catalogs-complete": "error",
-        // Across src, not only modules: a replaced framework screen (a custom sign-in passed
-        // to renderTerpApp) can live beside the bootstrap, outside any module.
         "terp/no-framework-markers": "error",
         "terp/no-untranslated-ui": "error",
-      },
-    },
-    {
-      files: BOUNDARY_SPEC.moduleFiles,
-      linterOptions: { noInlineConfig: true },
-      languageOptions: {
-        parser: tseslint.parser,
-        parserOptions: { ecmaFeatures: { jsx: true }, sourceType: "module" },
-      },
-      plugins: { terp: terpPlugin },
-      rules: {
         "terp/layout-contract": "error",
         "terp/no-cross-module-imports": "error",
         "terp/no-dom-html-injection": "error",
@@ -1571,21 +1590,15 @@ export function terpBoundaries() {
             message: generatedClientMessage,
           })),
         ],
-        "no-restricted-imports": [
-          "error",
-          {
-            patterns: [
-              {
-                group: BOUNDARY_SPEC.internalImportPatterns,
-                message: deepImportMessage,
-              },
-              {
-                group: BOUNDARY_SPEC.styleImportPatterns,
-                message: styleImportMessage,
-              },
-            ],
-          },
-        ],
+        "no-restricted-imports": restrictedImports(),
+      },
+    },
+    {
+      // The bootstrap loads the token pipeline, which is three stylesheets, and nothing else
+      // changes for it: it is held to every other rule like any app file.
+      files: BOUNDARY_SPEC.bootstrapFiles,
+      rules: {
+        "no-restricted-imports": restrictedImports(BOUNDARY_SPEC.bootstrapStylesheets),
       },
     },
   ];

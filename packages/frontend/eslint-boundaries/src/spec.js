@@ -3,10 +3,11 @@
  * ./index.js realises them for the React stack; a future stack (e.g. Svelte) can realise the same
  * spec with its own adapter. The *rules* are shared; only the *enforcement adapter* is per-stack.
  *
- * Structural/security boundaries apply to `src/modules/**`; localization and the refusal of
- * react-core's `data-terp` markers apply to all app-authored `src/**`. Framework packages
- * legitimately define the primitives these rules point back to and are outside an app's
- * boundary config.
+ * Every rule applies to all app-authored `src/**` (ADR 0175): a rule's scope follows what it is
+ * about, and none of them is about a directory. The one rule that *is* about a module's shape,
+ * `no-cross-module-imports`, decides that for itself. The bootstrap is the one file that may
+ * import stylesheets, and only the token pipeline's own. Framework packages legitimately define
+ * the primitives these rules point back to and are outside an app's boundary config.
  */
 /**
  * The Terp Standard version this adapter is certified against — the `spec_version` a
@@ -21,12 +22,19 @@ export const SPEC_VERSION = "0.39.0";
 
 export const BOUNDARY_SPEC = {
   /**
-   * Every app-authored TypeScript source file: its user-facing copy must be cataloged, and it
-   * never writes react-core's markers.
+   * Every app-authored TypeScript source file, and so every file the boundary applies to. A
+   * module, a helper beside the modules and the bootstrap are held alike (ADR 0175).
    */
   appFiles: ["**/src/**/*.{ts,tsx}"],
-  /** App module files the boundary + frontend security defaults apply to. */
-  moduleFiles: ["**/modules/**/*.{ts,tsx}"],
+  /** The app's bootstrap: the file that mounts the app and loads the token pipeline. */
+  bootstrapFiles: ["**/src/main.{ts,tsx}"],
+  /**
+   * The stylesheets the bootstrap may import, and the only ones any app file may: the framework's
+   * tokens, the house style a tool manages and the app's own token overlay. Each is a layer of
+   * the token pipeline, so a stylesheet outside this list is a side channel around it, a
+   * library's included.
+   */
+  bootstrapStylesheets: ["@terpjs/contract/tokens.css", "./house-style.css", "./theme.css"],
   /**
    * Raw HTML elements an app module must not author directly, mapped to the token-styled
    * `@terpjs/react-core` replacement (accessible + theme-consistent by construction).
@@ -90,7 +98,7 @@ export const BOUNDARY_SPEC = {
   restrictInAppAnchors: true,
   /** Package internals an app module must not deep-import (import from the package root). */
   internalImportPatterns: ["@terpjs/*/src/*", "@terpjs/*/dist/*"],
-  /** Module-authored stylesheets are refused — theming flows from the app's token source. */
+  /** App-authored stylesheets are refused — theming flows from the app's token source. */
   styleImportPatterns: [
     "*.css",
     "**/*.css",

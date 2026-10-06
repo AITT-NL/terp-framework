@@ -18,7 +18,8 @@ fs.writeFileSync(
   JSON.stringify({ sourceLocale: "en", locales: { en: {} } }),
 );
 const MODULE_FILE = path.join(LINT_ROOT, "src/modules/widgets/Widget.tsx");
-const OUTSIDE_FILE = path.join(LINT_ROOT, "src/main.tsx");
+const BOOTSTRAP_FILE = path.join(LINT_ROOT, "src/main.tsx");
+const HELPER_FILE = path.join(LINT_ROOT, "src/diagram/Canvas.tsx");
 
 afterAll(() => fs.rmSync(LINT_ROOT, { recursive: true, force: true }));
 
@@ -341,11 +342,86 @@ describe("terpBoundaries", () => {
     expect(await lint(code)).toContain("no-restricted-imports");
   });
 
-  it("does not apply the module rules outside src/modules/", async () => {
-    // A non-module file matches no config block, so the boundary rules never fire on it.
-    const rules = await lint("export const W = () => <button>x</button>;", OUTSIDE_FILE);
-    expect(rules).not.toContain("no-restricted-syntax");
-    expect(rules).not.toContain("terp/no-cross-module-imports");
+  it("holds app source outside modules/ to the same boundary (ADR 0175)", async () => {
+    // The hole this closes: a component beside the modules, imported by one, carried a
+    // stylesheet, style, className, a raw element and the security sinks with no finding.
+    const code = [
+      'import "some-diagram-lib/dist/style.css";',
+      'import "./canvas.css";',
+      "export const load = () => fetch(\"/api/nodes\");",
+      "export const run = (code) => eval(code);",
+      "export const paint = (el, html) => { el.innerHTML = html; };",
+      "export const Canvas = ({ html }) => (",
+      '  <div style={{ height: 600 }} className="canvas">',
+      "    <button>x</button>",
+      "    <div dangerouslySetInnerHTML={{ __html: html }} />",
+      "  </div>",
+      ");",
+    ].join("\n");
+    const messages = await lintMessages(code, HELPER_FILE);
+    const rules = await lint(code, HELPER_FILE);
+    expect(rules.filter((rule) => rule === "no-restricted-imports")).toHaveLength(2);
+    expect(rules).toContain("no-restricted-globals");
+    expect(rules).toContain("terp/no-eval");
+    expect(rules).toContain("terp/no-dom-html-injection");
+    expect(messages.some((message) => message.startsWith("dangerouslySetInnerHTML"))).toBe(true);
+    expect(messages).toContain(
+      "The style attribute is forbidden in app source; layout comes from the react-core " +
+        "components (Stack, Page, ...) and styling from the design tokens.",
+    );
+    expect(messages.some((message) => message.startsWith("The className attribute"))).toBe(true);
+    expect(messages.some((message) => message.includes("Button"))).toBe(true);
+  });
+
+  it("keeps the module-shape rule to modules: a helper may be shared by several", async () => {
+    // no-cross-module-imports is about what a module is, so a file outside every module is
+    // not a module importing a sibling. Shared code beside the modules stays legitimate.
+    const code = 'import { W } from "./modules/widgets/Widget";\nexport const X = W;';
+    expect(await lint(code, HELPER_FILE)).not.toContain("terp/no-cross-module-imports");
+  });
+
+  it("lets the bootstrap import exactly the token pipeline's stylesheets", async () => {
+    const code = [
+      'import "@terpjs/contract/tokens.css";',
+      'import "./house-style.css";',
+      'import "./theme.css";',
+      "export {};",
+    ].join("\n");
+    expect(await lint(code, BOOTSTRAP_FILE)).toEqual([]);
+  });
+
+  it("refuses any other stylesheet in the bootstrap, a library's included", async () => {
+    for (const source of ["some-diagram-lib/dist/style.css", "./app.css", "./theme.scss"]) {
+      expect(await lint(`import "${source}";\nexport {};`, BOOTSTRAP_FILE)).toEqual([
+        "no-restricted-imports",
+      ]);
+    }
+  });
+
+  it("holds the bootstrap to every other rule", async () => {
+    const code = [
+      'import "./theme.css";',
+      "export const run = (code) => eval(code);",
+      "export const W = () => <button>x</button>;",
+    ].join("\n");
+    const rules = await lint(code, BOOTSTRAP_FILE);
+    expect(rules).toContain("terp/no-eval");
+    expect(rules).toContain("no-restricted-syntax");
+  });
+
+  it("lints the template's own bootstrap clean", async () => {
+    // The allowance is exactly as wide as the bootstrap a generated app starts from: a
+    // stylesheet the template adds is refused here before an app ever meets it.
+    const template = fs.readFileSync(
+      path.resolve("../../../template/project/frontend/src/main.tsx.jinja"),
+      "utf-8",
+    );
+    const rendered = template
+      .replaceAll("{{ project_name }}", "Demo")
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("{%"))
+      .join("\n");
+    expect(await lintMessages(rendered, BOOTSTRAP_FILE)).toEqual([]);
   });
 
   it("suppresses a violation with a justified terp-allow marker on the line above", async () => {

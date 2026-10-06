@@ -155,9 +155,12 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   it. An app ships on one with `defaultTheme` — never by restyling to imitate it. Every theme
   is a complete colour set held to WCAG AA on every declared text pairing (`contrast` to AAA);
   geometry is declared once in `:root` and inherited.
-- **No `style={}`, no `className`, no module-authored stylesheets in app modules** — layout
+- **No `style={}`, no `className`, no stylesheets anywhere in app source** — layout
   comes from the react-core primitives (`Stack`, `Grid`, `DetailList`, the page archetypes);
-  theming from the token source.
+  theming from the token source. Every boundary rule covers all of `src/`, not only
+  `src/modules/` (ADR 0175): a component beside the modules is held exactly like one inside.
+  The bootstrap (`src/main.tsx`) is the one file that imports stylesheets, and only the token
+  pipeline's three: `@terpjs/contract/tokens.css`, `./house-style.css` and `./theme.css`.
 - **Nav and route visibility is declarative data, not a predicate** — `NavItem` and
   `ModuleRoute` take `role` and `permission`, ANDed and fail-closed, resolved by the adapter
   against what `/me` returns. A function on the manifest would not survive the boundary: it is
