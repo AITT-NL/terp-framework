@@ -1579,6 +1579,19 @@ Using capabilities
   and egress auditing attach. A sanctioned internal target is a declared
   `allow_private_addresses=True`, visible in the composition root, never a quiet
   exception inside the client.
+- A vendor SDK builds its own HTTP client, so neither the rule (it reads YOUR imports)
+  nor EgressClient sees its traffic. Hold the whole process to the declaration at the
+  socket, in the composition root the web process and the worker both run:
+      install_egress_guard(EgressGuard.for_policies(
+          rates_policy,                              # every EgressPolicy you declared
+          hosts=("api.vendor.example",),             # what an SDK calls, by exact name
+          infrastructure=("db", "redis", "smtp.relay.internal"),  # names, IPs or CIDRs
+      ))
+  A lookup of an undeclared name is refused before it resolves, and a connection into a
+  private / loopback / link-local / metadata range is refused unless it is declared
+  infrastructure - whichever library makes it (EgressRefusedError, 502). Native drivers
+  that open their own sockets (libpq, gRPC's C core) are invisible to it; the
+  deployment's network policy holds those.
 - Credentials never live in module source: a credential-shaped assignment (password,
   api_key, token, ...) to a string literal — or a recognizable secret-token literal
   anywhere — is refused by the no_hardcoded_credentials rule. Wire secrets through

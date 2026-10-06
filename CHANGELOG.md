@@ -19,6 +19,23 @@ a section ended with the same room a card left its neighbour; sections stand fur
 (ADR 0174). And the breadcrumb rebuilt its labels on every navigation, so a detail page printed
 its parent's name and then its own; the trail keeps what it knows now (ADR 0173).
 
+And a vendor SDK's traffic met neither the egress allowlist nor the SSRF denylist, because the
+build-time rule reads only the app's own imports. The declaration can now be held at the socket,
+for every library in the process (ADR 0177).
+
+### Added
+
+- **`install_egress_guard`: the egress declaration held at the socket (ADR 0177).** A Python
+  audit hook holds every library in the process to `EgressGuard(hosts=..., infrastructure=...)`.
+  A lookup of an undeclared hostname is refused before it resolves. A connection or datagram into
+  a private, loopback, link-local or metadata range is refused unless it is declared
+  infrastructure (a hostname, an IP literal or a CIDR). The refusal is `EgressRefusedError`, the
+  egress client's 502, and deliberately not an `OSError`, so a library's own connection-error
+  handling does not swallow it. `EgressGuard.for_policies(...)` builds the guard from the declared
+  policies, and a policy with `allow_private_addresses` contributes its hosts as infrastructure.
+  Native drivers that open their own sockets (libpq, gRPC's C core) raise no Python event and are
+  out of its reach.
+
 ### Changed
 
 - **A block at rest is flat (ADR 0172).** A card, a hub card, a figure (the headline too), a
@@ -56,6 +73,12 @@ its parent's name and then its own; the trail keeps what it knows now (ADR 0173)
   hatch, follows it to `--space-6`. A section's title belongs to its block (a `Card`'s or a
   `DataView`'s `title`): a loose `Heading` as a body child of its own sits a section gap from what
   it names.
+- **An app that calls a vendor SDK installs the egress guard.** In the composition root that the
+  web process and the worker both run:
+  `install_egress_guard(EgressGuard.for_policies(*policies, hosts=(sdk hosts), infrastructure=(db, redis, relay)))`.
+  Everything the process reaches must then be declared, its own infrastructure included, so
+  declare it before switching the guard on in production. Nothing changes for an app that does
+  not install it.
 
 ## 0.32.0 — 2026-10-05
 
