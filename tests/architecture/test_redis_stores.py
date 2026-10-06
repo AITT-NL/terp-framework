@@ -8,6 +8,7 @@ shared-store boot markers are asserted through the public kernel predicates.
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import importlib
 import pathlib
@@ -26,11 +27,21 @@ from terp.capabilities.redis import (
     RedisConnectionTicketStore,
     RedisIdempotencyStore,
     RedisOIDCStateStore,
+    RedisRealtimeBroker,
     RedisStoreBundle,
     RedisThrottleStore,
 )
 from terp.capabilities.oidc import OIDCStateStore
-from terp.capabilities.realtime import ConnectionTicket
+from terp.capabilities.realtime import (
+    ConnectionTicket,
+    InMemoryRealtimeBroker,
+    SubscriptionEnded,
+    configure_broker,
+    configure_realtime,
+    get_broker,
+    is_shared_broker,
+    reset_realtime_configuration,
+)
 from terp.capabilities.redis import stores as redis_stores
 from terp.core import (
     EDITOR,
@@ -179,6 +190,8 @@ def test_from_url_constructors_create_clients_without_connecting() -> None:
     assert RedisThrottleStore.from_url("redis://localhost/0")
     assert RedisCacheStore.from_url("redis://localhost/0")
     assert RedisConnectionTicketStore.from_url("redis://localhost/0")
+    assert RedisRealtimeBroker.from_url("redis://localhost/0")
+    assert redis_stores._async_client_from_url("redis://localhost/0")
     assert RedisStoreBundle.from_url("redis://localhost/0")
 
 
@@ -290,6 +303,153 @@ def test_redis_realtime_ticket_is_atomic_single_use_exact_match_and_ttl_bounded(
         store.issue(ticket, ttl_seconds=0)
 
 
+class _FakePubSubServer:
+    """One Redis server's pub/sub, shared by every client a test builds over it.
+
+    ``publish`` arrives on a worker thread (the broker runs the synchronous client
+    through ``asyncio.to_thread``), so delivery crosses into each subscriber's loop
+    the way a socket read would.
+    """
+
+    def __init__(self) -> None:
+        self.channels: dict[str, list[_FakePubSub]] = {}
+        self.published: list[tuple[str, str]] = []
+
+    def publish(self, key: str, payload: str) -> int:
+        self.published.append((key, payload))
+        subscribers = list(self.channels.get(key, ()))
+        for pubsub in subscribers:
+            pubsub.deliver({"type": "message", "channel": key.encode(), "data": payload.encode()})
+        return len(subscribers)
+
+
+class _FakePubSub:
+    def __init__(self, server: _FakePubSubServer) -> None:
+        self.server = server
+        self.keys: list[str] = []
+        self.closed = False
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._inbox: asyncio.Queue[object] | None = None
+
+    async def subscribe(self, key: str) -> None:
+        self._loop = asyncio.get_running_loop()
+        self._inbox = asyncio.Queue()
+        self.keys.append(key)
+        self.server.channels.setdefault(key, []).append(self)
+
+    def deliver(self, item: object) -> None:
+        assert self._loop is not None and self._inbox is not None
+        self._loop.call_soon_threadsafe(self._inbox.put_nowait, item)
+
+    async def listen(self):
+        assert self._inbox is not None
+        while True:
+            item = await self._inbox.get()
+            if isinstance(item, BaseException):
+                raise item
+            yield item
+
+    async def aclose(self) -> None:
+        self.closed = True
+        for key in self.keys:
+            self.server.channels[key].remove(self)
+
+
+class _FakeSubscriberClient:
+    def __init__(self, server: _FakePubSubServer) -> None:
+        self.server = server
+        self.pubsubs: list[_FakePubSub] = []
+        self.closed = False
+
+    def pubsub(self, *, ignore_subscribe_messages: bool) -> _FakePubSub:
+        assert ignore_subscribe_messages is True
+        pubsub = _FakePubSub(self.server)
+        self.pubsubs.append(pubsub)
+        return pubsub
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+async def _subscribed(server: _FakePubSubServer, key: str) -> _FakePubSub:
+    while not server.channels.get(key):
+        await asyncio.sleep(0)
+    return server.channels[key][-1]
+
+
+def test_redis_realtime_broker_carries_a_publish_from_one_process_to_another() -> None:
+    # Two brokers over one server stand for two processes: a web replica holding the
+    # browser's subscription, and a job worker that serves no transport and publishes.
+    server = _FakePubSubServer()
+    web_clients: list[_FakeSubscriberClient] = []
+
+    def web_subscriber() -> _FakeSubscriberClient:
+        client = _FakeSubscriberClient(server)
+        web_clients.append(client)
+        return client
+
+    web = RedisRealtimeBroker(server, subscriber_factory=web_subscriber, namespace="t")
+    worker = RedisRealtimeBroker(server, subscriber_factory=lambda: None, namespace="t")
+    assert is_shared_broker(web) and is_shared_broker(worker)
+    key = "t:realtime:notes\x00user-a"
+
+    async def exercise() -> None:
+        stream = web.stream("notes\x00user-a").__aiter__()
+        pending = asyncio.create_task(anext(stream))
+        pubsub = await _subscribed(server, key)
+        pubsub.deliver({"type": "pong", "data": b""})  # not a message: never yielded
+        await worker.publish("notes\x00user-b", "another audience")
+        await worker.publish("notes\x00user-a", '{"sequence":1}')
+        assert await pending == '{"sequence":1}'
+        await stream.aclose()
+
+    asyncio.run(exercise())
+    assert server.published == [
+        ("t:realtime:notes\x00user-b", "another audience"),
+        (key, '{"sequence":1}'),
+    ]
+    (client,) = web_clients
+    assert client.closed and client.pubsubs[0].closed
+    assert server.channels[key] == []
+
+
+def test_redis_realtime_broker_ends_a_subscription_its_connection_lost() -> None:
+    server = _FakePubSubServer()
+    clients: list[_FakeSubscriberClient] = []
+
+    def subscriber() -> _FakeSubscriberClient:
+        clients.append(_FakeSubscriberClient(server))
+        return clients[-1]
+
+    broker = RedisRealtimeBroker(server, subscriber_factory=subscriber)
+    lost = redis_stores._redis().exceptions.ConnectionError("Connection reset by peer")
+
+    async def exercise() -> None:
+        stream = broker.stream("notes\x00user-a").__aiter__()
+        pending = asyncio.create_task(anext(stream))
+        pubsub = await _subscribed(server, "terp:realtime:notes\x00user-a")
+        pubsub.deliver(lost)
+        with pytest.raises(SubscriptionEnded) as raised:
+            await pending
+        assert raised.value.__cause__ is lost
+
+    asyncio.run(exercise())
+    assert clients[0].closed and clients[0].pubsubs[0].closed
+
+
+def test_redis_realtime_broker_satisfies_a_promised_shared_broker() -> None:
+    try:
+        configure_realtime(require_shared_broker=True)
+        broker = RedisRealtimeBroker(_FakePubSubServer(), subscriber_factory=lambda: None)
+        configure_broker(broker)
+        assert get_broker() is broker
+    finally:
+        configure_broker(None)
+        reset_realtime_configuration()
+    assert isinstance(get_broker(), InMemoryRealtimeBroker)
+    configure_broker(None)
+
+
 def test_redis_oidc_state_is_shared_single_use_provider_matched_and_ttl_bounded() -> None:
     client = _FakeRedis(bytes_mode=False)
     store = RedisOIDCStateStore(client)
@@ -336,6 +496,7 @@ def test_package_root_lazily_resolves_extra_exports_and_refuses_unknown_names() 
     import terp.capabilities.redis as redis_pkg
 
     assert redis_pkg.RedisConnectionTicketStore is RedisConnectionTicketStore
+    assert redis_pkg.RedisRealtimeBroker is RedisRealtimeBroker
     assert redis_pkg.RedisOIDCStateStore is RedisOIDCStateStore
     with pytest.raises(AttributeError, match="Nope"):
         _ = redis_pkg.Nope
@@ -424,5 +585,5 @@ def test_public_module_exports_are_complete() -> None:
 
     assert set(redis_pkg.__all__) == set(exported)
     assert redis_stores.RedisConnectionTicketStore is RedisConnectionTicketStore
-    assert redis_realtime.__all__ == ["RedisConnectionTicketStore"]
+    assert redis_realtime.__all__ == ["RedisConnectionTicketStore", "RedisRealtimeBroker"]
     assert redis_oidc.__all__ == ["RedisOIDCStateStore"]

@@ -36,7 +36,7 @@ Built capabilities (design §3.1, §6):
 | **mail** (library; outbound e-mail through one declared relay — encrypted and certificate-verified, a fixed sender, delivered by the jobs seam so a send commits with its write, ADR 0150) | `terp-cap-mail` | `terp.capabilities.mail` |
 | **leases** (library; expiring, fenced custody of work + the stale-claim reaper, ADR 0095) | `terp-cap-leases` | `terp.capabilities.leases` |
 | **sync** (data synchronisation) | `terp-cap-sync` | `terp.capabilities.sync` |
-| **redis** (shared Idempotency/Throttle/Cache stores, ADR 0078; realtime tickets / OIDC state behind `[realtime]` / `[oidc]`, or both with `[all]`) | `terp-cap-redis` | `terp.capabilities.redis` |
+| **redis** (shared Idempotency/Throttle/Cache stores, ADR 0078; realtime tickets and the cross-process realtime broker (ADR 0176) / OIDC state behind `[realtime]` / `[oidc]`, or both with `[all]`) | `terp-cap-redis` | `terp.capabilities.redis` |
 | **jobs_celery** (Celery job backend) | `terp-cap-jobs-celery` | `terp.capabilities.jobs_celery` |
 | **scheduler_apscheduler** (APScheduler backend) | `terp-cap-scheduler-apscheduler` | `terp.capabilities.scheduler_apscheduler` |
 | **scheduler_celery_beat** (Celery beat backend) | `terp-cap-scheduler-celery-beat` | `terp.capabilities.scheduler_celery_beat` |

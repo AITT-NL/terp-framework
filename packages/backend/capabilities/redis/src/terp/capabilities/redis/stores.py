@@ -83,11 +83,26 @@ end
 return {count, ttl}
 """
 
-def _client_from_url(url: str) -> Any:
-    """Construct a redis-py client lazily so importing the adapter stays lightweight."""
-    from redis import Redis  # arch-allow-no-adhoc-background-runtime: this capability IS the Redis adapter for shared store seams — the one governed place the engine is imported
+def _redis() -> Any:
+    """Import redis-py lazily so importing the adapter stays lightweight.
 
-    return Redis.from_url(url)
+    One import serves both clients: ``redis.asyncio`` binds ``redis`` with it, so the
+    synchronous client, the asyncio client a realtime subscriber needs and the
+    exception types all come from this one governed line.
+    """
+    import redis.asyncio  # arch-allow-no-adhoc-background-runtime: this capability IS the Redis adapter for shared store seams — the one governed place the engine is imported
+
+    return redis
+
+
+def _client_from_url(url: str) -> Any:
+    """Construct a synchronous redis-py client."""
+    return _redis().Redis.from_url(url)
+
+
+def _async_client_from_url(url: str) -> Any:
+    """Construct an asyncio redis-py client; it belongs to the loop that first uses it."""
+    return _redis().asyncio.Redis.from_url(url)
 
 
 def _text(value: object) -> str:

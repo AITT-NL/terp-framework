@@ -19,6 +19,27 @@ a section ended with the same room a card left its neighbour; sections stand fur
 (ADR 0174). And the breadcrumb rebuilt its labels on every navigation, so a detail page printed
 its parent's name and then its own; the trail keeps what it knows now (ADR 0173).
 
+And realtime reached only the process that published. A job handler in `terp jobs worker`
+published to nobody, even with one web replica. There is a shared broker now, and a promise that
+refuses the per-process one (ADR 0176).
+
+### Added
+
+- **`RedisRealtimeBroker`, a realtime broker shared across processes (ADR 0176).** It ships in
+  `terp-cap-redis[realtime]`, beside `RedisConnectionTicketStore`. A publish goes to Redis
+  pub/sub, and every process holding a subscriber on that topic receives it: another replica's,
+  or the web process's when a job handler in `terp jobs worker` published. Each subscriber holds
+  its own pub/sub connection while its transport is open. Redis drops one that falls too far
+  behind, and the stream then ends as `SubscriptionEnded`, so the transport closes and the
+  browser reconnects. Delivery stays fire-and-forget, as in process.
+- **`configure_realtime(require_shared_broker=True)`.** It promises that a publish in any process
+  reaches a subscriber in any other. A per-process broker is refused at once if it is installed
+  before or after the promise. The lazy default is refused at its first use, so a missing
+  `configure_broker` fails the first publish instead of dropping it. `mark_shared_broker` and
+  `is_shared_broker` follow core's `mark_shared_*` markers, for an app's own adapter.
+- **`SubscriptionEnded`.** The broker ended a subscription and its client must reconnect.
+  `BackpressureError` is now one kind of it, and the transports close on either.
+
 ### Changed
 
 - **A block at rest is flat (ADR 0172).** A card, a hub card, a figure (the headline too), a
@@ -41,6 +62,10 @@ its parent's name and then its own; the trail keeps what it knows now (ADR 0173)
   parent's name. A crumb whose label arrives changes its words in place, and going one level
   deeper only adds a crumb. The packaged user and group details no longer title themselves with
   their parent while they load.
+- **`terp guide realtime` says when the per-process default breaks.** It said "when you run more
+  than one replica". It breaks with one replica too, once a job handler publishes from
+  `terp jobs worker`. The topic now says so, and shows the wiring: both Redis adapters and the
+  promise.
 
 ### Upgrade notes
 
@@ -56,6 +81,12 @@ its parent's name and then its own; the trail keeps what it knows now (ADR 0173)
   hatch, follows it to `--space-6`. A section's title belongs to its block (a `Card`'s or a
   `DataView`'s `title`): a loose `Heading` as a body child of its own sits a section gap from what
   it names.
+- **An app that publishes realtime messages from a job worker, or runs more than one replica,
+  wires the shared broker.** Install `terp-cap-redis[realtime]` and, in the composition root
+  the web process and the worker both run: `configure_broker(RedisRealtimeBroker.from_url(url))`,
+  `configure_ticket_store(RedisConnectionTicketStore.from_url(url))`, and
+  `configure_realtime(..., require_shared_broker=True)` where it runs as a deployment. Nothing
+  changes for an app that sets none of it.
 
 ## 0.32.0 — 2026-10-05
 

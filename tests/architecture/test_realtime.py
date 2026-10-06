@@ -32,6 +32,8 @@ from terp.capabilities.realtime import (
     InMemoryRealtimeBroker,
     RealtimeBroker,
     RealtimeChannel,
+    SharedBrokerRequiredError,
+    SubscriptionEnded,
     clear_channels,
     configure_broker,
     configure_realtime,
@@ -46,6 +48,8 @@ from terp.capabilities.realtime import (
     registered_channels,
     reset_realtime_configuration,
     global_audience,
+    is_shared_broker,
+    mark_shared_broker,
 )
 from terp.capabilities import realtime as realtime_package
 from terp.capabilities.realtime.router import TicketRequest, mint_ticket, subscribe_sse
@@ -166,6 +170,10 @@ def test_realtime_public_surface_and_module_posture_are_explicit() -> None:
         "configure_realtime",
         "configure_ticket_store",
         "global_audience",
+        "SubscriptionEnded",
+        "SharedBrokerRequiredError",
+        "is_shared_broker",
+        "mark_shared_broker",
     } <= set(realtime_package.__all__)
     assert module.name == "realtime" and module.router is not None
     assert module.policy is not None and module.policy.allows_public_writes
@@ -359,6 +367,52 @@ def test_broker_disconnects_a_slow_subscriber_on_overflow() -> None:
     broker.reset()
 
 
+def test_backpressure_is_one_way_a_subscription_ends() -> None:
+    # Transports close on SubscriptionEnded, so a shared broker that loses its
+    # connection ends a stream the same clean way a slow consumer does (ADR 0176).
+    assert issubclass(BackpressureError, SubscriptionEnded)
+
+
+def test_only_a_marked_broker_counts_as_shared() -> None:
+    assert is_shared_broker(InMemoryRealtimeBroker()) is False
+    assert is_shared_broker(None) is False
+    marked = _FiniteBroker()
+    assert mark_shared_broker(marked) is marked
+    assert is_shared_broker(marked) is True
+
+
+def test_a_promised_shared_broker_refuses_the_per_process_default_at_first_use() -> None:
+    # The forgotten wiring: nothing was installed, so the lazy default would publish
+    # into a process nobody subscribes in. The first use fails instead.
+    channel = register_channel(RealtimeChannel("notes.shared", Notice))
+    configure_realtime(require_shared_broker=True)
+    with pytest.raises(SharedBrokerRequiredError, match="RedisRealtimeBroker"):
+        get_broker()
+    with pytest.raises(SharedBrokerRequiredError):
+        asyncio.run(publish(channel, Notice(sequence=1, text="x"), audience="user-a"))
+    shared = mark_shared_broker(InMemoryRealtimeBroker())
+    configure_broker(shared)
+    assert get_broker() is shared
+    asyncio.run(publish(channel, Notice(sequence=2, text="y"), audience="user-a"))
+
+
+def test_a_promised_shared_broker_refuses_an_installed_per_process_one_at_once() -> None:
+    # Either order of wiring fails at composition, not at the first publish.
+    configure_broker(InMemoryRealtimeBroker())
+    with pytest.raises(SharedBrokerRequiredError, match="InMemoryRealtimeBroker"):
+        configure_realtime(require_shared_broker=True)
+
+    configure_broker(None)
+    configure_realtime(require_shared_broker=True)
+    with pytest.raises(SharedBrokerRequiredError):
+        configure_broker(InMemoryRealtimeBroker())
+    configure_broker(None)  # resetting stays allowed
+
+    reset_realtime_configuration()
+    configure_broker(InMemoryRealtimeBroker())
+    assert isinstance(get_broker(), InMemoryRealtimeBroker)
+
+
 class _WebSocketDouble:
     def __init__(self, messages: list[str] | None = None) -> None:
         self.messages = list(messages or [])
@@ -390,6 +444,23 @@ class _FiniteBroker(RealtimeBroker):
 
         async def values():
             yield '{"sequence":3,"text":"pushed"}'
+
+        return values()
+
+
+class _LostBroker(RealtimeBroker):
+    """A shared broker whose backend dropped the subscriber."""
+
+    async def publish(self, channel: str, payload: str) -> None:
+        del channel, payload
+
+    def stream(self, channel: str):
+        del channel
+
+        async def values():
+            if False:
+                yield ""
+            raise SubscriptionEnded("lost")
 
         return values()
 
@@ -452,6 +523,9 @@ def test_sse_protocol_strips_newlines_emits_payload_and_heartbeat() -> None:
         with pytest.raises(StopAsyncIteration):
             await anext(stream)
 
+    asyncio.run(backpressure())
+
+    configure_broker(_LostBroker())
     asyncio.run(backpressure())
 
     configure_broker(InMemoryRealtimeBroker())

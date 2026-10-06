@@ -38,9 +38,10 @@ from terp.core import (
 )
 
 from terp.capabilities.realtime.broker import (
-    BackpressureError,
+    SubscriptionEnded,
     audience_topic,
     get_broker,
+    require_shared_broker as _require_shared_broker,
 )
 from terp.capabilities.realtime.channel import RealtimeChannel, get_channel
 from terp.capabilities.realtime.operations import (
@@ -79,6 +80,7 @@ def configure_realtime(
     permission_enforcer: PermissionEnforcer | None = None,
     principal_validator: PrincipalValidator | None = None,
     message_session_provider: MessageSessionProvider | None = None,
+    require_shared_broker: bool = False,
 ) -> None:
     """Wire optional authorization/revocation seams at composition time.
 
@@ -87,9 +89,11 @@ def configure_realtime(
     long-lived connections at handshake/heartbeat/frame boundaries; without it,
     authority is the live principal captured by the 30-second ticket mint.
     ``message_session_provider`` supplies one fresh session per inbound frame;
-    the core request-session provider is the default.
+    the core request-session provider is the default. ``require_shared_broker``
+    promises a broker shared across processes and refuses a per-process one (ADR 0176).
     """
     global _permission_enforcer, _principal_validator, _message_session_provider
+    _require_shared_broker(require_shared_broker)
     _permission_enforcer = permission_enforcer
     _principal_validator = principal_validator
     _message_session_provider = message_session_provider
@@ -289,7 +293,7 @@ async def _sse_stream(
                 continue
             try:
                 payload = pending.result()
-            except (StopAsyncIteration, BackpressureError):
+            except (StopAsyncIteration, SubscriptionEnded):
                 return
             if not await _validate_live_async(ticket):
                 return
@@ -395,7 +399,7 @@ def _raise_unexpected_task_results(results: list[object]) -> None:
     for result in results:
         if isinstance(result, BaseException) and not isinstance(
             result,
-            (WebSocketDisconnect, BackpressureError, asyncio.CancelledError),
+            (WebSocketDisconnect, SubscriptionEnded, asyncio.CancelledError),
         ):
             raise result
 
