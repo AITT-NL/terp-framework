@@ -629,6 +629,8 @@ shipped as ADR 0170:
 - **The Studio's framework pin** still names 0.30.0. Moving it is the Studio's own change: its
   contrast audit expects the control outlines ADR 0170 fixed to fail.
 - [x] **0.32.0** carries ADR 0171's admin dashboard. Released 2026-10-05.
+- [x] **0.33.0** carries flat blocks at rest (ADR 0172), the wider section gap (ADR 0174) and
+  the trail that keeps what it knows (ADR 0173). Released 2026-10-06.
 
 ## Found along the way
 
