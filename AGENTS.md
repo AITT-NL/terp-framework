@@ -183,8 +183,10 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   the header, for an app whose destinations are few enough that permanent chrome is a tax. The
   header then takes the sidebar's surface, so an app's `--color-sidebar-*` still governs it.
 - **Every routed view renders a page archetype** (`Page` / `OverviewPage` / `DetailPage` /
-  `HubPage` / `DashboardPage` / `FormPage` / `SettingsPage` / `SplitPage`) — `buildAppRouter`
-  refuses an unframed view at runtime, fail closed.
+  `HubPage` / `DashboardPage` / `FormPage` / `SettingsPage` / `SplitPage` / `WorkspacePage`)
+  — `buildAppRouter` refuses an unframed view at runtime, fail closed. A screen whose work is a
+  surface (a diagram, a plan) is a `WorkspacePage`: its one `CanvasHost` fills the height the
+  shell leaves, so a canvas never needs a style to be sized (ADR 0179).
 - **Slot-typed layout contracts (opt-in, ADR 0079)** — an app that declares one once in
   `frontend/layout-contract.json` (the lint rule finds the file and `main.tsx` imports it)
   ratchets further: each archetype's body slot accepts only the contract's components (hub

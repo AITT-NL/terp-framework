@@ -34,6 +34,10 @@ And one hole in the frontend boundary. Its structural and security rules covered
 module tree, so a component beside the modules could import a stylesheet, set `style`, call
 `eval` and write `innerHTML` with no finding, and a module could render it. Every rule now
 covers all of `src/` (ADR 0175).
+And a canvas had nowhere to go. No page gave a diagram the height of the screen, so a
+diagram-first app could size one only with a style it may not write. `WorkspacePage` gives it
+that height (ADR 0179).
+
 ### Added
 
 - **`RedisRealtimeBroker`, a realtime broker shared across processes (ADR 0176).** It ships in
@@ -85,6 +89,22 @@ covers all of `src/` (ADR 0175).
   are out of its reach, a public IP literal passes, a connect by name reaches DNS before its
   event, and on Windows asyncio's `socketpair` connects to loopback, so a new event loop is
   refused there unless loopback is declared.
+- **`WorkspacePage` and `CanvasHost`: one canvas that fills the screen (ADR 0179).** A page
+  archetype for work done on a surface: a diagram of nodes and connections, a plan, a board. It
+  keeps the page band, and takes its trail as `parents`, as `DashboardPage` does. Below the
+  band, the body takes every pixel the shell leaves: the shell's main area becomes a flex column
+  only when it holds a workspace, so no other page changes. A loading, error or empty state in
+  the canvas's place fills the same box, so the frame does not jump when the canvas arrives.
+  Its slot admits one `CanvasHost`, a framework state and a `ConfirmDialog`. `CanvasHost` is a
+  named region painted from tokens, clipped, with a 24rem floor outside a shell. It draws its
+  one canvas child in an inner layer of a definite size, at 100% of it, so an `<svg>` scales by
+  its `viewBox` and a canvas library's root that sizes itself to its container gets all of it;
+  a second child would land below the first and be clipped. In a measured shell the host takes
+  the full track, as the page's bands do. A canvas that takes keyboard focus shows the
+  framework's focus ring on the host, where the clip cannot cut it away. A diagram drawn as an
+  svg painted through token attributes needs no style and no escape hatch. A canvas library's
+  own stylesheet is not covered: until the framework ships a bridge for one, it is a budgeted
+  `terp-allow-no-style-imports` marker.
 
 ### Changed
 

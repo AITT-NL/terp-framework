@@ -2665,9 +2665,14 @@ textarea[data-terp="input"] {
    As a width it composes instead of competing, because CSS resolves max-width AFTER width:
    min(100%, measure) caps a child that has no measure of its own, and a child that has one
    still wins with it. min() rather than a bare token so a track narrower than the measure is
-   untouched rather than overflowing. */
+   untouched rather than overflowing.
+
+   A workspace's canvas host is exempt as the bands are (ADR 0179): the measure exists for
+   reading, and a canvas is not read along a line. Capped, it stopped at the measure and sat
+   against the start of a wider track, with the band above running past it. Adding it to the
+   one :not() leaves the weight where it was, for the reason the summary band's entry does. */
 [data-terp="appshell"][data-content-width="measured"]
-  [data-terp="page"] > *:not([data-terp="page-header"], [data-terp="page-summary"]) {
+  [data-terp="page"] > *:not([data-terp="page-header"], [data-terp="page-summary"], [data-terp="canvas-host"]) {
   width: min(100%, var(--shell-content-max-width));
 }
 /* The reach-through, for the one body child that generates no box of its own. Markdown is
@@ -2828,6 +2833,81 @@ html:has([data-terp="page-sequence"]) {
    pushes the row past its track — the same floor Grid's cells carry, for the same reason. */
 [data-terp="splitpane"] {
   min-width: 0;
+}
+
+/* The workspace (ADR 0179) ------------------------------------------------ */
+/* One canvas that fills the screen. Every other page lays its body out as blocks that take
+   the height of their content; a canvas has none of its own and takes the box it is given, so
+   the box has to come from here or from an inline style app code may not write.
+
+   The same scoping the page-sequence bar uses: the shell's main area becomes a flex column
+   only when it holds a workspace, the page grows into it, and inside the page the host grows
+   into what the band and the summary leave. No other page changes. The page keeps its own gap,
+   because a flex column honours gap exactly as the grid did. */
+[data-terp="appshell-main"]:has(> [data-terp="page"][data-fill="workspace"]) {
+  display: flex;
+  flex-direction: column;
+}
+[data-terp="appshell-main"] > [data-terp="page"][data-fill="workspace"] {
+  flex-grow: 1;
+}
+[data-terp="page"][data-fill="workspace"] {
+  display: flex;
+  flex-direction: column;
+}
+[data-terp="page"][data-fill="workspace"] > [data-terp="canvas-host"] {
+  flex: 1 1 auto;
+}
+/* A state in the canvas's place takes the canvas's box: it grows as the host does, keeps the
+   host's floor, and centres its message in it. Otherwise the frame is a short block while the
+   canvas loads and jumps to the full height when it arrives. Only these three: an alert above
+   the canvas is a line of the page, and the canvas takes what it leaves. */
+[data-terp="page"][data-fill="workspace"] > [data-terp="loading-state"],
+[data-terp="page"][data-fill="workspace"] > [data-terp="error-state"],
+[data-terp="page"][data-fill="workspace"] > [data-terp="empty-state"] {
+  flex: 1 1 auto;
+  min-height: 24rem;
+  align-content: center;
+}
+/* The host is a block of the page, painted as one: the surface fill, and the hairline and
+   radius a card uses. It clips, so a canvas panned past its edge never paints over the band.
+   clip rather than hidden: hidden makes the host a scroll container, so focusing something on
+   the canvas near its edge could scroll the drawing inside its frame, and clip cannot. The
+   floor keeps a canvas a canvas where nothing gives it height: standalone, and on a viewport
+   shorter than the band plus the floor. */
+[data-terp="canvas-host"] {
+  position: relative;
+  min-height: 24rem;
+  min-width: 0;
+  overflow: clip;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+}
+/* The layer the canvas is drawn in, laid over the whole host, and the framework's own element.
+   The host's height comes from flex growth inside a column that is only min-height tall, so a
+   percentage height resolved against the HOST is not definite. Positioning the canvas itself
+   absolutely would sidestep that, but a canvas library's root is not ours to position: its
+   own sheet sizes it (commonly position: relative and a 100% size), and an unlayered sheet beats
+   every layered rule here. No library styles this layer, and an absolutely positioned box at
+   inset 0 has a definite size, so its child takes 100% of it in both directions and that
+   resolves: an svg fills it and scales its drawing by its viewBox, and a library root that
+   sizes itself to its container gets all of it.
+
+   The explicit 100% is there because an svg is a replaced element: given only a box to sit in,
+   it takes its width from the box and its height from its viewBox's ratio, so a wide diagram sat
+   at the top of a tall canvas instead of in its middle. The first recording of the workspace
+   baseline showed exactly that. Every child takes the whole layer, which is why the host takes
+   one: a second lands below the first and is clipped. A dialog is the exception, at its own
+   size, because an open modal one is in the top layer and a 100% height would stretch it over
+   the whole viewport. */
+[data-terp="canvas-host-layer"] {
+  position: absolute;
+  inset: 0;
+}
+[data-terp="canvas-host-layer"] > :not([data-terp="dialog"]) {
+  width: 100%;
+  height: 100%;
 }
 
 /* The sign-in screen ------------------------------------------------------- */
@@ -6281,6 +6361,17 @@ button[data-terp="input"][data-placeholder="true"] {
    through a series would get whatever ring the browser draws by default. */
 [data-terp="page-sequence-previous"] > a:focus-visible,
 [data-terp="page-sequence-next"] > a:focus-visible {
+  outline: 2px solid var(--color-fg-accent);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+/* The canvas's ring, drawn on its host (ADR 0179). A canvas that answers keys takes focus, and
+   it fills the host's layer edge to edge, so any ring drawn around it lies outside the host's
+   padding box and the host's clip cuts all of it away: a keyboard user on the canvas saw no
+   indicator at all. The host's own outline and shadow sit outside the box it clips, so the ring
+   moves there, the shared ring's declarations unchanged, while the canvas has keyboard focus. */
+[data-terp="canvas-host"]:has(> [data-terp="canvas-host-layer"] > :focus-visible) {
   outline: 2px solid var(--color-fg-accent);
   outline-offset: 1px;
   box-shadow: 0 0 0 3px var(--color-focus-ring);

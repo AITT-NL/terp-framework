@@ -270,7 +270,7 @@ compose the component that renders one. A framework screen you replace, such as 
 sign-in passed to `renderTerpApp({ login })`, is yours: its tests find it by role and
 accessible name, not by the markers the framework's screen carries. Every routed view
 renders a page archetype (`Page` / `OverviewPage` / `DetailPage` / `HubPage` /
-`DashboardPage` / `FormPage` / `SettingsPage` / `SplitPage`) — the router refuses an unframed view.
+`DashboardPage` / `FormPage` / `SettingsPage` / `SplitPage` / `WorkspacePage`) — the router refuses an unframed view.
 This app also opts into the **`standard` layout contract** (ADR 0079), declared once in
 `frontend/layout-contract.json` — the lint rule finds the file and `main.tsx` imports it,
 so there is nothing to keep in sync. The same file is where the app's shell shape
@@ -326,7 +326,8 @@ how the whole is doing, its figures in the band and sections of charts below, a
 `DashboardPage` — a landing that also carries the app's figures is one, as this app's own
 landing may be; one record a
 `DetailPage`; entering a record a `FormPage`; settings a `SettingsPage`; a list beside the
-record it selects a `SplitPage`; and a screen none of these fit, the plain `Page`.
+record it selects a `SplitPage`; work done on a surface (a diagram, a plan) a `WorkspacePage`,
+whose one `CanvasHost` fills the screen; and a screen none of these fit, the plain `Page`.
 
 **Alternate framed and unframed blocks.** The frame belongs to the data a reader works with:
 a collection, a chart and a lone figure sit on the surface, the collection brightest of all. A

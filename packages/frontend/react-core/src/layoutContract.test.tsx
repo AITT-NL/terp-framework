@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import * as lintLayouts from "../../eslint-boundaries/src/layouts.js";
 
 import { BarChart } from "./charts/BarChart";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { TrendChart } from "./charts/TrendChart";
 import { DashboardPage } from "./DashboardPage";
 import { DetailPage } from "./DetailPage";
@@ -32,6 +33,7 @@ import { Stat, StatGroup } from "./Stat";
 import { StatusHistory } from "./charts/StatusHistory";
 import { Badge } from "./ui/Badge";
 import { OverviewPage } from "./OverviewPage";
+import { CanvasHost, WorkspacePage } from "./WorkspacePage";
 
 // The public surface, as source: the archetype-coverage check below derives its list from
 // the entry point's own exports rather than restating one. `raw.d.ts` declares the ambient
@@ -185,6 +187,7 @@ describe("every archetype the package exports is governed, or says it is not", (
       "Page",
       "SettingsPage",
       "SplitPage",
+      "WorkspacePage",
     ]);
   });
 
@@ -432,10 +435,11 @@ describe("layout contract survives the roots the styling migration renames", () 
       ),
     );
     // The dashboard's body (ADR 0169 §4) added the figure and chart families -- the run history
-    // among the charts -- and the timeline.
+    // among the charts -- and the timeline. The workspace (ADR 0179) added its canvas host.
     expect([...named].sort()).toEqual([
       "alert",
       "bar-chart",
+      "canvas-host",
       "card",
       "dataview",
       "detail-list",
@@ -818,6 +822,63 @@ describe("the dashboard's body (ADR 0169 §4)", () => {
     await waitFor(() => {
       expect(screen.getByTestId("refused").textContent).toBe(
         slotViolationMessage("standard", "DashboardPage", "<div>"),
+      );
+    });
+  });
+});
+
+describe("the workspace's body (ADR 0179)", () => {
+  it("passes one canvas, whatever is drawn on it", async () => {
+    underContract(
+      <WorkspacePage title="Network">
+        <CanvasHost label="Network diagram">
+          {/* The host's subtree is the app's: an svg, or a canvas library's root. */}
+          <svg viewBox="0 0 100 100" role="img" aria-label="Two nodes">
+            <circle cx="20" cy="50" r="8" />
+          </svg>
+        </CanvasHost>
+      </WorkspacePage>,
+    );
+    await expectAccepted();
+  });
+
+  it("passes a framework state in the canvas's place", async () => {
+    underContract(
+      <WorkspacePage title="Network">
+        <EmptyState title="No nodes yet" />
+      </WorkspacePage>,
+    );
+    await expectAccepted();
+  });
+
+  it("passes a confirm dialog beside the canvas, for an action taken on it", async () => {
+    // Mutation: drop ConfirmDialog from the slot table, and deleting a node has nowhere to ask.
+    underContract(
+      <WorkspacePage title="Network">
+        <CanvasHost label="Network diagram">
+          <svg viewBox="0 0 100 100" role="img" aria-label="Two nodes" />
+        </CanvasHost>
+        <ConfirmDialog
+          open={false}
+          onOpenChange={() => {}}
+          onConfirm={() => {}}
+          title="Delete this node?"
+        />
+      </WorkspacePage>,
+    );
+    await expectAccepted();
+  });
+
+  it("refuses anything beside or instead of the canvas, with the directive message", async () => {
+    // Mutation: drop the WorkspacePage slot table, and the workspace's body is unconstrained.
+    underContract(
+      <WorkspacePage title="Network">
+        <div>a canvas sized by hand</div>
+      </WorkspacePage>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("refused").textContent).toBe(
+        slotViolationMessage("standard", "WorkspacePage", "<div>"),
       );
     });
   });
