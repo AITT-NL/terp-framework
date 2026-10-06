@@ -4,7 +4,7 @@ import path from "node:path";
 import { ESLint } from "eslint";
 import { afterAll, describe, expect, it } from "vitest";
 
-import terpBoundaries from "./index.js";
+import terpBoundaries, { catalogRuleId } from "./index.js";
 
 // The frontend analog of the arch harness's meta-tests: prove each boundary rule actually fires on
 // a violating fixture (and stays quiet on clean, out-of-module code), so "enforced" is real.
@@ -373,11 +373,69 @@ describe("terpBoundaries", () => {
     expect(messages.some((message) => message.includes("Button"))).toBe(true);
   });
 
-  it("keeps the module-shape rule to modules: a helper may be shared by several", async () => {
-    // no-cross-module-imports is about what a module is, so a file outside every module is
-    // not a module importing a sibling. Shared code beside the modules stays legitimate.
-    const code = 'import { W } from "./modules/widgets/Widget";\nexport const X = W;';
-    expect(await lint(code, HELPER_FILE)).not.toContain("terp/no-cross-module-imports");
+  it("holds every script extension under src, not only .ts and .tsx", async () => {
+    // Renaming a helper to .mts or .jsx must not take it out of the boundary.
+    const script = 'import "./canvas.css";\nexport const run = (code) => eval(code);';
+    for (const extension of ["mts", "cts", "js", "mjs", "cjs"]) {
+      const file = path.join(LINT_ROOT, `src/diagram/helper.${extension}`);
+      const rules = await lint(script, file);
+      expect(rules, extension).toContain("no-restricted-imports");
+      expect(rules, extension).toContain("terp/no-eval");
+    }
+    for (const extension of ["jsx", "tsx"]) {
+      const file = path.join(LINT_ROOT, `src/diagram/Canvas.${extension}`);
+      const rules = await lint(`${script}\nexport const W = () => <button>x</button>;`, file);
+      expect(rules, extension).toContain("no-restricted-imports");
+      expect(rules, extension).toContain("terp/no-eval");
+      expect(rules, extension).toContain("no-restricted-syntax");
+    }
+  });
+
+  it("refuses code outside every module importing into one (no laundering through shared code)", async () => {
+    // The route the module-to-module check never sees: a shared file re-exports a module's
+    // internals, and a sibling module imports the shared file instead of the module.
+    const bridge = path.join(LINT_ROOT, "src/shared/bridge.ts");
+    for (const code of [
+      'export { secret } from "../modules/billing/internal/secret";',
+      'export * from "../modules/billing/internal/secret";',
+      'import { secret } from "../modules/billing/internal/secret";\nexport const s = secret;',
+      'export const load = () => import("../modules/billing/internal/secret");',
+    ]) {
+      expect(await lint(code, bridge), code).toEqual(["terp/no-cross-module-imports"]);
+    }
+    expect(
+      await lintMessages('export { secret } from "../modules/billing/internal/secret";', bridge),
+    ).toEqual([
+      'Code outside every module must not import from module "billing"; modules depend on ' +
+        "shared code, never the other way round. Move what both need out of the module (or " +
+        "into the framework packages), or keep it inside the module.",
+    ]);
+    // A helper beside the modules is still shared code, whatever its folder is called.
+    expect(await lint('import { W } from "./modules/widgets/Widget";\nexport const X = W;', HELPER_FILE))
+      .toEqual(["terp/no-cross-module-imports"]);
+  });
+
+  it("lets a module import shared code beside the modules", async () => {
+    const orders = path.join(LINT_ROOT, "src/modules/orders/Orders.tsx");
+    const code = 'import { secret } from "../../shared/bridge";\nexport const s = secret;';
+    expect(await lint(code, orders)).toEqual([]);
+  });
+
+  it("still refuses a module importing a sibling module", async () => {
+    const orders = path.join(LINT_ROOT, "src/modules/orders/Orders.tsx");
+    const code = 'import { secret } from "../billing/internal/secret";\nexport const s = secret;';
+    expect(await lintMessages(code, orders)).toEqual([
+      'App module "orders" must not import sibling module "billing"; modules stay independent ' +
+        "(share through the framework packages, not each other).",
+    ]);
+  });
+
+  it("leaves the bootstrap's module discovery alone (import.meta.glob is not an import)", async () => {
+    const code = [
+      'import { renderTerpApp } from "@terpjs/react-core";',
+      'renderTerpApp({ modules: import.meta.glob("./modules/*/module.tsx", { eager: true }) });',
+    ].join("\n");
+    expect(await lint(code, BOOTSTRAP_FILE)).toEqual([]);
   });
 
   it("lets the bootstrap import exactly the token pipeline's stylesheets", async () => {
@@ -398,6 +456,111 @@ describe("terpBoundaries", () => {
     }
   });
 
+  it("allows the three by exact specifier, never by shape, query or letter case", async () => {
+    // Each of these is one edit away from an allowed specifier. An allowance written as a
+    // shape (`**/theme.css`), as a prefix, or matched case-insensitively would pass one.
+    for (const source of [
+      "./theme.css?inline",
+      "./theme.css?raw",
+      "./theme.css?url",
+      "../src/theme.css",
+      "./sub/theme.css",
+      "@terpjs/contract/tokens.css?url",
+      "some-lib/theme.css",
+      "some-lib/house-style.css",
+      "./THEME.css",
+      "./theme.CSS",
+      "./House-Style.css",
+      "@TERPJS/contract/tokens.css",
+    ]) {
+      const messages = await lintMessages(`import "${source}";\nexport {};`, BOOTSTRAP_FILE);
+      expect(messages, source).toHaveLength(1);
+      expect(messages[0], source).toContain(
+        "App-authored stylesheets are forbidden, a library's included",
+      );
+    }
+  });
+
+  it("gives the allowance to the bootstrap only, not to a file that imports the same sheet", async () => {
+    const helper = path.join(LINT_ROOT, "src/diagram/x.tsx");
+    expect(await lint('import "./theme.css";\nexport {};', helper)).toEqual([
+      "no-restricted-imports",
+    ]);
+  });
+
+  it("gives the allowance to the app's own src/main.tsx, not a nested one", async () => {
+    // `**/src/main.tsx` alone matches a main.tsx a module nests under a src/ of its own.
+    for (const nested of ["src/modules/w/src/main.tsx", "src/modules/src/main.tsx", "src/lib/src/main.tsx"]) {
+      expect(
+        await lint('import "./theme.css";\nexport {};', path.join(LINT_ROOT, nested)),
+        nested,
+      ).toEqual(["no-restricted-imports"]);
+    }
+  });
+
+  it("keeps refusing deep imports in the bootstrap", async () => {
+    // The bootstrap block replaces no-restricted-imports wholesale, so it must carry the
+    // deep-import group as well as its own stylesheet allowance.
+    const code = 'import "./theme.css";\nimport x from "@terpjs/react-core/src/x";\nexport { x };';
+    expect(await lintMessages(code, BOOTSTRAP_FILE)).toEqual([
+      expect.stringContaining(
+        "Import from the package root (@terpjs/react-core, @terpjs/contract), not its internals.",
+      ),
+    ]);
+  });
+
+  it("refuses a stylesheet in any letter case outside the bootstrap", async () => {
+    for (const source of ["./canvas.CSS", "./Canvas.Scss", "lib/STYLE.LESS?inline"]) {
+      expect(await lint(`import "${source}";\nexport {};`, HELPER_FILE), source).toEqual([
+        "no-restricted-imports",
+      ]);
+    }
+  });
+
+  it("refuses a stylesheet loaded through import() or import.meta.glob", async () => {
+    // Not an import declaration, so no-restricted-imports never sees it; the bundler loads
+    // the sheet all the same. Attributed to the same catalog rule as a static import.
+    for (const filePath of [HELPER_FILE, MODULE_FILE, BOOTSTRAP_FILE]) {
+      for (const code of [
+        'export const load = () => import("lib/style.css");',
+        'export const load = () => import("./theme.css");',
+        'export const load = () => import("./canvas.SCSS?inline");',
+        "export const load = (name) => import(`./themes/${name}.css`);",
+        'export const sheets = import.meta.glob("/x/*.css", { eager: true });',
+        'export const sheets = import.meta.glob("./styles/**/*.{css,scss}");',
+        'export const sheets = import.meta.glob(["./a/*.ts", "./b/*.less"]);',
+      ]) {
+        const messages = await lintMessages(code, filePath);
+        expect(messages, `${filePath}: ${code}`).toEqual([
+          expect.stringContaining("is a stylesheet import like any other"),
+        ]);
+        const eslint = new ESLint({ cwd: LINT_ROOT, overrideConfigFile: true, overrideConfig: terpBoundaries });
+        const [result] = await eslint.lintText(code, { filePath });
+        expect(result.messages.map(catalogRuleId), code).toEqual(["frontend/no-style-imports"]);
+      }
+    }
+  });
+
+  it("leaves import() and import.meta.glob of anything but a stylesheet alone", async () => {
+    for (const code of [
+      'export const load = () => import("./Widget");',
+      'export const load = (name) => import(`./widgets/${name}.tsx`);',
+      'export const all = import.meta.glob("./modules/*/module.tsx", { eager: true });',
+      'export const all = import.meta.glob(["./a/*.ts", "!**/*.css"]);',
+      'export const all = import.meta.glob("./docs/*.md", { query: "?raw" });',
+    ]) {
+      expect(await lint(code, HELPER_FILE), code).toEqual([]);
+    }
+  });
+
+  it("waives a dynamic stylesheet import with the same catalog marker as a static one", async () => {
+    const code = [
+      "// terp-allow-no-style-imports: print-only sheet loaded on demand",
+      'export const load = () => import("./print.css");',
+    ].join("\n");
+    expect(await lint(code, HELPER_FILE)).toEqual([]);
+  });
+
   it("holds the bootstrap to every other rule", async () => {
     const code = [
       'import "./theme.css";',
@@ -416,11 +579,14 @@ describe("terpBoundaries", () => {
       path.resolve("../../../template/project/frontend/src/main.tsx.jinja"),
       "utf-8",
     );
+    // Strip the Jinja tags and keep what they wrap, so every optional line is linted too;
+    // a tag left behind, or a placeholder this does not fill, fails here rather than parsing
+    // as something else.
     const rendered = template
       .replaceAll("{{ project_name }}", "Demo")
-      .split("\n")
-      .filter((line) => !line.trimStart().startsWith("{%"))
-      .join("\n");
+      .replace(/\{%-?[\s\S]*?-?%\}/g, "");
+    expect(rendered).not.toContain("{{");
+    expect(rendered).not.toContain("{%");
     expect(await lintMessages(rendered, BOOTSTRAP_FILE)).toEqual([]);
   });
 

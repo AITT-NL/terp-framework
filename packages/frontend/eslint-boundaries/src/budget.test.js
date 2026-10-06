@@ -68,6 +68,16 @@ describe("countMarkers", () => {
     expect(countMarkers(root)).toEqual({ "terp-allow-no-untranslated-ui": 1 });
   });
 
+  it("counts markers in every source extension the lint holds, not only .ts/.tsx", () => {
+    // The lint covers .mts/.cts/.js/.jsx/.mjs/.cjs under src (ADR 0175); a marker in one of
+    // them waives a real finding, so the ratchet has to see it or it is an unbudgeted waiver.
+    const files = Object.fromEntries(
+      ["mts", "cts", "js", "jsx", "mjs", "cjs"].map((extension) => [`a/x.${extension}`, MARKED]),
+    );
+    const root = appRoot({ ...files, "a/notes.md": MARKED });
+    expect(countMarkers(root)).toEqual({ "terp-allow-token-styled-elements": 6 });
+  });
+
   it("is empty for an app with no source directory", () => {
     const root = path.join(scratchRoot, `case-${rootCounter++}`);
     fs.rmSync(root, { recursive: true, force: true });

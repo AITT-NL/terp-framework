@@ -52,11 +52,17 @@ covers all of `src/` (ADR 0175).
   transports, `innerHTML`, `dangerouslySetInnerHTML`, `eval` and unsafe links. Before this, all of
   them stopped at the module tree. A component in, say, `src/diagram/` did all of it with no
   finding, and a module that rendered it lint-passed too, so moving a file out of `modules/` was
-  an escape hatch with no reason and no budget. `no-cross-module-imports` still applies to
-  modules only, because it is about what a module is. The bootstrap (`src/main.tsx`) may import
-  exactly the token pipeline's three stylesheets, `@terpjs/contract/tokens.css`,
-  `./house-style.css` and `./theme.css`, and is held to every other rule. A library's stylesheet
-  is refused there as anywhere.
+  an escape hatch with no reason and no budget. Every script extension under `src/` is held, so
+  a `.jsx` or `.mts` file is no way out either, and the escape-hatch budget counts its markers.
+  `no-cross-module-imports` now reads both directions: a module never imports a sibling, and code
+  outside every module never imports from one, so a shared file can no longer re-export one
+  module's internals to another. The bootstrap's `import.meta.glob` of the modules is not an
+  import and is untouched. The bootstrap (`src/main.tsx`) may import exactly the token
+  pipeline's three stylesheets, `@terpjs/contract/tokens.css`, `./house-style.css` and
+  `./theme.css`, matched exactly and case-sensitively (`./THEME.css`, `./theme.css?inline` and a
+  nested `src/main.tsx` are refused), and is held to every other rule. A library's stylesheet is
+  refused there as anywhere, and a stylesheet loaded through `import()` or `import.meta.glob` is
+  refused like an imported one.
 - **The READMEs name every capability.** The root README's architecture row left out `egress`,
   `leases`, `mfa` and `realtime`, and the capabilities README's list and table left out `mfa`
   and `realtime`. `test_docs_parity.py` now reads both against the packages that exist, so a new
@@ -77,13 +83,21 @@ covers all of `src/` (ADR 0175).
   `DataView`'s `title`): a loose `Heading` as a body child of its own sits a section gap from what
   it names.
 - **Code outside `src/modules/` is linted now, and may fail.** A helper, a page component or a
-  replaced framework screen beside the modules meets the same rules a module always did. The fix
+  replaced framework screen beside the modules meets the same rules a module always did, and so
+  does a `.js`, `.jsx`, `.mjs`, `.cjs`, `.mts` or `.cts` file anywhere under `src/`. The fix
   is the module fix: compose the react-core primitives and the generated client, or justify the
   exception with a `terp-allow-*` marker and budget it. A bootstrap that imports a stylesheet
   other than the three is refused; move what it carried into `theme.css` as tokens.
-- **`BOUNDARY_SPEC.moduleFiles` is gone.** Nothing in the package read it after this change, and
-  it described a scope that no longer exists. `BOUNDARY_SPEC.appFiles` is the scope of every
-  rule; `bootstrapFiles` and `bootstrapStylesheets` describe the bootstrap's one allowance.
+- **Shared code that imports from a module is refused.** A file outside `src/modules/` that
+  imports from `modules/<name>/` fails `no-cross-module-imports`. Move what the shared file needs
+  out of the module, or keep the code inside the module that owns it. A bootstrap that imports a
+  module by hand instead of through `import.meta.glob` is refused too; the glob is how modules
+  are wired.
+- **`BOUNDARY_SPEC.moduleFiles` is gone.** `terpBoundaries()` read it for the module-scoped
+  block, which this release removes, so nothing reads it after this change and it would
+  describe a scope that no longer exists. `BOUNDARY_SPEC.appFiles` is the scope of every
+  rule; `bootstrapFiles` and `bootstrapStylesheets` describe the bootstrap's one allowance, and
+  `sourceExtensions` the extensions `appFiles` names.
 
 ## 0.32.0 — 2026-10-05
 

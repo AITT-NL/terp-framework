@@ -1795,7 +1795,11 @@ Frontend module screens (@terpjs/react-core)
   tests find it by role and accessible name, not by the framework screen's markers.
   The bootstrap (src/main.tsx) is the one file that imports stylesheets, and only the token
   pipeline's three: @terpjs/contract/tokens.css, ./house-style.css and ./theme.css. A
-  library's stylesheet is refused there too: it would paint outside the palettes.
+  library's stylesheet is refused there too: it would paint outside the palettes. A
+  stylesheet loaded through import() or import.meta.glob is refused the same way.
+  Modules stay independent: a module never imports a sibling, and code outside the modules
+  (a shared helper) never imports from one, since shared code is what modules depend on.
+  The bootstrap finds the modules with import.meta.glob, which is not an import.
 - Frontend security defaults (each its own lint rule, same error-only footing):
   dangerouslySetInnerHTML and DOM HTML-injection sinks (innerHTML/outerHTML/
   insertAdjacentHTML/document.write) are refused — render text, or Markdown from

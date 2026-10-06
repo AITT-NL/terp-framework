@@ -1,7 +1,8 @@
 /**
  * The ESLint (React stack) adapter that realises {@link BOUNDARY_SPEC}. This is the frontend analog
- * of the backend `terp.arch` harness: it keeps app modules independent and on the centralized
- * contract, so a non-technical user or a coding agent cannot introduce drift or a security gap.
+ * of the backend `terp.arch` harness: it keeps all app source on the centralized contract and app
+ * modules independent, so a non-technical user or a coding agent cannot introduce drift or a
+ * security gap.
  *
  * There are no modes and no severity dial — every rule is an error, always (exactly like the
  * backend gate). The only pressure valve is the governed escape hatch: a justified
@@ -37,20 +38,26 @@ function moduleOf(filePath) {
  * A module never imports a sibling module (leaf domains stay independent) — the frontend analog of
  * `terp.arch`'s `no_cross_module_imports`. Relative imports are resolved before the check, so
  * `../other/thing` from `modules/a/` is caught as a `modules/other` import, not hidden by its spelling.
+ *
+ * Code outside every module never imports into one either (ADR 0175). Shared code is what modules
+ * depend on, never the other way round, and the reverse edge is a laundering route: a helper that
+ * re-exports `modules/billing/internal` hands billing's internals to every module that imports the
+ * helper, and the module-to-module check never sees a sibling path. The bootstrap discovers modules
+ * with `import.meta.glob`, which is not an import edge, so composing the app is untouched.
  */
 const noCrossModuleImports = {
   meta: {
     type: "problem",
-    docs: { description: "Disallow imports between sibling app modules (leaf independence)." },
+    docs: {
+      description:
+        "Disallow imports between sibling app modules, and from code outside every module into one.",
+    },
     schema: [],
   },
   create(context) {
     // physicalFilename: the on-disk file (the escape-hatch processor lints a virtual block).
     const filename = context.physicalFilename || context.filename;
     const own = moduleOf(filename);
-    if (own === null) {
-      return {};
-    }
     const check = (node) => {
       const source = node.source && node.source.value;
       if (typeof source !== "string") {
@@ -60,14 +67,19 @@ const noCrossModuleImports = {
         ? path.resolve(path.dirname(filename), source)
         : source;
       const other = moduleOf(target);
-      if (other !== null && other !== own) {
-        context.report({
-          node,
-          message:
-            `App module "${own}" must not import sibling module "${other}"; modules stay ` +
-            "independent (share through the framework packages, not each other).",
-        });
+      if (other === null || other === own) {
+        return;
       }
+      context.report({
+        node,
+        message:
+          own === null
+            ? `Code outside every module must not import from module "${other}"; modules ` +
+              "depend on shared code, never the other way round. Move what both need out of " +
+              "the module (or into the framework packages), or keep it inside the module."
+            : `App module "${own}" must not import sibling module "${other}"; modules stay ` +
+              "independent (share through the framework packages, not each other).",
+      });
     };
     return {
       ImportDeclaration: check,
@@ -1166,6 +1178,29 @@ const styleImportMessage =
   "App-authored stylesheets are forbidden, a library's included; theming flows from the " +
   "design tokens, which only the bootstrap loads (tokens.css, house-style.css, theme.css), " +
   "and layout from the react-core components (Stack, the page archetypes).";
+const dynamicStyleImportMessage =
+  "A stylesheet loaded through import() or import.meta.glob is a stylesheet import like any " +
+  "other, and is refused the same way: theming flows from the design tokens, which only the " +
+  "bootstrap loads, statically (tokens.css, house-style.css, theme.css), and layout from the " +
+  "react-core components (Stack, the page archetypes).";
+
+/**
+ * The stylesheet extensions the boundary refuses, read off `BOUNDARY_SPEC.styleImportPatterns`
+ * (`*.css` -> `css`), so every spelling below refuses exactly the declared set.
+ */
+const STYLESHEET_EXTENSIONS = [
+  ...new Set(
+    BOUNDARY_SPEC.styleImportPatterns.map(
+      (pattern) => pattern.replace(/\?\*$/, "").match(/\.([a-z]+)$/)[1],
+    ),
+  ),
+];
+const STYLESHEET_ALTERNATION = STYLESHEET_EXTENSIONS.join("|");
+
+/** `s` with every regular-expression metacharacter escaped, for an exact match. */
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 /**
  * The `no-restricted-syntax` realisation of the BOUNDARY_SPEC families, each entry tagged
@@ -1261,12 +1296,40 @@ function restrictedSyntaxWithCatalogIds() {
         },
       ]
     : [];
+  // A stylesheet reached without an import declaration, which no-restricted-imports never
+  // sees: `import("lib/style.css")`, `import(`./themes/${name}.css`)`, and a Vite
+  // `import.meta.glob` whose pattern names a stylesheet (a string, or a string in the array
+  // form; a negated `!` pattern excludes files and is left alone). Any letter case, as the
+  // static patterns match.
+  const stylesheetSpecifier = `/\\.(?:${STYLESHEET_ALTERNATION})(?:\\?.*)?$/i`;
+  const stylesheetGlob = `/^(?!!).*(?:\\.|[{,])(?:${STYLESHEET_ALTERNATION})(?:$|[?,}])/i`;
+  const importMetaGlob =
+    "CallExpression[callee.type='MemberExpression'][callee.object.type='MetaProperty']" +
+    "[callee.object.meta.name='import'][callee.object.property.name='meta']" +
+    "[callee.property.name='glob']";
+  const dynamicStyleImports = [
+    {
+      catalogId: "frontend/no-style-imports",
+      selector:
+        `ImportExpression[source.type='Literal'][source.value=${stylesheetSpecifier}], ` +
+        `ImportExpression > TemplateLiteral > TemplateElement[tail=true][value.raw=${stylesheetSpecifier}]`,
+      message: dynamicStyleImportMessage,
+    },
+    {
+      catalogId: "frontend/no-style-imports",
+      selector:
+        `${importMetaGlob}[arguments.0.type='Literal'][arguments.0.value=${stylesheetGlob}], ` +
+        `${importMetaGlob} > ArrayExpression > Literal[value=${stylesheetGlob}]`,
+      message: dynamicStyleImportMessage,
+    },
+  ];
   return [
     ...rawElements,
     ...rawAttributes,
     ...inAppAnchors,
     ...rawClipboard,
     ...rawRandomUuid,
+    ...dynamicStyleImports,
     {
       catalogId: "frontend/no-dom-html-injection",
       selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
@@ -1520,10 +1583,28 @@ function escapeHatchProcessor() {
 
 /**
  * The `no-restricted-imports` entry: deep imports are refused everywhere, and so is every
- * stylesheet except the ones `allowedStylesheets` names. Negated patterns, so the allowance is
- * an exact specifier and never a shape a library's stylesheet could also match.
+ * stylesheet except the ones `allowedStylesheets` names.
+ *
+ * With no allowance, the stylesheet refusal is the declared glob group, which ESLint matches in
+ * any letter case. An allowance cannot be a negated glob in that group: the negation would match
+ * case-insensitively too, so `./THEME.css` would pass as `./theme.css`. It is a regular
+ * expression instead, matched case-sensitively, that refuses a specifier ending in a stylesheet
+ * extension in any letter case unless it is exactly one of the allowed specifiers. Exact
+ * specifiers, so the allowance is never a shape a library's stylesheet, a nested `theme.css` or a
+ * `?inline` / `?url` / `?raw` variant could also match.
  */
 function restrictedImports(allowedStylesheets = []) {
+  const anyCase = (extension) =>
+    [...extension].map((letter) => `[${letter.toLowerCase()}${letter.toUpperCase()}]`).join("");
+  const stylesheets =
+    allowedStylesheets.length === 0
+      ? { group: BOUNDARY_SPEC.styleImportPatterns }
+      : {
+          regex:
+            `^(?!(?:${allowedStylesheets.map(escapeRegExp).join("|")})$)` +
+            `.*\\.(?:${STYLESHEET_EXTENSIONS.map(anyCase).join("|")})(?:\\?.*)?$`,
+          caseSensitive: true,
+        };
   return [
     "error",
     {
@@ -1532,13 +1613,7 @@ function restrictedImports(allowedStylesheets = []) {
           group: BOUNDARY_SPEC.internalImportPatterns,
           message: deepImportMessage,
         },
-        {
-          group: [
-            ...BOUNDARY_SPEC.styleImportPatterns,
-            ...allowedStylesheets.map((sheet) => `!${sheet}`),
-          ],
-          message: styleImportMessage,
-        },
+        { ...stylesheets, message: styleImportMessage },
       ],
     },
   ];
@@ -1595,8 +1670,11 @@ export function terpBoundaries() {
     },
     {
       // The bootstrap loads the token pipeline, which is three stylesheets, and nothing else
-      // changes for it: it is held to every other rule like any app file.
+      // changes for it: it is held to every other rule like any app file. It is the app's own
+      // src/main.tsx and no other: `**/src/main.tsx` alone also matches a main.tsx a module
+      // nests under a src/ of its own, so those are ignored here and keep the full refusal.
       files: BOUNDARY_SPEC.bootstrapFiles,
+      ignores: ["**/modules/**", "**/src/**/src/**"],
       rules: {
         "no-restricted-imports": restrictedImports(BOUNDARY_SPEC.bootstrapStylesheets),
       },

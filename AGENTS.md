@@ -160,7 +160,9 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   theming from the token source. Every boundary rule covers all of `src/`, not only
   `src/modules/` (ADR 0175): a component beside the modules is held exactly like one inside.
   The bootstrap (`src/main.tsx`) is the one file that imports stylesheets, and only the token
-  pipeline's three: `@terpjs/contract/tokens.css`, `./house-style.css` and `./theme.css`.
+  pipeline's three: `@terpjs/contract/tokens.css`, `./house-style.css` and `./theme.css`. A
+  stylesheet loaded through `import()` or `import.meta.glob` is refused like an imported one,
+  and code outside the modules never imports from one (shared code is what modules depend on).
 - **Nav and route visibility is declarative data, not a predicate** — `NavItem` and
   `ModuleRoute` take `role` and `permission`, ANDed and fail-closed, resolved by the adapter
   against what `/me` returns. A function on the manifest would not survive the boundary: it is

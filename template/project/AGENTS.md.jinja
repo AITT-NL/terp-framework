@@ -254,12 +254,16 @@ Screens compose the **`@terpjs/react-core` component surface** — catalog in
 `node_modules/@terpjs/react-core/README.md`; data collections via `DataView`
 (`node_modules/@terpjs/react-core/src/dataview/README.md`); in-terminal recipes via
 `uv run terp guide frontend` / `uv run terp guide dataview` / `uv run terp guide forms`.
-The boundary lint enforces:
+The boundary lint enforces, in every source file under `frontend/src/` and not only in
+`modules/` (a helper beside the modules is held exactly like one inside them):
 token-styled primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>`/
 `<table>`/`<dialog>`/`<form>`), the generated typed client only (no raw `fetch` /
 `XMLHttpRequest` / `WebSocket` / `EventSource` / `sendBeacon`),
-design-token styling with no `style={}` / `className` / module stylesheets (layout via
-`Stack` / the page archetypes), in-app links via the router (no raw `<a href="/...">`),
+design-token styling with no `style={}` / `className` / stylesheet, imported or loaded through
+`import()` (layout via `Stack` / the page archetypes; `src/main.tsx` alone imports the token
+pipeline's three: `@terpjs/contract/tokens.css`, `./house-style.css` and `./theme.css`),
+modules that stay independent (no module imports a sibling, and no code outside the modules
+imports into one), in-app links via the router (no raw `<a href="/...">`),
 no deep `@terpjs/*` imports, and no `data-terp` attribute anywhere in `src/` — those are
 react-core's own markers, which its stylesheet and the runtime layout check trust, so
 compose the component that renders one. A framework screen you replace, such as a custom

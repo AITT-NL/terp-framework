@@ -58,13 +58,16 @@ a guard to make a change pass:
 
 Frontend UI composes the **`@terpjs/react-core` component surface** — see the catalog in
 [packages/frontend/react-core/README.md](../packages/frontend/react-core/README.md).
-Enforced by `@terpjs/eslint-boundaries` (strict-only, no modes — ADR 0059): token‑styled
+Enforced by `@terpjs/eslint-boundaries` (strict-only, no modes — ADR 0059) in every source file
+under `src/`, not only in `src/modules/` (ADR 0175): token‑styled
 primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>`/`<table>`/`<dialog>`/
 `<form>`), the generated client only (no raw `fetch` / `XMLHttpRequest` / `WebSocket` /
 `EventSource` / `sendBeacon`), data collections via `DataView`
 ([dataview README](../packages/frontend/react-core/src/dataview/README.md)),
-design‑token styling (`style`, `className` and module stylesheets are refused in app
-modules — layout via `Stack` / `Grid` / the page archetypes), in-app links via the router (no raw
+design‑token styling (`style`, `className` and stylesheets are refused in all app source —
+layout via `Stack` / `Grid` / the page archetypes; `src/main.tsx` alone imports the token
+pipeline's three stylesheets), independent modules (no module imports a sibling, and no code
+outside the modules imports into one), in-app links via the router (no raw
 `<a href="/...">`), every routed view framed by a page archetype (refused at runtime
 otherwise), optional slot-typed layout contracts (ADR 0079: a checked-in
 `layout-contract.json` + `layoutContract` at bootstrap constrain each archetype's body
