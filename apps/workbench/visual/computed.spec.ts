@@ -1915,6 +1915,7 @@ test("a workspace's canvas takes the full track in a measured shell (ADR 0179)",
   expect(widths.probe, "the measure applies in this tree").toBe(1280);
   // Mutation: drop canvas-host from the measure's :not(), and the canvas stops at 1280.
   expect(widths.host).toBe(widths.article);
+});
 
 test("a chart's hidden table takes no room on the page", async ({ page }) => {
   // The chart's words for screen readers are visually hidden. The rule shrinks a box to 1px,
