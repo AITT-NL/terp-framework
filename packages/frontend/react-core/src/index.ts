@@ -88,6 +88,8 @@ export type {
   SplitPaneRole,
   SplitListWidth,
 } from "./SplitPage";
+export { CanvasHost, WorkspacePage } from "./WorkspacePage";
+export type { CanvasHostProps, WorkspacePageProps } from "./WorkspacePage";
 export { HubPage, HubCard } from "./HubPage";
 export type { HubPageProps, HubCardProps, RenderHubCardLink } from "./HubPage";
 export {

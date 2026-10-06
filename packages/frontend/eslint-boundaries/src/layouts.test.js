@@ -124,6 +124,18 @@ describe("terp/layout-contract — the page frame's two rules (ADR 0169 §4)", (
     ]);
   });
 
+  it("governs a workspace's body: one canvas passes, a hand-sized box is refused (ADR 0179)", async () => {
+    // What is drawn ON the canvas is the app's: the svg below is the host's child, not the slot's.
+    const code =
+      'import { CanvasHost, EmptyState, WorkspacePage } from "@terpjs/react-core";\n' +
+      "export const W = ({title}) => <WorkspacePage title={title}><CanvasHost label={title}><svg viewBox=\"0 0 10 10\" /></CanvasHost></WorkspacePage>;\n" +
+      "export const L = ({title}) => <WorkspacePage title={title}><EmptyState title={title} /></WorkspacePage>;\n" +
+      "export const X = ({title}) => <WorkspacePage title={title}><div /></WorkspacePage>;";
+    expect((await lint(code, configWithContract("standard"))).map((m) => m.message)).toEqual([
+      slotViolationMessage("standard", "WorkspacePage", "<div>"),
+    ]);
+  });
+
   it("passes a status history in the summary", async () => {
     const code =
       'import { Page, StatusHistory } from "@terpjs/react-core";\n' +

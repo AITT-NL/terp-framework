@@ -13,7 +13,10 @@ import path from "node:path";
 
 import { ESLint } from "eslint";
 
-import terpBoundaries, { LAYOUT_CONTRACT_FILE, catalogRuleId } from "./index.js";
+import terpBoundaries, { BOUNDARY_SPEC, LAYOUT_CONTRACT_FILE, catalogRuleId } from "./index.js";
+
+/** The source files a case carries, by the same extensions the lint holds in an app. */
+const SOURCE_FILE_RE = new RegExp(`\\.(?:${BOUNDARY_SPEC.sourceExtensions.join("|")})$`);
 
 /** Every file below *caseDir*, recursively. */
 export function caseFiles(caseDir) {
@@ -51,7 +54,9 @@ export async function lintCaseFindings(caseDir) {
       : [
           ...terpBoundaries,
           {
-            files: ["**/modules/**/*.{ts,tsx}"],
+            // The scope of every other rule (ADR 0175): a case file outside modules/ is held
+            // to the opted-in contract exactly as an app file there would be.
+            files: BOUNDARY_SPEC.appFiles,
             rules: { "terp/layout-contract": ["error", { contract }] },
           },
         ];
@@ -62,7 +67,7 @@ export async function lintCaseFindings(caseDir) {
   const eslint = new ESLint({ cwd: caseDir, overrideConfigFile: true, overrideConfig });
   const findings = [];
   for (const file of caseFiles(caseDir)) {
-    if (!/\.tsx?$/.test(file)) continue; // config carriers (layout-contract.json) are not linted
+    if (!SOURCE_FILE_RE.test(file)) continue; // config carriers (layout-contract.json) are not linted
     // Use the physical case path so declaration-backed rules can find checked-in
     // carriers such as i18n.json by walking upward from the real file.
     const filePath = file;

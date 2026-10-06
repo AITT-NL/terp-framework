@@ -1832,6 +1832,90 @@ test("a list of cards without figures keeps no figure row, and a card beside a f
   expect(mixed).not.toContain("none");
 });
 
+test("a workspace's canvas takes every pixel the shell leaves below the band (ADR 0179)", async ({
+  page,
+}) => {
+  // The screenshot shows a tall canvas; this says which rule made it tall. The canvas runs from
+  // under the band to main's content edge, so it is the leftover height and not its 24rem floor,
+  // and the svg inside it is the canvas's own size rather than its viewBox's ratio.
+  await page.goto("/?theme=midday&only=workspace-page");
+  await page.locator('[data-terp="canvas-host"]').waitFor({ state: "visible" });
+  const geometry = await page.evaluate(() => {
+    const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+    const main = document.querySelector('[data-terp="appshell-main"]')!;
+    const host = document.querySelector('[data-terp="canvas-host"]')!;
+    const padding = parseFloat(getComputedStyle(main).paddingBlockEnd);
+    return {
+      mainContentBottom: rect('[data-terp="appshell-main"]').bottom - padding,
+      mainDisplay: getComputedStyle(main).display,
+      host: rect('[data-terp="canvas-host"]'),
+      // The host's inner box, read rather than derived from its border, so a change of
+      // hairline does not read as the canvas failing to fill.
+      hostInner: { width: host.clientWidth, height: host.clientHeight },
+      layer: rect('[data-terp="canvas-host-layer"]'),
+      drawing: rect('[data-terp="canvas-host-layer"] > svg'),
+      floor: parseFloat(getComputedStyle(document.documentElement).fontSize) * 24,
+    };
+  });
+  expect(geometry.mainDisplay).toBe("flex");
+  // Mutation: drop flex-grow from the workspace page, and the canvas stops at its floor.
+  expect(geometry.host.bottom).toBeCloseTo(geometry.mainContentBottom, 0);
+  expect(geometry.host.height).toBeGreaterThan(geometry.floor);
+  // Mutation: drop the layer's inset, and it is as tall as its content rather than the host.
+  expect(geometry.layer.height).toBeCloseTo(geometry.hostInner.height, 0);
+  expect(geometry.layer.width).toBeCloseTo(geometry.hostInner.width, 0);
+  // Mutation: drop the child's explicit size, and the svg is its viewBox's height, not the host's.
+  expect(geometry.drawing.height).toBeCloseTo(geometry.hostInner.height, 0);
+  expect(geometry.drawing.width).toBeCloseTo(geometry.hostInner.width, 0);
+});
+
+test("a page that is not a workspace keeps main a block (ADR 0179)", async ({ page }) => {
+  // A page inside a shell, and an archetype that provides a slot of its own, so the :has() has
+  // something to be wrong about: broadened to any page, it would make this main a flex column.
+  await page.goto("/?theme=midday&only=app-shell-summary");
+  await page.locator('[data-terp="appshell-main"] > [data-terp="page"]').waitFor({
+    state: "visible",
+  });
+  const main = await page.locator('[data-terp="appshell-main"]').evaluate((element) => ({
+    display: getComputedStyle(element).display,
+    pages: element.querySelectorAll(':scope > [data-terp="page"]').length,
+  }));
+  expect(main.pages, "the specimen must hold an ordinary page in main").toBe(1);
+  expect(main.display).toBe("block");
+});
+
+test("a workspace's canvas takes the full track in a measured shell (ADR 0179)", async ({
+  page,
+}) => {
+  // The measure caps every body child but the bands, and a canvas is not read along a line.
+  // The workspace specimen with the shell's attribute stamped at runtime, the same control the
+  // measured-shell checks above use: nothing differs but the one input under test. 1920 wide so
+  // the track is wider than the measure and the cap has something to bite.
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.goto("/?theme=midday&only=workspace-page");
+  await page.locator('[data-terp="canvas-host"]').waitFor({ state: "visible" });
+  const widths = await page.evaluate(() => {
+    document.querySelector('[data-terp="appshell"]')!.setAttribute("data-content-width", "measured");
+    const article = document.querySelector('[data-terp="page"]')!;
+    // A child with no exemption, so the cap is shown to apply in this tree at all.
+    const probe = document.createElement("div");
+    probe.setAttribute("data-terp", "stack");
+    article.append(probe);
+    const widths = {
+      article: Math.round(article.getBoundingClientRect().width),
+      host: Math.round(
+        document.querySelector('[data-terp="canvas-host"]')!.getBoundingClientRect().width,
+      ),
+      probe: Math.round(probe.getBoundingClientRect().width),
+    };
+    probe.remove();
+    return widths;
+  });
+  expect(widths.article).toBeGreaterThan(1280);
+  expect(widths.probe, "the measure applies in this tree").toBe(1280);
+  // Mutation: drop canvas-host from the measure's :not(), and the canvas stops at 1280.
+  expect(widths.host).toBe(widths.article);
+
 test("a chart's hidden table takes no room on the page", async ({ page }) => {
   // The chart's words for screen readers are visually hidden. The rule shrinks a box to 1px,
   // and a table's width and height are minimums, so a hidden <table> kept its full size: placed

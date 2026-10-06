@@ -155,9 +155,14 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   it. An app ships on one with `defaultTheme` — never by restyling to imitate it. Every theme
   is a complete colour set held to WCAG AA on every declared text pairing (`contrast` to AAA);
   geometry is declared once in `:root` and inherited.
-- **No `style={}`, no `className`, no module-authored stylesheets in app modules** — layout
+- **No `style={}`, no `className`, no stylesheets anywhere in app source** — layout
   comes from the react-core primitives (`Stack`, `Grid`, `DetailList`, the page archetypes);
-  theming from the token source.
+  theming from the token source. Every boundary rule covers all of `src/`, not only
+  `src/modules/` (ADR 0175): a component beside the modules is held exactly like one inside.
+  The bootstrap (`src/main.tsx`) is the one file that imports stylesheets, and only the token
+  pipeline's three: `@terpjs/contract/tokens.css`, `./house-style.css` and `./theme.css`. A
+  stylesheet loaded through `import()` or `import.meta.glob` is refused like an imported one,
+  and code outside the modules never imports from one (shared code is what modules depend on).
 - **Nav and route visibility is declarative data, not a predicate** — `NavItem` and
   `ModuleRoute` take `role` and `permission`, ANDed and fail-closed, resolved by the adapter
   against what `/me` returns. A function on the manifest would not survive the boundary: it is
@@ -178,8 +183,10 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   the header, for an app whose destinations are few enough that permanent chrome is a tax. The
   header then takes the sidebar's surface, so an app's `--color-sidebar-*` still governs it.
 - **Every routed view renders a page archetype** (`Page` / `OverviewPage` / `DetailPage` /
-  `HubPage` / `DashboardPage` / `FormPage` / `SettingsPage` / `SplitPage`) — `buildAppRouter`
-  refuses an unframed view at runtime, fail closed.
+  `HubPage` / `DashboardPage` / `FormPage` / `SettingsPage` / `SplitPage` / `WorkspacePage`)
+  — `buildAppRouter` refuses an unframed view at runtime, fail closed. A screen whose work is a
+  surface (a diagram, a plan) is a `WorkspacePage`: its one `CanvasHost` fills the height the
+  shell leaves, so a canvas never needs a style to be sized (ADR 0179).
 - **Slot-typed layout contracts (opt-in, ADR 0079)** — an app that declares one once in
   `frontend/layout-contract.json` (the lint rule finds the file and `main.tsx` imports it)
   ratchets further: each archetype's body slot accepts only the contract's components (hub

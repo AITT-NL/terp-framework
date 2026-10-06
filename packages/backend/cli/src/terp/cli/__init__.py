@@ -1823,28 +1823,36 @@ Frontend module screens (@terpjs/react-core)
   everything composes the token-styled @terpjs/react-core surface. The full catalog (with
   per-export "Use" guidance) is the @terpjs/react-core README; each export also carries
   JSDoc, so your editor shows the same guidance inline.
-- The boundary lint (@terpjs/eslint-boundaries) refuses, fail-closed:
+- The boundary lint (@terpjs/eslint-boundaries) refuses, fail-closed, in every file under
+  frontend/src/ — a component beside the modules is held exactly like one inside them:
     raw <button>/<input>/<select>/<textarea>   ->  Button / Input / Select / Textarea
     raw <table>                                ->  DataView          (terp guide dataview)
     raw <dialog>                               ->  ConfirmDialog
     raw <form>                                 ->  Stack as="form"   (terp guide forms)
     raw fetch / XMLHttpRequest                 ->  useTerpClient() + unwrap (typed client)
     WebSocket / EventSource / sendBeacon       ->  the generated client (one egress path)
-    style={} / className / module stylesheets  ->  layout via Stack/DetailList; design tokens
+    style={} / className / any stylesheet      ->  layout via Stack/DetailList; design tokens
     <a href="/...">                            ->  the router's Link (role-aware, no reload)
     deep imports (@terpjs/*/src, @terpjs/*/dist)   ->  import from the package root only
     data-terp / data-terp-* anywhere in src    ->  compose the component that renders it
   The data-terp markers are react-core's own: its stylesheet and the runtime layout check
   trust them. A framework screen you replace (renderTerpApp({ login })) is yours, so its
   tests find it by role and accessible name, not by the framework screen's markers.
+  The bootstrap (src/main.tsx) is the one file that imports stylesheets, and only the token
+  pipeline's three: @terpjs/contract/tokens.css, ./house-style.css and ./theme.css. A
+  library's stylesheet is refused there too: it would paint outside the palettes. A
+  stylesheet loaded through import() or import.meta.glob is refused the same way.
+  Modules stay independent: a module never imports a sibling, and code outside the modules
+  (a shared helper) never imports from one, since shared code is what modules depend on.
+  The bootstrap finds the modules with import.meta.glob, which is not an import.
 - Frontend security defaults (each its own lint rule, same error-only footing):
   dangerouslySetInnerHTML and DOM HTML-injection sinks (innerHTML/outerHTML/
   insertAdjacentHTML/document.write) are refused — render text, or Markdown from
   @terpjs/react-core for rich text; eval() / new Function() are refused; javascript:
   URLs in href/src are refused; a static target="_blank" link needs rel="noopener".
 - Every routed view renders a page archetype (Page / OverviewPage / DetailPage / HubPage /
-  DashboardPage / FormPage / SettingsPage / SplitPage); buildAppRouter refuses an unframed
-  view at runtime, fail closed. An app can ratchet
+  DashboardPage / FormPage / SettingsPage / SplitPage / WorkspacePage); buildAppRouter
+  refuses an unframed view at runtime, fail closed. An app can ratchet
   further with an opt-in slot-typed layout contract (terp guide layouts).
 - Route paths and params are CHECKED, from generated types (ADR 0092). The router is built
   at runtime from the manifests, so nothing type-checks a path or a param name until you
@@ -1918,7 +1926,7 @@ Forms (react-core primitives)
         <Button type="submit" variant="primary">Save</Button>
       </Stack>
 - Field wraps label + control + hint/error for one field; Stack (vertical by default)
-  is the layout — never style={} / className / a module stylesheet.
+  is the layout — never style={} / className / a stylesheet.
 - Submit through the typed client: const client = useTerpClient();
   await unwrap(client.POST("/api/v1/invoices/", { body })); a failure throws ApiError
   ({code, status, requestId, fields}) — map codes to copy with useErrorMessage, show
@@ -1983,8 +1991,8 @@ Theming and branding (design tokens, palettes, the brand mark)
 
 - EVERY style is a design token. The react-core primitives paint from CSS custom
   properties shipped by @terpjs/contract (tokens.css), which is why the boundary lint
-  refuses `style={}`, `className` and module stylesheets: a module that painted itself
-  would not follow the palette. Modules never need theme-specific code.
+  refuses `style={}`, `className` and stylesheets in every src/ file: code that painted
+  itself would not follow the palette. Modules never need theme-specific code.
 - THE SHIPPED PALETTES, plus "system":
       midday  twilight  evening  night  contrast
   Named for the time of day they suit: midday is the light set, twilight a dimmed dark,
@@ -2140,6 +2148,10 @@ Layout contracts (slot-typed layouts, ADR 0079)
                       BarChart / ProportionBar / StatusHistory / Timeline / Divider / Text +
                       the same states and ConfirmDialog: "how is the whole doing", its
                       figures in the summary band
+      WorkspacePage -> ONE CanvasHost + the same states and ConfirmDialog: one canvas that
+                      fills the screen. The host takes ONE canvas child (an svg, or a
+                      canvas library's root) and sizes it to the whole box; what is
+                      drawn ON it is yours. The trail is `parents`, as on DashboardPage
   Grid is not an overview-body component, deliberately: an overview body is a data
   collection, a grid of cards into each area is a hub, and sections of figures and charts
   are a dashboard — each has its own archetype. Heading is admitted nowhere: a heading in a governed body must OWN its
@@ -2182,7 +2194,9 @@ Layout contracts (slot-typed layouts, ADR 0079)
   app's areas is a HubPage; one area's collection (how each one is doing) an OverviewPage;
   how the whole is doing a DashboardPage -- a landing that also carries the app's figures is
   one, as the hub preset scaffolds it; one record a DetailPage; entering a record a
-  FormPage; settings a SettingsPage; a list beside the record it selects a SplitPage.
+  FormPage; settings a SettingsPage; a list beside the record it selects a SplitPage; work
+  done on a surface (a diagram of nodes and connections, a plan) a WorkspacePage, whose one
+  CanvasHost takes every pixel the shell leaves - a canvas never needs a style to be sized.
 - Alternate framed and unframed blocks. The frame belongs to the data a reader works with:
   a collection, a chart and a lone figure sit on the surface, the collection brightest. A
   boxed Card steps back onto --color-bg-subtle, for a group of controls or one section of

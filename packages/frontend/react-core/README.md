@@ -72,8 +72,8 @@ also carries JSDoc, so your editor shows the same guidance inline. **Never deep-
 ## Page archetypes (the three-level screen pattern)
 
 Every routed view **must** render one of the archetypes (`Page`, or `OverviewPage` /
-`DetailPage` / `HubPage` / `DashboardPage` / `FormPage` / `SettingsPage` / `SplitPage`, which
-compose it) — `buildAppRouter` refuses an unframed view at
+`DetailPage` / `HubPage` / `DashboardPage` / `FormPage` / `SettingsPage` / `SplitPage` /
+`WorkspacePage`, which compose it) — `buildAppRouter` refuses an unframed view at
 runtime, fail closed (ADR 0059), so every screen keeps the breadcrumb/title/error frame.
 
 | Export | Use |
@@ -99,6 +99,7 @@ runtime, fail closed (ADR 0059), so every screen keeps the breadcrumb/title/erro
 | `FormPage` | A create-or-edit screen. `measure="narrow"` by default, so the whole frame — header, actions and all — caps at 32rem over a single column of controls. Its body slot takes the form container (`Stack as="form"`), plus `Grid` / `Card` / `Divider` / `Text`; a bare `Field` at the top level is refused, because a run of fields has no `<form>` and cannot be submitted. |
 | `SettingsPage` | Preferences and account screens: `Card` sections, also `measure="narrow"`. No `DataView`, `DetailList` or `Tabs` — a settings screen whose body is a collection is an overview with the wrong chrome. `parents` is optional, unlike `FormPage`'s. |
 | `SplitPage`, `SplitPane` | A list beside the record it selects. The archetype owns the pane row and admits **only** `SplitPane` in it (`HubPage`'s shape, not `DetailPage`'s), so the panes are the governed thing. `listWidth` is a step — `sm` / `md` / `lg` — not a length; a draggable divider waits for the preference seam. Each pane is a named `<section>`, and below the mobile breakpoint they stack list-first, so the reading order and the tab order agree at both widths. |
+| `WorkspacePage`, `CanvasHost` | One canvas that fills the screen, for work done on a surface: a diagram of nodes and connections, a plan, a board (ADR 0179). The page keeps its band, with its trail as `parents`; below it the body takes every pixel the shell leaves, and its slot admits **one** `CanvasHost`, a framework state while it loads or fails (which fills the same box, so the frame does not jump), and a `ConfirmDialog`. The host is a named `<section>` painted from tokens, clipped, with a 24rem floor outside a shell, and it takes the full track in a measured shell. It takes **one** canvas child, drawn in an inner layer of a definite size at 100% of it, so an `<svg>` scales by its `viewBox` and a canvas library's root that sizes itself to its container gets all of it; a second child would land below the first and be clipped. A canvas that takes keyboard focus shows the framework's focus ring on the host, where the clip cannot cut it. Nothing on the page needs a style to be sized. |
 | `Breadcrumbs` | The trail itself (used by the archetypes; rarely composed directly). Ancestor crumbs use the router's `Link` by default — `renderLink` is only for rendering outside a Terp router. |
 | `NavLinkContext`, `useNavLink` | The ambient link renderer `buildAppRouter` publishes (and the layout components default to); provide it yourself in a standalone story/test tree or a bespoke shell. |
 | `useRouteParam` | Read one route param, fail closed: the declared param comes back as a string, an undeclared name throws a directive error instead of silently yielding `undefined`. Replaces the unchecked `useParams({ strict: false }) as {…}` cast (ADR 0092). Checked against the generated route table when the app has one. |
@@ -217,7 +218,7 @@ marker, counted by the escape-hatch budget.
 | Export | Use |
 |---|---|
 | `Button` | Token-styled command: `variant` (primary / secondary / danger / ghost), `size` (sm / md / lg, composing with density), `loading` (spinner in the icon slot, `aria-busy`, and disabled so a second click cannot start the request twice), `fullWidth` to fill the container instead of the label, and an optional leading `icon`. Content-sized by default. |
-| `Input`, `Select`, `Textarea` | Token-styled controls with stable framework typography, independent of surrounding display text (raw elements are lint-refused). Numeric inputs suppress unthemeable browser steppers. `Input type="password"` grows a reveal toggle — the type decides, so there is no second export and no prop; an app could not add one itself, because the toggle needs a positioned wrapper and module files may use neither `style` nor `className`. |
+| `Input`, `Select`, `Textarea` | Token-styled controls with stable framework typography, independent of surrounding display text (raw elements are lint-refused). Numeric inputs suppress unthemeable browser steppers. `Input type="password"` grows a reveal toggle — the type decides, so there is no second export and no prop; an app could not add one itself, because the toggle needs a positioned wrapper and app source may use neither `style` nor `className`. |
 | `Select` options (`SelectOption<T>`) | Two forms. Pass `options={[{ value, label, disabled? }]}` with `onValueChange` when the choices are data — `T` is inferred from the list, so a closed enum is checked at both ends and the `event.target.value as Status` cast goes away; `placeholder` renders the disabled empty-valued leading row. Or pass `<option>` children as before. The two are mutually exclusive at the type level, so neither can silently ignore the other. |
 | `Combobox` | Accessible autocomplete/typeahead single-select: filterable options, controlled or uncontrolled value, loading state, disabled state, and ARIA combobox/listbox keyboard navigation. |
 | `DatePicker`, `DateRangePicker` | Locale-aware calendar popover controls with keyboard-navigable month grids, min/max bounds, and range selection for ERP date filters. |
@@ -245,8 +246,8 @@ marker, counted by the escape-hatch budget.
 
 ## Layout
 
-Modules never write `style={}` or CSS — the boundary lint refuses the `style`
-attribute in `src/modules/**`. Layout comes from these primitives (gaps index the
+App code never writes `style={}` or CSS — the boundary lint refuses the `style`
+attribute anywhere in `src/**` (ADR 0175). Layout comes from these primitives (gaps index the
 token spacing scale, so spacing is themed centrally):
 
 | Export | Use |
