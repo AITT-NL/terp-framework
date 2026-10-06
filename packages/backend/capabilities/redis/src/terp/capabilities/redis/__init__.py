@@ -30,7 +30,9 @@ capability):
 * ``terp-cap-redis[realtime]`` — :class:`RedisConnectionTicketStore` and
   :class:`RedisRealtimeBroker` (:mod:`terp.capabilities.redis.realtime`): shared one-use
   realtime connection tickets, and pub/sub fan-out so a publish in one process reaches a
-  subscriber in another (ADR 0176).
+  subscriber in another (ADR 0176). Pub/sub is server-wide, so its channel names carry
+  the database index; deployments sharing a server *and* a database use distinct
+  namespaces.
 * ``terp-cap-redis[oidc]`` — :class:`RedisOIDCStateStore`
   (:mod:`terp.capabilities.redis.oidc`), shared single-use OIDC authorization state for
   multi-replica SSO.

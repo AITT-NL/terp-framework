@@ -10,7 +10,7 @@ requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
     "terp-core==0.32.0",
-    "redis>=5",
+    "redis>=5.0.1",
 ]
 
 # Capability-facing adapters are OPT-IN extras, so the base distribution never installs

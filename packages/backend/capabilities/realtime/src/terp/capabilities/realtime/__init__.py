@@ -60,6 +60,7 @@ from terp.capabilities.realtime.tickets import (
     configure_ticket_store,
     get_ticket_store,
 )
+from terp.capabilities.realtime.transport import RealtimeUnavailableError
 
 
 async def publish(
@@ -95,6 +96,7 @@ __all__ = [
     "RealtimeAuthzRef",
     "RealtimeBroker",
     "RealtimeChannel",
+    "RealtimeUnavailableError",
     "SharedBrokerRequiredError",
     "SubscriptionEnded",
     "TICKET_TTL_SECONDS",

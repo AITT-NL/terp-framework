@@ -11,10 +11,11 @@ from __future__ import annotations
 import asyncio
 import datetime
 import importlib
+import logging
 import pathlib
 import tomllib
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 import pytest
@@ -42,6 +43,7 @@ from terp.capabilities.realtime import (
     is_shared_broker,
     reset_realtime_configuration,
 )
+from terp.capabilities.redis import realtime as redis_realtime
 from terp.capabilities.redis import stores as redis_stores
 from terp.core import (
     EDITOR,
@@ -191,7 +193,7 @@ def test_from_url_constructors_create_clients_without_connecting() -> None:
     assert RedisCacheStore.from_url("redis://localhost/0")
     assert RedisConnectionTicketStore.from_url("redis://localhost/0")
     assert RedisRealtimeBroker.from_url("redis://localhost/0")
-    assert redis_stores._async_client_from_url("redis://localhost/0")
+    assert redis_realtime._subscriber_from_url("redis://localhost/0")
     assert RedisStoreBundle.from_url("redis://localhost/0")
 
 
@@ -308,12 +310,15 @@ class _FakePubSubServer:
 
     ``publish`` arrives on a worker thread (the broker runs the synchronous client
     through ``asyncio.to_thread``), so delivery crosses into each subscriber's loop
-    the way a socket read would.
+    the way a socket read would. ``confirms`` and ``answers_pings`` switch the server's
+    replies off, for one that took a command and then went silent.
     """
 
     def __init__(self) -> None:
         self.channels: dict[str, list[_FakePubSub]] = {}
         self.published: list[tuple[str, str]] = []
+        self.confirms = True
+        self.answers_pings = True
 
     def publish(self, key: str, payload: str) -> int:
         self.published.append((key, payload))
@@ -324,46 +329,75 @@ class _FakePubSubServer:
 
 
 class _FakePubSub:
-    def __init__(self, server: _FakePubSubServer) -> None:
+    """redis-py's asyncio ``PubSub`` as the broker uses it: ``get_message`` waits at most
+    ``timeout`` seconds and returns ``None`` when nothing came, and the SUBSCRIBE and
+    PING replies arrive as messages of their own."""
+
+    def __init__(
+        self, server: _FakePubSubServer, *, unreachable: BaseException | None = None
+    ) -> None:
         self.server = server
+        self.unreachable = unreachable
         self.keys: list[str] = []
+        self.pings = 0
+        self.reads = 0
+        self.ping_error: BaseException | None = None
+        self.close_error: BaseException | None = None
         self.closed = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._inbox: asyncio.Queue[object] | None = None
 
     async def subscribe(self, key: str) -> None:
+        if self.unreachable is not None:
+            raise self.unreachable
         self._loop = asyncio.get_running_loop()
         self._inbox = asyncio.Queue()
         self.keys.append(key)
         self.server.channels.setdefault(key, []).append(self)
+        if self.server.confirms:
+            self.deliver({"type": "subscribe", "channel": key.encode(), "data": 1})
 
     def deliver(self, item: object) -> None:
         assert self._loop is not None and self._inbox is not None
         self._loop.call_soon_threadsafe(self._inbox.put_nowait, item)
 
-    async def listen(self):
+    async def get_message(self, *, timeout: float) -> object | None:
         assert self._inbox is not None
-        while True:
-            item = await self._inbox.get()
-            if isinstance(item, BaseException):
-                raise item
-            yield item
+        self.reads += 1
+        try:
+            item = await asyncio.wait_for(self._inbox.get(), timeout)
+        except TimeoutError:
+            return None
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+    async def ping(self) -> None:
+        self.pings += 1
+        if self.ping_error is not None:
+            raise self.ping_error
+        if self.server.answers_pings:
+            self.deliver({"type": "pong", "pattern": None, "channel": None, "data": b""})
 
     async def aclose(self) -> None:
         self.closed = True
         for key in self.keys:
             self.server.channels[key].remove(self)
+        if self.close_error is not None:
+            raise self.close_error
 
 
 class _FakeSubscriberClient:
-    def __init__(self, server: _FakePubSubServer) -> None:
+    def __init__(
+        self, server: _FakePubSubServer, *, unreachable: BaseException | None = None
+    ) -> None:
         self.server = server
+        self.unreachable = unreachable
         self.pubsubs: list[_FakePubSub] = []
         self.closed = False
 
-    def pubsub(self, *, ignore_subscribe_messages: bool) -> _FakePubSub:
-        assert ignore_subscribe_messages is True
-        pubsub = _FakePubSub(self.server)
+    def pubsub(self) -> _FakePubSub:
+        pubsub = _FakePubSub(self.server, unreachable=self.unreachable)
         self.pubsubs.append(pubsub)
         return pubsub
 
@@ -371,10 +405,37 @@ class _FakeSubscriberClient:
         self.closed = True
 
 
+def _broker_over(
+    server: _FakePubSubServer,
+    *,
+    unreachable: BaseException | None = None,
+    idle_seconds: float = 30.0,
+) -> tuple[RedisRealtimeBroker, list[_FakeSubscriberClient]]:
+    """A broker over *server*, with the subscriber clients it opens kept for inspection."""
+    clients: list[_FakeSubscriberClient] = []
+
+    def subscriber() -> _FakeSubscriberClient:
+        clients.append(_FakeSubscriberClient(server, unreachable=unreachable))
+        return clients[-1]
+
+    broker = RedisRealtimeBroker(
+        server, subscriber_factory=subscriber, idle_seconds=idle_seconds
+    )
+    return broker, clients
+
+
+async def _until(condition: Callable[[], bool]) -> None:
+    async with asyncio.timeout(5):
+        while not condition():
+            await asyncio.sleep(0)
+
+
 async def _subscribed(server: _FakePubSubServer, key: str) -> _FakePubSub:
-    while not server.channels.get(key):
-        await asyncio.sleep(0)
+    await _until(lambda: bool(server.channels.get(key)))
     return server.channels[key][-1]
+
+
+_KEY = "terp:0:realtime:notes\x00user-a"
 
 
 def test_redis_realtime_broker_carries_a_publish_from_one_process_to_another() -> None:
@@ -391,9 +452,10 @@ def test_redis_realtime_broker_carries_a_publish_from_one_process_to_another() -
     web = RedisRealtimeBroker(server, subscriber_factory=web_subscriber, namespace="t")
     worker = RedisRealtimeBroker(server, subscriber_factory=lambda: None, namespace="t")
     assert is_shared_broker(web) and is_shared_broker(worker)
-    key = "t:realtime:notes\x00user-a"
+    key = "t:0:realtime:notes\x00user-a"
 
     async def exercise() -> None:
+        # stream() subscribes at its first read, as the in-process broker's does.
         stream = web.stream("notes\x00user-a").__aiter__()
         pending = asyncio.create_task(anext(stream))
         pubsub = await _subscribed(server, key)
@@ -405,7 +467,7 @@ def test_redis_realtime_broker_carries_a_publish_from_one_process_to_another() -
 
     asyncio.run(exercise())
     assert server.published == [
-        ("t:realtime:notes\x00user-b", "another audience"),
+        ("t:0:realtime:notes\x00user-b", "another audience"),
         (key, '{"sequence":1}'),
     ]
     (client,) = web_clients
@@ -413,21 +475,57 @@ def test_redis_realtime_broker_carries_a_publish_from_one_process_to_another() -
     assert server.channels[key] == []
 
 
+def test_redis_realtime_broker_is_subscribed_when_subscribe_returns() -> None:
+    # The transports subscribe before they answer the browser, so subscribe() returns
+    # only once Redis confirmed the SUBSCRIBE: a publish straight after it is received.
+    server = _FakePubSubServer()
+    broker, clients = _broker_over(server)
+
+    async def exercise() -> None:
+        messages = await broker.subscribe("notes\x00user-a")
+        assert [pubsub.keys for pubsub in server.channels[_KEY]] == [[_KEY]]
+        await broker.publish("notes\x00user-a", "first")
+        assert await anext(messages) == "first"
+        await messages.aclose()
+
+    asyncio.run(exercise())
+    (client,) = clients
+    assert client.closed and client.pubsubs[0].closed
+
+
+def test_redis_realtime_broker_refuses_a_subscription_redis_cannot_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    refused = redis_stores._redis().exceptions.ConnectionError("Connection refused")
+    broker, clients = _broker_over(_FakePubSubServer(), unreachable=refused)
+    with pytest.raises(SubscriptionEnded) as raised:
+        asyncio.run(broker.subscribe("notes\x00user-a"))
+    assert raised.value.__cause__ is refused
+    assert clients[0].closed and clients[0].pubsubs[0].closed
+
+    # A server that took the SUBSCRIBE and never confirmed it is refused as well.
+    monkeypatch.setattr(redis_realtime, "_CONNECTION_TIMEOUT_SECONDS", 0.01)
+    silent = _FakePubSubServer()
+    silent.confirms = False
+    broker, clients = _broker_over(silent)
+    with pytest.raises(SubscriptionEnded, match="did not confirm"):
+        asyncio.run(broker.subscribe("notes\x00user-a"))
+    assert clients[0].closed and clients[0].pubsubs[0].closed
+    assert silent.channels[_KEY] == []
+
+
 def test_redis_realtime_broker_ends_a_subscription_its_connection_lost() -> None:
     server = _FakePubSubServer()
-    clients: list[_FakeSubscriberClient] = []
-
-    def subscriber() -> _FakeSubscriberClient:
-        clients.append(_FakeSubscriberClient(server))
-        return clients[-1]
-
-    broker = RedisRealtimeBroker(server, subscriber_factory=subscriber)
+    broker, clients = _broker_over(server)
     lost = redis_stores._redis().exceptions.ConnectionError("Connection reset by peer")
 
     async def exercise() -> None:
         stream = broker.stream("notes\x00user-a").__aiter__()
         pending = asyncio.create_task(anext(stream))
-        pubsub = await _subscribed(server, "terp:realtime:notes\x00user-a")
+        pubsub = await _subscribed(server, _KEY)
+        # A pub/sub close that fails must neither skip the client's close nor replace
+        # the error that ended the subscription.
+        pubsub.close_error = RuntimeError("close failed")
         pubsub.deliver(lost)
         with pytest.raises(SubscriptionEnded) as raised:
             await pending
@@ -435,6 +533,157 @@ def test_redis_realtime_broker_ends_a_subscription_its_connection_lost() -> None
 
     asyncio.run(exercise())
     assert clients[0].closed and clients[0].pubsubs[0].closed
+
+
+def test_redis_realtime_broker_closes_its_connection_when_cancelled_mid_wait() -> None:
+    server = _FakePubSubServer()
+    broker, clients = _broker_over(server)
+
+    async def exercise() -> None:
+        messages = await broker.subscribe("notes\x00user-a")
+        pending = asyncio.create_task(anext(messages))
+        pubsub = server.channels[_KEY][-1]
+        await _until(lambda: pubsub.reads == 2)  # the confirmation, then the wait
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+
+    asyncio.run(exercise())
+    (client,) = clients
+    assert client.pubsubs[0].closed and client.closed
+
+
+def test_redis_realtime_broker_pings_a_quiet_connection_and_gives_up_on_silence() -> None:
+    # A subscriber dropped without a word (no reset ever arrives) would wait forever on a
+    # quiet channel. Idle for idle_seconds, it pings; silent as long again, it ends.
+    server = _FakePubSubServer()
+    broker, _clients = _broker_over(server, idle_seconds=0.01)
+
+    async def answered_then_silent() -> None:
+        messages = await broker.subscribe("notes\x00user-a")
+        pending = asyncio.create_task(anext(messages))
+        pubsub = server.channels[_KEY][-1]
+        await _until(lambda: pubsub.pings >= 2)  # each ping answered: still subscribed
+        await broker.publish("notes\x00user-a", "still here")
+        assert await pending == "still here"
+        server.answers_pings = False
+        with pytest.raises(SubscriptionEnded, match="did not answer"):
+            await anext(messages)
+
+    asyncio.run(answered_then_silent())
+
+    reset = redis_stores._redis().exceptions.ConnectionError("Connection reset by peer")
+
+    async def ping_fails() -> None:
+        messages = await broker.subscribe("notes\x00user-a")
+        server.channels[_KEY][-1].ping_error = reset
+        with pytest.raises(SubscriptionEnded) as raised:
+            await anext(messages)
+        assert raised.value.__cause__ is reset
+
+    asyncio.run(ping_fails())
+
+
+def test_redis_realtime_broker_ends_a_subscription_redis_py_resubscribed() -> None:
+    # redis-py may reconnect a dropped pub/sub connection and SUBSCRIBE again by itself.
+    # What was published in the gap is gone, so the stream ends and the client re-reads.
+    server = _FakePubSubServer()
+    broker, clients = _broker_over(server)
+
+    async def exercise() -> None:
+        messages = await broker.subscribe("notes\x00user-a")
+        server.channels[_KEY][-1].deliver({"type": "subscribe", "data": 1})
+        with pytest.raises(SubscriptionEnded, match="reconnected"):
+            await anext(messages)
+
+    asyncio.run(exercise())
+    assert clients[0].closed
+
+
+def test_redis_realtime_broker_rejects_a_non_positive_idle_interval() -> None:
+    with pytest.raises(ValueError, match="positive idle_seconds"):
+        RedisRealtimeBroker(_FakePubSubServer(), subscriber_factory=lambda: None, idle_seconds=0)
+
+
+class _PoolBoundClient:
+    """A sync client that says which database it is bound to, as redis-py's does."""
+
+    def __init__(self, server: _FakePubSubServer, connection_kwargs: dict[str, object]) -> None:
+        self.server = server
+        self.connection_pool = type("Pool", (), {"connection_kwargs": connection_kwargs})()
+
+    def publish(self, key: str, payload: str) -> int:
+        return self.server.publish(key, payload)
+
+
+def test_redis_realtime_channels_carry_the_database_index() -> None:
+    # Pub/sub is server-wide: two deployments on one server, on databases 0 and 1, must
+    # not hear each other under the same namespace.
+    server = _FakePubSubServer()
+    on_db_1 = RedisRealtimeBroker(
+        _PoolBoundClient(server, {"db": 1}), subscriber_factory=lambda: None
+    )
+    unsaid = RedisRealtimeBroker(
+        _PoolBoundClient(server, {"host": "localhost"}), subscriber_factory=lambda: None
+    )
+    asyncio.run(on_db_1.publish("notes\x00user-a", "one"))
+    asyncio.run(unsaid.publish("notes\x00user-a", "zero"))
+    assert server.published == [
+        ("terp:1:realtime:notes\x00user-a", "one"),
+        ("terp:0:realtime:notes\x00user-a", "zero"),
+    ]
+    assert RedisRealtimeBroker.from_url("redis://localhost/1")._key("c") == "terp:1:realtime:c"
+    assert RedisRealtimeBroker.from_url("redis://localhost")._key("c") == "terp:0:realtime:c"
+
+
+class _UnreachablePublisher:
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+
+    def publish(self, key: str, payload: str) -> int:
+        raise self.error
+
+
+def test_redis_realtime_publish_never_fails_the_write_that_published(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A publish rides a write path (an _after_write hook would roll the write back), so
+    # a Redis that is down or does not answer drops the message and logs, without the
+    # payload.
+    errors = redis_stores._redis().exceptions
+    with caplog.at_level(logging.WARNING, logger="terp.capabilities.redis.realtime"):
+        for error in (errors.ConnectionError("refused"), errors.TimeoutError("timed out")):
+            broker = RedisRealtimeBroker(
+                _UnreachablePublisher(error), subscriber_factory=lambda: None
+            )
+            assert asyncio.run(broker.publish("notes\x00user-a", '{"secret":"x"}')) is None
+    logged = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "terp.capabilities.redis.realtime"
+    ]
+    assert len(logged) == 2
+    assert all("dropped" in line and "terp:0:realtime:" in line for line in logged)
+    assert not any("secret" in line for line in logged)
+
+    # A command Redis refused is not an outage: it still surfaces.
+    refused = RedisRealtimeBroker(
+        _UnreachablePublisher(errors.ResponseError("WRONGTYPE")),
+        subscriber_factory=lambda: None,
+    )
+    with pytest.raises(errors.ResponseError):
+        asyncio.run(refused.publish("notes\x00user-a", "{}"))
+
+
+def test_redis_realtime_broker_bounds_its_own_clients_and_not_the_stores() -> None:
+    broker = RedisRealtimeBroker.from_url("redis://localhost/0")
+    publisher = broker._client.connection_pool.connection_kwargs
+    subscriber = broker._subscriber_factory().connection_pool.connection_kwargs
+    for options in (publisher, subscriber):
+        assert options["socket_connect_timeout"] == 2.0
+        assert options["socket_timeout"] == 2.0
+    store = RedisCacheStore.from_url("redis://localhost/0")
+    assert "socket_timeout" not in store._client.connection_pool.connection_kwargs
 
 
 def test_redis_realtime_broker_satisfies_a_promised_shared_broker() -> None:

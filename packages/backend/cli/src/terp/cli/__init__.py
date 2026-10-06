@@ -1463,8 +1463,14 @@ Realtime push (realtime capability)
       configure_broker(RedisRealtimeBroker.from_url(settings.REDIS_URL))
       configure_ticket_store(RedisConnectionTicketStore.from_url(settings.REDIS_URL))
       configure_realtime(..., require_shared_broker=settings.is_production)
-  The worker runs the same composition root, so it wires the same broker. Delivery is
-  fire-and-forget either way: a message published while nobody listens is gone.
+  The worker runs the same composition root, so it wires the same broker. Pub/sub is
+  server-wide: the database index is in the channel names, but two deployments sharing
+  one Redis server AND database need distinct namespace=... values. Delivery is
+  fire-and-forget either way: a message published while nobody listens is gone, and a
+  publish Redis does not take (connecting and the reply are each bounded at 2s) is
+  dropped with a logged warning - it never fails the write that published it. A
+  transport subscribes before it answers, so an unreachable Redis is an SSE 503 or a
+  WebSocket closed 1013 before accept, and the browser backs off.
 - Transport is TICKET-based, never a token in a URL: the client POSTs
   /api/v1/realtime/tickets, receives a one-use short-lived ticket, then connects to
   /api/v1/realtime/sse/<channel>?ticket=... (or /ws/<channel> in websocket mode). The
