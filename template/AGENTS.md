@@ -62,7 +62,7 @@ for in-page tab sets and `Markdown` for safe rich text).
 3. Data collections render via `DataView` (repository-driven; see
    `node_modules/@terpjs/react-core/src/dataview/README.md`).
 4. Style with design tokens (`var(--color-*)`, `var(--space-*)`) — no inline colours,
-   no `style={}`, no `className`, no module-authored stylesheets: layout comes from
+   no `style={}`, no `className`, no stylesheets in any `src/` file: layout comes from
    `Stack` / `Grid` / `DetailList` / `Divider` / the typography primitives (`Heading` /
    `Text` / `Code` / `Link`) / the page archetypes; theming from the app's token source.
    A bare `<p>` or `<code>` carries no marker for any rule to reach, so prose in a module

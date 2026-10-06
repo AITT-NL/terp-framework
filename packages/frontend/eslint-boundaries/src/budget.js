@@ -23,7 +23,8 @@ import { pathToFileURL } from "node:url";
 import { BOUNDARY_SPEC } from "./spec.js";
 import { knownMarkerNames, parseAllowMarkers } from "./index.js";
 
-const MODULE_FILE_RE = /\.(?:ts|tsx)$/;
+/** The app-source extensions the lint holds (`BOUNDARY_SPEC.sourceExtensions`), as a file test. */
+const SOURCE_FILE_RE = new RegExp(`\\.(?:${BOUNDARY_SPEC.sourceExtensions.join("|")})$`);
 
 /** The `review-by:<YYYY-MM-DD>` metadata token in a marker's reason (the Terp
  * Standard's escape-hatch contract): when the exception must be re-justified.
@@ -43,7 +44,7 @@ function parsedReviewDate(value) {
   return roundTrips ? date : null;
 }
 
-/** Every app-authored `src/**` TypeScript file under *root*, recursively. */
+/** Every app-authored `src/**` source file under *root*, recursively. */
 function sourceFiles(root) {
   const sourceRoot = path.join(root, "src");
   if (!fs.existsSync(sourceRoot)) {
@@ -56,7 +57,7 @@ function sourceFiles(root) {
       if (entry.isDirectory()) {
         if (full === path.join(sourceRoot, "api")) continue;
         walk(full);
-      } else if (MODULE_FILE_RE.test(entry.name)) {
+      } else if (SOURCE_FILE_RE.test(entry.name)) {
         files.push(full);
       }
     }

@@ -3,8 +3,11 @@
  * ./index.js realises them for the React stack; a future stack (e.g. Svelte) can realise the same
  * spec with its own adapter. The *rules* are shared; only the *enforcement adapter* is per-stack.
  *
- * Structural/security boundaries apply to `src/modules/**`; localization and the refusal of
- * react-core's `data-terp` markers apply to all app-authored `src/**`. Framework packages
+ * Every rule applies to all app-authored `src/**` (ADR 0175): a rule's scope follows what it is
+ * about, and none of them is about a directory. The one rule that *is* about a module's shape,
+ * `no-cross-module-imports`, reads the module tree for itself: a module never imports a
+ * sibling, and code outside every module never imports into one. The bootstrap is the one file
+ * that may import stylesheets, and only the token pipeline's own. Framework packages
  * legitimately define the primitives these rules point back to and are outside an app's
  * boundary config.
  */
@@ -19,16 +22,38 @@
  */
 export const SPEC_VERSION = "0.39.0";
 
+/** Every script extension the bundler loads as app source (see `appFiles`). */
+const SOURCE_EXTENSIONS = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
+
 export const BOUNDARY_SPEC = {
   /**
-   * Every app-authored TypeScript source file: its user-facing copy must be cataloged, and it
-   * never writes react-core's markers.
+   * Every app-authored source file, and so every file the boundary applies to. A module, a
+   * helper beside the modules and the bootstrap are held alike (ADR 0175), and so is every
+   * script extension the bundler loads: a `.jsx` or `.mts` file is app source too, and leaving
+   * one out would make renaming a file an escape hatch.
    */
-  appFiles: ["**/src/**/*.{ts,tsx}"],
-  /** App module files the boundary + frontend security defaults apply to. */
-  moduleFiles: ["**/modules/**/*.{ts,tsx}"],
+  appFiles: [`**/src/**/*.{${SOURCE_EXTENSIONS.join(",")}}`],
   /**
-   * Raw HTML elements an app module must not author directly, mapped to the token-styled
+   * The extensions `appFiles` names, for the tools that walk `src/` themselves rather than
+   * through the ESLint config (the escape-hatch budget, the corpus harness), so the files they
+   * count are the files the lint holds.
+   */
+  sourceExtensions: SOURCE_EXTENSIONS,
+  /**
+   * The app's bootstrap: the file that mounts the app and loads the token pipeline. TypeScript
+   * only, as the template ships it: this names an allowance, so it stays as narrow as the file
+   * it was written for, and a bootstrap in another extension meets the stricter rule.
+   */
+  bootstrapFiles: ["**/src/main.{ts,tsx}"],
+  /**
+   * The stylesheets the bootstrap may import, and the only ones any app file may: the framework's
+   * tokens, the house style a tool manages and the app's own token overlay. Each is a layer of
+   * the token pipeline, so a stylesheet outside this list is a side channel around it, a
+   * library's included.
+   */
+  bootstrapStylesheets: ["@terpjs/contract/tokens.css", "./house-style.css", "./theme.css"],
+  /**
+   * Raw HTML elements app source must not author directly, mapped to the token-styled
    * `@terpjs/react-core` replacement (accessible + theme-consistent by construction).
    */
   restrictedElements: {
@@ -42,7 +67,7 @@ export const BOUNDARY_SPEC = {
     meter: "Meter",
   },
   /**
-   * JSX attributes an app module must not author — styling lives in the design tokens and the
+   * JSX attributes app source must not author — styling lives in the design tokens and the
    * react-core components (`Stack` for layout), never ad-hoc per screen. `className` would be
    * a side channel into hand-authored CSS, so it is refused alongside `style`.
    */
@@ -88,9 +113,9 @@ export const BOUNDARY_SPEC = {
    * guard); modules use the stack's `Link`. External `https://...` anchors stay allowed.
    */
   restrictInAppAnchors: true,
-  /** Package internals an app module must not deep-import (import from the package root). */
+  /** Package internals app source must not deep-import (import from the package root). */
   internalImportPatterns: ["@terpjs/*/src/*", "@terpjs/*/dist/*"],
-  /** Module-authored stylesheets are refused — theming flows from the app's token source. */
+  /** App-authored stylesheets are refused — theming flows from the app's token source. */
   styleImportPatterns: [
     "*.css",
     "**/*.css",

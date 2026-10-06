@@ -19,12 +19,76 @@ a section ended with the same room a card left its neighbour; sections stand fur
 (ADR 0174). And the breadcrumb rebuilt its labels on every navigation, so a detail page printed
 its parent's name and then its own; the trail keeps what it knows now (ADR 0173).
 
+And realtime reached only the process that published. A job handler in `terp jobs worker`
+published to nobody, even with one web replica. There is a shared broker now, and a promise that
+refuses the per-process one (ADR 0176).
+
+And a vendor SDK's traffic met neither the egress allowlist nor the SSRF denylist, because the
+build-time rule reads only the app's own imports. The declaration can now be held at the socket,
+for every library that reaches the network through Python's `socket` module (ADR 0177).
+
+And a write could point a reference at a row its author could never read: another tenant's,
+or a soft-deleted one. The write chokepoint now holds references to the same row scope the reads
+obey (ADR 0178).
+And one hole in the frontend boundary. Its structural and security rules covered only the
+module tree, so a component beside the modules could import a stylesheet, set `style`, call
+`eval` and write `innerHTML` with no finding, and a module could render it. Every rule now
+covers all of `src/` (ADR 0175).
 And a canvas had nowhere to go. No page gave a diagram the height of the screen, so a
 diagram-first app could size one only with a style it may not write. `WorkspacePage` gives it
 that height (ADR 0179).
 
 ### Added
 
+- **`RedisRealtimeBroker`, a realtime broker shared across processes (ADR 0176).** It ships in
+  `terp-cap-redis[realtime]`, beside `RedisConnectionTicketStore`. A publish goes to Redis
+  pub/sub, and every process holding a subscriber on that topic receives it: another replica's,
+  or the web process's when a job handler in `terp jobs worker` published. Pub/sub is
+  server-wide, so the channel names carry the database index; deployments that share a server
+  and a database use distinct namespaces. Each subscriber holds its own pub/sub connection while
+  its transport is open. A connection Redis drops (a consumer too far behind), one that stays
+  silent past a ping, and one redis-py reconnected by itself end the stream as
+  `SubscriptionEnded`, so the transport closes and the browser reconnects. Delivery stays
+  fire-and-forget, as in process: a publish Redis does not take (connecting and the reply are
+  each bounded at two seconds) is dropped with a warning in the log, and never fails the write
+  that published it.
+- **A realtime transport subscribes before it answers.** `RealtimeBroker.subscribe(channel)`
+  starts a subscription and returns its messages once it is live; the default returns
+  `stream(channel)`, and the Redis broker has Redis confirm the SUBSCRIBE first. SSE and the
+  WebSocket handshake call it before their `200` / `accept`, so a subscription that cannot start
+  answers `503` (`RealtimeUnavailableError`, code `realtime_unavailable`) or closes the socket
+  `1013` before accept, and the browser backs off instead of reconnecting every second to a
+  stream that ends at once.
+- **`configure_realtime(require_shared_broker=True)`.** It promises that a publish in any process
+  reaches a subscriber in any other. A per-process broker is refused at once if it is installed
+  before or after the promise. The lazy default is refused at its first use, so a missing
+  `configure_broker` fails the first publish instead of dropping it, and it is not installed, so
+  wiring the shared broker afterwards still works. A later `configure_realtime` call that leaves
+  the argument out keeps the promise; `False` or `reset_realtime_configuration()` withdraws it.
+  `mark_shared_broker` and `is_shared_broker` follow core's `mark_shared_*` markers, for an app's
+  own adapter.
+- **`SubscriptionEnded`.** The broker ended a subscription and its client must reconnect.
+  `BackpressureError` is now one kind of it, and the transports close on either.
+- **`install_egress_guard`: the egress declaration held at the socket (ADR 0177).** A Python
+  audit hook holds the process to `EgressGuard(hosts=..., infrastructure=...)`, whichever library
+  makes the call. It holds the standard library's socket events on IPv4 and IPv6 sockets. A
+  lookup of an undeclared hostname (`getaddrinfo`, `gethostbyname`, `gethostbyname_ex`) is refused
+  before it is made. A connect or datagram (`connect`, `connect_ex`, `sendto`, `sendmsg`) into a
+  private, loopback, link-local, site-local or metadata range is refused unless it is declared
+  infrastructure (a hostname, an IP literal or a CIDR). A peer given by name, `localhost`
+  included, is resolved by the guard and each of its addresses is held the same way. A resolved
+  infrastructure name never sanctions a cloud metadata address; only a literal or a CIDR can. The
+  refusal is `EgressRefusedError`, the egress client's 502, and deliberately not an `OSError`, so
+  a library's own connection-error handling does not swallow it; the egress client reports it as
+  a refusal, and under an async client (httpx on anyio) it can arrive inside an `ExceptionGroup`.
+  `EgressGuard.for_policies(...)` builds the guard from the declared policies, and a policy with
+  `allow_private_addresses` contributes its hosts as infrastructure. What it cannot hold is named:
+  **uvloop** resolves and connects inside libuv with no audit event, so `install_egress_guard`
+  raises `EgressGuardUnsupportedError` in a process that imports or runs it, and the hook refuses
+  `import uvloop` after install. Native drivers that open their own sockets (libpq, gRPC's C core)
+  are out of its reach, a public IP literal passes, a connect by name reaches DNS before its
+  event, and on Windows asyncio's `socketpair` connects to loopback, so a new event loop is
+  refused there unless loopback is declared.
 - **`WorkspacePage` and `CanvasHost`: one canvas that fills the screen (ADR 0179).** A page
   archetype for work done on a surface: a diagram of nodes and connections, a plan, a board. It
   keeps the page band, and takes its trail as `parents`, as `DashboardPage` does. Below the
@@ -64,6 +128,45 @@ that height (ADR 0179).
   parent's name. A crumb whose label arrives changes its words in place, and going one level
   deeper only adds a crumb. The packaged user and group details no longer title themselves with
   their parent while they load.
+- **`terp guide realtime` says when the per-process default breaks.** It said "when you run more
+  than one replica". It breaks with one replica too, once a job handler publishes from
+  `terp jobs worker`. The topic now says so, and shows the wiring: both Redis adapters and the
+  promise.
+- **The SSRF denylist covers IPv6 site-local space (`fec0::/10`).** It is deprecated but still
+  routable, and `ipaddress` does not count it as private, so an egress client call or a webhook
+  delivery to it passed the check.
+- **A reference stays inside the writer's row scope (ADR 0178).** Every flush looks up every
+  reference it writes (all of them on an insert, the changed ones on an update) under the target
+  model's row scope: soft delete, tenancy, and an opt-in owner read scope. It runs at the flush,
+  so an autoflush or a sibling's commit cannot carry a reference past it, and a target inserted
+  earlier in the same unit is found. Before, a row
+  in one tenant could be written pointing at a row in another, because the foreign key only
+  checks that the target exists. An out-of-scope target now fails exactly like a missing one,
+  with the same 409 `ConflictError` in the same words, so the refusal does not reveal which rows
+  exist elsewhere; the reason is in `log_context` only. An untouched pointer to a row that has
+  since been soft-deleted does not block an unrelated edit. A target with no scope is left to the
+  foreign key, with no extra query.
+- **The frontend boundary covers all of `src/`, not only `src/modules/` (ADR 0175).** Every
+  rule in `@terpjs/eslint-boundaries` applies to every app-authored file under `src/`: the raw
+  elements, `style` and `className`, stylesheet imports, deep imports, `fetch` and the other raw
+  transports, `innerHTML`, `dangerouslySetInnerHTML`, `eval` and unsafe links. Before this, all of
+  them stopped at the module tree. A component in, say, `src/diagram/` did all of it with no
+  finding, and a module that rendered it lint-passed too, so moving a file out of `modules/` was
+  an escape hatch with no reason and no budget. Every script extension under `src/` is held, so
+  a `.jsx` or `.mts` file is no way out either, and the escape-hatch budget counts its markers.
+  `no-cross-module-imports` now reads both directions: a module never imports a sibling, and code
+  outside every module never imports from one, so a shared file can no longer re-export one
+  module's internals to another. The bootstrap's `import.meta.glob` of the modules is not an
+  import and is untouched. The bootstrap (`src/main.tsx`) may import exactly the token
+  pipeline's three stylesheets, `@terpjs/contract/tokens.css`, `./house-style.css` and
+  `./theme.css`, matched exactly and case-sensitively (`./THEME.css`, `./theme.css?inline` and a
+  nested `src/main.tsx` are refused), and is held to every other rule. A library's stylesheet is
+  refused there as anywhere, and a stylesheet loaded through `import()` or `import.meta.glob` is
+  refused like an imported one.
+- **The READMEs name every capability.** The root README's architecture row left out `egress`,
+  `leases`, `mfa` and `realtime`, and the capabilities README's list and table left out `mfa`
+  and `realtime`. `test_docs_parity.py` now reads both against the packages that exist, so a new
+  capability cannot ship unlisted.
 
 ### Upgrade notes
 
@@ -79,6 +182,46 @@ that height (ADR 0179).
   hatch, follows it to `--space-6`. A section's title belongs to its block (a `Card`'s or a
   `DataView`'s `title`): a loose `Heading` as a body child of its own sits a section gap from what
   it names.
+- **An app that publishes realtime messages from a job worker, or runs more than one replica,
+  wires the shared broker.** Install `terp-cap-redis[realtime]` and, in the composition root
+  the web process and the worker both run: `configure_broker(RedisRealtimeBroker.from_url(url))`,
+  `configure_ticket_store(RedisConnectionTicketStore.from_url(url))`, and
+  `configure_realtime(..., require_shared_broker=True)` where it runs as a deployment. Nothing
+  changes for an app that sets none of it. `terp-cap-redis` now requires `redis>=5.0.1`, the
+  first release with the asyncio `aclose()` the subscriber closes with.
+- **A realtime broker adapter of an app's own whose subscription can fail to start overrides
+  `subscribe`** and raises `SubscriptionEnded` there, so the transports refuse the browser rather
+  than answer it. One that cannot fail needs no change: `subscribe` defaults to `stream`.
+- **An app that calls a vendor SDK installs the egress guard.** In the composition root that the
+  web process and the worker both run:
+  `install_egress_guard(EgressGuard.for_policies(*policies, hosts=(sdk hosts), infrastructure=(db, redis, relay)))`.
+  Everything the process reaches must then be declared, its own infrastructure included, so
+  declare it before switching the guard on in production. Serve it with `uvicorn --loop asyncio`
+  and run its worker and scheduler with `asyncio.run`: `uvicorn[standard]` picks uvloop by
+  default, which the guard cannot see, so it refuses to start beside it. Nothing changes for an
+  app that does not install it.
+- **A write that points a reference out of its scope now fails with a 409.** That includes
+  another tenant's row, a soft-deleted row, and, with `register_owner_read_scope`, another
+  user's owned row. Such a write always pointed at something its author could not read. Code
+  that did it on purpose, such as a seed linking rows across tenants or a job that runs with no
+  tenant bound, sets the right `tenant_context` for each write. The 409 is worded like a missing
+  target, on purpose; the log names `reference_out_of_scope`.
+- **Code outside `src/modules/` is linted now, and may fail.** A helper, a page component or a
+  replaced framework screen beside the modules meets the same rules a module always did, and so
+  does a `.js`, `.jsx`, `.mjs`, `.cjs`, `.mts` or `.cts` file anywhere under `src/`. The fix
+  is the module fix: compose the react-core primitives and the generated client, or justify the
+  exception with a `terp-allow-*` marker and budget it. A bootstrap that imports a stylesheet
+  other than the three is refused; move what it carried into `theme.css` as tokens.
+- **Shared code that imports from a module is refused.** A file outside `src/modules/` that
+  imports from `modules/<name>/` fails `no-cross-module-imports`. Move what the shared file needs
+  out of the module, or keep the code inside the module that owns it. A bootstrap that imports a
+  module by hand instead of through `import.meta.glob` is refused too; the glob is how modules
+  are wired.
+- **`BOUNDARY_SPEC.moduleFiles` is gone.** `terpBoundaries()` read it for the module-scoped
+  block, which this release removes, so nothing reads it after this change and it would
+  describe a scope that no longer exists. `BOUNDARY_SPEC.appFiles` is the scope of every
+  rule; `bootstrapFiles` and `bootstrapStylesheets` describe the bootstrap's one allowance, and
+  `sourceExtensions` the extensions `appFiles` names.
 
 ## 0.32.0 — 2026-10-05
 
