@@ -1,9 +1,9 @@
 # 0178 — A reference written must point at a row its writer can read
 
-- **Status:** Accepted and implemented (2026-10-06). `BaseService._save` checks every
-  single-column reference a write sets against the target model's row scope
-  (`terp.core.scoping.refuse_out_of_scope_references`). Held by
-  `tests/architecture/test_reference_scope.py`.
+- **Status:** Accepted and implemented (2026-10-06). Every flush checks each single-column
+  reference it writes against the target model's row scope
+  (`terp.core.scoping.refuse_out_of_scope_references`, from an `after_flush` session hook).
+  Held by `tests/architecture/test_reference_scope.py`.
 - **Date:** 2026-10-06
 - **Relates:** [ADR 0017](0017-non-overridable-scope-predicate-and-registry.md) (the row scope
   this applies to writes), [ADR 0133](0133-a-reference-declares-what-a-delete-of-its-target-does.md)
@@ -33,9 +33,9 @@ The scope was always the definition of what a writer can see. The write path nev
 
 ## Decision
 
-**A reference a write sets must point at a row its writer can read.** The write chokepoint
-(`_save`) looks up each reference the write sets under the target model's row scope
-(`apply_row_scope`: soft delete, then every registered predicate, tenancy included):
+**A reference a write sets must point at a row its writer can read.** Every flush looks up each
+reference it writes under the target model's row scope (`apply_row_scope`: soft delete, then
+every registered predicate, tenancy included):
 
 - **Which references.** On a create, every one. On an update, only the ones it changed. An
   untouched pointer to a row that was soft-deleted since does not block an unrelated edit; a
@@ -49,8 +49,18 @@ The scope was always the definition of what a writer can see. The write path nev
 - **What it leaves to the database.** A target model with no scope trait, where the scope adds
   nothing the foreign key does not already check (no query is made for it). A table no model
   maps. A multi-column foreign key, which `Ref` never declares.
-- **Where it runs.** Inside the write unit, so a refused update rolls back the change it
-  carried, and with autoflush off, so the check does not flush the very write it is checking.
+- **Where it runs.** At the flush, not in `_save`: an `after_flush` hook on every session,
+  which still sees the flush's new and dirty rows and their history. The first version checked
+  in `_save` before the flush, and review found three ways that was wrong. A row inserted
+  earlier in the same unit (a tree's root when its first branch is saved from `_after_write`)
+  was not visible yet, so a valid reference was refused. A reference filled in from a
+  relationship was still empty. And any flush before `_save` (an autoflush on a read, a
+  sibling's commit) cleared the history the check read, so a re-pointed reference went
+  through unchecked. At the flush every row that is written is checked, with the values it is
+  written with, and targets inserted earlier in the unit are there to be found on the flush's
+  own connection. Raising there fails the flush and its transaction, exactly as the database
+  refusing a missing target would, so a caller that swallows a nested refusal cannot commit
+  the unit either.
 
 **It is the kernel's rule, not the tenancy capability's.** The kernel already owns "what a
 reader can see" without importing tenancy. A write that holds to the same definition needs no

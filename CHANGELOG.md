@@ -45,9 +45,11 @@ obey (ADR 0178).
   parent's name. A crumb whose label arrives changes its words in place, and going one level
   deeper only adds a crumb. The packaged user and group details no longer title themselves with
   their parent while they load.
-- **A reference stays inside the writer's row scope (ADR 0178).** `BaseService._save` looks up
-  every reference a write sets (all of them on a create, the changed ones on an update) under the
-  target model's row scope: soft delete, tenancy, and an opt-in owner read scope. Before, a row
+- **A reference stays inside the writer's row scope (ADR 0178).** Every flush looks up every
+  reference it writes (all of them on an insert, the changed ones on an update) under the target
+  model's row scope: soft delete, tenancy, and an opt-in owner read scope. It runs at the flush,
+  so an autoflush or a sibling's commit cannot carry a reference past it, and a target inserted
+  earlier in the same unit is found. Before, a row
   in one tenant could be written pointing at a row in another, because the foreign key only
   checks that the target exists. An out-of-scope target now fails exactly like a missing one,
   with the same 409 `ConflictError` in the same words, so the refusal does not reveal which rows
@@ -72,8 +74,9 @@ obey (ADR 0178).
 - **A write that points a reference out of its scope now fails with a 409.** That includes
   another tenant's row, a soft-deleted row, and, with `register_owner_read_scope`, another
   user's owned row. Such a write always pointed at something its author could not read. Code
-  that did it on purpose, such as a seed linking rows across tenants, sets the right
-  `tenant_context` for each write.
+  that did it on purpose, such as a seed linking rows across tenants or a job that runs with no
+  tenant bound, sets the right `tenant_context` for each write. The 409 is worded like a missing
+  target, on purpose; the log names `reference_out_of_scope`.
 
 ## 0.32.0 — 2026-10-05
 

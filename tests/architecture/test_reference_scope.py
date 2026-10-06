@@ -14,8 +14,9 @@ from collections.abc import Iterator
 
 import pytest
 from sqlalchemy import Column, ForeignKeyConstraint, Table, UniqueConstraint, Uuid, event
+from sqlalchemy.orm import relationship
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Field, Session, SQLModel, create_engine
+from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
 
 from terp.capabilities.tenancy import TenantScopedMixin, TenantScopedService, tenant_context
 from terp.core import (
@@ -25,10 +26,19 @@ from terp.core import (
     BaseUpdateSchema,
     ConflictError,
     OnDelete,
+    OwnedMixin,
     Ref,
     SoftDeleteMixin,
 )
-from terp.core.scoping import refuse_out_of_scope_references
+from terp.core._internal.registry_resets import reset_scope_predicates
+from terp.core._internal.session_guard import WriteGuardedSession
+from terp.core.audit import AuditAction, audit_actor_ctx
+from terp.core.scoping import (
+    refuse_out_of_scope_references,
+    register_owner_read_scope,
+    register_scope_predicate,
+    registered_scope_predicates,
+)
 
 _REFUSAL = "This write conflicts with a unique or referential constraint."
 
@@ -301,3 +311,181 @@ def test_unmapped_targets_and_multi_column_keys_are_left_to_the_database(session
 
 def test_a_non_mapped_stand_in_carries_no_reference(session: Session) -> None:
     assert refuse_out_of_scope_references(session, object(), created=True) is None
+
+
+# --------------------------------------------------------------------------- #
+# The rule is held at the flush: every row a flush writes, however the flush was
+# reached, with what the write actually carries.
+# --------------------------------------------------------------------------- #
+
+
+class _Tree(BaseTable, TenantScopedMixin, table=True):
+    __tablename__ = "refscope_tree"
+    name: str = Field(max_length=50)
+    parent_id: uuid.UUID | None = Ref("refscope_tree.id", on_delete=OnDelete.CASCADE, default=None)
+
+
+class _TreeCreate(BaseSchema):
+    name: str
+    parent_id: uuid.UUID | None = None
+
+
+class _Trees(TenantScopedService[_Tree, _TreeCreate, BaseUpdateSchema]):
+    """Plants a first branch under every new root, in the same unit as the root."""
+
+    model = _Tree
+
+    def _after_write(self, session: Session, entity: _Tree, action: AuditAction) -> None:
+        super()._after_write(session, entity, action)
+        if action is AuditAction.CREATED and entity.parent_id is None:
+            branch = _Tree(name="branch", parent_id=entity.id, tenant_id=entity.tenant_id)
+            self._save(session, branch, AuditAction.CREATED)
+
+
+class _Shelf(BaseTable, SoftDeleteMixin, table=True):
+    __tablename__ = "refscope_shelf"
+    name: str = Field(max_length=50)
+
+
+class _Book(BaseTable, table=True):
+    __tablename__ = "refscope_book"
+    shelf_id: uuid.UUID | None = Ref("refscope_shelf.id", on_delete=OnDelete.RESTRICT, default=None)
+    # Declared through sa_relationship: the postponed annotation is a string SQLModel cannot
+    # resolve into a relationship target on its own.
+    shelf: _Shelf | None = Relationship(sa_relationship=relationship(_Shelf))
+
+
+class _Doc(BaseTable, OwnedMixin, table=True):
+    __tablename__ = "refscope_doc"
+    title: str = Field(max_length=50)
+
+
+class _Note(BaseTable, table=True):
+    __tablename__ = "refscope_note"
+    doc_id: uuid.UUID = Ref("refscope_doc.id", on_delete=OnDelete.CASCADE)
+
+
+class _DocCreate(BaseSchema):
+    title: str
+
+
+class _NoteCreate(BaseSchema):
+    doc_id: uuid.UUID
+
+
+class _Docs(BaseService[_Doc, _DocCreate, BaseUpdateSchema]):
+    model = _Doc
+
+
+class _Notes(BaseService[_Note, _NoteCreate, BaseUpdateSchema]):
+    model = _Note
+
+
+def test_a_target_written_earlier_in_the_same_unit_is_found(session: Session) -> None:
+    # The root is pending when its first branch is saved from _after_write: a check that
+    # looked before the flush could not see it and refused a reference to a row that exists.
+    with tenant_context(uuid.uuid4()):
+        root = _Trees().create(session, _TreeCreate(name="root"))
+        branches = session.exec(select(_Tree).where(_Tree.parent_id == root.id)).all()
+    assert [branch.name for branch in branches] == ["branch"]
+
+
+def test_a_reference_filled_in_from_a_relationship_is_held(session: Session) -> None:
+    # The foreign key is None until the flush fills it from the relationship; the check
+    # runs after that, on the value the row is written with.
+    shelf = _Shelf(name="old")
+    session.add(shelf)
+    session.commit()
+    shelf.deleted_at = shelf.created_at
+    session.commit()
+    session.add(_Book(shelf=shelf))
+    with pytest.raises(ConflictError) as refused:
+        session.commit()
+    assert refused.value.log_context["reference"] == "refscope_book.shelf_id"
+    session.rollback()
+    assert session.exec(select(_Book)).all() == []
+
+
+def test_an_autoflush_cannot_carry_a_reference_past_the_check(session: Session) -> None:
+    tenant_a, tenant_b = uuid.uuid4(), uuid.uuid4()
+    a1 = _node(session, tenant_a, "a1")
+    b1 = _node(session, tenant_b, "b1")
+    with tenant_context(tenant_a):
+        edge = _Edges().create(session, _EdgeCreate(source_id=a1.id))
+        edge.target_id = b1.id
+        # Any read autoflushes the change. It used to clear the history the check read, so
+        # a later _save saw nothing to check; now the autoflush itself is checked.
+        with pytest.raises(ConflictError):
+            session.exec(select(_Node)).all()
+        session.rollback()
+        assert _Edges().get(session, edge.id).target_id is None
+
+
+def test_a_siblings_commit_cannot_carry_a_reference_past_the_check(session: Session) -> None:
+    tenant_a, tenant_b = uuid.uuid4(), uuid.uuid4()
+    a1, a2 = _node(session, tenant_a, "a1"), _node(session, tenant_a, "a2")
+    b1 = _node(session, tenant_b, "b1")
+    with tenant_context(tenant_a):
+        first = _Edges().create(session, _EdgeCreate(source_id=a1.id))
+        second = _Edges().create(session, _EdgeCreate(source_id=a1.id))
+        with session.no_autoflush:
+            first.target_id = a2.id
+            second.target_id = b1.id
+            # Saving the first commits the second with it, and the second is held too.
+            with pytest.raises(ConflictError):
+                _Edges()._save(session, first, AuditAction.UPDATED)
+        session.expire_all()
+        assert _Edges().get(session, second.id).target_id is None
+        assert _Edges().get(session, first.id).target_id is None
+
+
+def test_a_swallowed_nested_refusal_does_not_reach_the_commit(session: Session) -> None:
+    tenant_a, tenant_b = uuid.uuid4(), uuid.uuid4()
+    a1 = _node(session, tenant_a, "a1")
+    b1 = _node(session, tenant_b, "b1")
+
+    class _Swallowing(TenantScopedService[_Edge, _EdgeCreate, _EdgeUpdate]):
+        model = _Edge
+
+        def _after_write(self, session: Session, entity: _Edge, action: AuditAction) -> None:
+            super()._after_write(session, entity, action)
+            if action is AuditAction.CREATED:
+                entity.target_id = b1.id
+                try:
+                    self._save(session, entity, AuditAction.UPDATED)
+                except ConflictError:
+                    pass  # the shape that would have committed the pointer anyway
+
+    with tenant_context(tenant_a):
+        with pytest.raises(Exception):  # the failed flush leaves the unit unable to commit
+            _Swallowing().create(session, _EdgeCreate(source_id=a1.id))
+        session.rollback()
+        assert session.exec(select(_Edge).where(_Edge.target_id == b1.id)).all() == []
+
+
+def test_the_owner_read_scope_holds_a_reference_too(session: Session) -> None:
+    saved = registered_scope_predicates()
+    alice, bob = uuid.uuid4(), uuid.uuid4()
+    token = audit_actor_ctx.set(alice)
+    try:
+        register_owner_read_scope()
+        doc = _Docs().create(session, _DocCreate(title="a document"))
+        assert _Notes().create(session, _NoteCreate(doc_id=doc.id)).doc_id == doc.id
+        audit_actor_ctx.set(bob)
+        with pytest.raises(ConflictError):
+            _Notes().create(session, _NoteCreate(doc_id=doc.id))
+    finally:
+        audit_actor_ctx.reset(token)
+        reset_scope_predicates()
+        for predicate in saved:
+            register_scope_predicate(predicate)
+
+
+def test_the_request_session_is_held_the_same_way(session: Session) -> None:
+    tenant_a, tenant_b = uuid.uuid4(), uuid.uuid4()
+    a1 = _node(session, tenant_a, "a1")
+    b1 = _node(session, tenant_b, "b1")
+    with WriteGuardedSession(session.get_bind()) as guarded, tenant_context(tenant_a):
+        assert _Edges().create(guarded, _EdgeCreate(source_id=a1.id)).source_id == a1.id
+        with pytest.raises(ConflictError):
+            _Edges().create(guarded, _EdgeCreate(source_id=b1.id))

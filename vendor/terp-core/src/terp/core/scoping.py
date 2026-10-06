@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from sqlalchemy import Table, or_
+from sqlalchemy import Table, event, or_
 from sqlalchemy import inspect as sa_inspect
 from sqlmodel import Session, SQLModel, select
 from sqlmodel.sql.expression import SelectOfScalar
@@ -136,25 +136,32 @@ def refuse_out_of_scope_references(session: Session, entity: object, *, created:
     the row exists, never that it is in scope, so a link from one tenant's row to
     another tenant's row passed both.
 
-    Each single-column foreign key this write sets is looked up under the target model's
-    row scope: every reference on a create, and on an update only the ones it changed, so
-    an untouched pointer to a row that has since been soft-deleted does not block an
-    unrelated edit. A target outside the scope fails exactly as a missing one does
+    It runs for every row a flush writes, after the flush's SQL and before its commit (the
+    session hook below), so it sees what the write actually carries: a reference filled in
+    from a relationship, a target inserted earlier in the same unit, and every row the
+    flush writes, however the flush was reached (a ``_save``, an autoflush, a sibling's
+    commit). Each single-column foreign key is looked up under the target model's row scope:
+    every reference on an insert, and on an update only the ones it changed, so an
+    untouched pointer to a row that has since been soft-deleted does not block an unrelated
+    edit. A target outside the scope fails exactly as a missing one does
     (:class:`~terp.core.ConflictError`, the 409 the foreign key itself raises), and the
     real reason travels in ``log_context`` only. A target model with no scope trait is
     left to the database: the scope would add nothing the foreign key does not check.
     """
     state = sa_inspect(entity, raiseerr=False)
     if state is None:
-        return  # a bespoke _save of a non-mapped stand-in carries no reference
+        return  # a non-mapped stand-in carries no reference
     table = state.mapper.local_table
     for constraint in getattr(table, "foreign_key_constraints", ()):
         if len(constraint.elements) != 1:
             continue
         element = constraint.elements[0]
         key = state.mapper.get_property_by_column(element.parent).key
+        # History before value: an unchanged reference is never loaded, let alone looked up.
+        if not (created or state.attrs[key].history.has_changes()):
+            continue
         value = getattr(entity, key)
-        if value is None or not (created or state.attrs[key].history.has_changes()):
+        if value is None:
             continue
         target = _mapped_class(state.mapper.registry.mappers, element.column.table)
         if target is None:
@@ -164,8 +171,9 @@ def refuse_out_of_scope_references(session: Session, entity: object, *, created:
         scoped = apply_row_scope(target, query)
         if scoped is query:
             continue
-        with session.no_autoflush:
-            found = session.exec(scoped.where(target_column == value).limit(1)).first()
+        # Inside the flush, on its transaction: a target this unit inserted is there to be found,
+        # and no autoflush can start while the flush is running.
+        found = session.scalars(scoped.where(target_column == value).limit(1)).first()
         if found is None:
             raise ConflictError(
                 _REFERENCE_REFUSAL,
@@ -177,11 +185,37 @@ def refuse_out_of_scope_references(session: Session, entity: object, *, created:
             )
 
 
+def _check_flushed_references(session: Session, _flush_context: object) -> None:
+    """Hold every row a flush wrote to the reference rule (ADR 0178).
+
+    ``after_flush`` still shows the flush's new and dirty rows and their attribute history,
+    and raising here fails the flush and its transaction, as the database's own refusal of a
+    missing target would.
+    """
+    for entity in tuple(session.new):
+        refuse_out_of_scope_references(session, entity, created=True)
+    for entity in tuple(session.dirty):
+        refuse_out_of_scope_references(session, entity, created=False)
+
+
+# On the session class every Terp session is, so its subclasses (the request session) are held
+# too; a listener on a class reaches every instance of it and of its subclasses.
+event.listen(Session, "after_flush", _check_flushed_references)
+
+_mapped_classes: dict[Table, type[SQLModel]] = {}
+
+
 def _mapped_class(mappers: object, table: Table) -> type[SQLModel] | None:
-    for mapper in mappers:  # type: ignore[attr-defined]
-        if mapper.local_table is table:
-            return mapper.class_
-    return None
+    """The model class mapped to *table*: the base of an inheritance tree that shares it."""
+    cached = _mapped_classes.get(table)
+    if cached is not None:
+        return cached
+    candidates = [mapper for mapper in mappers if mapper.local_table is table]  # type: ignore[attr-defined]
+    if not candidates:
+        return None
+    base = next((mapper for mapper in candidates if mapper.inherits is None), candidates[0])
+    _mapped_classes[table] = base.class_
+    return base.class_
 
 
 def _reset_scope_predicates() -> None:

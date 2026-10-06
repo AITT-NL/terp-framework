@@ -64,7 +64,7 @@ from terp.core.filtering import (
 )
 from terp.core.object_authz import apply_object_authz
 from terp.core.pagination import CursorPaginationParams, decode_cursor, encode_cursor
-from terp.core.scoping import apply_row_scope, refuse_out_of_scope_references
+from terp.core.scoping import apply_row_scope
 from terp.core._internal.session_guard import (
     enter_write_unit,
     forbid_session_writes,
@@ -437,9 +437,10 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         it). The check is keyed off the *entity* (``isinstance``), so a bespoke
         ``_save`` of a non-mapped stand-in is unaffected.
 
-        So is reference scope (ADR 0178): a reference this write sets must point at a row
-        the writer can read under the target's row scope (another tenant's row, or a
-        soft-deleted one, fails exactly as a missing one does).
+        So is reference scope (ADR 0178), though not here: every flush holds the references
+        it writes to the target's row scope (another tenant's row, or a soft-deleted one,
+        fails exactly as a missing one does), so the flush below enforces it for this write
+        and for any other the unit carries.
         """
         if isinstance(entity, ActorStampedMixin):
             actor = audit_actor_ctx.get()
@@ -453,10 +454,6 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
             self._authorize_object_write(entity, action)
         with enter_write_unit() as outermost:
             try:
-                # Inside the unit, so a refused update rolls back the change it carried.
-                refuse_out_of_scope_references(
-                    session, entity, created=action is AuditAction.CREATED
-                )
                 session.add(entity)
                 emit_audit(
                     session,
