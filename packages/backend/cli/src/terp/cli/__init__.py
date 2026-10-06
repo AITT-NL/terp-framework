@@ -1454,8 +1454,23 @@ Realtime push (realtime capability)
 - Wire the runtime seams once at the composition root:
       configure_realtime(permission_enforcer=..., principal_validator=...,
                          message_session_provider=...)
-  configure_broker / configure_ticket_store replace the in-memory defaults when you run
-  more than one replica (the in-memory ones are per process).
+- The default broker and ticket store are PER PROCESS: a publish reaches only subscribers
+  connected to the process that published. That breaks with a second replica, and it
+  breaks with ONE replica too once a job handler runs in `terp jobs worker` - the worker
+  serves no transport, so its publish reaches nobody. Share both through Redis
+  (terp-cap-redis[realtime]) and promise it, so a missing wiring fails instead of
+  dropping messages:
+      configure_broker(RedisRealtimeBroker.from_url(settings.REDIS_URL))
+      configure_ticket_store(RedisConnectionTicketStore.from_url(settings.REDIS_URL))
+      configure_realtime(..., require_shared_broker=settings.is_production)
+  The worker runs the same composition root, so it wires the same broker. Pub/sub is
+  server-wide: the database index is in the channel names, but two deployments sharing
+  one Redis server AND database need distinct namespace=... values. Delivery is
+  fire-and-forget either way: a message published while nobody listens is gone, and a
+  publish Redis does not take (connecting and the reply are each bounded at 2s) is
+  dropped with a logged warning - it never fails the write that published it. A
+  transport subscribes before it answers, so an unreachable Redis is an SSE 503 or a
+  WebSocket closed 1013 before accept, and the browser backs off.
 - Transport is TICKET-based, never a token in a URL: the client POSTs
   /api/v1/realtime/tickets, receives a one-use short-lived ticket, then connects to
   /api/v1/realtime/sse/<channel>?ticket=... (or /ws/<channel> in websocket mode). The
