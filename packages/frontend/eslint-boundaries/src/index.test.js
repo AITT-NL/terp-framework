@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { ESLint } from "eslint";
 import { afterAll, describe, expect, it } from "vitest";
@@ -595,8 +596,10 @@ describe("terpBoundaries", () => {
   it("lints the template's own bootstrap clean", async () => {
     // The allowance is exactly as wide as the bootstrap a generated app starts from: a
     // stylesheet the template adds is refused here before an app ever meets it.
+    // Found from this file rather than the cwd: the package's own run starts in the package,
+    // and the spec's reference-drift job runs this suite from the repository root.
     const template = fs.readFileSync(
-      path.resolve("../../../template/project/frontend/src/main.tsx.jinja"),
+      fileURLToPath(new URL("../../../../template/project/frontend/src/main.tsx.jinja", import.meta.url)),
       "utf-8",
     );
     // Strip the Jinja tags and keep what they wrap, so every optional line is linted too;
