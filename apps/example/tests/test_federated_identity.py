@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Callable
 
 import pytest
 from sqlmodel import Session, select
@@ -500,3 +501,157 @@ def test_development_still_provisions_without_an_allowlist(db_session: Session) 
         )
         is not None
     )
+
+
+# --------------------------------------------------------------------------- #
+# every refusal says why — to the operator, never in the answer
+# --------------------------------------------------------------------------- #
+# The caller sees one "no account" for every refusal, so a stranger learns nothing. These
+# pin the other half: the operator sees which refusal it was. Without it an IdP that stops
+# sending the email claim, an allowlist one domain short and an account that already exists
+# all look like the same failed login, and none of them leaves a trace.
+_FEDERATED_LOGGER = "terp.capabilities.identity.federated"
+
+
+def _refused(
+    caplog: pytest.LogCaptureFixture,
+    session: Session,
+    service: FederatedIdentityService,
+    *,
+    subject: str,
+    email: str | None = "new@acme.test",
+    email_verified: bool = True,
+) -> logging.LogRecord:
+    """Run one refused login and return the single refusal record it logged."""
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger=_FEDERATED_LOGGER):
+        resolved = service.resolve_or_provision(
+            session, issuer=_ISSUER, subject=subject, email=email, email_verified=email_verified
+        )
+    assert resolved is None
+    records = [r for r in caplog.records if r.getMessage().startswith("federated_login_refused")]
+    assert len(records) == 1, [r.getMessage() for r in records]
+    (record,) = records
+    assert record.levelno == logging.WARNING
+    assert record.federated_issuer == _ISSUER
+    assert record.federated_subject == subject
+    if email is not None:
+        assert email not in caplog.text, "the address itself never reaches the log"
+    return record
+
+
+@pytest.mark.parametrize(
+    ("make_service", "email", "email_verified", "reason"),
+    [
+        (lambda: FederatedIdentityService(), "new@acme.test", True, "provisioning_disabled"),
+        # One check used to answer these two, and their fixes have nothing in common: a
+        # missing address is the IdP's claim mapping, an unverified one its verification.
+        (lambda: FederatedIdentityService(allow_provisioning=True), None, True, "no_email"),
+        (
+            lambda: FederatedIdentityService(allow_provisioning=True),
+            "new@acme.test",
+            False,
+            "email_unverified",
+        ),
+        (
+            lambda: FederatedIdentityService(
+                allow_provisioning=True, provision_allowed=lambda _email: False
+            ),
+            "new@acme.test",
+            True,
+            "provision_gate_refused",
+        ),
+    ],
+)
+def test_a_refusal_before_provisioning_names_its_reason(
+    db_session: Session,
+    caplog: pytest.LogCaptureFixture,
+    make_service: Callable[[], FederatedIdentityService],
+    email: str | None,
+    email_verified: bool,
+    reason: str,
+) -> None:
+    record = _refused(
+        caplog,
+        db_session,
+        make_service(),
+        subject="sub-r",
+        email=email,
+        email_verified=email_verified,
+    )
+    assert record.federated_refusal == reason
+    # Readable without a structured formatter too: the reason and the login are in the text.
+    assert record.getMessage().startswith(f"federated_login_refused: {reason} ")
+    assert "sub-r" in record.getMessage()
+
+
+def test_a_domain_refusal_names_the_domain_and_not_the_address(
+    db_session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The domain is the fix (one more allowlist entry); the address is nobody's business."""
+    service = FederatedIdentityService(
+        allow_provisioning=True, allowed_email_domains=("acme.test",)
+    )
+    record = _refused(caplog, db_session, service, subject="s-dom", email="Person@Elsewhere.test")
+    assert record.federated_refusal == "domain_not_allowed"
+    assert record.federated_email_domain == "elsewhere.test"
+    assert "Person@" not in caplog.text
+
+
+def test_an_address_already_in_use_names_the_account_to_link(
+    db_session: Session, caplog: pytest.LogCaptureFixture, make_user
+) -> None:
+    """Never linked by email; the log gives the operator the id to link explicitly."""
+    existing_id = make_user("taken@acme.test", _PASSWORD)
+    service = FederatedIdentityService(allow_provisioning=True)
+    record = _refused(caplog, db_session, service, subject="s-taken", email="taken@acme.test")
+    assert record.federated_refusal == "email_in_use"
+    assert record.federated_user_id == existing_id
+
+
+def test_a_linked_user_refusal_says_whether_the_user_is_gone_or_inactive(
+    db_session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    service = FederatedIdentityService()
+    ghost_id = uuid.uuid4()
+    service.link(db_session, user_id=ghost_id, issuer=_ISSUER, subject="s-ghost")
+    gone = _refused(caplog, db_session, service, subject="s-ghost", email=None)
+    assert (gone.federated_refusal, gone.federated_user_id) == ("linked_user_missing", ghost_id)
+
+    user = _make_sso_user(db_session, "former@acme.test")
+    service.link(db_session, user_id=user.id, issuer=_ISSUER, subject="s-former")
+    user.is_active = False
+    db_session.add(user)
+    db_session.commit()
+    inactive = _refused(caplog, db_session, service, subject="s-former", email=None)
+    assert (inactive.federated_refusal, inactive.federated_user_id) == (
+        "linked_user_inactive",
+        user.id,
+    )
+
+
+def test_a_pending_account_is_logged_as_awaiting_activation(
+    db_session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The first login writes the account and is refused; the log says it is waiting for
+    an administrator, and which account, so nobody has to find it by address."""
+    service = FederatedIdentityService(allow_provisioning=True, provisioned_active=False)
+    record = _refused(caplog, db_session, service, subject="s-wait", email="waiting@acme.test")
+    stored = db_session.exec(select(User).where(User.email == "waiting@acme.test")).one()
+    assert record.federated_refusal == "awaiting_activation"
+    assert record.federated_user_id == stored.id
+
+
+def test_an_admitted_login_logs_no_refusal(
+    db_session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    service = FederatedIdentityService(allow_provisioning=True)
+    with caplog.at_level(logging.WARNING, logger=_FEDERATED_LOGGER):
+        first = service.resolve_or_provision(
+            db_session, issuer=_ISSUER, subject="s-ok", email="ok@acme.test", email_verified=True
+        )
+        again = service.resolve_or_provision(
+            db_session, issuer=_ISSUER, subject="s-ok", email=None, email_verified=False
+        )
+    assert first is not None and again is not None
+    assert "federated_login_refused" not in caplog.text

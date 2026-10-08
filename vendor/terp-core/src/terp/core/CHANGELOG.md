@@ -10,6 +10,27 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.34.0 — unreleased
+
+A refused single sign-on left no trace. An identity provider that sends no email claim for some
+of its accounts, an allowlist one domain short, and a person who already has a local account all
+ended in the same failed login, and the framework logged none of them, so telling them apart
+meant reading the token's claims by hand. Each refusal now says why, to the operator.
+
+### Fixed
+
+- **A refused federated login names its reason in the log.** `resolve_or_provision` still answers
+  every refusal with the same `None`, so a response cannot be used to enumerate accepted domains
+  or existing accounts. Each refusal is now also logged at WARNING as `federated_login_refused`,
+  with a stable reason in the message and in `extra` (`federated_refusal`, beside
+  `federated_issuer` and `federated_subject`): `linked_user_missing`, `linked_user_inactive`,
+  `provisioning_disabled`, `no_email`, `email_unverified`, `domain_not_allowed`,
+  `provision_gate_refused`, `email_in_use` or `awaiting_activation`. A missing address and an
+  unverified one are told apart, and so are the domain allowlist and a `provision_allowed`
+  refusal, because their fixes differ. The address itself is never logged: a domain refusal
+  carries the domain (`federated_email_domain`), and a refusal about an account carries its id
+  (`federated_user_id`), which for `email_in_use` is the account to `link` explicitly.
+
 ## 0.33.0 — 2026-10-06
 
 Three things the owner saw in apps built on the framework. Shadows meant three things on one
