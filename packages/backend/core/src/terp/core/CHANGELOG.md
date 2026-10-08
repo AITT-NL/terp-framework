@@ -10,6 +10,24 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.34.0 — unreleased
+
+`terp verify` stopped at the first check whose tool was not installed, in a traceback that
+named no check, and the checks after it never reported. A missing tool is now a red check that
+says which one.
+
+### Fixed
+
+- **`terp verify` names a missing tool instead of crashing.** The route-types drift check, the
+  API-client generation and the API-reference drift check spawned `npm` and `git` without the
+  guard the manifest checks have. Running a profile where one of them was not installed, a
+  backend-only image being the usual place, ended the whole run in a `FileNotFoundError`
+  traceback, and every check after it went unrun and unreported. Each now answers like the
+  rest: exit 127 and `npm: executable not found on PATH` (or `git: ...`). Without git, the
+  API-reference drift check is red rather than skipped: whether its pair is tracked is git's
+  answer, and reading the silence as "not tracked" would pass a comparison it never made. A
+  test holds every spawn in `verify.py` to the one helper that answers a missing tool.
+
 ## 0.33.0 — 2026-10-06
 
 Three things the owner saw in apps built on the framework. Shadows meant three things on one

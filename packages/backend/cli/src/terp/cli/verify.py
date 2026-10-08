@@ -1090,6 +1090,45 @@ def _node_modules_problem(root: pathlib.Path, workspace: str) -> str | None:
     )
 
 
+#: The status a shell gives a command it cannot find, and the one a check answers with
+#: when the tool it runs is not installed.
+_NOT_FOUND = 127
+
+
+def _run_argv(
+    argv: list[str], root: pathlib.Path, *, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Run *argv* in *root* as a fixed argv, with no shell; a missing tool is a result.
+
+    Every check that shells out comes through here, so a tool that is not installed
+    answers the way a shell would, exit 127 naming the tool, instead of raising. Only the
+    manifest runner used to catch it. The runners with a body of their own (route types,
+    the API client, the API reference) let ``FileNotFoundError`` escape the profile loop:
+    the run ended in a traceback about ``subprocess``, every check after that one went
+    unrun and unreported, and the one fact worth reading, which tool is missing, was a
+    frame deep in the stack.
+
+    The message is the result's stdout, so each caller's own formatting of a finished
+    command carries it unchanged.
+    """
+    executable = shutil.which(argv[0]) or argv[0]
+    try:
+        return subprocess.run(  # noqa: S603 - fixed argv, shell=False
+            [executable, *argv[1:]],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            env=None if env is None else {**os.environ, **env},
+        )
+    except FileNotFoundError:
+        return subprocess.CompletedProcess(
+            argv, _NOT_FOUND, stdout=f"{argv[0]}: executable not found on PATH", stderr=""
+        )
+
+
 def _run_subprocess(
     check: VerifyCheck, root: pathlib.Path, *, env: dict[str, str] | None = None
 ) -> tuple[int, str]:
@@ -1109,20 +1148,7 @@ def _run_subprocess(
         problem = _node_modules_problem(root, _npm_workspace(argv))
         if problem is not None:
             return 1, problem
-    executable = shutil.which(argv[0]) or argv[0]
-    try:
-        completed = subprocess.run(  # noqa: S603 - fixed manifest argv, shell=False
-            [executable, *argv[1:]],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            env=None if env is None else {**os.environ, **env},
-        )
-    except FileNotFoundError:
-        return 127, f"{argv[0]}: executable not found on PATH"
+    completed = _run_argv(argv, root, env=env)
     return completed.returncode, completed.stdout + (
         "\n" + completed.stderr if completed.stderr else ""
     )
@@ -1640,17 +1666,7 @@ def _run_routes_drift(root: pathlib.Path) -> tuple[int, str]:
     problem = _node_modules_problem(root, "frontend")
     if problem is not None:
         return 1, problem
-    argv = routes_argv(check=True)
-    executable = shutil.which(argv[0]) or argv[0]
-    completed = subprocess.run(  # noqa: S603 - fixed manifest argv, shell=False
-        [executable, *argv[1:]],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    completed = _run_argv(routes_argv(check=True), root)
     return completed.returncode, f"{completed.stdout}{completed.stderr}"
 
 
@@ -1661,21 +1677,6 @@ def _run_routes_drift(root: pathlib.Path) -> tuple[int, str]:
 _API_DOCS_ARTIFACTS = ("platform-api.md", "terp_core.pyi")
 
 _API_DOCS_ADOPT_HINT = "commit docs/platform-api.md + docs/terp_core.pyi to enable"
-
-
-def _tracked(root: pathlib.Path, relative: str) -> bool:
-    """Whether *relative* is a file git is tracking in *root*."""
-    git = shutil.which("git") or "git"
-    completed = subprocess.run(  # noqa: S603 - fixed argv, shell=False
-        [git, "ls-files", "--error-unmatch", "--", relative],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
-    return completed.returncode == 0
 
 
 def _run_api_docs_drift(root: pathlib.Path) -> tuple[int, str]:
@@ -1707,7 +1708,20 @@ def _run_api_docs_drift(root: pathlib.Path) -> tuple[int, str]:
             f"({_API_DOCS_ADOPT_HINT})",
         )
     relatives = [f"docs/{name}" for name in _API_DOCS_ARTIFACTS]
-    tracked = [relative for relative in relatives if _tracked(root, relative)]
+    probes = {
+        relative: _run_argv(["git", "ls-files", "--error-unmatch", "--", relative], root)
+        for relative in relatives
+    }
+    if any(probe.returncode == _NOT_FOUND for probe in probes.values()):
+        # Not "untracked, skipped": without git there is no answer to whether the pair is
+        # tracked, and reading that silence as "no" would turn this check green over a
+        # comparison it never made.
+        return (
+            _NOT_FOUND,
+            "git: executable not found on PATH - the drift check asks git whether "
+            f"{' + '.join(relatives)} are tracked, so it cannot run without it",
+        )
+    tracked = [relative for relative, probe in probes.items() if probe.returncode == 0]
     if not tracked:
         return (
             0,
@@ -1729,16 +1743,7 @@ def _run_api_docs_drift(root: pathlib.Path) -> tuple[int, str]:
         written = [str(path) for path in api_docs(str(docs))]
     finally:
         os.chdir(previous)
-    git = shutil.which("git") or "git"
-    completed = subprocess.run(  # noqa: S603 - fixed argv, shell=False
-        [git, "diff", "--exit-code", "--", *relatives],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    completed = _run_argv(["git", "diff", "--exit-code", "--", *relatives], root)
     output = "\n".join(
         ["\n".join(f"wrote {path}" for path in written), completed.stdout]
     )
@@ -1941,17 +1946,7 @@ def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
         return 1, f"could not export the OpenAPI document: {refusal}"
     finally:
         os.chdir(previous)
-    argv = ["npm", "--prefix", "frontend", "run", "generate"]
-    executable = shutil.which(argv[0]) or argv[0]
-    completed = subprocess.run(  # noqa: S603 - fixed argv, shell=False
-        [executable, *argv[1:]],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    completed = _run_argv(["npm", "--prefix", "frontend", "run", "generate"], root)
     output = f"wrote {written.name}\n{completed.stdout}{completed.stderr}"
     if completed.returncode != 0:
         output += (
