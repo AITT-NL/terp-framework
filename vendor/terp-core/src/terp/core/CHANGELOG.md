@@ -12,12 +12,28 @@ decision, 0001 onwards.
 
 ## 0.34.0 — unreleased
 
-`terp verify` stopped at the first check whose tool was not installed, in a traceback that
+A refused single sign-on left no trace. An identity provider that sends no email claim for some
+of its accounts, an allowlist one domain short, and a person who already has a local account all
+ended in the same failed login, and the framework logged none of them, so telling them apart
+meant reading the token's claims by hand. Each refusal now says why, to the operator.
+
+And `terp verify` stopped at the first check whose tool was not installed, in a traceback that
 named no check, and the checks after it never reported. A missing tool is now a red check that
 says which one.
 
 ### Fixed
 
+- **A refused federated login names its reason in the log.** `resolve_or_provision` still answers
+  every refusal with the same `None`, so a response cannot be used to enumerate accepted domains
+  or existing accounts. Each refusal is now also logged at WARNING as `federated_login_refused`,
+  with a stable reason in the message and in `extra` (`federated_refusal`, beside
+  `federated_issuer` and `federated_subject`): `linked_user_missing`, `linked_user_inactive`,
+  `provisioning_disabled`, `no_email`, `email_unverified`, `domain_not_allowed`,
+  `provision_gate_refused`, `email_in_use` or `awaiting_activation`. A missing address and an
+  unverified one are told apart, and so are the domain allowlist and a `provision_allowed`
+  refusal, because their fixes differ. The address itself is never logged: a domain refusal
+  carries the domain (`federated_email_domain`), and a refusal about an account carries its id
+  (`federated_user_id`), which for `email_in_use` is the account to `link` explicitly.
 - **`terp verify` names a missing tool instead of crashing.** The route-types drift check, the
   API-client generation and the API-reference drift check spawned `npm` and `git` without the
   guard the manifest checks have. Running a profile where one of them was not installed, a
