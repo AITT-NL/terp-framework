@@ -17,6 +17,10 @@ of its accounts, an allowlist one domain short, and a person who already has a l
 ended in the same failed login, and the framework logged none of them, so telling them apart
 meant reading the token's claims by hand. Each refusal now says why, to the operator.
 
+And `terp verify` stopped at the first check whose tool was not installed, in a traceback that
+named no check, and the checks after it never reported. A missing tool is now a red check that
+says which one.
+
 ### Fixed
 
 - **A refused federated login names its reason in the log.** `resolve_or_provision` still answers
@@ -30,6 +34,15 @@ meant reading the token's claims by hand. Each refusal now says why, to the oper
   refusal, because their fixes differ. The address itself is never logged: a domain refusal
   carries the domain (`federated_email_domain`), and a refusal about an account carries its id
   (`federated_user_id`), which for `email_in_use` is the account to `link` explicitly.
+- **`terp verify` names a missing tool instead of crashing.** The route-types drift check, the
+  API-client generation and the API-reference drift check spawned `npm` and `git` without the
+  guard the manifest checks have. Running a profile where one of them was not installed, a
+  backend-only image being the usual place, ended the whole run in a `FileNotFoundError`
+  traceback, and every check after it went unrun and unreported. Each now answers like the
+  rest: exit 127 and `npm: executable not found on PATH` (or `git: ...`). Without git, the
+  API-reference drift check is red rather than skipped: whether its pair is tracked is git's
+  answer, and reading the silence as "not tracked" would pass a comparison it never made. A
+  test holds every spawn in `verify.py` to the one helper that answers a missing tool.
 
 ## 0.33.0 — 2026-10-06
 

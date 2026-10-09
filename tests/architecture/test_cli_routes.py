@@ -294,6 +294,28 @@ def test_the_drift_check_carries_the_generators_verdict_out(
     assert seen["cwd"] == tmp_path
 
 
+def test_the_drift_check_names_a_missing_npm_instead_of_raising(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Adopted and installed, but run where npm is not on PATH (a backend-only image is the
+    # usual place). The spawn used to raise straight out of the profile, ending the whole
+    # `terp verify` run in a traceback with every later check unreported.
+    import subprocess
+
+    from terp.cli.verify import _run_routes_drift
+
+    frontend = _frontend(tmp_path)
+    (frontend / "node_modules").mkdir()
+
+    def no_npm(argv: list[str], **_kwargs: object) -> object:
+        raise FileNotFoundError(2, "No such file or directory", argv[0])
+
+    monkeypatch.setattr(subprocess, "run", no_npm)
+    exit_code, output = _run_routes_drift(tmp_path)
+    assert exit_code == 127
+    assert output == "npm: executable not found on PATH"
+
+
 def test_the_profile_dispatches_the_routes_drift_runner(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -1174,6 +1174,85 @@ def test_a_missing_executable_fails_visibly() -> None:
     assert "not found" in output
 
 
+# --- a tool the gate needs is not installed ------------------------------------
+# A check whose tool is missing answers 127 and names it. The runners with a body of their
+# own used to let FileNotFoundError escape instead, which ended the whole `terp verify` run
+# in a traceback: every check after that one went unrun and unreported.
+
+
+def _no_such_executable(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+    raise FileNotFoundError(2, "No such file or directory", argv[0])
+
+
+def test_a_missing_tool_is_a_result_and_not_a_raise(tmp_path: pathlib.Path) -> None:
+    from terp.cli.verify import _run_argv
+
+    completed = _run_argv(["definitely-missing-terp-binary-xyz", "--flag"], tmp_path)
+    assert completed.returncode == 127
+    assert completed.stdout == "definitely-missing-terp-binary-xyz: executable not found on PATH"
+
+
+def test_every_spawn_goes_through_the_one_place_that_answers_a_missing_tool() -> None:
+    """Three runners spawned on their own and raised; one helper is the fix only while
+    nothing calls ``subprocess.run`` around it. A new runner that does is the same bug."""
+    import ast
+
+    import terp.cli.verify as verify_module
+
+    tree = ast.parse(pathlib.Path(verify_module.__file__).read_text(encoding="utf-8"))
+
+    def spawns(function: ast.AST) -> bool:
+        return any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "run"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "subprocess"
+            for node in ast.walk(function)
+        )
+
+    spawners = {
+        node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and spawns(node)
+    }
+    assert spawners == {"_run_argv"}
+
+
+def test_the_api_client_names_a_missing_npm(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    import terp.cli.openapi as openapi_module
+    import terp.cli.verify as verify_module
+
+    _generating_frontend(tmp_path)
+    monkeypatch.setattr(
+        openapi_module, "export_openapi", lambda **_k: tmp_path / "openapi.json"
+    )
+    monkeypatch.setattr(verify_module.subprocess, "run", _no_such_executable)
+
+    exit_code, output = verify_module._run_api_client(tmp_path)
+
+    assert exit_code == 127
+    assert "npm: executable not found on PATH" in output
+    assert "frontend typecheck" in output, "the downstream warning still applies"
+
+
+def test_api_docs_drift_without_git_is_red_and_not_a_skip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Whether the pair is tracked is git's answer. Without git, reading the silence as
+    "not tracked" would skip the check green over a comparison it never made."""
+    import terp.cli.verify as verify_module
+
+    (tmp_path / "docs").mkdir()
+    monkeypatch.setattr(verify_module.subprocess, "run", _no_such_executable)
+
+    exit_code, output = verify_module._run_api_docs_drift(tmp_path)
+
+    assert exit_code == 127
+    assert output.startswith("git: executable not found on PATH")
+    assert not output.startswith(verify_module.NOTE_PREFIX)
+
+
 def test_json_documents_finds_indented_and_inline_docs() -> None:
     stdout = "\n".join(
         [
