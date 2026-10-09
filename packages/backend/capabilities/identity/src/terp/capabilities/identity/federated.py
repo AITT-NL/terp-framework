@@ -61,6 +61,37 @@ ProvisionGate = Callable[[str], bool]
 _logger = logging.getLogger("terp.capabilities.identity.federated")
 
 
+def _log_refusal(reason: str, *, issuer: str, subject: str, **detail: object) -> None:
+    """Say why a federated login was refused, to the operator and nobody else.
+
+    The caller still answers with a plain "no account": the response must not tell a
+    stranger which domains are accepted or which addresses already have accounts. That
+    same opacity is what makes a refusal expensive to diagnose, because every one of
+    them looks like every other one from the outside. A deployment whose IdP stops
+    sending an email claim, whose allowlist misses a domain, or whose user already has a
+    local account sees the same failed login in each case, and the three have nothing in
+    common as fixes. So each refusal is logged with a stable ``reason`` an operator can
+    search and alert on, beside the ``(issuer, subject)`` that identifies the login.
+
+    The email address itself is never logged; ``detail`` carries only what the fix needs
+    (the refused domain, the id of the user involved).
+    """
+    rendered = "".join(f", {key} {value}" for key, value in detail.items())
+    _logger.warning(
+        "federated_login_refused: %s (issuer %s, subject %s%s)",
+        reason,
+        issuer,
+        subject,
+        rendered,
+        extra={
+            "federated_refusal": reason,
+            "federated_issuer": issuer,
+            "federated_subject": subject,
+            **{f"federated_{key}": value for key, value in detail.items()},
+        },
+    )
+
+
 class FederatedIdentityLink(BaseSchema):
     """The create DTO for a federated link (an explicit admin/app-driven link)."""
 
@@ -156,21 +187,25 @@ class FederatedIdentityService(
             ]
         return []
 
-    def _may_provision(self, email: str) -> bool:
-        """Whether *email* is an identity this deployment provisions accounts for.
+    def _provision_refusal(self, email: str) -> str | None:
+        """Why *email* is not an identity this deployment provisions for, or ``None``.
 
         Both gates apply when both are given, and a refusal from either is final: an
         allowlist that a callback could widen would not be an allowlist. Absent both,
         this is the pre-allowlist behaviour — permitted outside production, refused at
-        construction inside it.
+        construction inside it. The two refusals are told apart because their fixes are:
+        a missing domain is one more allowlist entry, a callback's verdict is the app's
+        own rule.
         """
         domain = email.rpartition("@")[2].lower()
         if self._allowed_email_domains is not None and domain not in self._allowed_email_domains:
-            return False
+            return "domain_not_allowed"
         # An exact match, never a suffix: accepting every subdomain of a listed domain
         # hands provisioning to whoever controls one, and a deployment that wants
         # `sub.example.test` can say so in one more tuple entry.
-        return self._provision_allowed is None or self._provision_allowed(email)
+        if self._provision_allowed is not None and not self._provision_allowed(email):
+            return "provision_gate_refused"
+        return None
 
     def get_link(
         self, session: Session, issuer: str, subject: str
@@ -213,24 +248,52 @@ class FederatedIdentityService(
         linked path above and is refused by the same ``is_active`` check that holds a
         deactivated account, so activation is the one act that admits them and no second
         state has to be invented for it.
+
+        Every refusal returns the same ``None``, and every refusal is logged at WARNING as
+        ``federated_login_refused`` with its reason: ``linked_user_missing``,
+        ``linked_user_inactive``, ``provisioning_disabled``, ``no_email``,
+        ``email_unverified``, ``domain_not_allowed``, ``provision_gate_refused``,
+        ``email_in_use`` or ``awaiting_activation``.
         """
         existing = self.get_link(session, issuer, subject)
         if existing is not None:
             user = session.get(User, existing.user_id)
-            if user is None or not user.is_active:
+            if user is None:
+                _log_refusal(
+                    "linked_user_missing", issuer=issuer, subject=subject, user_id=existing.user_id
+                )
+                return None
+            if not user.is_active:
+                _log_refusal("linked_user_inactive", issuer=issuer, subject=subject, user_id=user.id)
                 return None
             return user
         if not self._allow_provisioning:
+            _log_refusal("provisioning_disabled", issuer=issuer, subject=subject)
             return None
-        if not email or not email_verified:
+        if not email:
+            # The IdP sent no address at all, which is a claim-mapping question (a scope
+            # not requested, an account with no mailbox) and not a verification one.
+            _log_refusal("no_email", issuer=issuer, subject=subject)
             return None
-        if not self._may_provision(email):
+        if not email_verified:
+            _log_refusal("email_unverified", issuer=issuer, subject=subject)
+            return None
+        refusal = self._provision_refusal(email)
+        if refusal is not None:
             # A verified claim from an identity this deployment does not provision for.
             # Refused as a plain "no account", identical to every other refusal here, so
             # the response cannot be used to enumerate which domains are accepted.
+            if refusal == "domain_not_allowed":
+                domain = email.rpartition("@")[2].lower()
+                _log_refusal(refusal, issuer=issuer, subject=subject, email_domain=domain)
+            else:
+                _log_refusal(refusal, issuer=issuer, subject=subject)
             return None
         already = session.exec(select(User).where(User.email == email)).first()
         if already is not None:
+            # Never linked by email (the takeover vector above). The id is what an operator
+            # needs to link this identity to that account explicitly with `link`.
+            _log_refusal("email_in_use", issuer=issuer, subject=subject, user_id=already.id)
             return None
         user = User(
             email=email,
@@ -246,6 +309,7 @@ class FederatedIdentityService(
             # login never reaches, so handing this user back would mint a session for an
             # account that is inactive in the database — the one state the caller has no
             # way to notice, since it receives a principal like any other.
+            _log_refusal("awaiting_activation", issuer=issuer, subject=subject, user_id=user.id)
             return None
         return user
 
