@@ -30,6 +30,8 @@ import pathlib
 import re
 from dataclasses import dataclass
 
+from terp.cli.envrequired import required_in_problem, required_twice
+
 #: The app's declared-variable manifest, at the project root.
 APP_ENV_SCHEMA_FILE = "environment.schema.json"
 
@@ -127,6 +129,7 @@ PROPERTY_FIELDS = frozenset(
         "enum",
         "group",
         "resolvedBy",
+        "requiredIn",
         "default",
         "services",
     }
@@ -358,6 +361,9 @@ def _property_findings(name: object, prop: object) -> list[ManifestFinding]:
                 '"plain" to record that this one does not hold a credential',
             )
         )
+    required_in_problem_found = required_in_problem(prop.get("requiredIn"))
+    if required_in_problem_found is not None:
+        findings.append(ManifestFinding(f"{name}.requiredIn", required_in_problem_found))
     enum = prop.get("enum")
     if enum is not None and (
         not isinstance(enum, list)
@@ -452,6 +458,14 @@ def manifest_findings(project_root: pathlib.Path) -> list[ManifestFinding]:
             ManifestFinding(name, 'is in "required" but not declared in "properties"')
             for name in required
             if name not in properties
+        )
+        findings.extend(
+            ManifestFinding(
+                name,
+                'is in "required" and has "requiredIn" -- "required" already means every '
+                "environment; keep one",
+            )
+            for name in required_twice(required, properties)
         )
     return findings
 

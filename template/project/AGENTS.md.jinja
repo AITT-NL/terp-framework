@@ -129,14 +129,19 @@ variable, update the manifest in the same change:
   environment-specific values and renders it there. Locally, `cp .app.env.example
   .app.env` — running the inner loop on the deployed seam is how divergence surfaces
   here rather than in production.
-- **Declaring a job or a schedule? Declare `JOB_SYSTEM_ACTOR_ID` here too.** It is the
-  principal a background write is stamped with when no user originated the work, and
-  production refuses to boot without one. It belongs in the manifest rather than in
-  code because the id is a service principal in a particular database, and one image
-  runs against several — `create_app` resolves it, so there is no env read to write.
-  Golden rule 10.
+- **Declaring a job or a schedule? Declare `JOB_SYSTEM_ACTOR_ID` here too**, with
+  `"requiredIn": ["production"]` and NOT in `required`. It is the principal a background
+  write is stamped with when no user originated the work, and production refuses to boot
+  without one, while the development loop only warns. It belongs in the manifest rather
+  than in code because the id is a service principal in a particular database, and one
+  image runs against several — `create_app` resolves it, so there is no env read to
+  write. Golden rule 10.
 - Add concise titles/descriptions; use `required` only when the app cannot operate
-  without the variable. Validate the JSON and run the relevant gate after editing.
+  without the variable **anywhere**. A value only some environments need gets
+  `"requiredIn"` instead: a list of `ENVIRONMENT` values (`local`, `staging`,
+  `production`) where it must be set. Studio then asks for it only there — never in the
+  development loop for a value only a deployment can supply. Validate the JSON and run
+  the relevant gate after editing.
 - **Keep every text field to 500 characters** (`type`, `title`, `description`,
   `format`, `group`, `resolvedBy`), and the manifest to 50 variables. Studio's reader
   fails closed on the **whole file**: one over-long `description` and every declaration

@@ -2282,6 +2282,11 @@ configuration, so `env-seams` checks the shape first and reports every defect at
   - resolvedBy is one of host | container | browser.
   - format is one of secret | port | hostname | plain.
   - enum is a list of at most 50 strings of at most 200 characters each.
+  - requiredIn is a non-empty list of distinct ENVIRONMENT values (local | staging |
+    production): where the value must be set. `required` means every environment, so a
+    name is in one or the other, never both. The development loop runs local and every
+    Studio deployment runs production; JOB_SYSTEM_ACTOR_ID is the canonical case --
+    production refuses to boot without it, the development loop only warns.
 
 A FIELD OUTSIDE THAT SET IS REFUSED HERE, because the deploy side DROPS what it does not
 recognise rather than refusing it -- so a misspelled field silently does nothing, and the

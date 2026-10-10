@@ -30,6 +30,7 @@ from terp.cli.envschema import (  # noqa: E402
     declared_variables,
     manifest_findings,
 )
+from terp.cli.envrequired import REQUIRED_IN_VALUES, required_in  # noqa: E402
 from terp.cli import envseams  # noqa: E402
 from terp.cli.envseams import (  # noqa: E402
     _forwarded_env_files,
@@ -695,6 +696,76 @@ def test_the_mis_key_is_not_also_charged_for_the_missing_seal(
         tmp_path, _named("SOME_API_TOKEN", {"type": "string", "secret": True})
     )
     assert len(_defects(root)) == 1
+
+
+@pytest.mark.parametrize("value", [["production"], ["local", "production"], ["staging"]])
+def test_a_requirement_per_environment_is_a_field_of_the_dialect(
+    tmp_path: pathlib.Path, value: list[str]
+) -> None:
+    """ADR 0180: where a value must be set, in the ENVIRONMENT's own words."""
+    root = _schema(tmp_path, _named("JOB_SYSTEM_ACTOR_ID", {"type": "string", "requiredIn": value}))
+
+    assert _defects(root) == []
+
+
+@pytest.mark.parametrize(
+    "value", [[], "production", ["prod"], ["production", "production"], [["production"]], [None]]
+)
+def test_an_unusable_requirement_per_environment_is_refused(
+    tmp_path: pathlib.Path, value: object
+) -> None:
+    """A near miss would make the value required nowhere, and a deployment would go out
+    without it -- the same verdict, in the same words, as Studio's reader."""
+    root = _schema(tmp_path, _named("JOB_SYSTEM_ACTOR_ID", {"type": "string", "requiredIn": value}))
+
+    [defect] = _defects(root)
+    assert defect.startswith("JOB_SYSTEM_ACTOR_ID.requiredIn must be a non-empty list")
+
+
+def test_required_everywhere_and_somewhere_at_once_is_refused(tmp_path: pathlib.Path) -> None:
+    root = _schema(
+        tmp_path,
+        json.dumps(
+            {
+                "type": "object",
+                "properties": {"JOB_SYSTEM_ACTOR_ID": {"type": "string", "requiredIn": ["production"]}},
+                "required": ["JOB_SYSTEM_ACTOR_ID"],
+            }
+        ),
+    )
+
+    assert _defects(root) == [
+        'JOB_SYSTEM_ACTOR_ID is in "required" and has "requiredIn" -- "required" already '
+        "means every environment; keep one"
+    ]
+
+
+def test_the_requirement_names_exactly_the_environments_an_app_can_run_as() -> None:
+    """One vocabulary with the setting it describes: a value the setting gains must be
+    sayable here, and a word here the setting does not have would require nothing."""
+    import typing
+
+    from terp.core.config import Settings
+
+    assert set(REQUIRED_IN_VALUES) == set(typing.get_args(Settings.model_fields["ENVIRONMENT"].annotation))
+
+
+def test_required_in_names_what_one_environment_needs_in_the_manifests_order() -> None:
+    document = {
+        "required": ["B"],
+        "properties": {
+            "A": {"requiredIn": ["production"]},
+            "B": {},
+            "C": {"requiredIn": ["local"]},
+            "D": {"requiredIn": ["staging", "production"]},
+        },
+    }
+
+    assert required_in(document, "production") == ["B", "A", "D"]
+    assert required_in(document, "local") == ["B", "C"]
+    assert required_in("not a manifest", "local") == []
+    # Unusable declarations require nothing more -- but `required` still holds.
+    assert required_in({"required": ["B"], "properties": "unusable"}, "local") == ["B"]
 
 
 def test_a_malformed_resolved_by_is_one_offence_not_two(tmp_path: pathlib.Path) -> None:
