@@ -764,6 +764,8 @@ def test_required_in_names_what_one_environment_needs_in_the_manifests_order() -
     assert required_in(document, "production") == ["B", "A", "D"]
     assert required_in(document, "local") == ["B", "C"]
     assert required_in("not a manifest", "local") == []
+    # Unusable declarations require nothing more -- but `required` still holds.
+    assert required_in({"required": ["B"], "properties": "unusable"}, "local") == ["B"]
 
 
 def test_a_malformed_resolved_by_is_one_offence_not_two(tmp_path: pathlib.Path) -> None:
