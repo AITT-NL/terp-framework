@@ -1637,7 +1637,8 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
             "agrees with a deployment that will not start.\n"
             "  A job actor that is a deployment fact rather than a source constant is "
             "declared, not hard-coded: put JOB_SYSTEM_ACTOR_ID in "
-            "environment.schema.json and create_app will resolve it (ADR 0129)."
+            'environment.schema.json with "requiredIn": ["production"] and create_app '
+            "will resolve it (ADR 0129, ADR 0180)."
         )
     return 0, "the declared control plane boots in production (security, passwords, jobs)"
 

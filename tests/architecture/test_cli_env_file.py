@@ -694,6 +694,29 @@ def test_check_names_the_file_an_empty_required_value_is_missing_from(
     assert ".app.worker.env" in out
 
 
+def test_check_holds_the_loop_to_what_the_loop_needs(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ADR 0180: `.app.env` is the development loop's file. A value only a deployment
+    needs is not missing here, however empty; one the loop needs by name is."""
+    manifest = {
+        "type": "object",
+        "properties": {
+            "JOB_SYSTEM_ACTOR_ID": {"type": "string", "requiredIn": ["production"]},
+            "LOCAL_ONLY": {"type": "string", "requiredIn": ["local"]},
+        },
+        "required": [],
+    }
+    root = _project(tmp_path, manifest)
+    run_env_command(action="init", root=str(root))
+    capsys.readouterr()
+
+    assert run_env_command(action="check", root=str(root)) == 1
+    out = capsys.readouterr().out
+    assert "LOCAL_ONLY: required by the manifest and empty here" in out
+    assert "JOB_SYSTEM_ACTOR_ID: required" not in out
+
+
 def test_list_groups_by_file_only_when_there_is_more_than_one(
     tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

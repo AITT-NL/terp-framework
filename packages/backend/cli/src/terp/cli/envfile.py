@@ -50,6 +50,7 @@ from terp.cli.envschema import (
     manifest_findings,
     rendered_files,
 )
+from terp.cli.envrequired import required_in
 from terp.cli.envseams import APP_ENV_EXAMPLE_FILE, parse_dotenv
 
 #: What a declared-secret variable renders as wherever a value would go.
@@ -72,8 +73,13 @@ _EXAMPLE_HEADER = """\
 
 
 def _required_names(root: pathlib.Path) -> set[str]:
-    """The manifest's required names — a DOCUMENT-level array, not a per-property
-    field, which is where the dialect actually puts them."""
+    """The names this machine's loop must have a value for.
+
+    The document-level ``required`` array, which is every environment, and every
+    declaration whose ``requiredIn`` names ``local`` (ADR 0180). ``.app.env`` is the
+    development loop's file, so a value only a deployment needs -- a production
+    principal's id -- is not missing here, however empty it is.
+    """
     path = root / APP_ENV_SCHEMA_FILE
     if not path.is_file():
         return set()
@@ -81,10 +87,7 @@ def _required_names(root: pathlib.Path) -> set[str]:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return set()
-    required = document.get("required") if isinstance(document, dict) else None
-    return {name for name in required if isinstance(name, str)} if isinstance(
-        required, list
-    ) else set()
+    return set(required_in(document, "local"))
 
 
 def _write_live(

@@ -10,6 +10,24 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.35.0 — unreleased
+
+A value only a deployment needs had to be required everywhere. `environment.schema.json` could
+say that a variable must be set, but not where, so `JOB_SYSTEM_ACTOR_ID` — which a production
+boot refuses without and the development loop only warns about — was required in the
+development loop too, and a workbench asked for it there from somebody who could not produce it.
+A declaration can now say where it is required.
+
+### Added
+
+- **`"requiredIn"` names the environments a value must be set in.** A non-empty list of
+  distinct `ENVIRONMENT` values (`local`, `staging`, `production`) on a declaration; the
+  top-level `required` keeps meaning every environment, and a name in both is refused.
+  `env-seams` refuses a malformed list in the same words as Terp Studio's reader, `terp env
+  check` holds `.app.env` — the development loop's file — to what `local` needs, the template
+  declares `JOB_SYSTEM_ACTOR_ID` with `"requiredIn": ["production"]`, and `terp guide
+  environment` documents the field. An existing manifest reads exactly as before. ADR 0180.
+
 ## 0.34.0 — 2026-10-09
 
 A refused single sign-on left no trace. An identity provider that sends no email claim for some
