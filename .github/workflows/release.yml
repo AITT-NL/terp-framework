@@ -145,7 +145,7 @@ jobs:
           set -eux
           uv run python tools/emit_backend_scorecard.py --out scorecard-terp-arch.json
           node packages/frontend/eslint-boundaries/src/scorecard.js --out scorecard-eslint-boundaries.json
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: conformance-scorecards
           path: scorecard-*.json
@@ -196,7 +196,7 @@ jobs:
           test -f "$pkg/pyproject.toml" || { echo "no pyproject.toml at '$pkg'"; exit 1; }
           uv build --out-dir dist "$pkg"
       - name: Upload distributions for the isolated publisher
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pypi-distributions
           path: dist/
