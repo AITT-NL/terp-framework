@@ -16,21 +16,21 @@
     "visual:update": "playwright test --update-snapshots"
   },
   "dependencies": {
-    "@tanstack/react-router": "^1.170.41",
+    "@tanstack/react-router": "^1.170.45",
     "@terpjs/contract": "*",
     "@terpjs/react-core": "*",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.13.0",
-    "@playwright/test": "^1.63.0",
-    "@types/node": "^26.6.4",
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.1.1",
+    "@vitejs/plugin-react": "^6.1.2",
     "typescript": "^5.9.3",
-    "vite": "^8.3.2"
+    "vite": "^8.3.4"
   },
   "license": "Apache-2.0"
 }
