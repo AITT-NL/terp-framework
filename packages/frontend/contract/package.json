@@ -22,8 +22,8 @@
   },
   "devDependencies": {
     "openapi-typescript": "^7.13.0",
-    "style-dictionary": "^5.5.5",
-    "vitest": "^5.0.3"
+    "style-dictionary": "^5.7.0",
+    "vitest": "^5.0.5"
   },
   "dependencies": {
     "openapi-fetch": "^0.17.0",
