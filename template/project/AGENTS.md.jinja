@@ -60,7 +60,7 @@ or `python` will not resolve.
 
 - **`uv run terp guide`** / **`uv run terp guide <topic>`** — the authoring guide.
   Topics: access, append-only, capability, changelog, dataview, dependencies,
-    dependency-hygiene, environment, events, files, forms, frontend, idempotency, jobs,
+    dependency-hygiene, deployment, environment, events, files, forms, frontend, idempotency, jobs,
     layouts, leases, mail, migrations, module, operations, outbox, ownership,
     package-boundaries, passwords, permissions, policy, realtime, references, rules,
     secrets, security, service, soft-delete, tenancy, testing, theming.
@@ -170,7 +170,7 @@ npm --prefix frontend run lint        # frontend boundary lint + budget
 npm --prefix frontend run build       # the production build CI ships
 ```
 
-Three of the profile's checks ask questions the test suite cannot, and each of them
+Four of the profile's checks ask questions the test suite cannot, and each of them
 reddens for a reason no test failure will explain:
 
 - `production-readiness` — would this app boot in production? Three refusals are
@@ -183,6 +183,10 @@ reddens for a reason no test failure will explain:
 - `workbench` — can a tool still navigate this app? `workbench.json` declares which
   parts of the development topology are load-bearing; this audits the declaration
   against the compose file it describes.
+- `deployment` — does `deployment.json` tell the truth about the deployment? It
+  declares the units a deploy tool drives; this checks every claim against the
+  production profile and the app, never whether the topology is approved. Deploy policy
+  (who may publish, approvals, gate policy) never belongs in it: `uv run terp guide deployment`.
 
 A frontend module that fails typecheck breaks the app at runtime (a blank page —
 Vite refuses the module graph), so a red typecheck means the app does not work,

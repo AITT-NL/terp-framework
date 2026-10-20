@@ -512,6 +512,37 @@ jobs:
           uv run terp ports assign
           docker compose config -q
 
+      # ADR 0184 decision 1: the deploy declaration is written by `copier copy` and by
+      # nothing else. `_skip_if_exists` alone would let `copier update` CREATE it in an app
+      # that never had one, so the template also excludes it on update. Proven end to end:
+      # the template as it was before the seed, a render of it, an update to this
+      # template, and no deployment.json afterwards -- while a fresh copy has one.
+      - name: An update never creates the deploy declaration (default-blank)
+        if: matrix.variant == 'default-blank'
+        run: |
+          set -eux
+          work="$(mktemp -d)"
+          cp -r template "$work/tpl"
+          cd "$work/tpl"
+          git init -q
+          git config user.email ci@example.invalid
+          git config user.name ci
+          mv project/deployment.json "$work/seed.json"
+          sed -i "/_copier_operation == 'update'/d; /^_exclude:\$/d; /^  - deployment.json\$/d" copier.yml
+          git add -A && git commit -qm before-the-seed && git tag v1
+          cp "$GITHUB_WORKSPACE/template/copier.yml" copier.yml
+          mv "$work/seed.json" project/deployment.json
+          git add -A && git commit -qm the-seed && git tag v2
+          cd "$work"
+          uvx copier copy --defaults --trust --vcs-ref v1 tpl app
+          git -C app init -q
+          git -C app -c user.email=ci@example.invalid -c user.name=ci add -A
+          git -C app -c user.email=ci@example.invalid -c user.name=ci commit -qm render
+          uvx copier update --defaults --trust --vcs-ref v2 app
+          test ! -e app/deployment.json
+          uvx copier copy --defaults --trust --vcs-ref v2 tpl fresh
+          test -f fresh/deployment.json
+
       # The reference app is held to `terp verify` itself, not to a list restated here: the
       # quick profile is every static check (env seams, the workbench declaration, deploy
       # safety, production readiness, the gate over all three source roots, the declared
@@ -526,6 +557,10 @@ jobs:
           # zizmor: ignore[adhoc-packages] this repository's own `npm pack` output, as in
           # the frontend build above: platform-install reads both manifests' installed copies.
           (cd conformance && npm install /tmp/terp-npm/terpjs-conformance-*.tgz)
+          # Its deploy declaration first, on its own, so a lane reading this log sees the
+          # verdict on deployment.json by name (ADR 0184): the file part and the app part,
+          # against the rendered profile and the composed app.
+          uv run terp verify --only deployment
           uv run terp verify --profile quick
 
       # Then its whole stack, built from the staged packages, through the app's own stack

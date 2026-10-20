@@ -194,3 +194,19 @@ def test_main_writes_the_scorecard_or_names_its_problems(
     monkeypatch.setattr(emitter, "validate_scorecard", lambda scorecard: ["broken claim"])
     assert emitter.main() == 1
     assert "scorecard: broken claim" in capsys.readouterr().err
+
+
+def test_a_deployment_rule_case_is_run_as_a_project_with_its_table(tmp_path: pathlib.Path) -> None:
+    """The two deployment-declaration rules read a project root and its datastore table.
+
+    Their corpus joins the pinned spec with the release that catalogues them; until then
+    this is the only thing that reaches the branch, so the dispatch is held here.
+    """
+    import json
+
+    case = tmp_path / "app"
+    case.mkdir()
+    (case / "deployment.json").write_text(json.dumps({"schemaVersion": 1, "units": []}), encoding="utf-8")
+    fired = {violation.rule for violation in emitter._run_rule("deployment_declaration_is_readable", case)}
+    assert fired == {"deployment_declaration_is_readable"}
+    assert emitter._run_rule("deployment_declaration_tells_the_truth", case) == []

@@ -166,6 +166,17 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
 - **Observability:** structured JSON logs with request-ids ship by default (ADR 0005);
   collect container stdout. OpenTelemetry wiring is on the roadmap.
 
+## The deploy declaration
+
+`deployment.json` at the project root tells a tool that deploys the app which units the
+profile runs, how each answers whether it is ready, which migration histories each owns and
+what holds state (ADR 0184). The template writes one describing `db`, `migrate`, `api` and
+`web`; keep it true when the profile grows, and `terp verify --only deployment` (also run by
+`terp check`) says where it is not. It never asks whether a topology is approved, and deploy
+policy (who may publish, approvals, gate policy) never belongs in it. The bundled database is
+pinned by digest to the datastore table the framework release publishes, so a `docker compose
+pull` cannot move it under a running deployment. `uv run terp guide deployment` has the rules.
+
 ## CI guard
 
 The production profile is itself CI-verified: `.github/workflows/prod-smoke.yml` builds

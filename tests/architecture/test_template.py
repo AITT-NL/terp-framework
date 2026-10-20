@@ -1460,3 +1460,36 @@ def test_the_acceptance_lane_audits_the_rendered_workflow() -> None:
         "rendered — add the zizmor step, so the artifact a client receives meets the "
         "same bar as the one this repository runs"
     )
+
+
+def test_the_deploy_declaration_is_seeded_by_copy_and_never_by_update() -> None:
+    """ADR 0184 decision 1: a fresh render is declared; an existing app stays as it was.
+
+    `_skip_if_exists` keeps copier from overwriting the app's own file, and does not stop
+    an update from CREATING one in an app that never had it -- the route by which a seed
+    reaches existing apps (ADR 0130). So the template also excludes the file whenever the
+    operation is an update. Both halves are structural here; template acceptance renders
+    an update of a pre-seed app and finds no declaration afterwards.
+    """
+    import yaml
+
+    config = yaml.safe_load((_TEMPLATE / "copier.yml").read_text(encoding="utf-8"))
+    assert "deployment.json" in config["_skip_if_exists"]
+    assert config["_exclude"] == ["{% if _copier_operation == 'update' %}deployment.json{% endif %}"]
+    seeded = json.loads((_PROJECT / "deployment.json").read_text(encoding="utf-8"))
+    assert seeded["build"] == "own" and [unit["id"] for unit in seeded["units"]] == [
+        "db",
+        "migrate",
+        "api",
+        "web",
+    ]
+    workflow = yaml.safe_load(
+        (_TEMPLATE.parent / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    )
+    [step] = [
+        step
+        for step in workflow["jobs"]["template-acceptance"]["steps"]
+        if step.get("name", "").startswith("An update never creates the deploy declaration")
+    ]
+    assert "copier update" in step["run"] and "test ! -e app/deployment.json" in step["run"]
+    assert "test -f fresh/deployment.json" in step["run"]

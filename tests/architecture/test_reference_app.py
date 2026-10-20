@@ -74,7 +74,7 @@ def test_the_baseline_covers_the_files_a_client_app_changes_first() -> None:
     } <= replaced
     # And the files copier hands to the app on the first render are not in it: an
     # upgrade never rewrites them, so there is nothing to carry.
-    assert not replaced & {"workbench.json", "environment.schema.json"}
+    assert not replaced & {"workbench.json", "environment.schema.json", "deployment.json"}
 
 
 def test_a_line_ending_is_not_a_template_change(tmp_path: pathlib.Path) -> None:
@@ -243,8 +243,11 @@ def test_template_acceptance_renders_and_runs_the_reference_app() -> None:
     joined = "\n".join(steps)
     # Rendered by the tool every lane uses, not restated in the workflow.
     assert "tools/render_reference_app.py /tmp/acceptance-app" in joined
-    # The whole quick profile, so the check list stays `terp verify`'s own.
+    # Its deploy declaration by name (ADR 0184), then the whole quick profile, so the
+    # check list stays `terp verify`'s own.
+    assert "terp verify --only deployment" in joined
     assert "terp verify --profile quick" in joined
+    assert (reference.OVERLAY / "deployment.json").is_file(), "the reference app is declared"
     # And the stack itself, through the app's own procedure rather than a copy of it.
     assert "scripts/check_stack.py --workbench" in joined
 

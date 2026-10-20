@@ -189,7 +189,7 @@ class VerifyCheck:
     #: subprocess — same verdict surface, no interpreter round-trip.
     # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift"
     # | "platform-install" | "env-seams" | "api-client" | "package-boundaries"
-    # | "dependency-hygiene" | "workbench" | "deploy-safety"
+    # | "dependency-hygiene" | "workbench" | "deployment" | "deploy-safety"
     # | "production-readiness" | "conformance"
     runner: str = "subprocess"
 
@@ -319,6 +319,35 @@ _WORKBENCH = VerifyCheck(
     # errs toward triggering. Do not "tidy" this to `docker-compose.yml`.
     scope=("workbench.json", "docker-compose*.yml"),
     runner="workbench",
+)
+
+# The deploy declaration (ADR 0184), checked for truth and never as a gate: the rule
+# `workbench` applies to the development loop, pointed at the deployment profile. An app
+# without `deployment.json` passes as a no-op, and `unmanaged` turns it off. Red only when
+# the file cannot be read, or when it states something the profile or the app contradicts
+# (a unit that is not a service, a restated command that differs, an image off the
+# datastore table, a migration label nobody owns, a health path the API does not serve).
+# The two file rules are terp.arch rules as well; this check adds the app part.
+#
+# The scope is every input a rule reads, and like `workbench`'s it errs toward triggering:
+# the profile and its overrides may sit anywhere and bear any name, the manifest routes the
+# variables a unit claims, `workbench.json` names the development file this refuses, the
+# lock decides the installed migration labels and the source decides the routes served.
+_DEPLOYMENT = VerifyCheck(
+    id="deployment",
+    category="architecture",
+    command="terp verify --only deployment",
+    scope=(
+        "deployment.json",
+        "environment.schema.json",
+        "workbench.json",
+        "pyproject.toml",
+        "uv.lock",
+        "**/*.py",
+        "**/*.yml",
+        "**/*.yaml",
+    ),
+    runner="deployment",
 )
 
 # The deployment safety envelope. Separate from `workbench` because the two
@@ -575,6 +604,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _PLATFORM_INSTALL,
         _ENV_SEAMS,
         _WORKBENCH,
+        _DEPLOYMENT,
         _DEPLOY_SAFETY,
         _PRODUCTION_READINESS,
         _ARCHITECTURE,
@@ -588,6 +618,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _PLATFORM_INSTALL,
         _ENV_SEAMS,
         _WORKBENCH,
+        _DEPLOYMENT,
         _DEPLOY_SAFETY,
         _PRODUCTION_READINESS,
         _ARCHITECTURE,
@@ -609,6 +640,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _PLATFORM_INSTALL,
         _ENV_SEAMS,
         _WORKBENCH,
+        _DEPLOYMENT,
         _DEPLOY_SAFETY,
         _PRODUCTION_READINESS,
         _ARCHITECTURE,
@@ -2185,6 +2217,10 @@ def run_verify_command(
             from terp.cli.workbench import run_workbench_check
 
             exit_code, output = run_workbench_check(project_root)
+        elif check.runner == "deployment":
+            from terp.cli.deployment_check import run_deployment_check
+
+            exit_code, output = run_deployment_check(project_root)
         elif check.runner == "deploy-safety":
             from terp.cli.deploy_safety import run_deploy_safety_check
 

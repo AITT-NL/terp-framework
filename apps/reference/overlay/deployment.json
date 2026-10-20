@@ -1,0 +1,110 @@
+{
+  "$comment": "The reference app's deploy declaration (ADR 0184). Beside the template's units it declares what the app adds to docker-compose.prod.yml, all on the backend image: the outbox worker and the relay variables it needs, the scheduler (one instance: APScheduler holds no lock), the monitor companion under a role no tool looks up, and the files volume the API and the worker share, with its own backup policy. `terp verify --only deployment` holds every claim to the profile and to the app; the CI lane runs it on every render.",
+  "schemaVersion": 1,
+  "build": "own",
+  "compose": {
+    "file": "docker-compose.prod.yml"
+  },
+  "units": [
+    {
+      "id": "db",
+      "role": "database",
+      "kind": "postgres",
+      "version": "17",
+      "stateful": true,
+      "backup": {
+        "every": "P1D",
+        "keep": "P30D"
+      }
+    },
+    {
+      "id": "migrate",
+      "role": "one-shot",
+      "command": [
+        "terp",
+        "migrate",
+        "upgrade",
+        "--app-root",
+        "/srv/app"
+      ],
+      "dependsOn": [
+        "db"
+      ]
+    },
+    {
+      "id": "api",
+      "role": "api",
+      "healthPath": "/health/ready",
+      "livenessPath": "/health/live",
+      "migrations": [
+        "notices"
+      ],
+      "dependsOn": [
+        "db",
+        "migrate"
+      ]
+    },
+    {
+      "id": "web",
+      "role": "web",
+      "dependsOn": [
+        "api"
+      ]
+    },
+    {
+      "id": "worker",
+      "role": "worker",
+      "env": [
+        "MAIL_FROM",
+        "SMTP_HOST",
+        "SMTP_SECURITY"
+      ],
+      "dependsOn": [
+        "db",
+        "migrate"
+      ]
+    },
+    {
+      "id": "scheduler",
+      "role": "scheduler",
+      "command": [
+        "terp",
+        "jobs",
+        "scheduler"
+      ],
+      "env": [
+        "JOB_SYSTEM_ACTOR_ID"
+      ],
+      "instances": "one",
+      "dependsOn": [
+        "db",
+        "migrate"
+      ]
+    },
+    {
+      "id": "monitor",
+      "role": "monitor",
+      "command": [
+        "python",
+        "-m",
+        "monitor"
+      ],
+      "dependsOn": [
+        "db",
+        "migrate"
+      ]
+    }
+  ],
+  "volumes": [
+    {
+      "id": "files-data",
+      "backup": {
+        "every": "P1D",
+        "keep": "P30D"
+      }
+    }
+  ],
+  "rollback": {
+    "strategy": "redeploy-previous-release"
+  }
+}

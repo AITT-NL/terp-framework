@@ -2372,7 +2372,115 @@ it lands: .app.env.example stays ONE committed file listing every declared name,
 scoped app uses `terp env init` rather than `cp`; and a service that adds its own
 `env_file:` REPLACES the shared anchor's list rather than adding to it (YAML merge does
 not concatenate sequences), so both files have to be listed.
-""",}
+""",
+    "deployment": """\
+The deploy declaration: deployment.json, and what `terp verify --only deployment` holds
+
+WHAT IT IS (ADR 0184)
+
+deployment.json at the project root tells a tool that deploys the app which units exist,
+which one serves the API, how to tell each is healthy, which migration histories each
+owns, what holds state and how it is backed up, and what a rollback is -- instead of the
+tool assuming the template's four service names. It describes the PRODUCTION profile
+(docker-compose.prod.yml, or whatever file it names) and never the development loop,
+which workbench.json describes. Nothing in it is read by the running app.
+
+The words are the Terp Standard's (deployment-declaration.schema.json in terp-spec,
+mirrored byte for byte in terp-arch). The template writes the file once, at `copier
+copy`, describing its own profile; `copier update` never creates or rewrites it. An app
+rendered before it existed stays undeclared until it writes one itself.
+
+    {
+      "schemaVersion": 1,
+      "build": "own",
+      "compose": { "file": "docker-compose.prod.yml" },
+      "units": [
+        { "id": "db", "role": "database", "kind": "postgres", "version": "17",
+          "stateful": true, "backup": { "every": "P1D", "keep": "P30D" } },
+        { "id": "migrate", "role": "one-shot", "dependsOn": ["db"] },
+        { "id": "api", "role": "api", "healthPath": "/health/ready",
+          "livenessPath": "/health/live", "migrations": ["notes"],
+          "dependsOn": ["db", "migrate"] },
+        { "id": "worker", "role": "worker", "command": ["terp", "jobs", "worker"],
+          "env": ["SOME_API_BASE_URL"], "dependsOn": ["db"] },
+        { "id": "web", "role": "web", "dependsOn": ["api"] }
+      ],
+      "volumes": [ { "id": "files-data", "backup": { "every": "P1D", "keep": "P30D" } } ],
+      "rollback": { "strategy": "redeploy-previous-release" }
+    }
+
+FOUR STATES, EXACTLY ONE AT A TIME
+
+  absent                          undeclared: every check passes, as before
+  "build": "own"                  units built from the build files the app commits
+  "build": "generated"            refused until the framework ships a generator:
+                                  "this toolchain cannot honour generated; upgrade,
+                                  or declare own"
+  {"unmanaged": true, "reason"}   no tool can drive this deploy; the checks are off and
+                                  a tool shows the reason. Nothing may stand beside it.
+
+Units without "build", or "unmanaged" beside "build", is refused -- never guessed.
+
+IT IS PARTIAL, AND IT MUST BE TRUE
+
+A service no unit names is not this file's business: add a worker, a cache, a scanner
+or a second API to the profile and nothing here objects. A role nobody has heard of is
+information. What the file DOES say must be true of the resolved profile -- the file
+plus compose.overrides, merged the way `docker compose -f ... -f ...` merges them:
+
+  - a unit is a service of the profile; a volume is a named volume a service mounts;
+  - a restated "command" (an argument list, never a shell string) or "dependsOn" is the
+    profile's own, the order restricted to declared units;
+  - an "env" name reaches the unit's service: in its environment: block, or through the
+    file environment.schema.json routes it to (.app.env; .app.<service>.env when the
+    declaration names services) and the service loads with env_file:;
+  - a unit with "kind" runs EXACTLY the image the datastore table publishes for that
+    kind and version (postgres 17 today, by digest); every other unit runs an image the
+    profile builds from the checkout. There is no "image" key: the file cannot name a
+    registry;
+  - "externalDatabase": {"backup": "client"} never stands beside a profile that still
+    runs a database (name the override that removes `db` in compose.overrides);
+  - "healthPath" and "livenessPath" are read BY ROLE, so they belong under a role the
+    vocabulary knows (api, database, one-shot, scheduler, store, web, worker).
+
+From the app (`terp verify --only deployment` only, because it needs the composed
+app): a "migrations" label is one an installed package or app module owns, and an api
+unit's health paths are routes the app serves. Where app.main:build cannot be imported
+that part is skipped with a named note.
+
+NEVER RED: no frontend, three APIs, a stateful unit with no backup, a schedule with no
+scheduler unit, "instances": "many", an installed history no unit claims, a profile of
+any file name other than the development one. A missing backup is a safety property for
+the deploy boundary, not for this check.
+
+REFUSED AS UNREADABLE: a key the vocabulary lacks at any level (a $-prefixed key is a
+comment), a control character, a string over its cap, a version this toolchain does not
+read, a size that is not a key of "sizes", "client" anywhere but externalDatabase, a
+backup on a unit not declared stateful, two units or volumes with one id, a profile
+path or build context that resolves outside the checkout (links followed), and the
+development compose file named as the profile.
+
+DEPLOY POLICY NEVER BELONGS HERE. Who may publish, how many approvals a deploy needs,
+who may reach a deployed app and which gate policy applies are set per environment by
+the deploying tool, where a commit cannot lower them. Such a key is refused with:
+"<key> is deploy policy: it belongs to the deploying tool's environment policy, not to
+this file". Domains, TLS, CORS, the backup destination, sizes per environment and the
+digest allowlist are environment facts and stay out too.
+
+WHERE IT IS CHECKED
+
+  terp check                       the two terp.arch rules, from files alone:
+                                   deployment_declaration_is_readable and
+                                   deployment_declaration_tells_the_truth
+  terp verify --only deployment    both, plus the app part and notes on what the app
+                                   uses that the file does not state (a files volume
+                                   with no backup policy, a companion root no unit
+                                   runs, a datastore kind no unit declares)
+
+Neither rule has an `# arch-allow-*` marker -- a JSON file cannot carry one. The way
+out is the declaration's own: {"unmanaged": true, "reason": "..."}.
+""",
+}
 
 # Topics whose body is generated from a live registry (not a static recipe above).
 _GENERATED_TOPICS: tuple[str, ...] = ("changelog", "rules")

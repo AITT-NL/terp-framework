@@ -8,7 +8,11 @@ version = "0.34.0"
 description = "Terp enforcement harness — secure-by-default fitness rules, shipped as a dependency clients run but cannot edit."
 requires-python = ">=3.13"
 license = "Apache-2.0"
-dependencies = []
+dependencies = [
+    # The deployment-declaration rules (ADR 0184) read the compose profile the
+    # declaration describes, and compose files are YAML. Safe loading only.
+    "pyyaml>=6.0",
+]
 
 # PEP 420 namespace package: this distribution owns only `terp.arch`.
 [tool.hatch.build.targets.wheel]

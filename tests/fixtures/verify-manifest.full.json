@@ -41,6 +41,21 @@
       ]
     },
     {
+      "id": "deployment",
+      "category": "architecture",
+      "command": "terp verify --only deployment",
+      "scope": [
+        "deployment.json",
+        "environment.schema.json",
+        "workbench.json",
+        "pyproject.toml",
+        "uv.lock",
+        "**/*.py",
+        "**/*.yml",
+        "**/*.yaml"
+      ]
+    },
+    {
       "id": "deploy-safety",
       "category": "architecture",
       "command": "terp verify --only deploy-safety",

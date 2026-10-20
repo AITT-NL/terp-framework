@@ -20,3 +20,7 @@ template/project/conformance/** text eol=lf
 **/docker-compose.yml.jinja text eol=lf
 **/.dockerignore text eol=lf
 **/.env.example text eol=lf
+
+# The deployment declaration's schema is a byte-for-byte mirror of the Terp Standard's
+# (ADR 0184), held equal to the pinned release by a byte comparison: LF on every checkout.
+packages/backend/arch/src/terp/arch/deployment/deployment-declaration.schema.json text eol=lf

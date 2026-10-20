@@ -18,7 +18,48 @@ boot refuses without and the development loop only warns about — was required 
 development loop too, and a workbench asked for it there from somebody who could not produce it.
 A declaration can now say where it is required.
 
+And a tool that deploys a Terp app had to assume the template's four service names, an
+assumption that fails without a word the first day an app adds a worker, a shared store or a
+second deployable. An app can now say which units it deploys, and its gate checks that what it
+says is true.
+
 ### Added
+
+- **`deployment.json` declares how an app is deployed, and the gate holds it to the truth.**
+  At the project root, it names the units of the production profile: each one's role, its
+  health and liveness paths, the migration histories it owns, the variables it needs, its
+  start order, whether it holds state and how that state is backed up, and the closed
+  `rollback` strategy. A database or shared store is named by `kind` and `version` from the
+  framework's datastore table; every other unit is built from the checkout, and there is no
+  `image` key, so the file cannot name a registry. It sits in exactly one of four states:
+  absent (undeclared, and every check passes as before), `"build": "own"`, `"build":
+  "generated"` (refused until a generator ships), or `{"unmanaged": true, "reason": "..."}`.
+  The words are the Terp Standard's `deployment-declaration.schema.json`, carried in
+  `terp-arch` as a byte-for-byte mirror and applied as written. Two `terp.arch` rules read it
+  from files alone, so `terp check` holds an app to them: `deployment_declaration_is_readable`
+  (the schema, one state, unique ids, a `size` that is a key of `sizes`, a kind and version
+  the table carries, every path it leads to inside the checkout and never the development
+  compose file) and `deployment_declaration_tells_the_truth` (a unit is a service of the
+  resolved profile, a restated `command` or `dependsOn` is the profile's own, an `env` name
+  reaches the service, a `kind` unit runs exactly the table's image, `externalDatabase` never
+  stands beside a profile that still runs a database). `terp verify --only deployment`, in
+  every profile, runs both and adds the app part: a claimed migration history some package or
+  module owns, and health paths the API serves. A deploy-policy key (who may publish,
+  approvals, access, gate policy) is refused with its own message, because a commit could
+  lower a policy kept there. Truth only: a service the file does not name, no frontend, three
+  APIs or a stateful unit with no backup is never red. The template writes the file once, at
+  `copier copy`, describing its own profile, and `copier update` never creates it, so an app
+  rendered before it stays undeclared until it declares itself. `apps/example` and the
+  reference app are declared, and the reference app's CI lane runs the check. `terp guide
+  deployment`. ADR 0184; ADR 0185 records the schema window a restore-free rollback will
+  need, and is not built.
+- **A closed datastore table, and the production profiles pin it.** `terp-arch` publishes
+  `datastore-table.json`: one image by digest per datastore kind and version, in the format
+  the standard's corpus uses. It carries PostgreSQL 17,
+  `postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24`, the
+  multi-platform image index of 17.11 on Alpine 3.24 that `postgres:17-alpine` named when it
+  was read. The template's and `apps/example`'s production profiles run exactly that image
+  instead of the moving tag.
 
 - **`"requiredIn"` names the environments a value must be set in.** A non-empty list of
   distinct `ENVIRONMENT` values (`local`, `staging`, `production`) on a declaration; the
@@ -39,6 +80,15 @@ A declaration can now say where it is required.
   and a snapshot's fetch and storage through it. The overlay's copies of template-owned files
   are pinned to the template's digests, so a template change that would need carrying into a
   grown app fails the gate until it is carried into this one.
+
+### Upgrade notes
+
+- **`copier update` pins the production database by digest.** The template's
+  `docker-compose.prod.yml` now runs `postgres@sha256:b0f9…` where it ran `postgres:17-alpine`;
+  an app that re-renders gets the pin with the rest of the template-owned profile. It is the
+  same PostgreSQL 17 the tag named when the digest was read.
+- **`terp-arch` depends on PyYAML**, to read the compose profile a deployment declaration
+  describes. Every app already installs it through `terp-cli`.
 
 ### Fixed
 

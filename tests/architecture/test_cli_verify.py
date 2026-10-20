@@ -120,6 +120,11 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         # failure it catches is silent: the app builds, runs and passes
         # everything else while no workbench can find its way around it.
         "workbench",
+        # ...and does the deploy declaration tell the truth about the deployment? The
+        # same rule pointed at the production profile (ADR 0184): a tool that deploys
+        # the app acts on what deployment.json says, so a lie there is a deploy that
+        # goes wrong on the first day an app grows a worker. Truth only, never shape.
+        "deployment",
         # Would this deployment ship something that cannot be taken back? A
         # dev stack that is wrong does not come up; a deployment that is wrong
         # comes up perfectly, so this one belongs on the merge bar rather than
@@ -1740,6 +1745,34 @@ def test_verify_dispatches_workbench_through_its_own_runner(
     assert envelope["ok"] is True
     # The no-op success shape for an app that has not adopted the file.
     assert "not declared" in json.dumps(envelope)
+
+
+def test_verify_dispatches_deployment_through_its_own_runner(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`deployment` is an in-process runner, so it needs its own dispatch branch.
+
+    The check itself is proven in test_deployment_declaration.py and
+    test_deployment_truth.py; this proves `terp verify --only deployment` reaches it,
+    in the cheapest profile, instead of shelling out to a command that does not exist.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "verify",
+                "--root",
+                str(tmp_path),
+                "--only",
+                "deployment",
+                "--format",
+                "json",
+            ]
+        )
+    assert excinfo.value.code == 0
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["ok"] is True
+    # The no-op success shape for an app that has not declared its deployment.
+    assert "deployment not declared" in json.dumps(envelope)
 
 
 def test_verify_dispatches_deploy_safety_through_its_own_runner(
