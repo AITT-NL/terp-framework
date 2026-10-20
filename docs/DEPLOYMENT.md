@@ -122,6 +122,13 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
 - **Health:** `GET /health/live` (process up) and `GET /health/ready` (DB reachable) on
   the API (ADR 0024); both containers ship `HEALTHCHECK`s and the profile uses
   `--wait`-able healthchecks + `restart: unless-stopped`.
+- **Builds install the committed locks:** the template's backend image runs `uv sync
+  --locked --no-dev` and its web image `npm ci`, so an image holds exactly what `uv.lock` and
+  `frontend/package-lock.json` record, and a lock that disagrees with its manifest stops the
+  build. Commit both locks; `uv lock` and `npm --prefix frontend install` bring them along with
+  a dependency change. The images are layered (manifests and locks, then the dependencies, then
+  the app), carry no BuildKit cache mount, and need BuildKit, the builder of every `docker
+  compose` build.
 - **Migrations on upgrade:** pull/build the new images, re-run the `migrate` one-shot,
   then restart `api`. `docker compose -f docker-compose.prod.yml up -d --wait --build`
   does all three in order.
@@ -185,4 +192,6 @@ through the nginx `/api` proxy, exercises an authenticated round-trip, and asser
 `terp seed` refuses production. The structure tests in
 `tests/architecture/test_prod_profile.py` hold the profile's hardening invariants (no
 seed service, no dev secret fallback, no `--reload`, multi-stage wheel images, non-root,
-template parity) at every gate run.
+template parity) at every gate run, and `tests/architecture/test_template_build_inputs.py`
+holds the template's images to their locks, their layer order and a build context with no
+secret in it.

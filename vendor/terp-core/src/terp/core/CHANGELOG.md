@@ -23,6 +23,26 @@ assumption that fails without a word the first day an app adds a worker, a share
 second deployable. An app can now say which units it deploys, and its gate checks that what it
 says is true.
 
+And a generated app's production image could ship versions its gate never ran. The backend
+image installed the app wheel with `uv pip install`, which ignores `uv.lock` and resolves every
+package from the index again at build time; the frontend image ran `npm install`, which
+rewrites a lock that disagrees with `package.json`. Both images now install exactly the
+committed locks, in layers that an edit to the app does not invalidate.
+
+### Security
+
+- **A rendered environment file can no longer be baked into an image.** The template's
+  `.dockerignore` named `.env` and `.app.env` at the project root only, while `.gitignore`
+  keeps them out of a commit at any depth, together with `.env.*` and the per-service
+  `.app.<service>.env` renders. So a `COPY . .` could bake `.app.worker.env`, or a
+  `frontend/.env.local`, into a layer. The `.dockerignore` now carries every pattern the
+  `.gitignore` keeps out of a commit, written to match the same paths, and a template test holds
+  the two files to each other path by path, so a secret-bearing pattern added to one and not
+  the other fails the gate. Local databases with SQLite's `-wal`/`-shm` sidecars, the files
+  capability's `var/` storage root, caches and test output are excluded too, and `.gitignore`
+  gains the ones it lacked. The framework's own root `.dockerignore`, the example app's build
+  context, carries the environment-file patterns at any depth as well.
+
 ### Added
 
 - **`deployment.json` declares how an app is deployed, and the gate holds it to the truth.**
@@ -81,8 +101,50 @@ says is true.
   are pinned to the template's digests, so a template change that would need carrying into a
   grown app fails the gate until it is carried into this one.
 
+### Changed
+
+- **The template's production images install exactly the committed locks.** The backend image
+  runs `uv sync --locked --no-dev`: the lock's runtime set and nothing else, and a lock that
+  disagrees with `pyproject.toml` stops the build ("The lockfile at `uv.lock` needs to be
+  updated") instead of being resolved again. The frontend image runs `npm ci`, which refuses a
+  lock out of sync with `package.json` where `npm install` rewrote it. `uv sync` rather than a
+  hashed export, because a lock that names pre-release wheels vendored under
+  `.terp-dist/wheels` records them by path and without a hash, which a `--require-hashes`
+  install refuses; `--locked` is uv's own check that the lock still answers the manifest. The
+  runtime image carries the environment, the app wheel and the two source roots `terp migrate`
+  reads, and no longer carries uv.
+- **And in layers, in the order their inputs change.** The manifest and the lock are copied
+  first and installed in a layer of their own; the app comes last. An edit to the app rebuilds a
+  few small layers over an unchanged dependency layer, and a backend edit never rebuilds the web
+  image, which copies nothing from outside `frontend/` but the vendored `@terpjs` tarballs.
+  Neither production Dockerfile uses a BuildKit cache mount, so a release build never reads a
+  cache a development build wrote; the layers are the cache.
+- **`uvicorn[standard]` and `psycopg[binary]` are runtime dependencies of the template**, in
+  `[project] dependencies` rather than the dev group, so the lock pins the server and the
+  driver the image runs. The dev group's comment said the images installed "their own pinned
+  server"; they installed an unpinned one. deptry is told why neither is imported (`DEP002`),
+  and `terp guide dependency-hygiene` teaches the same table.
+- **The template's CI installs the same locks**: `uv sync --locked` in both jobs and `npm
+  --prefix frontend ci`, so the gate proves the set the images ship. The conformance suite is a
+  test harness no image ships and keeps `npm install`.
+
 ### Upgrade notes
 
+- **Commit `uv.lock` and `frontend/package-lock.json`.** After `copier update`, the production
+  images and the template's CI install exactly them and refuse a lock that disagrees with its
+  manifest. `uv lock` and `npm --prefix frontend install` write them. An app that never
+  committed them fails its CI's install step and its image build until it does.
+- **`copier update` moves the server and the driver into `[project] dependencies`** and adds
+  `DEP002 = ["uvicorn", "psycopg"]` to `[tool.deptry.per_rule_ignores]`. Keep both moves when
+  resolving the update against your own dependencies, then run `uv lock`.
+- **The production images need BuildKit**, the builder of every `docker compose` v2 build and of
+  `docker build` since Docker Engine 23: they bind-mount uv and the app wheel from other stages
+  (`RUN --mount=from=`) and copy the vendored packages through a pattern that may match nothing.
+  A legacy builder (`DOCKER_BUILDKIT=0`) refuses them.
+- **A lock made against a package directory outside the checkout cannot build.** uv records
+  where each package came from, so a lock made with `UV_FIND_LINKS=/some/dir` names that
+  directory, which the image does not have. Vendor pre-release wheels under `.terp-dist/wheels`
+  and lock with `--find-links .terp-dist/wheels`; the relative path is recorded as written.
 - **`copier update` pins the production database by digest.** The template's
   `docker-compose.prod.yml` now runs `postgres@sha256:b0f9…` where it ran `postgres:17-alpine`;
   an app that re-renders gets the pin with the rest of the template-owned profile. It is the

@@ -382,10 +382,12 @@ def test_project_ships_frontend_ci() -> None:
     # of the gate: the boundary lint, the typecheck and the build all live in the `full`
     # profile, and all of them shell out to npm. What CI owes them is node and an
     # installed frontend/node_modules — naming the checks is the profile's job
-    # (test_cli_verify.py::test_the_full_profile_is_the_template_ci_surface).
+    # (test_cli_verify.py::test_the_full_profile_is_the_template_ci_surface). Installed
+    # from the committed lock, as the production image installs it
+    # (test_template_build_inputs.py).
     ci = (_PROJECT / ".github" / "workflows" / "ci.yml.jinja").read_text()
     assert "actions/setup-node" in ci
-    assert "npm --prefix frontend install" in ci
+    assert "npm --prefix frontend ci" in ci
     assert "terp verify --profile full" in ci
 
 

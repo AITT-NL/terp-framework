@@ -13,6 +13,13 @@
 **/.ruff_cache
 **/.coverage
 apps/example/_frontend_tpl_check
-# Rendered app-declared variables may contain secrets. The example images use
-# the repository root as build context, so ignore nested environment files.
+# Environment files may contain secrets: compose's own variable file and its variants,
+# and the rendered app-declared variables, per service too (`.app.worker.env`). The
+# example images use the repository root as build context, so every one is ignored at
+# any depth; the tracked examples stay.
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.example.jinja
 **/.app.env
+**/.app.*.env

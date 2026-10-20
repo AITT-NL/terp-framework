@@ -77,12 +77,19 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
-      - run: uv sync
+      # The committed locks, installed exactly: the gate proves the same dependency set
+      # the production images install (`uv sync --locked --no-dev` and `npm ci` in the
+      # Dockerfiles), and a lock that has drifted from its manifest fails here, naming the
+      # command that fixes it (`uv lock`; `npm --prefix frontend install`), instead of
+      # being re-resolved into a set nobody committed. Commit both locks.
+      - run: uv sync --locked
       # Both manifests that pin @terpjs/*. The profile's platform-install check reads the
       # INSTALLED copy under each node_modules, not just the declared range, so they have
       # to be here for its verdict to mean anything — and a name left under the
-      # pre-rename @terp/ scope fails at this step, loudly, instead of much later.
-      - run: npm --prefix frontend install
+      # pre-rename @terp/ scope fails at this step, loudly, instead of much later. The
+      # conformance suite is a test harness no image ships, so it keeps `npm install`
+      # and needs no committed lock.
+      - run: npm --prefix frontend ci
       - run: npm --prefix conformance install
       # The merge bar. platform-install runs first and refuses a mixed install before the
       # rest of the run spends time proving things about a combination never released.
@@ -125,7 +132,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
-      - run: uv sync
+      - run: uv sync --locked
       - run: npm --prefix conformance install
       - name: Install Playwright (Chromium + OS deps)
         run: npx playwright install --with-deps chromium

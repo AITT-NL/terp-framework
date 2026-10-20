@@ -109,7 +109,13 @@ def test_prod_long_running_services_restart_and_healthcheck() -> None:
 
 
 def test_prod_backend_images_are_multistage_wheel_builds() -> None:
-    """Wheels-only runtime: multi-stage, no editable installs, non-root, no --reload."""
+    """Wheels-only runtime: multi-stage, no editable installs, non-root, no --reload.
+
+    The WebSocket-capable server is named in the example's Dockerfile, which installs it
+    there. The template's image installs it from the committed lock as a runtime
+    dependency of the app (test_template_build_inputs.py), so the name its Dockerfile
+    carries is the one CMD runs.
+    """
     for path in (_PROD_DOCKERFILE, _TEMPLATE_PROD_DOCKERFILE):
         text = path.read_text(encoding="utf-8")
         assert text.count("FROM python:") == 2, f"{path.name} must be multi-stage"
@@ -121,7 +127,9 @@ def test_prod_backend_images_are_multistage_wheel_builds() -> None:
         ]
         assert not any("--reload" in line for line in code_lines)
         assert "HEALTHCHECK" in text
-        assert '"uvicorn[standard]"' in text, f"{path.name} must serve WebSockets"
+        assert 'CMD ["uvicorn", "app.main:app"' in text
+    example = _PROD_DOCKERFILE.read_text(encoding="utf-8")
+    assert '"uvicorn[standard]"' in example, "the example image must serve WebSockets"
 
 
 def _force_included_from_outside_the_package() -> dict[str, str]:

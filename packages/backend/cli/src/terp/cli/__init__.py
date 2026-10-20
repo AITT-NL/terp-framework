@@ -238,6 +238,10 @@ Adopt it by declaring the table (a project from the template already has it):
     # which the template's code, `terp new module` and `terp migrate make` all
     # import directly: constrained by that release, not by a second pin here.
     DEP003 = ["terp", "pydantic", "fastapi", "sqlmodel", "sqlalchemy", "alembic"]
+    # The server and the database driver are runtime dependencies, so uv.lock
+    # pins what the production image installs, and nothing imports them: the
+    # image runs uvicorn as a command, and SQLAlchemy loads psycopg by URL.
+    DEP002 = ["uvicorn", "psycopg"]
 
 and installing the tool: `uv add --dev deptry`.
 
