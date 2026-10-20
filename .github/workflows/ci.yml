@@ -490,6 +490,10 @@ jobs:
           });
           PROBE
           npm test
+          # The probe is this step's, not the app's: take it out again, so a later step
+          # that holds the app's own source (the reference app's `terp verify`, whose
+          # frontend lint refuses the probe's static strings) judges what was rendered.
+          rm src/confirm-dialog.acceptance.test.tsx
 
       # The generated workbench publishes its host ports through REQUIRED variables
       # (ADR 0134), and the generated CI's conformance job had never assigned them, so
@@ -557,6 +561,25 @@ jobs:
           # zizmor: ignore[adhoc-packages] this repository's own `npm pack` output, as in
           # the frontend build above: platform-install reads both manifests' installed copies.
           (cd conformance && npm install /tmp/terp-npm/terpjs-conformance-*.tgz)
+          # Installing a tarball writes a `file:` spec into the manifest, and platform-install
+          # holds every @terpjs/* declaration to `^<platform>`. Put back the `^<version>` the
+          # template declares, the version each tarball carries, so the check judges the
+          # app's own pins; node_modules keeps this commit's packed packages, which
+          # platform-install still holds to that same version.
+          python3 - <<'PINS'
+          import json
+          import pathlib
+          import re
+
+          for manifest in (pathlib.Path("frontend/package.json"), pathlib.Path("conformance/package.json")):
+              data = json.loads(manifest.read_text(encoding="utf-8"))
+              for key in ("dependencies", "devDependencies"):
+                  for name, declared in (data.get(key) or {}).items():
+                      packed = re.fullmatch(r"file:.*-(\d+\.\d+\.\d+[^/]*)\.tgz", declared)
+                      if name.startswith("@terpjs/") and packed:
+                          data[key][name] = f"^{packed.group(1)}"
+              manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+          PINS
           # Its deploy declaration first, on its own, so a lane reading this log sees the
           # verdict on deployment.json by name (ADR 0184): the file part and the app part,
           # against the rendered profile and the composed app.
