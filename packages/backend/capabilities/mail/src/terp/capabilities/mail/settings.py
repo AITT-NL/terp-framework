@@ -11,7 +11,9 @@ message carries none of them:
   opens a connection to;
 * the connection is **encrypted by default** — STARTTLS on the submission port, or TLS
   from the first byte on 465 — with the certificate and the hostname verified, and there
-  is no setting that turns the verification off;
+  is no setting that turns the verification off. What a relay's certificate must chain
+  to can be narrowed (``ca_file``), for a relay whose authority is a private one: a mail
+  catcher a deployment runs beside a test environment, an on-premises server;
 * **credentials travel only over an encrypted connection**, refused at construction
   otherwise, in every environment;
 * the **sender** is fixed. A message may name a ``Reply-To``, never a ``From``, so a
@@ -31,7 +33,9 @@ catcher on the compose network) needs no exception here.
 from __future__ import annotations
 
 import logging
+import os
 import re
+import ssl
 import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -131,6 +135,15 @@ class MailSettings:
     defaults to the conventional one for ``security`` (587, 465, or 25). ``username`` and
     ``password`` are both set or both empty; ``password`` is kept out of ``repr`` so the
     object can be logged.
+
+    ``ca_file`` is the absolute path of a PEM file of CA certificates. When it is set, the
+    relay's certificate must chain to one of them **instead of** to the system's trust
+    store, for this connection only, with the hostname checked as always: it narrows who
+    the relay may be and cannot loosen how it is checked. It is for a relay whose
+    authority is a private one, such as a mail catcher with a certificate a deployment
+    issued. It is read when the settings are built, so a missing or malformed file refuses
+    the boot instead of the first send, and it is refused beside ``MailSecurity.NONE``,
+    which has no certificate to check.
     """
 
     sender: str
@@ -139,6 +152,7 @@ class MailSettings:
     security: MailSecurity = MailSecurity.STARTTLS
     username: str = ""
     password: str = field(default="", repr=False)
+    ca_file: str = ""
 
     def __post_init__(self) -> None:
         parse_sender(self.sender)
@@ -160,6 +174,8 @@ class MailSettings:
                 "connection: the password would cross the network in the clear. Use "
                 "MailSecurity.STARTTLS or MailSecurity.TLS."
             )
+        if self.ca_file:
+            self._check_ca_file()
 
         # Decided by an environment-INDEPENDENT predicate, so the answer exists somewhere
         # a gate can read it and not only inside a branch that runs on the production
@@ -174,6 +190,27 @@ class MailSettings:
                 "production boot is REFUSED in this state.",
                 self.host,
             )
+
+    def _check_ca_file(self) -> None:
+        """Refuse a CA file that could only fail later, or that contradicts the session."""
+        if self.security is MailSecurity.NONE:
+            raise ValueError(
+                "MailSettings.ca_file names the authority a relay's certificate must chain "
+                "to, and MailSecurity.NONE has no certificate to check: drop the CA file, or "
+                "use MailSecurity.STARTTLS or MailSecurity.TLS."
+            )
+        if not os.path.isabs(self.ca_file):
+            raise ValueError(
+                "MailSettings.ca_file is an absolute path, so it names the same file whatever "
+                f"directory the process starts in: {self.ca_file!r}"
+            )
+        try:
+            ssl.create_default_context(cafile=self.ca_file)
+        except (OSError, ssl.SSLError) as exc:
+            raise ValueError(
+                f"MailSettings.ca_file {self.ca_file!r} cannot be read as PEM CA "
+                f"certificates ({type(exc).__name__}): a relay could then never be verified"
+            ) from exc
 
     @property
     def sender_address(self) -> Address:
@@ -202,8 +239,10 @@ def mail_settings_from_environment(
     """Read the relay from the fixed environment variables, or ``None`` when none is set.
 
     The names are fixed — ``MAIL_FROM``, ``SMTP_HOST``, ``SMTP_PORT``, ``SMTP_SECURITY``,
-    ``SMTP_USERNAME`` and ``SMTP_PASSWORD`` — so every Terp application configures its
-    relay the same way, and a deployment tool can name them without reading the code.
+    ``SMTP_USERNAME``, ``SMTP_PASSWORD`` and ``SMTP_CA_FILE`` — so every Terp application
+    configures its relay the same way, and a deployment tool can name them without
+    reading the code. ``SMTP_CA_FILE`` is :attr:`MailSettings.ca_file`: the PEM file of
+    the authority a relay's certificate must chain to, in place of the system's store.
 
     ``MAIL_FROM`` and ``SMTP_HOST`` are the two that decide whether a relay is configured
     at all, and they are set together: one without the other is a half-finished
@@ -240,6 +279,7 @@ def mail_settings_from_environment(
         security=security,
         username=environ.get("SMTP_USERNAME", "").strip(),
         password=environ.get("SMTP_PASSWORD", ""),
+        ca_file=environ.get("SMTP_CA_FILE", "").strip(),
     )
 
 

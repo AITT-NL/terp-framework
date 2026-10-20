@@ -1,8 +1,10 @@
 # 0150 — Mail leaves through one declared relay
 
-- **Status:** Accepted and implemented. `terp-cap-mail` (`terp.capabilities.mail`) ships,
-  and `no_raw_outbound_http` refuses `smtplib` and sends the author to it. Held by
-  `tests/architecture/test_mail.py` and `tests/architecture/test_arch_harness.py`.
+- **Status:** Accepted and implemented; amended 2026-10-21 (the relay is `requiredIn`
+  production, and `SMTP_CA_FILE` names its authority). `terp-cap-mail`
+  (`terp.capabilities.mail`) ships, and `no_raw_outbound_http` refuses `smtplib` and sends
+  the author to it. Held by `tests/architecture/test_mail.py` and
+  `tests/architecture/test_arch_harness.py`.
 - **Date:** 2026-09-23
 - **Relates:** [ADR 0117](0117-the-egress-capability-the-rule-was-already-naming.md) (the
   capability this one is the sibling of, for a different protocol),
@@ -180,3 +182,37 @@ no compliant path is a hole code goes around. It is added now because the path e
   adopted, the framework runs ahead of the published entry, which ADR 0116 permits.
 - The new distribution needs its PyPI project registered before the first tag that
   carries it (`docs/RELEASING.md`).
+
+## Amendment (2026-10-21): the relay is required where production runs, and its authority can be named
+
+Two things this record decided have moved since it was written.
+
+**Where the relay is required.** The no-relay refusal was moved earlier by having the guide
+declare `MAIL_FROM` and `SMTP_HOST` in `required`. `required` means every environment, so the
+same advice asked the development loop for a relay it does not have, and a workbench that asks
+for missing required values then asked a person for one. [ADR 0180](0180-a-value-is-required-where-the-app-runs-that-way.md)
+added `requiredIn`, and the guide now declares both `"requiredIn": ["production"]`: a deployment
+that honours the manifest still refuses before the boot, and the development loop runs on its
+own defaults. The relay stays external, a value per environment and never a service of the
+production profile. Outside production, mail goes to a catcher and not to a real relay: an
+environment that runs the production profile without being production, such as a test
+environment, is given a catcher that offers TLS, because that profile refuses
+`SMTP_SECURITY=none`. A real relay outside production is an operator's opt-in for that one
+environment, held in the deploying tool's environment policy and never in the app's files:
+`deployment.json` carries no mail field, and an opt-in that any commit can flip could switch an
+environment holding copied data to mailing real people.
+
+**Whose certificate the relay may present.** "Verified, with no switch" stays exactly as
+decided. A catcher's certificate, or an on-premises relay's, is issued by an authority that the
+system's trust store does not hold, so such a relay could be reached only through a
+process-wide `SSL_CERT_FILE`, which replaces the trust of every TLS connection in the process
+that reads the system's defaults, not only the relay's. `MailSettings.ca_file`, read from
+`SMTP_CA_FILE`, names a PEM file whose authorities replace the system's store for the relay
+connection alone. It narrows who may vouch for the relay and cannot loosen how the relay is
+checked: certificate and hostname verification, and the TLS 1.2 floor, are the same either way.
+The file must be an absolute path and must load as CA certificates when the settings are built,
+so a missing or malformed one refuses the boot rather than the first send, and it is refused
+beside `MailSecurity.NONE`, which has no certificate to check. Held by
+`tests/architecture/test_mail.py` against the loopback relay with no trust added to the client
+but the declared file: a relay the authority vouches for is used, the same relay without the
+file is refused, and the authority vouches for no other name.

@@ -82,6 +82,14 @@ dockerignored — it may hold secrets and must never be committed or baked into
 an image. Frontend (`VITE_*`) values are build-time, not run-time, and do not
 belong in this manifest.
 
+A value only a deployment needs is declared `"requiredIn": ["production"]` rather than
+`required`, so the development loop is not asked for it. An outgoing mail relay is the common
+case: `MAIL_FROM` and `SMTP_HOST` are required where production runs, the relay is external,
+and every environment that is not production gets a mail catcher offering TLS instead, its
+authority named in `SMTP_CA_FILE`. A real relay outside production is an operator's choice for
+that one environment, kept with the deploying tool's environment policy and never in the
+app's files. `uv run terp guide mail` has the declaration block.
+
 ## Least-privilege database (optional hardening)
 
 Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):

@@ -65,11 +65,14 @@ it joins the app when it ships.
   against that, in place of a client's app. No new repository and no second pin: the app moves with the framework.
 - **A deployment test environment** deploys its production profile, `docker-compose.prod.yml`: the
   worker, the scheduler and the companion on the backend image beside the API. That
-  profile has no mail catcher. Its `.app.env` names an encrypted relay (`SMTP_SECURITY`
-  `starttls` or `tls`; a production boot refuses `none` and refuses no relay at all) and a
-  `JOB_SYSTEM_ACTOR_ID`, and the host needs outbound HTTPS to `example.com`.
-  `scripts/check_stack.py --api … --mailpit …` drives it wherever the relay's inbox can be
-  read.
+  profile has no mail catcher: the relay is external, and `MAIL_FROM` and `SMTP_HOST` are
+  required there (`requiredIn` production). Its `.app.env` names an encrypted relay
+  (`SMTP_SECURITY` `starttls` or `tls`; a production boot refuses `none` and refuses no
+  relay at all) and a `JOB_SYSTEM_ACTOR_ID`, and the host needs outbound HTTPS to
+  `example.com`. Outside production that relay is a mail catcher offering TLS, never a real
+  one, and `SMTP_CA_FILE` names the authority that issued its certificate, so the app
+  verifies it as it verifies any relay (`terp guide mail`). `scripts/check_stack.py --api …
+  --mailpit …` drives it wherever the relay's inbox can be read.
 
 ## Running it yourself
 

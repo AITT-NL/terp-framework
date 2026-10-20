@@ -1657,14 +1657,44 @@ Sending e-mail (terp-cap-mail)
     SMTP_PORT       optional: 587 for starttls, 465 for tls
     SMTP_SECURITY   starttls (the default) | tls | none
     SMTP_USERNAME / SMTP_PASSWORD   set together, or neither
+    SMTP_CA_FILE    optional: the absolute path of a PEM file of the CA certificates the
+                    relay's certificate must chain to, IN PLACE OF the system's store
+                    (a catcher or an on-premises relay with a private authority)
   The session is encrypted and the certificate verified; there is no setting that turns
-  verification off. `none` exists for a local mail catcher: a production boot refuses
-  it, and signing in over it is refused everywhere. With neither MAIL_FROM nor SMTP_HOST set,
-  development LOGS each message instead of delivering it and a production boot is
-  REFUSED. Declare the variables in environment.schema.json so a deployment renders them
-  per environment: SMTP_PASSWORD with "format": "secret", SMTP_HOST "format":
-  "hostname", SMTP_PORT "format": "port", and MAIL_FROM + SMTP_HOST in "required" so a
-  deploy without a relay is refused before it boots.
+  verification off. SMTP_CA_FILE changes which authority may vouch for the relay, never
+  whether one must: the name is still checked, and a missing or unreadable file refuses
+  the boot. `none` exists for the development stack's own catcher: a production boot
+  refuses it, signing in over it is refused everywhere, and so is a CA file beside it.
+  With neither MAIL_FROM nor SMTP_HOST set, development LOGS each message instead of
+  delivering it and a production boot is REFUSED.
+- The relay is EXTERNAL, never a service of the production profile, and it is a value
+  per environment. Declare the variables in environment.schema.json so a deployment
+  renders them, with MAIL_FROM and SMTP_HOST "requiredIn": ["production"]. Not
+  "required": that means every environment, and would ask the development loop for a
+  relay it does not have (ADR 0180):
+      "MAIL_FROM":     {"type": "string", "group": "Mail", "requiredIn": ["production"]},
+      "SMTP_HOST":     {"type": "string", "group": "Mail", "format": "hostname",
+                        "resolvedBy": "container", "requiredIn": ["production"]},
+      "SMTP_PORT":     {"type": "string", "group": "Mail", "format": "port"},
+      "SMTP_SECURITY": {"type": "string", "group": "Mail",
+                        "enum": ["starttls", "tls", "none"]},
+      "SMTP_USERNAME": {"type": "string", "group": "Mail"},
+      "SMTP_PASSWORD": {"type": "string", "group": "Mail", "format": "secret"},
+      "SMTP_CA_FILE":  {"type": "string", "group": "Mail"}
+  A production deploy without a relay is then refused before it boots, and the
+  development loop runs on the defaults you give them (a catcher on the compose network,
+  SMTP_SECURITY=none). Declare SMTP_CA_FILE even if you never set it: a deployment renders
+  only the declared keys, so it is how one hands the app a catcher's authority.
+- Outside production, mail goes to a CATCHER, never a real relay. Every non-production
+  environment, a test environment and a preview included, defaults to a mail catcher that
+  offers TLS with a certificate the app verifies: a test environment runs the production
+  profile, which refuses SMTP_SECURITY=none, and verification has no off switch, so the
+  deployment gives SMTP_CA_FILE the authority that issued the catcher's certificate, for
+  the name it gives in SMTP_HOST. A real relay outside production is an operator's opt-in
+  for that one environment, held in the deploying tool's environment policy, outside the
+  app's files, and never in deployment.json, which carries no mail field: an opt-in kept
+  in a file any commit can change could switch an environment holding copied data to
+  mailing real people.
 - Register the job the capability enqueues (control_plane/jobs.py):
       from terp.capabilities.mail import MAIL_SEND
       job_catalog = JobCatalog([MAIL_SEND])
@@ -2295,7 +2325,10 @@ configuration, so `env-seams` checks the shape first and reports every defect at
     production): where the value must be set. `required` means every environment, so a
     name is in one or the other, never both. The development loop runs local and every
     Studio deployment runs production; JOB_SYSTEM_ACTOR_ID is the canonical case --
-    production refuses to boot without it, the development loop only warns.
+    production refuses to boot without it, the development loop only warns. A mail
+    relay's MAIL_FROM and SMTP_HOST are another: production refuses to boot without a
+    relay, and the development loop logs each message or hands it to its own catcher
+    (`terp guide mail`).
 
 A FIELD OUTSIDE THAT SET IS REFUSED HERE, because the deploy side DROPS what it does not
 recognise rather than refusing it -- so a misspelled field silently does nothing, and the

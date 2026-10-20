@@ -86,6 +86,16 @@ committed locks, in layers that an edit to the app does not invalidate.
   `deployment.json` that cannot be read is held as managed. It is its own check rather than part
   of `--only deployment`, whose red list ADR 0184 closes on truth about the declaration; a stale
   lock contradicts nothing the declaration says. In every profile, after `deployment`.
+- **`SMTP_CA_FILE` names the authority a mail relay's certificate must chain to.**
+  `MailSettings.ca_file`, read from `SMTP_CA_FILE` by `mail_settings_from_environment`, is the
+  absolute path of a PEM file whose CA certificates replace the system's trust store for the
+  relay connection alone, for a relay whose authority is a private one: a TLS mail catcher a
+  test environment is given, an on-premises server. It narrows who may vouch for the relay and
+  cannot loosen how it is checked: certificate, hostname and the TLS 1.2 floor are verified the
+  same either way, and there is still no setting that turns verification off. A missing,
+  relative or unreadable file refuses the boot instead of the first send, and so does a CA file
+  beside `SMTP_SECURITY=none`. Until now such a relay was reachable only through a process-wide
+  `SSL_CERT_FILE`. ADR 0150, amended.
 - **A closed datastore table, and the production profiles pin it.** `terp-arch` publishes
   `datastore-table.json`: one image by digest per datastore kind and version, in the format
   the standard's corpus uses. It carries PostgreSQL 17,
@@ -137,6 +147,18 @@ committed locks, in layers that an edit to the app does not invalidate.
   driver the image runs. The dev group's comment said the images installed "their own pinned
   server"; they installed an unpinned one. deptry is told why neither is imported (`DEP002`),
   and `terp guide dependency-hygiene` teaches the same table.
+- **`terp guide mail` declares the relay `requiredIn` production.** It told apps to put
+  `MAIL_FROM` and `SMTP_HOST` in `required`, which means every environment and so asked the
+  development loop for a relay it does not have. The guide now gives the whole declaration
+  block, `MAIL_FROM` and `SMTP_HOST` with `"requiredIn": ["production"]` (ADR 0180), and says
+  where mail goes: the relay is external and per environment; every environment that is not
+  production, a test environment and a preview included, defaults to a mail catcher that
+  offers TLS, with its authority in `SMTP_CA_FILE`; and a real relay outside production is an
+  operator's opt-in held in the deploying tool's environment policy, never in the app's files
+  and never in `deployment.json`. A test holds the block to the reader `env-seams` uses and to
+  every name the capability reads. The template's manifest guidance and `terp guide
+  environment` name the relay as the second case of `requiredIn`, and the reference app
+  declares `SMTP_CA_FILE` beside its relay.
 - **The template's CI installs the same locks**: `uv sync --locked` in both jobs and `npm
   --prefix frontend ci`, so the gate proves the set the images ship. The conformance suite is a
   test harness no image ships and keeps `npm install`.
@@ -161,6 +183,11 @@ committed locks, in layers that an edit to the app does not invalidate.
   where each package came from, so a lock made with `UV_FIND_LINKS=/some/dir` names that
   directory, which the image does not have. Vendor pre-release wheels under `.terp-dist/wheels`
   and lock with `--find-links .terp-dist/wheels`; the relative path is recorded as written.
+- **An app that sends mail moves `MAIL_FROM` and `SMTP_HOST` from `required` to
+  `"requiredIn": ["production"]`** in its `environment.schema.json`, and declares
+  `SMTP_CA_FILE` (`terp guide mail` has the block). A deployment still refuses to go out
+  without a relay; the development loop stops asking for one. The manifest is the app's own,
+  so `copier update` does not make this change.
 - **`copier update` pins the production database by digest.** The template's
   `docker-compose.prod.yml` now runs `postgres@sha256:b0f9…` where it ran `postgres:17-alpine`;
   an app that re-renders gets the pin with the rest of the template-owned profile. It is the
