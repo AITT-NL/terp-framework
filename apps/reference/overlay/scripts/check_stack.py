@@ -1,0 +1,241 @@
+"""Drive the reference app's stack end to end, through every capability it exists to carry.
+
+    uv run python scripts/check_stack.py --workbench              # this checkout's dev stack
+    uv run python scripts/check_stack.py --api URL --mailpit URL   # any running deployment
+
+The unit suite proves each path with its outbound edge faked; this proves them against the
+real services of a running stack, which is what a lane that deploys the app has to know:
+
+1. sign in as the seeded administrator (``terp seed``);
+2. post a notice, and wait for its mail to reach the catcher -- the API enqueued it in the
+   notice's own transaction, the worker drained the outbox, the relay delivered it;
+3. ask for a snapshot, and wait for the worker to store it -- one egress call to the
+   declared host, its bytes in the files volume, a row that points at them;
+4. read those bytes back through the files capability and compare them with the row.
+
+``--workbench`` is the whole procedure for this checkout, so no lane has to restate it: it
+starts the development stack (``docker compose up`` of :data:`WORKBENCH_SERVICES`, then
+``terp seed``), finds the API and the catcher's inbox on their published ports, runs the
+steps above, and then holds the processes no request reaches: the scheduler registered its
+cron, the companion read the backlog, and every long-running service is still running. Run
+``terp ports assign`` and ``terp env init`` first, as the README says.
+
+The HTTP half needs only the standard library. It exits non-zero naming the first step that
+did not happen within ``--timeout`` seconds; nothing is skipped, because a skipped check is
+a green one.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import pathlib
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from collections.abc import Callable
+from typing import Any
+
+#: The seeded development login (app/seed.py): known, printed and shared by design, and
+#: refused by `terp seed` in production.
+SEED_EMAIL = "admin@example.test"
+SEED_PASSWORD = "correct horse battery staple"  # noqa: S105 - the published dev seed login
+
+#: The long-running services of the development stack: the template's API, and the four the
+#: reference app adds. `web` is not needed to drive the backend and is left out.
+WORKBENCH_SERVICES = ("api", "worker", "scheduler", "monitor", "mailcatcher")
+
+#: What the scheduler's log names once its cron is registered, and what the companion's
+#: says once it has read the backlog.
+SCHEDULE_NAME = "notices.snapshot.hourly"
+MONITOR_LINE = "outbox:"
+
+
+class StackCheckFailed(RuntimeError):
+    """One step of the check did not happen."""
+
+
+def _request(
+    method: str,
+    url: str,
+    *,
+    body: object | None = None,
+    token: str | None = None,
+) -> tuple[int, bytes]:
+    headers = {"Accept": "application/json"}
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode()
+        headers["Content-Type"] = "application/json"
+    if token is not None:
+        headers["Authorization"] = f"Bearer {token}"
+    # S310 asks that a URL never reach a `file:` or custom scheme; the check is made here,
+    # explicitly, so the two opt-outs below are about a URL already known to be http(s).
+    if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
+        raise StackCheckFailed(f"not an http(s) address: {url}")
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)  # noqa: S310 - scheme checked above
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310 - scheme checked above
+            return response.status, response.read()
+    except urllib.error.HTTPError as error:
+        return error.code, error.read()
+
+
+def _json(method: str, url: str, *, expect: int, **kwargs: Any) -> Any:
+    status, payload = _request(method, url, **kwargs)
+    if status != expect:
+        raise StackCheckFailed(f"{method} {url} answered {status}, not {expect}: {payload[:300]!r}")
+    return json.loads(payload)
+
+
+def _wait_for(what: str, probe: Callable[[], Any], *, timeout: float, every: float = 2.0) -> Any:
+    deadline = time.monotonic() + timeout
+    while True:
+        found = probe()
+        if found:
+            return found
+        if time.monotonic() > deadline:
+            raise StackCheckFailed(f"{what} did not happen within {timeout:.0f}s")
+        time.sleep(every)
+
+
+def check(api: str, mailpit: str, *, timeout: float = 90.0) -> list[str]:
+    """Run every HTTP step against *api* and *mailpit*; return what was proven."""
+    api, mailpit = api.rstrip("/"), mailpit.rstrip("/")
+    proven: list[str] = []
+
+    login = _json(
+        "POST",
+        f"{api}/api/v1/auth/login",
+        body={"email": SEED_EMAIL, "password": SEED_PASSWORD},
+        expect=200,
+    )
+    token = login["access_token"]
+    proven.append("signed in as the seeded administrator")
+
+    subject = f"Reference stack check {uuid.uuid4().hex[:12]}"
+    _json(
+        "POST",
+        f"{api}/api/v1/notices/",
+        body={
+            "title": subject,
+            "body": "Sent by scripts/check_stack.py.",
+            "recipient": "stack-check@reference.example",
+        },
+        token=token,
+        expect=201,
+    )
+
+    def _caught() -> bool:
+        listing = _json("GET", f"{mailpit}/api/v1/messages?limit=200", expect=200)
+        return any(message.get("Subject") == subject for message in listing.get("messages", []))
+
+    _wait_for("the notice's mail reaching the catcher", _caught, timeout=timeout)
+    proven.append("a posted notice was mailed by the worker through the relay")
+
+    before = _json("GET", f"{api}/api/v1/notices/snapshots/", token=token, expect=200)["total"]
+    _json("POST", f"{api}/api/v1/notices/snapshots/", token=token, expect=202)
+
+    def _stored() -> dict[str, Any] | None:
+        page = _json("GET", f"{api}/api/v1/notices/snapshots/?limit=100", token=token, expect=200)
+        if page["total"] <= before:
+            return None
+        return max(page["items"], key=lambda item: item["created_at"])
+
+    snapshot = _wait_for("the requested snapshot being stored", _stored, timeout=timeout)
+    if snapshot["status_code"] != 200 or not snapshot["file_id"]:
+        raise StackCheckFailed(f"the snapshot came back without a stored 200: {snapshot}")
+    proven.append(f"the worker fetched {snapshot['url']} through the egress policy")
+
+    status, content = _request("GET", f"{api}/api/v1/files/{snapshot['file_id']}/content", token=token)
+    if status != 200 or len(content) != snapshot["size"]:
+        raise StackCheckFailed(
+            f"the stored snapshot read back {status} with {len(content)} bytes, "
+            f"not 200 with {snapshot['size']}"
+        )
+    proven.append(f"its {snapshot['size']} bytes read back from file storage")
+    return proven
+
+
+def _compose(*args: str, capture: bool = False) -> str:
+    """Run one `docker compose` command for this checkout; fail the check if it fails."""
+    # A fixed argv and no shell: every argument is one of this script's own constants.
+    completed = subprocess.run(  # noqa: S603 - see above
+        ["docker", "compose", *args],  # noqa: S607 - docker is found on PATH, as a person runs it
+        check=False,
+        capture_output=capture,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise StackCheckFailed(f"`docker compose {' '.join(args)}` exited {completed.returncode}")
+    return completed.stdout or ""
+
+
+def _api_port(root: pathlib.Path) -> str:
+    """The host port `terp ports assign` claimed for this checkout's API, read from ``.env``."""
+    env = root / ".env"
+    lines = env.read_text(encoding="utf-8").splitlines() if env.is_file() else []
+    for line in lines:
+        name, _, value = line.partition("=")
+        if name.strip() == "API_PORT" and value.strip():
+            return value.strip().strip('"')
+    raise StackCheckFailed("no API_PORT in .env: run `uv run terp ports assign` first")
+
+
+def check_workbench(root: pathlib.Path, *, timeout: float) -> list[str]:
+    """Start this checkout's development stack, drive it, and hold its background processes."""
+    # Bounded: a service that never turns healthy fails the check rather than holding it.
+    _compose("up", "-d", "--wait", "--wait-timeout", "600", "--build", *WORKBENCH_SERVICES)
+    _compose("run", "--rm", "seed")
+    api = f"http://127.0.0.1:{_api_port(root)}"
+    mailpit = f"http://{_compose('port', 'mailcatcher', '8025', capture=True).strip()}"
+    proven = check(api, mailpit, timeout=timeout)
+
+    def _logged(service: str, needle: str) -> Callable[[], bool]:
+        return lambda: needle in _compose("logs", service, capture=True)
+
+    _wait_for("the scheduler registering its cron", _logged("scheduler", SCHEDULE_NAME), timeout=timeout)
+    proven.append(f"the scheduler registered {SCHEDULE_NAME}")
+    _wait_for("the companion reading the backlog", _logged("monitor", MONITOR_LINE), timeout=timeout)
+    proven.append("the monitor companion read the outbox backlog")
+    running = set(_compose("ps", "--status", "running", "--services", capture=True).split())
+    stopped = sorted(set(WORKBENCH_SERVICES) - running)
+    if stopped:
+        raise StackCheckFailed(f"no longer running: {', '.join(stopped)}")
+    proven.append(f"still running: {', '.join(WORKBENCH_SERVICES)}")
+    return proven
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument(
+        "--workbench",
+        action="store_true",
+        help="Start this checkout's development stack and check all of it",
+    )
+    target.add_argument("--api", help="Where a running deployment's API answers")
+    parser.add_argument("--mailpit", help="Where the relay's inbox answers (with --api)")
+    parser.add_argument("--timeout", type=float, default=90.0, help="Seconds per step (default: 90)")
+    args = parser.parse_args(argv)
+    if args.api and not args.mailpit:
+        parser.error("--api needs --mailpit: the mail step is never skipped")
+    try:
+        if args.workbench:
+            proven = check_workbench(pathlib.Path.cwd(), timeout=args.timeout)
+        else:
+            proven = check(args.api, args.mailpit, timeout=args.timeout)
+    except StackCheckFailed as failure:
+        print(f"stack check FAILED: {failure}", file=sys.stderr)
+        return 1
+    for line in proven:
+        print(f"ok  {line}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -39,7 +39,11 @@ COPY app app
 COPY control_plane control_plane
 
 # Drop privileges; the runtime never writes to the image filesystem (read-only-FS safe).
-RUN useradd --create-home --uid 10001 appuser
+# `var/files`, the files capability's default storage root, is a mount point and not image
+# filesystem: it exists, owned by that user, so a volume mounted there can be written (a
+# named volume mounted at a path the image does not have is created owned by root).
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /srv/var/files && chown appuser /srv/var/files
 USER appuser
 
 EXPOSE 8000

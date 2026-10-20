@@ -463,6 +463,23 @@ def test_project_ships_a_docker_workbench() -> None:
     assert "terp docker dev" in (_PROJECT / "README.md.jinja").read_text()
 
 
+def test_both_images_hand_the_file_storage_root_to_the_user_they_run_as() -> None:
+    """A volume mounted on the files capability's storage root has to be writable.
+
+    Both images run as `appuser`, and `var/files` (the default profile's root, relative to
+    the working directory) did not exist in either. Docker creates a named volume's mount
+    point owned by root when the image has no directory there, so with `use_files` on, the
+    first upload in the development stack failed with a permission error; the reference
+    app's worker, which stores every snapshot there, is what found it.
+    """
+    dev = (_PROJECT / "Dockerfile").read_text(encoding="utf-8")
+    # Created before the recursive chown that hands /app to the user, so it is included.
+    assert "mkdir -p /app/var/files && chown -R appuser /app" in dev
+    prod = (_PROJECT / "Dockerfile.prod").read_text(encoding="utf-8")
+    assert "mkdir -p /srv/var/files && chown appuser /srv/var/files" in prod
+    assert "WORKDIR /srv" in prod, "the storage root is relative to the working directory"
+
+
 def test_the_app_declares_its_own_operations_outside_the_template_owned_catalog() -> None:
     """The app's half of the operation catalog is a file the template never rewrites.
 

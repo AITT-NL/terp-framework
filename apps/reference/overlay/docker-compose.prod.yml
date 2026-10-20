@@ -1,0 +1,180 @@
+# Terp Reference — the production profile (ADR 0062).
+#
+#   SECRET_KEY=… POSTGRES_PASSWORD=… docker compose -f docker-compose.prod.yml up -d --wait
+#
+# Topology (same shape as the dev workbench, hardened): Postgres -> one-shot `migrate` ->
+# the API (uvicorn, ENVIRONMENT=production, fail-fast config guardrails) + `web` (nginx
+# serving the built SPA and proxying /api same-origin). Differences from the workbench:
+#
+#   - ENVIRONMENT=production: the app REFUSES to boot on a weak SECRET_KEY, DEBUG,
+#     SQLite, permissive CORS, or an insecure refresh cookie (terp.core.config).
+#   - Secrets come from the environment only — there is NO dev fallback; compose fails
+#     fast when SECRET_KEY / POSTGRES_PASSWORD are unset.
+#   - The database is the bundled `db` service by default. Set DATABASE_URL to run
+#     against an external PostgreSQL instead (managed cloud, on-prem cluster) and add
+#     an override that removes `db` to drop the then-unused sidecar.
+#   - No `seed` service: seed data is dev/demo only (`terp seed` refuses production).
+#     Bootstrap the first administrator instead with:
+#       docker compose -f docker-compose.prod.yml run --rm -e TERP_USER_PASSWORD api \
+#         terp user create admin@your-domain.example --role admin
+#   - No --reload, no source watch: images are immutable (Dockerfile.prod).
+#   - Restart policies + healthchecks on the long-running services.
+#
+# The reference app adds what a client app grows (apps/reference/README.md), all on the
+# backend image: the outbox `worker`, the `scheduler`, the `monitor` companion, and the
+# files volume the API serves from and the worker writes to. There is no mail catcher
+# here: the relay is a real one, named in .app.env, and a production boot refuses an
+# unencrypted one (SMTP_SECURITY=none) and a missing one alike.
+name: reference-app-prod
+
+x-backend: &backend
+  image: reference-app-backend-prod
+  # App-declared environment variables (environment.schema.json): the deploy
+  # pipeline renders exactly the declared keys into .app.env per environment.
+  # Optional by design — plain `docker compose up` works without the file.
+  env_file:
+    - path: .app.env
+      required: false
+  environment: &backend-env
+    # Unset: the bundled `db` service. Set: any external PostgreSQL — the seam an
+    # external-database deployment overrides (nothing else in the profile changes).
+    DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://app:${POSTGRES_PASSWORD}@db:5432/app}
+    SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required (>= 32 chars)}
+    ENVIRONMENT: production
+    BACKEND_CORS_ORIGINS: '${BACKEND_CORS_ORIGINS:-[]}'
+  volumes:
+    # The files capability's default storage root (WORKDIR /srv + var/files). The API
+    # serves stored files and the worker stores snapshots, so they share one volume.
+    - files-data:/srv/var/files
+
+# Every service logs through this. Docker's default driver on a Synology NAS
+# is `db`: one SQLite database per container, with no size cap anywhere in the
+# default configuration. Appending a log line to a database that has grown to
+# tens of megabytes scatters small synchronous writes across the whole file,
+# which is enough to saturate a spindle on its own. A flat file that rotates
+# by size costs a fraction of that, and holds the same logs.
+x-logging: &container-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: app
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
+
+  # One-shot: bring every package's schema up to head before the API serves. The API's
+  # own fail-closed boot guard (PendingMigrationsError) backs this up at runtime.
+  migrate:
+    <<: *backend
+    command: ["terp", "migrate", "upgrade", "--app-root", "/srv/app"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *container-logging
+
+  api:
+    <<: *backend
+    # Only the api declares the build: one builder produces the shared tag
+    # (concurrent builds of one tag race in the exporter), migrate reuses it.
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.prod
+    image: reference-app-frontend-prod
+    restart: unless-stopped
+    ports:
+      # 23100, not 8080: the same argument as the development file, one range up.
+      # A deployment sets WEB_PORT explicitly -- this default only decides what a
+      # first `docker compose -f docker-compose.prod.yml up` grabs on a machine
+      # that is also running the developer's own things.
+      - "${WEB_PORT:-23100}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
+
+  # Drains the durable outbox (`terp jobs worker` delivers what is due and returns, so
+  # the loop re-runs it). The trap ends the loop on stop after the batch in flight.
+  worker:
+    <<: *backend
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while :; do terp jobs worker; sleep 5 & wait $$!; done"]
+    init: true
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    logging: *container-logging
+
+  # Fires the declared schedules (`terp jobs scheduler`). Deliberately without a
+  # healthcheck and with nothing depending on it: it serves no request, so it must never
+  # be what turns the deployment's readiness red. One instance only -- APScheduler holds
+  # no lock, so a second scheduler would fire every tick twice.
+  scheduler:
+    <<: *backend
+    command: ["terp", "jobs", "scheduler"]
+    init: true
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    logging: *container-logging
+
+  # The companion (`monitor/`, installed from the app's wheel): logs the outbox backlog
+  # and warns once due work has gone stale, which no readiness probe can see.
+  monitor:
+    <<: *backend
+    command: ["python", "-m", "monitor"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    logging: *container-logging
+
+volumes:
+  db-data:
+  files-data:

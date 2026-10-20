@@ -161,7 +161,8 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   `ThrottleStore` / `IdempotencyStore` / `CacheStore` adapters (ADR 0078). Background
   delivery (outbox / webhooks / scheduler) runs via
   `terp jobs worker` / `terp jobs scheduler` — add those as extra services when you
-  enable the corresponding capabilities.
+  enable the corresponding capabilities. The reference app (`apps/reference`) runs both,
+  and a companion service, on the backend image in both of its compose profiles.
 - **Observability:** structured JSON logs with request-ids ship by default (ADR 0005);
   collect container stdout. OpenTelemetry wiring is on the roadmap.
 

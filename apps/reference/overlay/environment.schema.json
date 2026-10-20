@@ -1,0 +1,71 @@
+{
+  "$comment": "App-declared environment variables. Declare every variable this app reads beyond the platform-owned set; the Terp Studio deploy pipeline renders exactly the declared keys into a per-environment .app.env (see docker-compose.prod.yml), and `cp .app.env.example .app.env` exercises the same seam locally. Names match ^[A-Z][A-Z0-9_]{0,63}$. Mark write-only secrets with \"format\": \"secret\" — their values are sealed, never stored in plain records. A field this dialect does not have is REFUSED, because the deploy side drops what it does not recognise: \"secret\": true is the plausible mistake and it is not the field — it is dropped, and the value is then stored in plain records rather than sealed. format is one of secret | port | hostname | plain. requiredIn names where a value must be set: a non-empty list of ENVIRONMENT values (local | staging | production). \"required\" means every environment, so a name is in one or the other, never both; a value only a deployment needs — JOB_SYSTEM_ACTOR_ID is the canonical case — is declared \"requiredIn\": [\"production\"]. A variable whose last word is SECRET, TOKEN, PASSWORD, PASSPHRASE, KEY, CREDENTIAL or CREDENTIALS must declare one: \"format\": \"secret\" to seal it, or \"format\": \"plain\" to record that it holds no credential. Platform-owned names (SECRET_KEY, POSTGRES_PASSWORD, DATABASE_URL, ENVIRONMENT, WEB_PORT, BACKEND_CORS_ORIGINS) are refused here. LIMITS, and the reader fails closed on the WHOLE file past any of them: at most 50 variables; type/title/description/format/group/resolvedBy are strings of at most 500 characters each; enum is at most 50 strings of at most 200 characters. Keep a description to a sentence or two — an explanation long enough to be complete is easily past the cap, and it would cost the app every declaration in this file. A declared variable must NOT also appear in a compose `environment:` block: compose resolves `environment:` over `env_file:`, so the declaration would be dead — `terp verify --only env-seams` fails on that overlap. For an address, set \"resolvedBy\" to who resolves it, because it cannot be inferred from the name or type: \"container\" (a service on the compose network dials it — use the service name, http://api:8000), \"host\" (your shell dials it — http://127.0.0.1:8000), or \"browser\" (the user's browser is sent there — a host address). See `terp guide environment`.",
+  "type": "object",
+  "properties": {
+    "MAIL_FROM": {
+      "type": "string",
+      "group": "Mail",
+      "title": "Sender",
+      "description": "The From of every mail the app sends: an address, or Name <address>. Production refuses to boot without a relay.",
+      "default": "Terp Reference <noreply@reference.example>",
+      "requiredIn": [
+        "production"
+      ]
+    },
+    "SMTP_HOST": {
+      "type": "string",
+      "group": "Mail",
+      "title": "Relay host",
+      "format": "hostname",
+      "resolvedBy": "container",
+      "description": "The relay's bare hostname. The development stack runs a mail catcher under the name mailcatcher.",
+      "default": "mailcatcher",
+      "requiredIn": [
+        "production"
+      ]
+    },
+    "SMTP_PORT": {
+      "type": "string",
+      "group": "Mail",
+      "title": "Relay port",
+      "format": "port",
+      "description": "Leave empty for the conventional port of the security mode: 587 for starttls, 465 for tls. The catcher listens on 1025.",
+      "default": "1025"
+    },
+    "SMTP_SECURITY": {
+      "type": "string",
+      "group": "Mail",
+      "title": "Relay security",
+      "enum": [
+        "starttls",
+        "tls",
+        "none"
+      ],
+      "description": "How the session to the relay is protected. none is for the development catcher only: a production boot refuses it.",
+      "default": "none"
+    },
+    "SMTP_USERNAME": {
+      "type": "string",
+      "group": "Mail",
+      "title": "Relay account",
+      "description": "Set together with SMTP_PASSWORD, or neither. Never sent over an unencrypted session."
+    },
+    "SMTP_PASSWORD": {
+      "type": "string",
+      "group": "Mail",
+      "title": "Relay password",
+      "format": "secret",
+      "description": "Set together with SMTP_USERNAME, or neither."
+    },
+    "JOB_SYSTEM_ACTOR_ID": {
+      "type": "string",
+      "group": "Background work",
+      "title": "System actor",
+      "description": "The id of the service principal a scheduled or user-less job's writes are stamped with. Production refuses to boot without it; development warns.",
+      "requiredIn": [
+        "production"
+      ]
+    }
+  },
+  "required": []
+}

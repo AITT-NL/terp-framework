@@ -27,6 +27,28 @@ A declaration can now say where it is required.
   check` holds `.app.env` — the development loop's file — to what `local` needs, the template
   declares `JOB_SYSTEM_ACTOR_ID` with `"requiredIn": ["production"]`, and `terp guide
   environment` documents the field. An existing manifest reads exactly as before. ADR 0180.
+- **A public-safe reference app, run in CI.** `apps/reference` is the stand-in for a real
+  client application wherever a lane needs one, and it is rendered, never committed as a
+  render: `tools/render_reference_app.py` runs `copier copy` with pinned answers, grows the
+  rendered `pyproject.toml` at named anchors, and lays an overlay over it. One module with two
+  records uses each of the capabilities a grown app reaches for, once, through its own seam:
+  the outbox worker, the scheduler, file storage, mail to a development catcher, one call to
+  one declared host, and a companion source root running as its own service on the backend
+  image. `template-acceptance` gains a `reference` variant that runs the app's suite and `terp
+  verify --profile quick`, then brings up its development stack and drives a notice's mail
+  and a snapshot's fetch and storage through it. The overlay's copies of template-owned files
+  are pinned to the template's digests, so a template change that would need carrying into a
+  grown app fails the gate until it is carried into this one.
+
+### Fixed
+
+- **An upload into a generated app's files volume no longer fails on permissions.** Both
+  template Dockerfiles run as a non-root user, and neither created `var/files`, the files
+  capability's default storage root. A named volume mounted at a path the image does not have
+  is created owned by root, so with `use_files` on, the first upload in the development stack
+  failed with a permission error. The dev image now creates the directory inside the source
+  tree it already hands to that user, and the production image creates `/srv/var/files`
+  owned by it, so a volume mounted there can be written.
 
 ## 0.34.0 — 2026-10-09
 

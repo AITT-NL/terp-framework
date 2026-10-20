@@ -1,0 +1,81 @@
+{
+  "//": [
+    "Which parts of docker-compose.yml are load-bearing for a workbench.",
+    "",
+    "This is a PARTIAL description, not a whitelist. Services it does not name",
+    "are not the workbench's business: add Redis, a worker, a virus scanner, a",
+    "second frontend, or anything else your app needs, and nothing here",
+    "objects. `terp verify --only workbench` checks only whether what this file",
+    "CLAIMS is still true -- that a declared role points at a service that",
+    "exists, and that a service declaring a host-port variable actually uses",
+    "it. A fixed host port is the one thing that really breaks: two projects",
+    "cannot then run at once.",
+    "",
+    "Development only. This never describes docker-compose.prod.yml -- how you",
+    "deploy is yours to decide.",
+    "",
+    "If your inner loop is not Compose at all -- Tilt, a devcontainer, a",
+    "Makefile, bare processes -- add a \"commands\" block naming how to start,",
+    "stop and observe it, and a workbench drives it instead of assuming",
+    "Compose. Slots you leave out are NOT filled in from the Compose",
+    "defaults: a repair we never saw you declare is a destructive command",
+    "nobody asked for. Only the shape of those commands is checked.",
+    "",
+    "If your development loop does not fit this shape at all, replace the whole",
+    "file with {\"unmanaged\": true, \"reason\": \"why\"}. The check then stops, and",
+    "a workbench falls back to its configured commands and says plainly that it",
+    "cannot determine your app's status.",
+    "",
+    "The template seeds this file once and never overwrites it (copier",
+    "_skip_if_exists), so a topology you change stays changed across upgrades."
+  ],
+  "schemaVersion": 1,
+  "compose": {
+    "file": "docker-compose.yml"
+  },
+  "services": [
+    {
+      "role": "web",
+      "service": "web",
+      "hostPortEnv": "WEB_PORT"
+    },
+    {
+      "role": "api",
+      "service": "api",
+      "hostPortEnv": "API_PORT",
+      "readinessPath": "/health/ready"
+    },
+    {
+      "role": "database",
+      "service": "db"
+    },
+    {
+      "role": "one-shot",
+      "service": "migrate"
+    },
+    {
+      "role": "one-shot",
+      "service": "seed"
+    },
+    {
+      "role": "worker",
+      "service": "worker"
+    },
+    {
+      "role": "scheduler",
+      "service": "scheduler"
+    },
+    {
+      "role": "companion",
+      "service": "monitor"
+    },
+    {
+      "role": "mail-catcher",
+      "service": "mailcatcher"
+    }
+  ],
+  "env": {
+    "sourceRoot": "TERP_DEV_HOST_ROOT",
+    "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+  }
+}

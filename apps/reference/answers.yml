@@ -1,0 +1,17 @@
+# The answers the reference app is rendered with (tools/render_reference_app.py).
+#
+# Blank layout, because the one module the app needs arrives through the overlay rather
+# than through a preset's placeholder home page. Files on, because the snapshot job keeps
+# its bytes in file storage; the other toggles off, because nothing in the app uses them
+# and a capability that is installed and unused is a claim the app does not make.
+#
+# The slug does not start with `terp-`: `terp --version`, which `terp verify` runs as its
+# platform-install check, counts every installed `terp-*` distribution as part of the
+# lockstep platform set, so an app distribution named that way reads as a missed pin.
+project_name: Terp Reference
+project_slug: reference-app
+layout: blank
+use_files: true
+use_sso: false
+use_events: false
+use_realtime: false
