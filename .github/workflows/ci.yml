@@ -580,6 +580,15 @@ jobs:
                           data[key][name] = f"^{packed.group(1)}"
               manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
           PINS
+          # ...and bring each lock to the manifest it now answers, as an app commits the pair:
+          # its root entry back to `^<version>`, every package still the packed one (already
+          # locked at that version), node_modules untouched. Offline, so nothing is resolved
+          # from the index. The `locks` check in the profile below then judges the app's own
+          # lock and manifest with the tool the image installs with, not the tarball paths
+          # this workflow wrote.
+          for workspace in frontend conformance; do
+            npm --prefix "$workspace" install --package-lock-only --offline --no-audit --no-fund
+          done
           # Its deploy declaration first, on its own, so a lane reading this log sees the
           # verdict on deployment.json by name (ADR 0184): the file part and the app part,
           # against the rendered profile and the composed app.

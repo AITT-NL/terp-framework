@@ -125,6 +125,10 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         # the app acts on what deployment.json says, so a lie there is a deploy that
         # goes wrong on the first day an app grows a worker. Truth only, never shape.
         "deployment",
+        # ...and can its images be built from what is committed? They install exactly the
+        # committed locks, so a dependency added without re-locking is an image that
+        # cannot be built, found by whoever runs the deploy. Red for a managed app only.
+        "locks",
         # Would this deployment ship something that cannot be taken back? A
         # dev stack that is wrong does not come up; a deployment that is wrong
         # comes up perfectly, so this one belongs on the merge bar rather than

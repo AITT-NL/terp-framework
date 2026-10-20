@@ -56,6 +56,20 @@
       ]
     },
     {
+      "id": "locks",
+      "category": "build",
+      "command": "terp verify --only locks",
+      "scope": [
+        "deployment.json",
+        "pyproject.toml",
+        "uv.lock",
+        "uv.toml",
+        "frontend/package.json",
+        "frontend/package-lock.json",
+        ".terp-dist/**"
+      ]
+    },
+    {
       "id": "deploy-safety",
       "category": "architecture",
       "command": "terp verify --only deploy-safety",

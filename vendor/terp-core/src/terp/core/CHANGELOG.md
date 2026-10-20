@@ -73,6 +73,19 @@ committed locks, in layers that an edit to the app does not invalidate.
   reference app are declared, and the reference app's CI lane runs the check. `terp guide
   deployment`. ADR 0184; ADR 0185 records the schema window a restore-free rollback will
   need, and is not built.
+- **`terp verify --only locks` refuses a managed app whose images cannot be built from what it
+  commits.** The template's production images install exactly `uv.lock` and
+  `frontend/package-lock.json` (Changed, below), so a dependency added to a manifest without
+  re-locking is an image that cannot be built, and the first to hear of it was whoever ran the
+  deploy. For an app whose `deployment.json` declares units a deploy tool builds, a lock that is
+  missing or stale is now red, in one message per lock that names the file and the fix (`uv
+  lock`; `npm --prefix frontend install`; then commit the lock). Each package manager answers for
+  its own lock, offline and changing nothing: `uv lock --check` and `npm ci --dry-run`, the very
+  install the web image runs; a tool that is not on PATH is a refusal, never a pass. An app with
+  no declaration, or one that declares itself `unmanaged`, is told the same as a note, and a
+  `deployment.json` that cannot be read is held as managed. It is its own check rather than part
+  of `--only deployment`, whose red list ADR 0184 closes on truth about the declaration; a stale
+  lock contradicts nothing the declaration says. In every profile, after `deployment`.
 - **A closed datastore table, and the production profiles pin it.** `terp-arch` publishes
   `datastore-table.json`: one image by digest per datastore kind and version, in the format
   the standard's corpus uses. It carries PostgreSQL 17,
@@ -141,6 +154,9 @@ committed locks, in layers that an edit to the app does not invalidate.
   `docker build` since Docker Engine 23: they bind-mount uv and the app wheel from other stages
   (`RUN --mount=from=`) and copy the vendored packages through a pattern that may match nothing.
   A legacy builder (`DOCKER_BUILDKIT=0`) refuses them.
+- **`terp verify` gains a `locks` check in every profile**, and it is red for an app with a
+  `deployment.json` that declares units until both locks are committed and current. A driving
+  tool that pins the check list from the manifest sees the new id with the category `build`.
 - **A lock made against a package directory outside the checkout cannot build.** uv records
   where each package came from, so a lock made with `UV_FIND_LINKS=/some/dir` names that
   directory, which the image does not have. Vendor pre-release wheels under `.terp-dist/wheels`

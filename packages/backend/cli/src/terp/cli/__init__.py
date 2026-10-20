@@ -257,6 +257,11 @@ What it catches, and why each one is a real outage:
 
 Run it directly while fixing: `uv run deptry .`
 
+A dependency you declare reaches the production image only through uv.lock: the image
+installs exactly the lock (`uv sync --locked --no-dev`), so `uv add` (or an edit and `uv
+lock`) and a commit of uv.lock go together. `terp verify --only locks` names a lock that
+was left behind.
+
 This is a delegated generic check (ADR 0033, the ADR 0085 precedent) and it composes
 into NO assurance lane: the spec's `dependency-audit` lane means both trees against
 known-vulnerability databases, which is a different question. It carries the exit code
@@ -2483,6 +2488,16 @@ WHERE IT IS CHECKED
 
 Neither rule has an `# arch-allow-*` marker -- a JSON file cannot carry one. The way
 out is the declaration's own: {"unmanaged": true, "reason": "..."}.
+
+THE LOCKS A DECLARED APP IS BUILT FROM
+
+A tool that drives the units builds the committed Dockerfiles, and the template's install
+exactly the committed locks (`uv sync --locked --no-dev`, `npm ci`). So `terp verify --only
+locks`, its own check and not part of this one, refuses an app with units declared whose
+uv.lock or frontend/package-lock.json is missing or stale against its manifest, and names
+the fix: `uv lock`, `npm --prefix frontend install`, then commit the lock. uv and npm answer
+for their own locks, offline (`uv lock --check`, `npm ci --dry-run`). An undeclared or
+unmanaged app is told the same as a note.
 """,
 }
 

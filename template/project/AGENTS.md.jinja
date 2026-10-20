@@ -170,7 +170,7 @@ npm --prefix frontend run lint        # frontend boundary lint + budget
 npm --prefix frontend run build       # the production build CI ships
 ```
 
-Four of the profile's checks ask questions the test suite cannot, and each of them
+Five of the profile's checks ask questions the test suite cannot, and each of them
 reddens for a reason no test failure will explain:
 
 - `production-readiness` — would this app boot in production? Three refusals are
@@ -187,6 +187,11 @@ reddens for a reason no test failure will explain:
   declares the units a deploy tool drives; this checks every claim against the
   production profile and the app, never whether the topology is approved. Deploy policy
   (who may publish, approvals, gate policy) never belongs in it: `uv run terp guide deployment`.
+- `locks` — can the production images be built from what is committed? They install
+  exactly `uv.lock` and `frontend/package-lock.json`, so a dependency added to a manifest
+  without re-locking is an image that cannot be built. After changing a dependency, run
+  `uv lock` or `npm --prefix frontend install` and commit the lock with the manifest. Red for
+  an app whose `deployment.json` declares units; a note for any other.
 
 A frontend module that fails typecheck breaks the app at runtime (a blank page —
 Vite refuses the module graph), so a red typecheck means the app does not work,

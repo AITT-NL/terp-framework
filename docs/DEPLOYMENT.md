@@ -126,7 +126,8 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   --locked --no-dev` and its web image `npm ci`, so an image holds exactly what `uv.lock` and
   `frontend/package-lock.json` record, and a lock that disagrees with its manifest stops the
   build. Commit both locks; `uv lock` and `npm --prefix frontend install` bring them along with
-  a dependency change. The images are layered (manifests and locks, then the dependencies, then
+  a dependency change, and `terp verify --only locks` refuses an app with a `deployment.json`
+  whose lock is missing or stale before a build finds out. The images are layered (manifests and locks, then the dependencies, then
   the app), carry no BuildKit cache mount, and need BuildKit, the builder of every `docker
   compose` build.
 - **Migrations on upgrade:** pull/build the new images, re-run the `migrate` one-shot,

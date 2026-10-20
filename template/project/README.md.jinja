@@ -18,7 +18,8 @@ live in the local `.venv`, not on the global PATH.
 **Commit `uv.lock` and `frontend/package-lock.json`.** CI installs exactly them (`uv sync
 --locked`, `npm ci`) and so do the production images, so what ships is what the gate
 ran. After changing a dependency, `uv lock` (or `uv add`) and `npm --prefix frontend
-install` bring the locks along; a lock left behind fails the build.
+install` bring the locks along; a lock left behind fails the build, and `uv run terp
+verify --only locks` names the file and the command before it gets that far.
 
 No starter module ships — sign-in, admin and audit are wired, and a fresh checkout is
 gate-green as-is. `uv run terp new module <name>` (named after your actual domain) adds

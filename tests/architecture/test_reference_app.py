@@ -252,6 +252,23 @@ def test_template_acceptance_renders_and_runs_the_reference_app() -> None:
     assert "scripts/check_stack.py --workbench" in joined
 
 
+def test_the_reference_lane_verifies_the_lock_and_manifest_an_app_would_commit() -> None:
+    """The `locks` check holds a managed app's lock to its manifest, and this app is managed.
+
+    The lane installs this commit's packed tarballs, which writes `file:` specs into the
+    manifest and the lock alike. It puts the manifest's `^<version>` back and then brings the
+    lock to that manifest offline, before anything verifies, so `terp verify` judges the pair
+    an app commits with the tool its image installs with. The answer to a workflow artefact
+    is a faithful workflow, never a lenient check.
+    """
+    steps = [str(step.get("run", "")) for step in _acceptance()["steps"]]
+    (verify,) = [step for step in steps if "terp verify --profile quick" in step]
+    pins = verify.index("<<'PINS'")
+    resync = verify.index("install --package-lock-only --offline")
+    assert pins < resync < verify.index("uv run terp verify --only deployment")
+    assert 'for workspace in frontend conformance' in verify
+
+
 def test_the_stack_check_starts_every_service_the_app_adds() -> None:
     # The check is the overlay's own file; the services it starts are the ones the
     # reference app exists to carry beside the template's API.
