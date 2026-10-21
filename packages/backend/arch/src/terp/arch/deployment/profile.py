@@ -29,6 +29,7 @@ import yaml
 from terp.arch.deployment.datastores import DatastoreTable
 from terp.arch.deployment.files import checkout_root, inside
 from terp.arch.deployment.reader import Declaration, Finding, Unit, role_findings
+from terp.arch.deployment.volumes import _volume_findings
 
 
 @dataclass(frozen=True)
@@ -362,63 +363,6 @@ def _image_findings(
             "builds from the checkout, or a kind and version from the datastore table)"
         )
     ]
-
-
-def mounters(services: dict[str, dict[str, Any]]) -> dict[str, list[tuple[str, str]]]:
-    """Named volume -> every ``(service, container path)`` that mounts it."""
-    found: dict[str, list[tuple[str, str]]] = {}
-    for name, service in services.items():
-        for entry in service.get("volumes") or ():
-            if isinstance(entry, dict):
-                if entry.get("type", "volume") == "volume" and entry.get("source"):
-                    found.setdefault(str(entry["source"]), []).append(
-                        (name, str(entry.get("target", "")))
-                    )
-                continue
-            source, _, rest = str(entry).partition(":")
-            if (
-                rest
-                and source
-                and not source.startswith(("/", ".", "~", "$"))
-                and "/" not in source
-            ):
-                found.setdefault(source, []).append((name, rest.split(":", 1)[0]))
-    return found
-
-
-def _volume_findings(
-    declaration: Declaration,
-    profile: dict[str, Any],
-    services: dict[str, dict[str, Any]],
-    label: str,
-) -> list[Finding]:
-    named = set(profile.get("volumes") or {}) if isinstance(profile.get("volumes"), dict) else set()
-    mounted = mounters(services)
-    stateful = {unit.id for unit in declaration.units if unit.stateful}
-    findings: list[Finding] = []
-    for index, volume in enumerate(declaration.volumes):
-        users = sorted({service for service, _target in mounted.get(volume.id, ())})
-        where = f'volumes[{index}].id "{volume.id}"'
-        if volume.id not in named:
-            listed = ", ".join(sorted(named)) or "none"
-            findings.append(
-                Finding(
-                    f"{where} is not a named volume of {label} (allowed: a named volume of the profile: {listed})"
-                )
-            )
-        elif not users:
-            findings.append(
-                Finding(
-                    f"{where} is mounted by no service of {label}, so its backup policy would back up nothing (allowed: a named volume a service mounts)"
-                )
-            )
-        elif set(users) <= stateful:
-            findings.append(
-                Finding(
-                    f"{where} is mounted only by declared stateful units ({', '.join(users)}), whose backup policy already covers it (allowed: a volume no declared stateful unit owns)"
-                )
-            )
-    return findings
 
 
 def _external_database_findings(

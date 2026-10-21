@@ -53,6 +53,7 @@ from terp.arch.rules.budget import check_escape_hatch_budget
 from terp.arch.rules.deployment import (
     check_deployment_declaration_is_readable,
     check_deployment_declaration_tells_the_truth,
+    check_deployment_generated_files_match_their_render,
 )
 from terp.arch.rules.datetimes import (
     check_datetime_columns_are_timezone_aware,
@@ -170,6 +171,7 @@ from terp.arch.rules.traits import (
 GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "deployment_declaration_is_readable": "deployment",
     "deployment_declaration_tells_the_truth": "deployment",
+    "deployment_generated_files_match_their_render": "deployment",
     "no_internal_imports": "module",
     "no_cross_module_imports": "dependencies",
     "cross_module_imports_use_public_surface": "dependencies",
@@ -424,6 +426,7 @@ RULE_ROOT_KINDS: dict[str, frozenset[RootKind]] = {
     # read it run once per app root and never for a companion.
     "deployment_declaration_is_readable": APP_ROOT_ONLY,
     "deployment_declaration_tells_the_truth": APP_ROOT_ONLY,
+    "deployment_generated_files_match_their_render": APP_ROOT_ONLY,
     # The escape-hatch governance half is about the markers rather than the code, so
     # it is evaluated over every root the call scans.
     "escape_hatch_budget": EVERY_ROOT,
@@ -544,13 +547,18 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_no_adhoc_logging_config,
     check_deployment_declaration_is_readable,
     check_deployment_declaration_tells_the_truth,
+    check_deployment_generated_files_match_their_render,
 )
 
 #: Rules that read the PROJECT root -- the directory holding the app root, where
 #: ``deployment.json`` and its profile live -- rather than the app package itself.
 #: :func:`check_app` hands each of them the parent of the root it scans.
 PROJECT_ROOT_RULES: frozenset[str] = frozenset(
-    {"deployment_declaration_is_readable", "deployment_declaration_tells_the_truth"}
+    {
+        "deployment_declaration_is_readable",
+        "deployment_declaration_tells_the_truth",
+        "deployment_generated_files_match_their_render",
+    }
 )
 
 #: Rules whose subject is a checked-in declaration that cannot carry an inline marker
@@ -726,6 +734,7 @@ __all__ = [
     "check_datetime_columns_are_timezone_aware",
     "check_deployment_declaration_is_readable",
     "check_deployment_declaration_tells_the_truth",
+    "check_deployment_generated_files_match_their_render",
     "check_no_oversized_python_files",
     "check_no_blocking_sleep",
     "check_no_empty_tests",

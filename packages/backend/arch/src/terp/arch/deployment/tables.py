@@ -180,11 +180,24 @@ def _load(name: str) -> Any:
 
 
 @functools.cache
+def published_system_packages() -> SystemPackageTable:
+    """The system-package table this framework release publishes."""
+    return read_system_packages(_load(SYSTEM_PACKAGES_FILE))
+
+
+def load_system_packages(path: str | pathlib.Path | None = None) -> SystemPackageTable:
+    """The system-package table at *path*, or the published one when there is no file there."""
+    if path is None or not pathlib.Path(path).is_file():
+        return published_system_packages()
+    return read_system_packages(json.loads(pathlib.Path(path).read_text(encoding="utf-8")))
+
+
+@functools.cache
 def published_tables() -> Tables:
     """The tables this framework release publishes."""
     return Tables(
         datastores=published_table(),
         base_images=read_base_images(_load(BASE_IMAGES_FILE)),
-        system_packages=read_system_packages(_load(SYSTEM_PACKAGES_FILE)),
+        system_packages=published_system_packages(),
         recipes=RECIPES,
     )

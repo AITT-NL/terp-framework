@@ -3809,6 +3809,29 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write nothing, and exit 1 if adoption has something to write (for CI)",
     )
 
+    deployment_parser = subcommands.add_parser(
+        "deployment",
+        help="The app's deployment declaration, deployment.json, and what it renders",
+    )
+    deployment_subcommands = deployment_parser.add_subparsers(
+        dest="deployment_command", required=True
+    )
+    deployment_render_parser = deployment_subcommands.add_parser(
+        "render",
+        help=(
+            'Write the build files deployment.json renders, where it says "build": '
+            '"generated" (ADR 0187); --check compares instead of writing'
+        ),
+    )
+    deployment_render_parser.add_argument(
+        "--root", default=".", help="Project root (default: .)"
+    )
+    deployment_render_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Write nothing; exit 1 when a committed file is not the render (for CI)",
+    )
+
     outbox_parser = subcommands.add_parser(
         "outbox",
         help="Report the durable outbox: whether anything is draining it, and what gave up",
@@ -4477,6 +4500,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                 reassign=getattr(args, "reassign", False),
             )
         )
+    if args.command == "deployment":
+        from terp.cli.deployment_render import run_render_command
+
+        raise SystemExit(run_render_command(root=args.root, check=args.check))
     if args.command == "workbench":
         from terp.cli.workbench_adopt import run_workbench_adopt
 

@@ -1502,7 +1502,7 @@
       "project": "Demo_App",
       "frontendLock": true,
       "refused": [
-        "[project].name \"Demo_App\" is not a name compose and Docker accept for this deployment"
+        "project.name \"Demo_App\" in pyproject.toml is not a name compose and Docker accept for this deployment"
       ]
     },
     "a-project-name-that-ends-in-a-separator": {
@@ -1546,7 +1546,7 @@
       "project": "demo_",
       "frontendLock": true,
       "refused": [
-        "[project].name \"demo_\" is not a name compose and Docker accept"
+        "project.name \"demo_\" in pyproject.toml is not a name compose and Docker accept"
       ]
     }
   }

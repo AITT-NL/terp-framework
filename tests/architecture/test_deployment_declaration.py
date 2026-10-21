@@ -95,10 +95,16 @@ def test_units_without_build_are_not_guessed_into_a_state() -> None:
     assert "build is required when units are declared (allowed: generated, own)" in _refused(raw)
 
 
-def test_generated_is_refused_by_name_until_a_generator_ships() -> None:
+def test_generated_is_read_and_its_build_files_are_another_rule_s() -> None:
+    # Changed on purpose by ADR 0187: the generator and its drift check ship together, so
+    # generated is read like own, and whether its build files are the render is
+    # deployment_generated_files_match_their_render's question, not this rule's.
+    from terp.arch.deployment import published_table, read
+
     raw = seed()
     raw["build"] = "generated"
-    assert "this toolchain cannot honour generated; upgrade, or declare own" in _refused(raw)
+    declared, findings = read(raw, published_table())
+    assert findings == [] and declared.build == "generated"
 
 
 # --- the file cannot be read ----------------------------------------------

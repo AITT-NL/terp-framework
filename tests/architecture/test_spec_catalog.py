@@ -105,10 +105,15 @@ def _pinned_spec_version() -> str | None:
 #: ``not_null_columns_are_backfilled``, by terp-spec 0.35.0, and the one before that,
 #: ``references_declare_delete_behaviour`` (ADR 0133), by terp-spec 0.34.0.
 #:
-#: Open: the two deployment-declaration rules (ADR 0184), catalogued in terp-spec 0.40.0
-#: and implemented here before that release is published.
+#: Open: the two deployment-declaration rules (ADR 0184) and the generated state's render
+#: check (ADR 0187), catalogued in terp-spec 0.40.0 and implemented here before that
+#: release is published.
 _AWAITING_SPEC_RELEASE: frozenset[str] = frozenset(
-    {"deployment_declaration_is_readable", "deployment_declaration_tells_the_truth"}
+    {
+        "deployment_declaration_is_readable",
+        "deployment_declaration_tells_the_truth",
+        "deployment_generated_files_match_their_render",
+    }
 )
 
 #: The same window, one level down: runtime enforcement refs whose SPELLING this

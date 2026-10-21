@@ -20,10 +20,10 @@ tables. What is held here:
 * **the Docker lane**: ``docker compose config`` over the ``hostile-values`` render gives
   every value back literally (skipped where no Docker engine answers).
 
-The reader still refuses ``generated`` and the two words the pinned spec release does not
-carry yet, so a sample is read in two steps (:func:`_declare`): everything but the state and
-the two words through :func:`terp.arch.deployment.read`, then the typed model the generator
-takes. PR 3 of ADR 0187 replaces that with ``read`` alone.
+Every sample is read through :func:`terp.arch.deployment.read`, the reader every caller uses,
+so a golden is also a declaration the reader accepts. A refusal sample is built straight into
+the typed model instead, because some of them are what the reader refuses first (a version the
+table does not carry), and the generator must still refuse them on its own.
 
 Set ``TERP_WRITE_GOLDENS=1`` to write each sample's expected files from the current render,
 then review the diff: a golden that moves is a change every generated app meets.
@@ -112,16 +112,11 @@ def _tables(raw: dict | None) -> Tables:
 
 
 def _declare(raw: dict, tables: Tables) -> reader.Declaration:
-    """A sample's declaration: readable but for its state and the two new words."""
-    probe = copy.deepcopy(raw)
-    probe["build"] = "own"
-    probe.pop("generator", None)
-    for volume in probe.get("volumes", ()):
-        volume.pop("mount", None)
-    declared, findings = reader.read(probe, tables.datastores)
+    """A sample's declaration, as the reader reads it."""
+    declared, findings = reader.read(raw, tables.datastores, tables.system_packages)
     assert findings == [], findings
     assert isinstance(declared, reader.Declaration)
-    return reader._declaration(raw)
+    return declared
 
 
 def _sample(name: str) -> tuple[dict, reader.Declaration, Tables]:

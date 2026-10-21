@@ -41,10 +41,10 @@ def _project_findings(project: str) -> list[Finding]:
         return []
     return [
         _finding(
-            f'[project].name "{_escape(project)}" is not a name compose and Docker accept for '
-            f"this deployment: compose runs it as the project {names[0]} and Docker names the "
-            f"images {names[1]} and {names[2]} (allowed: lower-case letters and digits, joined "
-            "by -, _ or __)",
+            f'project.name "{_escape(project)}" in pyproject.toml is not a name compose and '
+            f"Docker accept for this deployment: compose runs it as the project {names[0]} and "
+            f"Docker names the images {names[1]} and {names[2]} (allowed: lower-case letters "
+            "and digits, joined by -, _ or __)",
             "pyproject.toml",
         )
     ]
