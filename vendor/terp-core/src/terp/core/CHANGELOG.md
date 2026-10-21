@@ -29,6 +29,12 @@ package from the index again at build time; the frontend image ran `npm install`
 rewrites a lock that disagrees with `package.json`. Both images now install exactly the
 committed locks, in layers that an edit to the app does not invalidate.
 
+And the file that says how an app's development loop is driven, `workbench.json`, was read by
+two programs with two copies of its words, and they disagreed: about two command slots, about a
+block of seam variables one of them never read, about which of two entries in one role counts,
+and about what to do with a file it could not read. The words now have one owner, the Terp
+Standard, and a reader says what it does with a version it does not know.
+
 ### Security
 
 - **A rendered environment file can no longer be baked into an image.** The template's
@@ -123,6 +129,13 @@ committed locks, in layers that an edit to the app does not invalidate.
   and a snapshot's fetch and storage through it. The overlay's copies of template-owned files
   are pinned to the template's digests, so a template change that would need carrying into a
   grown app fails the gate until it is carried into this one.
+- **`workbench.json`'s words are the Terp Standard's.** `terp-arch` carries
+  `workbench-declaration.schema.json` from terp-spec 0.40.0 byte for byte, in
+  `terp.arch.workbench`, and `terp verify --only workbench` reads every list from it and applies
+  it: the versions, the nine command slots, the roles, the fields resolved by role, the reserved
+  variable names and the deployment-profile markers. A test compares the copy, and the spec's
+  fixtures carried beside it, with the pinned spec once a release that ships them is pinned, and
+  every fixture is read through the checker. ADR 0186.
 
 ### Changed
 
@@ -162,6 +175,20 @@ committed locks, in layers that an edit to the app does not invalidate.
 - **The template's CI installs the same locks**: `uv sync --locked` in both jobs and `npm
   --prefix frontend ci`, so the gate proves the set the images ship. The conformance suite is a
   test harness no image ships and keeps `npm install`.
+- **`containerLogs` and `recreate` are command slots.** A workbench ran both from a `commands`
+  block long before the checker knew them, so neither was shape-checked; both are held like the
+  other seven now.
+- **A declared variable a workbench would set may not be one its commands read for themselves.**
+  A workbench puts every name in `hostPortEnv` and `env` into the environment of the commands it
+  runs, so a name in the container toolchain's or the loader's namespace (`DOCKER_`, `COMPOSE_`,
+  `BUILDKIT_`, `BUILDX_`, `LD_`, `DYLD_`, `XDG_`) or one such as `PATH` or `HOME` is refused with
+  the field and the reason.
+- **A value the checker used to coerce or skip is refused by name**: a field of the wrong type, a
+  blank command, a control character, a string past its cap, a lower-case variable name. A field
+  resolved by role under a role no workbench looks up, and a compose file named as a deployment
+  profile, are refused when the file is read, so `terp ports` refuses them too.
+- **`terp ports` publishes a role's first `hostPortEnv`**, the entry a workbench sets, where it
+  took the last.
 
 ### Upgrade notes
 
@@ -194,6 +221,9 @@ committed locks, in layers that an edit to the app does not invalidate.
   same PostgreSQL 17 the tag named when the digest was read.
 - **`terp-arch` depends on PyYAML**, to read the compose profile a deployment declaration
   describes. Every app already installs it through `terp-cli`.
+- **`terp verify --only workbench` can turn red on a `workbench.json` it used to pass**, for the
+  values listed under Changed: a reserved variable name, or a value it used to coerce or skip. The
+  template has never written either; the message names the field and what it allows.
 
 ### Fixed
 

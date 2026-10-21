@@ -24,3 +24,9 @@ template/project/conformance/** text eol=lf
 # The deployment declaration's schema is a byte-for-byte mirror of the Terp Standard's
 # (ADR 0184), held equal to the pinned release by a byte comparison: LF on every checkout.
 packages/backend/arch/src/terp/arch/deployment/deployment-declaration.schema.json text eol=lf
+
+# The development-loop declaration's schema is the Terp Standard's too (ADR 0186), and its
+# fixtures are carried for the reader's own tests: both held equal to the pinned release by
+# a byte comparison, so both are LF on every checkout.
+packages/backend/arch/src/terp/arch/workbench/workbench-declaration.schema.json text eol=lf
+tests/architecture/workbench-declaration.fixtures.json text eol=lf

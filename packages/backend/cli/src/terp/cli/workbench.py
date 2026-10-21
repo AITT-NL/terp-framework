@@ -20,7 +20,7 @@ never *are you built the approved way*. Concretely:
   grant arrive, so a stale name breaks hot reload while everything still
   builds, runs and passes); a field only a workbench reads, declared under a
   role no workbench looks up — a line written to be honoured that nothing will
-  ever read (:data:`_ROLE_ADDRESSED_KEYS`).
+  ever read (:data:`ROLE_RESOLVED_FIELDS`).
 * **Never** red: a service nobody declared — Redis, a worker, a virus scanner, a
   second frontend, whatever the app needs; the *absence* of a service we happen
   to know about; three APIs; no frontend at all; an optional container from the
@@ -50,12 +50,20 @@ enforced, escapable by proof — and the escape is greppable.
 
 **Dev only, and that is enforced rather than asked for.** This describes
 ``docker-compose.yml``, the inner loop. A declaration aimed at a deployment
-profile is refused outright (``PRODUCTION_PROFILE_INFIX``), because that is
+profile is refused outright (``DEPLOYMENT_PROFILE_MARKERS``), because that is
 where the freedom real deployments need lives — an external managed database, a
 shared estate, a client's own cluster — and gate-enforcing it would take that
 freedom away. Stating the rule in prose was not enough: in a codebase written
 by agents, a boundary that only a document defends is a boundary the next agent
 walks through.
+
+**The words are the Terp Standard's** (ADR 0186). ``workbench-declaration.schema.json``
+fixes the vocabulary; :mod:`terp.arch.workbench` carries it as a byte-for-byte mirror and
+this module reads every list from there - the versions, the command slots, the roles,
+the fields resolved by role, the reserved variable names and the deployment-profile
+markers - and applies the schema itself before reading a field. Two readers each wrote
+their own copy of these words once, and they disagreed about which command slots
+existed.
 """
 
 from __future__ import annotations
@@ -68,25 +76,27 @@ from typing import Any
 
 import yaml
 
+from terp.arch import workbench as vocabulary
+
 #: The declaration's filename. Seeded by the template and then owned by the app
 #: (``_skip_if_exists``), because an app with a non-default topology has to be
 #: able to say so and keep saying it across upgrades.
-WORKBENCH_FILE = "workbench.json"
+WORKBENCH_FILE = vocabulary.WORKBENCH_FILE
 
-#: Versions this reader understands. A file from the future is not a failure of
-#: the app's — it means the toolchain is behind, and saying so beats inventing a
-#: verdict about fields we cannot read.
-SUPPORTED_VERSIONS = frozenset({1})
+#: Versions this reader understands, from the vocabulary. A file from the future is
+#: not a failure of the app's -- it means the toolchain is behind, and saying so
+#: beats inventing a verdict about fields we cannot read (ADR 0186).
+SUPPORTED_VERSIONS = vocabulary.SUPPORTED_VERSIONS
 
-#: Filename infix of the production profile. The declaration describes the
-#: inner loop and must never be pointed at a deploy profile: that is where the
-#: freedom real deployments need lives (an external managed database, a shared
-#: estate, a client's own cluster), and it lives there precisely because no gate
-#: reaches it. Decision 5 of ADR 0110 said so in prose, which for an
-#: agent-written codebase is not a control — nothing stopped the next agent from
-#: aiming ``compose.file`` at the deploy profile and quietly turning this check
-#: into a gate on how people deploy. So it is a rule with a message instead.
-PRODUCTION_PROFILE_INFIX = ".prod."
+#: The declaration describes the inner loop and must never be pointed at a deploy
+#: profile: that is where the freedom real deployments need lives (an external
+#: managed database, a shared estate, a client's own cluster), and it lives there
+#: precisely because no gate reaches it. Decision 5 of ADR 0110 said so in prose,
+#: which for an agent-written codebase is not a control -- nothing stopped the next
+#: agent from aiming ``compose.file`` at the deploy profile and quietly turning this
+#: check into a gate on how people deploy. So it is a refusal with a message, and the
+#: markers that make a file a deployment profile are the vocabulary's.
+DEPLOYMENT_PROFILE_MARKERS = vocabulary.DEPLOYMENT_PROFILE_MARKERS
 
 
 @dataclass(frozen=True)
@@ -97,16 +107,19 @@ class Finding:
     remedy: str = ""
 
 
-#: Command slots a workbench understands. ``start`` is the only one that makes
-#: the block meaningful; the rest are offers, and a workbench must not invent
-#: one that is missing. That last point is the whole safety argument for this
-#: block: an app that declares its own loop has told us it is not the standard
-#: Compose shape, so falling back to ``docker compose down --volumes`` for a
-#: repair it never declared would run a destructive command nobody asked for
+#: Command slots a workbench understands, from the vocabulary. ``start`` is the
+#: only one that makes the block meaningful; the rest are offers, and a workbench
+#: must not invent one that is missing. That last point is the whole safety
+#: argument for this block: an app that declares its own loop has told us it is not
+#: the standard Compose shape, so falling back to ``docker compose down --volumes``
+#: for a repair it never declared would run a destructive command nobody asked for
 #: against a stack we do not understand.
-COMMAND_SLOTS = frozenset(
-    {"start", "stop", "status", "rebuild", "resetData", "destroy", "migrate"}
-)
+#:
+#: ``containerLogs`` and ``recreate`` were read and run by a workbench for a long
+#: time before this list knew them: a slot belongs in the vocabulary first, and the
+#: two arrived in the wrong order. Reading the list from the vocabulary is what keeps
+#: that from happening again.
+COMMAND_SLOTS = vocabulary.COMMAND_SLOTS
 
 #: Roles a workbench resolves by name. Not a vocabulary an app must use: a role
 #: outside this set is still information nobody acts on yet, and refusing one
@@ -117,26 +130,26 @@ COMMAND_SLOTS = frozenset(
 #: reading that neither this toolchain nor a workbench looked at a role name.
 #: The first half was true and the second was not: a workbench asks its
 #: declaration "which service has role ``api``, and where does it answer the
-#: readiness question?" — a lookup by exact string. So the set comes back, and
+#: readiness question?" -- a lookup by exact string. So the set comes back, and
 #: it comes back *with* a reader, which is what the objection to it actually
-#: asked for. See :data:`_ROLE_ADDRESSED_KEYS`.
-KNOWN_ROLES = frozenset({"web", "api", "one-shot", "database", "worker"})
+#: asked for. See :data:`ROLE_RESOLVED_FIELDS`.
+KNOWN_ROLES = vocabulary.KNOWN_ROLES
 
 #: Fields whose only reader is a workbench, and which it looks up BY ROLE.
 #:
 #: These are what make an off-vocabulary role more than a spelling preference.
 #: The same line under ``role: "frontend"`` instead of ``role: "web"`` is not a
-#: near-miss — it is a field nothing will ever read, and every symptom of that
+#: near-miss -- it is a field nothing will ever read, and every symptom of that
 #: is silent. The check passes. The workbench finds no entry for the role it
 #: asked about, falls back to its own default, and the two agree exactly as long
 #: as the declared value happens to equal that default. The day the app renames
 #: the variable, the workbench keeps setting the old name and starts a stack it
-#: can no longer find — which is the failure this whole file exists to make
+#: can no longer find -- which is the failure this whole file exists to make
 #: visible, arriving through the file itself.
 #:
 #: Narrow on purpose. An unrecognised role stays fine; an unrecognised role
 #: carrying one of these is a claim that cannot be honoured.
-_ROLE_ADDRESSED_KEYS = ("hostPortEnv", "readinessPath")
+ROLE_RESOLVED_FIELDS = vocabulary.ROLE_RESOLVED_FIELDS
 
 
 @dataclass(frozen=True)
@@ -145,7 +158,7 @@ class Declaration:
 
     unmanaged: bool = False
     reason: str = ""
-    compose_file: str = "docker-compose.yml"
+    compose_file: str = vocabulary.DEFAULT_COMPOSE_FILE
     services: tuple[dict[str, Any], ...] = field(default=())
     env: dict[str, str] = field(default_factory=dict)
     #: How a workbench drives this app's development loop, when the app is not
@@ -172,7 +185,12 @@ class Declaration:
 
 
 def load(project_root: pathlib.Path) -> tuple[Declaration | None, list[Finding]]:
-    """Read the declaration. ``(None, [])`` when the app has none."""
+    """Read the declaration. ``(None, [])`` when the app has none.
+
+    ``(None, findings)`` for one that is there and cannot be read: an unreadable
+    declaration is not an absent one, and a caller must never serve it the
+    defaults an absent one gets (ADR 0186).
+    """
     path = project_root / WORKBENCH_FILE
     if not path.is_file():
         return None, []
@@ -185,100 +203,114 @@ def load(project_root: pathlib.Path) -> tuple[Declaration | None, list[Finding]]
                 "Fix the JSON, or delete the file to opt out of this check.",
             )
         ]
+    return read(raw)
+
+
+def read(raw: Any) -> tuple[Declaration | None, list[Finding]]:
+    """A parsed document as a :class:`Declaration`, or every reason it is refused.
+
+    The schema first, then the refusals it names and cannot state, from the lists
+    it names (ADR 0186): a field resolved by role under a role no workbench looks
+    up, a variable name the toolchain reads for itself, and a deployment profile.
+    """
     if not isinstance(raw, dict):
         return None, [Finding(f"{WORKBENCH_FILE} must contain a JSON object.")]
-    if raw.get("unmanaged") is True:
-        reason = str(raw.get("reason") or "")
-        if not reason.strip():
-            return None, [
-                Finding(
-                    f'{WORKBENCH_FILE} sets "unmanaged": true without a "reason".',
-                    "State why this app's development loop does not fit the "
-                    "standard shape. An escape without a reason is an escape "
-                    "nobody can review.",
-                )
-            ]
-        return Declaration(unmanaged=True, reason=reason), []
+    unmanaged = raw.get("unmanaged") is True
+    if unmanaged and not (isinstance(raw.get("reason"), str) and raw["reason"].strip()):
+        return None, [
+            Finding(
+                f'{WORKBENCH_FILE} sets "unmanaged": true without a "reason".',
+                "State why this app's development loop does not fit the "
+                "standard shape. An escape without a reason is an escape "
+                "nobody can review.",
+            )
+        ]
     version = raw.get("schemaVersion")
-    if version not in SUPPORTED_VERSIONS:
+    if (
+        isinstance(version, int)
+        and not isinstance(version, bool)
+        and version not in SUPPORTED_VERSIONS
+    ):
         return None, [
             Finding(
                 f"{WORKBENCH_FILE} declares schemaVersion {version!r}, which this "
                 f"toolchain does not read (it knows {sorted(SUPPORTED_VERSIONS)}).",
-                "Upgrade the Terp toolchain, or lower the declared version.",
+                "Upgrade the Terp toolchain, or lower the declared version. A reader "
+                "that is behind refuses a later file rather than reading it with an "
+                "earlier vocabulary.",
             )
         ]
-    services = raw.get("services")
-    if not isinstance(services, list) or not all(
-        isinstance(entry, dict) for entry in services
-    ):
-        return None, [
-            Finding(f'{WORKBENCH_FILE} needs a "services" list of objects.')
-        ]
-    compose = raw.get("compose")
-    compose_file = "docker-compose.yml"
-    compose_declared = False
-    if isinstance(compose, dict) and isinstance(compose.get("file"), str):
-        compose_file = compose["file"]
-        compose_declared = True
-    env = raw.get("env")
-    commands, defects = _commands(raw.get("commands"))
-    if defects:
-        return None, defects
+    findings = [
+        Finding(f"{WORKBENCH_FILE}: {problem.path or 'the file'} {problem.detail}.")
+        for problem in vocabulary.problems(raw)
+    ]
+    if findings:
+        return None, findings
+    if unmanaged:
+        return Declaration(unmanaged=True, reason=raw["reason"]), []
+    findings = _refusals_beyond_the_schema(raw)
+    if findings:
+        return None, findings
+    compose = raw.get("compose", {})
     return (
         Declaration(
-            compose_file=compose_file,
-            services=tuple(services),
-            env={
-                str(key): str(value)
-                for key, value in (env.items() if isinstance(env, dict) else ())
+            compose_file=compose.get("file", vocabulary.DEFAULT_COMPOSE_FILE),
+            services=tuple(raw["services"]),
+            env=dict(raw.get("env", {})),
+            commands={
+                slot: line.strip()
+                for slot, line in raw.get("commands", {}).items()
+                if slot in COMMAND_SLOTS
             },
-            commands=commands,
-            compose_declared=compose_declared,
+            compose_declared="file" in compose,
         ),
         [],
     )
 
 
-def _commands(raw: Any) -> tuple[dict[str, str], list[Finding]]:
-    """Parse and shape-check the ``commands`` block.
-
-    Shape only. Whether ``tilt up`` is the right way to start this app is not
-    something a file read can know, and pretending to check it would be the
-    conformance this module refuses. What *can* be checked is that a slot names
-    a command at all, and that a block claiming to drive a loop can start it.
-    """
-    if raw is None:
-        return {}, []
-    if not isinstance(raw, dict):
-        return {}, [Finding(f'{WORKBENCH_FILE} "commands" must be an object.')]
-    parsed: dict[str, str] = {}
-    for slot, value in raw.items():
-        name = str(slot)
-        if name not in COMMAND_SLOTS:
-            # An unrecognised slot is information, not an error — the same rule
-            # roles get, for the same reason: adding one must not break an app
-            # that already shipped it.
-            continue
-        if not isinstance(value, str):
-            return {}, [
-                Finding(
-                    f'{WORKBENCH_FILE} command "{name}" must be a string.',
-                    "One command line per slot, as you would type it.",
-                )
-            ]
-        if value.strip():
-            parsed[name] = value.strip()
-    if parsed and "start" not in parsed:
-        return {}, [
+def _refusals_beyond_the_schema(raw: dict[str, Any]) -> list[Finding]:
+    """What the schema names and its keyword subset cannot state, in document order."""
+    findings: list[Finding] = []
+    for index, entry in enumerate(raw["services"]):
+        findings.extend(_role_findings(entry["service"], entry.get("role", ""), entry))
+        findings.extend(_name_findings(f"services[{index}].hostPortEnv", entry.get("hostPortEnv")))
+    for label, name in raw.get("env", {}).items():
+        findings.extend(_name_findings(f"env.{label}", name))
+    compose_file = raw.get("compose", {}).get("file", "")
+    if vocabulary.names_a_deployment_profile(compose_file):
+        findings.append(
             Finding(
-                f'{WORKBENCH_FILE} declares commands but no "start".',
-                "A workbench that cannot start this app has nothing to offer. "
-                'Name a "start" command, or drop the block to use the standard '
-                "Compose loop.",
+                f"{WORKBENCH_FILE} points at {compose_file!r}, which is a deployment profile.",
+                "This declaration describes the development loop only. How an app "
+                "deploys is deliberately ungated -- an external managed database, a "
+                "shared estate, a client's own cluster, and checking it here would take "
+                'that freedom away. Point "compose.file" at the development compose '
+                'file, or set {"unmanaged": true, "reason": "..."} if this app has no '
+                "development compose file at all.",
             )
-        ]
-    return parsed, []
+        )
+    return findings
+
+
+def _name_findings(where: str, name: str | None) -> list[Finding]:
+    """A variable a workbench would set, under a name the toolchain reads for itself.
+
+    A workbench puts every declared name into the environment of the commands it
+    runs, and a name such as ``PATH`` or ``DOCKER_CONFIG`` then decides which
+    program those commands are, or where they read their configuration from --
+    steered by a file an agent writes.
+    """
+    why = vocabulary.reserved_name(name) if name else ""
+    if not why:
+        return []
+    return [
+        Finding(
+            f"{WORKBENCH_FILE} declares {where} as {name}: {why}.",
+            "A workbench sets this variable in the environment of the commands it "
+            "runs, so the name must be the app's own. Rename the variable in the "
+            "compose file and here.",
+        )
+    ]
 
 
 def _published_host_ports(service: dict[str, Any]) -> list[str]:
@@ -337,7 +369,7 @@ def _role_findings(name: str, role: str, entry: dict[str, Any]) -> list[Finding]
     """
     if not role or role in KNOWN_ROLES:
         return []
-    addressed = [key for key in _ROLE_ADDRESSED_KEYS if entry.get(key)]
+    addressed = [key for key in ROLE_RESOLVED_FIELDS if entry.get(key)]
     if not addressed:
         return []
     return [
@@ -383,7 +415,6 @@ def audit(declared: Declaration, compose: dict[str, Any]) -> list[Finding]:
                 )
             )
             continue
-        findings.extend(_role_findings(name, role, entry))
         port_env = entry.get("hostPortEnv")
         if not isinstance(port_env, str) or not port_env:
             continue
@@ -441,22 +472,6 @@ def run_workbench_check(project_root: pathlib.Path) -> tuple[int, str]:
             f"{WORKBENCH_FILE} declares this app unmanaged: {declared.reason}\n"
             "A workbench will fall back to its configured commands and report "
             "that it cannot determine this app's status."
-        )
-    if PRODUCTION_PROFILE_INFIX in declared.compose_file:
-        return 1, _render(
-            [
-                Finding(
-                    f"{WORKBENCH_FILE} points at {declared.compose_file!r}, "
-                    "which is a deployment profile.",
-                    "This declaration describes the development loop only. How "
-                    "an app deploys is deliberately ungated — an external "
-                    "managed database, a shared estate, a client's own cluster, "
-                    "and checking it here would take that freedom away. Point "
-                    '"compose.file" at the development compose file, or set '
-                    '{"unmanaged": true, "reason": "..."} if this app has no '
-                    "development compose file at all.",
-                )
-            ]
         )
     compose_path = project_root / declared.compose_file
     if not compose_path.is_file():

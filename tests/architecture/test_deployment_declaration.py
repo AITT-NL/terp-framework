@@ -435,6 +435,30 @@ def test_the_development_file_is_the_one_workbench_json_names(tmp_path) -> None:
     )
 
 
+def test_the_development_file_is_read_from_a_development_declaration_of_any_version(
+    tmp_path,
+) -> None:
+    """ADR 0186: this reader reads one field of ``workbench.json``, and ignores its version.
+
+    ``compose.file`` is a field the vocabulary never re-means under the same name, and
+    what this reader does with it is narrow a refusal. Refusing to look because the file
+    is from a later version would let a deploy profile be the development file of an app
+    whose development declaration is newer than this toolchain.
+    """
+    raw = seed()
+    raw["compose"]["overrides"] = ["compose.dev.yml"]
+    workbench = json.dumps(
+        {"schemaVersion": 99, "compose": {"file": "compose.dev.yml"}, "services": []}
+    )
+    root = project(
+        tmp_path, raw, files={"compose.dev.yml": "services: {}\n", "workbench.json": workbench}
+    )
+    assert (
+        'compose.overrides[0] "compose.dev.yml" is the development compose file'
+        in _readable_messages(root)
+    )
+
+
 def test_a_profile_of_any_other_name_can_be_declared(tmp_path) -> None:
     """The name of a deploy profile is not a gate: no `.prod.` infix is required."""
     raw = seed()

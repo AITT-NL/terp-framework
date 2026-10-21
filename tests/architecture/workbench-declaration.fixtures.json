@@ -1,0 +1,2065 @@
+{
+  "_comment": "The shared fixtures for workbench-declaration.schema.json, so every reader of a development-loop declaration runs the same ones. 'documents' are parsed declarations: a valid one carries 'reads', what every reader must resolve from it, and an invalid one names the 'field' the refusal is about and the values that field allows, so a reader's test asserts its refusal names both. 'beyondSchema' marks a refusal the schema's keyword subset cannot state: a reader applies it from the lists the schema names in $defs. 'texts' are files that are not one JSON document at all. In 'reads', 'state' is declared or unmanaged; 'composeFile' is the compose file the reader uses, its default where none is named; 'roles' holds, for each role the file declares that the vocabulary knows, the first entry's service and, field by field, the first value an entry of that role carries; 'env' holds the declared seams a reader sets a value for, and 'commands' the declared slots a reader knows, each line without its surrounding blanks. A role, seam or slot outside the vocabulary is never read, and an absent one is the reader's own default. Every name here is invented.",
+  "documents": [
+    {
+      "id": "valid-01",
+      "expect": "valid",
+      "about": "the template's own seed, with its comment key",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "reads": {
+        "state": "declared",
+        "composeFile": "docker-compose.yml",
+        "roles": {
+          "api": {
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          "database": {
+            "service": "db"
+          },
+          "one-shot": {
+            "service": "migrate"
+          },
+          "web": {
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          }
+        },
+        "env": {
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS",
+          "sourceRoot": "TERP_DEV_HOST_ROOT"
+        },
+        "commands": {}
+      }
+    },
+    {
+      "id": "valid-02",
+      "expect": "valid",
+      "about": "the smallest declaration: a version and no services",
+      "document": {
+        "schemaVersion": 1,
+        "services": []
+      },
+      "reads": {
+        "state": "declared",
+        "composeFile": "docker-compose.yml",
+        "roles": {},
+        "env": {},
+        "commands": {}
+      }
+    },
+    {
+      "id": "valid-03",
+      "expect": "valid",
+      "about": "opted out, with a reason and keys beside it that are not read",
+      "document": {
+        "unmanaged": true,
+        "reason": "The loop runs on a cluster this file cannot describe.",
+        "services": "not read"
+      },
+      "reads": {
+        "state": "unmanaged",
+        "reason": "The loop runs on a cluster this file cannot describe."
+      }
+    },
+    {
+      "id": "valid-04",
+      "expect": "valid",
+      "about": "opted out, with the version stated",
+      "document": {
+        "unmanaged": true,
+        "reason": "Started from a make target.",
+        "schemaVersion": 1
+      },
+      "reads": {
+        "state": "unmanaged",
+        "reason": "Started from a make target."
+      }
+    },
+    {
+      "id": "valid-05",
+      "expect": "valid",
+      "about": "declared, with unmanaged written as false",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        },
+        "unmanaged": false
+      },
+      "reads": {
+        "state": "declared",
+        "composeFile": "docker-compose.yml",
+        "roles": {
+          "api": {
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          "database": {
+            "service": "db"
+          },
+          "one-shot": {
+            "service": "migrate"
+          },
+          "web": {
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          }
+        },
+        "env": {
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS",
+          "sourceRoot": "TERP_DEV_HOST_ROOT"
+        },
+        "commands": {}
+      }
+    },
+    {
+      "id": "valid-06",
+      "expect": "valid",
+      "about": "an app that drives its own loop, every slot declared",
+      "document": {
+        "schemaVersion": 1,
+        "services": [],
+        "commands": {
+          "start": "make dev",
+          "stop": "make stop",
+          "status": "make ps",
+          "containerLogs": "make logs",
+          "rebuild": "make build",
+          "recreate": "make recreate",
+          "resetData": "make reset",
+          "destroy": "make clean",
+          "migrate": "make migrate"
+        }
+      },
+      "reads": {
+        "state": "declared",
+        "composeFile": "docker-compose.yml",
+        "roles": {},
+        "env": {},
+        "commands": {
+          "containerLogs": "make logs",
+          "destroy": "make clean",
+          "migrate": "make migrate",
+          "rebuild": "make build",
+          "recreate": "make recreate",
+          "resetData": "make reset",
+          "start": "make dev",
+          "status": "make ps",
+          "stop": "make stop"
+        }
+      }
+    },
+    {
+      "id": "valid-07",
+      "expect": "valid",
+      "about": "a command is read without its surrounding blanks",
+      "document": {
+        "schemaVersion": 1,
+        "services": [],
+        "commands": {
+          "start": "  tilt up  "
+        }
+      },
+      "reads": {
+        "state": "declared",
+        "composeFile": "docker-compose.yml",
+        "roles": {},
+        "env": {},
+        "commands": {
+          "start": "tilt up"
+        }
+      }
+    },
+    {
+      "id": "valid-08",
+      "expect": "valid",
+      "about": "a command slot no reader knows is information, and not read",
+      "document": {
+        "schemaVersion": 1,
+        "services": [],
+        "commands": {
+          "start": "make dev",
+          "reticulate": [
+            "make",
+            "splines"
+          ]
+        }
+      },
+      "reads": {
+        "state": "declared",
+        "composeFile": "docker-compose.yml",
+        "roles": {},
+        "env": {},
+        "commands": {
+          "start": "make dev"
+        }
+      }
+    },
+    {
+      "id": "valid-09",
+      "expect": "valid",
+      "about": "a role no reader knows, carrying only what no reader resolves by role",
+      "document": {
+        "schemaVersion": 1,
+        "services": [
+          {
+            "role": "message-bus",
+            "service": "nats",
+            "containerPort": 4222,
+            "$comment": "the queue"
+          }
+        ]
+      },
+      "reads": {
+        "state": "declared",
+        "composeFile": "docker-compose.yml",
+        "roles": {},
+        "env": {},
+        "commands": {}
+      }
+    },
+    {
+      "id": "valid-10",
+      "expect": "valid",
+      "about": "a field resolved by role, under a known role no reader sets it for",
+      "document": {
+        "schemaVersion": 1,
+        "services": [
+          {
+            "role": "database",
+            "service": "db",
+            "hostPortEnv": "DB_PORT"
+          }
+        ]
+      },
+      "reads": {
+        "state": "declared",
+        "composeFile": "docker-compose.yml",
+        "roles": {
+          "database": {
+            "service": "db",
+            "hostPortEnv": "DB_PORT"
+          }
+        },
+        "env": {},
+        "commands": {}
+      }
+    },
+    {
+      "id": "valid-11",
+      "expect": "valid",
+      "about": "several services in one role: field by field, the first entry that carries it",
+      "document": {
+        "schemaVersion": 1,
+        "services": [
+          {
+            "role": "web",
+            "service": "web"
+          },
+          {
+            "role": "web",
+            "service": "web-admin",
+            "hostPortEnv": "ADMIN_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api-two",
+            "hostPortEnv": "API_TWO_PORT",
+            "readinessPath": "/ready"
+          }
+        ]
+      },
+      "reads": {
+        "state": "declared",
+        "composeFile": "docker-compose.yml",
+        "roles": {
+          "api": {
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/ready"
+          },
+          "web": {
+            "service": "web",
+            "hostPortEnv": "ADMIN_PORT"
+          }
+        },
+        "env": {},
+        "commands": {}
+      }
+    },
+    {
+      "id": "valid-12",
+      "expect": "valid",
+      "about": "an entry with no role at all",
+      "document": {
+        "schemaVersion": 1,
+        "services": [
+          {
+            "service": "worker"
+          }
+        ]
+      },
+      "reads": {
+        "state": "declared",
+        "composeFile": "docker-compose.yml",
+        "roles": {},
+        "env": {},
+        "commands": {}
+      }
+    },
+    {
+      "id": "valid-13",
+      "expect": "valid",
+      "about": "renamed seams and a compose file in a folder",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "dev/compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "APP_HOST_ROOT",
+          "frameAncestors": "APP_FRAME_ORIGIN"
+        }
+      },
+      "reads": {
+        "state": "declared",
+        "composeFile": "dev/compose.yml",
+        "roles": {
+          "api": {
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          "database": {
+            "service": "db"
+          },
+          "one-shot": {
+            "service": "migrate"
+          },
+          "web": {
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          }
+        },
+        "env": {
+          "frameAncestors": "APP_FRAME_ORIGIN",
+          "sourceRoot": "APP_HOST_ROOT"
+        },
+        "commands": {}
+      }
+    },
+    {
+      "id": "valid-14",
+      "expect": "valid",
+      "about": "a seam label no reader sets a value for",
+      "document": {
+        "schemaVersion": 1,
+        "services": [],
+        "env": {
+          "apiBase": "SOME_API_BASE_URL"
+        }
+      },
+      "reads": {
+        "state": "declared",
+        "composeFile": "docker-compose.yml",
+        "roles": {},
+        "env": {},
+        "commands": {}
+      }
+    },
+    {
+      "id": "valid-15",
+      "expect": "valid",
+      "about": "a compose block with no file keeps the reader's default",
+      "document": {
+        "schemaVersion": 1,
+        "services": [],
+        "compose": {}
+      },
+      "reads": {
+        "state": "declared",
+        "composeFile": "docker-compose.yml",
+        "roles": {},
+        "env": {},
+        "commands": {}
+      }
+    },
+    {
+      "id": "valid-16",
+      "expect": "valid",
+      "about": "no env seam at all",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ]
+      },
+      "reads": {
+        "state": "declared",
+        "composeFile": "docker-compose.yml",
+        "roles": {
+          "api": {
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          "database": {
+            "service": "db"
+          },
+          "one-shot": {
+            "service": "migrate"
+          },
+          "web": {
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          }
+        },
+        "env": {},
+        "commands": {}
+      }
+    },
+    {
+      "id": "invalid-01",
+      "expect": "invalid",
+      "about": "a list, not an object",
+      "document": [
+        {
+          "//": [
+            "Which parts of docker-compose.yml are load-bearing for a workbench."
+          ],
+          "schemaVersion": 1,
+          "compose": {
+            "file": "docker-compose.yml"
+          },
+          "services": [
+            {
+              "role": "web",
+              "service": "web",
+              "hostPortEnv": "WEB_PORT"
+            },
+            {
+              "role": "api",
+              "service": "api",
+              "hostPortEnv": "API_PORT",
+              "readinessPath": "/health/ready"
+            },
+            {
+              "role": "database",
+              "service": "db"
+            },
+            {
+              "role": "one-shot",
+              "service": "migrate"
+            },
+            {
+              "role": "one-shot",
+              "service": "seed"
+            }
+          ],
+          "env": {
+            "sourceRoot": "TERP_DEV_HOST_ROOT",
+            "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+          }
+        }
+      ],
+      "field": "$",
+      "allowed": "one JSON object, not a list"
+    },
+    {
+      "id": "invalid-02",
+      "expect": "invalid",
+      "about": "a string, not an object",
+      "document": "workbench",
+      "field": "$",
+      "allowed": "one JSON object"
+    },
+    {
+      "id": "invalid-03",
+      "expect": "invalid",
+      "about": "a version this vocabulary does not have yet",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 2,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.schemaVersion",
+      "allowed": "1 - a later version means the reader is behind, and it refuses rather than reads"
+    },
+    {
+      "id": "invalid-04",
+      "expect": "invalid",
+      "about": "no version",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.schemaVersion",
+      "allowed": "1"
+    },
+    {
+      "id": "invalid-05",
+      "expect": "invalid",
+      "about": "the version as text",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": "1",
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.schemaVersion",
+      "allowed": "1"
+    },
+    {
+      "id": "invalid-06",
+      "expect": "invalid",
+      "about": "the version as true",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": true,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.schemaVersion",
+      "allowed": "1"
+    },
+    {
+      "id": "invalid-07",
+      "expect": "invalid",
+      "about": "no services list",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.services",
+      "allowed": "a list of service entries, which may be empty"
+    },
+    {
+      "id": "invalid-08",
+      "expect": "invalid",
+      "about": "services as an object",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": {
+          "web": {
+            "role": "web"
+          }
+        },
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.services",
+      "allowed": "a list of service entries"
+    },
+    {
+      "id": "invalid-09",
+      "expect": "invalid",
+      "about": "a service entry that is not an object",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          "web"
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.services[0]",
+      "allowed": "an object naming a service"
+    },
+    {
+      "id": "invalid-10",
+      "expect": "invalid",
+      "about": "an entry with no service name",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.services[0].service",
+      "allowed": "the compose service the entry describes"
+    },
+    {
+      "id": "invalid-11",
+      "expect": "invalid",
+      "about": "a service name with a space",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web app",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.services[0].service",
+      "allowed": "a compose service name"
+    },
+    {
+      "id": "invalid-12",
+      "expect": "invalid",
+      "about": "a role in capitals",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "Web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.services[0].role",
+      "allowed": "a lower-case role word"
+    },
+    {
+      "id": "invalid-13",
+      "expect": "invalid",
+      "about": "a host port variable as a number",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": 5173
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.services[0].hostPortEnv",
+      "allowed": "an upper-case variable name"
+    },
+    {
+      "id": "invalid-14",
+      "expect": "invalid",
+      "about": "a host port variable in lower case",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "web_port"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.services[0].hostPortEnv",
+      "allowed": "an upper-case variable name"
+    },
+    {
+      "id": "invalid-15",
+      "expect": "invalid",
+      "about": "a host port variable with a trailing newline",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT\n"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.services[0].hostPortEnv",
+      "allowed": "an upper-case variable name, nothing after it"
+    },
+    {
+      "id": "invalid-16",
+      "expect": "invalid",
+      "about": "a readiness path that is an address",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "http://api:8000/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.services[1].readinessPath",
+      "allowed": "a path starting with /"
+    },
+    {
+      "id": "invalid-17",
+      "expect": "invalid",
+      "about": "a readiness path with no leading slash",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.services[1].readinessPath",
+      "allowed": "a path starting with /"
+    },
+    {
+      "id": "invalid-18",
+      "expect": "invalid",
+      "about": "a host port variable under a role no reader looks up",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "frontend",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.services[0].hostPortEnv",
+      "allowed": "a role a reader resolves: api, database, one-shot, web, worker",
+      "beyondSchema": true
+    },
+    {
+      "id": "invalid-19",
+      "expect": "invalid",
+      "about": "a readiness path alone under a role no reader looks up",
+      "document": {
+        "schemaVersion": 1,
+        "services": [
+          {
+            "role": "backend",
+            "service": "api",
+            "readinessPath": "/ready"
+          }
+        ]
+      },
+      "field": "$.services[0].readinessPath",
+      "allowed": "a role a reader resolves: api, database, one-shot, web, worker",
+      "beyondSchema": true
+    },
+    {
+      "id": "invalid-20",
+      "expect": "invalid",
+      "about": "a host port variable in the container toolchain's namespace",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "DOCKER_CONFIG"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.services[0].hostPortEnv",
+      "allowed": "a variable of the app's own, never one starting BUILDKIT_, BUILDX_, COMPOSE_, DOCKER_, DYLD_, LD_ or XDG_",
+      "beyondSchema": true
+    },
+    {
+      "id": "invalid-21",
+      "expect": "invalid",
+      "about": "a host port variable the process environment reads",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "HOME",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.services[1].hostPortEnv",
+      "allowed": "a variable of the app's own, never ALL_PROXY, GODEBUG, HOME, HTTPS_PROXY, HTTP_PROXY, NO_PROXY, PATH, SSL_CERT_DIR, SSL_CERT_FILE or TMPDIR",
+      "beyondSchema": true
+    },
+    {
+      "id": "invalid-22",
+      "expect": "invalid",
+      "about": "a source root seam named PATH",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "PATH"
+        }
+      },
+      "field": "$.env.sourceRoot",
+      "allowed": "a variable of the app's own, never ALL_PROXY, GODEBUG, HOME, HTTPS_PROXY, HTTP_PROXY, NO_PROXY, PATH, SSL_CERT_DIR, SSL_CERT_FILE or TMPDIR",
+      "beyondSchema": true
+    },
+    {
+      "id": "invalid-23",
+      "expect": "invalid",
+      "about": "a framing seam in the compose namespace",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "frameAncestors": "COMPOSE_FILE"
+        }
+      },
+      "field": "$.env.frameAncestors",
+      "allowed": "a variable of the app's own, never one starting BUILDKIT_, BUILDX_, COMPOSE_, DOCKER_, DYLD_, LD_ or XDG_",
+      "beyondSchema": true
+    },
+    {
+      "id": "invalid-24",
+      "expect": "invalid",
+      "about": "an unknown seam in the loader's namespace",
+      "document": {
+        "schemaVersion": 1,
+        "services": [],
+        "env": {
+          "preload": "LD_PRELOAD"
+        }
+      },
+      "field": "$.env.preload",
+      "allowed": "a variable of the app's own, never one starting BUILDKIT_, BUILDX_, COMPOSE_, DOCKER_, DYLD_, LD_ or XDG_",
+      "beyondSchema": true
+    },
+    {
+      "id": "invalid-25",
+      "expect": "invalid",
+      "about": "a seam that is not a variable name",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": 1
+        }
+      },
+      "field": "$.env.sourceRoot",
+      "allowed": "an upper-case variable name"
+    },
+    {
+      "id": "invalid-26",
+      "expect": "invalid",
+      "about": "a seam with a control character",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "frameAncestors": "TERP_DEV_FRAME\u001bANCESTORS"
+        }
+      },
+      "field": "$.env.frameAncestors",
+      "allowed": "an upper-case variable name"
+    },
+    {
+      "id": "invalid-27",
+      "expect": "invalid",
+      "about": "a seam label that is not a word",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "source root": "TERP_DEV_HOST_ROOT"
+        }
+      },
+      "field": "$.env.source root",
+      "allowed": "a seam label: frameAncestors, sourceRoot, or another word"
+    },
+    {
+      "id": "invalid-28",
+      "expect": "invalid",
+      "about": "env as a list",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": [
+          "TERP_DEV_HOST_ROOT"
+        ]
+      },
+      "field": "$.env",
+      "allowed": "an object of seam labels and variable names"
+    },
+    {
+      "id": "invalid-29",
+      "expect": "invalid",
+      "about": "compose as a file name",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": "docker-compose.yml",
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.compose",
+      "allowed": "an object with a file"
+    },
+    {
+      "id": "invalid-30",
+      "expect": "invalid",
+      "about": "a compose file with a backslash",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "dev\\compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.compose.file",
+      "allowed": "a path relative to the project root, with forward slashes"
+    },
+    {
+      "id": "invalid-31",
+      "expect": "invalid",
+      "about": "an absolute compose file",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "/srv/app/docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.compose.file",
+      "allowed": "a path relative to the project root, with forward slashes"
+    },
+    {
+      "id": "invalid-32",
+      "expect": "invalid",
+      "about": "a deployment profile",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        }
+      },
+      "field": "$.compose.file",
+      "allowed": "the development compose file, never a deployment profile (a name containing .prod.)",
+      "beyondSchema": true
+    },
+    {
+      "id": "invalid-33",
+      "expect": "invalid",
+      "about": "commands as one line",
+      "document": {
+        "schemaVersion": 1,
+        "services": [],
+        "commands": "tilt up"
+      },
+      "field": "$.commands",
+      "allowed": "an object of command slots"
+    },
+    {
+      "id": "invalid-34",
+      "expect": "invalid",
+      "about": "commands with no start",
+      "document": {
+        "schemaVersion": 1,
+        "services": [],
+        "commands": {
+          "stop": "make stop"
+        }
+      },
+      "field": "$.commands.start",
+      "allowed": "a start command beside any other command"
+    },
+    {
+      "id": "invalid-35",
+      "expect": "invalid",
+      "about": "a start that is not a string",
+      "document": {
+        "schemaVersion": 1,
+        "services": [],
+        "commands": {
+          "start": [
+            "make",
+            "dev"
+          ]
+        }
+      },
+      "field": "$.commands.start",
+      "allowed": "one command line, as you would type it"
+    },
+    {
+      "id": "invalid-36",
+      "expect": "invalid",
+      "about": "a blank start",
+      "document": {
+        "schemaVersion": 1,
+        "services": [],
+        "commands": {
+          "start": "   ",
+          "stop": "make stop"
+        }
+      },
+      "field": "$.commands.start",
+      "allowed": "a command line that is not blank"
+    },
+    {
+      "id": "invalid-37",
+      "expect": "invalid",
+      "about": "a blank stop",
+      "document": {
+        "schemaVersion": 1,
+        "services": [],
+        "commands": {
+          "start": "make dev",
+          "stop": ""
+        }
+      },
+      "field": "$.commands.stop",
+      "allowed": "a command line that is not blank"
+    },
+    {
+      "id": "invalid-38",
+      "expect": "invalid",
+      "about": "a command with a newline in it",
+      "document": {
+        "schemaVersion": 1,
+        "services": [],
+        "commands": {
+          "start": "make dev\nmake clean"
+        }
+      },
+      "field": "$.commands.start",
+      "allowed": "text without control characters"
+    },
+    {
+      "id": "invalid-39",
+      "expect": "invalid",
+      "about": "the new slots are held like the old ones",
+      "document": {
+        "schemaVersion": 1,
+        "services": [],
+        "commands": {
+          "start": "make dev",
+          "containerLogs": 200
+        }
+      },
+      "field": "$.commands.containerLogs",
+      "allowed": "one command line, as you would type it"
+    },
+    {
+      "id": "invalid-40",
+      "expect": "invalid",
+      "about": "a recreate with no start",
+      "document": {
+        "schemaVersion": 1,
+        "services": [],
+        "commands": {
+          "recreate": "make recreate"
+        }
+      },
+      "field": "$.commands.start",
+      "allowed": "a start command beside any other command"
+    },
+    {
+      "id": "invalid-41",
+      "expect": "invalid",
+      "about": "opted out without a reason",
+      "document": {
+        "unmanaged": true
+      },
+      "field": "$.reason",
+      "allowed": "a sentence saying why a tool cannot drive this loop"
+    },
+    {
+      "id": "invalid-42",
+      "expect": "invalid",
+      "about": "opted out with a blank reason",
+      "document": {
+        "unmanaged": true,
+        "reason": " \t "
+      },
+      "field": "$.reason",
+      "allowed": "a sentence that is not blank"
+    },
+    {
+      "id": "invalid-43",
+      "expect": "invalid",
+      "about": "opted out with a reason past its cap",
+      "document": {
+        "unmanaged": true,
+        "reason": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "field": "$.reason",
+      "allowed": "at most 500 characters"
+    },
+    {
+      "id": "invalid-44",
+      "expect": "invalid",
+      "about": "opted out with a reason across two lines",
+      "document": {
+        "unmanaged": true,
+        "reason": "Started by hand.\nAsk the owner."
+      },
+      "field": "$.reason",
+      "allowed": "text without control characters"
+    },
+    {
+      "id": "invalid-45",
+      "expect": "invalid",
+      "about": "opted out in a version this vocabulary does not have",
+      "document": {
+        "unmanaged": true,
+        "reason": "Started by hand.",
+        "schemaVersion": 2
+      },
+      "field": "$.schemaVersion",
+      "allowed": "1"
+    },
+    {
+      "id": "invalid-46",
+      "expect": "invalid",
+      "about": "unmanaged as text",
+      "document": {
+        "//": [
+          "Which parts of docker-compose.yml are load-bearing for a workbench."
+        ],
+        "schemaVersion": 1,
+        "compose": {
+          "file": "docker-compose.yml"
+        },
+        "services": [
+          {
+            "role": "web",
+            "service": "web",
+            "hostPortEnv": "WEB_PORT"
+          },
+          {
+            "role": "api",
+            "service": "api",
+            "hostPortEnv": "API_PORT",
+            "readinessPath": "/health/ready"
+          },
+          {
+            "role": "database",
+            "service": "db"
+          },
+          {
+            "role": "one-shot",
+            "service": "migrate"
+          },
+          {
+            "role": "one-shot",
+            "service": "seed"
+          }
+        ],
+        "env": {
+          "sourceRoot": "TERP_DEV_HOST_ROOT",
+          "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+        },
+        "unmanaged": "yes"
+      },
+      "field": "$.unmanaged",
+      "allowed": "true or false"
+    }
+  ],
+  "texts": [
+    {
+      "id": "unreadable-01",
+      "about": "not JSON at all",
+      "text": "{\"schemaVersion\": 1, \"services\": [",
+      "field": "$",
+      "allowed": "one JSON object"
+    },
+    {
+      "id": "unreadable-02",
+      "about": "an empty file",
+      "text": "",
+      "field": "$",
+      "allowed": "one JSON object"
+    }
+  ]
+}
