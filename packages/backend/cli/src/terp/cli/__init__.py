@@ -2532,6 +2532,37 @@ uv.lock or frontend/package-lock.json is missing or stale against its manifest, 
 the fix: `uv lock`, `npm --prefix frontend install`, then commit the lock. uv and npm answer
 for their own locks, offline (`uv lock --check`, `npm ci --dry-run`). An undeclared or
 unmanaged app is told the same as a note.
+
+THE PRODUCTION PROFILE THE TEMPLATE SHIPS (ADR 0187)
+
+The template's Dockerfile.prod, frontend/Dockerfile.prod and docker-compose.prod.yml are
+the framework generator's render of the seed declaration (terp.arch.deployment.generate),
+held byte for byte by a test, so a hardening change reaches them once. Each says so in
+its header. Under "build": "own" they are the app's to change; "build": "generated"
+waits for the framework release that wires `terp deployment render` and its check.
+
+  start it, with its required secrets set (compose stops on an unset one):
+    SECRET_KEY=... POSTGRES_PASSWORD=... \\
+      docker compose -f docker-compose.prod.yml up -d --wait
+  bootstrap the first administrator (`terp seed` refuses ENVIRONMENT=production):
+    docker compose -f docker-compose.prod.yml run --rm -e TERP_USER_PASSWORD api \\
+      terp user create admin@your-domain.example --role admin
+  a database this deployment does not run: set DATABASE_URL, which every backend unit
+    reads before its default; to drop the bundled `db` service too, add an override
+    that removes it, name it in compose.overrides and declare
+    "externalDatabase": {"backup": "client"}
+
+What each unit becomes: a datastore runs its table digest and its own healthcheck; an
+api is probed on its livenessPath, passed to a fixed probe as an argument; a worker runs
+`terp jobs worker --forever` (drain, wait --poll-seconds, drain again, until stopped)
+and a scheduler `terp jobs scheduler`, each with init and no healthcheck; the one-shot
+without a command is the migration step; the web tier proxies to its api. The backend image
+carries no HEALTHCHECK: a unit that serves no request has no check, so `docker compose up
+--wait` (what a deploy runs) waits for it to run, where an inherited HTTP probe turned it
+unhealthy and a disabled one made Compose refuse to wait. The image ships its bytecode
+compiled (checked-hash, so the same lock compiles to the same bytes). Every backend unit loads .app.env, then its own .app.<id>.env. Every value a
+declaration gives (a command, a health path) is written double-quoted with each $
+doubled, so compose passes it on as written.
 """,
 }
 

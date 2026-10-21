@@ -283,5 +283,12 @@ def test_the_stack_check_starts_every_service_the_app_adds() -> None:
         # And nothing waits on them: none of them may turn readiness red.
         for other in (*compose["services"].values(), *prod["services"].values()):
             assert service not in (other.get("depends_on") or {}), f"something depends on {service}"
-    assert "healthcheck" not in prod["services"]["scheduler"]
+    # And none of them carries a healthcheck. Before ADR 0187 none declared one either, but
+    # each inherited the backend image's HTTP probe, turned unhealthy, and made every
+    # `docker compose up --wait` of this profile fail; disabling the probe per service made
+    # Compose refuse to wait on it instead. The image carries no probe now, and the api
+    # unit is the one with a healthcheck of its own.
+    for service in ("worker", "scheduler", "monitor"):
+        assert "healthcheck" not in prod["services"][service]
+    assert "healthcheck" in prod["services"]["api"]
     assert "mailcatcher" not in prod["services"], "the production relay is a real, encrypted one"

@@ -105,11 +105,26 @@ class Unit:
 
 
 @dataclass(frozen=True)
+class Mount:
+    """Where a volume is mounted: a path inside ``var/`` and the declared units that mount it."""
+
+    path: str
+    units: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Volume:
-    """A named volume of the profile that holds state no declared stateful unit owns."""
+    """A named volume of the profile that holds state no declared stateful unit owns.
+
+    *mount* is the Terp Standard's ``volumes[].mount``: a restatement under ``own``, and what
+    the generator renders under ``generated`` (ADR 0187). This reader's schema mirror does not
+    admit the word until the pinned spec release carries it, so :func:`read` refuses it for
+    now; the typed model carries it already for the generator.
+    """
 
     id: str
     backup: Backup | None = None
+    mount: Mount | None = None
 
 
 @dataclass(frozen=True)
@@ -125,6 +140,9 @@ class Declaration:
     sizes: tuple[tuple[str, float, int], ...] = ()
     rollback: str | None = None
     external_database: bool = False
+    #: ``generator.systemPackages``: what only a generator reads (ADR 0187), refused by
+    #: :func:`read` with the rest of the word until the mirror carries it.
+    system_packages: tuple[str, ...] = ()
 
     @property
     def profile_files(self) -> tuple[str, ...]:
@@ -347,6 +365,10 @@ def _backup(raw: object) -> Backup | None:
     return Backup(raw["every"], raw["keep"]) if isinstance(raw, dict) else None
 
 
+def _mount(raw: object) -> Mount | None:
+    return Mount(raw["path"], tuple(raw["units"])) if isinstance(raw, dict) else None
+
+
 def _unit(raw: dict[str, Any]) -> Unit:
     return Unit(
         id=raw["id"],
@@ -374,7 +396,8 @@ def _declaration(raw: dict[str, Any]) -> Declaration:
         compose_overrides=tuple(compose.get("overrides", ())),
         units=tuple(_unit(entry) for entry in raw["units"]),
         volumes=tuple(
-            Volume(entry["id"], _backup(entry.get("backup"))) for entry in raw.get("volumes", ())
+            Volume(entry["id"], _backup(entry.get("backup")), _mount(entry.get("mount")))
+            for entry in raw.get("volumes", ())
         ),
         sizes=tuple(
             (name, float(size["cpu"]), int(size["memoryMiB"]))
@@ -382,6 +405,7 @@ def _declaration(raw: dict[str, Any]) -> Declaration:
         ),
         rollback=raw.get("rollback", {}).get("strategy"),
         external_database="externalDatabase" in raw,
+        system_packages=tuple(raw.get("generator", {}).get("systemPackages", ())),
     )
 
 

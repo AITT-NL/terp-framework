@@ -1,3 +1,7 @@
+# Rendered by `terp deployment render` from deployment.json (ADR 0187). Where deployment.json
+# says "build": "generated" this file is the generator's: change deployment.json and render
+# again, never this file. Under "build": "own" it is the app's to change.
+#
 # Production frontend image (ADR 0062). Multi-stage: stage 1 runs `vite build` over the
 # exact tree frontend/package-lock.json records; stage 2 serves the static bundle from a
 # non-root nginx with an SPA fallback and an /api reverse proxy to the backend, so the
@@ -8,9 +12,19 @@
 # frontend/ but the pre-release @terpjs tarballs a checkout may vendor, so a backend edit
 # never touches this image. No BuildKit cache mounts, on purpose: a release build must
 # never read a cache that a development build wrote.
+#
+# No package's lifecycle script runs: `npm ci --ignore-scripts` installs without running
+# any install hook, and the bundle is built with no network and no pre- or post-script.
+# Measured on the template and the reference app, whose locks hold no package that needs
+# one (ADR 0187); an app whose lock does keeps this file as its own under "build": "own".
+#
+# Every base is pinned by digest from terp-arch's base-image table, never by a tag that
+# can move between two builds of one commit; the tag each digest was read from stands
+# above its FROM, and a framework release moves them.
 
 # --- Stage 1: build the static bundle ------------------------------------------------
-FROM node:26-slim AS build
+# node:26-slim
+FROM node@sha256:e556a144463cc8dc53afe8de6d2fa0db5c132fd39ffa232c17641bd40df2bf11 AS build
 
 WORKDIR /app/frontend
 
@@ -24,14 +38,16 @@ COPY .terp-dis[t]/np[m] /app/.terp-dist/npm/
 # than rewrites, a lock that disagrees with package.json ("`npm ci` can only install
 # packages when your package.json and package-lock.json ... are in sync").
 # `npm --prefix frontend install` is the fix, run and committed in the checkout.
-RUN npm ci --no-audit --no-fund
+RUN npm ci --ignore-scripts --no-audit --no-fund
 
 # The source, last. .dockerignore keeps node_modules, build output and env files out.
 COPY frontend/ ./
-RUN npm run build
+# With no network: the build reads only what `npm ci` installed and the source.
+RUN --network=none npm run build --ignore-scripts
 
 # --- Stage 2: non-root nginx runtime -------------------------------------------------
-FROM nginxinc/nginx-unprivileged:alpine
+# nginxinc/nginx-unprivileged:alpine
+FROM nginxinc/nginx-unprivileged@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
 
 # The config is a TEMPLATE: the nginx entrypoint runs envsubst over /etc/nginx/templates
 # at start-up. NGINX_ENVSUBST_FILTER limits substitution to API_UPSTREAM so nginx's own

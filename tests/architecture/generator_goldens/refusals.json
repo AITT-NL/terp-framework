@@ -1,0 +1,1553 @@
+{
+  "_comment": "One sample per refusal of the generator (ADR 0187 decision 5): the declaration, the project name, whether frontend/package-lock.json exists, an optional injected table, and what each refusal must say. Every one names build own as the way out.",
+  "refusals": {
+    "a-profile-under-another-name": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "deploy/compose.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "compose.file is \"deploy/compose.yml\": the generator renders one profile (allowed: docker-compose.prod.yml)"
+      ]
+    },
+    "an-override": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml",
+          "overrides": [
+            "docker-compose.tls.yml"
+          ]
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "compose.overrides names docker-compose.tls.yml: a generated profile is one file"
+      ]
+    },
+    "an-external-database-beside-a-database-unit": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ],
+        "externalDatabase": {
+          "backup": "client"
+        }
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "externalDatabase stands beside a database unit"
+      ]
+    },
+    "a-database-without-kind": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database"
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[0].kind is missing: a database unit is rendered from the datastore table (allowed: postgres 17)"
+      ]
+    },
+    "a-store-without-kind": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "cache",
+            "role": "store"
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[1].kind is missing: a store unit is rendered from the datastore table"
+      ]
+    },
+    "two-database-units": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "db2",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[1].role: a second database unit"
+      ]
+    },
+    "two-stores-of-one-kind": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "c1",
+            "role": "store",
+            "kind": "redis",
+            "version": "7"
+          },
+          {
+            "id": "c2",
+            "role": "store",
+            "kind": "redis",
+            "version": "7"
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[2].kind: a second \"redis\" store"
+      ],
+      "tables": {
+        "datastores": {
+          "kinds": {
+            "postgres": {
+              "role": "database",
+              "versions": {
+                "17": "postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24"
+              }
+            },
+            "redis": {
+              "role": "store",
+              "versions": {
+                "7": "redis@sha256:7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d"
+              }
+            }
+          }
+        },
+        "recipes": [
+          {
+            "kind": "redis",
+            "title": "Redis",
+            "dataPath": "/data",
+            "healthcheck": [
+              "CMD",
+              "redis-cli",
+              "ping"
+            ],
+            "environment": [],
+            "variable": "REDIS_URL",
+            "url": "redis://{host}:6379/0"
+          }
+        ]
+      }
+    },
+    "a-kind-the-table-does-not-carry": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "16",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[0].version: the datastore table carries no postgres 16 (allowed: postgres 17)"
+      ]
+    },
+    "a-kind-with-no-recipe": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "cache",
+            "role": "store",
+            "kind": "redis",
+            "version": "7"
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[1].kind \"redis\" has no recipe in this framework release"
+      ],
+      "tables": {
+        "datastores": {
+          "kinds": {
+            "postgres": {
+              "role": "database",
+              "versions": {
+                "17": "postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24"
+              }
+            },
+            "redis": {
+              "role": "store",
+              "versions": {
+                "7": "redis@sha256:7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d"
+              }
+            }
+          }
+        },
+        "recipes": []
+      }
+    },
+    "a-kind-under-another-role": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "store",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[0].role is \"store\", and postgres is a database in the datastore table (allowed: database)"
+      ]
+    },
+    "a-declared-migration-step": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ],
+            "command": [
+              "terp",
+              "migrate",
+              "upgrade",
+              "--app-root",
+              "/srv/app"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[1].command runs terp migrate upgrade: drop `command`, the generator owns the migration step"
+      ]
+    },
+    "a-second-migration-step": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "migrate2",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[2].command is missing on a second one-shot unit"
+      ]
+    },
+    "a-role-with-no-default-and-no-command": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          },
+          {
+            "id": "scanner",
+            "role": "virus-scanner"
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[3].command is missing: the generator has no command of its own for role \"virus-scanner\" (allowed: an argument list)"
+      ]
+    },
+    "a-web-unit-without-a-locked-frontend": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          },
+          {
+            "id": "web",
+            "role": "web",
+            "dependsOn": [
+              "api"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": false,
+      "refused": [
+        "units[3]: web unit \"web\" is built from frontend/, and the checkout has no frontend/package-lock.json"
+      ]
+    },
+    "a-web-unit-with-a-command": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          },
+          {
+            "id": "web",
+            "role": "web",
+            "dependsOn": [
+              "api"
+            ],
+            "command": [
+              "nginx",
+              "-g",
+              "daemon off;"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[3].command: a web unit runs its image's own server"
+      ]
+    },
+    "a-web-unit-with-no-api-to-proxy-to": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          },
+          {
+            "id": "api2",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          },
+          {
+            "id": "web",
+            "role": "web",
+            "dependsOn": [
+              "db"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[4].dependsOn: the web tier proxies /api to one api unit, and the declaration has 2 (api, api2)"
+      ]
+    },
+    "a-web-unit-on-two-apis": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          },
+          {
+            "id": "api2",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          },
+          {
+            "id": "web",
+            "role": "web",
+            "dependsOn": [
+              "api",
+              "api2"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[4].dependsOn: the web tier proxies /api to one api unit, and it depends on 2 (api, api2)"
+      ]
+    },
+    "two-web-units": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          },
+          {
+            "id": "web",
+            "role": "web",
+            "dependsOn": [
+              "api"
+            ]
+          },
+          {
+            "id": "web2",
+            "role": "web",
+            "dependsOn": [
+              "api"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[4].role: a second web unit"
+      ]
+    },
+    "an-api-without-its-liveness-path": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[2].livenessPath is missing"
+      ]
+    },
+    "an-api-without-its-health-path": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[2].healthPath is missing"
+      ]
+    },
+    "a-start-order-cycle": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate",
+              "worker"
+            ]
+          },
+          {
+            "id": "worker",
+            "role": "worker",
+            "dependsOn": [
+              "api"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[2].dependsOn closes a cycle, api -> worker -> api"
+      ]
+    },
+    "a-start-order-on-an-undeclared-unit": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate",
+              "redis"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[2].dependsOn[2] \"redis\" is no declared unit"
+      ]
+    },
+    "a-volume-without-a-mount": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ],
+        "volumes": [
+          {
+            "id": "files-data"
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "volumes[0].mount is missing: the generator renders where each volume is mounted"
+      ]
+    },
+    "a-mount-elsewhere-in-var": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ],
+        "volumes": [
+          {
+            "id": "files-data",
+            "mount": {
+              "path": "var/uploads",
+              "units": [
+                "api"
+              ]
+            }
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "volumes[0].mount.path is \"var/uploads\": this version renders the one mount point the backend image makes (allowed: var/files)"
+      ]
+    },
+    "a-mount-on-the-web-tier": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          },
+          {
+            "id": "web",
+            "role": "web",
+            "dependsOn": [
+              "api"
+            ]
+          }
+        ],
+        "volumes": [
+          {
+            "id": "files-data",
+            "mount": {
+              "path": "var/files",
+              "units": [
+                "api",
+                "web"
+              ]
+            }
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "volumes[0].mount.units[1] \"web\" is no unit on the backend image"
+      ]
+    },
+    "a-volume-named-like-a-data-volume": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ],
+        "volumes": [
+          {
+            "id": "db-data",
+            "mount": {
+              "path": "var/files",
+              "units": [
+                "api"
+              ]
+            }
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "volumes[0].id \"db-data\" is the data volume the generator renders for a kind unit"
+      ]
+    },
+    "a-system-package": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ],
+        "generator": {
+          "systemPackages": [
+            "curl"
+          ]
+        }
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "generator.systemPackages[0] \"curl\" is not in the system-package table (allowed: a package of the table: none in this release)"
+      ]
+    },
+    "a-unit-id-in-capitals": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "Api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": true,
+      "refused": [
+        "units[2].id \"Api\" is not a lower-case compose service name"
+      ]
+    },
+    "a-project-name-docker-refuses": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "Demo_App",
+      "frontendLock": true,
+      "refused": [
+        "[project].name \"Demo_App\" is not a name compose and Docker accept for this deployment"
+      ]
+    },
+    "a-project-name-that-ends-in-a-separator": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo_",
+      "frontendLock": true,
+      "refused": [
+        "[project].name \"demo_\" is not a name compose and Docker accept"
+      ]
+    }
+  }
+}

@@ -35,6 +35,14 @@ block of seam variables one of them never read, about which of two entries in on
 and about what to do with a file it could not read. The words now have one owner, the Terp
 Standard, and a reader says what it does with a version it does not know.
 
+And every app that grew a worker, a scheduler or a files volume edited the template's
+production profile, then met that edit as a merge conflict on every update after, while
+nothing guaranteed the files built, installed the audited locks or kept secrets out. The
+framework now has a generator for an app's three production build files, and the template's
+own three are its render of the seed declaration, held byte for byte, so a hardening change is
+made once (ADR 0187). Declaring `"build": "generated"` is the next release's: the reader still
+refuses it.
+
 ### Security
 
 - **A rendered environment file can no longer be baked into an image.** The template's
@@ -146,6 +154,25 @@ Standard, and a reader says what it does with a version it does not know.
   nothing and fails when adoption has something to write, for an app's CI to opt into; it is not
   part of `terp verify`. ADR 0186.
 
+- **`terp.arch.deployment.generate` renders a deployment's build files from its declaration.**
+  A pure function of the typed declaration, `[project].name` used verbatim, whether
+  `frontend/package-lock.json` exists, and the framework release's tables: the datastore
+  table, a new base-image table (the four bases by digest, with the tag each was read from), a
+  new system-package table (empty in this release), and a recipe per datastore kind (its data
+  path, its healthcheck, its own environment and the variable the backend units reach it
+  through). It renders `docker-compose.prod.yml`, `Dockerfile.prod` when a unit runs the backend
+  image and `frontend/Dockerfile.prod` when a `web` unit is declared, or refuses, with the field,
+  what is allowed and `own` as the way out, what it cannot render faithfully: another profile
+  name or an override, an external database beside a database unit, a datastore without its
+  kind, two databases, a declared migration step, a role with no command of its own, a web tier
+  with no single api to proxy to, a start-order cycle, a volume without its mount or mounted
+  anywhere but `var/files`, any system package, a project name compose or Docker refuses, and
+  more, one golden sample each. Its output is ASCII, LF, in declaration order, with every
+  declared value double-quoted and each `$` doubled, so compose passes it on as written; ten
+  golden samples, `hostile-values` among them, hold it byte for byte, across processes and
+  hash seeds, under YAML 1.1 and 1.2, and through `docker compose config`. Nothing calls it from
+  an app's gate yet: `terp deployment render` and `terp verify --only generated` come with the
+  release that accepts `"build": "generated"`. ADR 0187.
 - **`terp jobs worker --forever`** drains the outbox, waits `--poll-seconds` (5 by default),
   and drains again until SIGTERM or SIGINT, which end it cleanly after the batch in flight. A
   profile no longer needs a shell loop around a single drain, and the reference app's worker
@@ -203,6 +230,34 @@ Standard, and a reader says what it does with a version it does not know.
   profile, are refused when the file is read, so `terp ports` refuses them too.
 - **`terp ports` publishes a role's first `hostPortEnv`**, the entry a workbench sets, where it
   took the last.
+- **The template's `Dockerfile.prod`, `frontend/Dockerfile.prod` and `docker-compose.prod.yml` are
+  the generator's render of the seed.** Each opens with the same header: rendered by `terp
+  deployment render` from `deployment.json`, the generator's under `"build": "generated"`, the
+  app's under `"build": "own"`. Every base is pinned by digest from the base-image table, the
+  tag it was read from above its `FROM`, where the images named `python:3.14-slim`,
+  `node:26-slim`, `nginxinc/nginx-unprivileged:alpine` and `ghcr.io/astral-sh/uv:latest`. The
+  web image runs `npm ci --ignore-scripts` and builds the bundle with `RUN --network=none npm run
+  build --ignore-scripts`: measured on a template render and the reference app, no package in
+  their locks needs a lifecycle script, and the bundle built that way is byte for byte the one
+  built with scripts on. The profile's header no longer restates the seed's topology (how to
+  start it, bootstrap the first administrator and use an external database moved to `terp guide
+  deployment`); its comments say only what is true of the element they sit on, in ASCII; the
+  api's healthcheck passes its liveness path to a fixed probe as an argument; and `migrate` and
+  `api` each load `.app.env` and then their own `.app.<id>.env`, while `x-backend` keeps
+  `.app.env`, so a service an app added through the merge key still inherits it.
+- **The production backend image carries no `HEALTHCHECK`.** Every backend unit ran it, so a
+  worker, a scheduler or a companion inherited a probe of an HTTP server it does not run, turned
+  unhealthy within two minutes, and made `docker compose up --wait`, which a deploy runs, fail
+  every deployment of a profile that ran one; disabling the probe per service made Compose
+  refuse to wait on that service instead (both measured on Compose 2.40). The profile probes
+  each api unit on its liveness path, and a unit that serves no request has no check and is
+  ready once it runs. The reference app's production profile now passes `up -d --wait`.
+- **The production backend image ships its bytecode.** It held none, its user cannot write the
+  environment, and so every process start compiled the platform again: the platform's import
+  took about twice as long. The dependencies are compiled in their own layer and the two source
+  roots after they are copied, with `python -m compileall --invalidation-mode checked-hash`, whose
+  bytecode records a hash of its source rather than a time: two cold builds of one lock gave the
+  same 1355 files byte for byte, and the installed set is unchanged.
 - **The truth rule reads a profile as compose does.** A restated command is compared with what
   compose makes of the profile's: `$$` is one `$`, `$name` and `${...}` are interpolations that
   never equal a restated literal, and any other `$` is literal. It compared raw strings, and
@@ -210,8 +265,27 @@ Standard, and a reader says what it does with a version it does not know.
 
 ### Upgrade notes
 
-
-### Upgrade notes
+- **`copier update` rewrites the three production build files once**, to the generator's render
+  of the seed. An app that never edited them takes the update as it comes. One that did meets
+  one merge, in these places only: the header of each file; the bases, now pinned by digest; the
+  backend Dockerfile's sentence on which units its image backs; the web image's `npm ci
+  --ignore-scripts` and the bundle built under `RUN --network=none npm run build
+  --ignore-scripts`; and in the profile the header, the per-service comments, the first line
+  (no longer the app's name), the api's healthcheck (the fixed probe on `127.0.0.1`, the path
+  its argument), and the `env_file` lists on `migrate` and `api`. Keep your own services; they
+  still inherit `.app.env` through `<<: *backend`. If your frontend's lock holds a package that
+  needs its install script, keep `npm ci` without `--ignore-scripts` in your copy: the file is
+  yours under `"build": "own"`.
+- **An app that added a service on the backend image needs no healthcheck for it**, and
+  should not write `healthcheck: {disable: true}`: Compose refuses to wait on a disabled check.
+  A service of your own that serves HTTP declares its probe in the profile, as `api` does.
+- **Base images move with framework releases now.** A Dependabot pull request that bumps a base
+  digest in these files competes with the next framework release that moves it; decline it, or
+  take the release.
+- **A worker that loops in a shell can run `terp jobs worker --forever` instead.** It drains,
+  waits and drains again, and a stop ends it after the batch in flight, so the trap, the sleep
+  and the `sh -c` go. Put `init: true` on the service, as the generator does, so the stop
+  signal is forwarded.
 
 - **Commit `uv.lock` and `frontend/package-lock.json`.** After `copier update`, the production
   images and the template's CI install exactly them and refuse a lock that disagrees with its

@@ -1,0 +1,8 @@
+{
+  "about": "Nothing built from the checkout: no backend Dockerfile, no x-backend.",
+  "project": "demo",
+  "frontendLock": false,
+  "renders": [
+    "docker-compose.prod.yml"
+  ]
+}

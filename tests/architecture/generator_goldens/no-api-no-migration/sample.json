@@ -1,0 +1,9 @@
+{
+  "about": "A database and a worker only. It renders; terp release will refuse it (no migration step and not exactly one api unit), which the check notes.",
+  "project": "demo",
+  "frontendLock": true,
+  "renders": [
+    "Dockerfile.prod",
+    "docker-compose.prod.yml"
+  ]
+}

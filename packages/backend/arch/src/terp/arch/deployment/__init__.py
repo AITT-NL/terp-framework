@@ -6,6 +6,10 @@ mirrored here byte for byte); the closed datastore table is this framework relea
 ``deployment_declaration_is_readable`` and ``deployment_declaration_tells_the_truth``
 (:mod:`terp.arch.rules.deployment`). ``terp verify --only deployment`` runs both and
 adds the app part, which needs the composed app and so lives in the CLI.
+
+ADR 0187: :func:`generate` renders a generated app's build files from the declaration, the
+project name and this release's tables (:mod:`terp.arch.deployment.tables`), and the
+template's own three files are its render of the seed.
 """
 
 from __future__ import annotations
@@ -19,8 +23,10 @@ from terp.arch.deployment.datastores import (
     load_table,
     published_table,
 )
+from terp.arch.deployment.generator import OWNED_PATHS, escape_findings, generate
 from terp.arch.deployment.profile import (
     build_path_findings,
+    compose_literal,
     mounters,
     resolve_profile,
     services_of,
@@ -34,11 +40,13 @@ from terp.arch.deployment.reader import (
     Backup,
     Declaration,
     Finding,
+    Mount,
     Unit,
     Unmanaged,
     Volume,
     read,
 )
+from terp.arch.deployment.tables import Tables, published_tables
 
 
 def readable(
@@ -77,6 +85,7 @@ def untrue(project_root: str | pathlib.Path, table: DatastoreTable | None = None
 
 __all__ = [
     "DEPLOYMENT_FILE",
+    "OWNED_PATHS",
     "SCHEMA_FILE",
     "SPEC_RELEASE",
     "Backup",
@@ -85,12 +94,18 @@ __all__ = [
     "DatastoreTableError",
     "Declaration",
     "Finding",
+    "Mount",
+    "Tables",
     "Unit",
     "Unmanaged",
     "Volume",
+    "compose_literal",
+    "escape_findings",
+    "generate",
     "load_table",
     "mounters",
     "published_table",
+    "published_tables",
     "read",
     "readable",
     "resolve_profile",

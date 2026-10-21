@@ -1,17 +1,32 @@
+# Rendered by `terp deployment render` from deployment.json (ADR 0187). Where deployment.json
+# says "build": "generated" this file is the generator's: change deployment.json and render
+# again, never this file. Under "build": "own" it is the app's to change.
+#
 # Production backend image (ADR 0062). It installs exactly the committed lock: every
 # dependency, the ASGI server and the Postgres driver included, at the version and hash
 # uv.lock records, and the build refuses a lock that has drifted from pyproject.toml
 # instead of resolving again. No editable installs, no source tree beyond the two roots
-# `terp migrate` reads, no build tooling, no uv. The same image backs the one-shot
-# `migrate` job and the `api` server; bootstrap the first admin with `terp user create`
+# `terp migrate` reads, no build tooling, no uv. The same image backs every unit built
+# from the checkout but the web tier; bootstrap the first admin with `terp user create`
 # (never `terp seed`, which refuses ENVIRONMENT=production). The dev workbench keeps its
 # own Dockerfile.
+#
+# Every base is pinned by digest from terp-arch's base-image table, never by a tag that
+# can move between two builds of one commit; the tag each digest was read from stands
+# above its FROM, and a framework release moves them.
 #
 # Layered so an edit to the app rebuilds only the app: the manifest and the lock first,
 # the dependencies installed from them in a layer of their own, the app last. The
 # runtime image is the same three parts, a base, the locked dependencies and the app, so
 # a release that changes only code ships a new app layer over an unchanged dependency
 # layer.
+#
+# Compiled to bytecode at build time, each part in its own layer: the process runs as a
+# user who cannot write the environment, so bytecode it does not ship it compiles again on
+# every start, which made importing the app several times slower. Checked-hash bytecode
+# (PEP 552, `--invalidation-mode checked-hash`) records a hash of its source instead of a
+# time, so no file's mtime reaches it, and the interpreter still refuses a .pyc whose
+# source has changed.
 #
 # No BuildKit cache mounts, on purpose: a release build must never read a cache that a
 # development build wrote. The layers are the cache, keyed by their inputs. The image does
@@ -20,10 +35,12 @@
 # that may match nothing.
 
 # The uv binary, named once so a stage can mount it without the runtime image keeping it.
-FROM ghcr.io/astral-sh/uv:latest AS uv
+# ghcr.io/astral-sh/uv:0.13.4
+FROM ghcr.io/astral-sh/uv@sha256:9f130421e930bfbdc563c00740466603f8723158e90297d07957c2294640262b AS uv
 
 # --- Stage 1: the locked dependencies -------------------------------------------------
-FROM python:3.14-slim AS deps
+# python:3.14-slim
+FROM python@sha256:fbecd461fc72d21b2143c6eaba25143738079154a6d0ea3da3aec724f50eed4a AS deps
 
 COPY --from=uv /uv /bin/uv
 
@@ -46,6 +63,7 @@ COPY .terp-dis[t]/wheel[s] .terp-dist/wheels/
 # refusal ("The lockfile at `uv.lock` needs to be updated") instead of a fresh
 # resolution when pyproject.toml and the lock disagree. `uv lock` is the fix.
 RUN uv sync --locked --no-dev --no-install-project
+RUN /srv/.venv/bin/python -m compileall -q -j 0 --invalidation-mode checked-hash /srv/.venv/lib
 
 # --- Stage 2: the app wheel -----------------------------------------------------------
 # The whole context, which .dockerignore keeps free of secrets, local databases, caches
@@ -56,7 +74,8 @@ COPY . .
 RUN uv build --wheel --out-dir /dist .
 
 # --- Stage 3: minimal runtime ---------------------------------------------------------
-FROM python:3.14-slim
+# python:3.14-slim
+FROM python@sha256:fbecd461fc72d21b2143c6eaba25143738079154a6d0ea3da3aec724f50eed4a
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -83,13 +102,19 @@ RUN --mount=from=uv,source=/uv,target=/bin/uv \
     uv pip install --python /srv/.venv/bin/python --no-deps --no-cache /dist/*.whl
 COPY app app
 COPY control_plane control_plane
+# The two source roots are what the processes import the app from, so they are compiled
+# the same way. A package the wheel installs beside them (a companion's) compiles when it
+# is first imported.
+RUN python -m compileall -q -j 0 --invalidation-mode checked-hash app control_plane
 
 # Drop privileges.
 USER appuser
 
 EXPOSE 8000
-HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=10s \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+# No HEALTHCHECK: every backend unit runs this image and only an api serves HTTP, so a
+# probe here would report a worker or a scheduler unhealthy, and `docker compose up
+# --wait`, which a deploy runs, refuses a project with an unhealthy container. The profile
+# probes each api unit on its declared liveness path instead (ADR 0187).
 # No --reload: production serves immutable code. The server is pyproject.toml's runtime
 # dependency "uvicorn[standard]", at the version uv.lock pins.
 # --timeout-graceful-shutdown bounds the wait for in-flight tasks; unset, uvicorn waits

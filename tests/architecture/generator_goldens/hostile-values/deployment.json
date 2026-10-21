@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "build": "generated",
+  "compose": {
+    "file": "docker-compose.prod.yml"
+  },
+  "units": [
+    {
+      "id": "no",
+      "role": "database",
+      "kind": "postgres",
+      "version": "17"
+    },
+    {
+      "id": "true",
+      "role": "one-shot",
+      "dependsOn": [
+        "no"
+      ]
+    },
+    {
+      "id": "1e3",
+      "role": "api",
+      "healthPath": "/ready$x'y",
+      "livenessPath": "/live/$HOME/$SECRET_KEY/it's$$",
+      "dependsOn": [
+        "no",
+        "true"
+      ]
+    },
+    {
+      "id": "0o17",
+      "role": "worker",
+      "command": [
+        "sh",
+        "-c",
+        "echo \"$HOME\" ${SECRET_KEY} $$ $! 'q' \\ `x` | ; & > < ( ) # %"
+      ],
+      "dependsOn": [
+        "1e3"
+      ]
+    },
+    {
+      "id": "odd",
+      "role": "reporter",
+      "command": [
+        "printf",
+        "%s\\n",
+        "$",
+        "${SECRET_KEY}",
+        "$$",
+        "$!",
+        "a$",
+        "\"quoted\"",
+        "back\\slash",
+        "a;b|c&&$(d)`e`>f",
+        "caf\u00e9",
+        "\u6f22\u5b57",
+        "\ud83d\ude00",
+        "#not a comment",
+        "key: value",
+        "- item",
+        "[x]",
+        "{y}",
+        "*z",
+        "&a",
+        "!tag",
+        "%p",
+        "@q",
+        "?r",
+        "|s",
+        ">t",
+        "~",
+        "null",
+        "yes",
+        "0x1F",
+        "1e3",
+        ".inf",
+        "2026-10-21",
+        "<<"
+      ],
+      "dependsOn": [
+        "no"
+      ]
+    },
+    {
+      "id": "web",
+      "role": "web",
+      "dependsOn": [
+        "1e3"
+      ]
+    }
+  ],
+  "volumes": [
+    {
+      "id": "files",
+      "mount": {
+        "path": "var/files",
+        "units": [
+          "1e3",
+          "0o17"
+        ]
+      }
+    }
+  ]
+}
