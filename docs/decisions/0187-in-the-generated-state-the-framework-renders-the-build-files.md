@@ -62,7 +62,7 @@ The constraints:
 - **Rollback must not depend on the framework version** a release was cut with.
 - **A framework update is a change like any other**, made in a copy, checked, and published; a
   missed re-render must turn that copy red.
-- **The manifest needs a signature format** (DSSE was asked for) and must record the Terp Standard
+- **The manifest needs a signature format** (decision 6 settles on DSSE) and must record the Terp Standard
   release its declaration was validated against.
 
 ## Decision
@@ -104,7 +104,8 @@ as one merge:
   checked-hash` (PEP 552), which records a hash of the source rather than an mtime, so the same
   lock compiles to the same bytes. The image's user cannot write the environment and
   `PYTHONDONTWRITEBYTECODE` stays, so before this every process start compiled the platform
-  again, and importing the app took about 11.5 s where it takes about 2 s compiled.
+  again: on a loaded host, importing the app took about 11.5 s where it took about 2 s compiled;
+  on a quiet one, the platform's import is 6.2 s against 3.2 s (*How it was built*).
 - **`frontend/Dockerfile.prod`:** `npm ci --ignore-scripts`, and `npm run build --ignore-scripts`
   under `RUN --network=none`. Measured before it was made (*Consequences*): nothing in the
   template's lock or the reference app's needs a lifecycle script.
@@ -622,7 +623,7 @@ is a table digest; plain scalars read back as strings under YAML 1.1 and 1.2. A 
 
 ## Debate
 
-Two rounds of adversarial review changed this record.
+Four rounds of adversarial review changed this record; the fourth found nothing new of weight.
 
 **Round one.**
 - The signing key left the job that runs the app: release split into jobs, and `sign` runs no app
