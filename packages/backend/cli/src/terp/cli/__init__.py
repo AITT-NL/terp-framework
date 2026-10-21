@@ -3732,6 +3732,39 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Pick a new pair even if one is already claimed or published",
     )
 
+    workbench_parser = subcommands.add_parser(
+        "workbench",
+        help="The app's development-loop declaration, workbench.json",
+    )
+    workbench_subcommands = workbench_parser.add_subparsers(
+        dest="workbench_command", required=True
+    )
+    workbench_adopt_parser = workbench_subcommands.add_parser(
+        "adopt",
+        help=(
+            "Bring workbench.json to a schema version: shows the diff, and writes it "
+            "only with --write"
+        ),
+    )
+    workbench_adopt_parser.add_argument(
+        "--root", default=".", help="Project root (default: .)"
+    )
+    workbench_adopt_parser.add_argument(
+        "--schema",
+        type=int,
+        default=None,
+        help="The schema version to adopt (default: the newest this toolchain defines)",
+    )
+    workbench_adopt_mode = workbench_adopt_parser.add_mutually_exclusive_group()
+    workbench_adopt_mode.add_argument(
+        "--write", action="store_true", help="Write workbench.json as the diff shows"
+    )
+    workbench_adopt_mode.add_argument(
+        "--check",
+        action="store_true",
+        help="Write nothing, and exit 1 if adoption has something to write (for CI)",
+    )
+
     outbox_parser = subcommands.add_parser(
         "outbox",
         help="Report the durable outbox: whether anything is draining it, and what gave up",
@@ -4396,6 +4429,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                 action=args.ports_command,
                 root=args.root,
                 reassign=getattr(args, "reassign", False),
+            )
+        )
+    if args.command == "workbench":
+        from terp.cli.workbench_adopt import run_workbench_adopt
+
+        raise SystemExit(
+            run_workbench_adopt(
+                root=args.root, schema=args.schema, write=args.write, check=args.check
             )
         )
     if args.command == "outbox" and args.outbox_command == "backlog":

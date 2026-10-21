@@ -136,6 +136,15 @@ Standard, and a reader says what it does with a version it does not know.
   variable names and the deployment-profile markers. A test compares the copy, and the spec's
   fixtures carried beside it, with the pinned spec once a release that ships them is pinned, and
   every fixture is read through the checker. ADR 0186.
+- **`terp workbench adopt` carries a declaration forward to a schema version.** The template seeds
+  `workbench.json` once and the app owns it, so a later vocabulary never reached an app that
+  already had one. `adopt` shows the diff and writes only with `--write`; it refuses a version
+  the vocabulary does not define (today that is every version but 1, so `--schema 2` writes
+  nothing), a file it cannot read, and a fact it cannot represent: a declared service the compose
+  file no longer defines, a fixed host port, two port variables for one service, a seam the compose
+  file never reads. It carries over everything the compose file cannot settle. `--check` writes
+  nothing and fails when adoption has something to write, for an app's CI to opt into; it is not
+  part of `terp verify`. ADR 0186.
 
 ### Changed
 
@@ -224,6 +233,7 @@ Standard, and a reader says what it does with a version it does not know.
 - **`terp verify --only workbench` can turn red on a `workbench.json` it used to pass**, for the
   values listed under Changed: a reserved variable name, or a value it used to coerce or skip. The
   template has never written either; the message names the field and what it allows.
+  `terp workbench adopt` shows what the compose file says a port variable is, if that is the fix.
 
 ### Fixed
 
