@@ -1364,7 +1364,8 @@ Durable post-commit delivery (outbox capability)
       def _after_write(self, session, entity, *, action):
           enqueue(session, job=RUN_START, payload=RunStartPayload(run_id=entity.id))
 - Run the relay as its own process (not inside the API container):
-      terp jobs worker
+      terp jobs worker --forever
+  (without --forever it drains what is due once and returns, for an external trigger).
   It leases rows (claim_id + locked_until, SKIP LOCKED), delivers AT LEAST ONCE, retries
   with exponential backoff, and dead-letters once max_attempts is exhausted. Every
   handler must therefore be safe to run twice - see `terp guide idempotency`.
@@ -2443,7 +2444,7 @@ rendered before it existed stays undeclared until it writes one itself.
         { "id": "api", "role": "api", "healthPath": "/health/ready",
           "livenessPath": "/health/live", "migrations": ["notes"],
           "dependsOn": ["db", "migrate"] },
-        { "id": "worker", "role": "worker", "command": ["terp", "jobs", "worker"],
+        { "id": "worker", "role": "worker", "command": ["terp", "jobs", "worker", "--forever"],
           "env": ["SOME_API_BASE_URL"], "dependsOn": ["db"] },
         { "id": "web", "role": "web", "dependsOn": ["api"] }
       ],
@@ -3655,6 +3656,18 @@ def _build_parser() -> argparse.ArgumentParser:
         default=30.0,
         help="Lease duration before a stalled row may be reclaimed (default: 30)",
     )
+    jobs_worker_parser.add_argument(
+        "--forever",
+        action="store_true",
+        help="Keep draining until stopped: drain, wait --poll-seconds, drain again; SIGTERM or "
+        "SIGINT ends it after the batch in flight (the worker container's command)",
+    )
+    jobs_worker_parser.add_argument(
+        "--poll-seconds",
+        type=float,
+        default=5.0,
+        help="With --forever, the pause between two drains (default: 5)",
+    )
 
     jobs_scheduler_parser = jobs_subcommands.add_parser(
         "scheduler",
@@ -4408,6 +4421,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 max_cycles=args.max_cycles,
                 batch_size=args.batch_size,
                 lease_seconds=args.lease_seconds,
+                forever=args.forever,
+                poll_seconds=args.poll_seconds,
             )
         )
         return

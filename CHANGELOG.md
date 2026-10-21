@@ -146,6 +146,11 @@ Standard, and a reader says what it does with a version it does not know.
   nothing and fails when adoption has something to write, for an app's CI to opt into; it is not
   part of `terp verify`. ADR 0186.
 
+- **`terp jobs worker --forever`** drains the outbox, waits `--poll-seconds` (5 by default),
+  and drains again until SIGTERM or SIGINT, which end it cleanly after the batch in flight. A
+  profile no longer needs a shell loop around a single drain, and the reference app's worker
+  runs it in both profiles.
+
 ### Changed
 
 - **The template's production images install exactly the committed locks.** The backend image
