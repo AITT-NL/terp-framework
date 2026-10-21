@@ -198,6 +198,13 @@ Standard, and a reader says what it does with a version it does not know.
   profile, are refused when the file is read, so `terp ports` refuses them too.
 - **`terp ports` publishes a role's first `hostPortEnv`**, the entry a workbench sets, where it
   took the last.
+- **The truth rule reads a profile as compose does.** A restated command is compared with what
+  compose makes of the profile's: `$$` is one `$`, `$name` and `${...}` are interpolations that
+  never equal a restated literal, and any other `$` is literal. It compared raw strings, and
+  would have called a generated profile, which doubles every `$` of a value, untrue.
+
+### Upgrade notes
+
 
 ### Upgrade notes
 

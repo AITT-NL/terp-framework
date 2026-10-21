@@ -214,12 +214,44 @@ def build_path_findings(project_root: pathlib.Path, declaration: Declaration) ->
     return findings
 
 
-def _argv(command: Any) -> tuple[str, ...] | None:
+#: What compose interpolates: ``$$``, ``$name`` and ``${``, read the way compose reads them.
+_INTERPOLATION = re.compile(r"\$(\$|\{|[A-Za-z_])")
+
+
+def compose_literal(text: str) -> str | None:
+    """The literal compose makes of *text*, or ``None`` when it interpolates.
+
+    ``$$`` is one ``$``; ``$name`` and ``${...}`` are interpolations, whose value is the
+    environment's and so never equals a literal the declaration restates; any other ``$``
+    (``$!``, ``$1``, a trailing one) is literal, as compose leaves it. A profile the
+    generator renders doubles every ``$`` of a value, so the declaration's own text is what
+    this gives back (ADR 0187).
+    """
+    out: list[str] = []
+    position = 0
+    for match in _INTERPOLATION.finditer(text):
+        if match.group(1) != "$":
+            return None
+        out.append(text[position : match.start()] + "$")
+        position = match.end()
+    return "".join(out) + text[position:]
+
+
+def _argv(command: Any) -> tuple[str | None, ...] | None:
+    """The command compose runs, element by element; ``None`` marks an interpolation."""
     if isinstance(command, list):
-        return tuple(str(part) for part in command)
+        return tuple(compose_literal(str(part)) for part in command)
     if isinstance(command, str):
-        return tuple(shlex.split(command))
+        literal = compose_literal(command)
+        return (None,) if literal is None else tuple(shlex.split(literal))
     return None
+
+
+def _shown(command: Any) -> str:
+    """A profile's command as its author wrote it, for a message."""
+    if isinstance(command, list):
+        return " ".join(map(str, command))
+    return "the image's own command" if command is None else str(command)
 
 
 def _restated(
@@ -227,9 +259,10 @@ def _restated(
 ) -> list[Finding]:
     """A restated fact the profile owns has to be the profile's."""
     findings: list[Finding] = []
-    actual = _argv(service.get("command"))
+    written = service.get("command")
+    actual = _argv(written)
     if unit.command is not None and actual != unit.command:
-        runs = " ".join(actual) if actual is not None else "the image's own command"
+        runs = _shown(written)
         findings.append(
             Finding(
                 f"units[{index}].command restates {list(unit.command)}, and {label} runs "
