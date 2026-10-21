@@ -40,8 +40,9 @@ production profile, then met that edit as a merge conflict on every update after
 nothing guaranteed the files built, installed the audited locks or kept secrets out. The
 framework now has a generator for an app's three production build files, and the template's
 own three are its render of the seed declaration, held byte for byte, so a hardening change is
-made once (ADR 0187). Declaring `"build": "generated"` is the next release's: the reader still
-refuses it.
+made once (ADR 0187). An app can now declare `"build": "generated"`: `terp deployment render`
+writes those files from its declaration, and the gate refuses a committed copy that is not the
+render.
 
 ### Security
 
@@ -170,9 +171,29 @@ refuses it.
   more, one golden sample each. Its output is ASCII, LF, in declaration order, with every
   declared value double-quoted and each `$` doubled, so compose passes it on as written; ten
   golden samples, `hostile-values` among them, hold it byte for byte, across processes and
-  hash seeds, under YAML 1.1 and 1.2, and through `docker compose config`. Nothing calls it from
-  an app's gate yet: `terp deployment render` and `terp verify --only generated` come with the
-  release that accepts `"build": "generated"`. ADR 0187.
+  hash seeds, under YAML 1.1 and 1.2, and through `docker compose config`. ADR 0187.
+- **`"build": "generated"` is accepted, together with its drift check.** The reader reads it and
+  the Terp Standard's two words for it: `generator.systemPackages`, valid only beside
+  `generated` and each name one the system-package table carries (none in this release), and
+  `volumes[].mount` (`{"path": "var/files", "units": [...]}`), required under `generated` and a
+  restatement the truth rule now holds to the profile under `own`. The new `terp.arch` rule
+  `deployment_generated_files_match_their_render`, which `terp check` runs, refuses in the
+  generated state a committed `Dockerfile.prod`, `frontend/Dockerfile.prod` or
+  `docker-compose.prod.yml` that is not the render (with a short diff and the fix), a
+  generator-owned path the declaration renders nothing for, a declaration the generator cannot
+  render (in its own words, naming `own` as the way out), a `[project].name` compose or Docker
+  refuses, an environment file a unit loads that git would commit (asked of `git check-ignore`)
+  or the build context would carry (asked of a matcher with Docker's own `.dockerignore`
+  semantics, held to Docker's builder by a test), and a `deploy_build` in `.copier-answers.yml`
+  that disagrees. It is silent for an undeclared app, `own`, `unmanaged` and an unreadable
+  declaration.
+- **`terp verify --only generated`** runs that rule in every profile, category `build`, with
+  notes for what it does not judge (the git half outside a work tree, answers that predate the
+  question) and for a profile `terp release` will refuse (no migration step and other than one
+  api unit).
+- **`terp deployment render [--check]`** writes the render, every file or none, removes a
+  generator-owned file the declaration no longer renders, and refuses every state but
+  `generated`; `--check` writes nothing and runs the rule.
 - **`terp jobs worker --forever`** drains the outbox, waits `--poll-seconds` (5 by default),
   and drains again until SIGTERM or SIGINT, which end it cleanly after the batch in flight. A
   profile no longer needs a shell loop around a single drain, and the reference app's worker
@@ -265,6 +286,18 @@ refuses it.
 
 ### Upgrade notes
 
+- **To have the framework own the build files**, set `"build": "generated"` in
+  `deployment.json`, give each volume its `mount`, drop a `command` the generator owns (the
+  migration step's), run `uv run terp deployment render`, and commit the result. In a
+  template-shaped app at this template version the render changes no build file. What the
+  generator cannot render it refuses by name; `"build": "own"` stays the way out. The
+  `copier` question that records the choice, and `terp deployment adopt`, come next.
+- **`terp verify` gains a `generated` check in every profile**, category `build`; a driving tool
+  that pins the check list from the manifest sees the new id. It is green for every app that
+  has not declared `"build": "generated"`.
+- **A `generator` block beside `"build": "own"` is refused**, and so is a volume's `mount` that
+  names an undeclared unit or a path outside `var/`; a restated `mount` must be what the
+  profile mounts.
 - **`copier update` rewrites the three production build files once**, to the generator's render
   of the seed. An app that never edited them takes the update as it comes. One that did meets
   one merge, in these places only: the header of each file; the bases, now pinned by digest; the

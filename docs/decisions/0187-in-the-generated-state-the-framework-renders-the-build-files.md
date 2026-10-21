@@ -1,15 +1,19 @@
 # 0187 — In the generated state the framework renders the build files, and a release is signed by a job that never runs the app
 
 - **Status:** Proposed. Revised after four rounds of adversarial review (see *Debate*). Built in
-  0.35.0, as decision 8's second pull request: the tables and the kind recipe, the generator
-  (`terp.arch.deployment.generate`) with its golden samples, properties and import allowlist, the
-  truth rule's compose unescaping, `terp jobs worker --forever`, the `--ignore-scripts`
-  measurement, and the template's three build files replaced by the seed's render. The reader
-  still refuses `generated`. Held by `tests/architecture/test_deployment_generator.py`,
-  `test_deployment_truth.py`, `test_cli_jobs.py`, `test_prod_profile.py`,
-  `test_template_build_inputs.py`, `test_compose_workbench.py` and `test_reference_app.py`. The
-  two words and the rule ship in terp-spec 0.40.0, which is not published yet; see *How it was
-  built*.
+  0.35.0, as decision 8's second and third pull requests. The second: the tables and the kind
+  recipe, the generator (`terp.arch.deployment.generate`) with its golden samples, properties and
+  import allowlist, the truth rule's compose unescaping, `terp jobs worker --forever`, the
+  `--ignore-scripts` measurement, and the template's three build files replaced by the seed's
+  render. The third: the mirror of the Terp Standard's schema with the two words, the reader
+  accepting `generated` together with the rule `deployment_generated_files_match_their_render`,
+  `terp verify --only generated` and `terp deployment render [--check]`, and the truth rule's
+  restated mount. Held by `tests/architecture/test_deployment_generator.py`,
+  `test_deployment_generated.py`, `test_dockerignore.py`, `test_deployment_truth.py`,
+  `test_cli_jobs.py`, `test_prod_profile.py`, `test_template_build_inputs.py`,
+  `test_compose_workbench.py` and `test_reference_app.py`. The two words and the rule ship in
+  terp-spec 0.40.0, which is not published yet, so the spec pins stay where they are; see *How
+  it was built*.
 - **Date:** 2026-10-21
 - **Relates:** amends [ADR 0062](0062-production-deployment-profile.md) decisions 1 to 4, on top
   of its 2026-10-21 amendment; amends [ADR 0184](0184-a-deployment-declares-its-units.md)
@@ -707,7 +711,21 @@ Decision 8's second pull request, in 0.35.0.
   `terp jobs worker --forever` in both profiles and its worker, scheduler and companion no
   longer inherit the backend image's HTTP healthcheck, which had reported each of them
   unhealthy and failed every `up --wait` of that profile.
-- **Not yet:** the reader accepts neither `generated` nor the two words (the pinned spec
-  release does not carry them), so a sample is read as `own` without them through the reader,
-  then as the generator's typed model. Decision 8's third pull request moves the pins and the
-  mirror, and replaces that step with the reader.
+- **The wiring** (the third pull request). terp-arch's mirror of
+  `deployment-declaration.schema.json` is the Terp Standard's with the two words, byte for byte,
+  and its test compares the two the moment the pin reaches the release that carries them. The
+  pins do not move here: terp-spec 0.40.0 is not published, so the three deployment rules stay
+  listed as awaiting that release, and certification was reproduced with the spec's checkout
+  substituted for the pinned release: the catalog and corpus parity tests pass, the new rule's
+  11 cases among them, and so do the fixtures' field checks. `generated` is read from the same
+  commit that adds its drift check. The reader names a `generator` block beside `own` at the
+  block, resolves a system package against the table it is given (the corpus case's own, or this
+  release's), and refuses a mount that names an undeclared unit; the truth rule holds a restated
+  mount to the profile, its path read against `/srv`. The rule asks git itself whether there is
+  a work tree (`git rev-parse --is-inside-work-tree`) before it asks `git check-ignore`, so a
+  `.git` git cannot read is no work tree and is noted, and its `.dockerignore` matcher was held
+  file for file to what Docker's builder lets into a context (`docker build -o type=local` over
+  a context of every rule's cases). A golden sample is now read through the reader. The
+  generator's golden files and the reference app's profile are pinned to LF by
+  `.gitattributes`, since a byte comparison must hold on a Windows checkout that converts line
+  endings.

@@ -2456,9 +2456,10 @@ FOUR STATES, EXACTLY ONE AT A TIME
 
   absent                          undeclared: every check passes, as before
   "build": "own"                  units built from the build files the app commits
-  "build": "generated"            refused until the framework ships a generator:
-                                  "this toolchain cannot honour generated; upgrade,
-                                  or declare own"
+  "build": "generated"            the framework renders Dockerfile.prod,
+                                  frontend/Dockerfile.prod and docker-compose.prod.yml
+                                  from this file (`terp deployment render`), and a
+                                  committed copy that is not the render is refused
   {"unmanaged": true, "reason"}   no tool can drive this deploy; the checks are off and
                                   a tool shows the reason. Nothing may stand beside it.
 
@@ -2471,7 +2472,9 @@ or a second API to the profile and nothing here objects. A role nobody has heard
 information. What the file DOES say must be true of the resolved profile -- the file
 plus compose.overrides, merged the way `docker compose -f ... -f ...` merges them:
 
-  - a unit is a service of the profile; a volume is a named volume a service mounts;
+  - a unit is a service of the profile; a volume is a named volume a service mounts, and
+    a restated "mount" names exactly the declared units whose services mount it there
+    (its path relative to /srv, where the images run the app);
   - a restated "command" (an argument list, never a shell string) or "dependsOn" is the
     profile's own, the order restricted to declared units;
   - an "env" name reaches the unit's service: in its environment: block, or through the
@@ -2512,16 +2515,56 @@ digest allowlist are environment facts and stay out too.
 
 WHERE IT IS CHECKED
 
-  terp check                       the two terp.arch rules, from files alone:
-                                   deployment_declaration_is_readable and
-                                   deployment_declaration_tells_the_truth
-  terp verify --only deployment    both, plus the app part and notes on what the app
-                                   uses that the file does not state (a files volume
-                                   with no backup policy, a companion root no unit
-                                   runs, a datastore kind no unit declares)
+  terp check                       the three terp.arch rules, from files alone:
+                                   deployment_declaration_is_readable,
+                                   deployment_declaration_tells_the_truth and
+                                   deployment_generated_files_match_their_render
+  terp verify --only deployment    the first two, plus the app part and notes on what
+                                   the app uses that the file does not state (a files
+                                   volume with no backup policy, a companion root no
+                                   unit runs, a datastore kind no unit declares)
+  terp verify --only generated     the third, with notes: what it did not judge, and a
+                                   profile `terp release` will refuse
 
-Neither rule has an `# arch-allow-*` marker -- a JSON file cannot carry one. The way
-out is the declaration's own: {"unmanaged": true, "reason": "..."}.
+None of them has an `# arch-allow-*` marker -- a JSON file cannot carry one, and a marker
+in a file the generator rewrites would be erased by the next render. The way out is the
+declaration's own: {"unmanaged": true, "reason": "..."}, or, for the third, "build": "own".
+
+THE GENERATED STATE (ADR 0187)
+
+Under "build": "generated" the three production build files are the framework's. Change
+deployment.json (or pyproject.toml's name, or the framework version), then:
+
+  uv run terp deployment render          writes the render, every file or none, and
+                                         removes a generator-owned file the declaration
+                                         no longer renders; refuses, in the generator's
+                                         own words, what it cannot render faithfully
+  uv run terp deployment render --check  writes nothing; exit 1 when a committed file is
+                                         not the render (the same rule as the gate's)
+
+and commit the files with the declaration. The gate never writes. `terp verify --only
+generated` is red when a committed file differs from the render (a short diff and the
+fix), when a generator-owned path the render does not produce exists, when the generator
+refuses the declaration, when [project].name is one compose or Docker refuses, when .env,
+.app.env or a backend unit's .app.<id>.env would be committed (asked of git check-ignore)
+or baked into an image (asked of a matcher with Docker's own .dockerignore semantics), and
+when deploy_build in .copier-answers.yml disagrees. In a tree git finds no work tree in,
+the git half is noted, not judged.
+
+What the generator refuses, each with the field and what is allowed: another profile name
+or an override; externalDatabase beside a database unit; a database or store without kind,
+or two of a kind; a one-shot that declares `terp migrate upgrade` (drop the command: the
+one-shot without one is the migration step) or a second step; a role with no command of
+its own and none declared; a web unit with a command, with no single api to proxy to, or
+without frontend/package-lock.json; an api without both health paths; a start-order cycle
+or a unit it names that is not declared; a volume without its mount, mounted anywhere but
+var/files, or on a unit not on the backend image; any system package (the table is empty
+in this release); a unit id that is not a lower-case compose name. Any of them: declare
+"build": "own" and keep the files yourself.
+
+The generator's two words: "generator": {"systemPackages": [...]}, valid only beside
+"build": "generated", and "mount": {"path": "var/files", "units": [...]} on a volume,
+required under generated and a restatement the truth rule holds to the profile under own.
 
 THE LOCKS A DECLARED APP IS BUILT FROM
 
@@ -2538,8 +2581,8 @@ THE PRODUCTION PROFILE THE TEMPLATE SHIPS (ADR 0187)
 The template's Dockerfile.prod, frontend/Dockerfile.prod and docker-compose.prod.yml are
 the framework generator's render of the seed declaration (terp.arch.deployment.generate),
 held byte for byte by a test, so a hardening change reaches them once. Each says so in
-its header. Under "build": "own" they are the app's to change; "build": "generated"
-waits for the framework release that wires `terp deployment render` and its check.
+its header. Under "build": "own" they are the app's to change; under "build": "generated"
+they are the render (THE GENERATED STATE, above).
 
   start it, with its required secrets set (compose stops on an unset one):
     SECRET_KEY=... POSTGRES_PASSWORD=... \\
