@@ -3934,6 +3934,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write nothing, and exit 1 if adoption has something to write (for CI)",
     )
 
+    from terp.cli.release.cli import add_parsers as add_release_parsers
+
+    add_release_parsers(subcommands)
+
     deployment_parser = subcommands.add_parser(
         "deployment",
         help="The app's deployment declaration, deployment.json, and what it renders",
@@ -4657,6 +4661,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                 reassign=getattr(args, "reassign", False),
             )
         )
+    if args.command == "release":
+        from terp.cli.release.cli import run_release
+
+        raise SystemExit(run_release(args))
     if args.command == "deployment" and args.deployment_command == "adopt":
         from terp.cli.deployment_adopt import run_adopt_command
 
