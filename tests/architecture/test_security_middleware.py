@@ -272,7 +272,7 @@ def test_production_problems_empty_when_safe() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# structured logging: request-id context + PII redaction
+# structured logging: request-id context + secret redaction
 # --------------------------------------------------------------------------- #
 def test_get_request_id_reflects_context() -> None:
     assert get_request_id() is None
@@ -343,7 +343,11 @@ def test_structured_formatter_emits_json() -> None:
     record = logging.LogRecord("svc", logging.INFO, "p", 1, "hello %s", ("world",), None)
     record.request_id = "req-1"
     payload = json.loads(StructuredFormatter().format(record))
+    # ``time`` and ``schema`` joined the four keys this line always had (ADR 0188); the
+    # four kept their names and meanings, which is what a reader of both relies on.
+    assert payload.pop("time").endswith("Z")
     assert payload == {
+        "schema": "terp-log/1",
         "level": "INFO",
         "logger": "svc",
         "request_id": "req-1",
@@ -884,6 +888,7 @@ def test_create_app_installs_the_stack_in_its_documented_order() -> None:
     app = _probe_app(SecurityConfig(cors=CorsPolicy.allow(["http://example.com"])))
     assert [layer.cls.__name__ for layer in app.user_middleware] == [
         "RequestIdMiddleware",
+        "AccessLogMiddleware",
         "SecurityHeadersMiddleware",
         "CORSMiddleware",
         "ClientIpMiddleware",

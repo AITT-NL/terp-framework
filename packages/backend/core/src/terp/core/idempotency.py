@@ -21,12 +21,12 @@ is an opt-in adapter a consumer wires at ``create_app(...)``.
 from __future__ import annotations
 
 import math
-import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
+from threading import Lock
 from typing import Literal
 
 
@@ -134,7 +134,7 @@ class InMemoryIdempotencyStore(IdempotencyStore):
             )
         self._max_entries = max_entries
         self._clock = clock
-        self._lock = threading.Lock()
+        self._lock = Lock()
         self._entries: dict[str, _Entry] = {}
         self._next_sweep_at = -math.inf
 

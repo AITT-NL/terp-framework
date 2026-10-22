@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:terp-log:1",
+  "title": "Terp log record, version 1 (terp-log/1)",
+  "description": "One line of a Terp app's log: a single JSON object, written by terp.core.logging. Every line carries the six required keys; a line about a framework event adds `event` and the fields that event names. Version 1 grows only by addition: a later release may add an optional key, or an `event` value, but never removes a key, changes what one means or changes its type, and a change that would do any of those is version 2, under a new `schema` value. A reader therefore accepts a key or an event it does not know and keeps reading, which is why every object here leaves additionalProperties open; what this schema refuses is a line that breaks what version 1 already says. Redaction applies before a line is written and covers secrets only (credential-like key names, Authorization, Bearer and cookie values, a URL's password, a password=... pair, in the message, `extra`, `context` and the traceback); personal data is not recognised and is not removed. Patterns are ECMA-262; each ends in (?![\\s\\S]) rather than $, so a validator whose $ also matches before a trailing newline cannot let one through.",
+  "type": "object",
+  "required": ["time", "schema", "level", "logger", "request_id", "message"],
+  "properties": {
+    "time": {
+      "description": "When the record was made: UTC, RFC 3339, millisecond precision, ending in Z.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z(?![\\s\\S])"
+    },
+    "schema": {
+      "description": "The record shape this line follows. A reader that does not know the value reads the line as text.",
+      "const": "terp-log/1"
+    },
+    "level": {
+      "description": "The level name: DEBUG, INFO, WARNING, ERROR or CRITICAL, or a name a library registered (uvicorn's TRACE, `Level 25`). A reader that sorts by severity treats a name it does not know as INFO.",
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9 _]{0,31}(?![\\s\\S])"
+    },
+    "logger": {
+      "description": "The logger's dotted name: `terp.access`, `terp.guard`, `terp.errors`, `uvicorn.error`, or the app's own.",
+      "type": "string",
+      "minLength": 1
+    },
+    "request_id": {
+      "description": "The correlation id of the request the record was made under (echoed in the request-id response header), or `-` outside one.",
+      "type": "string",
+      "pattern": "^(?:-|[A-Za-z0-9._-]{1,128})(?![\\s\\S])"
+    },
+    "message": {
+      "description": "The rendered message, redacted. Free text for a person; nothing here is a contract except that it is a string.",
+      "type": "string"
+    },
+    "event": {
+      "description": "What the line is about, when the framework wrote it about one of its own events. Known values in version 1: http.access, guard.decision, error.app, error.unhandled, error.uncaught, log.failure. A line without `event` is an ordinary record (the app's, a library's, uvicorn's).",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+(?![\\s\\S])"
+    },
+    "http": {"$ref": "#/$defs/http"},
+    "actor": {
+      "description": "The authenticated principal's id. Absent when the request was not authenticated; never a token or a header value.",
+      "$ref": "#/$defs/uuid"
+    },
+    "tenant": {
+      "description": "The tenant of the authenticated request, when the app is tenant-scoped. Written only beside `actor`.",
+      "$ref": "#/$defs/uuid"
+    },
+    "guard": {"$ref": "#/$defs/guard"},
+    "error": {"$ref": "#/$defs/error"},
+    "context": {
+      "description": "The structured context the error carried (an AppError's log_context), redacted. Never sent to the client.",
+      "type": "object"
+    },
+    "extra": {
+      "description": "The fields a caller attached with extra=, redacted. The app's own vocabulary; this schema does not constrain it.",
+      "type": "object"
+    },
+    "exc_info": {
+      "description": "The traceback of the exception the record carries, redacted.",
+      "type": "string"
+    },
+    "stack_info": {
+      "description": "The call stack the record was logged with (stack_info=True), redacted.",
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {"required": ["event"], "properties": {"event": {"const": "http.access"}}},
+      "then": {"required": ["http"], "properties": {"http": {"required": ["method", "status", "duration_ms"]}}}
+    },
+    {
+      "if": {"required": ["event"], "properties": {"event": {"const": "guard.decision"}}},
+      "then": {"required": ["guard"]}
+    },
+    {
+      "if": {"required": ["event"], "properties": {"event": {"enum": ["error.app", "error.unhandled"]}}},
+      "then": {"required": ["error"], "properties": {"error": {"required": ["type", "code", "status"]}}}
+    },
+    {
+      "if": {"required": ["event"], "properties": {"event": {"enum": ["error.uncaught", "log.failure"]}}},
+      "then": {"required": ["error"]}
+    },
+    {
+      "if": {"required": ["tenant"]},
+      "then": {"required": ["actor"]}
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\\s\\S])"
+    },
+    "http": {
+      "description": "One HTTP request, written once the response has gone (event http.access).",
+      "type": "object",
+      "properties": {
+        "method": {"type": "string", "pattern": "^[A-Z]{1,16}(?![\\s\\S])"},
+        "route": {
+          "description": "The matched route's template, with its parameters as {names}: /api/v1/notes/{note_id}. Never the requested path. Absent when no route matched (a 404, a refusal before routing, a CORS preflight).",
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "description": "The status the response started with; 500 when an exception escaped every handler; 499 when the client went away before any response started.",
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "duration_ms": {
+          "description": "Milliseconds from the request reaching the framework to its response finishing.",
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "guard": {
+      "description": "The deny-by-default guard's decision for the request: carried on the access line, or written on its own (event guard.decision) for a connection that has none, such as a WebSocket.",
+      "type": "object",
+      "required": ["outcome", "reason", "rule", "policy", "tier"],
+      "properties": {
+        "outcome": {"enum": ["allow", "deny"]},
+        "reason": {
+          "description": "The decision's reason slug: allowed, allowed_in_module, public, no_policy, unauthenticated, unregistered_role, rank (below the floor) or grant (clears the floor, lacks the named permission).",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(?![\\s\\S])"
+        },
+        "rule": {
+          "description": "The rule that decided: the requirement that applied (role:<name> or permission:<name>), or public, no_policy, authenticated or registered_role where the decision came before a requirement was selected.",
+          "type": "string",
+          "minLength": 1
+        },
+        "policy": {
+          "description": "Whose policy applied: the module's, or the route's own (route_policy).",
+          "enum": ["module", "route"]
+        },
+        "tier": {"enum": ["read", "write"]},
+        "module": {"type": "string", "minLength": 1}
+      }
+    },
+    "error": {
+      "description": "The error a line is about. For error.app and error.unhandled: the exception's class, the envelope's code and the HTTP status it was answered with.",
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {"type": "string", "minLength": 1},
+        "code": {"type": "string", "pattern": "^[a-z][a-z0-9_]*(?![\\s\\S])"},
+        "status": {"type": "integer", "minimum": 100, "maximum": 599}
+      }
+    }
+  }
+}

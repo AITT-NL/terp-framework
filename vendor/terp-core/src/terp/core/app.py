@@ -69,6 +69,11 @@ from terp.core.leases import (
     is_durable_lease_store,
 )
 from terp.core.logging import configure_logging, get_request_id
+from terp.core._request_log import (
+    log_app_error,
+    log_unhandled_error,
+    note_guard_decision,
+)
 from terp.core.scheduling import configure_schedules
 from terp.core._internal.discovery import iter_capability_specs
 from terp.core._internal.engine import get_engine
@@ -272,6 +277,16 @@ def build_guard(
                 )
             ),
         )
+        # Every decision, allow and deny, is recorded with the rule that made it: on the
+        # request's access line, or as its own record where there is none (a WebSocket).
+        note_guard_decision(
+            scope,
+            decision,
+            module=module_name,
+            policy="module" if applied is policy else "route",
+            tier="write" if request_method(connection) in MUTATING_METHODS else "read",
+            actor_id=None if principal is None else principal.id,
+        )
         if decision.allowed:
             return
         if decision.reason == "unauthenticated":
@@ -356,10 +371,16 @@ def register_error_handlers(app: FastAPI) -> None:
     Typed :class:`AppError`s keep their status and ``code``; any *unexpected*
     exception is logged (with the request id) and rendered as a generic 500
     envelope, so a bug never leaks a stack trace nor escapes the uniform contract.
+
+    Each is logged **once**, here and nowhere else: an ``AppError`` as one ``error.app``
+    record carrying its code, its status and its redacted ``log_context`` (the reason the
+    envelope does not say), an unexpected exception as one ``error.unhandled`` record
+    with its redacted traceback.
     """
 
     @app.exception_handler(AppError)
     async def _handle_app_error(request: Request, exc: AppError) -> JSONResponse:
+        log_app_error(exc)
         return JSONResponse(
             status_code=exc.status_code,
             content=build_error_envelope(exc, request_id=_resolve_request_id(request)),
@@ -368,7 +389,7 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
         request_id = _resolve_request_id(request)
-        _logger.error("unhandled exception [request_id=%s]", request_id, exc_info=exc)
+        log_unhandled_error(exc, request_id)
         return JSONResponse(
             status_code=500,
             content={
@@ -2153,6 +2174,9 @@ def create_app(
     default. An unknown name or a non-positive cap fails the boot (fail closed); every
     prefix without an override keeps the global ``SecurityConfig.max_request_bytes``.
     """
+    # First, so every line the boot writes -- a warning, a refusal, the traceback of a
+    # BootError nothing catches -- is already a structured, redacted record.
+    configure_logging(capture_process=get_settings().ENVIRONMENT != "local")
     if capability_names is not None and not discover_capabilities:
         raise BootError("capability_names requires discover_capabilities=True")
     collected = list(specs)
@@ -2231,7 +2255,6 @@ def create_app(
     if migration_check is not None:
         migration_check(get_engine())
 
-    configure_logging()
     configure_audit(resolved_plane.audit, sink=audit_sink)
     configure_events(resolved_plane.events, dispatcher=event_dispatcher)
     configure_jobs(

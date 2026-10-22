@@ -116,7 +116,14 @@ from terp.core.leases import (
     release_lease,
     renew_lease,
 )
-from terp.core.logging import configure_logging, get_request_id, request_id_ctx
+from terp.core.logging import (
+    LOG_SCHEMA,
+    configure_logging,
+    get_request_id,
+    log_record_schema,
+    register_log_tenant_reader,
+    request_id_ctx,
+)
 from terp.core.migrations import (
     MigrationDiscoveryError,
     MigrationTree,
@@ -270,6 +277,7 @@ __all__ = [
     "LEASE_HOLDER_MAX",
     "LEASE_KEY_MAX",
     "LEASE_KIND_MAX",
+    "LOG_SCHEMA",
     "LabelCoverage",
     "Lease",
     "LeaseError",
@@ -364,6 +372,7 @@ __all__ = [
     "is_shared_throttle_store",
     "lease_for",
     "lease_reaper_for",
+    "log_record_schema",
     "mark_durable_job_queue",
     "mark_durable_lease_store",
     "mark_required_permission",
@@ -381,6 +390,7 @@ __all__ = [
     "register_health_detail",
     "register_job_tenant_context",
     "register_lease_reaper",
+    "register_log_tenant_reader",
     "register_object_authz_predicate",
     "register_owner_read_scope",
     "register_permission_projector",
