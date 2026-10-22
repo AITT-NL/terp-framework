@@ -1,6 +1,7 @@
 """Drive the reference app's stack end to end, through every capability it exists to carry.
 
     uv run python scripts/check_stack.py --workbench              # this checkout's dev stack
+    uv run python scripts/check_stack.py --rebuilds               # ...and its dependency changes
     uv run python scripts/check_stack.py --api URL --mailpit URL   # any running deployment
 
 The unit suite proves each path with its outbound edge faked; this proves them against the
@@ -20,6 +21,11 @@ steps above, and then holds the processes no request reaches: the scheduler regi
 cron, the companion read the backlog, and every long-running service is still running. Run
 ``terp ports assign`` and ``terp env init`` first, as the README says.
 
+``--rebuilds`` holds the development loop's dependency change against a running stack
+(run it after ``--workbench``): under ``docker compose watch --no-up`` it changes the
+backend's lock and waits for every long-running backend service to come back on the
+rebuilt image, ``migrate`` run first, in one rebuild. The lock is put back afterwards.
+
 The HTTP half needs only the standard library. It exits non-zero naming the first step that
 did not happen within ``--timeout`` seconds; nothing is skipped, because a skipped check is
 a green one.
@@ -29,9 +35,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -53,6 +62,13 @@ WORKBENCH_SERVICES = ("api", "worker", "scheduler", "monitor", "mailcatcher")
 #: says once it has read the backlog.
 SCHEDULE_NAME = "notices.snapshot.hourly"
 MONITOR_LINE = "outbox:"
+
+#: The long-running services on the backend image: what a backend rebuild must bring back.
+BACKEND_SERVICES = ("api", "worker", "scheduler", "monitor")
+
+#: Seconds `watch` is left alone after a rebuild has settled, so a second rebuild it was
+#: going to fire for the same change has time to show in its output.
+REBUILD_QUIET_SECONDS = 15
 
 
 class StackCheckFailed(RuntimeError):
@@ -210,6 +226,141 @@ def check_workbench(root: pathlib.Path, *, timeout: float) -> list[str]:
     return proven
 
 
+def _containers() -> dict[str, dict[str, Any]]:
+    """Service -> what its container runs: id, image, state and exit code.
+
+    Read while a rebuild may be recreating the stack, so neither half may fail the check:
+    `ps` can refuse in the middle of a rename, and a container listed a moment ago can be
+    gone, in which case `inspect` fails on it and still prints the others. What could not
+    be read is simply not there yet; the caller waits for what it needs.
+    """
+    listing = subprocess.run(  # noqa: S603 - a fixed argv
+        ["docker", "compose", "ps", "--all", "--quiet"],  # noqa: S607 - docker is found on PATH
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    listed = listing.stdout.split() if listing.returncode == 0 else []
+    if not listed:
+        return {}
+    completed = subprocess.run(  # noqa: S603 - fixed argv; the ids come from compose itself
+        ["docker", "inspect", *listed],  # noqa: S607 - docker is found on PATH, as a person runs it
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    try:
+        entries = json.loads(completed.stdout or "[]")
+    except json.JSONDecodeError:
+        return {}
+    found: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        service = entry["Config"]["Labels"].get("com.docker.compose.service")
+        found[service] = {
+            "id": entry["Id"],
+            "image": entry["Image"],
+            "status": entry["State"]["Status"],
+            "exit": entry["State"]["ExitCode"],
+        }
+    return found
+
+
+def _start_watch(log: pathlib.Path) -> subprocess.Popen[bytes]:
+    """`docker compose watch --no-up` in a process group of its own, its output into *log*."""
+    if os.name == "nt":
+        group: dict[str, Any] = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    else:
+        group = {"start_new_session": True}
+    with log.open("wb") as sink:
+        return subprocess.Popen(  # noqa: S603 - a fixed argv
+            ["docker", "compose", "watch", "--no-up"],  # noqa: S607 - docker is found on PATH
+            stdout=sink,
+            stderr=subprocess.STDOUT,
+            **group,
+        )
+
+
+def _stop_watch(process: subprocess.Popen[bytes]) -> None:
+    """End `watch` and the compose plugin beneath it: the docker CLI runs it as a second process."""
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(  # noqa: S603 - a fixed argv
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],  # noqa: S607 - a system tool
+            check=False,
+            capture_output=True,
+        )
+    else:
+        os.killpg(process.pid, signal.SIGINT)
+    try:
+        process.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+def _rebuilds(log: pathlib.Path) -> int:
+    """How many rebuilds `watch` has begun, by its own log line."""
+    return log.read_text(encoding="utf-8", errors="replace").count("Rebuilding service(s)")
+
+
+def check_rebuilds(root: pathlib.Path, *, timeout: float) -> list[str]:
+    """A dependency change under `watch`: every service on the rebuilt image comes back, once.
+
+    Built from `api`, a backend rebuild recreated the worker, the scheduler, the companion
+    and both one-shots on the new image and started none of them, and one `uv add` fired
+    two rebuilds. This holds the fix against the compose that runs here. The frontend's
+    rebuild is not driven: a lane that installs unreleased `@terpjs` packages from outside
+    the build context cannot build the frontend image at all.
+    """
+    proven: list[str] = []
+    before = _containers()
+    missing = [name for name in BACKEND_SERVICES if before.get(name, {}).get("status") != "running"]
+    if missing:
+        raise StackCheckFailed(f"start the stack first (--workbench); not running: {missing}")
+    lock = root / "uv.lock"
+    original = lock.read_bytes()
+    log = pathlib.Path(tempfile.mkdtemp(prefix="check-stack-")) / "watch.log"
+    process = _start_watch(log)
+    try:
+        _wait_for(
+            "watch starting",
+            lambda: "Watch enabled" in log.read_text(encoding="utf-8", errors="replace"),
+            timeout=timeout,
+        )
+        # A trailing newline: the same lock to every reader, and a changed file to watch.
+        lock.write_bytes(original + b"\n")
+
+        def backend_back() -> dict[str, dict[str, Any]] | None:
+            now = _containers()
+            image = now.get("api", {}).get("image")
+            on_new = all(
+                now.get(name, {}).get("image") == image and now[name]["status"] == "running"
+                for name in BACKEND_SERVICES
+            )
+            migrated = now.get("migrate", {})
+            ran = (
+                migrated.get("id") != before.get("migrate", {}).get("id")
+                and migrated.get("status") == "exited"
+            )
+            return now if image != before["api"]["image"] and on_new and ran else None
+
+        rebuilt = _wait_for("every backend service back on the rebuilt image", backend_back, timeout=timeout)
+        if rebuilt["migrate"]["exit"] != 0:
+            raise StackCheckFailed(f"migrate exited {rebuilt['migrate']['exit']} after the rebuild")
+        time.sleep(REBUILD_QUIET_SECONDS)
+        if (count := _rebuilds(log)) != 1:
+            raise StackCheckFailed(f"one change to uv.lock fired {count} rebuilds")
+        proven.append(
+            f"a backend rebuild brought {', '.join(BACKEND_SERVICES)} back on the new image, "
+            "migrate first, in one rebuild"
+        )
+    finally:
+        _stop_watch(process)
+        lock.write_bytes(original)
+    return proven
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     target = parser.add_mutually_exclusive_group(required=True)
@@ -217,6 +368,11 @@ def main(argv: list[str] | None = None) -> int:
         "--workbench",
         action="store_true",
         help="Start this checkout's development stack and check all of it",
+    )
+    target.add_argument(
+        "--rebuilds",
+        action="store_true",
+        help="Against the running development stack, hold what a dependency change rebuilds",
     )
     target.add_argument("--api", help="Where a running deployment's API answers")
     parser.add_argument("--mailpit", help="Where the relay's inbox answers (with --api)")
@@ -227,6 +383,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.workbench:
             proven = check_workbench(pathlib.Path.cwd(), timeout=args.timeout)
+        elif args.rebuilds:
+            proven = check_rebuilds(pathlib.Path.cwd(), timeout=args.timeout)
         else:
             proven = check(args.api, args.mailpit, timeout=args.timeout)
     except StackCheckFailed as failure:

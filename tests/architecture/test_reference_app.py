@@ -250,6 +250,11 @@ def test_template_acceptance_renders_and_runs_the_reference_app() -> None:
     assert (reference.OVERLAY / "deployment.json").is_file(), "the reference app is declared"
     # And the stack itself, through the app's own procedure rather than a copy of it.
     assert "scripts/check_stack.py --workbench" in joined
+    # Then a dependency change under `watch`, after the stack is up: the one place the
+    # compose a lane runs is held to bringing every backend service back on the new image.
+    assert joined.index("scripts/check_stack.py --workbench") < joined.index(
+        "scripts/check_stack.py --rebuilds"
+    )
 
 
 def test_the_reference_lane_verifies_the_lock_and_manifest_an_app_would_commit() -> None:

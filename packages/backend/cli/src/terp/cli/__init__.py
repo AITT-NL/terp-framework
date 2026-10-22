@@ -2378,6 +2378,31 @@ file is generated rather than hand-maintained. The command is deliberately in no
 verify profile: env-seams gates the seam, and a gate that edits your files is not
 a gate.
 
+A CHANGED VALUE REACHES THE RUNNING WORKBENCH BY ITSELF
+
+`terp docker dev` watches the files the stack is configured from: .app.env (and any
+.app.<service>.env), .env and docker-compose.yml. Save one -- by hand or with
+`terp env set` -- and it stops `docker compose watch` and starts it again: watch's own
+start recreates every service that reads the changed file. Nothing to run.
+
+The restart is the point. `watch` reads the configuration once, when it starts, and
+every rebuild converges the whole stack against that copy: a service whose
+configuration differs is recreated from the copy, and only the rebuilt service and
+what depends on it are started. So never run `docker compose up -d` beside a running
+watch: the next frontend rebuild recreates the backend from the old values and leaves
+it stopped. On Compose v2 that happens even when nothing changed, because v2's watch
+hashes a service with an `env_file` differently from `up`. Driving compose by hand,
+do what the command does: stop watch, start watch.
+
+What a change costs, on purpose:
+  - Both images are checked against the build cache, as on every start: quick when
+    nothing in the build context moved, a rebuild when something did.
+  - `migrate` and `seed` run again. Both read .app.env, and every start runs every
+    one-shot, so the schema is at head before the API serves and the (idempotent) seed
+    has run. The API answers one migrate later than a bare restart would.
+  - Nobody is signed out. Tokens are signed with SECRET_KEY, and a recreate does not
+    change it; changing SECRET_KEY in .env does, and that signs every session out.
+
 WHEN A FEATURE ADDS A VARIABLE
 
 1. Declare it in environment.schema.json (UPPER_SNAKE; `"format": "secret"` for tokens,
