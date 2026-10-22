@@ -15,6 +15,8 @@ opt-out lives in one place:
   it), so N workers drain one outbox without double-dispatch.
 * :func:`finalize` commits a worker's status transition (dispatched / rescheduled /
   dead-lettered) on the outbox's own table.
+* :func:`release` gives back rows a stopping worker claimed and will not start: their
+  lease is cleared and nothing else changes, so another worker takes them at once.
 * :func:`settle_slot` records a scheduler's settled slot in ``outbox_schedule_fire`` in one
   write unit with the outbox row the tick enqueued (ADR 0191), for
   :class:`~terp.capabilities.outbox.DatabaseScheduleLedger`.
@@ -37,7 +39,7 @@ mutation, but the guard cannot tell that from an ``# arch-allow-*`` comment alon
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -172,6 +174,30 @@ def finalize(session: Session) -> None:
         session.commit()  # arch-allow-mutations-emit-audit: persist the worker's status transition (dispatched / rescheduled / dead-lettered)
 
 
+def release(session: Session, *, claim_id: str, ids: Sequence[uuid.UUID]) -> int:
+    """Clear the lease *claim_id* holds on *ids*; return how many rows it gave back.
+
+    For a worker that was asked to stop with part of its batch unstarted (ADR 0191). Only
+    a row this claim still holds and that is still ``pending`` is touched, and only its
+    lease: the attempt count, ``available_at`` and the error stay as they were, because
+    nothing was attempted. A row whose lease already lapsed and was reclaimed belongs to
+    its new owner and is left alone.
+    """
+    with enter_write_unit() as outermost:
+        result = session.execute(  # arch-allow-mutations-emit-audit: a stopping worker clears its own lease on rows it never started, on the outbox's own table — not a business mutation
+            update(OutboxMessage)
+            .where(
+                col(OutboxMessage.id).in_(list(ids)),
+                col(OutboxMessage.locked_by) == claim_id,
+                col(OutboxMessage.status) == STATUS_PENDING,
+            )
+            .values(locked_by=None, locked_until=None)
+        )
+        if outermost:
+            session.commit()  # arch-allow-mutations-emit-audit: commit the release so another worker can claim the rows at once
+    return int(result.rowcount or 0)
+
+
 def settle_slot(
     session: Session,
     *,
@@ -226,6 +252,7 @@ __all__ = [
     "claim_due",
     "dead_letters",
     "finalize",
+    "release",
     "settle_slot",
 ]
 

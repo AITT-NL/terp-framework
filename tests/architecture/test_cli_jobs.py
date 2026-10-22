@@ -351,14 +351,22 @@ def test_run_worker_command_forever_drains_until_a_signal_stops_it(
     sys.modules.pop(module, None)
     before = (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT))
     stop = _StopOnPause(signum, at=passes)
+    heartbeat = tmp_path / "terp-worker.heartbeat"
     message = run_worker_command(
-        app_ref=f"{module}:build", app_root=tmp_path, forever=True, poll_seconds=2.5, stop=stop
+        app_ref=f"{module}:build",
+        app_root=tmp_path,
+        forever=True,
+        poll_seconds=2.5,
+        stop=stop,
+        heartbeat_path=heartbeat,
     )
     assert message.startswith(f"outbox worker stopped after {passes} pass(es): claimed=1 ")
     assert "dispatched=1" in message and "dead-lettered=0" in message
+    assert message.endswith("released=0")
     assert stop.pauses == [2.5] * passes, "it pauses between drains, for as long as asked"
     assert (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT)) == before
     assert importlib.import_module(module).drained == ["cli"]
+    assert not heartbeat.exists(), "the heartbeat goes with the process (ADR 0191)"
 
 
 def test_cli_jobs_worker_forever_dispatch(

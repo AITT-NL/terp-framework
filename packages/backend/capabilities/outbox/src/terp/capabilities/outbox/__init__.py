@@ -12,7 +12,8 @@ one append-only :class:`OutboxMessage` table and supplies:
 * :class:`OutboxWorker` — the leased, retrying consumer (``terp jobs worker``) that
   claims due rows, runs jobs through the context-binding kernel runner and events
   through the in-process handlers, and retries / dead-letters per the
-  :class:`~terp.core.RetryPolicy`.
+  :class:`~terp.core.RetryPolicy`. Asked to stop, it finishes the job it is running and
+  releases the rest of its batch.
 * :class:`DatabaseScheduleLedger` — the durable :class:`~terp.core.ScheduleLedger` (ADR
   0191): each schedule's last settled slot, recorded in the same transaction as the outbox
   row its tick enqueued, so a scheduler restarted across a cron time applies the

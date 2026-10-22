@@ -11,6 +11,11 @@ The jobs seam (ADR 0043) is driven from the CLI two ways:
 * ``terp jobs list`` / ``terp inspect jobs`` render the registered jobs straight from the
   control plane's catalog (like ``terp inspect control-plane`` renders the authority map),
   so the listing is generated and cannot drift from what the app actually runs.
+* ``terp jobs worker --forever`` and ``terp jobs scheduler`` are the two long-running
+  processes. Each writes a heartbeat its container's healthcheck reads
+  (:mod:`terp.cli.heartbeat`, ADR 0191), and each stops cleanly on SIGTERM or SIGINT: the
+  worker finishes the job it is running and releases the rest of its batch, the
+  scheduler lets the ticks in flight finish.
 """
 
 from __future__ import annotations
@@ -18,17 +23,42 @@ from __future__ import annotations
 import contextlib
 import importlib
 import json
+import logging
 import pathlib
 import signal
 import sys
 import textwrap
+from collections.abc import Callable, Iterator
 from threading import Event
 
 from fastapi import FastAPI
 
-from terp.core import ControlPlane, enqueue
+from terp.core import ControlPlane, enqueue, is_durable_schedule_ledger
 from terp.core.db import get_session
 from terp.core.jobs import active_job_catalog
+
+from terp.cli.heartbeat import (
+    SCHEDULER_BEAT_SECONDS,
+    SCHEDULER_STALE_AFTER,
+    Heartbeat,
+    worker_stale_after,
+)
+
+_logger = logging.getLogger("terp.cli.jobs")
+
+
+@contextlib.contextmanager
+def _on_stop(handler: Callable[[], None]) -> Iterator[None]:
+    """Run *handler* on SIGTERM or SIGINT for the block; the previous handlers come back after."""
+    previous = {
+        number: signal.signal(number, lambda _signum, _frame: handler())
+        for number in (signal.SIGTERM, signal.SIGINT)
+    }
+    try:
+        yield
+    finally:
+        for number, restored in previous.items():
+            signal.signal(number, restored)
 
 
 def _load_control_plane(dotted: str) -> ControlPlane:
@@ -152,6 +182,7 @@ def run_worker_command(
     forever: bool = False,
     poll_seconds: float = 5.0,
     stop: Event | None = None,
+    heartbeat_path: pathlib.Path | None = None,
 ) -> str:
     """Build *app_ref*, then drain the durable outbox until empty (or *max_cycles*).
 
@@ -167,11 +198,29 @@ def run_worker_command(
     ``terp-cli[jobs]`` extra).
 
     *forever* is the worker container's command (ADR 0187): drain, wait *poll_seconds*,
-    drain again, until SIGTERM or SIGINT, which ends it after the batch in flight and exits
-    cleanly. It replaces the shell loop a profile used to wrap around a single drain, so a
-    generated profile renders an argument list rather than a shell string. *stop* is the
-    event the signals set, injectable for tests; the previous handlers are restored on exit.
+    drain again, until SIGTERM or SIGINT. It replaces the shell loop a profile used to wrap
+    around a single drain, so a generated profile renders an argument list rather than a
+    shell string. A stop claims nothing more: the job running finishes, and the rest of its
+    batch is released for another worker at once (ADR 0191). *stop* is the event the
+    signals set, injectable for tests; the previous handlers are restored on exit.
+
+    Under *forever* the worker writes its heartbeat (:mod:`terp.cli.heartbeat`) before
+    each claim, after each job and between drains, allowed to grow
+    ``max(lease_seconds, poll_seconds)`` plus a grace before its healthcheck calls it
+    stuck. *heartbeat_path* moves the file, for tests; the container's healthcheck reads the
+    default.
     """
+    heartbeat = (
+        Heartbeat(
+            "worker",
+            stale_after=worker_stale_after(lease_seconds=lease_seconds, poll_seconds=poll_seconds),
+            path=heartbeat_path,
+        )
+        if forever
+        else None
+    )
+    if heartbeat is not None:
+        heartbeat.clear()
     root = str(pathlib.Path(app_root).resolve())
     if root not in sys.path:
         sys.path.insert(0, root)
@@ -197,27 +246,26 @@ def run_worker_command(
         lease_seconds=lease_seconds,
         skip_locked=engine.dialect.name == "postgresql",
     )
-    if not forever:
+    if heartbeat is None:
         return f"outbox worker drained: {_tally([worker.run(max_cycles=max_cycles)])}"
     stopping = stop if stop is not None else Event()
-    previous = {
-        number: signal.signal(number, lambda _signum, _frame: stopping.set())
-        for number in (signal.SIGTERM, signal.SIGINT)
-    }
     results: list[object] = []
     try:
-        while not stopping.is_set():
-            results.append(worker.run(max_cycles=max_cycles))
-            stopping.wait(poll_seconds)
+        with _on_stop(stopping.set):
+            while not stopping.is_set():
+                results.append(
+                    worker.run(max_cycles=max_cycles, stop=stopping, beat=heartbeat.beat)
+                )
+                heartbeat.beat()
+                stopping.wait(poll_seconds)
     finally:
-        for number, handler in previous.items():
-            signal.signal(number, handler)
+        heartbeat.clear()
     return f"outbox worker stopped after {len(results)} pass(es): {_tally(results)}"
 
 
 def _tally(results: list[object]) -> str:
     """The drain counts of every pass, summed, in the order the worker reports them."""
-    fields = ("claimed", "dispatched", "retried", "dead_lettered", "lost")
+    fields = ("claimed", "dispatched", "retried", "dead_lettered", "lost", "released")
     return " ".join(
         f"{name.replace('_', '-')}={sum(getattr(result, name) for result in results)}"
         for name in fields
@@ -257,6 +305,7 @@ def run_scheduler_command(
     app_ref: str = "app.main:app",
     app_root: str | pathlib.Path = ".",
     scheduler: object | None = None,
+    heartbeat_path: pathlib.Path | None = None,
 ) -> str:
     """Build *app_ref*, then run the in-process scheduler until stopped (the scheduler entrypoint).
 
@@ -266,22 +315,54 @@ def run_scheduler_command(
     APScheduler-backed :class:`~terp.core.Scheduler` and starts it — each cron tick fires the
     schedule through the typed :func:`~terp.core.enqueue` chokepoint, so a scheduled job flows
     through the active :class:`~terp.core.JobQueue` (run it off-request with ``terp jobs worker``
-    when the durable outbox is wired). ``start`` **blocks** until the process is stopped (SIGINT).
+    when the durable outbox is wired). ``start`` **blocks** until the process is stopped.
     *scheduler* is injectable for tests; the default wraps a blocking APScheduler and requires the
     ``terp-cap-scheduler-apscheduler`` capability.
+
+    Before the engine runs, ``start`` settles every schedule against the app's
+    :class:`~terp.core.ScheduleLedger`, so a cron time that passed while no scheduler ran is
+    run once late or recorded skipped, as the schedule declares (ADR 0191). A ledger that is
+    not durable is named in the log, because then the gap is never seen. The scheduler
+    beats every few seconds from its own engine (:mod:`terp.cli.heartbeat`;
+    *heartbeat_path* moves the file, for tests), and SIGTERM or SIGINT shut the engine down
+    once the ticks in flight have finished.
     """
+    heartbeat = Heartbeat("scheduler", stale_after=SCHEDULER_STALE_AFTER, path=heartbeat_path)
+    heartbeat.clear()
     root = str(pathlib.Path(app_root).resolve())
     if root not in sys.path:
         sys.path.insert(0, root)
     _load_app(app_ref)
 
-    from terp.core.scheduling import active_schedule_catalog
+    from terp.core.scheduling import active_schedule_catalog, active_schedule_ledger
 
     catalog = active_schedule_catalog()
+    if catalog.schedules and not is_durable_schedule_ledger(active_schedule_ledger()):
+        _logger.warning(
+            "the schedule ledger is per process: a cron time that passes while no scheduler "
+            "runs is never seen, so no misfire policy can apply to it. Wire "
+            "create_app(schedule_ledger=DatabaseScheduleLedger()) from terp-cap-outbox "
+            "(ADR 0191)."
+        )
     scheduler = scheduler if scheduler is not None else _default_scheduler()
     scheduler.register_all(catalog)
+    every = getattr(scheduler, "every", None)
+    if callable(every):
+        every(SCHEDULER_BEAT_SECONDS, heartbeat.beat)
     names = ", ".join(catalog.names()) or "<none>"
-    scheduler.start()  # blocks until the process is stopped (a long-running daemon)
+    stopping = Event()
+
+    def _stop() -> None:
+        # Once: a second signal while the engine shuts down must not ask it again.
+        if not stopping.is_set():
+            stopping.set()
+            scheduler.shutdown(wait=True)
+
+    try:
+        with _on_stop(_stop):
+            scheduler.start()  # blocks until the process is stopped (a long-running daemon)
+    finally:
+        heartbeat.clear()
     return f"scheduler stopped; {len(catalog.schedules)} schedule(s) registered: {names}"
 
 
