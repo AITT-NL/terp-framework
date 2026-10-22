@@ -22,9 +22,10 @@ cron, the companion read the backlog, and every long-running service is still ru
 ``terp ports assign`` and ``terp env init`` first, as the README says.
 
 ``--rebuilds`` holds the development loop's dependency change against a running stack
-(run it after ``--workbench``): under ``docker compose watch --no-up`` it changes the
-backend's lock and waits for every long-running backend service to come back on the
-rebuilt image, ``migrate`` run first, in one rebuild. The lock is put back afterwards.
+(run it after ``--workbench``): under ``docker compose watch --no-up``, given the services
+on the backend image, it changes the backend's lock and waits for every long-running
+backend service to come back on the rebuilt image, ``migrate`` run first, in one rebuild.
+The lock is put back afterwards.
 
 The HTTP half needs only the standard library. It exits non-zero naming the first step that
 did not happen within ``--timeout`` seconds; nothing is skipped, because a skipped check is
@@ -65,6 +66,16 @@ MONITOR_LINE = "outbox:"
 
 #: The long-running services on the backend image: what a backend rebuild must bring back.
 BACKEND_SERVICES = ("api", "worker", "scheduler", "monitor")
+
+#: Every service on the backend image, the two one-shots included: what `--rebuilds` hands
+#: `watch`. Not the whole project, because a rebuild converges every service `watch` was
+#: given, and `web` has neither a container nor an image in a lane that cannot build the
+#: frontend: creating it fails the convergence ("Failed to recreate services after
+#: update"), and `watch` then starts nothing, so every service it had already recreated
+#: stays stopped. A developer's `terp docker dev` brings every service up first, so its
+#: rebuilds never meet a service without an image; this check would, and it holds the
+#: backend's rebuild, not the frontend's buildability.
+ON_BACKEND_IMAGE = ("migrate", "seed", *BACKEND_SERVICES)
 
 #: Seconds `watch` is left alone after a rebuild has settled, so a second rebuild it was
 #: going to fire for the same change has time to show in its output.
@@ -266,18 +277,37 @@ def _containers() -> dict[str, dict[str, Any]]:
 
 
 def _start_watch(log: pathlib.Path) -> subprocess.Popen[bytes]:
-    """`docker compose watch --no-up` in a process group of its own, its output into *log*."""
+    """`docker compose watch --no-up` over :data:`ON_BACKEND_IMAGE`, in a process group of its
+    own, its output into *log*."""
     if os.name == "nt":
         group: dict[str, Any] = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     else:
         group = {"start_new_session": True}
     with log.open("wb") as sink:
         return subprocess.Popen(  # noqa: S603 - a fixed argv
-            ["docker", "compose", "watch", "--no-up"],  # noqa: S607 - docker is found on PATH
+            ["docker", "compose", "watch", "--no-up", *ON_BACKEND_IMAGE],  # noqa: S607 - docker on PATH
             stdout=sink,
             stderr=subprocess.STDOUT,
             **group,
         )
+
+
+def _what_happened(log: pathlib.Path) -> str:
+    """What a failed rebuild left behind: each service's container, and what `watch` said.
+
+    A lane's log keeps nothing else: `watch` writes into a temporary file, and a container
+    that was recreated and never started has no log of its own to show.
+    """
+    states = ", ".join(
+        f"{name}={found['status']}({found['image'].removeprefix('sha256:')[:12]})"
+        for name, found in sorted(_containers().items())
+    )
+    said = [
+        line
+        for line in log.read_text(encoding="utf-8", errors="replace").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    return f"\n  containers: {states}\n  watch said, last lines:\n    " + "\n    ".join(said[-15:])
 
 
 def _stop_watch(process: subprocess.Popen[bytes]) -> None:
@@ -310,8 +340,10 @@ def check_rebuilds(root: pathlib.Path, *, timeout: float) -> list[str]:
     Built from `api`, a backend rebuild recreated the worker, the scheduler, the companion
     and both one-shots on the new image and started none of them, and one `uv add` fired
     two rebuilds. This holds the fix against the compose that runs here. The frontend's
-    rebuild is not driven: a lane that installs unreleased `@terpjs` packages from outside
-    the build context cannot build the frontend image at all.
+    rebuild is not driven, and `watch` is given only the services on the backend image
+    (:data:`ON_BACKEND_IMAGE`): a lane that installs unreleased `@terpjs` packages from
+    outside the build context cannot build the frontend image at all. On a failure the
+    message carries each container's state and what `watch` said.
     """
     proven: list[str] = []
     before = _containers()
@@ -345,12 +377,17 @@ def check_rebuilds(root: pathlib.Path, *, timeout: float) -> list[str]:
             )
             return now if image != before["api"]["image"] and on_new and ran else None
 
-        rebuilt = _wait_for("every backend service back on the rebuilt image", backend_back, timeout=timeout)
-        if rebuilt["migrate"]["exit"] != 0:
-            raise StackCheckFailed(f"migrate exited {rebuilt['migrate']['exit']} after the rebuild")
-        time.sleep(REBUILD_QUIET_SECONDS)
-        if (count := _rebuilds(log)) != 1:
-            raise StackCheckFailed(f"one change to uv.lock fired {count} rebuilds")
+        try:
+            rebuilt = _wait_for(
+                "every backend service back on the rebuilt image", backend_back, timeout=timeout
+            )
+            if rebuilt["migrate"]["exit"] != 0:
+                raise StackCheckFailed(f"migrate exited {rebuilt['migrate']['exit']} after the rebuild")
+            time.sleep(REBUILD_QUIET_SECONDS)
+            if (count := _rebuilds(log)) != 1:
+                raise StackCheckFailed(f"one change to uv.lock fired {count} rebuilds")
+        except StackCheckFailed as failure:
+            raise StackCheckFailed(f"{failure}{_what_happened(log)}") from failure
         proven.append(
             f"a backend rebuild brought {', '.join(BACKEND_SERVICES)} back on the new image, "
             "migrate first, in one rebuild"
