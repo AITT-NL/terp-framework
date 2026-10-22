@@ -1,6 +1,6 @@
 # 0185 — A release declares the schema window it accepts
 
-- **Status:** Proposed (awaiting review). Revised after one adversarial review (see *Review*).
+- **Status:** Proposed (awaiting review). Revised after four rounds of adversarial review (see *Review*).
   Nothing is built.
 - **Date:** 2026-10-13 (drafted); brought into this repository on 2026-10-21; revised on
   2026-10-22. 0182 and 0183 are reserved for other records.
@@ -462,7 +462,7 @@ offline record inserts; and the final spelling of the table and the mark.
 
 ## Review
 
-Two rounds of adversarial review changed this record.
+Four rounds of adversarial review changed this record.
 
 **Round one.**
 
@@ -534,7 +534,8 @@ three more of weight:
 
 **Round three** found that the horizon hid the newest run's new histories when that run also
 applied the target's own, as a fresh environment's first deploy does, and that refusing a
-removed package stalled a plain removal a managed deploy cannot downgrade. The newest run's rows
+removed package stalled a plain removal, which a deploy tool that only rolls forward cannot undo
+with a downgrade. The newest run's rows
 for revisions the code does not define are now judged wherever they sit, which also covers the
 walk's steps, and a release that removes a package retires it (decision 3).
 
