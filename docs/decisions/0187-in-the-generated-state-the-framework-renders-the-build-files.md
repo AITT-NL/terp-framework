@@ -473,8 +473,8 @@ whitespace, UTF-8 and no floats. Its sections say who vouches for what:
   signer's reader accepts, and that schema's SHA-256); `build`;
   `generator` (in the generated state: the version that rendered, the project name, each owned
   file's SHA-256); `declaration` and `profiles` (path, SHA-256 and content, base file then
-  overrides); `baseImages`; `datastores`; `locks` (path and SHA-256); `buildArgs` (`TERP_VERSION`,
-  `SOURCE_DATE_EPOCH`); `platform`; and `fetches`, derived statically (the base images'
+  overrides); `baseImages`; `datastores`; `locks` (path and SHA-256); `buildArgs`
+  (`SOURCE_DATE_EPOCH`); `platform`; and `fetches`, derived statically (the base images'
   registries, the sources `uv.lock` records, the hosts in `package-lock.json`, the index the build
   backend comes from).
 - **`outputs`**, checked by `sign`: per image its repository, manifest digest, image id,
@@ -701,6 +701,7 @@ label, and an `own` app without a `heads` stage releases unlabelled rather than 
 **After the rounds**, a review of ADR 0185 removed the `heads` stage, its second pass, the image
 labels, the migration heads in `collected` and every reliance on them: a rollback is classified by
 the target's own `terp migrate check`, which needs none of them, and the tag is `TERP_RELEASE_TAG`.
+`buildArgs` lost `TERP_VERSION`, which only the label read.
 
 ## How it was built
 

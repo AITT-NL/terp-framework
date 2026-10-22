@@ -490,6 +490,9 @@ left is the reverse of a generated adoption, back to `own`. `terp inspect` stays
   image names read and require (0185 decision 6). The tag names images only: the migration step
   takes no release option, and the record rows the upgrade writes name their run by its own
   code heads (0185 decision 2), so a step run in any of the ways above writes the same rows.
+  Before the step it reads every version table and keeps the reading for an undo in the same
+  invocation, which is how 0185 decision 6 classifies a rollback to a release that predates
+  that decision.
 - This departs from R4, whose one new capability was a per-unit one-shot running "exactly the
   histories a unit owns". It
   keeps R4's migrate-then-serve order and drops the narrowing, because `terp migrate upgrade` has

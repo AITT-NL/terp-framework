@@ -86,7 +86,8 @@ Nothing else in the tree closes that gap:
      and whose `Column` declares no `unique`, no check and no foreign key but the one below;
    - `create_index` that is not unique.
 
-   An operation inside `batch_alter_table` is judged as itself.
+   A `batch_alter_table` block is judged by the operations it records, and one created with
+   `recreate="always"` is off the list.
 
    A foreign key on the list depends on where it sits (ADR 0133). One from a table the same
    revision creates has `CASCADE` or `SET NULL`: a cascade there deletes only rows the previous
@@ -122,8 +123,8 @@ Nothing else in the tree closes that gap:
 
    | Layer | Control |
    |---|---|
-   | Build-time | A new terp-spec rule, `backend/expand_revisions_only_expand`, checked by `terp.arch`: a revision marked `expand_only = True` that contains an operation off the list, reading each `Column` it adds, is refused. No opt-out marker: a revision that needs one is a contract revision, and saying so costs only restore-free rollback for its release. A `no_destructive_migrations` marker never excuses an operation in an expand-only revision. |
-   | Runtime, fail-closed | Three checks, through the Terp-owned `env.py`. Each operation of an expand-only revision is classified as Alembic dispatches it (`Operations.invoke`), and one off the list raises before it runs. A statement the revision sends outside an admitted operation is refused before it runs online and before it is written offline; `op.get_bind()` bypasses the dispatch in both modes, and in `--sql` mode it returns a mock connection that writes straight into the script (measured on Alembic 1.18.5). Online, at each step's `on_version_apply`, inside the step's transaction after its version update, the run also reads the database's own catalogue and raises when an expand-only step left anything the list does not admit, such as a table rebuild that lost a check constraint; it reads with the guard's catalogue queries, widened to every schema and to triggers, policies and enum types. A raise rolls back what the package's upgrade has not committed, its record rows included; a package already upgraded earlier in the same `migrate` stays, as on any failure today. DDL an `autocommit_block` ran is not rolled back, because Alembic commits the transaction before the block unconditionally: it is judged after the fact, and the pre-migrate backup recovers it. Offline, a refusal exits non-zero naming the operation or statement, and the output is not a release script. The checks run in the process of the revision they judge, so they catch mistakes, not a hostile revision; the backup before every `migrate` is the defence against that. The rule's `runtime.applicability` is `required` (ADR 0084). |
+   | Build-time | A new terp-spec rule, `backend/expand_revisions_only_expand`, checked by `terp.arch`: a revision marked `expand_only = True` that contains an operation off the list, reading each `Column` it adds and each batch block's `recreate`, is refused. No opt-out marker: a revision that needs one is a contract revision, and saying so costs only restore-free rollback for its release. A `no_destructive_migrations` marker never excuses an operation in an expand-only revision. |
+   | Runtime, fail-closed | Three checks, through the Terp-owned `env.py`, which wraps each revision's `upgrade()` so the checks know where a step starts and ends (Alembic signals only the end). Each operation of an expand-only revision is classified as Alembic dispatches it (`Operations.invoke`), and one off the list raises before it runs; a batch block whose recorded operations are all admitted is admitted, with the statements its flush emits, reflection included. Any other statement the revision sends is refused before it runs online and before it is written offline; `op.get_bind()` bypasses the dispatch in both modes, and in `--sql` mode it returns a mock connection that writes straight into the script (measured on Alembic 1.18.5). Alembic's version-table statements, the record's inserts and the run's own catalogue reads fall outside `upgrade()` and are not judged. Online, at each step's `on_version_apply`, inside the step's transaction after its version update, the run also reads the database's own catalogue and raises when an expand-only step left anything the list does not admit, which is how a batch flush that rebuilt its table is judged; it reads with the guard's catalogue queries, widened to every schema and to triggers, policies and enum types, and the first step does not count the record's own creation. A raise rolls back what the package's upgrade has not committed, its record rows included; a package already upgraded earlier in the same `migrate` stays, as on any failure today. DDL an `autocommit_block` ran is not rolled back, because Alembic commits the transaction before the block unconditionally: it is judged after the fact, and the pre-migrate backup recovers it. Offline, a refusal exits non-zero naming the operation or statement, and the output is not a release script. The checks run in the process of the revision they judge, so they catch mistakes, not a hostile revision; the backup before every `migrate` is the defence against that. The rule's `runtime.applicability` is `required` (ADR 0084). |
 
 2. **The migration run records every revision it applies, and which run applied it, where
    older code can read it.** `terp migrate upgrade` writes one row per applied revision into
@@ -171,26 +172,34 @@ Nothing else in the tree closes that gap:
    - equal to the code head: current, as today;
    - an ancestor of the code head: `PendingMigrationsError`, as today;
    - unknown to the code: walk it back through the record, revision to recorded parent, until
-     a revision the code knows is reached. The database is inside the window only when every
-     step is recorded and `expand`, carries the newest `applied_by` in the record (by `seq`)
-     and the guard's own Terp version as `applied_terp`, and the walk ends exactly at the code
-     head. Anything else, an unrecorded revision, a `contract` step, a step from a run before
-     the newest, another Terp version, a walk that ends on an older ancestor or never ends, raises
-     `OrphanedRevisionsError` as today.
+     a revision the code knows is reached. The walk must cross only recorded revisions and end
+     exactly at the code head; one that meets an unrecorded revision, ends on an older ancestor
+     or never ends raises `OrphanedRevisionsError` as today.
+
+   One rule then judges the record's rows in every package, whether the code defines it or not.
+   The *horizon* is the newest row (by `seq`) written by any run that applied a revision this
+   code defines. Every row above it, and every step a walk crosses, must carry the newest
+   `applied_by` in the record, be `expand`, and carry the guard's own Terp version as
+   `applied_terp`; any other raises `OrphanedRevisionsError`. Rows at or below the horizon were
+   written no later than the last run that applied this code's history, so that history has
+   already run beside them, and they are ignored, as today. Where no revision the code defines
+   has a row (its history predates the record), every row is above the horizon.
 
    The newest `applied_by` names the last run that applied anything, so the window is one run
-   deep and the guard enforces it itself. Two expanding releases in a row leave rows of two
-   runs, and the release before both is refused. A release that applied nothing wrote no row
-   and adds no depth. After a deploy that migrated and then failed, the failed release's run is
-   the newest applier whether or not it was ever switched to, so its predecessor is judged with
-   no input about which release was running. A run on another Terp version is never crossed:
-   its capability histories and record format were never tested against this guard.
+   deep in every package and the guard enforces it itself. Two expanding releases in a row leave
+   rows of two runs above the horizon, and the release before both is refused, even where the
+   older of them only installed a history the target does not define. A release that applied
+   nothing wrote no row and adds no depth. After a deploy that migrated and then failed, the
+   failed release's run is the newest applier whether or not it was ever switched to, so its
+   predecessor is judged with no input about which release was running. A run on another Terp
+   version is never crossed: its capability histories and record format were never tested
+   against this guard.
 
-   A package the record holds and the code does not define, a history a newer release
-   installed, is judged by the rows the newest run wrote for it: each must be `expand`, with the
-   guard's Terp version. A history that run did not touch is ignored, as today. When the guard
-   admits a window it logs one warning at boot naming each package and the revisions the code
-   runs behind. There is no switch back to the strict refusal: the guard, the `migrate`
+   A package the code removed while its rows sit above the horizon makes the guard refuse, which
+   is the truth: its tables and their foreign keys are still there. Removing a package is a
+   contract step, its history downgraded to base by the last release that carries it. When the
+   guard admits a window it logs one warning at boot naming each package and the revisions the
+   code runs behind. There is no switch back to the strict refusal: the guard, the `migrate`
    preflight and `terp migrate check` read the window alike, and a switch honoured by one and
    not the others would let them disagree.
 
@@ -198,33 +207,38 @@ Nothing else in the tree closes that gap:
    still refused, because a rewritten revision was never recorded as an expand step whose
    parent is the code's head. The framework's PostgreSQL lane gains the proof: the example app
    at N-1, with the guard armed as in production, boots on a database upgraded to an
-   expand-only N; refuses one with a contract revision, one whose record is missing, and one two
-   expanding releases ahead; and its `migrate` one-shot exits 0 without running DDL.
+   expand-only N; refuses one with a contract revision, one whose record is missing, one two
+   expanding releases ahead, and one where the older of those two only installed a new module
+   whose first revision is a contract revision; and its `migrate` one-shot exits 0 without
+   running DDL.
 
-4. **Rollback is promised one release deep, and a rollback never migrates.** The promise is
-   that release N-1 runs on the database release N left, when every revision N applied is
+4. **Rollback is promised one release deep, and a rollback never migrates.** The promise is that
+   release N-1 runs on the database release N left, when every revision N applied is
    expand-only. A rollback runs no downgrade and applies no revision. It does not need the
-   target's `migrate` one-shot, and where a profile still runs it (the template's `api` waits
-   on it) the one-shot shares the guard's check as its preflight, finds nothing to apply for a
-   package ahead inside the window, and exits 0 without DDL. With nothing pending it also skips
-   the per-module layout's `CREATE SCHEMA` and `ALTER DATABASE ... SET search_path`, which would
-   otherwise route the database by the older release's packages and drop the newer release's
-   schema from the path until it migrates again. Letting it run keeps the profile's
-   `db → migrate → api` order and gives the guard's refusal before `api` starts on a database
-   outside the window. Rolling forward to N finds N's heads and applies nothing.
+   target's `migrate` one-shot, and where a profile still runs it (the template's `api` waits on
+   it) the one-shot shares the guard's check as its preflight, finds nothing to apply for a
+   package ahead inside the window, and exits 0 without DDL. Under the per-module layout the
+   database's `search_path` becomes the union of its current setting and the code's labels,
+   `public` last, written only when a label is missing and never dropping a schema: a rollback
+   leaves the newer release's schema on the path and writes nothing, and a restore into a clean
+   database, which carries no database-level setting, is repaired by the next `migrate`, pending
+   or not. Letting it run keeps the profile's `db → migrate → api` order and gives the guard's
+   refusal before `api` starts on a database outside the window. Rolling forward to N finds N's
+   heads and applies nothing.
 
    While the previous release runs, its inserts leave N's new columns at NULL or their default
-   and N's new tables without rows, and its updates change rows N wrote without touching what
-   N added. A revision applies once, so nothing N ran fills that in again. Until the contract
+   and N's new tables without rows, and its updates change rows N wrote without touching what N
+   added. A revision applies once, so nothing N ran fills that in again. Until the contract
    release, N therefore keeps writing the old shape the previous release reads, and treats the
    old shape as the truth for anything the previous release writes: a value N derives from old
    columns is computed on read, or is a generated column, which the database keeps current for
-   the previous release's writes too. A value N copied into a new column when it wrote the row
-   would be stale once the previous release updates that row, and a job that fills NULLs on the
-   roll forward would skip it. N's code handles a new column's NULL until the contract release
-   tightens it, and the contract revision back-fills first. The PostgreSQL-lane proof of
-   decision 3 covers the round trip: N writing; N-1 reading what N wrote, inserting, and
-   updating a row N wrote; then N reading both correctly.
+   the previous release's writes too but costs a rewrite of the table to add (the lock notes
+   below). A value N copied into a new column when it wrote the row would be stale once the
+   previous release updates that row, and a job that fills NULLs on the roll forward would skip
+   it. N's code handles a new column's NULL until the contract release tightens it, and the
+   contract revision back-fills first. The PostgreSQL-lane proof of decision 3 covers the round
+   trip: N writing; N-1 reading what N wrote, inserting, and updating a row N wrote; then N
+   reading both correctly.
 
    Every release after a rollback descends from N's migration history. A fix cut from N-1, a
    revert of N's code for example, keeps N's revision files and the model fields and tables
@@ -274,12 +288,16 @@ Nothing else in the tree closes that gap:
    - **Its value** is a Docker tag, `[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}`, new for each release.
      `terp release` refuses another, and the manifest records it as `inputs.releaseTag`; for a
      hand deploy the guide suggests `git rev-parse --short=12 HEAD`. `:?` cannot catch a stale
-     value: a reused tag overwrites the previous release's images, which leaves nothing to start
-     again, but it cannot mislead the classification, which reads no tag.
+     value. A reused tag moves the old name onto the current release's images, so a hand
+     rollback by that tag starts the current release again, whose check passes, and looks like
+     a rollback; the rollback section says so. A tool that retags by digest is immune, and the
+     classification reads no tag.
    - **Platform-owned.** It names images only; the migration run never reads it (decision 2).
      The environment manifest's reader refuses an app that declares it, as it refuses
      `SECRET_KEY` (`PLATFORM_OWNED_NAMES`), so no value an app ships chooses which image a
-     deploy starts.
+     deploy starts. A tool that mirrors that list adds the name after the framework release
+     that does, never before, or a manifest declaring it would pass the gate and fail in the
+     tool.
    - **Audited.** The escape audit's fixed-interpolation list gains this scalar at the `image`
      of any service, which is where the merge key puts `x-backend`'s, with the project name's
      pattern. Executors carry the extended list before an app pins the release that renders it
@@ -293,17 +311,28 @@ Nothing else in the tree closes that gap:
 
    **Rule zero: a rollback that crosses no migration is restore-free**, whatever Terp version
    either release runs and whether either carries this decision. Its test is the target's own
-   `terp migrate check`, run from the target's image against the live database with its
-   migration step's environment, passing with every package at exactly the target's head;
-   every Terp version's strict guard already proves that. A framework update released on its
-   own, applying no revision, therefore rolls back for free. One case needs a fact the target's
-   check cannot give. A target that predates this decision never looks at a history it does not
-   define, so its check also passes where a newer release installed one, a new module or
-   capability with foreign keys onto the target's tables. Rolling back to such a target, a tool
-   also compares the version tables with those it read before the first migration step that
-   followed the target, and classifies the rollback restore-based where it has no such reading
-   or they differ. A target on this decision needs no reading where the releases since it carry
-   the decision too: its guard then judges such a history through the record (decision 3).
+   check, run from the target's image against the live database: the migration step's own
+   command with `upgrade` replaced by `check` (the template's `terp migrate check --app-root
+   /srv/app`; with no step, `terp migrate check` in the `api` unit's image and working
+   directory), in the step's environment, so it judges exactly the histories the step would.
+   It passes with every package at exactly the target's head, which every Terp version's
+   strict guard proves, and a target on this decision also holds the rows above its horizon to
+   decision 3. A framework update released on its own, applying no revision, therefore rolls
+   back for free.
+
+   One case needs a fact the target's check cannot give. A target that predates this decision
+   never looks at a history it does not define, so its check also passes where a newer release
+   installed one, a new module or capability with foreign keys onto the target's tables. Rolling
+   back to such a target, a tool also compares every version table with a reading it took before
+   the first migration step that followed the target, and classifies the rollback restore-based
+   where it has no such reading or they differ. `terp promote` owns the reading: it reads every
+   version table before the migration step and keeps the reading for an undo in the same
+   invocation, so the undo of a deploy whose migration step applied nothing starts the previous
+   release without a restore. A separate rollback invocation to such a target has no reading and
+   is restore-based; the record holding no row does not stand in for one, because a release in
+   between that also predates this decision installs a history without writing a row. A target
+   on this decision needs no reading where the releases since it carry the decision too: its
+   guard then judges such a history through the record (decision 3).
 
    **Every other rollback is classified by the same check.** It exits 0 only when the database
    is at the target's heads or inside its window (decision 3), so exit 0 is restore-free and
@@ -317,7 +346,7 @@ Nothing else in the tree closes that gap:
    The PostgreSQL lane of decision 3 gains the cases: two consecutive expand-only releases, N-1
    and N; the check from N-1's image passes on N's database and the check from N-2's image
    refuses it; and a rollback over a release that applied no revision is restore-free, to a
-   target on either side of this decision.
+   target on either side of this decision (the older one through `terp promote`'s reading).
 
 7. **Until a rollback target carries the window, a rollback across a migration is
    restore-based, and the guide says so.** The deployment guide gains a rollback section:
@@ -368,9 +397,10 @@ Nothing else in the tree closes that gap:
 - **Texts that change with it:** `assert_migrations_reverse_cleanly`'s residue filter and its
   docstring, which still calls `terp migrate downgrade` every Terp app's rollback plan; the
   migrations topic's NOT NULL recipe; and the migrations guide's notes, that an unreleased
-  revision is re-parented rather than merged, that a `create_index` without `CONCURRENTLY` and a
-  volatile default hold a lock while the previous release still serves (migrate runs before
-  `api` is recreated), and that a new child table of a soft-deleted parent is a contract
+  revision is re-parented rather than merged, that a `create_index` without `CONCURRENTLY`, a
+  volatile default and a generated column (PostgreSQL 17 stores it, so adding one rewrites the
+  table) hold a lock while the previous release still serves, because migrate runs before `api`
+  is recreated, so a large table computes a derived value on read, and that a new child table of a soft-deleted parent is a contract
   revision, because neither referential action is allowed onto it.
 - **Health is untouched.** A release running behind the window reports liveness and readiness
   by ADR 0024's rules, and the window adds no readiness signal. Worker and shared-store
@@ -393,9 +423,10 @@ What proves it, and the decisions each proof needs:
 
 | Proof | Decisions |
 |---|---|
-| N-1, guard armed as in production, boots on a database N upgraded with expand-only revisions, and its migration step exits 0 with no DDL | 1, 2, 3, 4 |
+| N-1, guard armed as in production, boots on a database N upgraded with expand-only revisions, batch-style ones included, and its migration step exits 0 with no DDL | 1, 2, 3, 4 |
 | The rule refuses an off-list operation in an expand-only revision; the online run raises on one; `--sql` refuses to render one | 1 |
-| N-1 refuses a contract row, a missing record and a database two runs ahead; the round trip, an update included; a revert release passes `test_migrations_match_models` and boots on N's database; N to N-1 restore-free and N to N-2 restore-based, by the target's own check; a runtime-role write to the record refused under `per-module` | 2, 3, 4, 6 |
+| N-1 refuses a contract row, a missing record and a database two runs ahead, also where the older run only installed a contract history N-1 does not define; the round trip, an update included; a revert release passes `test_migrations_match_models` and boots on N's database; N to N-1 restore-free and N to N-2 restore-based, by the target's own check; a runtime-role write to the record refused under `per-module` | 2, 3, 4, 6 |
+| A per-module database restored into a clean database is routed again by the next `migrate` | 4 |
 | A contract step ships in a later release than its expand | 5 |
 | Rows carry the applier's heads digest and Terp version, however the migration step is run, with no option | 2 |
 | A rollback over a release that applied no revision is restore-free, to a target on either side of this decision | 6 (rule zero) |
@@ -407,7 +438,9 @@ offline record inserts; and the final spelling of the table and the mark.
 
 ## Review
 
-One adversarial review changed this record.
+Two rounds of adversarial review changed this record.
+
+**Round one.**
 
 - **Rule zero (the blocker).** The draft classified a rollback restore-based whenever the target
   carried no labels, predated this decision or ran another Terp version, even when no migration
@@ -453,3 +486,24 @@ One adversarial review changed this record.
   says. And the tag is reserved in the environment manifest's platform-owned names rather than
   the workbench vocabulary the review named: `.app.env` is the environment manifest's, and the
   workbench list governs only the variables a development tool sets.
+
+**Round two** accepted the four places where this record departed from round one, and found
+three more of weight:
+
+- **One horizon for every row.** The first revision judged a history the code does not define
+  only by the newest run's rows, so a contract history installed one release earlier, under a
+  release that then added an expand column, was admitted two releases deep. Every row above the
+  horizon, in any package, is now held to the newest run, and the walk's steps with it
+  (decision 3).
+- **Batch blocks.** A `batch_alter_table` flush runs outside Alembic's dispatch, so the statement
+  check would have refused every batch-style expand revision, Terp's own among them. A block
+  whose recorded operations are all admitted is admitted with its flush; a rebuild is judged by
+  the catalogue, and `recreate="always"` is off the list (decision 1).
+- **The search path only grows.** Skipping it when nothing is pending left a per-module app
+  restored into a clean database unrouted; it is now the union of what is set and what the code
+  needs, written whenever a label is missing (decision 4).
+- **Smaller:** `terp promote` owns the version-table reading for an undo in the same invocation,
+  and an empty record is not taken for one; the rollback check is the migration step's own
+  command; the generated column's rewrite joins the lock notes; the reused-tag sentence; a tool
+  mirroring the platform-owned names follows the framework; the checks' start signal and what
+  they do not judge.
