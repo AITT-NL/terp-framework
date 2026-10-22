@@ -19,12 +19,12 @@ import json
 import pathlib
 import re
 import shutil
+import sys
 
 import pytest
-from terp_spec import spec_dir, spec_version
+from terp_spec import spec_dir
 
 import terp.arch as arch
-from tests.architecture.test_spec_catalog import _pinned_spec_version
 
 _SPEC = spec_dir()
 _CATALOG = _SPEC / "catalog" / "backend"
@@ -62,35 +62,17 @@ def _corpus_cases() -> list[tuple[str, str]]:
     return cases
 
 
-#: Corpus cases whose VERDICT this repository has changed ahead of a spec release: the
-#: corpus analogue of ``_AWAITING_SPEC_RELEASE`` in ``test_spec_catalog.py`` (ADR 0116),
-#: with the same three properties.
-#:
-#: A rule made stricter turns a sample the published corpus calls compliant into a
-#: finding, and the two repositories are then unsatisfiable together in exactly the way
-#: that ADR describes: this gate reads the PINNED corpus, which still calls the sample
-#: compliant, while terp-spec's certification reads this repository's rule, which no
-#: longer does. Listing a case here says: the reference has deliberately moved past the
-#: installed verdict, and the candidate corpus carries the new one.
-#:
-#: * Against the pinned corpus a listed case is asserted INVERTED, so the allowance
-#:   proves the change rather than waving the case through, and an entry whose verdict
-#:   the pinned corpus has caught up with fails instead of lingering.
-#: * Under certification (the pin deleted, a candidate corpus installed) a listed case is
-#:   asserted as written, because the candidate is what is being certified.
-#: * ``test_release_versions`` requires the set to be empty to cut a release.
-#:
-#: Open: ``no_destructive_migrations/compliant-01`` (terp-spec 0.40.0). The published
-#: sample tightens an existing column with ``alter_column(nullable=False)``, which the
-#: rule now reports as a NOT NULL tightening.
-_VERDICTS_AWAITING_SPEC_RELEASE: frozenset[tuple[str, str]] = frozenset(
-    {("no_destructive_migrations", "compliant-01")}
+# The verdicts this repository has moved past ahead of a spec release, and the test of
+# whether the installed corpus is the pinned one: defined beside the scorecard emitter,
+# which honours the same allowance (its docstring is the rationale, ADR 0116's corpus
+# counterpart).
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "tools"))
+from emit_backend_scorecard import (  # noqa: E402
+    VERDICTS_AWAITING_SPEC_RELEASE as _VERDICTS_AWAITING_SPEC_RELEASE,
 )
-
-
-def _installed_corpus_is_the_pinned_one() -> bool:
-    """True when the gate reads the pinned release, not a candidate under certification."""
-    return _pinned_spec_version() == spec_version()
+from emit_backend_scorecard import (  # noqa: E402
+    installed_corpus_is_the_pinned_one as _installed_corpus_is_the_pinned_one,
+)
 
 
 @pytest.mark.parametrize(("rule", "case"), _corpus_cases())
