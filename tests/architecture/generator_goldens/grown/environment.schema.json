@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "MAIL_FROM": {
+      "type": "string"
+    },
+    "SMTP_HOST": {
+      "type": "string"
+    }
+  },
+  "required": []
+}

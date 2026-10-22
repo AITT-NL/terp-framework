@@ -1,0 +1,10 @@
+{
+  "about": "The reference app's shape: a worker, a scheduler, a companion under a role no tool looks up, a files volume the api and the worker share, and the words a generator never renders (sizes, instances, env, migrations, backup, rollback).",
+  "project": "reference-app",
+  "frontendLock": true,
+  "renders": [
+    "Dockerfile.prod",
+    "frontend/Dockerfile.prod",
+    "docker-compose.prod.yml"
+  ]
+}

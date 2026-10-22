@@ -21,6 +21,7 @@ import pathlib
 import posixpath
 import re
 import shlex
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,6 +30,7 @@ import yaml
 from terp.arch.deployment.datastores import DatastoreTable
 from terp.arch.deployment.files import checkout_root, inside
 from terp.arch.deployment.reader import Declaration, Finding, Unit, role_findings
+from terp.arch.deployment.volumes import _volume_findings
 
 
 @dataclass(frozen=True)
@@ -120,6 +122,30 @@ def _parse(text: str) -> Any:
         loader.dispose()
 
 
+def _profile_file(
+    read: Callable[[], str], field: str, name: str
+) -> tuple[dict[str, Any], list[Finding]]:
+    """One profile file, parsed: the mapping, or why it is not one."""
+    try:
+        data = _parse(read())
+    except (OSError, yaml.YAMLError) as exc:
+        return {}, [Finding(f"{field} {name} is not readable YAML: {exc}", file=name)]
+    if not isinstance(data, dict):
+        return {}, [
+            Finding(f"{field} {name} is not a compose file: it holds no mapping", file=name)
+        ]
+    return data, []
+
+
+def profile_from_text(text: str, name: str) -> tuple[dict[str, Any], list[Finding]]:
+    """One profile file's text, read as :func:`resolve_profile` reads a base file.
+
+    For a caller judging a profile it has not written yet (``terp deployment adopt``).
+    """
+    data, problems = _profile_file(lambda: text, "compose.file", name)
+    return (_merge({}, data), []) if not problems else ({}, problems)
+
+
 def resolve_profile(
     project_root: pathlib.Path, declaration: Declaration
 ) -> tuple[dict[str, Any], list[Finding]]:
@@ -135,14 +161,9 @@ def resolve_profile(
                     "exists, whose services the units are)"
                 )
             ]
-        try:
-            data = _parse(path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError) as exc:
-            return {}, [Finding(f"{field} {name} is not readable YAML: {exc}", file=name)]
-        if not isinstance(data, dict):
-            return {}, [
-                Finding(f"{field} {name} is not a compose file: it holds no mapping", file=name)
-            ]
+        data, problems = _profile_file(lambda: path.read_text(encoding="utf-8"), field, name)
+        if problems:
+            return {}, problems
         merged = _merge(merged, data)
     return merged, []
 
@@ -177,13 +198,21 @@ def _remote(path: str) -> bool:
     return "://" in path or path.startswith("git@")
 
 
-def build_path_findings(project_root: pathlib.Path, declaration: Declaration) -> list[Finding]:
+def build_path_findings(
+    project_root: pathlib.Path,
+    declaration: Declaration,
+    resolved: dict[str, Any] | None = None,
+) -> list[Finding]:
     """The build contexts and build files of the declared units: inside the checkout.
 
     A profile that cannot be read yet leads nowhere, so it is silent here; whether the
-    profile is there and reads is the truth check's to report.
+    profile is there and reads is the truth check's to report. *resolved* is the profile
+    already resolved, for a caller that judges one it has not written yet (``terp
+    deployment adopt``); the files on disk are read otherwise.
     """
-    profile, problems = resolve_profile(project_root, declaration)
+    profile, problems = (
+        (resolved, []) if resolved is not None else resolve_profile(project_root, declaration)
+    )
     if problems:
         return []
     services = services_of(profile)
@@ -214,12 +243,44 @@ def build_path_findings(project_root: pathlib.Path, declaration: Declaration) ->
     return findings
 
 
-def _argv(command: Any) -> tuple[str, ...] | None:
+#: What compose interpolates: ``$$``, ``$name`` and ``${``, read the way compose reads them.
+_INTERPOLATION = re.compile(r"\$(\$|\{|[A-Za-z_])")
+
+
+def compose_literal(text: str) -> str | None:
+    """The literal compose makes of *text*, or ``None`` when it interpolates.
+
+    ``$$`` is one ``$``; ``$name`` and ``${...}`` are interpolations, whose value is the
+    environment's and so never equals a literal the declaration restates; any other ``$``
+    (``$!``, ``$1``, a trailing one) is literal, as compose leaves it. A profile the
+    generator renders doubles every ``$`` of a value, so the declaration's own text is what
+    this gives back (ADR 0187).
+    """
+    out: list[str] = []
+    position = 0
+    for match in _INTERPOLATION.finditer(text):
+        if match.group(1) != "$":
+            return None
+        out.append(text[position : match.start()] + "$")
+        position = match.end()
+    return "".join(out) + text[position:]
+
+
+def _argv(command: Any) -> tuple[str | None, ...] | None:
+    """The command compose runs, element by element; ``None`` marks an interpolation."""
     if isinstance(command, list):
-        return tuple(str(part) for part in command)
+        return tuple(compose_literal(str(part)) for part in command)
     if isinstance(command, str):
-        return tuple(shlex.split(command))
+        literal = compose_literal(command)
+        return (None,) if literal is None else tuple(shlex.split(literal))
     return None
+
+
+def _shown(command: Any) -> str:
+    """A profile's command as its author wrote it, for a message."""
+    if isinstance(command, list):
+        return " ".join(map(str, command))
+    return "the image's own command" if command is None else str(command)
 
 
 def _restated(
@@ -227,9 +288,10 @@ def _restated(
 ) -> list[Finding]:
     """A restated fact the profile owns has to be the profile's."""
     findings: list[Finding] = []
-    actual = _argv(service.get("command"))
+    written = service.get("command")
+    actual = _argv(written)
     if unit.command is not None and actual != unit.command:
-        runs = " ".join(actual) if actual is not None else "the image's own command"
+        runs = _shown(written)
         findings.append(
             Finding(
                 f"units[{index}].command restates {list(unit.command)}, and {label} runs "
@@ -331,63 +393,6 @@ def _image_findings(
     ]
 
 
-def mounters(services: dict[str, dict[str, Any]]) -> dict[str, list[tuple[str, str]]]:
-    """Named volume -> every ``(service, container path)`` that mounts it."""
-    found: dict[str, list[tuple[str, str]]] = {}
-    for name, service in services.items():
-        for entry in service.get("volumes") or ():
-            if isinstance(entry, dict):
-                if entry.get("type", "volume") == "volume" and entry.get("source"):
-                    found.setdefault(str(entry["source"]), []).append(
-                        (name, str(entry.get("target", "")))
-                    )
-                continue
-            source, _, rest = str(entry).partition(":")
-            if (
-                rest
-                and source
-                and not source.startswith(("/", ".", "~", "$"))
-                and "/" not in source
-            ):
-                found.setdefault(source, []).append((name, rest.split(":", 1)[0]))
-    return found
-
-
-def _volume_findings(
-    declaration: Declaration,
-    profile: dict[str, Any],
-    services: dict[str, dict[str, Any]],
-    label: str,
-) -> list[Finding]:
-    named = set(profile.get("volumes") or {}) if isinstance(profile.get("volumes"), dict) else set()
-    mounted = mounters(services)
-    stateful = {unit.id for unit in declaration.units if unit.stateful}
-    findings: list[Finding] = []
-    for index, volume in enumerate(declaration.volumes):
-        users = sorted({service for service, _target in mounted.get(volume.id, ())})
-        where = f'volumes[{index}].id "{volume.id}"'
-        if volume.id not in named:
-            listed = ", ".join(sorted(named)) or "none"
-            findings.append(
-                Finding(
-                    f"{where} is not a named volume of {label} (allowed: a named volume of the profile: {listed})"
-                )
-            )
-        elif not users:
-            findings.append(
-                Finding(
-                    f"{where} is mounted by no service of {label}, so its backup policy would back up nothing (allowed: a named volume a service mounts)"
-                )
-            )
-        elif set(users) <= stateful:
-            findings.append(
-                Finding(
-                    f"{where} is mounted only by declared stateful units ({', '.join(users)}), whose backup policy already covers it (allowed: a volume no declared stateful unit owns)"
-                )
-            )
-    return findings
-
-
 def _external_database_findings(
     declaration: Declaration, services: dict[str, dict[str, Any]], table: DatastoreTable, label: str
 ) -> list[Finding]:
@@ -417,10 +422,18 @@ def _external_database_findings(
 
 
 def truth_findings(
-    project_root: pathlib.Path, declaration: Declaration, table: DatastoreTable
+    project_root: pathlib.Path,
+    declaration: Declaration,
+    table: DatastoreTable,
+    resolved: dict[str, Any] | None = None,
 ) -> list[Finding]:
-    """Rule 2 from the files: every fact the declaration restates from the profile."""
-    profile, problems = resolve_profile(project_root, declaration)
+    """Rule 2 from the files: every fact the declaration restates from the profile.
+
+    *resolved*, as for :func:`build_path_findings`: a profile resolved already.
+    """
+    profile, problems = (
+        (resolved, []) if resolved is not None else resolve_profile(project_root, declaration)
+    )
     if problems:
         return problems
     label = " + ".join(declaration.profile_files)

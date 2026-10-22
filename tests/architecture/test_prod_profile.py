@@ -118,7 +118,11 @@ def test_prod_backend_images_are_multistage_wheel_builds() -> None:
     """
     for path in (_PROD_DOCKERFILE, _TEMPLATE_PROD_DOCKERFILE):
         text = path.read_text(encoding="utf-8")
-        assert text.count("FROM python:") == 2, f"{path.name} must be multi-stage"
+        # By tag in the example; by digest from the base-image table in the template, whose
+        # files are the generator's render (ADR 0187).
+        assert len(re.findall(r"^FROM python[:@]", text, re.MULTILINE)) == 2, (
+            f"{path.name} must be multi-stage"
+        )
         assert "uv build --wheel" in text
         assert "-e " not in text, f"{path.name} must not install editable"
         assert "USER " in text, f"{path.name} must drop root"
@@ -126,8 +130,17 @@ def test_prod_backend_images_are_multistage_wheel_builds() -> None:
             line for line in text.splitlines() if line.strip() and not line.strip().startswith("#")
         ]
         assert not any("--reload" in line for line in code_lines)
-        assert "HEALTHCHECK" in text
         assert 'CMD ["uvicorn", "app.main:app"' in text
+    # The example's image serves only its api. The template's backs every backend unit, and
+    # changed on purpose (ADR 0187): no HEALTHCHECK of its own, because a worker or a
+    # scheduler that inherits an HTTP probe turns unhealthy and `docker compose up --wait`
+    # then refuses the deployment. Its profile probes each api unit itself.
+    assert "HEALTHCHECK" in _PROD_DOCKERFILE.read_text(encoding="utf-8")
+    assert not any(
+        line.startswith("HEALTHCHECK")
+        for line in _TEMPLATE_PROD_DOCKERFILE.read_text(encoding="utf-8").splitlines()
+    )
+    assert "healthcheck" in _template_prod_compose()["services"]["api"]
     example = _PROD_DOCKERFILE.read_text(encoding="utf-8")
     assert '"uvicorn[standard]"' in example, "the example image must serve WebSockets"
 
@@ -255,12 +268,23 @@ def test_prod_backend_forwards_app_declared_env() -> None:
     """The one generic seam: backend services read the optional .app.env the
     deploy pipeline renders from environment.schema.json. `required: false`
     keeps plain `docker compose up` working; the frontend (build-time vars
-    only) deliberately gets no seam."""
-    for data in _both_composes():
-        for name in ("migrate", "api"):
-            assert data["services"][name].get("env_file") == _APP_ENV_SEAM, (
-                f"{name} must read the optional .app.env (app-declared variables)"
-            )
+    only) deliberately gets no seam.
+
+    Changed on purpose by ADR 0187: the template's profile is the generator's render, which
+    lists on each backend unit `.app.env` and then that unit's own `.app.<id>.env` (where
+    the manifest routes a variable scoped to it), while `x-backend` keeps `.app.env` alone,
+    so a service an app added through the merge key still inherits it. The example app's
+    profile is its own and keeps the single seam."""
+    example, template = _prod_compose(), _template_prod_compose()
+    for name in ("migrate", "api"):
+        assert example["services"][name].get("env_file") == _APP_ENV_SEAM, (
+            f"{name} must read the optional .app.env (app-declared variables)"
+        )
+        assert template["services"][name].get("env_file") == [
+            *_APP_ENV_SEAM, {"path": f".app.{name}.env", "required": False}
+        ], f"{name} reads .app.env, then its own .app.{name}.env"
+    assert template["x-backend"]["env_file"] == _APP_ENV_SEAM
+    for data in (example, template):
         assert "env_file" not in data["services"]["web"]
 
 

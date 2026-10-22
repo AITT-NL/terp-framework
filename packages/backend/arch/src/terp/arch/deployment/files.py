@@ -17,6 +17,7 @@ import os
 import pathlib
 
 from terp.arch.deployment.datastores import DatastoreTable
+from terp.arch.deployment.tables import SystemPackageTable
 from terp.arch.deployment.reader import (
     DEPLOYMENT_FILE,
     DEV_COMPOSE_FILE,
@@ -79,7 +80,9 @@ def path_findings(project_root: pathlib.Path, declaration: Declaration) -> list[
 
 
 def load(
-    project_root: pathlib.Path, table: DatastoreTable
+    project_root: pathlib.Path,
+    table: DatastoreTable,
+    packages: SystemPackageTable | None = None,
 ) -> tuple[Declaration | Unmanaged | None, list[Finding]]:
     """Read ``deployment.json`` and the profile paths it names. ``(None, [])`` when absent."""
     path = project_root / DEPLOYMENT_FILE
@@ -91,7 +94,7 @@ def load(
         return None, [
             Finding(f"{DEPLOYMENT_FILE} is not valid JSON ({exc}) (allowed: one JSON object)")
         ]
-    declared, findings = read(raw, table)
+    declared, findings = read(raw, table, packages)
     if isinstance(declared, Declaration):
         findings = path_findings(project_root, declared)
         if findings:

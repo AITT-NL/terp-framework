@@ -36,7 +36,7 @@ built wheels with `UV_FIND_LINKS`, as template acceptance does.
 
 | Capability | In the app | Proven by |
 |---|---|---|
-| **Worker** (`terp-cap-outbox`) | `app/main.py` wires `OutboxJobQueue`, so every job is a row committed with the write that caused it. The `worker` service runs `terp jobs worker` in a loop in both compose profiles. | The suite drains the outbox with `OutboxWorker`; the stack check waits for the mail and the snapshot only the worker can produce. |
+| **Worker** (`terp-cap-outbox`) | `app/main.py` wires `OutboxJobQueue`, so every job is a row committed with the write that caused it. The `worker` service runs `terp jobs worker --forever` in both compose profiles. | The suite drains the outbox with `OutboxWorker`; the stack check waits for the mail and the snapshot only the worker can produce. |
 | **Scheduler** (`terp-cap-scheduler-apscheduler`) | `control_plane/schedules.py` declares `notices.snapshot.hourly`. The `scheduler` service runs `terp jobs scheduler`, with no healthcheck and nothing depending on it, so it stays out of readiness. | The suite fires a tick through `trigger_schedule` and registers the cron with APScheduler; CI reads the registration from the scheduler's log. |
 | **File storage** (`terp-cap-files`) | The snapshot job stores what the upstream returned through `FileService`; `Snapshot.file_id` is a declared `FileRef`; one `files-data` volume is shared by the API and the worker. | The suite reads the bytes back with `load_for`; the stack check downloads them from `/api/v1/files/{id}/content` and compares the size. |
 | **Mail** (`terp-cap-mail`) | `configure_mail` reads the relay from `MAIL_FROM` / `SMTP_*`; a new notice is mailed from `NoticeService._after_write`. In development the relay is the `mailcatcher` service (Mailpit), which is what `terp env init` writes from the declared defaults. | The suite captures the delivery with `CapturingMailTransport`; the stack check finds the mail in the catcher's inbox. |
@@ -64,7 +64,9 @@ it joins the app when it ships.
   repository, and runs a scripted change, its gate, its publish step and a Test deploy
   against that, in place of a client's app. No new repository and no second pin: the app moves with the framework.
 - **A deployment test environment** deploys its production profile, `docker-compose.prod.yml`: the
-  worker, the scheduler and the companion on the backend image beside the API. That
+  worker, the scheduler and the companion on the backend image beside the API. The file is
+  the generator's render of the reference shape (the `grown` golden sample of ADR 0187),
+  kept as the app's own under `"build": "own"`, and a test holds the two equal. That
   profile has no mail catcher: the relay is external, and `MAIL_FROM` and `SMTP_HOST` are
   required there (`requiredIn` production). Its `.app.env` names an encrypted relay
   (`SMTP_SECURITY` `starttls` or `tls`; a production boot refuses `none` and refuses no
@@ -91,10 +93,6 @@ the inbox at the address `docker compose port mailcatcher 8025` prints.
 
 ## Known gaps
 
-- `terp jobs worker` delivers what is due and returns, so the `worker` service re-runs it
-  in a shell loop, in both profiles. Each pass builds the app again, which costs a little
-  CPU and repeats the development warnings in its log; a long-running worker entrypoint
-  belongs in the framework and does not exist yet.
 - The suite takes `terp_db_url`, so it runs on PostgreSQL wherever `TERP_TEST_POSTGRES_URL`
   names a server, as the app's own CI workflow provides. `template-acceptance` has no
   server, so there the PostgreSQL half skips, and the stack check is what runs the app on

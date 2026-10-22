@@ -1,51 +1,36 @@
-# Terp Reference — the production profile (ADR 0062).
+# Rendered by `terp deployment render` from deployment.json (ADR 0187). Where deployment.json
+# says "build": "generated" this file is the generator's: change deployment.json and render
+# again, never this file. Under "build": "own" it is the app's to change.
 #
-#   SECRET_KEY=… POSTGRES_PASSWORD=… docker compose -f docker-compose.prod.yml up -d --wait
-#
-# Topology (same shape as the dev workbench, hardened): Postgres -> one-shot `migrate` ->
-# the API (uvicorn, ENVIRONMENT=production, fail-fast config guardrails) + `web` (nginx
-# serving the built SPA and proxying /api same-origin). Differences from the workbench:
-#
-#   - ENVIRONMENT=production: the app REFUSES to boot on a weak SECRET_KEY, DEBUG,
-#     SQLite, permissive CORS, or an insecure refresh cookie (terp.core.config).
-#   - Secrets come from the environment only — there is NO dev fallback; compose fails
-#     fast when SECRET_KEY / POSTGRES_PASSWORD are unset.
-#   - The database is the bundled `db` service by default. Set DATABASE_URL to run
-#     against an external PostgreSQL instead (managed cloud, on-prem cluster) and add
-#     an override that removes `db` to drop the then-unused sidecar.
-#   - No `seed` service: seed data is dev/demo only (`terp seed` refuses production).
-#     Bootstrap the first administrator instead with:
-#       docker compose -f docker-compose.prod.yml run --rm -e TERP_USER_PASSWORD api \
-#         terp user create admin@your-domain.example --role admin
-#   - No --reload, no source watch: images are immutable (Dockerfile.prod).
-#   - Restart policies + healthchecks on the long-running services.
-#
-# The reference app adds what a client app grows (apps/reference/README.md), all on the
-# backend image: the outbox `worker`, the `scheduler`, the `monitor` companion, and the
-# files volume the API serves from and the worker writes to. There is no mail catcher
-# here: the relay is a real one, named in .app.env, and a production boot refuses an
-# unencrypted one (SMTP_SECURITY=none) and a missing one alike.
+# The production profile (ADR 0062): the units deployment.json declares, hardened. Every
+# backend unit runs with ENVIRONMENT=production, so the app refuses to boot on a weak
+# SECRET_KEY, DEBUG, SQLite, permissive CORS or an insecure refresh cookie
+# (terp.core.config). Secrets come from the environment only, with no development
+# fallback: compose stops when a required one is unset. There is no seed service, and no
+# --reload or source watch: the images are immutable. How to start it, bootstrap the
+# first administrator, and point it at a database this deployment does not run:
+# `terp guide deployment`.
 name: reference-app-prod
 
 x-backend: &backend
   image: reference-app-backend-prod
   # App-declared environment variables (environment.schema.json): the deploy
   # pipeline renders exactly the declared keys into .app.env per environment.
-  # Optional by design — plain `docker compose up` works without the file.
+  # Optional by design -- plain `docker compose up` works without the file. Each
+  # backend unit lists it again, then its own .app.<id>.env.
+  # No healthcheck, here or in the image: only an api unit serves HTTP, and each one
+  # carries its own probe. A unit with none is ready once it runs, which is what
+  # `docker compose up --wait` waits for; a disabled check would make it refuse.
   env_file:
     - path: .app.env
       required: false
   environment: &backend-env
-    # Unset: the bundled `db` service. Set: any external PostgreSQL — the seam an
+    # Unset: the bundled `db` service. Set: any external PostgreSQL -- the seam an
     # external-database deployment overrides (nothing else in the profile changes).
     DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://app:${POSTGRES_PASSWORD}@db:5432/app}
     SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required (>= 32 chars)}
     ENVIRONMENT: production
     BACKEND_CORS_ORIGINS: '${BACKEND_CORS_ORIGINS:-[]}'
-  volumes:
-    # The files capability's default storage root (WORKDIR /srv + var/files). The API
-    # serves stored files and the worker stores snapshots, so they share one volume.
-    - files-data:/srv/var/files
 
 # Every service logs through this. Docker's default driver on a Synology NAS
 # is `db`: one SQLite database per container, with no size cap anywhere in the
@@ -61,7 +46,7 @@ x-logging: &container-logging
 
 services:
   db:
-    # PostgreSQL 17 (17.11, Alpine), pinned by digest to the datastore table this
+    # PostgreSQL 17, pinned by digest to the datastore table this
     # framework release publishes (terp-arch's datastore-table.json, ADR 0184): a tag
     # can move under a deployed app, and a declared `kind` unit must run exactly this.
     image: postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
@@ -80,11 +65,17 @@ services:
       start_period: 30s
     logging: *container-logging
 
-  # One-shot: bring every package's schema up to head before the API serves. The API's
-  # own fail-closed boot guard (PendingMigrationsError) backs this up at runtime.
+  # The migration step: brings every package's schema to head before the units that
+  # wait for it start. The boot guard of every unit that builds the app
+  # (PendingMigrationsError) backs it up at runtime.
   migrate:
     <<: *backend
     command: ["terp", "migrate", "upgrade", "--app-root", "/srv/app"]
+    env_file:
+      - path: .app.env
+        required: false
+      - path: .app.migrate.env
+        required: false
     restart: "no"
     depends_on:
       db:
@@ -93,19 +84,27 @@ services:
 
   api:
     <<: *backend
-    # Only the api declares the build: one builder produces the shared tag
-    # (concurrent builds of one tag race in the exporter), migrate reuses it.
+    # The one service that declares the backend build: one builder produces the
+    # shared tag (concurrent builds of one tag race in the exporter), and every
+    # other backend unit runs it.
     build:
       context: .
       dockerfile: Dockerfile.prod
+    env_file:
+      - path: .app.env
+        required: false
+      - path: .app.api.env
+        required: false
     restart: unless-stopped
+    volumes:
+      - "files-data:/srv/var/files"
     depends_on:
       db:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      test: ["CMD", "python", "-c", "import sys, urllib.request; urllib.request.urlopen('http://127.0.0.1:8000' + sys.argv[1])", "/health/live"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -135,13 +134,19 @@ services:
       start_period: 30s
     logging: *container-logging
 
-  # Drains the durable outbox (`terp jobs worker` delivers what is due and returns, so
-  # the loop re-runs it). The trap ends the loop on stop after the batch in flight.
+  # Drains the durable outbox until it is stopped (`terp jobs worker --forever`).
   worker:
     <<: *backend
-    command: ["sh", "-c", "trap 'exit 0' TERM INT; while :; do terp jobs worker; sleep 5 & wait $$!; done"]
+    command: ["terp", "jobs", "worker", "--forever"]
+    env_file:
+      - path: .app.env
+        required: false
+      - path: .app.worker.env
+        required: false
     init: true
     restart: unless-stopped
+    volumes:
+      - "files-data:/srv/var/files"
     depends_on:
       db:
         condition: service_healthy
@@ -149,13 +154,15 @@ services:
         condition: service_completed_successfully
     logging: *container-logging
 
-  # Fires the declared schedules (`terp jobs scheduler`). Deliberately without a
-  # healthcheck and with nothing depending on it: it serves no request, so it must never
-  # be what turns the deployment's readiness red. One instance only -- APScheduler holds
-  # no lock, so a second scheduler would fire every tick twice.
+  # Fires the declared schedules until it is stopped (`terp jobs scheduler`).
   scheduler:
     <<: *backend
     command: ["terp", "jobs", "scheduler"]
+    env_file:
+      - path: .app.env
+        required: false
+      - path: .app.scheduler.env
+        required: false
     init: true
     restart: unless-stopped
     depends_on:
@@ -165,11 +172,15 @@ services:
         condition: service_completed_successfully
     logging: *container-logging
 
-  # The companion (`monitor/`, installed from the app's wheel): logs the outbox backlog
-  # and warns once due work has gone stale, which no readiness probe can see.
   monitor:
     <<: *backend
     command: ["python", "-m", "monitor"]
+    env_file:
+      - path: .app.env
+        required: false
+      - path: .app.monitor.env
+        required: false
+    init: true
     restart: unless-stopped
     depends_on:
       db:

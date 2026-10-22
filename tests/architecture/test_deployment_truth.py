@@ -98,6 +98,42 @@ def test_a_command_restated_from_a_shell_form_profile_compares_as_a_list(tmp_pat
     _true(project(tmp_path, raw, profile(migrate=migrate)))
 
 
+@pytest.mark.parametrize(
+    ("declared", "written"),
+    [
+        (["sh", "-c", "echo $HOME"], ["sh", "-c", "echo $$HOME"]),
+        (["echo", "${SECRET_KEY}", "$$", "$!", "a$"], ["echo", "$${SECRET_KEY}", "$$$$", "$!", "a$"]),
+        (["echo", "$1", "cost: 5$"], ["echo", "$1", "cost: 5$"]),
+        (["echo", "$HOME"], "echo $$HOME"),
+    ],
+    ids=["doubled", "every-form", "literal-dollar", "shell-form"],
+)
+def test_a_restated_command_reads_the_profile_as_compose_does(tmp_path, declared, written) -> None:
+    # ADR 0187: `$$` is one `$`, and any other `$` that opens no interpolation is literal,
+    # so a generated profile, which doubles every `$` of a value, restates its declaration
+    # exactly. Before, the rule compared raw strings and would call that render untrue.
+    raw = seed()
+    unit(raw, "migrate")["command"] = declared
+    migrate = dict(profile()["services"]["migrate"], command=written)
+    _true(project(tmp_path, raw, profile(migrate=migrate)))
+
+
+@pytest.mark.parametrize(
+    "written",
+    [["echo", "$HOME"], ["echo", "${HOME}"], ["echo", "${HOME:-/root}"], "echo ${HOME}"],
+    ids=["named", "braced", "defaulted", "shell-form"],
+)
+def test_an_interpolation_never_equals_a_restated_literal(tmp_path, written) -> None:
+    # Its value is the environment's: whatever the declaration says, it is not that.
+    raw = seed()
+    unit(raw, "migrate")["command"] = ["echo", "$HOME"] if "$HOME" in str(written) else ["echo", "${HOME}"]
+    migrate = dict(profile()["services"]["migrate"], command=written)
+    shown = written if isinstance(written, str) else " ".join(written)
+    assert f"docker-compose.prod.yml runs {shown} for migrate" in _untrue(
+        project(tmp_path, raw, profile(migrate=migrate))
+    )
+
+
 def test_a_command_for_a_service_that_runs_its_image_default_is_a_lie(tmp_path) -> None:
     raw = seed()
     unit(raw, "web")["command"] = ["nginx", "-g", "daemon off;"]

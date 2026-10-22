@@ -1,0 +1,10 @@
+{
+  "about": "A database this deployment does not run: DATABASE_URL is required, and no POSTGRES_PASSWORD appears.",
+  "project": "demo",
+  "frontendLock": true,
+  "renders": [
+    "Dockerfile.prod",
+    "frontend/Dockerfile.prod",
+    "docker-compose.prod.yml"
+  ]
+}

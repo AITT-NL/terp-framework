@@ -19,8 +19,10 @@ import contextlib
 import importlib
 import json
 import pathlib
+import signal
 import sys
 import textwrap
+from threading import Event
 
 from fastapi import FastAPI
 
@@ -147,6 +149,9 @@ def run_worker_command(
     max_cycles: int | None = None,
     batch_size: int = 10,
     lease_seconds: float = 30.0,
+    forever: bool = False,
+    poll_seconds: float = 5.0,
+    stop: Event | None = None,
 ) -> str:
     """Build *app_ref*, then drain the durable outbox until empty (or *max_cycles*).
 
@@ -160,6 +165,12 @@ def run_worker_command(
     ``terp-cap-outbox`` capability (an app wiring the durable queue already depends on
     it; a standalone worker image installs ``terp-cli[worker]`` or the combined
     ``terp-cli[jobs]`` extra).
+
+    *forever* is the worker container's command (ADR 0187): drain, wait *poll_seconds*,
+    drain again, until SIGTERM or SIGINT, which ends it after the batch in flight and exits
+    cleanly. It replaces the shell loop a profile used to wrap around a single drain, so a
+    generated profile renders an argument list rather than a shell string. *stop* is the
+    event the signals set, injectable for tests; the previous handlers are restored on exit.
     """
     root = str(pathlib.Path(app_root).resolve())
     if root not in sys.path:
@@ -186,10 +197,30 @@ def run_worker_command(
         lease_seconds=lease_seconds,
         skip_locked=engine.dialect.name == "postgresql",
     )
-    result = worker.run(max_cycles=max_cycles)
-    return (
-        f"outbox worker drained: claimed={result.claimed} dispatched={result.dispatched} "
-        f"retried={result.retried} dead-lettered={result.dead_lettered} lost={result.lost}"
+    if not forever:
+        return f"outbox worker drained: {_tally([worker.run(max_cycles=max_cycles)])}"
+    stopping = stop if stop is not None else Event()
+    previous = {
+        number: signal.signal(number, lambda _signum, _frame: stopping.set())
+        for number in (signal.SIGTERM, signal.SIGINT)
+    }
+    results: list[object] = []
+    try:
+        while not stopping.is_set():
+            results.append(worker.run(max_cycles=max_cycles))
+            stopping.wait(poll_seconds)
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+    return f"outbox worker stopped after {len(results)} pass(es): {_tally(results)}"
+
+
+def _tally(results: list[object]) -> str:
+    """The drain counts of every pass, summed, in the order the worker reports them."""
+    fields = ("claimed", "dispatched", "retried", "dead_lettered", "lost")
+    return " ".join(
+        f"{name.replace('_', '-')}={sum(getattr(result, name) for result in results)}"
+        for name in fields
     )
 
 

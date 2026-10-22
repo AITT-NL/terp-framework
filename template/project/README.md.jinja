@@ -8,7 +8,8 @@ Built on **Terp** — secure-by-default by construction. The composition root is
 ```bash
 uv sync                               # backend deps (creates ./.venv and uv.lock)
 npm --prefix frontend install         # frontend deps (creates frontend/package-lock.json)
-uv run terp check                     # the architecture gate (== CI)
+{% if deploy_build == 'generated' %}uv run terp deployment render         # the production build files, from deployment.json
+{% endif %}uv run terp check                     # the architecture gate (== CI)
 uv run terp dev                       # runs the API (:22100) + frontend (:21100) together
 ```
 
@@ -75,6 +76,11 @@ uv run terp verify --profile full
 
 Both installs rewrite a lock (`uv.lock`, `frontend/package-lock.json`); commit them with
 the bumped pins.
+
+Where `deployment.json` says `"build": "generated"`, the production build files
+(`Dockerfile.prod`, `frontend/Dockerfile.prod`, `docker-compose.prod.yml`) are the
+framework's: after the install, run `uv run terp deployment render` and commit what it
+writes with the locks. A missed render turns `uv run terp verify --only generated` red.
 
 A release publishes its distributions one at a time, so a cached index can hold a version
 gap for minutes after the tag. uv reports that gap as `no version of terp-cap-<x>==<v>` —

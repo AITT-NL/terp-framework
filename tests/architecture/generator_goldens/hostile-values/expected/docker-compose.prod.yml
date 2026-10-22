@@ -1,0 +1,174 @@
+# Rendered by `terp deployment render` from deployment.json (ADR 0187). Where deployment.json
+# says "build": "generated" this file is the generator's: change deployment.json and render
+# again, never this file. Under "build": "own" it is the app's to change.
+#
+# The production profile (ADR 0062): the units deployment.json declares, hardened. Every
+# backend unit runs with ENVIRONMENT=production, so the app refuses to boot on a weak
+# SECRET_KEY, DEBUG, SQLite, permissive CORS or an insecure refresh cookie
+# (terp.core.config). Secrets come from the environment only, with no development
+# fallback: compose stops when a required one is unset. There is no seed service, and no
+# --reload or source watch: the images are immutable. How to start it, bootstrap the
+# first administrator, and point it at a database this deployment does not run:
+# `terp guide deployment`.
+name: demo-prod
+
+x-backend: &backend
+  image: demo-backend-prod
+  # App-declared environment variables (environment.schema.json): the deploy
+  # pipeline renders exactly the declared keys into .app.env per environment.
+  # Optional by design -- plain `docker compose up` works without the file. Each
+  # backend unit lists it again, then its own .app.<id>.env.
+  # No healthcheck, here or in the image: only an api unit serves HTTP, and each one
+  # carries its own probe. A unit with none is ready once it runs, which is what
+  # `docker compose up --wait` waits for; a disabled check would make it refuse.
+  env_file:
+    - path: .app.env
+      required: false
+  environment: &backend-env
+    # Unset: the bundled `no` service. Set: any external PostgreSQL -- the seam an
+    # external-database deployment overrides (nothing else in the profile changes).
+    DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://app:${POSTGRES_PASSWORD}@no:5432/app}
+    SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required (>= 32 chars)}
+    ENVIRONMENT: production
+    BACKEND_CORS_ORIGINS: '${BACKEND_CORS_ORIGINS:-[]}'
+
+# Every service logs through this. Docker's default driver on a Synology NAS
+# is `db`: one SQLite database per container, with no size cap anywhere in the
+# default configuration. Appending a log line to a database that has grown to
+# tens of megabytes scatters small synchronous writes across the whole file,
+# which is enough to saturate a spindle on its own. A flat file that rotates
+# by size costs a fraction of that, and holds the same logs.
+x-logging: &container-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  "no":
+    # PostgreSQL 17, pinned by digest to the datastore table this
+    # framework release publishes (terp-arch's datastore-table.json, ADR 0184): a tag
+    # can move under a deployed app, and a declared `kind` unit must run exactly this.
+    image: postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: app
+    volumes:
+      - no-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
+
+  # The migration step: brings every package's schema to head before the units that
+  # wait for it start. The boot guard of every unit that builds the app
+  # (PendingMigrationsError) backs it up at runtime.
+  "true":
+    <<: *backend
+    command: ["terp", "migrate", "upgrade", "--app-root", "/srv/app"]
+    env_file:
+      - path: .app.env
+        required: false
+      - path: .app.true.env
+        required: false
+    restart: "no"
+    depends_on:
+      "no":
+        condition: service_healthy
+    logging: *container-logging
+
+  "1e3":
+    <<: *backend
+    # The one service that declares the backend build: one builder produces the
+    # shared tag (concurrent builds of one tag race in the exporter), and every
+    # other backend unit runs it.
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    env_file:
+      - path: .app.env
+        required: false
+      - path: .app.1e3.env
+        required: false
+    restart: unless-stopped
+    volumes:
+      - "files:/srv/var/files"
+    depends_on:
+      "no":
+        condition: service_healthy
+      "true":
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; urllib.request.urlopen('http://127.0.0.1:8000' + sys.argv[1])", "/live/$$HOME/$$SECRET_KEY/it's$$$$"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
+
+  "0o17":
+    <<: *backend
+    command: ["sh", "-c", "echo \"$$HOME\" $${SECRET_KEY} $$$$ $$! 'q' \\ `x` | ; & > < ( ) # %"]
+    env_file:
+      - path: .app.env
+        required: false
+      - path: .app.0o17.env
+        required: false
+    init: true
+    restart: unless-stopped
+    volumes:
+      - "files:/srv/var/files"
+    depends_on:
+      "1e3":
+        condition: service_healthy
+    logging: *container-logging
+
+  odd:
+    <<: *backend
+    command: ["printf", "%s\\n", "$$", "$${SECRET_KEY}", "$$$$", "$$!", "a$$", "\"quoted\"", "back\\slash", "a;b|c&&$$(d)`e`>f", "caf\u00E9", "\u6F22\u5B57", "\U0001F600", "#not a comment", "key: value", "- item", "[x]", "{y}", "*z", "&a", "!tag", "%p", "@q", "?r", "|s", ">t", "~", "null", "yes", "0x1F", "1e3", ".inf", "2026-10-21", "<<"]
+    env_file:
+      - path: .app.env
+        required: false
+      - path: .app.odd.env
+        required: false
+    init: true
+    restart: unless-stopped
+    depends_on:
+      "no":
+        condition: service_healthy
+    logging: *container-logging
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.prod
+    image: demo-frontend-prod
+    restart: unless-stopped
+    environment:
+      # The api unit this tier proxies /api to; the image's default is api:8000.
+      API_UPSTREAM: "1e3:8000"
+    ports:
+      # 23100, not 8080: the same argument as the development file, one range up.
+      # A deployment sets WEB_PORT explicitly -- this default only decides what a
+      # first `docker compose -f docker-compose.prod.yml up` grabs on a machine
+      # that is also running the developer's own things.
+      - "${WEB_PORT:-23100}:8080"
+    depends_on:
+      "1e3":
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
+
+volumes:
+  no-data:
+  files:

@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import importlib
 import pathlib
+import signal
 import sys
+import threading
 import tomllib
 import uuid
 from collections.abc import Iterator
@@ -315,6 +317,65 @@ def test_cli_jobs_worker_dispatch(
     out = capsys.readouterr().out
     assert "outbox worker drained" in out and "dispatched=1" in out
     assert importlib.import_module(name).drained == ["cli"]
+
+
+class _StopOnPause(threading.Event):
+    """The container's stop, delivered through the handler the worker installed.
+
+    On pause *at*, the handler for *signum* runs as the signal would run it; the pauses the
+    worker asked for are recorded.
+    """
+
+    def __init__(self, signum: int, at: int = 1) -> None:
+        super().__init__()
+        self.signum, self.at, self.pauses = signum, at, []
+
+    def wait(self, timeout: float | None = None) -> bool:
+        self.pauses.append(timeout)
+        if len(self.pauses) == self.at:
+            signal.getsignal(self.signum)(self.signum, None)
+        return super().wait(0)
+
+
+@pytest.mark.parametrize(
+    ("signum", "passes"), [(signal.SIGTERM, 1), (signal.SIGINT, 2)], ids=["sigterm", "sigint"]
+)
+def test_run_worker_command_forever_drains_until_a_signal_stops_it(
+    tmp_path: pathlib.Path, worker_db: None, signum: int, passes: int
+) -> None:
+    # ADR 0187: the loop a profile used to write as a shell string is the command's own, so a
+    # generated profile renders an argument list. A stop ends it after the batch in flight,
+    # and the process's own handlers are back afterwards.
+    module = f"jobs_worker_forever_{signum}"
+    (tmp_path / f"{module}.py").write_text(_WORKER_APP_MODULE, encoding="utf-8")
+    sys.modules.pop(module, None)
+    before = (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT))
+    stop = _StopOnPause(signum, at=passes)
+    message = run_worker_command(
+        app_ref=f"{module}:build", app_root=tmp_path, forever=True, poll_seconds=2.5, stop=stop
+    )
+    assert message.startswith(f"outbox worker stopped after {passes} pass(es): claimed=1 ")
+    assert "dispatched=1" in message and "dead-lettered=0" in message
+    assert stop.pauses == [2.5] * passes, "it pauses between drains, for as long as asked"
+    assert (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT)) == before
+    assert importlib.import_module(module).drained == ["cli"]
+
+
+def test_cli_jobs_worker_forever_dispatch(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_worker(**kwargs: object) -> str:
+        seen.update(kwargs)
+        return "outbox worker stopped after 0 pass(es)"
+
+    monkeypatch.setattr("terp.cli.run_worker_command", fake_worker)
+    main(["jobs", "worker", "--forever", "--poll-seconds", "1.5"])
+    assert seen["forever"] is True and seen["poll_seconds"] == 1.5
+    main(["jobs", "worker"])
+    assert seen["forever"] is False and seen["poll_seconds"] == 5.0
+    assert "stopped after 0" in capsys.readouterr().out
 
 
 def test_run_worker_command_without_the_outbox_capability_is_directive(

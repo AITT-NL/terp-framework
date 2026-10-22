@@ -24,6 +24,9 @@ import pathlib
 from terp.arch.deployment import (
     DatastoreTable,
     Finding,
+    SystemPackageTable,
+    generated,
+    load_system_packages,
     load_table,
     readable,
     untrue,
@@ -35,6 +38,14 @@ def _table(datastore_table: str | pathlib.Path | DatastoreTable | None) -> Datas
     if isinstance(datastore_table, DatastoreTable):
         return datastore_table
     return load_table(datastore_table)
+
+
+def _packages(
+    system_package_table: str | pathlib.Path | SystemPackageTable | None,
+) -> SystemPackageTable:
+    if isinstance(system_package_table, SystemPackageTable):
+        return system_package_table
+    return load_system_packages(system_package_table)
 
 
 def _violations(rule: str, findings: list[Finding]) -> list[ArchViolation]:
@@ -54,6 +65,7 @@ def check_deployment_declaration_is_readable(
     *,
     package: str = "app",
     datastore_table: str | pathlib.Path | DatastoreTable | None = None,
+    system_package_table: str | pathlib.Path | SystemPackageTable | None = None,
 ) -> list[ArchViolation]:
     """``deployment.json`` must be a declaration every reader reads the same way.
 
@@ -65,11 +77,14 @@ def check_deployment_declaration_is_readable(
     unique ids, a ``size`` that is a key of ``sizes``, a backup only on a unit declared
     stateful, ``client`` only on ``externalDatabase``, a ``kind`` and ``version`` the
     table carries. Leading a reader only inside the checkout, never to the development
-    compose file. An absent file is undeclared and passes; ``build: generated`` is
-    refused until the framework ships a generator. Fix the field the message names.
+    compose file. The generator's words stand only beside ``build: generated``, a
+    system package is one the table carries, and a mount names declared units. An
+    absent file is undeclared and passes. Fix the field the message names.
     """
     del package  # the declaration is the project's, whatever the package is called
-    _declared, findings = readable(pathlib.Path(project_root), _table(datastore_table))
+    _declared, findings = readable(
+        pathlib.Path(project_root), _table(datastore_table), _packages(system_package_table)
+    )
     return _violations("deployment_declaration_is_readable", findings)
 
 
@@ -78,6 +93,7 @@ def check_deployment_declaration_tells_the_truth(
     *,
     package: str = "app",
     datastore_table: str | pathlib.Path | DatastoreTable | None = None,
+    system_package_table: str | pathlib.Path | SystemPackageTable | None = None,
 ) -> list[ArchViolation]:
     """What ``deployment.json`` states, its deployment profile must not contradict.
 
@@ -96,11 +112,40 @@ def check_deployment_declaration_tells_the_truth(
     or the profile, until they agree.
     """
     del package
-    findings = untrue(pathlib.Path(project_root), _table(datastore_table))
+    findings = untrue(
+        pathlib.Path(project_root), _table(datastore_table), _packages(system_package_table)
+    )
     return _violations("deployment_declaration_tells_the_truth", findings)
+
+
+def check_deployment_generated_files_match_their_render(
+    project_root: str | pathlib.Path,
+    *,
+    package: str = "app",
+    datastore_table: str | pathlib.Path | DatastoreTable | None = None,
+    system_package_table: str | pathlib.Path | SystemPackageTable | None = None,
+) -> list[ArchViolation]:
+    """Where ``deployment.json`` says ``build: generated``, its build files are the render.
+
+    Every generator-owned file (``Dockerfile.prod``, ``frontend/Dockerfile.prod``,
+    ``docker-compose.prod.yml``) is byte for byte what ``terp.arch.deployment.generate``
+    renders from the declaration, ``[project].name`` and this release's tables, and a
+    generator-owned path the render does not produce is absent; a declaration the generator
+    cannot render is refused with its own words. The environment files a unit loads are
+    ignored by git and left out of the build context, and the template's recorded
+    ``deploy_build`` agrees. Silent for an undeclared app, ``own``, ``unmanaged`` and a
+    declaration that cannot be read. Fix it with ``terp deployment render``, never by
+    editing the files; the only escape is the whole app, ``build: own``.
+    """
+    del package
+    result = generated(
+        pathlib.Path(project_root), _table(datastore_table), _packages(system_package_table)
+    )
+    return _violations("deployment_generated_files_match_their_render", result.drift.findings)
 
 
 __all__ = [
     "check_deployment_declaration_is_readable",
     "check_deployment_declaration_tells_the_truth",
+    "check_deployment_generated_files_match_their_render",
 ]

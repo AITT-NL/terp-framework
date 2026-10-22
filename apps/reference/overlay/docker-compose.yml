@@ -290,13 +290,12 @@ services:
     logging: *container-logging
 
   # Drains the durable outbox: the mail a notice sends, the snapshot the schedule takes.
-  # `terp jobs worker` delivers what is due and returns (the external-trigger model,
-  # ADR 0045), so this loop is the supervisor that runs it again. The trap ends the loop
-  # on `docker compose stop`; a batch in flight finishes first. `init` puts a real init
-  # in front of the shell, so the stop signal reaches it at all.
+  # `terp jobs worker --forever` drains what is due, waits, and drains again (ADR 0187);
+  # `docker compose stop` ends it after the batch in flight. `init` puts a real init in
+  # front of it, as in the production profile.
   worker:
     <<: *backend
-    command: ["sh", "-c", "trap 'exit 0' TERM INT; while :; do terp jobs worker; sleep 5 & wait $$!; done"]
+    command: ["terp", "jobs", "worker", "--forever"]
     init: true
     depends_on:
       migrate:

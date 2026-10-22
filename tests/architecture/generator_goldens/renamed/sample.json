@@ -1,0 +1,10 @@
+{
+  "about": "No template name anywhere, and the api not first: the build sits on the api, the web tier proxies to it by name, and the seam names the database's id.",
+  "project": "ledger",
+  "frontendLock": true,
+  "renders": [
+    "Dockerfile.prod",
+    "frontend/Dockerfile.prod",
+    "docker-compose.prod.yml"
+  ]
+}

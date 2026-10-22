@@ -1,0 +1,10 @@
+{
+  "about": "Every value a compose file could misread: interpolations, $$, $!, quotes, backslashes, shell metacharacters, non-ASCII and above U+FFFF in commands, $ and ' in health paths, and ids YAML reads as booleans and numbers.",
+  "project": "demo",
+  "frontendLock": true,
+  "renders": [
+    "Dockerfile.prod",
+    "frontend/Dockerfile.prod",
+    "docker-compose.prod.yml"
+  ]
+}
