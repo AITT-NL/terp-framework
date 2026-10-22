@@ -18,6 +18,13 @@ boot refuses without and the development loop only warns about — was required 
 development loop too, and a workbench asked for it there from somebody who could not produce it.
 A declaration can now say where it is required.
 
+And a production process wrote its log in three shapes. The app's own records were JSON
+without a timestamp; uvicorn's startup, shutdown and access lines were plain text, the access
+line naming the raw path with its ids and any query-string token; and a traceback nothing caught
+was a plain block. Nothing said which rule the guard decided by, no code read an `AppError`'s
+`log_context`, and an unexpected exception was written twice. Every line is now one record in a
+versioned schema.
+
 ### Added
 
 - **`"requiredIn"` names the environments a value must be set in.** A non-empty list of
@@ -27,6 +34,77 @@ A declaration can now say where it is required.
   check` holds `.app.env` — the development loop's file — to what `local` needs, the template
   declares `JOB_SYSTEM_ACTOR_ID` with `"requiredIn": ["production"]`, and `terp guide
   environment` documents the field. An existing manifest reads exactly as before. ADR 0180.
+- **Every log line is a `terp-log/1` record.** One JSON object per line, with `time` (UTC,
+  RFC 3339, milliseconds) and `schema` (`"terp-log/1"`) beside the four keys every line already
+  had (`level`, `logger`, `request_id`, `message`), and typed fields for the framework's own
+  events (`event`, `http`, `actor`, `tenant`, `guard`, `error`, `context`). The JSON Schema
+  ships in terp-core (`log-record.schema.json`, loaded by `terp.core.log_record_schema()`; its
+  id is `terp.core.LOG_SCHEMA`) and grows only by addition, so a reader of one release's lines
+  reads the next one's. The suite validates every line a production uvicorn process writes
+  against it. ADR 0188.
+- **One access line per request** (`event: "http.access"`, logger `terp.access`, INFO): the
+  method, the route template (never the requested path), the status, `duration_ms`, the
+  request id, and the authenticated actor and tenant, absent when the request was not
+  authenticated and held to the UUID shape, so a token cannot reach either field. A
+  tenant-scoped app gets the tenant through the new `register_log_tenant_reader` seam, which the
+  tenancy capability fills.
+- **The guard's deciding rule rides that line** (`guard`): the outcome, the reason slug, the
+  rule (`role:editor`, `permission:invoices.send`, `authenticated`, `public`), whose policy it
+  was (`module` or `route`) and the read/write tier, for every allow and every deny, at no
+  extra line. A connection without an access line, a WebSocket, gets its own `guard.decision`
+  record: a deny at INFO, an allow at DEBUG.
+- **Each `AppError` is logged once** (`event: "error.app"`, logger `terp.errors`), with its
+  code, its status and its `log_context`, redacted. A client's error (4xx) is INFO; a server's
+  (5xx) is ERROR, with its traceback.
+- **`terp guide logging`**: the record format, what the framework writes for you, and what
+  redaction covers.
+
+### Changed
+
+- **uvicorn's loggers and the interpreter's printers go through the framework's handler.**
+  `create_app` re-points `uvicorn`, `uvicorn.error`, `uvicorn.access` and `uvicorn.asgi` at the
+  root handler (uvicorn's command line configures them, unpropagated, before it imports the
+  app) and retires uvicorn's own access line. Outside local development it also routes uncaught
+  exceptions, an exception that ends a thread, unraisable exceptions and warnings through it,
+  replacing only a hook still at the interpreter's default. Logging is now configured before the
+  first boot check, so a refused boot is a record too.
+- **An unexpected exception is written once.** Starlette re-raises it to the server after the
+  500 has gone, and uvicorn wrote it a second time as "Exception in ASGI application"; that
+  copy is dropped. The framework's record (`event: "error.unhandled"`, logger `terp.core` as
+  before) now carries the request id in `request_id`, where it carried `-`.
+- **A failure inside logging never escapes.** A record that cannot be redacted is withheld; one
+  that cannot be rendered (a `%d` handed a string) becomes a `log.failure` record; a write the
+  stream refuses is retried once in the record's shape instead of printing `--- Logging error
+  ---`.
+- `cache`, `idempotency`, `throttling` and `leases` import `Lock` by name, as the
+  `no_adhoc_background_runtime` rule asks, so core's unscanned record for that rule falls from 4
+  to 1.
+
+### Fixed
+
+- **`Authorization: Bearer <token>` in free text kept the token.** The redaction pattern took
+  the scheme word for the value, so `Bearer` was redacted and the credential after it was
+  written. The scheme word now stays and the credential goes. Redaction also covers a cookie
+  header's value, a URL's password and a `password=` / `client_secret:` / `api_key=` pair, and
+  it now reads exception text: the traceback, and an exception logged as an argument.
+- **A refused production configuration printed part of the configuration.** The settings'
+  validation error repeated its input, truncated in the middle, so the tail of `DATABASE_URL`,
+  password included, could reach the boot log. `Settings` hides its input in errors, and the
+  refusal is written as a record.
+- **No framework text claims personal-data redaction any more.** ADR 0005, ADR 0006, the
+  logging module and the `no_adhoc_logging_config` rule's docstring and finding said "PII
+  redaction"; the filter recognises secrets only, and they now say so. The Terp Standard's
+  catalog entry for that rule makes the same claim, and its correction is a terp-spec change.
+
+### Upgrade notes
+
+- A reader that keys on `level` or `message` reads every line as before; `time`, `schema` and
+  the event fields are new keys. A tool that parsed uvicorn's plain-text access line reads the
+  `http.access` records instead.
+- An app that logs each request itself now writes two lines per request: drop its own.
+- An app started with `uvicorn.run(app)` from Python, rather than uvicorn's command line,
+  composes before uvicorn configures its loggers; pass `log_config=None` to keep uvicorn's lines
+  on the framework's handler.
 
 ## 0.34.0 — 2026-10-09
 

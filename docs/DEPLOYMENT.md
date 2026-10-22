@@ -162,8 +162,14 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   delivery (outbox / webhooks / scheduler) runs via
   `terp jobs worker` / `terp jobs scheduler` — add those as extra services when you
   enable the corresponding capabilities.
-- **Observability:** structured JSON logs with request-ids ship by default (ADR 0005);
-  collect container stdout. OpenTelemetry wiring is on the roadmap.
+- **Observability:** every line the API writes is one JSON record in the versioned
+  `terp-log/1` schema (ADR 0005, ADR 0188; the schema ships in terp-core,
+  `terp.core.log_record_schema()`): uvicorn's own startup and shutdown lines, one access
+  line per request (route template, status, duration, request id, the authenticated actor
+  and tenant, the guard's deciding rule), each error once, and uncaught exceptions. The
+  records go to stderr, so collect the container's whole output. Redaction covers
+  secrets, not personal data (`terp guide logging`). OpenTelemetry wiring is on the
+  roadmap.
 
 ## CI guard
 
