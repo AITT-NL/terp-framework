@@ -11,11 +11,15 @@ recoveries audited. The cron string is opaque here; the scheduler adapter parses
 Cadence rule of thumb: reap several times per shortest TTL. A lease that expires after 60
 seconds but is only scanned hourly leaves an operator staring at a ``claimed`` row for up
 to an hour — technically recoverable, indistinguishable from broken.
+
+A reap missed while no scheduler ran is still worth running late, so the schedule runs it
+once when a scheduler is back (``Misfire.RUN_ONCE``, ADR 0191); pass *misfire* to choose
+otherwise.
 """
 
 from __future__ import annotations
 
-from terp.core import ScheduleDefinition
+from terp.core import Misfire, ScheduleDefinition
 
 from terp.capabilities.leases.jobs import LEASE_REAP, LeaseReapPayload
 
@@ -27,6 +31,7 @@ def lease_reap_schedule(
     kind: str | None = None,
     limit: int = 100,
     purge_idle_seconds: float | None = None,
+    misfire: Misfire = Misfire.RUN_ONCE,
 ) -> ScheduleDefinition:
     """A schedule that enqueues ``LEASE_REAP`` on *cron*.
 
@@ -41,6 +46,7 @@ def lease_reap_schedule(
         payload_factory=lambda: LeaseReapPayload(
             kind=kind, limit=limit, purge_idle_seconds=purge_idle_seconds
         ),
+        misfire=misfire,
     )
 
 

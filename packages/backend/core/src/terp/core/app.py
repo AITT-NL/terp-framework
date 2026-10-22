@@ -69,7 +69,11 @@ from terp.core.leases import (
     is_durable_lease_store,
 )
 from terp.core.logging import configure_logging, get_request_id
-from terp.core.scheduling import configure_schedules
+from terp.core.scheduling import (
+    ScheduleLedger,
+    configure_schedules,
+    is_durable_schedule_ledger,
+)
 from terp.core._internal.discovery import iter_capability_specs
 from terp.core._internal.engine import get_engine
 from terp.core._internal.middleware import install_security_middleware
@@ -1632,6 +1636,29 @@ def _validate_durable_leases(
         )
 
 
+def _validate_durable_schedules(
+    schedule_ledger: ScheduleLedger | None, require_durable_schedules: bool
+) -> None:
+    """Fail closed when a durable schedule ledger is required but none is wired (ADR 0191).
+
+    A schedule's misfire policy can only be applied to a tick the scheduler knows it
+    missed, and a scheduler knows only what its ledger kept: the per-process default
+    forgets every slot when the process stops, so a tick that falls due during a deploy is
+    never seen. ``require_durable_schedules=True`` refuses anything not marked via
+    :func:`~terp.core.mark_durable_schedule_ledger`, ``None`` included. Mirrors the
+    durable-jobs and durable-leases boot guards; default ``False``.
+    """
+    if require_durable_schedules and not is_durable_schedule_ledger(schedule_ledger):
+        raise BootError(
+            "require_durable_schedules=True but the configured schedule_ledger does not "
+            "outlive the scheduler's process, so a tick that falls due while no scheduler "
+            "runs is never seen and no misfire policy can apply to it; wire one marked via "
+            "terp.core.mark_durable_schedule_ledger(...) (terp-cap-outbox's "
+            "DatabaseScheduleLedger, which records each slot in the same transaction as "
+            "the job it enqueues) — or drop require_durable_schedules"
+        )
+
+
 #: Each shared store ``create_app`` can be told to require: its readiness name, the
 #: argument that requires it, and the port whose ``ping`` an adapter must override.
 _MANDATORY_STORES: tuple[tuple[str, str, type], ...] = (
@@ -2038,6 +2065,8 @@ def create_app(
     lease_store: LeaseStore | None = None,
     require_durable_leases: bool = False,
     request_size_overrides: Mapping[str, int] | None = None,
+    schedule_ledger: ScheduleLedger | None = None,
+    require_durable_schedules: bool = False,
 ) -> FastAPI:
     """Compose a FastAPI app from module specs (deny-by-default, guarded).
 
@@ -2183,6 +2212,17 @@ def create_app(
     in-memory store dies with the very process whose crash the lease exists to survive.
     It defaults ``False``.
 
+    *schedule_ledger* is where a scheduler records each schedule's last settled slot
+    (ADR 0191), so a scheduler that comes back after a deploy finds the cron time it
+    missed and applies the schedule's declared misfire policy. The default is a fresh
+    per-process :class:`~terp.core.InMemoryScheduleLedger`, which forgets on restart; the
+    durable one is ``terp-cap-outbox``'s ``DatabaseScheduleLedger``. Only a scheduler
+    process reads it, but every process builds the same composition root.
+
+    *require_durable_schedules* makes that a boot requirement: when ``True``, boot fails
+    closed unless *schedule_ledger* is marked via ``mark_durable_schedule_ledger``. It
+    defaults ``False``, mirroring *require_durable_jobs*.
+
     Every ``require_shared_*`` that is ``True`` also puts its store in readiness (ADR
     0191): ``GET /health/ready`` asks the store's ``ping()`` beside the database and
     answers 503 while it cannot be reached, so the store's adapter must implement
@@ -2233,6 +2273,7 @@ def create_app(
     _validate_shared_cache_store(cache_store, require_shared_cache_store)
     _validate_shared_idempotency_store(idempotency_store, require_shared_idempotency_store)
     _validate_durable_leases(lease_store, require_durable_leases)
+    _validate_durable_schedules(schedule_ledger, require_durable_schedules)
     readiness = _mandatory_store_probes(
         {
             "throttle_store": (throttle_store, require_shared_throttle_store),
@@ -2288,7 +2329,7 @@ def create_app(
         queue=job_queue,
         system_actor_id=resolved_plane.job_system_actor_id,
     )
-    configure_schedules(resolved_plane.schedules)
+    configure_schedules(resolved_plane.schedules, ledger=schedule_ledger)
     configure_password_policy(resolved_plane.passwords)
     configure_cache(cache_store)
     configure_leases(lease_store)

@@ -15,6 +15,9 @@ opt-out lives in one place:
   it), so N workers drain one outbox without double-dispatch.
 * :func:`finalize` commits a worker's status transition (dispatched / rescheduled /
   dead-lettered) on the outbox's own table.
+* :func:`settle_slot` records a scheduler's settled slot in ``outbox_schedule_fire`` in one
+  write unit with the outbox row the tick enqueued (ADR 0191), for
+  :class:`~terp.capabilities.outbox.DatabaseScheduleLedger`.
 * :func:`backlog` reads what is waiting, and is the only one of the four that writes
   nothing. It exists because an outbox with no consumer is otherwise indistinguishable
   from an outbox with idle consumers: both are a table of ``pending`` rows. The lease
@@ -34,6 +37,7 @@ mutation, but the guard cannot tell that from an ``# arch-allow-*`` comment alon
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -51,6 +55,7 @@ from terp.capabilities.outbox.models import (
     STATUS_DEAD_LETTERED,
     STATUS_PENDING,
     OutboxMessage,
+    ScheduleFire,
 )
 
 
@@ -167,6 +172,52 @@ def finalize(session: Session) -> None:
         session.commit()  # arch-allow-mutations-emit-audit: persist the worker's status transition (dispatched / rescheduled / dead-lettered)
 
 
+def settle_slot(
+    session: Session,
+    *,
+    name: str,
+    expected_fires: int | None,
+    slot: datetime,
+    outcome: str,
+    enqueue: Callable[[], str] | None,
+) -> tuple[bool, str | None]:
+    """Enqueue the tick's job and move schedule *name*'s record, as one unit (ADR 0191).
+
+    One write unit on *session*: *enqueue* appends the tick's outbox row to it (the outbox
+    queue's append joins an open unit rather than committing), the record moves from
+    *expected_fires* (``None``: it is created) by compare-and-set, and one commit lands
+    both. A record that moved meanwhile (another scheduler settled the slot) rolls the unit
+    back, the outbox row with it, and returns ``(False, job_id)``.
+    """
+    now = datetime.now(UTC)
+    with enter_write_unit() as outermost:
+        job_id = enqueue() if enqueue is not None else None
+        if expected_fires is None:
+            moved = session.get(ScheduleFire, name) is None
+            if moved:
+                session.add(  # arch-allow-mutations-emit-audit: the scheduler's record of a settled slot, in the write unit of the outbox row it records - delivery bookkeeping, not a business mutation
+                    ScheduleFire(name=name, slot=slot, outcome=outcome, fires=1, recorded_at=now)
+                )
+                session.flush()  # arch-allow-mutations-emit-audit: surface a second scheduler's insert of the same record here, inside the unit, rather than at the commit
+        else:
+            result = session.execute(  # arch-allow-mutations-emit-audit: the compare-and-set that moves a schedule's record, in the write unit of the outbox row it records - delivery bookkeeping, not a business mutation
+                update(ScheduleFire)
+                .where(
+                    col(ScheduleFire.name) == name,
+                    col(ScheduleFire.fires) == expected_fires,
+                )
+                .values(slot=slot, outcome=outcome, fires=expected_fires + 1, recorded_at=now)
+                .execution_options(synchronize_session=False)
+            )
+            moved = int(result.rowcount or 0) == 1
+        if not moved:
+            session.rollback()
+            return False, job_id
+        if outermost:
+            session.commit()  # arch-allow-mutations-emit-audit: one commit for the tick's outbox row and its record
+    return True, job_id
+
+
 __all__ = [
     "OutboxBacklog",
     "OutboxDeadLetter",
@@ -175,6 +226,7 @@ __all__ = [
     "claim_due",
     "dead_letters",
     "finalize",
+    "settle_slot",
 ]
 
 

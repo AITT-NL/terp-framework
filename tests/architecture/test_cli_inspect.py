@@ -301,6 +301,7 @@ def test_render_json_covers_non_default_platform_policies() -> None:
         CorsPolicy,
         JobCatalog,
         JobDefinition,
+        Misfire,
         PasswordPolicy,
         RateLimit,
         ScheduleCatalog,
@@ -325,7 +326,11 @@ def test_render_json_covers_non_default_platform_policies() -> None:
         ),
         jobs=JobCatalog(jobs=(job,)),
         schedules=ScheduleCatalog(
-            schedules=(ScheduleDefinition(name="billing.nightly", job=job, cron="0 2 * * *"),)
+            schedules=(
+                ScheduleDefinition(
+                    name="billing.nightly", job=job, cron="0 2 * * *", misfire=Misfire.SKIP
+                ),
+            )
         ),
         job_system_actor_id=uuid.uuid4(),
     )
@@ -391,6 +396,7 @@ def test_render_text_covers_non_default_platform_policies() -> None:
         CorsPolicy,
         JobCatalog,
         JobDefinition,
+        Misfire,
         PasswordPolicy,
         RateLimit,
         ScheduleCatalog,
@@ -415,7 +421,11 @@ def test_render_text_covers_non_default_platform_policies() -> None:
         ),
         jobs=JobCatalog(jobs=(job,)),
         schedules=ScheduleCatalog(
-            schedules=(ScheduleDefinition(name="billing.nightly", job=job, cron="0 2 * * *"),)
+            schedules=(
+                ScheduleDefinition(
+                    name="billing.nightly", job=job, cron="0 2 * * *", misfire=Misfire.SKIP
+                ),
+            )
         ),
     )
     rendered = _render_text(plane, [])

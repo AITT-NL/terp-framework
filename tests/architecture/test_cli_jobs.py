@@ -406,6 +406,7 @@ from terp.core import (
     JobCatalog,
     JobContext,
     JobDefinition,
+    Misfire,
     ScheduleCatalog,
     ScheduleDefinition,
     create_app,
@@ -421,7 +422,9 @@ def _handler(ctx: JobContext, payload: Payload) -> None:
 
 
 JOB = JobDefinition(name="sync.customers.pull", payload_schema=Payload, handler=_handler)
-SCHEDULE = ScheduleDefinition(name="sync.customers.nightly", job=JOB, cron="0 2 * * *")
+SCHEDULE = ScheduleDefinition(
+    name="sync.customers.nightly", job=JOB, cron="0 2 * * *", misfire=Misfire.SKIP
+)
 
 
 def build():
