@@ -1,4 +1,4 @@
-"""The command line of ``terp release build | gate | sign``.
+"""The command line of ``terp release build | gate | sign`` and ``terp promote``.
 
 The parsers are added to ``terp``'s own; each job's module is imported only when it runs. A
 refusal prints its sentence (and what a program said, beneath it) on standard error and exits
@@ -16,7 +16,7 @@ from terp.cli._output import emit
 
 
 def add_parsers(subcommands: Any) -> None:
-    """``terp release`` with its jobs."""
+    """``terp release`` with its three jobs, and ``terp promote``."""
     release = subcommands.add_parser(
         "release",
         help="Cut a release in three jobs: build from the pristine tree, gate without credentials, "
@@ -60,6 +60,17 @@ def add_parsers(subcommands: Any) -> None:
     sign.add_argument("--osv", default=None, help="The vulnerability database (default: https://api.osv.dev)")
     sign.add_argument("--gitleaks", default="gitleaks", help="The gitleaks executable (default: gitleaks on PATH)")
 
+    promote = subcommands.add_parser(
+        "promote",
+        help="Verify a signed release and deploy exactly its images, without rebuilding (ADR 0187)",
+    )
+    promote.add_argument("envelope", help="The release's DSSE envelope (release.dsse.json)")
+    promote.add_argument("--public-key", action="append", required=True, help="A trusted public key (PEM); repeatable")
+    promote.add_argument("--project-dir", required=True, help="Where the carried profile is written and run")
+    promote.add_argument("--require-generated", action="store_true", help='Refuse a release that is not "build": "generated"')
+    promote.add_argument("--undo-to", default=None, help="The envelope of the release running now, started again if this one fails")
+    promote.add_argument("--rollback", action="store_true", help="This promotion goes back to an earlier release")
+    promote.add_argument("--restored", action="store_true", help="With --rollback: the database was restored first")
 
 
 def _signer(value: str | None) -> list[str] | None:
@@ -79,6 +90,16 @@ def run_release(args: argparse.Namespace) -> int:
     from terp.cli.release._common import ReleaseError, write_document
 
     try:
+        if args.command == "promote":
+            from terp.cli.release.promote import promote
+
+            for line in promote(
+                args.envelope, args.public_key, args.project_dir,
+                require_generated=args.require_generated, undo_to=args.undo_to,
+                rollback=args.rollback, restored=args.restored,
+            ):
+                emit(line)
+            return 0
         if args.release_command == "build":
             from terp.cli.release.build import build
 

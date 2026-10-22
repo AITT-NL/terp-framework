@@ -1,4 +1,4 @@
-"""``terp release build | gate | sign`` on the command line.
+"""``terp release build | gate | sign`` and ``terp promote`` on the command line.
 
 Each job is stood in for at its module, so what is held here is the command line itself: the
 arguments reach the job, its document is written where ``--out`` says, its answer is printed,
@@ -13,7 +13,8 @@ import pathlib
 import pytest
 
 from terp.cli import main
-from terp.cli.release import build, gate, sign
+from terp.cli.release import build, gate, promote, sign
+from terp.cli.release._common import ReleaseError
 
 SHA = "a" * 40
 
@@ -82,6 +83,17 @@ def test_a_signer_that_is_not_an_argument_list_is_refused(capsys, signer: str) -
     assert "--signer is a JSON list of strings" in capsys.readouterr().err
 
 
+def test_promote_prints_what_it_did_and_a_refusal_exits_1(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(promote, "promote", lambda *args, **options: ["verified r1", "promoted r1"])
+    assert _exit(["promote", "release.dsse.json", "--public-key", "a.pub", "--public-key", "b.pub", "--project-dir", "d"]) == 0
+    assert "promoted r1" in capsys.readouterr().out
+
+    def refuse(*args, **options):  # type: ignore[no-untyped-def]
+        raise ReleaseError("no signature verifies", cause="details")
+
+    monkeypatch.setattr(promote, "promote", refuse)
+    assert _exit(["promote", "e", "--public-key", "a.pub", "--project-dir", "d", "--rollback"]) == 1
+    assert "no signature verifies\n  details" in capsys.readouterr().err
 
 
 def test_release_sign_with_a_test_key_has_no_signer(monkeypatch, capsys) -> None:

@@ -4661,7 +4661,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 reassign=getattr(args, "reassign", False),
             )
         )
-    if args.command == "release":
+    if args.command in ("release", "promote"):
         from terp.cli.release.cli import run_release
 
         raise SystemExit(run_release(args))
