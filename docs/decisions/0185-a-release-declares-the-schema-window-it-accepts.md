@@ -181,11 +181,13 @@ Nothing else in the tree closes that gap:
 
    - every row the newest run (the newest `applied_by`, by `seq`) wrote for a revision this code
      does not define is `expand` and carries the guard's own Terp version as `applied_terp`;
-   - the *horizon* is the newest row written by any run that applied a revision this code
-     defines, and every row above it is the newest run's. Rows at or below it were written no
-     later than the last run that applied this code's history, which has run beside them since,
-     so they are ignored, as today. Where no revision the code defines has a row (its history
-     predates the record), every row is above the horizon.
+   - the *horizon* is the newest row written by a run of this code itself, one whose
+     `applied_by` is the digest of this code's own heads, computed over the packages its
+     migration step resolves; a release that applied nothing has its predecessor's heads, so
+     its predecessor's run counts as its own. Every row above the horizon for a revision this code does not define is
+     the newest run's. Rows at or below it were already there when this code migrated, so it
+     has run beside them, and they are ignored, as today. Where this code never migrated the
+     database, every row is above the horizon.
 
    The newest `applied_by` names the last run that applied anything, so the window is one run
    deep in every package and the guard enforces it itself. Two expanding releases in a row leave
@@ -204,7 +206,9 @@ Nothing else in the tree closes that gap:
    an uninstalled capability, as a literal `RETIRED_MIGRATIONS` tuple in
    `<app root>/modules/__init__.py`, read with `ast` and never imported; `pyproject.toml` would be
    simpler to edit, but the runtime image does not carry it, and every image carries the app
-   root. Terp keeps the same list for capability histories it retired itself. The guard, the
+   root. A list that is not a literal tuple of strings, or a file that does not parse, makes the
+   guard refuse; it is never read as empty. Terp keeps the same list for capability histories
+   it retired itself. The guard, the
    `migrate` preflight and the check ignore a retired package's rows; its tables stay the app's,
    as today. They refuse a retired label the code still defines, so the app's own upgrade test
    refuses it before a release is built, and a package that comes back takes a new label. An
@@ -444,6 +448,7 @@ What proves it, and the decisions each proof needs:
 | The rule refuses an off-list operation in an expand-only revision; the online run raises on one; `--sql` refuses to render one | 1 |
 | N-1 refuses a contract row, a missing record and a database two runs ahead, also where the older run only installed a contract history N-1 does not define; the round trip, an update included; a revert release passes `test_migrations_match_models` and boots on N's database; N to N-1 restore-free and N to N-2 restore-based, by the target's own check; a runtime-role write to the record refused under `per-module` | 2, 3, 4, 6 |
 | A fresh environment's first deploy of N, one run applying N-1's history, N's expand revisions and a module whose first revision is contract, is refused by N-1 | 3, 6 |
+| N-2 refuses a database first deployed at N-1 by one run that applied N-2's history and a contract revision, then upgraded by N's expand revision | 3 |
 | A release that deletes a module whose rows are the newest run's contract rows boots when it retires the module and is refused, naming the retirement, when it does not; a retired label still defined is refused | 3 |
 | A per-module database restored into a clean database is routed again by the next `migrate` | 4 |
 | A contract step ships in a later release than its expand | 5 |
@@ -532,3 +537,7 @@ applied the target's own, as a fresh environment's first deploy does, and that r
 removed package stalled a plain removal a managed deploy cannot downgrade. The newest run's rows
 for revisions the code does not define are now judged wherever they sit, which also covers the
 walk's steps, and a release that removes a package retires it (decision 3).
+
+**Round four** found the horizon still trusted a run that applied the target's history without
+being the target's, as an environment first deployed at a later release has; the horizon is now
+the newest row of a run of the target's own code, and an unreadable retired list refuses.
