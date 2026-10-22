@@ -25,6 +25,12 @@ was a plain block. Nothing said which rule the guard decided by, no code read an
 `log_context`, and an unexpected exception was written twice. Every line is now one record in a
 versioned schema.
 
+The log redacted secrets, and nothing could tell it which fields held personal data: an email
+address is a string like any other. A model handed to the log wrote every field, and a signup with
+an address already taken wrote the address, because the 409's context repeated the database's
+refusal. A field now declares itself personal, and the log, the audit trail and event definitions
+read the declaration.
+
 ### Added
 
 - **`"requiredIn"` names the environments a value must be set in.** A non-empty list of
@@ -58,6 +64,22 @@ versioned schema.
   (5xx) is ERROR, with its traceback.
 - **`terp guide logging`**: the record format, what the framework writes for you, and what
   redaction covers.
+- **`Personal(...)` declares a field as personal data.** It is `Field` with one more fact,
+  recorded in the field's metadata (`personal_fields(Model)`) and in a table column's `info`
+  (`personal_columns()`, from database metadata alone); no DDL, JSON schema or OpenAPI change, so
+  no migration. Declare it on the table and on every schema that redeclares the field. What reads
+  it: the log (a model renders `[PERSONAL]` in place of each declared field wherever it is
+  rendered, and a value under a declared field's name in `extra=` or `log_context` is withheld,
+  `personal_field_names()`); the audit trail (a payload keeps the key and loses the value); a
+  validation error (a model with a personal field hides its input in the error's text, while the
+  422 its caller receives still shows what it sent); and event and job definitions (a `PUBLIC`
+  payload may not declare a personal field). `redact_personal(payload)` is the shared copy for
+  anything that may leave the process. ADR 0190.
+- **The `personal_fields_are_declared` rule**: a model field named like personal data (an email
+  address, a phone number, a date of birth, a national identifier, a person's name, a home
+  address, the name's last words) is declared `Personal`, or carries
+  `# arch-allow-personal-fields-are-declared: <why it is not personal>`. Its Terp Standard entry is
+  in terp-spec 0.40.0. **`terp guide personal-data`** documents the declaration and the rule.
 
 ### Changed
 
@@ -79,6 +101,11 @@ versioned schema.
 - `cache`, `idempotency`, `throttling` and `leases` import `Lock` by name, as the
   `no_adhoc_background_runtime` rule asks, so core's unscanned record for that rule falls from 4
   to 1.
+- **The framework's own email fields are declared personal**: identity's `User.email` and the
+  email fields of the auth, identity, users and groups schemas. The column's DDL is unchanged.
+- **The three rules that read a field's keywords read `Personal` as they read `Field`**:
+  `input_str_fields_have_max_length`, `no_unique_columns_on_soft_delete_models` and
+  `references_declare_delete_behaviour`, so the declaration is no way around any of them.
 
 ### Fixed
 
@@ -91,10 +118,15 @@ versioned schema.
   validation error repeated its input, truncated in the middle, so the tail of `DATABASE_URL`,
   password included, could reach the boot log. `Settings` hides its input in errors, and the
   refusal is written as a record.
-- **No framework text claims personal-data redaction any more.** ADR 0005, ADR 0006, the
-  logging module and the `no_adhoc_logging_config` rule's docstring and finding said "PII
-  redaction"; the filter recognises secrets only, and they now say so. The Terp Standard's
-  catalog entry for that rule makes the same claim, and its correction is a terp-spec change.
+- **No framework text claims more personal-data redaction than there is.** ADR 0005, ADR 0006,
+  the logging module and the `no_adhoc_logging_config` rule's docstring and finding said "PII
+  redaction" while the filter recognised secrets only. They now say what it does: secrets by
+  name and shape, and personal data where a field is declared `Personal`. The Terp Standard's
+  catalog entry for that rule made the same claim, and terp-spec 0.40.0 corrects it.
+- **A refused duplicate wrote the personal values of the row into the log.** A unique
+  constraint's 409 carried SQLAlchemy's message in `log_context`, which repeats the statement's
+  parameters and the database's `Key (email)=(...) already exists`. The declared personal values
+  of every row in flight are now withheld from it.
 
 ### Upgrade notes
 
@@ -105,6 +137,16 @@ versioned schema.
 - An app started with `uvicorn.run(app)` from Python, rather than uvicorn's command line,
   composes before uvicorn configures its loggers; pass `log_config=None` to keep uvicorn's lines
   on the framework's handler.
+- **`terp check` names every model field called like personal data that is not declared**
+  (`personal_fields_are_declared`). Replace `Field(...)` with `Personal(...)` on the table and on
+  each schema that declares the field, keyword for keyword, or justify a field that holds no
+  person's data with the rule's marker and count it in `escape-hatch-budget.json`. No migration
+  follows from either.
+- `repr` and `str` of a Terp model with a declared field show `[PERSONAL]`, in a test's assertion
+  output too: compare the field, not the rendering. A validation error from such a model no
+  longer repeats its input in its text.
+- A value logged under a declared field's name is withheld whatever it holds: `extra={"email":
+  ...}` writes `[PERSONAL]` once any model declares `email` personal.
 
 ## 0.34.0 — 2026-10-09
 

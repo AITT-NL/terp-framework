@@ -18,7 +18,8 @@
   (the route policy the guard reports); applies
   [ADR 0111](0111-flexibility-is-bounded-by-legibility-not-by-capability.md) decision 5 to the
   log in decision 7, as the proposed ADR 0186 does for the workbench declaration.
-  Supersedes nothing.
+  Decision 6's open item, personal data, is decided by
+  [ADR 0190](0190-a-field-declares-itself-personal.md). Supersedes nothing.
 
 ---
 
@@ -139,8 +140,9 @@ credential-like key (`password`, `token`, `secret`, `api_key`, `cookie`, `author
 word kept, the credential gone), a bare `Bearer` value, a cookie header's value, a URL's
 password, a `password=` / `client_secret:` / `api_key=` pair. It reads the message, its
 arguments once rendered (an exception passed as an argument has text only then), the traceback
-and the stack. Personal data is not recognised, and no Terp text says otherwise; a field-level
-marker that would let it be is a separate, later decision. The framework's own typed fields
+and the stack. Personal data has no shape to recognise, so it is withheld only where a field
+declares it: that is [ADR 0190](0190-a-field-declares-itself-personal.md)'s decision, made
+after this one. The framework's own typed fields
 (`http`, `guard`, `actor`, `tenant`, `error`) are built from declarations and typed values and
 are not re-scanned; `context`, which carries what an app handed over, is.
 
@@ -193,4 +195,6 @@ readers key on it; the `$id` moves to the spec's convention. Until then terp-cor
   fails the first test that runs the line.
 - **A missing app module.** uvicorn's "Error loading ASGI app" is written before anything of the
   app has been imported.
-- **Personal data.** Decision 6: secrets only, until a field-level marker exists.
+- **Personal data.** Decision 6 redacts secrets; a field declared `Personal` is withheld
+  as [ADR 0190](0190-a-field-declares-itself-personal.md) decides, and an undeclared value is
+  not recognised.
