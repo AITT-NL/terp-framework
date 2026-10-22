@@ -496,9 +496,16 @@ def _tuple_annotation_name(annotation: ast.expr) -> str | None:
     return None
 
 
+#: The calls that declare a model field: SQLModel's ``Field``, and ``terp.core.Personal``,
+#: which is ``Field`` with the personal-data declaration added and forwards every keyword to
+#: it (ADR 0190). A rule that reads a field's keywords reads both, or ``Personal`` would be
+#: a way around it.
+_FIELD_FACTORIES = frozenset({"Field", "Personal"})
+
+
 def _has_max_length(value: ast.expr | None) -> bool:
-    """True when *value* is a ``Field(..., max_length=...)`` call."""
-    if not isinstance(value, ast.Call) or base_name(value.func) != "Field":
+    """True when *value* is a ``Field(..., max_length=...)`` (or ``Personal``) call."""
+    if not isinstance(value, ast.Call) or base_name(value.func) not in _FIELD_FACTORIES:
         return False
     return any(keyword.arg == "max_length" for keyword in value.keywords)
 

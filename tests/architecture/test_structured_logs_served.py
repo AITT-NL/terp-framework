@@ -6,7 +6,8 @@ app writes, from the moment uvicorn starts it to the moment it stops, is one JSO
 that validates against the schema shipped with terp-core -- uvicorn's own startup and
 shutdown lines, the access lines, the guard's decisions, errors, a library's traceback, a
 warning, a thread that died, a log call with broken arguments -- and no secret the
-requests carried reaches any of them.
+requests carried reaches any of them. A second served app holds the personal-data marker
+to the same bar: no value of a field declared ``Personal`` reaches its output (ADR 0190).
 
 It runs the app the way the template's production image does (``uvicorn app:app
 --timeout-graceful-shutdown 8``, ``ENVIRONMENT=production``, no log configuration on the
@@ -286,6 +287,152 @@ def test_every_line_a_served_production_app_writes_is_a_terp_log_record(tmp_path
     # Startup said what the production boot warns about, as records.
     assert any(record["level"] == "WARNING" and record["logger"] == "terp.core"
                for record in records)
+
+
+# The personal values a served app is handed and must never write (ADR 0190), generated per
+# run for the same reason the credentials are.
+_EMAIL = f"served-{secrets.token_hex(5)}@example.test"
+_PHONE = "+31 6 " + "".join(str(secrets.randbelow(10)) for _ in range(8))
+
+_SERVED_PERSONAL_APP = textwrap.dedent(
+    """
+    import logging
+    import uuid
+
+    from fastapi import APIRouter
+    from starlette.requests import HTTPConnection
+
+    from terp.core import (
+        VIEWER, AuditPolicy, BaseSchema, ControlPlane, CorsPolicy, ModuleSpec, NotFoundError,
+        Personal, Policy, Principal, SecurityConfig, create_app,
+    )
+
+    TOKEN = {token!r}
+    EMAIL = {email!r}
+    PHONE = {phone!r}
+    ACTOR = uuid.UUID({actor!r})
+    _log = logging.getLogger("served.personal")
+    router = APIRouter()
+
+
+    class Customer(BaseSchema):
+        id: uuid.UUID
+        email: str = Personal(max_length=320)
+        phone: str | None = Personal(default=None, max_length=32)
+        note: str = ""
+
+
+    class Strict(BaseSchema):
+        email: str = Personal(max_length=8)
+
+
+    def customer() -> Customer:
+        return Customer(id=uuid.uuid4(), email=EMAIL, phone=PHONE, note="vip")
+
+
+    @router.get("/customers/{{customer_id}}")
+    def read_customer(customer_id: uuid.UUID, email: str = "") -> dict[str, str]:
+        return {{"id": str(customer_id)}}
+
+
+    @router.get("/by-name")
+    def by_name() -> dict[str, str]:
+        raise NotFoundError(log_context={{"email": EMAIL, "phone": PHONE}})
+
+
+    @router.get("/by-model")
+    def by_model() -> dict[str, str]:
+        raise NotFoundError(log_context={{"customer": customer()}})
+
+
+    @router.get("/logged")
+    def logged() -> dict[str, str]:
+        _log.info("customer %s", customer(), extra={{"customer": customer(), "email": EMAIL}})
+        _log.warning(f"customer {{customer()}}")
+        return {{}}
+
+
+    @router.get("/boom")
+    def boom() -> dict[str, str]:
+        raise RuntimeError(f"cannot bill {{customer()}}")
+
+
+    @router.get("/invalid")
+    def invalid() -> dict[str, str]:
+        Strict(email=EMAIL)
+        return {{}}
+
+
+    def principal(connection: HTTPConnection) -> Principal | None:
+        if connection.headers.get("authorization") == "Bearer " + TOKEN:
+            return Principal(id=ACTOR, role=VIEWER)
+        return None
+
+
+    app = create_app(
+        [ModuleSpec(name="people", router=router, policy=Policy.default())],
+        principal_provider=principal,
+        control_plane=ControlPlane(
+            security=SecurityConfig(cors=CorsPolicy.disabled(reason="a same-origin probe")),
+            audit=AuditPolicy.disabled(reason="a probe that writes nothing"),
+        ),
+    )
+    """
+).format(token=_TOKEN, email=_EMAIL, phone=_PHONE, actor=str(_ACTOR))
+
+
+def test_no_declared_personal_value_reaches_a_served_production_log(tmp_path: Path) -> None:
+    """The exit test of the personal-data marker, against a production uvicorn process.
+
+    Every path a value can take into a line -- a query string beside the access line,
+    ``log_context`` by name and by model, a model as an argument, in ``extra=`` and in an
+    f-string, an unexpected exception built from a model, a validation error of a personal
+    field -- and the process's whole output holds none of the declared values.
+    """
+    process, port, stdout, stderr = _serve(tmp_path, "served_people", _SERVED_PERSONAL_APP)
+    auth = {"Authorization": f"Bearer {_TOKEN}"}
+    try:
+        with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=30) as client:
+            deadline = time.monotonic() + 60
+            while True:
+                assert process.poll() is None, stderr.read_text(encoding="utf-8")
+                try:
+                    if client.get("/health/live").status_code == 200:
+                        break
+                except httpx.TransportError:
+                    pass
+                assert time.monotonic() < deadline, "the served app never became live"
+                time.sleep(0.2)
+            calls = [
+                (f"/api/v1/people/customers/{uuid.uuid4()}?email={_EMAIL}", 200),
+                ("/api/v1/people/by-name", 404),
+                ("/api/v1/people/by-model", 404),
+                ("/api/v1/people/logged", 200),
+                ("/api/v1/people/boom", 500),
+                ("/api/v1/people/invalid", 500),
+            ]
+            for path, status in calls:
+                assert client.get(path, headers=auth).status_code == status, path
+    finally:
+        _stop(process)
+
+    records = _records(stdout, stderr)
+    output = stdout.read_text(encoding="utf-8") + stderr.read_text(encoding="utf-8")
+    for value in (_EMAIL, _PHONE):
+        assert value not in output, f"{value!r} reached the served output"
+    by_event: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        by_event.setdefault(record.get("event", "-"), []).append(record)
+    # Each path was taken, and withheld rather than skipped.
+    contexts = [record.get("context") for record in by_event["error.app"]]
+    assert {"email": "[PERSONAL]", "phone": "[PERSONAL]"} in contexts
+    assert any("email=[PERSONAL]" in str(context) for context in contexts)
+    logged = [record for record in records if record["logger"] == "served.personal"]
+    assert len(logged) == 2 and all("[PERSONAL]" in record["message"] for record in logged)
+    assert logged[0]["extra"]["email"] == "[PERSONAL]"
+    unhandled = by_event["error.unhandled"]
+    assert len(unhandled) == 2
+    assert "[PERSONAL]" in unhandled[0]["exc_info"] and "ValidationError" in unhandled[1]["exc_info"]
 
 
 def test_a_refused_production_boot_is_a_terp_log_record(tmp_path: Path) -> None:

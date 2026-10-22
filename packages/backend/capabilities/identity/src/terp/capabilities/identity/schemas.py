@@ -7,12 +7,12 @@ import uuid
 
 from sqlmodel import Field
 
-from terp.core import BaseSchema, BaseUpdateSchema
+from terp.core import BaseSchema, BaseUpdateSchema, Personal
 
 
 class UserRead(BaseSchema):
     id: uuid.UUID
-    email: str
+    email: str = Personal()
     role: int
     is_active: bool
     version: int

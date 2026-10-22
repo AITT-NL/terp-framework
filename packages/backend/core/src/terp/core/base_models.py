@@ -29,6 +29,8 @@ from sqlalchemy import DateTime, MetaData
 from sqlalchemy.orm import declared_attr
 from sqlmodel import Field, SQLModel
 
+from terp.core.personal import declare_model, mask_repr_args
+
 _NAMING_CONVENTION: dict[str, str] = {
     "ix": "ix_%(column_0_label)s",
     "uq": "uq_%(table_name)s_%(column_0_name)s",
@@ -221,15 +223,41 @@ class BaseTable(UUIDPrimaryKeyMixin, TimestampMixin, SQLModel):
         # Resolves against each concrete subclass' own ``__table__``.
         return {"version_id_col": cls.__table__.c.version}  # type: ignore[attr-defined]
 
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+        # Every table records the personal fields it declares (ADR 0190): the log and the
+        # audit trail recognise a value by those names, and the model hides its input in a
+        # validation error's text.
+        super().__pydantic_init_subclass__(**kwargs)
+        declare_model(cls)
+
+    def __repr_args__(self) -> Any:
+        # A row rendered anywhere -- a log argument, an f-string, an exception's text --
+        # shows [PERSONAL] in place of each declared personal field (ADR 0190).
+        return mask_repr_args(self, super().__repr_args__())
+
 
 class BaseSchema(SQLModel):
-    """Base for non-table DTOs (request bodies and response models)."""
+    """Base for non-table DTOs (request bodies and response models).
+
+    A field declared with :func:`~terp.core.Personal` is masked when the schema is
+    rendered and recorded for the log's and the audit trail's redaction, as on a table
+    (ADR 0190).
+    """
 
     model_config = ConfigDict(  # type: ignore[assignment]
         from_attributes=True,
         populate_by_name=True,
         str_strip_whitespace=True,
     )
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+        super().__pydantic_init_subclass__(**kwargs)
+        declare_model(cls)
+
+    def __repr_args__(self) -> Any:
+        return mask_repr_args(self, super().__repr_args__())
 
 
 class BaseUpdateSchema(BaseSchema):

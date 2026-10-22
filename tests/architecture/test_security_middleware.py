@@ -49,11 +49,11 @@ from terp.core.app import (
     _warn_loosened_capability_limit_in_production,
     register_error_handlers,
 )
+from terp.core._redaction import REDACTED as _REDACTED
 from terp.core.logging import (
     RedactingFilter,
     RequestContextFilter,
     StructuredFormatter,
-    _REDACTED,
     configure_logging,
 )
 from terp.core._internal.middleware import (

@@ -1,13 +1,15 @@
-"""What the log redacts: secrets, by key name and by shape in free text.
+"""What the log redacts: secrets, and the fields a model declares personal.
 
 Lifted out of ``terp.core.logging`` so the record format and the redaction read as two
 things, which they are: the formatter decides what a line looks like, this decides what
 a line may never contain. Both the :class:`~terp.core.logging.RedactingFilter` and the
 formatter call :func:`scrub`.
 
-It recognises **secrets only**. A name, an address or an email passes through unchanged:
-nothing here knows which field of a model holds personal data, so nothing here can
-promise to remove it.
+**Secrets** are recognised by key name and by shape in free text. **Personal data** is
+recognised by declaration only (ADR 0190): a model handed to the log is rendered with each
+:func:`~terp.core.Personal` field withheld, and a value under a declared field's name in a
+mapping is replaced with ``[PERSONAL]``. An address with no declaration behind it -- a bare
+string, an f-string -- has no shape to find, and passes through.
 """
 
 from __future__ import annotations
@@ -15,6 +17,10 @@ from __future__ import annotations
 import functools
 import re
 from typing import Any, Final
+
+from pydantic import BaseModel
+
+from terp.core.personal import PERSONAL, MaskedModel, is_personal_name
 
 REDACTED: Final[str] = "[REDACTED]"
 
@@ -87,8 +93,35 @@ def scrub_text(value: str) -> str:
 _INERT: Final[frozenset[type]] = frozenset({int, float, bool, type(None)})
 
 
+def withheld_under(key: object) -> str | None:
+    """What replaces a value logged under *key*: a secret's mark, a personal one, or ``None``."""
+    name = key if type(key) is str else str(key)
+    if looks_sensitive(name):
+        return REDACTED
+    if is_personal_name(name):
+        return PERSONAL
+    return None
+
+
+class LoggedModel(MaskedModel):
+    """A model as the log renders it: declared personal fields withheld, secret text redacted.
+
+    It renders where the record is rendered -- ``%s`` and ``%r`` in the message, the JSON
+    encoder for a field -- in pydantic's own shape, so a line reads as it always did, minus
+    the values it may not hold.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return scrub_text(super().__repr__())
+
+    def __str__(self) -> str:
+        return scrub_text(super().__str__())
+
+
 def scrub(value: Any) -> Any:
-    """Recursively redact secrets from *value* (dicts, sequences, and strings).
+    """Recursively redact *value*: secrets by name and shape, personal fields by declaration.
 
     Runs on every field of every record, so the common shapes are tested first and by
     exact type; a subclass of one of them takes the slower ``isinstance`` path below.
@@ -100,7 +133,7 @@ def scrub(value: Any) -> Any:
         return value
     if isinstance(value, dict):
         return {
-            key: (REDACTED if looks_sensitive(key if type(key) is str else str(key)) else scrub(item))
+            key: mark if (mark := withheld_under(key)) is not None else scrub(item)
             for key, item in value.items()
         }
     if isinstance(value, list):
@@ -109,7 +142,17 @@ def scrub(value: Any) -> Any:
         return tuple(scrub(item) for item in value)
     if isinstance(value, str):
         return scrub_text(value)
+    if isinstance(value, BaseModel):
+        return LoggedModel(value)
     return value
 
 
-__all__ = ["REDACTED", "SENSITIVE_KEY_PATTERNS", "looks_sensitive", "scrub", "scrub_text"]
+__all__ = [
+    "REDACTED",
+    "SENSITIVE_KEY_PATTERNS",
+    "LoggedModel",
+    "looks_sensitive",
+    "scrub",
+    "scrub_text",
+    "withheld_under",
+]

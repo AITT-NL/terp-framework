@@ -153,6 +153,14 @@ from terp.core.pagination import (
     PaginationParams,
 )
 from terp.core.passwords import PasswordPolicy, WeakPasswordError, validate_password
+from terp.core.personal import (
+    PERSONAL,
+    Personal,
+    personal_columns,
+    personal_field_names,
+    personal_fields,
+    redact_personal,
+)
 from terp.core.permissions import (
     ADMIN,
     EDITOR,
@@ -298,6 +306,7 @@ __all__ = [
     "OperationCoverage",
     "OperationDefinition",
     "OwnedMixin",
+    "PERSONAL",
     "Page",
     "PaginationDep",
     "PaginationParams",
@@ -307,6 +316,7 @@ __all__ = [
     "PermissionEnforcer",
     "PermissionModel",
     "PermissionProjector",
+    "Personal",
     "Policy",
     "Principal",
     "RateLimit",
@@ -382,9 +392,13 @@ __all__ = [
     "mark_token_revocation_provider",
     "mask_config",
     "operation",
+    "personal_columns",
+    "personal_field_names",
+    "personal_fields",
     "project_permissions",
     "purge_free_leases",
     "read_only",
+    "redact_personal",
     "reference_delete_policy",
     "register_decrypt_call_site",
     "register_health_detail",

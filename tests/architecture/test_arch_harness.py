@@ -5844,3 +5844,51 @@ def test_references_declare_delete_behaviour(tmp_path: pathlib.Path) -> None:
         '    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.CASCADE)\n',
     )
     assert check_references_declare_delete_behaviour(app) == []
+
+
+def test_field_rules_read_personal_like_field(tmp_path: pathlib.Path) -> None:
+    """``Personal`` forwards every keyword to ``Field``, so it is no way around a rule.
+
+    Three rules read a field's keywords: the length cap, a unique column on a
+    soft-deletable table, and an undeclared foreign key. Each reads ``Personal`` exactly
+    as it reads ``Field``.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/crm/schemas.py",
+        "from terp.core import BaseSchema, Personal\n\n\n"
+        "class CustomerCreate(BaseSchema):\n    email: str = Personal()\n",
+    )
+    assert _rule_names(check_input_str_fields_have_max_length(app)) == {
+        "input_str_fields_have_max_length"
+    }
+    _write(
+        app,
+        "modules/crm/schemas.py",
+        "from terp.core import BaseSchema, Personal\n\n\n"
+        "class CustomerCreate(BaseSchema):\n    email: str = Personal(max_length=320)\n",
+    )
+    assert check_input_str_fields_have_max_length(app) == []
+
+    _write(
+        app,
+        "modules/crm/models.py",
+        "from terp.core import BaseTable, Personal, SoftDeleteMixin\n\n\n"
+        "class Customer(BaseTable, SoftDeleteMixin, table=True):\n"
+        "    email: str = Personal(max_length=320, unique=True)\n",
+    )
+    assert _rule_names(check_no_unique_columns_on_soft_delete_models(app)) == {
+        "no_unique_columns_on_soft_delete_models"
+    }
+
+    _write(
+        app,
+        "modules/crm/models.py",
+        "import uuid\n\nfrom terp.core import BaseTable, Personal\n\n\n"
+        "class Customer(BaseTable, table=True):\n"
+        "    referrer_id: uuid.UUID = Personal(foreign_key='customer.id')\n",
+    )
+    assert _rule_names(check_references_declare_delete_behaviour(app)) == {
+        "references_declare_delete_behaviour"
+    }

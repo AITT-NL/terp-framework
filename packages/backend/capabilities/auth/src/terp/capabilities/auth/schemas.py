@@ -6,11 +6,11 @@ import uuid
 
 from sqlmodel import Field
 
-from terp.core import BaseSchema
+from terp.core import BaseSchema, Personal
 
 
 class LoginRequest(BaseSchema):
-    email: str = Field(max_length=320)
+    email: str = Personal(max_length=320)
     password: str = Field(max_length=256)
     #: A second-factor code, where the account has one. Optional because most
     #: accounts do not, and because a client cannot know in advance whether this
@@ -48,7 +48,7 @@ class CurrentUser(BaseSchema):
     """
 
     id: uuid.UUID
-    email: str
+    email: str = Personal()
     role_rank: int
     role_name: str
     permissions: tuple[str, ...] = ()
