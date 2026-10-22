@@ -1,16 +1,21 @@
 # 0187 — In the generated state the framework renders the build files, and a release is signed by a job that never runs the app
 
 - **Status:** Proposed. Revised after four rounds of adversarial review (see *Debate*). Built in
-  0.35.0, as decision 8's second and third pull requests. The second: the tables and the kind
-  recipe, the generator (`terp.arch.deployment.generate`) with its golden samples, properties and
-  import allowlist, the truth rule's compose unescaping, `terp jobs worker --forever`, the
-  `--ignore-scripts` measurement, and the template's three build files replaced by the seed's
-  render. The third: the mirror of the Terp Standard's schema with the two words, the reader
-  accepting `generated` together with the rule `deployment_generated_files_match_their_render`,
-  `terp verify --only generated` and `terp deployment render [--check]`, and the truth rule's
-  restated mount. Held by `tests/architecture/test_deployment_generator.py`,
-  `test_deployment_generated.py`, `test_dockerignore.py`, `test_deployment_truth.py`,
-  `test_cli_jobs.py`, `test_prod_profile.py`, `test_template_build_inputs.py`,
+  0.35.0, as decision 8's second, third and fourth pull requests. The second: the tables and the
+  kind recipe, the generator (`terp.arch.deployment.generate`) with its golden samples,
+  properties and import allowlist, the truth rule's compose unescaping, `terp jobs worker
+  --forever`, the `--ignore-scripts` measurement, and the template's three build files replaced
+  by the seed's render. The third: the mirror of the Terp Standard's schema with the two words,
+  the reader accepting `generated` together with the rule
+  `deployment_generated_files_match_their_render`, `terp verify --only generated` and `terp
+  deployment render [--check]`, and the truth rule's restated mount. The fourth: the copier
+  question, the `.jinja` seed, the `_exclude` entries, Dependabot, the upgrade recipe, the
+  template's `AGENTS.md` and README, `terp deployment adopt`, the answers agreement made red for
+  answers that predate the question, the round trip in template acceptance and the generated
+  reference lane. Held by `tests/architecture/test_deployment_generator.py`,
+  `test_deployment_generated.py`, `test_deployment_adopt.py`, `test_copier_round_trip.py`,
+  `test_dockerignore.py`, `test_deployment_truth.py`, `test_cli_jobs.py`, `test_cli_version.py`,
+  `test_prod_profile.py`, `test_template_build_inputs.py`, `test_template.py`,
   `test_compose_workbench.py` and `test_reference_app.py`. The two words and the rule ship in
   terp-spec 0.40.0, which is not published yet, so the spec pins stay where they are; see *How
   it was built*.
@@ -241,7 +246,9 @@ In the generated state it is red when the declaration cannot be rendered (the ge
 word for word); when a generator-owned file differs from the render (a short diff, and the fix);
 when a generator-owned path the render does not produce exists; when an environment file is not
 ignored (decision 1); when the project name is one compose or Docker would refuse; and when `build`
-and the template answer disagree. It is silent for an
+and the template answer disagree, which includes an answers file that records no answer at all:
+it comes from a template version that does not ask, whose every update still renders the three
+files over the generator's. It is silent for an
 undeclared, `own`, `unmanaged` or unreadable declaration, and for the agreement question when the
 app has no answers file. It notes, never red, a profile `terp release` will refuse under ADR 0184
 decision 9 (no migration step and not exactly one `api` unit).
@@ -273,13 +280,17 @@ answer.**
 - **`deploy_build`**, a copier question (`own` by default, `generated`), recorded in the answers
   file. No validator: copier does not expose the operation inside one, and validators run on
   recorded answers during updates. A fresh `generated` render is red until `terp deployment render`
-  runs, which fails closed. The seed becomes `deployment.json.jinja` taking `build` from the answer;
-  its `_exclude` entry still keeps an update from creating it (verified on copier 9.16).
+  runs, which fails closed; the render needs `frontend/package-lock.json` beside a `web` unit,
+  and the template ships no lock, so the first render follows `npm --prefix frontend install`.
+  The seed becomes `deployment.json.jinja` taking `build` from the answer; its `_exclude` entry
+  still keeps an update from creating it (verified on copier 9.16).
 - **`project_slug` gets no copier validator**, because copier runs validators on recorded answers
   during every update, and one would cut an app off from every template fix. A name compose or
   Docker would refuse is refused instead by `adopt` and by `--only generated`.
 - **`_exclude`** gains one entry per generator-owned file under `deploy_build == 'generated'`, so an
-  update neither renders nor merges them.
+  update neither renders nor merges them. Each is anchored at the root (`/Dockerfile.prod`): an
+  unanchored pattern matches at any depth, and `Dockerfile.prod` would also match
+  `frontend/Dockerfile.prod`.
 - **Dependabot's `docker` entry is removed for every app**: base digests move with framework
   releases, and the file says it is the app's to edit.
 - **The upgrade report and recipe** list the generator-owned files and add `uv run terp deployment
@@ -292,13 +303,25 @@ answer.**
 only prints.
 - `--build own` on an undeclared app writes `deployment.json` from the resolved profile, pins table
   digests for datastores the app added, and refuses by name a service on an image neither built nor
-  in the table (`unmanaged` is the way out).
+  in the table (`unmanaged` is the way out). It reads only what the profile says: a datastore by
+  the table's repository and the version its tag names (its `image:` line moved to the table's
+  digest in the same change); a service built from the checkout by what it does (`web` when its
+  build reads `frontend/`, `one-shot` when it does not restart, `worker` and `scheduler` by `terp
+  jobs`, `api` when it runs the image's own command, with the framework's health routes, and
+  otherwise its own name as the role); `dependsOn` restricted to declared units; a volume a
+  declared unit mounts, with its mount where that is one path inside `var/`. A command the
+  generator renders by default for the role is not restated, so the result also adopts
+  `generated`. What a profile cannot say (a backup policy, `env`, sizes) is named in a note, and
+  the result is held to the truth rule before anything is written. An `unmanaged` file is
+  replaced the same way.
 - `--build generated` needs a readable, true, renderable declaration and scaffolding from a template
   version with the question. It sets `build` and the answer (nothing else in the answers file),
   renders, deletes generator paths the declaration does not produce, and prints the diff: empty for
-  a template-shaped app at the same version.
+  a template-shaped app at the same version. It also refuses an environment file git or the build
+  context would carry, so it never leaves a state `--only generated` is red for.
 - `--build own` on a generated app sets both back and changes no file.
-- `--unmanaged "<reason>"` writes ADR 0184's opt-out.
+- `--unmanaged "<reason>"` writes ADR 0184's opt-out, and records `own` for an answer that said
+  `generated`: the build files are the app's again, and the template resumes merging into them.
 
 The answer is written, not passed to copier: copier's update renders the old version with the
 *recorded* answers, so with `generated` recorded the files read as the app's own and are left alone,
@@ -682,7 +705,7 @@ label, and an `own` app without a `heads` stage releases unlabelled rather than 
 
 ## How it was built
 
-Decision 8's second pull request, in 0.35.0.
+Decision 8's second, third and fourth pull requests, in 0.35.0.
 
 - **The tables** live in `terp.arch.deployment.tables`: `base-images.json` (the four bases the
   Dockerfiles name, each by digest with the tag it was read from, sources recorded in
@@ -729,3 +752,28 @@ Decision 8's second pull request, in 0.35.0.
   generator's golden files and the reference app's profile are pinned to LF by
   `.gitattributes`, since a byte comparison must hold on a Windows checkout that converts line
   endings.
+- **The template and adoption** (the fourth pull request). The copier question `deploy_build`,
+  the seed as `deployment.json.jinja`, three anchored `_exclude` entries, and no Dependabot
+  `docker` entry, as decision 4 says. `terp deployment adopt` is `terp.cli.deployment_adopt`, and
+  its reading of an undeclared app's profile `terp.cli.deployment_declare`; the truth rule and the
+  build-path check take a profile already resolved, so a declaration that pins a datastore is
+  judged against the profile it will write before either is written. The answers agreement is
+  red for answers that record no `deploy_build`, where the third pull request noted it: nothing
+  could record the answer before the question existed. `terp upgrade --check` prints the render
+  as its own step for a generated app, and the guide, the template's `AGENTS.md` and its README
+  give the same recipe. `tools/copier_round_trip.py` is the round trip, run on copier 9.16
+  against a template repository of four revisions built from `template/`, every step held to
+  the exact files it changed: copy with `own`; adopt `generated` (the answers file and
+  `deployment.json`, no build file); update to the same revision (nothing); drop the web unit
+  and render (the declaration, the profile, `frontend/Dockerfile.prod` removed); update to a
+  newer revision whose `Dockerfile.prod` changed (the README and the answers file, no build
+  file, the removed file not created again); restore the web unit and render; adopt `own` (the
+  answers file and `deployment.json`); update to the next revision (the README, the answers file
+  and `Dockerfile.prod`, which takes that revision's line and not the previous one's: the last
+  render merged as the app's edit). A `generated` copy has no build file until the render,
+  which writes the template's own bytes; scaffolding that predates the question is refused,
+  writes nothing, and adopts with no build-file change once an update records `deploy_build:
+  own`. The reference app's declaration restates no command the generator renders itself and
+  says where its files volume is mounted, so its `reference-generated` lane adopts with no
+  build-file change and is then held to `terp verify --only generated`, its suite and `docker
+  compose config`.
