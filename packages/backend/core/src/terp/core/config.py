@@ -12,14 +12,64 @@ lives in the architecture suite.
 
 from __future__ import annotations
 
+import json
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 _PLACEHOLDER_SECRETS = {"", "changethis"}
 _MIN_SECRET_LEN = 32
+
+#: A list of previous keys as the environment spells it: comma-separated, which is what a
+#: deploy tool writes into an env file, or the JSON list ADR 0076 documented first.
+#: ``NoDecode`` hands the raw string to ``Settings._split_key_list`` rather than to the
+#: settings source's JSON decoder, which would refuse the comma-separated form.
+_KeyList = Annotated[list[str], NoDecode]
+
+
+def _entries(positions: list[int]) -> str:
+    """``entry 2`` or ``entries 1, 3``: where in a list, never what is there."""
+    label = "entry" if len(positions) == 1 else "entries"
+    return f"{label} {', '.join(str(position) for position in positions)}"
+
+
+def _key_list_problems(name: str, keys: list[str], current: str, weak_reason: str) -> list[str]:
+    """What is wrong with one list of previous keys, named by position and never by value.
+
+    A weak entry is refused as a weak ``SECRET_KEY`` is, because it opens as much as the
+    current key does. An entry equal to ``SECRET_KEY``, or one listed twice, is a rotation
+    with a slip in it: the old key copied into the list and the new one never set, or one
+    key pasted twice and the one really retired left out. The first leaves the "rotated"
+    key in use; the second loses whatever only the missing key opens once the app runs.
+    """
+    weak = [
+        position
+        for position, key in enumerate(keys, start=1)
+        if key in _PLACEHOLDER_SECRETS or len(key) < _MIN_SECRET_LEN
+    ]
+    current_again = [position for position, key in enumerate(keys, start=1) if key == current]
+    repeated = [
+        position for position, key in enumerate(keys, start=1) if key in keys[: position - 1]
+    ]
+    problems: list[str] = []
+    if weak:
+        problems.append(
+            f"every {name} entry must be a strong value (>= {_MIN_SECRET_LEN} chars) — "
+            f"{weak_reason} ({_entries(weak)})"
+        )
+    if current_again:
+        problems.append(
+            f"{name} holds SECRET_KEY itself ({_entries(current_again)}) — a fallback is "
+            "a previous key, and the new one goes in SECRET_KEY"
+        )
+    if repeated:
+        problems.append(
+            f"{name} lists a key more than once ({_entries(repeated)}) — list each "
+            "previous key once"
+        )
+    return problems
 
 
 class Settings(BaseSettings):
@@ -29,17 +79,31 @@ class Settings(BaseSettings):
         env_file=".env",
         env_ignore_empty=True,
         extra="ignore",
+        # A refused value is never echoed back. Pydantic prints the input beside each
+        # error, shortened in the middle, which for this object means the tail of a
+        # DATABASE_URL (its password) or most of a key in one of the lists below. The
+        # error names the field and the rule; the value stays where it came from.
+        hide_input_in_errors=True,
     )
 
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
     DEBUG: bool = False
     SECRET_KEY: str = "changethis"
-    # Signing-key rotation (ADR 0076): ``SECRET_KEY`` signs every *new* credential;
-    # the fallbacks only **verify**, so an already-issued access token survives a
-    # rotation window instead of forcing every user out at the flip. Rotate by moving
-    # the old key here, deploying, and dropping it once its longest-lived token has
-    # expired. Verification order is SECRET_KEY first, then each fallback in order.
-    SECRET_KEY_FALLBACKS: list[str] = []
+    # Key rotation (ADR 0076 §2, amended by ADR 0189). ``SECRET_KEY`` signs and seals
+    # everything new; nothing is ever signed or sealed with a previous key. Previous keys
+    # live in two lists because what each keeps readable lasts for a different time:
+    #
+    # - SECRET_KEY_FALLBACKS only VERIFIES a signature (an access token, the digest a
+    #   refresh session is looked up by), and only inside that signature's own lifetime.
+    #   Drop it once the longest of those lifetimes has passed since the deploy that
+    #   added it.
+    # - SECRET_KEY_DECRYPT_FALLBACKS only DECRYPTS a value sealed at rest (sealed config,
+    #   webhook signing secrets, MFA enrolments). Drop it once `terp secrets reseal`
+    #   reports nothing left under it.
+    #
+    # A rotation puts the old key in both. Each list is tried in order, after SECRET_KEY.
+    SECRET_KEY_FALLBACKS: _KeyList = []
+    SECRET_KEY_DECRYPT_FALLBACKS: _KeyList = []
     DATABASE_URL: str = "sqlite://"
     # The principal a job's writes are stamped with when no user originated the work
     # (ADR 0125 requires one; ADR 0129 makes this the way it arrives). A deployment
@@ -114,6 +178,21 @@ class Settings(BaseSettings):
             return self.REFRESH_COOKIE_SECURE
         return self.ENVIRONMENT != "local"
 
+    @field_validator("SECRET_KEY_FALLBACKS", "SECRET_KEY_DECRYPT_FALLBACKS", mode="before")
+    @classmethod
+    def _split_key_list(cls, value: object) -> object:
+        """A key list from the environment: comma-separated, or a JSON list.
+
+        A blank segment is dropped, so a trailing comma is not an empty key. A JSON entry
+        that is empty stays in the list, where the production guardrail refuses it.
+        """
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if text.startswith("["):
+            return json.loads(text)
+        return [part.strip() for part in text.split(",") if part.strip()]
+
     @model_validator(mode="after")
     def _enforce_production_guardrails(self) -> Settings:
         if self.ENVIRONMENT != "production":
@@ -122,14 +201,14 @@ class Settings(BaseSettings):
         problems: list[str] = []
         if self.SECRET_KEY in _PLACEHOLDER_SECRETS or len(self.SECRET_KEY) < _MIN_SECRET_LEN:
             problems.append(f"SECRET_KEY must be a strong value (>= {_MIN_SECRET_LEN} chars)")
-        if any(
-            key in _PLACEHOLDER_SECRETS or len(key) < _MIN_SECRET_LEN
-            for key in self.SECRET_KEY_FALLBACKS
-        ):
-            problems.append(
-                f"every SECRET_KEY_FALLBACKS entry must be a strong value "
-                f"(>= {_MIN_SECRET_LEN} chars) — a weak fallback verifies tokens too"
-            )
+        problems += _key_list_problems(
+            "SECRET_KEY_FALLBACKS", self.SECRET_KEY_FALLBACKS, self.SECRET_KEY,
+            "a weak fallback verifies tokens too",
+        )
+        problems += _key_list_problems(
+            "SECRET_KEY_DECRYPT_FALLBACKS", self.SECRET_KEY_DECRYPT_FALLBACKS, self.SECRET_KEY,
+            "a weak fallback decrypts sealed values too",
+        )
         if self.DEBUG:
             problems.append("DEBUG must be disabled")
         if self.DATABASE_URL.startswith("sqlite"):
