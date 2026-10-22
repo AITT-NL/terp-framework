@@ -326,6 +326,14 @@ back on it, once per change, and a settings change applies itself.
   roots after they are copied, with `python -m compileall --invalidation-mode checked-hash`, whose
   bytecode records a hash of its source rather than a time: two cold builds of one lock gave the
   same 1355 files byte for byte, and the installed set is unchanged.
+- **The production profile tags its images per release.** Both image names read a required
+  tag, `<project>-backend-prod:${TERP_RELEASE_TAG:?...}` and the same for the frontend, so
+  `up --build` no longer overwrites the image the previous release ran, and that release can
+  be started again under its own tag (ADR 0185 decision 6). With the variable unset compose
+  stops with "TERP_RELEASE_TAG is required, one new image tag per release", as it does for
+  `SECRET_KEY`. The escape audit an executor runs over a generated profile accepts that one
+  interpolation on an image name (`*.image`) and nowhere else, and `TERP_RELEASE_TAG` is
+  platform-owned: `environment.schema.json` may not declare it.
 - **The truth rule reads a profile as compose does.** A restated command is compared with what
   compose makes of the profile's: `$$` is one `$`, `$name` and `${...}` are interpolations that
   never equal a restated literal, and any other `$` is literal. It compared raw strings, and
@@ -333,6 +341,16 @@ back on it, once per change, and a settings change applies itself.
 
 ### Upgrade notes
 
+- **Every compose command on the production profile needs `TERP_RELEASE_TAG`**: `up`,
+  `run` (the first administrator's bootstrap), `down`, `logs`, `config`. Set a new Docker tag
+  for every release (`git rev-parse --short=12 HEAD` is one), beside `SECRET_KEY` and
+  `POSTGRES_PASSWORD`. To start the previous release again, set its tag and run `up -d --wait
+  --no-build`: the profile builds the images it names, so `--build`, or a pruned image, would
+  build the current checkout under the old tag. `copier update` brings the two `image:` lines;
+  a service your app added on the backend image inherits the tagged name through `<<:
+  *backend`. A tool that pulls release images by digest tags them
+  `<project>-backend-prod:<tag>` and `<project>-frontend-prod:<tag>` before `up`. An
+  executor's escape audit needs this release's fixed-interpolation list before an app pins it.
 - **To have the framework own the build files**, take this release's `copier update` first
   (it records `deploy_build: own`), give each volume in `deployment.json` its `mount`, drop a
   `command` the generator renders itself (the migration step's, and a worker's or scheduler's

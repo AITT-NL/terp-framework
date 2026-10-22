@@ -29,6 +29,7 @@ browser ──► web (nginx, port 8080)
 ```bash
 export SECRET_KEY="$(openssl rand -hex 32)"     # >= 32 chars, required
 export POSTGRES_PASSWORD="$(openssl rand -hex 16)"
+export TERP_RELEASE_TAG="$(git rev-parse --short=12 HEAD)"   # required, new per release
 
 docker compose -f docker-compose.prod.yml up -d --wait --build
 
@@ -55,6 +56,7 @@ weak `SECRET_KEY`, `DEBUG=true`, SQLite, CORS `*`, or an insecure refresh cookie
 | `SECRET_KEY` | yes | ≥ 32 chars; JWT signing + config sealing (ADR 0055) |
 | `SECRET_KEY_FALLBACKS` | no | Previous keys (JSON list) for zero-downtime rotation (ADR 0076); each ≥ 32 chars |
 | `POSTGRES_PASSWORD` | yes | Bundled Postgres; compose fails fast when unset |
+| `TERP_RELEASE_TAG` | yes | The tag of this release's images, `<project>-backend-prod:<tag>` and `<project>-frontend-prod:<tag>` (ADR 0185): a Docker tag, new for every release, so the previous release's images stay on the host and can be started again. Compose fails fast when unset; it cannot tell a stale value from a new one, so set it per release. Platform-owned: `environment.schema.json` may not declare it |
 | `DATABASE_URL` | derived | Defaults to the bundled `db` service. Set it to run on a managed/external PostgreSQL — then also drop the `db` service (and the `depends_on` waiting on it) with a compose override |
 | `BACKEND_CORS_ORIGINS` | no | Deny-by-default; only for cross-origin SPAs, never `*` |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_TIMEOUT` / `DB_POOL_RECYCLE` | no | Pool tuning (ADR 0024) |
@@ -139,8 +141,15 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   the app), carry no BuildKit cache mount, and need BuildKit, the builder of every `docker
   compose` build.
 - **Migrations on upgrade:** pull/build the new images, re-run the `migrate` one-shot,
-  then restart `api`. `docker compose -f docker-compose.prod.yml up -d --wait --build`
-  does all three in order.
+  then restart `api`. With a new `TERP_RELEASE_TAG`,
+  `docker compose -f docker-compose.prod.yml up -d --wait --build` does all three in order,
+  and leaves the previous release's images under their own tag.
+- **Starting the previous release again:** set its `TERP_RELEASE_TAG` and run
+  `docker compose -f docker-compose.prod.yml up -d --wait --no-build`. `--no-build` is the
+  point: the profile builds the images it names, so with `--build`, or with an image of that
+  tag pruned, compose would build this checkout and run it under the old tag. Across a
+  migration the previous release's `migrate` refuses a database it does not know; restore
+  the backup taken before the upgrade first.
 - **DBA-gated releases:** where the migration runner may not touch production, render
   the upgrade as reviewable SQL instead — `terp migrate upgrade --sql > release.sql`
   connects to nothing and includes the version-table bookkeeping, so a script-applied

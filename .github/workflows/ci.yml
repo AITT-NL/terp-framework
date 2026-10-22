@@ -675,7 +675,7 @@ jobs:
           uv run terp verify --only generated
           uv run pytest
           SECRET_KEY=acceptance-only-not-a-secret-0123456789 POSTGRES_PASSWORD=acceptance \
-            docker compose -f docker-compose.prod.yml config -q
+            TERP_RELEASE_TAG=acceptance docker compose -f docker-compose.prod.yml config -q
 
       # The generated app's own conformance job, end to end, on one variant. It had never
       # passed on a fresh app: besides the ports, its suite drove a port the workbench no

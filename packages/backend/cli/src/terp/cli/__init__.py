@@ -2660,12 +2660,18 @@ held byte for byte by a test, so a hardening change reaches them once. Each says
 its header. Under "build": "own" they are the app's to change; under "build": "generated"
 they are the render (THE GENERATED STATE, above).
 
-  start it, with its required secrets set (compose stops on an unset one):
-    SECRET_KEY=... POSTGRES_PASSWORD=... \\
-      docker compose -f docker-compose.prod.yml up -d --wait
-  bootstrap the first administrator (`terp seed` refuses ENVIRONMENT=production):
+  start it, with its required secrets and a new per-release image tag set (compose
+  stops on an unset one; the tag keeps the previous release's images beside this
+  one's, so it can be started again):
+    SECRET_KEY=... POSTGRES_PASSWORD=... TERP_RELEASE_TAG=$(git rev-parse --short=12 HEAD) \\
+      docker compose -f docker-compose.prod.yml up -d --wait --build
+  bootstrap the first administrator (`terp seed` refuses ENVIRONMENT=production), with
+  the same variables set:
     docker compose -f docker-compose.prod.yml run --rm -e TERP_USER_PASSWORD api \\
       terp user create admin@your-domain.example --role admin
+  start an earlier release again: set its TERP_RELEASE_TAG and run `up -d --wait
+    --no-build`, so an image that is gone fails instead of being rebuilt from this
+    checkout under the old tag
   a database this deployment does not run: set DATABASE_URL, which every backend unit
     reads before its default; to drop the bundled `db` service too, add an override
     that removes it, name it in compose.overrides and declare

@@ -575,6 +575,19 @@ def test_the_escape_audit_finds_every_interpolation_outside_its_place() -> None:
         (lambda p: p["x-backend"]["environment"].update(
             DATABASE_URL="${DATABASE_URL:-postgresql+psycopg://app:${HOME}@db:5432/app}"),
          "x-backend.environment.DATABASE_URL"),
+        # The per-release tag is accepted on an image name and nowhere else, and only as
+        # the generator writes it: another variable in an image name is still refused.
+        (lambda p: p["services"]["api"].update(image="demo-backend-prod:${OTHER}"),
+         "services.api.image"),
+        (lambda p: p["services"]["web"].update(image="${REGISTRY}/demo-frontend-prod:x"),
+         "services.web.image"),
+        (lambda p: p["services"]["api"]["environment"].update(TAG=generator.RELEASE_TAG_SEAM),
+         "services.api.environment.TAG"),
+        (lambda p: p["services"]["migrate"].update(
+            command=["terp", "migrate", "upgrade", generator.RELEASE_TAG_SEAM]),
+         "services.migrate.command[]"),
+        (lambda p: p.update(image=f"demo-backend-prod:{generator.RELEASE_TAG_SEAM}"),
+         "image"),
     ):
         profile = copy.deepcopy(seed)
         change(profile)
@@ -582,6 +595,9 @@ def test_the_escape_audit_finds_every_interpolation_outside_its_place() -> None:
         assert any(expected in item for item in found), (expected, found)
     listed = [place for place, _pattern in fixed_interpolations(tables)]
     assert "environment.POSTGRES_PASSWORD" in listed and "environment.DATABASE_URL" in listed
+    assert "*.image" in listed
+    assert seed["x-backend"]["image"] == f"demo-backend-prod:{generator.RELEASE_TAG_SEAM}"
+    assert seed["services"]["web"]["image"] == f"demo-frontend-prod:{generator.RELEASE_TAG_SEAM}"
     assert escape_findings(["$$x", "plain"], tables) == []
     assert escape_findings(["$x"], tables) == ["[]: '$x' interpolates outside the fixed list"]
 
@@ -722,7 +738,12 @@ def test_docker_compose_reads_every_hostile_value_back_literally(tmp_path: pathl
         if key.upper() not in ("DATABASE_URL", "WEB_PORT", "BACKEND_CORS_ORIGINS",
                                "COMPOSE_FILE", "COMPOSE_PROJECT_NAME", "COMPOSE_PROFILES")
     }
-    environment |= {"SECRET_KEY": "s" * 40, "POSTGRES_PASSWORD": "p", "HOME": "/home/someone"}
+    environment |= {
+        "SECRET_KEY": "s" * 40,
+        "POSTGRES_PASSWORD": "p",
+        "HOME": "/home/someone",
+        generator.RELEASE_TAG_VARIABLE: "r-1.2",
+    }
     run = subprocess.run(
         [*compose, "-p", "gen-hostile", "-f", str(tmp_path / PROFILE), "config", "--format",
          "json"],
@@ -739,4 +760,8 @@ def test_docker_compose_reads_every_hostile_value_back_literally(tmp_path: pathl
     api = next(unit for unit in declaration.units if unit.role == "api")
     assert compose_literal(services[api.id]["healthcheck"]["test"][-1]) == api.liveness_path
     assert services["web"]["environment"]["API_UPSTREAM"] == "1e3:8000"
+    # The per-release tag is the one value compose is meant to interpolate into an image name.
+    assert {service["image"] for service in services.values() if "build" in service} == {
+        "demo-backend-prod:r-1.2", "demo-frontend-prod:r-1.2"
+    }
     assert {v["source"] for v in services["0o17"]["volumes"]} == {"files"}

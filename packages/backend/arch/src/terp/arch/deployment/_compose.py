@@ -24,6 +24,7 @@ from terp.arch.deployment._generator_text import (
     MIGRATION_STEP,
     MOUNT_PATH,
     NO_DATABASE_URL,
+    RELEASE_TAG_SEAM,
     WEB_PORT,
 )
 from terp.arch.deployment._refusals import _backend_ids, _upstream
@@ -97,6 +98,11 @@ def _role(declaration: Declaration, ident: str) -> str:
     return next(unit.role for unit in declaration.units if unit.id == ident)
 
 
+def _image(plan: _Plan, tier: str) -> str:
+    """An image this profile builds, named after the project and tagged per release."""
+    return fixed(f"{plan.project}-{tier}-prod:{RELEASE_TAG_SEAM}")
+
+
 def _env_files(ident: str, indent: str) -> list[str]:
     return [
         f"{indent}env_file:",
@@ -110,7 +116,9 @@ def _env_files(ident: str, indent: str) -> list[str]:
 def _backend_block(plan: _Plan) -> list[str]:
     lines = [
         "x-backend: &backend",
-        f"  image: {scalar(f'{plan.project}-backend-prod', leading_id=False)}",
+        f"  image: {_image(plan, 'backend')}",
+        "  # The per-release tag: required, so a release's images stay on the host beside",
+        "  # the next one's and the previous release can be started again (ADR 0185).",
         "  # App-declared environment variables (environment.schema.json): the deploy",
         "  # pipeline renders exactly the declared keys into .app.env per environment.",
         "  # Optional by design -- plain `docker compose up` works without the file. Each",
@@ -258,7 +266,7 @@ def _web_service(plan: _Plan, unit: Unit) -> list[str]:
         "    build:",
         "      context: .",
         f"      dockerfile: {FRONTEND_DOCKERFILE}",
-        f"    image: {scalar(f'{plan.project}-frontend-prod', leading_id=False)}",
+        f"    image: {_image(plan, 'frontend')}",
         "    restart: unless-stopped",
     ]
     if plan.upstream != "api":
