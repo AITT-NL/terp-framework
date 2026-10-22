@@ -52,8 +52,9 @@ weak `SECRET_KEY`, `DEBUG=true`, SQLite, CORS `*`, or an insecure refresh cookie
 | Variable | Required | Notes |
 |---|---|---|
 | `ENVIRONMENT` | yes | `production` (set by the profile) |
-| `SECRET_KEY` | yes | ≥ 32 chars; JWT signing + config sealing (ADR 0055) |
-| `SECRET_KEY_FALLBACKS` | no | Previous keys (JSON list) for zero-downtime rotation (ADR 0076); each ≥ 32 chars |
+| `SECRET_KEY` | yes | ≥ 32 chars; signs access tokens and seals values at rest, each through a key derived for that use (ADR 0055, 0189) |
+| `SECRET_KEY_FALLBACKS` | no | Previous keys, comma-separated, that only **verify** signatures, each for its own lifetime (ADR 0076, 0189); each ≥ 32 chars, never `SECRET_KEY` itself — see [Rotating `SECRET_KEY`](#rotating-secret_key) |
+| `SECRET_KEY_DECRYPT_FALLBACKS` | no | Previous keys, comma-separated, that only **decrypt** values sealed at rest, until `terp secrets reseal` has moved them (ADR 0189); same rules |
 | `POSTGRES_PASSWORD` | yes | Bundled Postgres; compose fails fast when unset |
 | `DATABASE_URL` | derived | Defaults to the bundled `db` service. Set it to run on a managed/external PostgreSQL — then also drop the `db` service (and the `depends_on` waiting on it) with a compose override |
 | `BACKEND_CORS_ORIGINS` | no | Deny-by-default; only for cross-origin SPAs, never `*` |
@@ -153,8 +154,8 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   exactly that drill on every push (`tests/architecture/test_migrations_conformance.py`),
   so the shape is there to copy.
 - **Secrets:** environment only; nothing falls back to a dev default in the prod
-  profile. Sealed config values (ADR 0055) decrypt with `SECRET_KEY` — rotating it
-  invalidates outstanding JWTs and sealed values, so plan rotations.
+  profile. `SECRET_KEY` rotates without signing anyone out or losing a sealed value —
+  follow [Rotating `SECRET_KEY`](#rotating-secret_key) below, in order.
 - **Scaling caveats (single-instance defaults):** the rate limiter / login lockout /
   idempotency-key replay use in-memory stores by default — multi-instance deployments
   must plug the shared stores (ADR 0036); `terp-cap-redis` ships Redis-backed
@@ -164,6 +165,65 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   enable the corresponding capabilities.
 - **Observability:** structured JSON logs with request-ids ship by default (ADR 0005);
   collect container stdout. OpenTelemetry wiring is on the roadmap.
+
+## Rotating `SECRET_KEY`
+
+`SECRET_KEY` signs (access tokens, the digest a refresh session is found by) and seals (sealed
+config, webhook signing secrets, MFA enrolments). A signature lives minutes or days; a sealed value
+lives as long as its row and every backup holding it. So a previous key is kept in two lists that
+come out at different times (ADR 0189). Nothing is ever signed or sealed with an entry of either.
+
+| List | Does | Drop it when |
+|---|---|---|
+| `SECRET_KEY_FALLBACKS` | verifies only: an access token for 15 minutes after it was issued, a refresh session until its own expiry | the longest signature lifetime has passed since the deploy that added it: `REFRESH_TOKEN_TTL_SECONDS` (7 days by default) if the app issues refresh sessions, 15 minutes if not |
+| `SECRET_KEY_DECRYPT_FALLBACKS` | decrypts only: every value sealed at rest | `terp secrets reseal` reports nothing left under it |
+
+Both are comma-separated, and declared in the template's `environment.schema.json`, so a deploy
+pipeline renders them into `.app.env`; deploying by hand, write them there yourself. In
+production the app refuses to boot when an entry is weak, is `SECRET_KEY` itself, or appears
+twice, and names the entry by position, never by value.
+
+The procedure, in this order:
+
+1. **Swap and keep.** Put the current key in **both** lists and a new one in `SECRET_KEY`, then
+   deploy. Every session and every sealed value keeps working.
+
+   ```bash
+   # .app.env (the pipeline renders it; by hand, write it next to the compose file)
+   SECRET_KEY_FALLBACKS=<the key SECRET_KEY held until now>
+   SECRET_KEY_DECRYPT_FALLBACKS=<the key SECRET_KEY held until now>
+   ```
+
+   ```bash
+   export SECRET_KEY="$(openssl rand -hex 32)"
+   docker compose -f docker-compose.prod.yml up -d --wait
+   ```
+
+2. **Re-seal.** Run the re-seal in the app's own container, so it reads the deployed environment:
+
+   ```bash
+   docker compose -f docker-compose.prod.yml run --rm api terp secrets reseal
+   ```
+
+   It rewrites every value sealed under a fallback under `SECRET_KEY`, one transaction per
+   table, never overwrites a value the app changed meanwhile, and refuses to run while a
+   migration is pending. It is safe to run twice. It exits 0 only when every sealed value opens
+   under `SECRET_KEY`; `--check` counts without writing, and `--format json` is for a pipeline.
+
+3. **Drop the decrypt list** once the re-seal reports nothing left, and deploy. Keep the old key
+   in your custody for as long as a backup taken before step 2 may be restored: a restored
+   database holds values sealed under it, so restoring one means listing the key in
+   `SECRET_KEY_DECRYPT_FALLBACKS` again and re-sealing.
+
+4. **Drop the verify list** once the longest signature lifetime has passed since step 1, and
+   deploy. Dropping it sooner loses no data; it signs out the sessions still on the old key.
+
+A key you believe has **leaked** goes in `SECRET_KEY_DECRYPT_FALLBACKS` only, never in
+`SECRET_KEY_FALLBACKS`: whoever holds it could sign a token that the fallback would honour, so
+every session it signed should end at the deploy.
+
+Rotating `POSTGRES_PASSWORD` is a separate change: the bundled database keeps the password it was
+initialised with until you change the role's password (`ALTER ROLE`) to match.
 
 ## CI guard
 
