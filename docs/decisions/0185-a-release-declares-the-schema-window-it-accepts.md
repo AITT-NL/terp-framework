@@ -176,14 +176,16 @@ Nothing else in the tree closes that gap:
      exactly at the code head; one that meets an unrecorded revision, ends on an older ancestor
      or never ends raises `OrphanedRevisionsError` as today.
 
-   One rule then judges the record's rows in every package, whether the code defines it or not.
-   The *horizon* is the newest row (by `seq`) written by any run that applied a revision this
-   code defines. Every row above it, and every step a walk crosses, must carry the newest
-   `applied_by` in the record, be `expand`, and carry the guard's own Terp version as
-   `applied_terp`; any other raises `OrphanedRevisionsError`. Rows at or below the horizon were
-   written no later than the last run that applied this code's history, so that history has
-   already run beside them, and they are ignored, as today. Where no revision the code defines
-   has a row (its history predates the record), every row is above the horizon.
+   Two rules then judge the record's rows in every package the code does not retire, whether it
+   defines the package or not, and a row that fails either raises `OrphanedRevisionsError`:
+
+   - every row the newest run (the newest `applied_by`, by `seq`) wrote for a revision this code
+     does not define is `expand` and carries the guard's own Terp version as `applied_terp`;
+   - the *horizon* is the newest row written by any run that applied a revision this code
+     defines, and every row above it is the newest run's. Rows at or below it were written no
+     later than the last run that applied this code's history, which has run beside them since,
+     so they are ignored, as today. Where no revision the code defines has a row (its history
+     predates the record), every row is above the horizon.
 
    The newest `applied_by` names the last run that applied anything, so the window is one run
    deep in every package and the guard enforces it itself. Two expanding releases in a row leave
@@ -193,23 +195,37 @@ Nothing else in the tree closes that gap:
    failed release's run is the newest applier whether or not it was ever switched to, so its
    predecessor is judged with no input about which release was running. A run on another Terp
    version is never crossed: its capability histories and record format were never tested
-   against this guard.
+   against this guard. A first deploy that applies N-1's history and N's in one run is judged
+   the same way, because N's new histories are still that run's rows for revisions N-1 does not
+   define.
 
-   A package the code removed while its rows sit above the horizon makes the guard refuse, which
-   is the truth: its tables and their foreign keys are still there. Removing a package is a
-   contract step, its history downgraded to base by the last release that carries it. When the
-   guard admits a window it logs one warning at boot naming each package and the revisions the
-   code runs behind. There is no switch back to the strict refusal: the guard, the `migrate`
-   preflight and `terp migrate check` read the window alike, and a switch honoured by one and
-   not the others would let them disagree.
+   **A release that removes a package retires it**, because only the code can tell a package it
+   removed from one a newer release installed. The app lists every label it removed, a module or
+   an uninstalled capability, as a literal `RETIRED_MIGRATIONS` tuple in
+   `<app root>/modules/__init__.py`, read with `ast` and never imported; `pyproject.toml` would be
+   simpler to edit, but the runtime image does not carry it, and every image carries the app
+   root. Terp keeps the same list for capability histories it retired itself. The guard, the
+   `migrate` preflight and the check ignore a retired package's rows; its tables stay the app's,
+   as today. They refuse a retired label the code still defines, so the app's own upgrade test
+   refuses it before a release is built, and a package that comes back takes a new label. An
+   undefined, unretired package whose rows the rules above refuse is named in the refusal: "the
+   database holds revisions of `<label>`, which this code does not define: if this release
+   removed it, retire it in this release; if a newer release installed it, this rollback is
+   restore-based".
+
+   When the guard admits a window it logs one warning at boot naming each package and the
+   revisions the code runs behind. There is no switch back to the strict refusal: the guard, the
+   `migrate` preflight and `terp migrate check` read the window alike, and a switch honoured by
+   one and not the others would let them disagree.
 
    This narrows the guard by decision; it does not weaken it. A rewritten or deleted history is
    still refused, because a rewritten revision was never recorded as an expand step whose
    parent is the code's head. The framework's PostgreSQL lane gains the proof: the example app
    at N-1, with the guard armed as in production, boots on a database upgraded to an
    expand-only N; refuses one with a contract revision, one whose record is missing, one two
-   expanding releases ahead, and one where the older of those two only installed a new module
-   whose first revision is a contract revision; and its `migrate` one-shot exits 0 without
+   expanding releases ahead, one where the older of those two only installed a new module whose
+   first revision is a contract revision, and one a fresh environment's first deploy of N
+   migrated in a single run with such a module; and its `migrate` one-shot exits 0 without
    running DDL.
 
 4. **Rollback is promised one release deep, and a rollback never migrates.** The promise is that
@@ -316,8 +332,8 @@ Nothing else in the tree closes that gap:
    /srv/app`; with no step, `terp migrate check` in the `api` unit's image and working
    directory), in the step's environment, so it judges exactly the histories the step would.
    It passes with every package at exactly the target's head, which every Terp version's
-   strict guard proves, and a target on this decision also holds the rows above its horizon to
-   decision 3. A framework update released on its own, applying no revision, therefore rolls
+   strict guard proves, and a target on this decision also holds the record's rows to decision
+   3's two rules. A framework update released on its own, applying no revision, therefore rolls
    back for free.
 
    One case needs a fact the target's check cannot give. A target that predates this decision
@@ -365,7 +381,7 @@ Nothing else in the tree closes that gap:
 - **ADR 0027 is amended in three places.** Decision 1: histories stay linear and per package;
   each revision now carries a mark, and the migration run keeps one record outside every
   history. Decision 3: the runtime control also judges a database *ahead* of the code, and
-  admits it only inside the recorded window. The operational guidance on a `NOT NULL`
+  admits it only inside the recorded window, and a release that removes a package retires it. The operational guidance on a `NOT NULL`
   add-column gains "tighten in a later release".
 - **ADR 0062 is amended in three places.** Decision 3's `db → migrate → api` order stays, with
   a `migrate` that exits 0 on a database ahead inside the window, and the profile's backend and
@@ -397,7 +413,8 @@ Nothing else in the tree closes that gap:
 - **Texts that change with it:** `assert_migrations_reverse_cleanly`'s residue filter and its
   docstring, which still calls `terp migrate downgrade` every Terp app's rollback plan; the
   migrations topic's NOT NULL recipe; and the migrations guide's notes, that an unreleased
-  revision is re-parented rather than merged, that a `create_index` without `CONCURRENTLY`, a
+  revision is re-parented rather than merged, that a release removing a package retires it,
+  that a `create_index` without `CONCURRENTLY`, a
   volatile default and a generated column (PostgreSQL 17 stores it, so adding one rewrites the
   table) hold a lock while the previous release still serves, because migrate runs before `api`
   is recreated, so a large table computes a derived value on read, and that a new child table of a soft-deleted parent is a contract
@@ -426,6 +443,8 @@ What proves it, and the decisions each proof needs:
 | N-1, guard armed as in production, boots on a database N upgraded with expand-only revisions, batch-style ones included, and its migration step exits 0 with no DDL | 1, 2, 3, 4 |
 | The rule refuses an off-list operation in an expand-only revision; the online run raises on one; `--sql` refuses to render one | 1 |
 | N-1 refuses a contract row, a missing record and a database two runs ahead, also where the older run only installed a contract history N-1 does not define; the round trip, an update included; a revert release passes `test_migrations_match_models` and boots on N's database; N to N-1 restore-free and N to N-2 restore-based, by the target's own check; a runtime-role write to the record refused under `per-module` | 2, 3, 4, 6 |
+| A fresh environment's first deploy of N, one run applying N-1's history, N's expand revisions and a module whose first revision is contract, is refused by N-1 | 3, 6 |
+| A release that deletes a module whose rows are the newest run's contract rows boots when it retires the module and is refused, naming the retirement, when it does not; a retired label still defined is refused | 3 |
 | A per-module database restored into a clean database is routed again by the next `migrate` | 4 |
 | A contract step ships in a later release than its expand | 5 |
 | Rows carry the applier's heads digest and Terp version, however the migration step is run, with no option | 2 |
@@ -507,3 +526,9 @@ three more of weight:
   command; the generated column's rewrite joins the lock notes; the reused-tag sentence; a tool
   mirroring the platform-owned names follows the framework; the checks' start signal and what
   they do not judge.
+
+**Round three** found that the horizon hid the newest run's new histories when that run also
+applied the target's own, as a fresh environment's first deploy does, and that refusing a
+removed package stalled a plain removal a managed deploy cannot downgrade. The newest run's rows
+for revisions the code does not define are now judged wherever they sit, which also covers the
+walk's steps, and a release that removes a package retires it (decision 3).
