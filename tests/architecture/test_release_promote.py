@@ -395,3 +395,9 @@ def test_a_carried_generated_profile_that_is_not_yaml_is_refused(tmp_path: pathl
     files["docker-compose.prod.yml"] = b"services: [unclosed"
     with pytest.raises(ReleaseError, match="is not YAML"):
         _promote(tmp_path, keys, body=make_manifest(files), runs=_no_calls(), monkeypatch=monkeypatch)
+
+
+def test_an_engine_that_names_images_by_their_manifest_is_held_to_the_signed_digest(tmp_path: pathlib.Path, keys, monkeypatch) -> None:
+    """The containerd image store names a local image by its manifest digest, the classic one by
+    its configuration's: both are the signed image, and anything else is not."""
+    assert _promote(tmp_path, keys, runs=docker(image_id=DIGEST), monkeypatch=monkeypatch, env={})[-1] == "promoted r1"
