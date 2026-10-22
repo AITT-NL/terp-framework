@@ -34,6 +34,22 @@ split it across releases.
   check` holds `.app.env` — the development loop's file — to what `local` needs, the template
   declares `JOB_SYSTEM_ACTOR_ID` with `"requiredIn": ["production"]`, and `terp guide
   environment` documents the field. An existing manifest reads exactly as before. ADR 0180.
+- **`seed_checksum`, in `terp.core.testing`: a seed proven deterministic.** A seed owes two
+  things: a second run on the same database writes nothing, and two fresh databases it seeds
+  hold the same data. The second could not be checked by comparing rows. Seeding the
+  reference app twice into fresh databases differs in exactly four places: every primary key
+  is a new `uuid4`, every `created_at` and `updated_at` is that run's moment, every password
+  hash has a new salt, and every owner, actor stamp and audit target carries one of those new
+  ids. Nothing else differs. The checksum covers the business columns, by one rule. It leaves
+  out a table's own single-column primary key and every `DateTime` column. It compares a PHC
+  hash by its scheme and parameters only. It replaces a value that is some row's UUID key,
+  whether in a foreign key, a text reference or a JSON payload, with that row's table and a
+  fingerprint of its business columns. It keeps everything else, a `Date` included, and
+  compares rows as a set. `generated=True` keeps every column as stored, so two equal
+  checksums of that kind mean nothing was written in between. `test_seed_checksum.py` holds
+  the reference app's seed and the template's to both properties, on SQLite and in CI's
+  PostgreSQL lane. Both already met them, so neither seed changed. Their docstrings now state
+  the two properties, and `terp guide testing` shows the test an app writes for its own seed.
 
 ### Changed
 

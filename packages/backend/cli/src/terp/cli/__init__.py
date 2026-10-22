@@ -1209,6 +1209,40 @@ code looks wrong, every test passes -- until the table has real data in it.
   fixture must not change it -- so write the test with several rows in the fixture, or
   it cannot tell the two apart.
 
+PROVE THE SEED IS DETERMINISTIC. `terp seed` may run on every boot and a fresh
+environment is seeded from nothing, so a seed owes two things: a second run on the same
+database writes NOTHING, and two fresh databases it seeds hold the SAME data. Comparing
+rows as stored cannot show the second, because a fresh run does not repeat what a write
+generates: every id is a new uuid4, every timestamp is now, a password hash has a new
+salt, and every owner, actor stamp and audit target carries some row's new id.
+`seed_checksum` compares the BUSINESS columns instead, by one rule:
+      left out   a table's own single-column primary key, and every DateTime column
+      reduced    a PHC hash ($argon2id$v=19$m=..$<salt>$<digest>) to scheme and params
+      resolved   a value that is some row's UUID key (a foreign key, a text reference,
+                 a JSON payload) to that row's table and business columns
+      kept       everything else, a Date included; rows are compared as a set
+and `generated=True` keeps every column as stored, which is how "nothing was written"
+is asked:
+
+      from terp.core.testing import seed_checksum
+
+      def test_the_seed_is_deterministic(terp_db_url):
+          engine = create_engine(terp_db_url)
+          SQLModel.metadata.create_all(engine)
+          run_the_seed(engine)
+          first, stored = seed_checksum(engine), seed_checksum(engine, generated=True)
+          run_the_seed(engine)                       # the second run is a no-op
+          assert seed_checksum(engine, generated=True) == stored
+          SQLModel.metadata.drop_all(engine)
+          SQLModel.metadata.create_all(engine)
+          run_the_seed(engine)                       # and a fresh database agrees
+          assert seed_checksum(engine) == first
+
+  A seed that fails it reads the clock, a random value or whichever row comes back first.
+  Write through the real services, look each row up by its natural key before creating
+  it (UsersService.ensure_user does), and derive any id the seed must choose with uuid5.
+  `terp_db_url` runs it on PostgreSQL too.
+
 WHAT YOU MUST STILL DO YOURSELF. The platform UNDOES a runtime; it never INSTALLS the
 one your test needs. That distinction is the whole of testing on Terp:
       * whole runtime -> compose the app in a fixture (see apps/example/tests/conftest.py,
