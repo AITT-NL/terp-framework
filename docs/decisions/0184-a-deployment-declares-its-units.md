@@ -34,8 +34,8 @@
   [ADR 0086](0086-publish-the-terp-standard-to-pypi-and-npm.md) (the spec as a published package),
   [ADR 0141](0141-the-gate-scans-every-deployable-not-only-the-mounted-one.md) (a second
   deployable in one repository); and
-  [ADR 0185](0185-a-release-declares-the-schema-window-it-accepts.md) (the image labels `terp release`
-  writes and the rollback classification `terp promote` runs; whether a rollback is restore-free
+  [ADR 0185](0185-a-release-declares-the-schema-window-it-accepts.md) (the per-release tag
+  `terp promote` sets and the rollback classification it runs; whether a rollback is restore-free
   is owned there, never declared here). Supersedes nothing.
 
 ---
@@ -192,7 +192,7 @@ What each part answers, and what it deliberately does not:
 | `size`, `sizes` | named sizes and the smallest one each unit runs at | which size an environment uses |
 | `stateful`, `backup` | that the unit or a named volume of the profile holds state, and its backup policy: what (given by where the policy sits), how often, how long kept. A stateful unit's policy covers the named volumes only declared stateful units mount (the seed's `db-data`), so those are never declared again; `volumes` is for named volumes no declared stateful unit owns, such as a files volume | where backups go, their credentials and their encryption |
 | `externalDatabase` | that the app's database is one this deployment does not run, with `{"backup": "client"}`: its owner backs it up. It names no profile service, so rule 2's profile match does not reach it, and `"client"` is valid only here | its connection, which is an environment fact |
-| `rollback` | what a rollback is: `strategy` is closed, and `redeploy-previous-release`, `terp promote` of an earlier release manifest (decision 9), is the one value schemaVersion 1 knows | whether a rollback is restore-free: 0185 decision 6 classifies that from the target image's labels and its own `terp migrate check`, so no declaration can claim a window the images do not carry |
+| `rollback` | what a rollback is: `strategy` is closed, and `redeploy-previous-release`, `terp promote` of an earlier release manifest (decision 9), is the one value schemaVersion 1 knows | whether a rollback is restore-free: 0185 decision 6 classifies that by the target image's own `terp migrate check`, so no declaration can claim a window the target's code does not accept |
 | `build` | `own` or `generated` (decision 4) | |
 
 The roles share `workbench.json`'s words where they mean the same thing (`web`, `api`,
@@ -444,18 +444,18 @@ left is the reverse of a generated adoption, back to `own`. `terp inspect` stays
 - `terp release` checks out an exact SHA into a detached worktree, runs the gate in that worktree
   and builds every unit without a `kind` from the same tree, so nothing can write between the
   check and the build. Release builds pull fresh bases and never share a cache or a tag with a
-  development build. Each build passes 0185's two labels, `terp.version` and
-  `terp.migrations.heads`, as build arguments, so every image it cuts can be classified later.
+  development build. An image carries no label for 0185: a rollback is classified by the target
+  image's own `terp migrate check` (0185 decision 6).
 - The release manifest is versioned and records the inputs as well as the outputs: the commit
   SHA and its tree hash; the `terp-cli` version, and the generator's in `generated` mode; the
   digest of every base image; the hash of each lock file; the build arguments; the content of
   `deployment.json` and of each profile file it names, the base file and its overrides in order,
   with a digest of each, so the profile a deploy runs is under the signature and an executor
-  needs no checkout and no repository; the per-release tag of 0185 decision 6, under which the release's images
-  are named; the schedule catalog, each schedule's name, cron and catalog job, read from the app's
+  needs no checkout and no repository; the per-release tag of 0185 decision 6
+  (`TERP_RELEASE_TAG`), under which the release's images are named; the schedule catalog, each schedule's name, cron and catalog job, read from the app's
   `ControlPlane` inside the gate worktree, so a deploy tool that
-  never imports the app can trigger every schedule; and, per unit, the image digest and the
-  migration heads per label it owns.
+  never imports the app can trigger every schedule; and, per unit, the image digest. The
+  histories a unit owns are in the declaration the manifest carries.
   It records a digest for every profile service the release will run, declared or not, and
   `terp release` refuses a profile service whose image is neither built from the checkout nor a
   datastore table digest. That is a property of a driven release, not a rule of `terp verify`:
@@ -486,25 +486,26 @@ left is the reverse of a generated adoption, back to `own`. `terp inspect` stays
   app root resolves; `terp release`
   refuses a profile with no migration step and other than exactly one `api` unit, because there
   is then no one image to run it in. Either way the upgrade runs exactly once per promotion.
-- `terp promote` sets the manifest's per-release tag in the variable the profile's image names
-  read, which the profile requires (0185 decision 6). With one migration step, that step passes
-  the same variable to `terp migrate upgrade` as its release option, as 0185 decision 2 has the
-  template's `migrate` do; with none, `terp promote` passes the tag as that option itself. The
-  record rows the upgrade writes then name the release, which 0185 decision 6's classification
-  needs; a step that passes no release still upgrades, and its rows rule every rollback from
-  this release restore-based.
+- `terp promote` sets the manifest's per-release tag in `TERP_RELEASE_TAG`, which the profile's
+  image names read and require (0185 decision 6). The tag names images only: the migration step
+  takes no release option, and the record rows the upgrade writes name their run by its own
+  code heads (0185 decision 2), so a step run in any of the ways above writes the same rows.
+  Before the step it reads every version table and keeps the reading for an undo in the same
+  invocation, which is how 0185 decision 6 classifies a rollback to a release that predates
+  that decision.
 - This departs from R4, whose one new capability was a per-unit one-shot running "exactly the
   histories a unit owns". It
   keeps R4's migrate-then-serve order and drops the narrowing, because `terp migrate upgrade` has
   no per-label form and a declaration is partial: an upgrade narrowed to claimed labels would
   leave every unclaimed history pending, and the boot guard would then refuse the API. A unit's
-  `migrations` therefore never narrows the upgrade; it records which heads the release manifest
-  lists for that unit, so a label no unit claims is still brought to head and the API's boot
-  guard (`PendingMigrationsError`) stays the runtime control.
+  `migrations` therefore never narrows the upgrade; it records which histories the unit owns, in
+  the declaration the manifest carries, so a label no unit claims is still brought to head and
+  the API's boot guard (`PendingMigrationsError`) stays the runtime control.
   Restoring R4's narrowing would take a per-label upgrade, which is a later ADR amending ADR 0027.
 - After the upgrade, `terp promote` starts the other units and waits on each declared health
   path. Given an earlier manifest, a rollback, it runs 0185 decision 6's
-  classification before it starts anything. It starts the target only when the classification
+  classification before it starts anything, and starts the target's images by their tag with
+  `--no-build --pull never`. It starts the target only when the classification
   is restore-free, or when the database has been restored so that the target's own `terp migrate
   check` passes on it; otherwise it refuses, says the rollback is restore-based, and names the
   restore 0185 decision 7 describes. The reference executor is the single-host Compose profile; a deploy tool may
@@ -596,4 +597,4 @@ Proposed. The framework's half of decisions 1 to 6 and 8 is built (above). What 
 Still open, each for its own record: how an upgrade that moves a digest is shown to whoever
 keeps an environment's allowlist; the adoption step's command name; the release manifest's
 signature format and how `terp promote` is given its key; and what `staging` guarantees.
-Whether a rollback is restore-free, and the labels that decide it, are ADR 0185's.
+Whether a rollback is restore-free is ADR 0185's.

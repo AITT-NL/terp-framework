@@ -18,7 +18,9 @@ from fastapi import FastAPI
 from terp.arch.deployment import DEPLOYMENT_FILE, published_table
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-SEED_PATH = REPO_ROOT / "template" / "project" / DEPLOYMENT_FILE
+#: The seed is a copier template since ADR 0187: its build is the deploy_build answer.
+SEED_PATH = REPO_ROOT / "template" / "project" / f"{DEPLOYMENT_FILE}.jinja"
+SEED_PLACEHOLDER = "{{ deploy_build }}"
 PROBE_REF = "tests.architecture.deployment_fixtures:probe_app"
 POSTGRES = published_table().find("postgres", "17")
 assert POSTGRES is not None, "the datastore table must carry the template's PostgreSQL"
@@ -41,9 +43,11 @@ def probe_app() -> FastAPI:
     return app
 
 
-def seed() -> dict[str, Any]:
-    """The template's own seed, as data."""
-    return json.loads(SEED_PATH.read_text(encoding="utf-8"))
+def seed(build: str = "own") -> dict[str, Any]:
+    """The template's own seed, as data, rendered with *build* as copier renders it."""
+    text = SEED_PATH.read_text(encoding="utf-8")
+    assert text.count(SEED_PLACEHOLDER) == 1, "the seed takes build from the answer, once"
+    return json.loads(text.replace(SEED_PLACEHOLDER, build))
 
 
 def profile(**services: dict | None) -> dict[str, Any]:

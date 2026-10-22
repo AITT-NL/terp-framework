@@ -1401,10 +1401,17 @@ def test_the_generated_app_ships_an_updater_for_those_pins() -> None:
         "forward — every generated app would freeze its actions at the day it was rendered"
     )
     text = config.read_text(encoding="utf-8")
-    for ecosystem in ("github-actions", "pip", "npm", "docker"):
+    for ecosystem in ("github-actions", "pip", "npm"):
         assert f"package-ecosystem: {ecosystem}" in text, (
             f"a generated app ships a {ecosystem} surface that nothing updates"
         )
+    # Changed on purpose by ADR 0187 decision 4: the production images' bases are pinned by
+    # digest from terp-arch's base-image table and moved by a framework release, so under
+    # "build": "generated" a Dependabot pull request against them would edit a generated
+    # file, which `terp verify --only generated` refuses. Removed for every app, never
+    # conditionally: an adoption does not re-render this file until the next update.
+    assert "package-ecosystem: docker" not in text
+    assert "There is no `docker` entry, on purpose (ADR 0187)" in text
 
 
 def test_the_generated_workflow_verifies_the_binary_it_downloads() -> None:
@@ -1475,16 +1482,23 @@ def test_the_deploy_declaration_is_seeded_by_copy_and_never_by_update() -> None:
     """
     import yaml
 
+    from tests.architecture.deployment_fixtures import seed
+
     config = yaml.safe_load((_TEMPLATE / "copier.yml").read_text(encoding="utf-8"))
     assert "deployment.json" in config["_skip_if_exists"]
-    assert config["_exclude"] == ["{% if _copier_operation == 'update' %}deployment.json{% endif %}"]
-    seeded = json.loads((_PROJECT / "deployment.json").read_text(encoding="utf-8"))
-    assert seeded["build"] == "own" and [unit["id"] for unit in seeded["units"]] == [
-        "db",
-        "migrate",
-        "api",
-        "web",
-    ]
+    # The entry matches the path the seed RENDERS to: it is deployment.json.jinja since ADR
+    # 0187 takes build from the answer, and an exclusion is matched after the suffix goes.
+    assert config["_exclude"][0] == "{% if _copier_operation == 'update' %}deployment.json{% endif %}"
+    assert not (_PROJECT / "deployment.json").exists()
+    assert (_PROJECT / "deployment.json.jinja").is_file()
+    for build in ("own", "generated"):
+        seeded = seed(build)
+        assert seeded["build"] == build and [unit["id"] for unit in seeded["units"]] == [
+            "db",
+            "migrate",
+            "api",
+            "web",
+        ]
     workflow = yaml.safe_load(
         (_TEMPLATE.parent / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     )
@@ -1495,3 +1509,48 @@ def test_the_deploy_declaration_is_seeded_by_copy_and_never_by_update() -> None:
     ]
     assert "copier update" in step["run"] and "test ! -e app/deployment.json" in step["run"]
     assert "test -f fresh/deployment.json" in step["run"]
+    assert "mv project/deployment.json.jinja" in step["run"], "the step moves the seed it has"
+
+
+def test_the_template_asks_who_writes_the_build_files() -> None:
+    """ADR 0187 decision 4: one recorded answer decides whether the template renders them.
+
+    `deploy_build` defaults to own and has no validator: copier runs validators on the
+    RECORDED answers during every update, so one would cut an app off from every template
+    fix (measured on copier 9.16, where `_copier_operation` is empty inside a validator).
+    The same reason keeps a validator off project_slug, whose refusal lives in `terp
+    deployment adopt` and `terp verify --only generated`. Under `generated` the template
+    excludes exactly the generator's files, anchored at the root so `Dockerfile.prod` cannot
+    also match `frontend/Dockerfile.prod`; `tools/copier_round_trip.py` runs it for real.
+    """
+    import yaml
+
+    from terp.arch.deployment.generator import OWNED_PATHS
+
+    config = yaml.safe_load((_TEMPLATE / "copier.yml").read_text(encoding="utf-8"))
+    question = config["deploy_build"]
+    assert question["default"] == "own" and question["type"] == "str"
+    assert sorted(question["choices"].values()) == ["generated", "own"]
+    assert "validator" not in question and "validator" not in config["project_slug"]
+    assert config["_exclude"][1:] == [
+        f"{{% if deploy_build == 'generated' %}}/{path}{{% endif %}}" for path in OWNED_PATHS
+    ]
+    seed = (_PROJECT / "deployment.json.jinja").read_text(encoding="utf-8")
+    assert seed.count('"build": "{{ deploy_build }}"') == 1
+    answers = (_PROJECT / "{{ _copier_conf.answers_file }}.jinja").read_text(encoding="utf-8")
+    assert "`terp deployment adopt` writes" in answers, "the answers file names its one writer"
+
+
+def test_the_agent_rulebook_and_readme_carry_the_generated_upgrade() -> None:
+    """A generated app's framework update is copier update, the install, then the render;
+    a missed render is red under `terp verify --only generated`. Both documents an app reads
+    say so, and the rulebook lists the check among the ones a test failure cannot explain."""
+    rulebook = (_PROJECT / "AGENTS.md.jinja").read_text(encoding="utf-8")
+    assert "Six of the profile's checks ask questions the test suite cannot" in rulebook
+    assert "- `generated` — are the production build files the framework's render?" in rulebook
+    recipe = rulebook.index("the upgrade is `copier update`, then the install")
+    assert recipe < rulebook.index("**`uv run terp deployment render`**", recipe)
+    assert "uv run terp deployment adopt --build generated" in rulebook
+    readme = (_PROJECT / "README.md.jinja").read_text(encoding="utf-8")
+    assert "{% if deploy_build == 'generated' %}uv run terp deployment render" in readme
+    assert "A missed render turns `uv run terp verify --only generated` red." in readme

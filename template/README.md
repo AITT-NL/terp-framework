@@ -17,7 +17,11 @@ terp check                      # the architecture gate (== CI)
 terp dev                        # run the API + frontend together
 ```
 
-Inputs (see `copier.yml`): `project_name`, `project_slug`, `layout`. The rendered
+Inputs (see `copier.yml`): `project_name`, `project_slug`, `layout`, the capability
+toggles, and `deploy_build`, which says who writes the production build files: `own`
+(the template, merged on every update) or `generated` (the framework renders them from
+`deployment.json` with `terp deployment render`, and updates leave them alone; ADR 0187).
+An existing app changes it with `terp deployment adopt`, never `copier update --data`. The rendered
 sources live under `project/` (`_subdirectory: project`), so this README and the
 top-level `AGENTS.md` stay out of the generated repo. `terp new module <name>` adds
 further modules against the same shape.

@@ -42,7 +42,15 @@ framework now has a generator for an app's three production build files, and the
 own three are its render of the seed declaration, held byte for byte, so a hardening change is
 made once (ADR 0187). An app can now declare `"build": "generated"`: `terp deployment render`
 writes those files from its declaration, and the gate refuses a committed copy that is not the
-render.
+render. The template asks the same question, `terp deployment adopt` moves an existing app into
+that state and back, and from then on `copier update` leaves the three files to the generator,
+so a framework update is a re-render and never a merge.
+
+And the development loop stopped services without a word. After a Python dependency change
+the API came back on the new image and the worker, the scheduler and the companion beside it
+stayed stopped; after a frontend dependency change the whole backend could stay stopped; and a
+settings change could be undone by the next rebuild. Every service on a rebuilt image now comes
+back on it, once per change, and a settings change applies itself.
 
 ### Security
 
@@ -188,12 +196,51 @@ render.
   that disagrees. It is silent for an undeclared app, `own`, `unmanaged` and an unreadable
   declaration.
 - **`terp verify --only generated`** runs that rule in every profile, category `build`, with
-  notes for what it does not judge (the git half outside a work tree, answers that predate the
-  question) and for a profile `terp release` will refuse (no migration step and other than one
-  api unit).
+  notes for what it does not judge (the git half outside a work tree) and for a profile `terp
+  release` will refuse (no migration step and other than one api unit). An answers file that
+  records no `deploy_build` is red: its template version does not ask, and its next `copier
+  update` still renders the three files over the generator's.
 - **`terp deployment render [--check]`** writes the render, every file or none, removes a
   generator-owned file the declaration no longer renders, and refuses every state but
   `generated`; `--check` writes nothing and runs the rule.
+- **The template asks who writes the build files.** `deploy_build`, a copier question, `own`
+  by default or `generated`, recorded in `.copier-answers.yml`. Under `generated` the template's
+  `_exclude` keeps `Dockerfile.prod`, `frontend/Dockerfile.prod` and `docker-compose.prod.yml`
+  out of every copy and every update, so an update neither renders nor merges them and a
+  generator path the declaration no longer renders is not created again. The seed is now
+  `deployment.json.jinja` and takes its `build` from the answer; it is still written by `copier
+  copy` alone, so an update never creates it. A fresh `generated` copy has none of the three
+  files until `terp deployment render` runs, and `terp verify --only generated` is red until
+  then. Neither `deploy_build` nor `project_slug` has a validator: copier runs validators on the
+  recorded answers during every update, so one would cut an app off from every template fix.
+  ADR 0187 decision 4.
+- **`terp deployment adopt` moves an app between the declaration's states.** It writes
+  `"build"` in `deployment.json` and `deploy_build` in `.copier-answers.yml` together, and
+  nothing else in the answers file: copier renders an update's old template version with the
+  recorded answers, so the build files are the generator's from the very first update, with no
+  template source, network, git or clean tree needed. `--build generated` needs a readable,
+  true, renderable declaration and scaffolding from a template version that asks the question;
+  it renders, removes a generator path the declaration does not produce, and prints the diff,
+  which holds no build file for a template-shaped app at its template version. It refuses,
+  writing nothing, a declaration the generator cannot render, a project name compose or Docker
+  refuses, an environment file git or the build context would carry, and answers that record no
+  `deploy_build`. `--build own` sets both back and changes no file, or, on an undeclared app,
+  writes `deployment.json` from `docker-compose.prod.yml` as it runs: each service by what the
+  profile says it does, a datastore pinned to the table's digest in the same change, a service
+  on an image neither built here nor in the table refused by name, and notes for what a profile
+  cannot say (a backup policy, env names). `--unmanaged "<reason>"` writes the opt-out and
+  records `own`. `--dry-run` only prints. ADR 0187 decision 4.
+- **Template acceptance runs the build-state round trip for real.** `tools/copier_round_trip.py`
+  builds a template repository of four revisions from `template/` (before the question, as it
+  is, and two later releases that each change `Dockerfile.prod`) and drives copier and `terp
+  deployment adopt` through it, holding every step to the exact files it changes: own to
+  generated, updates to the same and to a newer revision under generated (no build file, and a
+  removed one stays removed), back to own, and an update that merges the newer release into the
+  last render as an own app's edit; a generated copy rendered to the template's own bytes; and
+  scaffolding that predates the question, refused until an update records the answer. The gate
+  runs it wherever copier can be found. The matrix gains `reference-generated`: the reference
+  app adopts `generated` with no build-file change, then is held to `terp verify --only
+  generated`, its suite and `docker compose config` of its profile.
 - **`terp jobs worker --forever`** drains the outbox, waits `--poll-seconds` (5 by default),
   and drains again until SIGTERM or SIGINT, which end it cleanly after the batch in flight. A
   profile no longer needs a shell loop around a single drain, and the reference app's worker
@@ -286,12 +333,20 @@ render.
 
 ### Upgrade notes
 
-- **To have the framework own the build files**, set `"build": "generated"` in
-  `deployment.json`, give each volume its `mount`, drop a `command` the generator owns (the
-  migration step's), run `uv run terp deployment render`, and commit the result. In a
-  template-shaped app at this template version the render changes no build file. What the
-  generator cannot render it refuses by name; `"build": "own"` stays the way out. The
-  `copier` question that records the choice, and `terp deployment adopt`, come next.
+- **To have the framework own the build files**, take this release's `copier update` first
+  (it records `deploy_build: own`), give each volume in `deployment.json` its `mount`, drop a
+  `command` the generator renders itself (the migration step's, and a worker's or scheduler's
+  that is the default), then run `uv run terp deployment adopt --build generated` and commit
+  what it writes. In a template-shaped app at this template version it changes no build file.
+  What the generator cannot render it refuses by name, and the app stays `own`. Never set the
+  state with `copier update --data deploy_build=generated`: that update's old render still has
+  the files, and copier would delete or conflict what the generator writes.
+- **A generated app's framework update is `copier update`, the install, then `uv run terp
+  deployment render`**, committed together. `terp upgrade --check` prints the render as its own
+  step for such an app, and a missed render is red under `terp verify --only generated`.
+- **An app without `deployment.json` can declare itself with `uv run terp deployment adopt
+  --build own`**, which reads `docker-compose.prod.yml` and shows what it would write; review the
+  roles it read, then add the backup policy the notes name.
 - **`terp verify` gains a `generated` check in every profile**, category `build`; a driving tool
   that pins the check list from the manifest sees the new id. It is green for every app that
   has not declared `"build": "generated"`.
@@ -312,9 +367,11 @@ render.
 - **An app that added a service on the backend image needs no healthcheck for it**, and
   should not write `healthcheck: {disable: true}`: Compose refuses to wait on a disabled check.
   A service of your own that serves HTTP declares its probe in the profile, as `api` does.
-- **Base images move with framework releases now.** A Dependabot pull request that bumps a base
-  digest in these files competes with the next framework release that moves it; decline it, or
-  take the release.
+- **Base images move with framework releases now, and `copier update` removes Dependabot's
+  `docker` entry** from `.github/dependabot.yml`, for every app: a pull request that bumped a
+  base digest competed with the next framework release that moves it, and under `"build":
+  "generated"` it would edit a generated file. Under `"build": "own"` the Dockerfiles are yours,
+  and so is adding the entry back.
 - **A worker that loops in a shell can run `terp jobs worker --forever` instead.** It drains,
   waits and drains again, and a stop ends it after the batch in flight, so the trap, the sleep
   and the `sh -c` go. Put `init: true` on the service, as the generator does, so the stop
@@ -353,6 +410,18 @@ render.
   values listed under Changed: a reserved variable name, or a value it used to coerce or skip. The
   template has never written either; the message names the field and what it allows.
   `terp workbench adopt` shows what the compose file says a port variable is, if that is the fix.
+- **`copier update` moves the backend image's build from `api` to `migrate` in
+  `docker-compose.yml`**, and its `watch` rule from `pyproject.toml` to `uv.lock`. The file is
+  the template's; keep both moves when you resolve the update. Two consequences reach past it.
+  A service your app added on the backend image must keep `depends_on: migrate` (condition
+  `service_completed_successfully`), or a rebuild recreates it and leaves it stopped, as it did
+  every service before this release. And a tool that builds the backend image by naming `api`
+  (`docker compose build api`) now builds nothing and still exits 0: name `migrate`, or build
+  without a service name.
+- **A tool that runs `docker compose watch` itself** keeps the stack and the watch on one
+  configuration the way `terp docker dev` now does: after changing `.app.env`, `.env` or the
+  compose file, stop `watch` and start it again, and never run `docker compose up` beside a
+  running one.
 
 ### Fixed
 
@@ -363,6 +432,42 @@ render.
   failed with a permission error. The dev image now creates the directory inside the source
   tree it already hands to that user, and the production image creates `/srv/var/files`
   owned by it, so a volume mounted there can be written.
+- **A dependency change brings every service on the rebuilt image back up.** The development
+  compose file built the backend image from `api` and rebuilt it there. A `watch` rebuild
+  recreates every container whose image changed and then starts only the rebuilt service and
+  the services that depend on it (`pkg/compose/watch.go`, in Compose v2.40.3 and v5.5.1
+  alike), so after `uv add` the API ran on the new image and `migrate`, `seed` and every other
+  service on that image sat in `Created`: in the reference app the worker, the scheduler and
+  the companion, stopped after every run on both versions, with no error anywhere. The image is now
+  built, and watched, from `migrate`, which every backend service already waits for, so the
+  rebuild starts all of them in order: the schema goes to head first, a new capability's tables
+  included, then the rest. A template test derives what a rebuild starts from the dependency
+  graph and holds every shipped workbench to it, and the reference app's lane makes the change
+  under `watch` on the runner's Compose (`scripts/check_stack.py --rebuilds`).
+- **One `uv add`, one rebuild.** The rule watched `pyproject.toml`, which `uv add` writes twice,
+  before and after it resolves (0.2 to 1.3 s apart, measured, and over 500 ms whenever the
+  resolution is not already cached), while `watch` batches only what arrives within 500 ms. A
+  second write queued behind the first rebuild and fired a second one, and a second recreate of
+  every backend service. The rule watches `uv.lock`, written once resolution is done, so one
+  change is one rebuild, and an edit to `pyproject.toml` that changes no dependency rebuilds
+  nothing.
+- **A frontend dependency change no longer stops the backend, and a settings change is no
+  longer undone.** `watch` loads the project once and converges the whole stack against that
+  copy on every rebuild, recreating, and not starting, every service whose configuration
+  differs from it. Two things made them differ. A settings change applied with
+  `docker compose up -d` beside a running watch: the next frontend rebuild put every backend
+  service back on the old values and left them stopped. And `up` itself: Compose v2's `watch`
+  keeps a service's `env_file` list in the configuration it hashes and `up` drops it, so after
+  any `up` beside it, a frontend rebuild recreated every service with an `env_file` and started
+  none of them, with nothing changed at all (measured on v2.40.3; v5.5.1 loads the project the
+  way `up` does, and there the same sequence left the backend alone).
+  `terp docker dev` now watches the files the project is loaded from (the compose file, `.env`,
+  every `env_file`) and, when one changes, stops `watch` and starts it again, so its own start
+  applies the change with the hashes its rebuilds use. A settings change needs no command, and
+  there is never an `up` beside the watch. `terp guide environment` says what such a change
+  costs: both images checked against the build cache, `migrate` and `seed` run again (on
+  purpose: every start runs them), and no session ends, because a recreate does not change
+  `SECRET_KEY`.
 
 ## 0.34.0 — 2026-10-09
 

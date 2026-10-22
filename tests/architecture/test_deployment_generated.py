@@ -347,9 +347,17 @@ def test_an_environment_file_the_build_context_would_carry_is_refused(tmp_path) 
     ("answers", "findings", "notes"),
     [
         (None, [], []),
-        ("_src_path: template\nproject_slug: demo\n", [],
-         [".copier-answers.yml records no deploy_build: the template version it was rendered "
-          "from does not ask, so the build it records is not compared"]),
+        # Red since the template asks (ADR 0187's fourth pull request): answers that record
+        # no deploy_build come from a template version whose every update still renders the
+        # three files from the template, over the generator's. Until the question existed it
+        # was a note, because nothing could have recorded one.
+        ("_src_path: template\nproject_slug: demo\n",
+         [".copier-answers.yml: .copier-answers.yml records no deploy_build: the template "
+          "version this app was rendered from does not ask it, so its next `copier update` "
+          "still renders Dockerfile.prod, frontend/Dockerfile.prod and docker-compose.prod.yml "
+          "from the template, over the generator's (allowed: deploy_build: generated, recorded "
+          "by a template version that asks)"],
+         []),
         ("deploy_build: generated\n", [], []),
         ("deploy_build: own\n",
          ['.copier-answers.yml: deploy_build is \'own\' in .copier-answers.yml, and deployment.json '
@@ -367,6 +375,15 @@ def test_the_template_answer_agrees_with_the_declaration(tmp_path, answers, find
     found = [f"{finding.file}: {finding.message}" for finding in result.drift.findings]
     assert len(found) == len(findings) and all(a.startswith(b) for a, b in zip(found, findings))
     assert result.drift.notes[1:] == notes
+    remedies = [finding.remedy for finding in result.drift.findings]
+    if answers is not None and answers.startswith("_src_path"):
+        assert remedies == [
+            'Declare "build": "own" again (`uv run terp deployment adopt --build own`), run '
+            "`copier update` to a template version that asks deploy_build, then `uv run terp "
+            "deployment adopt --build generated`."
+        ]
+    if answers == "deploy_build: own\n":
+        assert remedies[0].endswith("`uv run terp deployment adopt --build generated` writes both.")
 
 
 def test_a_profile_terp_release_will_refuse_is_noted_never_red(tmp_path) -> None:

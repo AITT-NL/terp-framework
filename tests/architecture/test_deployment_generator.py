@@ -71,6 +71,7 @@ from terp.arch.deployment.tables import (
     read_system_packages,
 )
 from terp.cli.deploy_safety import audit
+from tests.architecture.deployment_fixtures import seed as template_seed
 
 _REPO = pathlib.Path(__file__).resolve().parents[2]
 _GOLDENS = pathlib.Path(__file__).with_name("generator_goldens")
@@ -137,9 +138,7 @@ def _render(name: str) -> dict[str, bytes]:
 
 
 def _seed() -> reader.Declaration:
-    raw = json.loads((_TEMPLATE / "deployment.json").read_text(encoding="utf-8"))
-    raw["build"] = "generated"
-    return _declare(raw, published_tables())
+    return _declare(template_seed("generated"), published_tables())
 
 
 def _profile(files: dict[str, bytes]) -> dict:

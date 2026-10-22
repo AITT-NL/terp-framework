@@ -23,6 +23,7 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _COMPOSE = _REPO_ROOT / "apps" / "example" / "docker-compose.yml"
 _TEMPLATE_COMPOSE = _REPO_ROOT / "template" / "project" / "docker-compose.yml.jinja"
 _TEMPLATE_PROD_COMPOSE = _REPO_ROOT / "template" / "project" / "docker-compose.prod.yml.jinja"
+_REFERENCE_COMPOSE = _REPO_ROOT / "apps" / "reference" / "overlay" / "docker-compose.yml"
 _EXAMPLE_DOCKERFILE = _REPO_ROOT / "apps" / "example" / "Dockerfile"
 _TEMPLATE_DOCKERFILE = _REPO_ROOT / "template" / "project" / "Dockerfile"
 _EXAMPLE_PROD_DOCKERFILE = _REPO_ROOT / "apps" / "example" / "Dockerfile.prod"
@@ -84,6 +85,12 @@ def _template_compose() -> dict:
     text = _JINJA_IF_BLOCK.sub("", text)
     assert "{%" not in text, "unstripped Jinja block in the template compose"
     return yaml.safe_load(text)
+
+
+def _reference_compose() -> dict:
+    """The reference app's workbench: the template's, grown by a worker, a scheduler and a
+    companion on the backend image (apps/reference/README.md)."""
+    return yaml.safe_load(_REFERENCE_COMPOSE.read_text(encoding="utf-8"))
 
 
 def _template_prod_compose() -> dict:
@@ -174,24 +181,98 @@ def test_the_frontend_healthcheck_uses_a_binary_its_image_actually_has() -> None
 
 
 def test_a_workbench_never_pulls_the_backend_tag_it_builds_itself() -> None:
-    """The one-shots name a tag only `api` builds, so they must not pull it.
+    """The services that do not build name a tag only `migrate` builds, so they must not pull it.
 
     Compose's default for a missing image is to pull, and a first `docker compose
-    watch` did exactly that for `migrate` and `seed`: "pull access denied" for a tag
-    no registry holds. Some compose versions go on to build it, some stop — so the
+    watch` did exactly that for the services that reuse the tag: "pull access denied" for
+    a tag no registry holds. Some compose versions go on to build it, some stop — so the
     documented one command to a running workbench worked or not by compose version.
     Every service sharing the tag says `never`, and one of them is the builder, so the
     tag still has exactly one way to come into existence.
     """
-    for compose in (_compose(), _template_compose()):
+    for compose in (_compose(), _template_compose(), _reference_compose()):
         services = compose["services"]
         tag = services["api"]["image"]
         sharing = {name: s for name, s in services.items() if s.get("image") == tag}
 
         assert {"migrate", "seed", "api"} <= set(sharing)
-        assert [name for name, s in sharing.items() if "build" in s] == ["api"]
+        assert [name for name, s in sharing.items() if "build" in s] == ["migrate"]
         pulling = [name for name, s in sharing.items() if s.get("pull_policy") != "never"]
-        assert pulling == [], f"{sorted(pulling)} would pull {tag!r}, which only `api` builds"
+        assert pulling == [], f"{sorted(pulling)} would pull {tag!r}, which only `migrate` builds"
+
+
+def _rebuild_rules(service: dict) -> list[str]:
+    """The paths a service's `develop.watch` rebuilds on."""
+    rules = (service.get("develop") or {}).get("watch") or []
+    return [rule["path"] for rule in rules if rule.get("action") == "rebuild"]
+
+
+def _started_after_rebuilding(services: dict, rebuilt: str) -> set[str]:
+    """What `watch` starts after it rebuilds *rebuilt*: that service and its dependents.
+
+    Compose's own rule, read from its source (`pkg/compose/watch.go`, `rebuild`, in both
+    v2.40.3 and v5.5.1): the image is built, the WHOLE project is converged (every
+    container whose image changed is recreated, and a recreated container is created,
+    not started), and then `start` runs on
+    `project.WithSelectedServices([rebuilt], types.IncludeDependents)` -- the rebuilt
+    service plus, transitively, every service whose `depends_on` names one of them.
+    """
+    started = {rebuilt}
+    grown = True
+    while grown:
+        grown = False
+        for name, service in services.items():
+            if name not in started and set(_depends_conditions(service)) & started:
+                started.add(name)
+                grown = True
+    return started
+
+
+def test_a_dependency_rebuild_starts_every_service_on_the_rebuilt_image() -> None:
+    """After `uv add`, the worker beside the API stayed stopped, with no error anywhere.
+
+    The backend image used to be built (and watched) from `api`. A rebuild recreated
+    every service on that image -- migrate, seed and the reference app's worker,
+    scheduler and companion -- and then started `api` and its dependents only, so the
+    rest sat in `Created` until somebody ran `docker compose up -d` by hand (measured on
+    the reference app, Compose v2.40.3, every time). Built from `migrate`, which every
+    backend service waits for, the start reaches all of them.
+
+    Holds for every rebuild rule in every shipped workbench: whatever shares the image a
+    rule rebuilds must be started by that rule's rebuild, or it is left stopped.
+    """
+    for label, compose in (
+        ("example", _compose()),
+        ("template", _template_compose()),
+        ("reference", _reference_compose()),
+    ):
+        services = compose["services"]
+        builders = [name for name, s in services.items() if _rebuild_rules(s)]
+        assert builders, f"the {label} workbench rebuilds nothing on a dependency change"
+        for builder in builders:
+            image = services[builder]["image"]
+            on_image = {name for name, s in services.items() if s.get("image") == image}
+            left_stopped = sorted(on_image - _started_after_rebuilding(services, builder))
+            assert left_stopped == [], (
+                f"{label}: a rebuild of {builder!r} recreates {left_stopped} on the new "
+                f"image and never starts them; they must depend on {builder!r}"
+            )
+
+
+def test_the_backend_rebuild_follows_the_lock_not_the_manifest() -> None:
+    """One `uv add`, one rebuild.
+
+    `uv add` writes pyproject.toml twice, before and after it resolves (up to 1.3 s
+    apart, measured), and `watch` batches only what lands within its 500 ms quiet
+    period. With the rule on pyproject.toml the second write was queued behind the first
+    rebuild and fired a second one -- a second full recreate of every backend service.
+    uv.lock is written after the resolution (twice, about 50-75 ms apart), so the rule
+    on it fires once.
+    """
+    for compose in (_template_compose(), _reference_compose()):
+        rules = _rebuild_rules(compose["services"]["migrate"])
+        assert rules == ["uv.lock"], f"the backend rebuild watches {rules}"
+        assert all("pyproject.toml" not in _rebuild_rules(s) for s in compose["services"].values())
 
 
 def test_api_waits_for_a_healthy_db_and_a_completed_migrate() -> None:
@@ -361,7 +442,7 @@ def test_example_and_template_workbenches_share_a_topology() -> None:
         == set(template["api"]["environment"])
         == {"DATABASE_URL", "SECRET_KEY", "ENVIRONMENT", "WATCHFILES_FORCE_POLLING"}
     )
-    assert "watch" in example["api"]["develop"] and "watch" in template["api"]["develop"]
+    assert "watch" in example["migrate"]["develop"] and "watch" in template["migrate"]["develop"]
     assert (
         example["web"]["environment"]["TERP_API_PROXY"]
         == template["web"]["environment"]["TERP_API_PROXY"]
