@@ -43,6 +43,12 @@ def generate_refresh_token() -> str:
     return secrets.token_urlsafe(_TOKEN_NBYTES)
 
 
+def _digest(raw_token: str, secret: str) -> str:
+    """The HMAC-SHA256 hex of *raw_token* under the digest key derived from *secret*."""
+    key = hashlib.sha256(_DIGEST_CONTEXT + b":" + secret.encode()).digest()
+    return hmac.new(key, raw_token.encode(), hashlib.sha256).hexdigest()
+
+
 def refresh_token_digest(raw_token: str) -> str:
     """The at-rest digest of *raw_token*: a SECRET_KEY-keyed (peppered) HMAC-SHA256 hex.
 
@@ -50,9 +56,26 @@ def refresh_token_digest(raw_token: str) -> str:
     so ``/refresh`` looks the row up in one indexed read. The key is derived from
     ``SECRET_KEY`` (read at call time, so tests and rotation see the live value) with a
     context prefix, keeping it separate from the access-token signing use of the secret.
+    This is the digest a token is **stored** under; nothing is digested under a fallback.
     """
-    key = hashlib.sha256(_DIGEST_CONTEXT + b":" + settings.SECRET_KEY.encode()).digest()
-    return hmac.new(key, raw_token.encode(), hashlib.sha256).hexdigest()
+    return _digest(raw_token, settings.SECRET_KEY)
+
+
+def refresh_token_digests(raw_token: str) -> tuple[str, ...]:
+    """Every digest *raw_token* may be stored under, the current key's first.
+
+    A digest is a keyed lookup rather than a signature, but it rotates like one
+    (ADR 0189): ``SECRET_KEY_FALLBACKS`` only *finds* a token digested before a key
+    rotation, so a session survives the flip instead of every user being signed out at
+    their next refresh. The window needs no clock of its own. The row it finds carries
+    its own expiry, at most ``REFRESH_TOKEN_TTL_SECONDS`` after it was minted, and a
+    rotation stores the successor under the current key — so once that idle lifetime has
+    passed since the flip, no live row is left under a fallback.
+    """
+    return (
+        refresh_token_digest(raw_token),
+        *(_digest(raw_token, fallback) for fallback in settings.SECRET_KEY_FALLBACKS),
+    )
 
 
 def set_refresh_cookie(response: Response, token: str) -> None:
@@ -84,5 +107,6 @@ __all__ = [
     "clear_refresh_cookie",
     "generate_refresh_token",
     "refresh_token_digest",
+    "refresh_token_digests",
     "set_refresh_cookie",
 ]

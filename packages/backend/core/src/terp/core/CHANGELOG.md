@@ -18,6 +18,20 @@ boot refuses without and the development loop only warns about — was required 
 development loop too, and a workbench asked for it there from somebody who could not produce it.
 A declaration can now say where it is required.
 
+And changing `SECRET_KEY` broke the deployment it was changed in. The key both signs and seals,
+and its one fallback list only verified access tokens: after a change every sealed config value,
+webhook signing secret and MFA enrolment stopped opening, and every refresh session ended at its
+next refresh. A previous key now goes in two lists with two clocks, one that only verifies and one
+that only decrypts, and `terp secrets reseal` moves what was sealed under it to the new key.
+
+### Security
+
+- **A refused setting no longer prints its value.** When the settings object refused a value,
+  Pydantic printed a shortened copy of the input beside the error, and for a production boot
+  refused over another field that copy ended in the tail of `DATABASE_URL`, which is where its
+  password is. Every settings error now names the field and the rule and nothing of the value.
+  ADR 0189.
+
 ### Added
 
 - **`"requiredIn"` names the environments a value must be set in.** A non-empty list of
@@ -27,6 +41,64 @@ A declaration can now say where it is required.
   check` holds `.app.env` — the development loop's file — to what `local` needs, the template
   declares `JOB_SYSTEM_ACTOR_ID` with `"requiredIn": ["production"]`, and `terp guide
   environment` documents the field. An existing manifest reads exactly as before. ADR 0180.
+- **`SECRET_KEY_DECRYPT_FALLBACKS`: previous keys that only decrypt (ADR 0189).** Every value
+  sealed at rest — sealed config, webhook signing secrets, MFA enrolments — opens under
+  `SECRET_KEY` and then each entry, and is sealed under `SECRET_KEY` alone. It never verifies a
+  signature, as `SECRET_KEY_FALLBACKS` never decrypts, so a signing key no longer has to stay
+  listed for as long as old backups need the sealing key.
+- **`terp secrets reseal` moves sealed values to the current key.** It walks every string column
+  of every mapped table, re-seals each value that still needs a decrypt fallback, one transaction
+  per table, compare-and-swap per value, and moves no `updated_at`; it refuses while a migration
+  is pending and is safe to run twice. `--check` only counts, `--format json` is for a pipeline,
+  and it exits 0 only when every sealed value opens under `SECRET_KEY`.
+- **`SealingDomain`, `derive_key`, `check_sealed_value` and `sealing_domains` in `terp.core`.** A
+  sealing domain owns the rotation rule for one kind of sealed value and registers itself, which
+  is how the re-seal finds it; the three shipped sealers are domains now, with their labels and
+  formats unchanged. `derive_key` is the HKDF every use of the key derives through.
+- **The template declares both fallback lists** in `environment.schema.json`, as secrets required
+  nowhere, and lists them empty in `.app.env.example`, so a deploy pipeline can set them.
+  `terp guide secrets` and `docs/DEPLOYMENT.md` give the rotation procedure.
+
+### Changed
+
+- **Access tokens are signed with a key derived from `SECRET_KEY`, not with `SECRET_KEY`.** One
+  key per use: the signing key no longer is the secret every other key is derived from. A token
+  signed with the raw key before this release verifies for the rest of its life.
+- **A signature under a retired key is honoured for its lifetime and no longer.** Under the raw key
+  or a `SECRET_KEY_FALLBACKS` entry, an access token verifies for `FALLBACK_VERIFY_WINDOW` (15
+  minutes) from its `iat`, whatever its `exp` says.
+- **Both fallback lists read comma-separated**, the shape a deploy tool writes; the JSON list form
+  keeps working.
+
+### Fixed
+
+- **A key rotation no longer signs everyone out at their next refresh.** The refresh lookup tries
+  the current key's digest, then each `SECRET_KEY_FALLBACKS` entry's (`refresh_token_digests`),
+  and stores the successor under the current key.
+- **A key rotation no longer leaves sealed values unreadable**, nor fails every webhook delivery
+  terminally, nor locks every enrolled user out at the second factor.
+
+### Upgrade notes
+
+- **Rotate with both lists, in order:** the old key into `SECRET_KEY_FALLBACKS` *and*
+  `SECRET_KEY_DECRYPT_FALLBACKS` with the new one in `SECRET_KEY`, deploy, `terp secrets reseal`,
+  drop the decrypt list once it reports nothing left, and drop the verify list once the longest
+  signature lifetime has passed (`REFRESH_TOKEN_TTL_SECONDS` with refresh sessions, else 15
+  minutes). A deployment midway through a rotation on the old single list adds its old key to
+  `SECRET_KEY_DECRYPT_FALLBACKS` as well.
+- **Production refuses a fallback list with a slip in it**: an entry that is `SECRET_KEY` itself or
+  repeats another entry, as well as a weak one, in either list. A deployment that left its current
+  key in `SECRET_KEY_FALLBACKS` no longer boots until the entry is removed.
+- **Anything outside the app that verifies its access tokens with `SECRET_KEY` stops verifying new
+  ones.** It must derive the same key — `derive_key(SECRET_KEY, b"terp.capabilities.auth.access-token.v1")`,
+  base64url-encoded — or ask the app. A test that hand-signs a token with `SECRET_KEY` keeps
+  passing while the token's `iat` is fresh.
+- **A token an app mints itself for longer than 15 minutes survives a rotation for 15 minutes**
+  under the old key, not for its whole lifetime.
+- **`terp-core` requires `pydantic-settings>=2.7`**, the first release with `NoDecode`.
+- **A template update brings the two declarations.** An app whose `environment.schema.json` and
+  `.app.env.example` it rewrites gets both; an app that keeps its own adds them by hand to set the
+  lists through a deploy pipeline.
 
 ## 0.34.0 — 2026-10-09
 

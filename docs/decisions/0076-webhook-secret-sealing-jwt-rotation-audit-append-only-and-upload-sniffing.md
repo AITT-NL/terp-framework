@@ -95,3 +95,14 @@ control refuses proven mismatches, never guesses.
   `test_migrations_conformance.py`, `test_files.py`); no new arch rule — there
   is no module-authored surface to police, mirroring the ADR 0075 precedent.
 - No residuals remain from the ADR 0075 deferred list.
+
+## Amendment (2026-10-22): two lists, two clocks
+
+§2's `SECRET_KEY_FALLBACKS` stands as written, verify-only, and now also finds a refresh session
+digested under an earlier key. It is joined by `SECRET_KEY_DECRYPT_FALLBACKS`, which only decrypts:
+every value sealed at rest, §1's webhook secrets included, opens under `SECRET_KEY` and then each of
+its entries, and `terp secrets reseal` rewrites what needed one. A signature verifies under a
+fallback only for its own lifetime, and access tokens are signed with a key derived from
+`SECRET_KEY` rather than with `SECRET_KEY` itself. See [ADR 0189](0189-sealing-and-signing-retire-a-key-on-their-own-clocks.md): the rotation is now old key into both
+lists, deploy, re-seal, drop the decrypt list once nothing needs it, and drop the verify list once
+the longest signature lifetime has passed.

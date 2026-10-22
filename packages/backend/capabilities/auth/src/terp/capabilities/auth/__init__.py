@@ -34,6 +34,7 @@ from terp.capabilities.auth.refresh import (
     clear_refresh_cookie,
     generate_refresh_token,
     refresh_token_digest,
+    refresh_token_digests,
     set_refresh_cookie,
 )
 from terp.capabilities.auth.router import (
@@ -65,6 +66,7 @@ from terp.capabilities.auth.throttle import (
     TooManyAttemptsError,
 )
 from terp.capabilities.auth.tokens import (
+    FALLBACK_VERIFY_WINDOW,
     TOKEN_AUDIENCE,
     TOKEN_ISSUER,
     AccessTokenClaims,
@@ -88,6 +90,7 @@ __all__ = [
     "ClientCredentialsRequest",
     "CurrentUser",
     "CurrentUserResolver",
+    "FALLBACK_VERIFY_WINDOW",
     "LoginRequest",
     "LoginTenantResolver",
     "LoginThrottle",
@@ -118,6 +121,7 @@ __all__ = [
     "get_principal",
     "hash_password",
     "refresh_token_digest",
+    "refresh_token_digests",
     "set_refresh_cookie",
     "tenant_from_bearer",
     "verify_password",

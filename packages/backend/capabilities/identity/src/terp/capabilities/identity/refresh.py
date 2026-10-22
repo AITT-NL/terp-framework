@@ -26,6 +26,7 @@ from terp.capabilities.auth import (
     RefreshRotation,
     generate_refresh_token,
     refresh_token_digest,
+    refresh_token_digests,
 )
 from terp.core import settings
 from terp.core._internal.session_guard import enter_write_unit  # arch-allow-no-internal-imports: rotating refresh-token session infra must ride the audited write unit; the scope primitive is _internal so app modules cannot open it
@@ -62,13 +63,17 @@ class RefreshTokenService:
         rotates into a fresh successor instead of punishing the user. Past that window,
         **replaying a spent or revoked token is treated as theft** and revokes the whole
         family (reuse-detection), so a stolen copy cannot outlive the legitimate one.
+
+        The token is found under the current key's digest or under a
+        ``SECRET_KEY_FALLBACKS`` one (ADR 0189), so a key rotation signs nobody out; its
+        successor is always stored under the current key.
         """
-        digest = refresh_token_digest(raw_token)
+        digests = refresh_token_digests(raw_token)
         now = datetime.now(UTC)
         with enter_write_unit() as outermost:
             row = session.exec(
                 select(RefreshToken)
-                .where(RefreshToken.token_hash == digest)
+                .where(RefreshToken.token_hash.in_(digests))  # type: ignore[attr-defined]
                 .with_for_update()
             ).first()
             if row is None:
