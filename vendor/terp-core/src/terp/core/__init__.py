@@ -191,7 +191,12 @@ from terp.core.scheduling import (
     Scheduler,
     trigger_schedule,
 )
-from terp.core.health import HealthDetail, register_health_detail
+from terp.core.health import (
+    HealthDetail,
+    ReadinessProbe,
+    register_health_detail,
+    register_mandatory_store,
+)
 from terp.core.scoping import (
     ScopePredicate,
     register_owner_read_scope,
@@ -302,6 +307,7 @@ __all__ = [
     "Policy",
     "Principal",
     "RateLimit",
+    "ReadinessProbe",
     "Ref",
     "RetryPolicy",
     "Role",
@@ -381,6 +387,7 @@ __all__ = [
     "register_health_detail",
     "register_job_tenant_context",
     "register_lease_reaper",
+    "register_mandatory_store",
     "register_object_authz_predicate",
     "register_owner_read_scope",
     "register_permission_projector",

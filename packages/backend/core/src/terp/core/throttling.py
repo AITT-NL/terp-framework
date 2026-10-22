@@ -58,6 +58,15 @@ class ThrottleStore(ABC):
     def clear(self, key: str) -> None:
         """Drop the counter and any lock for *key* (e.g. on a success)."""
 
+    def ping(self) -> None:
+        """Raise when the backend cannot be reached; readiness asks (ADR 0191).
+
+        A shared store this deployment requires (``require_shared_throttle_store=True``)
+        is part of readiness, so it must say how to reach it: a shared adapter overrides
+        this, and ``create_app`` refuses one that does not. The per-process default lives
+        in the process that asks, so there is nothing for it to reach.
+        """
+
 
 class InMemoryThrottleStore(ThrottleStore):
     """The default, per-process store — a dict guarded by a lock.

@@ -157,11 +157,13 @@ jobs:
         # Every module that takes the `terp_db_url` fixture runs here, because this is
         # the only job with a server: anywhere else its PostgreSQL half skips, and a skip
         # is green. The audit activity's per-day counts were claimed for both dialects
-        # while only SQLite ever ran them.
+        # while only SQLite ever ran them. So does readiness following the database away
+        # and back (ADR 0191), which only a server can show.
         run: >-
           uv run pytest -q
           tests/architecture/test_migrations_conformance.py
           tests/architecture/test_audit_activity.py
+          tests/architecture/test_readiness_postgres.py
 
   # Generic, tool-independent backstops layered ON TOP of the gate — they never
   # replace terp-arch. Blocking: ruff bandit (`S`) + the import-linter layer-0

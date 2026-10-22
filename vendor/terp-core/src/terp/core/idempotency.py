@@ -100,6 +100,15 @@ class IdempotencyStore(ABC):
         not storable. Lease-guarded like :meth:`complete`; a no-op when stale.
         """
 
+    def ping(self) -> None:
+        """Raise when the backend cannot be reached; readiness asks (ADR 0191).
+
+        A shared store this deployment requires (``require_shared_idempotency_store=True``)
+        is part of readiness, so it must say how to reach it: a shared adapter overrides
+        this, and ``create_app`` refuses one that does not. The per-process default lives
+        in the process that asks, so there is nothing for it to reach.
+        """
+
 
 @dataclass
 class _Entry:

@@ -526,8 +526,15 @@ def test_create_app_requires_a_shared_throttle_store_when_asked() -> None:
         )
 
 
+class _ReachableThrottle(InMemoryThrottleStore):
+    """A store standing in for a shared one, which says how readiness reaches it (ADR 0191)."""
+
+    def ping(self) -> None:
+        return None
+
+
 def test_create_app_accepts_a_marked_shared_throttle_store() -> None:
-    store = mark_shared_throttle_store(InMemoryThrottleStore())
+    store = mark_shared_throttle_store(_ReachableThrottle())
     app = create_app(
         [ModuleSpec(name="ok", policy=Policy.default())],
         throttle_store=store,

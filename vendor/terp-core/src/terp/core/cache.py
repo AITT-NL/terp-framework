@@ -48,6 +48,15 @@ class CacheStore(ABC):
     def delete(self, key: str) -> None:
         """Drop *key* (a no-op when absent) — the invalidation hook after a write."""
 
+    def ping(self) -> None:
+        """Raise when the backend cannot be reached; readiness asks (ADR 0191).
+
+        A shared cache this deployment requires (``require_shared_cache_store=True``) is
+        part of readiness, so it must say how to reach it: a shared adapter overrides
+        this, and ``create_app`` refuses one that does not. The per-process default lives
+        in the process that asks, so there is nothing for it to reach.
+        """
+
 
 class InMemoryCacheStore(CacheStore):
     """The default, per-process store — a dict guarded by a lock, TTL-expired on read/write.

@@ -1632,6 +1632,43 @@ def _validate_durable_leases(
         )
 
 
+#: Each shared store ``create_app`` can be told to require: its readiness name, the
+#: argument that requires it, and the port whose ``ping`` an adapter must override.
+_MANDATORY_STORES: tuple[tuple[str, str, type], ...] = (
+    ("throttle_store", "require_shared_throttle_store", ThrottleStore),
+    ("cache_store", "require_shared_cache_store", CacheStore),
+    ("idempotency_store", "require_shared_idempotency_store", IdempotencyStore),
+)
+
+
+def _mandatory_store_probes(
+    stores: Mapping[str, tuple[object, bool]],
+) -> dict[str, Callable[[], object]]:
+    """The readiness probe of every shared store a ``require_shared_*`` made mandatory.
+
+    The readiness half of the shared-store promise (ADR 0191, amending ADR 0024): a store
+    this deployment cannot keep its promise without is one this instance cannot serve
+    without, so ``/health/ready`` asks it. The boot guards above have already refused an
+    unshared store, so what reaches here is shared; it must also say how to reach it, by
+    overriding its port's ``ping``, or the boot is refused, because a store readiness
+    cannot ask would be reported as reachable by a check that cannot fail.
+    """
+    probes: dict[str, Callable[[], object]] = {}
+    for name, flag, port in _MANDATORY_STORES:
+        store, required = stores[name]
+        if not required:
+            continue
+        if type(store).ping is port.ping:
+            raise BootError(
+                f"{flag}=True makes the {name.replace('_', ' ')} part of readiness "
+                f"(ADR 0191), and {type(store).__name__} has no ping() of its own to ask "
+                "it with: override ping() so it raises when the backend cannot be reached "
+                "(terp-cap-redis' stores do)"
+            )
+        probes[name] = store.ping  # type: ignore[attr-defined]
+    return probes
+
+
 def _referenced_response_types(annotation: object) -> set[type]:
     """Every concrete class referenced by a ``response_model`` (generics unwrapped).
 
@@ -2146,6 +2183,11 @@ def create_app(
     in-memory store dies with the very process whose crash the lease exists to survive.
     It defaults ``False``.
 
+    Every ``require_shared_*`` that is ``True`` also puts its store in readiness (ADR
+    0191): ``GET /health/ready`` asks the store's ``ping()`` beside the database and
+    answers 503 while it cannot be reached, so the store's adapter must implement
+    ``ping()`` (terp-cap-redis' stores do) or boot is refused.
+
     *request_size_overrides* retunes a mounted module's request-body ceiling per
     deployment (ADR 0067), keyed by **module name** (``{"files": 100 * 1024 * 1024}``).
     Each mounted spec's declared ``ModuleSpec.max_request_bytes`` already applies to its
@@ -2191,6 +2233,13 @@ def create_app(
     _validate_shared_cache_store(cache_store, require_shared_cache_store)
     _validate_shared_idempotency_store(idempotency_store, require_shared_idempotency_store)
     _validate_durable_leases(lease_store, require_durable_leases)
+    readiness = _mandatory_store_probes(
+        {
+            "throttle_store": (throttle_store, require_shared_throttle_store),
+            "cache_store": (cache_store, require_shared_cache_store),
+            "idempotency_store": (idempotency_store, require_shared_idempotency_store),
+        }
+    )
 
     settings = get_settings()
     if settings.is_production:
@@ -2308,7 +2357,8 @@ def create_app(
                 ],
             )
     app.include_router(
-        build_health_router(expose_detail=expose_health_detail), prefix="/health"
+        build_health_router(expose_detail=expose_health_detail, readiness=readiness),
+        prefix="/health",
     )
     _mount_root_signpost(app, title=title, docs=not hide_docs)
     # The contract-shape gate runs against the finished document — after every
