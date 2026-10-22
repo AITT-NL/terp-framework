@@ -127,9 +127,18 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
 
 ## Operational notes
 
-- **Health:** `GET /health/live` (process up) and `GET /health/ready` (DB reachable) on
-  the API (ADR 0024); both containers ship `HEALTHCHECK`s and the profile uses
-  `--wait`-able healthchecks + `restart: unless-stopped`.
+- **Health:** `GET /health/live` (process up) and `GET /health/ready` (the database, and
+  every shared store a `require_shared_*` made mandatory, reachable; ADR 0024, ADR 0191) on
+  the API. The profile probes the API on its liveness path and the web tier on its root, and
+  a worker or a scheduler on the heartbeat its own loop writes, with `--wait`-able checks
+  and `restart: unless-stopped`. Workers stay out of readiness: a queue nobody drains is a
+  reason to page someone, not to take the API out of the load balancer.
+- **Stopping a worker or a scheduler:** `docker compose stop` sends SIGTERM; `terp jobs
+  worker --forever` finishes the job it runs and gives the rest of its batch back, and
+  `terp jobs scheduler` lets its ticks finish. A job that outlives the stop grace is killed
+  and redelivered once its lease lapses. A restarted scheduler applies each schedule's
+  declared misfire policy to the cron times it missed, when the app keeps its schedule
+  ledger in the database (`terp guide jobs`).
 - **Builds install the committed locks:** the template's backend image runs `uv sync
   --locked --no-dev` and its web image `npm ci`, so an image holds exactly what `uv.lock` and
   `frontend/package-lock.json` record, and a lock that disagrees with its manifest stops the

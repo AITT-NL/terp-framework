@@ -52,6 +52,16 @@ stayed stopped; after a frontend dependency change the whole backend could stay 
 settings change could be undone by the next rebuild. Every service on a rebuilt image now comes
 back on it, once per change, and a settings change applies itself.
 
+And a deployment with a worker, a scheduler and a shared store could not get a true answer to
+the four questions it asks of them. Readiness asked the database alone, so an instance that had
+lost the shared store it was told to require reported ready while every request failed. A
+worker stuck in a job that never returned was exactly as healthy as one draining the outbox,
+because nothing checked a worker at all. A stopped worker drained the outbox empty before it
+let go, and a Celery worker killed mid-job took its job with it. A cron time that passed during
+a deploy left no trace. Readiness now asks every store a deployment made mandatory, a worker
+and a scheduler write a heartbeat their container is checked on, a stop finishes or gives back
+the work in flight, and a schedule says what a missed tick becomes (ADR 0191).
+
 ### Security
 
 - **A rendered environment file can no longer be baked into an image.** The template's
@@ -245,6 +255,39 @@ back on it, once per change, and a settings change applies itself.
   and drains again until SIGTERM or SIGINT, which end it cleanly after the batch in flight. A
   profile no longer needs a shell loop around a single drain, and the reference app's worker
   runs it in both profiles.
+- **Readiness asks every shared store a `require_shared_*` made mandatory** (ADR 0191, amending
+  ADR 0024). `GET /health/ready` keeps its `SELECT 1` and adds `throttle_store`, `cache_store` and
+  `idempotency_store` for each `require_shared_*_store=True`, and `realtime_broker` while
+  `configure_realtime(require_shared_broker=True)` stands: 503 names the check that failed. Each
+  store is asked through a new `ping()` on its port (terp-cap-redis' stores and broker answer with a
+  Redis `PING`), on a thread of its own within 2 seconds and never twice at once, so a store that
+  stops answering turns readiness 503 within the bound instead of holding the probe. Workers,
+  schedulers and the outbox backlog stay out. A capability's own store joins through
+  `register_mandatory_store`. Measured against redis-py's client and real sockets: 503 about 4 s
+  after the store went away, 200 within half a second of its return; the database half runs in
+  the PostgreSQL lane through a relay the test cuts and restores.
+- **A worker and a scheduler report a heartbeat.** `terp jobs worker --forever` and `terp jobs
+  scheduler` write `terp-<role>.heartbeat` in their container's temporary directory from the loop
+  whose progress it vouches for: the worker before each claim, after each job and between drains,
+  the scheduler every 10 seconds from its own engine. The file says when it was written and how
+  stale it may grow, `max(--lease-seconds, --poll-seconds)` plus 30 s for a worker (60 s by
+  default) and 60 s for a scheduler, and is removed when the process starts and stops.
+- **A schedule declares what a missed tick becomes, and a ledger remembers.**
+  `ScheduleDefinition(..., misfire=Misfire.RUN_ONCE)` runs a tick that fell due while no scheduler
+  ran once, late, folding a whole gap into one run; `misfire=Misfire.SKIP` records it skipped. A
+  slot settled within a minute of its cron time is on time. `ScheduleLedger` keeps each schedule's
+  last settled slot, and `settle_schedule` is the one decision both adapters make, at start and on
+  every cron time. terp-cap-outbox's `DatabaseScheduleLedger` keeps it in a new
+  `outbox_schedule_fire` table, in the same transaction as the outbox row the tick enqueued;
+  `create_app(schedule_ledger=..., require_durable_schedules=...)` wires and promises it. The
+  APScheduler adapter settles every schedule on start (and takes a `timezone`), and the Celery-beat
+  adapter's tick settles through the ledger, with `catch_up()` for beat's `beat_init`.
+- **A stopped worker finishes or gives back its work.** `OutboxWorker.run(stop=...)` claims
+  nothing once the event is set, finishes the job running and releases the rest of its batch for
+  another worker at once (`DrainResult.released`); `terp jobs worker --forever` sets it on SIGTERM
+  or SIGINT, and `terp jobs scheduler` shuts its engine down once, letting the ticks in flight
+  finish. A killed worker's job is redelivered once its lease lapses, proven with two real worker
+  processes over one database.
 
 ### Changed
 
@@ -331,8 +374,49 @@ back on it, once per change, and a settings change applies itself.
   never equal a restated literal, and any other `$` is literal. It compared raw strings, and
   would have called a generated profile, which doubles every `$` of a value, untrue.
 
+- **The Celery task acknowledges a job only after it ran.** `register_terp_worker` registers it
+  with `acks_late` and `reject_on_worker_lost`, so a Celery worker killed mid-job hands the
+  message back and the broker redelivers it, where Celery's default acknowledged it on receipt.
+- **The generator checks a worker and a scheduler on their heartbeat** (amending ADR 0187
+  decision 5). A unit whose command is `terp jobs worker ... --forever` or `terp jobs scheduler
+  ...` is probed every 10 seconds by a fixed `python -c` probe, standard library only, that
+  reads the heartbeat, prints its age and bound as one JSON line, and fails when it is older than
+  its bound or missing; its dependants wait for `service_healthy`. A deploy tool reads the same
+  answer per unit from the container's health log. Any other unit that serves no request keeps
+  no check. Five golden samples and the reference app's production profile gain the check; the
+  template's files do not change.
+- **A throttle-store outage no longer turns `/health` into 429.** The rate limiter fails closed
+  on a store error and still does for every other path, but lets a request to `/health` through,
+  so liveness stays up and readiness answers 503 naming the store.
+
 ### Upgrade notes
 
+- **Every `ScheduleDefinition` declares `misfire=`.** It is a required keyword, so a schedule
+  without one raises `TypeError` when the control plane is imported. Choose per schedule:
+  `Misfire.RUN_ONCE` for work that is still worth doing late (a report, a sync, a cleanup),
+  `Misfire.SKIP` for work that is not (a reminder for a meeting that has started). The leases and
+  sync capabilities' helpers choose `RUN_ONCE` and take `misfire=` to choose otherwise.
+- **A scheduler remembers only what its ledger keeps.** Wire
+  `create_app(schedule_ledger=DatabaseScheduleLedger(), require_durable_schedules=
+  settings.is_production)` from terp-cap-outbox, and run `terp migrate upgrade` for the outbox's
+  new `outbox_schedule_fire` revision. Without it a restarted scheduler never sees the tick it
+  missed, and `terp jobs scheduler` says so in its log. The first start records each schedule's
+  baseline and runs nothing it does not know it owes.
+- **A shared store you wrote yourself needs `ping()`** wherever a `require_shared_*` requires it:
+  readiness asks it, and the boot (or, for the realtime broker, the promise) refuses a shared
+  store that does not say how to reach it. Raise when the backend cannot be reached; terp-cap-redis'
+  stores already do.
+- **Bound your Redis client.** The stores keep redis-py's defaults, so a Redis that stops
+  answering holds every request the rate limiter counts. Readiness's own probe is bounded;
+  bound the client with the URL: `redis://host:6379/0?socket_timeout=2&socket_connect_timeout=2`.
+- **A worker and a scheduler in a profile of your own** can be checked as the generator checks
+  them: copy its heartbeat healthcheck from `terp guide deployment` or a render, and point
+  dependants at `service_healthy`. Leave `TMPDIR` the same for the process and its check, and give
+  a read-only root filesystem a writable `TMPDIR`.
+- **On Celery**, set `worker_prefetch_multiplier=1`, and on Redis a `visibility_timeout` above your
+  longest job: with late acknowledgement that is how long a dead worker's message waits.
+- **`DrainResult` gains `released`**, and the worker's tally line ends with `released=N`; a tool
+  that parses the line sees one more field.
 - **To have the framework own the build files**, take this release's `copier update` first
   (it records `deploy_build: own`), give each volume in `deployment.json` its `mount`, drop a
   `command` the generator renders itself (the migration step's, and a worker's or scheduler's

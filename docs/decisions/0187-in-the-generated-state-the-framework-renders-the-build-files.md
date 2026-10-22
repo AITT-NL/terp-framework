@@ -18,7 +18,10 @@
   `test_prod_profile.py`, `test_template_build_inputs.py`, `test_template.py`,
   `test_compose_workbench.py` and `test_reference_app.py`. The two words and the rule ship in
   terp-spec 0.40.0, which is not published yet, so the spec pins stay where they are; see *How
-  it was built*.
+  it was built*. Amended 2026-10-22 by
+  [ADR 0191](0191-readiness-asks-the-stores-a-deployment-requires-and-a-worker-reports-a-heartbeat.md):
+  a worker and a scheduler are checked on the heartbeat their own loop writes (decision 5, and
+  decision 9's open item on their health, which it settles).
 - **Date:** 2026-10-21
 - **Relates:** amends [ADR 0062](0062-production-deployment-profile.md) decisions 1 to 4, on top
   of its 2026-10-21 amendment; amends [ADR 0184](0184-a-deployment-declares-its-units.md)
@@ -91,8 +94,9 @@ Dockerfiles unconditionally (Studio's release build today) cannot release a gene
 **The Dockerfiles take no declaration input in this version.** The system-package table ships
 empty, lifecycle-script exceptions wait for a measured need, a volume mounts only at `var/files`
 (the mount point the image already makes), and the backend image carries no `HEALTHCHECK`: the
-profile probes each `api` unit on its declared liveness path, and a unit that serves no request
-has no check at all (decision 5).
+profile probes each `api` unit on its declared liveness path and each worker and scheduler on
+the heartbeat its loop writes (ADR 0191), and any other unit that serves no request has no check
+at all (decision 5).
 
 **The template's files are the render of the seed** (`db`, `migrate`, `api`, `web`, `"build":
 "generated"`), held byte for byte by a test, with the slug left as the template's placeholder. So
@@ -348,8 +352,8 @@ tool's.
 | `kind` | table digest | the image's | the recipe's | `unless-stopped` | `service_healthy` |
 | `api` | backend | the image's (uvicorn, port 8000) | its `livenessPath`, probed | `unless-stopped` | `service_healthy` |
 | `web` | frontend | the image's; none may be declared | the template's, fixed | `unless-stopped` | `service_healthy` |
-| `worker` | backend | `terp jobs worker --forever` | none | `unless-stopped`, `init` | `service_started` |
-| `scheduler` | backend | `terp jobs scheduler` | none | `unless-stopped`, `init` | `service_started` |
+| `worker` | backend | `terp jobs worker --forever` | its heartbeat, probed (ADR 0191) | `unless-stopped`, `init` | `service_healthy` |
+| `scheduler` | backend | `terp jobs scheduler` | its heartbeat, probed (ADR 0191) | `unless-stopped`, `init` | `service_healthy` |
 | `one-shot` | backend | the migration step | none (it exits) | `"no"` | `service_completed_successfully` |
 | other role | backend | required | none | `unless-stopped`, `init` | `service_started` |
 
@@ -357,8 +361,16 @@ tool's.
 `docker compose up -d --wait`, and Compose (2.40, measured) refuses a container that turns
 unhealthy and a service whose check is disabled ("has no healthcheck configured"), and waits for
 a service with no check until it runs. So a unit that serves no request has no check, in the
-profile or in the image, and is ready once it runs; that is the truth about it until ADR 0024's
-heartbeat gives it a liveness of its own (decision 9).
+profile or in the image, and is ready once it runs, unless its command writes a heartbeat.
+
+*Amended by ADR 0191.* `terp jobs worker ... --forever` and `terp jobs scheduler ...` write one
+from their own loop, saying when it was written and how stale it may grow, so a unit running
+either command, declared or the role's default and under any role, is checked on it: a fixed
+probe, standard library only, given the role as its one argument, every 10 seconds. It fails
+when the heartbeat is older than the bound its writer declared or is missing, so it is a check
+that can fail: a loop stuck in one job stops beating. Its dependants wait for `service_healthy`,
+as for every checked unit. A single drain, a companion or any other command writes none and keeps
+no check, because a check of a heartbeat nobody writes could only ever fail.
 
 - **Images:** `<project>-backend-prod` and `<project>-frontend-prod`, with ADR 0185's `:?`-required
   `TERP_RELEASE_TAG` once that is built. They are the hardened ones, constant in this version.
@@ -594,8 +606,8 @@ is a table digest; plain scalars read back as strings under YAML 1.1 and 1.2. A 
 - **The ignore check needs git.** In a tree with no git work tree it notes rather than judges.
 - **System packages, script exceptions, other mount paths** wait for a measured need; the first
   package also needs a pinned source two cold builds read alike.
-- **Worker and scheduler health** waits for ADR 0024's heartbeat. Until then such a unit has no
-  check and is ready once it runs, which is what `up --wait` can wait for.
+- **Worker and scheduler health**, which waited for ADR 0024's heartbeat, is settled by ADR
+  0191: each is checked on the heartbeat its own loop writes (decision 5, amended).
 - **One platform per release; bit-for-bit images** stay a measurement.
 - **Signing keys, the environment policy, and which key an environment trusts** are the deploy
   tool's.
