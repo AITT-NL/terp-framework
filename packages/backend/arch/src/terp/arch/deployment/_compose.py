@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from terp.arch.deployment._generator_text import (
+    _HEARTBEAT_TIMING,
     _LOGGING,
     _PROFILE_INTRO,
     _TIMING,
@@ -20,11 +21,13 @@ from terp.arch.deployment._generator_text import (
     FRONTEND_DOCKERFILE,
     HEADER,
     HEALTH_PROBE,
+    HEARTBEAT_PROBE,
     KEY_SEAM,
     MIGRATION_STEP,
     MOUNT_PATH,
     NO_DATABASE_URL,
     WEB_PORT,
+    heartbeat_role,
 )
 from terp.arch.deployment._refusals import _backend_ids, _upstream
 from terp.arch.deployment._yaml import _flow, fixed, scalar, value
@@ -58,6 +61,21 @@ class _Plan:
         if unit.role in ("api", "web", "one-shot", "worker", "scheduler"):
             return unit.role
         return "other"
+
+    def command_of(self, ident: str) -> tuple[str, ...] | None:
+        """The command a backend unit runs: the migration step, its own, or its role's."""
+        unit = self.unit(ident)
+        if ident == self.migration_step:
+            return MIGRATION_STEP
+        if unit.command is None:
+            return DEFAULT_COMMANDS.get(self.kind_of(ident))
+        return unit.command
+
+    def heartbeat_of(self, ident: str) -> str | None:
+        """The heartbeat a backend unit's command writes, which its check reads (ADR 0191)."""
+        if self.kind_of(ident) in ("kind", "web"):
+            return None
+        return heartbeat_role(self.command_of(ident))
 
 
 def _plan(declaration: Declaration, project: str, tables: Tables, frontend: bool) -> _Plan:
@@ -168,12 +186,14 @@ def _depends_on(plan: _Plan, unit: Unit) -> list[str]:
     lines = ["    depends_on:"]
     for ident in unit.depends_on:
         condition = conditions.get(plan.kind_of(ident), "service_started")
+        if plan.heartbeat_of(ident) is not None:
+            condition = "service_healthy"
         lines += [f"      {scalar(ident)}:", f"        condition: {condition}"]
     return lines
 
 
-def _probe(test: tuple[str, ...]) -> list[str]:
-    return ["    healthcheck:", f"      test: {test}", *(f"      {line}" for line in _TIMING)]
+def _probe(test: str, timing: tuple[str, ...] = _TIMING) -> list[str]:
+    return ["    healthcheck:", f"      test: {test}", *(f"      {line}" for line in timing)]
 
 
 def _kind_service(plan: _Plan, unit: Unit) -> list[str]:
@@ -202,16 +222,14 @@ def _kind_service(plan: _Plan, unit: Unit) -> list[str]:
 def _backend_service(plan: _Plan, unit: Unit) -> list[str]:
     kind = plan.kind_of(unit.id)
     lines: list[str] = []
-    command = unit.command
+    command = plan.command_of(unit.id)
     if unit.id == plan.migration_step:
-        command = MIGRATION_STEP
         lines += [
             "  # The migration step: brings every package's schema to head before the units that",
             "  # wait for it start. The boot guard of every unit that builds the app",
             "  # (PendingMigrationsError) backs it up at runtime.",
         ]
-    elif command is None and kind in DEFAULT_COMMANDS:
-        command = DEFAULT_COMMANDS[kind]
+    elif unit.command is None and kind in DEFAULT_COMMANDS:
         lines.append(
             "  # Drains the durable outbox until it is stopped (`terp jobs worker --forever`)."
             if kind == "worker"
@@ -249,6 +267,14 @@ def _backend_service(plan: _Plan, unit: Unit) -> list[str]:
         lines += _probe(
             "[" + ", ".join(fixed(part) for part in probe) + f", {value(str(unit.liveness_path))}]"
         )
+    heartbeat = plan.heartbeat_of(unit.id)
+    if heartbeat is not None:
+        lines += [
+            "    # Healthy while the heartbeat its loop writes is fresh (ADR 0191). The probe",
+            "    # reads a file in the container, so it needs no HTTP, no database and no app.",
+        ]
+        probe = ("CMD", "python", "-c", HEARTBEAT_PROBE, heartbeat)
+        lines += _probe("[" + ", ".join(fixed(part) for part in probe) + "]", _HEARTBEAT_TIMING)
     return lines
 
 

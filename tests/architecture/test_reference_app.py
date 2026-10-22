@@ -283,12 +283,16 @@ def test_the_stack_check_starts_every_service_the_app_adds() -> None:
         # And nothing waits on them: none of them may turn readiness red.
         for other in (*compose["services"].values(), *prod["services"].values()):
             assert service not in (other.get("depends_on") or {}), f"something depends on {service}"
-    # And none of them carries a healthcheck. Before ADR 0187 none declared one either, but
-    # each inherited the backend image's HTTP probe, turned unhealthy, and made every
-    # `docker compose up --wait` of this profile fail; disabling the probe per service made
-    # Compose refuse to wait on it instead. The image carries no probe now, and the api
-    # unit is the one with a healthcheck of its own.
-    for service in ("worker", "scheduler", "monitor"):
-        assert "healthcheck" not in prod["services"][service]
+    # And none of them carries an HTTP probe. Before ADR 0187 each inherited the backend
+    # image's, turned unhealthy, and made every `docker compose up --wait` of this profile
+    # fail; disabling the probe per service made Compose refuse to wait on it instead. The
+    # image carries no probe now: the api unit has one of its own, the worker and the
+    # scheduler are checked on the heartbeat their own loop writes (ADR 0191), and the
+    # companion, which writes none, has no check and is ready once it runs.
+    for service in ("worker", "scheduler"):
+        test = prod["services"][service]["healthcheck"]["test"]
+        assert test[:3] == ["CMD", "python", "-c"] and test[-1] == service
+        assert "urllib" not in test[3] and "heartbeat" in test[3]
+    assert "healthcheck" not in prod["services"]["monitor"]
     assert "healthcheck" in prod["services"]["api"]
     assert "mailcatcher" not in prod["services"], "the production relay is a real, encrypted one"

@@ -104,6 +104,14 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    # Healthy while the heartbeat its loop writes is fresh (ADR 0191). The probe
+    # reads a file in the container, so it needs no HTTP, no database and no app.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json, os, sys, tempfile, time; beat = json.load(open(os.path.join(tempfile.gettempdir(), 'terp-' + sys.argv[1] + '.heartbeat'))); age = time.time() - beat['at']; print(json.dumps({'heartbeat': sys.argv[1], 'age_seconds': round(age, 1), 'stale_after_seconds': beat['stale_after']})); sys.exit(age > beat['stale_after'])", "worker"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     logging: *container-logging
 
 volumes:

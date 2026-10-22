@@ -45,6 +45,39 @@ HEALTH_PROBE = (
     "urllib.request.urlopen('http://127.0.0.1:8000' + sys.argv[1])"
 )
 
+#: The fixed probe a unit whose command writes a heartbeat runs (ADR 0191), with the role
+#: whose heartbeat it reads as the one argument. It reads the file ``terp jobs worker
+#: --forever`` or ``terp jobs scheduler`` writes in the container's temporary directory
+#: (``terp.cli.heartbeat``), prints the heartbeat's age and its bound as one JSON line,
+#: which a deploy tool reads back from the container's health log, and fails when the age
+#: is past the bound the writer declared or there is no heartbeat to read. Standard library
+#: only: no HTTP, no database, no import of the app.
+HEARTBEAT_PROBE = (
+    "import json, os, sys, tempfile, time; "
+    "beat = json.load(open(os.path.join(tempfile.gettempdir(), "
+    "'terp-' + sys.argv[1] + '.heartbeat'))); "
+    "age = time.time() - beat['at']; "
+    "print(json.dumps({'heartbeat': sys.argv[1], 'age_seconds': round(age, 1), "
+    "'stale_after_seconds': beat['stale_after']})); "
+    "sys.exit(age > beat['stale_after'])"
+)
+
+
+def heartbeat_role(command: tuple[str, ...] | None) -> str | None:
+    """The heartbeat a unit running *command* writes: ``worker``, ``scheduler`` or none.
+
+    ``terp jobs worker --forever`` and ``terp jobs scheduler`` write one (ADR 0191). A single
+    drain, a companion or any other command does not, and a unit running one gets no check:
+    a check of a heartbeat nobody writes could only ever fail.
+    """
+    if command is None:
+        return None
+    if command[:3] == ("terp", "jobs", "worker") and "--forever" in command[3:]:
+        return "worker"
+    if command[:3] == ("terp", "jobs", "scheduler"):
+        return "scheduler"
+    return None
+
 #: The way out of every refusal.
 OWN_REMEDY = (
     'Or declare "build": "own" and maintain the build files by hand: '
@@ -284,6 +317,10 @@ x-logging: &container-logging
 
 #: The healthcheck timing every probed service carries.
 _TIMING = ("interval: 30s", "timeout: 5s", "retries: 3", "start_period: 30s")
+
+#: The timing of a heartbeat check: every ten seconds, because the probe only reads a file
+#: and a stuck loop should be reported soon after its own bound, not a minute and a half on.
+_HEARTBEAT_TIMING = ("interval: 10s", "timeout: 5s", "retries: 3", "start_period: 30s")
 
 #: The database seam when no unit of this deployment runs the database.
 EXTERNAL_DATABASE_URL = "${DATABASE_URL:?DATABASE_URL is required (externalDatabase)}"

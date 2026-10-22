@@ -261,8 +261,9 @@ services:
 
   # Drains the durable outbox: the mail a notice sends, the snapshot the schedule takes.
   # `terp jobs worker --forever` drains what is due, waits, and drains again (ADR 0187);
-  # `docker compose stop` ends it after the batch in flight. `init` puts a real init in
-  # front of it, as in the production profile.
+  # `docker compose stop` ends it once the job in flight is done, and gives the rest of its
+  # batch back to the outbox (ADR 0191). `init` puts a real init in front of it, as in the
+  # production profile, where it is also checked on the heartbeat it writes.
   worker:
     <<: *backend
     command: ["terp", "jobs", "worker", "--forever"]
@@ -273,10 +274,11 @@ services:
     logging: *container-logging
 
   # Fires the declared schedules on their cron (`terp jobs scheduler`, APScheduler). Each
-  # tick only enqueues, so the worker runs what it fires. No healthcheck and nothing
-  # depends on it: a scheduler that stops delays the next snapshot and turns no service
-  # that answers a request red. `init` because a Python process as PID 1 ignores the stop
-  # signal it has no handler for, and this one installs none.
+  # tick only enqueues, so the worker runs what it fires. No healthcheck in this file and
+  # nothing depends on it: a scheduler that stops delays the next snapshot and turns no
+  # service that answers a request red. On a stop it lets the tick in flight finish; on a
+  # start it takes, once, the hour it missed (ADR 0191). `init` puts a real init in front
+  # of it, as in the production profile, where it is checked on the heartbeat it writes.
   scheduler:
     <<: *backend
     command: ["terp", "jobs", "scheduler"]

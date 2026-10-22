@@ -21,9 +21,11 @@ are always double-quoted with every ``$`` doubled, so compose never interpolates
 scalar built only from ids and fixed text stands plain when both YAML 1.1 and 1.2 read it as
 a string (and, for one that starts with an id, when that id does not start with a digit). The
 Dockerfiles take no declaration value in this version. The backend image carries no
-``HEALTHCHECK`` and a unit that serves no request gets none: Compose's ``up --wait`` refuses
-both an unhealthy container and a disabled check, and ready-once-running is the truth for
-such a unit until ADR 0024's heartbeat gives it a liveness of its own.
+``HEALTHCHECK``: an ``api`` unit is probed on its liveness path, a unit running ``terp jobs
+worker --forever`` or ``terp jobs scheduler`` on the heartbeat that command writes (ADR 0191),
+and any other unit that serves no request gets no check, because Compose's ``up --wait``
+refuses both an unhealthy container and a disabled check, and ready-once-running is the truth
+for such a unit.
 
 Its parts are modules of their own: the refusals (:mod:`._refusals`), the profile
 (:mod:`._compose`), the one YAML encoder (:mod:`._yaml`) and the fixed text, the Dockerfiles
@@ -51,6 +53,7 @@ from terp.arch.deployment._generator_text import (
     FRONTEND_LOCK,
     HEADER,
     HEALTH_PROBE,
+    HEARTBEAT_PROBE,
     KEY_SEAM,
     MIGRATION_STEP,
     MOUNT_PATH,
@@ -60,6 +63,7 @@ from terp.arch.deployment._generator_text import (
     PROFILE,
     PROFILE_FILE,
     WEB_PORT,
+    heartbeat_role,
 )
 from terp.arch.deployment._refusals import refusals
 from terp.arch.deployment._yaml import fixed, plain_safe, scalar, value
@@ -171,6 +175,7 @@ __all__ = [
     "FRONTEND_LOCK",
     "HEADER",
     "HEALTH_PROBE",
+    "HEARTBEAT_PROBE",
     "KEY_SEAM",
     "MIGRATION_STEP",
     "MOUNT_PATH",
@@ -184,6 +189,7 @@ __all__ = [
     "fixed",
     "fixed_interpolations",
     "generate",
+    "heartbeat_role",
     "plain_safe",
     "refusals",
     "scalar",
