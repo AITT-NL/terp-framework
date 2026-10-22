@@ -4381,11 +4381,13 @@ def test_no_destructive_migrations(tmp_path: pathlib.Path) -> None:
         _write(app, "modules/notes/migrations/versions/0001_change.py", f"def upgrade():\n    {source}\n")
         assert _rule_names(check_no_destructive_migrations(app)) == {"no_destructive_migrations"}, source
 
-    # Non-destructive operations and alter_column calls without type changes are clean.
+    # Non-destructive operations, and an alter_column that only relaxes, are clean. The
+    # full test set of destructive steps and their look-alikes is
+    # test_destructive_migrations.py.
     _write(
         app,
         "modules/notes/migrations/versions/0001_change.py",
-        "def upgrade():\n    helper()\n    op.add_column('notes', column)\n    op.alter_column('notes', 'title', nullable=False)\n",
+        "def upgrade():\n    helper()\n    op.add_column('notes', column)\n    op.alter_column('notes', 'title', nullable=True)\n",
     )
     assert check_no_destructive_migrations(app) == []
 

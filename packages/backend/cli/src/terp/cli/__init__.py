@@ -1739,9 +1739,30 @@ Database migrations (terp migrate)
 - Two developers branched the same package? Resolve the within-package divergence:
       terp migrate heads                   # more than one head = diverged
       terp migrate merge <label> -m "merge"
-- Destructive DDL (drop table/column or alter-column type changes) is refused by
-  `terp check` unless the operation carries `# arch-allow-no-destructive-migrations:
-  <reason>` on (or immediately above) its line, budgeted by the escape-hatch ratchet.
+- A STEP THAT IS SAFE ONLY AGAINST AN EMPTY DATABASE is refused by `terp check`
+  (`no_destructive_migrations`). A deploy migrates while the previous release still
+  serves, and a rollback runs that release on the migrated schema, so a revision has two
+  audiences your scratch database never shows: the rows production holds, and the
+  release still running. Five kinds of step fail one of them:
+      drop         drop_table / drop_column / TRUNCATE / DELETE FROM
+      rename       rename_table / alter_column(new_column_name=...) / ALTER TABLE .. RENAME
+      type change  alter_column(type_=...) / ALTER COLUMN .. TYPE
+      NOT NULL     alter_column(nullable=False) on an existing table / SET NOT NULL
+      constraint   create_unique_constraint / create_check_constraint /
+                   create_foreign_key / create_primary_key / create_index(unique=True) /
+                   ADD CONSTRAINT / CREATE UNIQUE INDEX / VALIDATE CONSTRAINT
+  on `op`, a batch block or any alias, and through execute(...) whenever the statement
+  is readable in the source. Do this instead, and every finding says which: EXPAND (add
+  the new column or table beside the old one, nullable, or the constraint NOT VALID),
+  BACKFILL (copy or clean the rows, and write both), then CONTRACT in a LATER release
+  (drop the old name, tighten, enforce). The contract step is the destructive one, so it
+  carries `# arch-allow-no-destructive-migrations: <reason>` on (or immediately above)
+  its line, after review, budgeted by the escape-hatch ratchet.
+  Not refused: anything on a table this upgrade() creates (it holds no rows yet), and a
+  unique, foreign-key or unique-index constraint on columns this upgrade() adds nullable
+  with no server_default (every existing row holds NULL, which those accept) - the shape
+  autogenerate writes for a new reference column. A type WIDENING is still reported,
+  because nothing in the revision says what the old type was: justify it with the marker.
 - ADDING A NOT NULL COLUMN is the revision that passes everything you can run and then
   fails in production. For a new non-nullable field autogenerate writes
   `add_column(sa.Column('rank', sa.Integer(), nullable=False))`, and that statement
@@ -1753,7 +1774,8 @@ Database migrations (terp migrate)
       op.add_column('note', sa.Column('rank', sa.Integer(), nullable=False,
                                       server_default='0'))
   Where no literal default is right, expand/contract instead - add the column nullable,
-  back-fill it in the same release, tighten it in a LATER revision. `terp check`
+  back-fill it in the same release, tighten it in a LATER release (that tightening is a
+  contract step: it takes the destructive-migration marker above). `terp check`
   refuses the unbackfilled form (`not_null_columns_are_backfilled`); a table that
   genuinely holds no rows yet opts out with
   `# arch-allow-not-null-columns-are-backfilled: <reason>`.
@@ -2390,8 +2412,9 @@ Compliant decision path for a new NOT NULL column
                                         server_default='0'))
 3. When no literal is right - the value has to be computed, or looked up - use
     expand/contract across two releases: add the column NULLABLE, back-fill it (a data
-    migration or a backfill job), and tighten it to NOT NULL in a LATER revision, once
-    nothing writes a NULL.
+    migration or a backfill job), and tighten it to NOT NULL in a LATER release, once
+    nothing writes a NULL. That tightening is a contract step `no_destructive_migrations`
+    reports, and it takes that rule's marker after review.
 4. Do not make the column nullable in the model merely to silence this. The model is
     the contract; if the field is genuinely optional, say so there and the finding goes
     away on its own.
@@ -2399,6 +2422,33 @@ Compliant decision path for a new NOT NULL column
     this release introduces, or one seeded from empty - with
     `# arch-allow-not-null-columns-are-backfilled: <reason>` naming which. A table
     created in the same upgrade() needs no marker; it is already exempt.
+""",
+     "no_destructive_migrations": """\
+Compliant decision path for a step that is safe only against an empty database
+
+1. Do not delete the revision's intent, and do not move the statement somewhere the
+    rule cannot read it (a variable, a helper outside upgrade()). The finding is about
+    rows production holds and the release still running while you migrate; neither is
+    in your scratch database, which is why every local test passed.
+2. Split the change across releases - expand, backfill, contract:
+    - rename: add the new column or table beside the old one, write both, backfill the
+      new one, move the readers; drop the old name in a LATER release.
+    - type change: add a column of the new type, backfill it, move the readers; drop
+      the old column in a LATER release.
+    - NOT NULL: backfill every NULL (and give the column a server_default) now; tighten
+      it in a LATER release, once nothing writes a NULL.
+    - constraint: add it where no row can break it - on a new nullable column, or
+      NOT VALID for a check or a foreign key - clean or backfill the rows, and enforce
+      it (VALIDATE CONSTRAINT, or the constraint itself) in a LATER release.
+    - drop: stop reading and writing it in one release; drop it in a LATER one.
+3. The contract step is genuinely destructive, so it is the one that carries
+    `# arch-allow-no-destructive-migrations: <reason>`, on or immediately above the
+    operation, after a human review, naming the release that expanded it. Each marker
+    spends the app's escape-hatch budget.
+4. A step on a table this same upgrade() creates is already exempt, and so is a unique,
+    foreign-key or unique-index constraint on columns this upgrade() adds nullable with
+    no server_default. A type WIDENING is reported because the revision cannot say it
+    is one: justify it with the marker rather than splitting it.
 """,
      "no_raw_outbound_http": """\
 Compliant decision path for outbound HTTP

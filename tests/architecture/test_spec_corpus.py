@@ -21,9 +21,10 @@ import re
 import shutil
 
 import pytest
-from terp_spec import spec_dir
+from terp_spec import spec_dir, spec_version
 
 import terp.arch as arch
+from tests.architecture.test_spec_catalog import _pinned_spec_version
 
 _SPEC = spec_dir()
 _CATALOG = _SPEC / "catalog" / "backend"
@@ -61,15 +62,63 @@ def _corpus_cases() -> list[tuple[str, str]]:
     return cases
 
 
+#: Corpus cases whose VERDICT this repository has changed ahead of a spec release: the
+#: corpus analogue of ``_AWAITING_SPEC_RELEASE`` in ``test_spec_catalog.py`` (ADR 0116),
+#: with the same three properties.
+#:
+#: A rule made stricter turns a sample the published corpus calls compliant into a
+#: finding, and the two repositories are then unsatisfiable together in exactly the way
+#: that ADR describes: this gate reads the PINNED corpus, which still calls the sample
+#: compliant, while terp-spec's certification reads this repository's rule, which no
+#: longer does. Listing a case here says: the reference has deliberately moved past the
+#: installed verdict, and the candidate corpus carries the new one.
+#:
+#: * Against the pinned corpus a listed case is asserted INVERTED, so the allowance
+#:   proves the change rather than waving the case through, and an entry whose verdict
+#:   the pinned corpus has caught up with fails instead of lingering.
+#: * Under certification (the pin deleted, a candidate corpus installed) a listed case is
+#:   asserted as written, because the candidate is what is being certified.
+#: * ``test_release_versions`` requires the set to be empty to cut a release.
+#:
+#: Open: ``no_destructive_migrations/compliant-01`` (terp-spec 0.40.0). The published
+#: sample tightens an existing column with ``alter_column(nullable=False)``, which the
+#: rule now reports as a NOT NULL tightening.
+_VERDICTS_AWAITING_SPEC_RELEASE: frozenset[tuple[str, str]] = frozenset(
+    {("no_destructive_migrations", "compliant-01")}
+)
+
+
+def _installed_corpus_is_the_pinned_one() -> bool:
+    """True when the gate reads the pinned release, not a candidate under certification."""
+    return _pinned_spec_version() == spec_version()
+
+
 @pytest.mark.parametrize(("rule", "case"), _corpus_cases())
 def test_reference_rule_matches_the_corpus(rule: str, case: str, tmp_path: pathlib.Path) -> None:
     app_root = tmp_path / "app"
     shutil.copytree(_CORPUS / rule / case, app_root)
     fired = {violation.rule for violation in _run_rule(rule, app_root)}
+    if (rule, case) in _VERDICTS_AWAITING_SPEC_RELEASE and _installed_corpus_is_the_pinned_one():
+        assert (rule in fired) is not case.startswith("violation-"), (
+            f"{rule}/{case}: listed in _VERDICTS_AWAITING_SPEC_RELEASE, but the reference "
+            "agrees with the pinned corpus again — the release landed, so drop the entry"
+        )
+        return
     if case.startswith("violation-"):
         assert rule in fired, f"{rule}/{case}: the rule must flag its violation sample"
     else:
         assert rule not in fired, f"{rule}/{case}: the rule must stay silent on compliant code"
+
+
+def test_verdicts_awaiting_a_spec_release_name_real_cases() -> None:
+    """The allowance may not rot into names that permit nothing."""
+    if not _installed_corpus_is_the_pinned_one():
+        return
+    cases = set(_corpus_cases())
+    assert _VERDICTS_AWAITING_SPEC_RELEASE <= cases, (
+        "_VERDICTS_AWAITING_SPEC_RELEASE names cases the pinned corpus does not carry: "
+        f"{sorted(_VERDICTS_AWAITING_SPEC_RELEASE - cases)}"
+    )
 
 
 # --------------------------------------------------------------------------- #
