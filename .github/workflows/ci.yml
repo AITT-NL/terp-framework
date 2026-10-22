@@ -632,6 +632,18 @@ jobs:
           uv run terp env init
           uv run python scripts/check_stack.py --workbench
 
+      # And the development loop's dependency change, against that same running stack and
+      # under `docker compose watch`, on the compose this runner has: a change to the lock
+      # is one rebuild, after which every long-running backend service (the worker, the
+      # scheduler and the companion as well as the API) runs on the new image and migrate
+      # has run first. Built from `api`, that rebuild left the other three stopped.
+      - name: Hold the reference app's dependency rebuild (reference)
+        if: matrix.variant == 'reference'
+        working-directory: /tmp/acceptance-app
+        env:
+          UV_FIND_LINKS: /tmp/terp-wheels
+        run: uv run python scripts/check_stack.py --rebuilds --timeout 600
+
       - name: Why the reference stack failed (reference)
         if: failure() && matrix.variant == 'reference'
         working-directory: /tmp/acceptance-app

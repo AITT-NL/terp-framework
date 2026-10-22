@@ -100,7 +100,10 @@ uv run terp docker dev    # (or: docker compose watch)
 This builds the images, brings up Postgres, runs the migrations, seeds a usable admin
 (`admin@example.test`, password `correct horse battery staple`), then serves
 the API (`:22100`) and the frontend (`:21100`) — editing `app/` or `frontend/src/` live-syncs
-into the running containers. The one-off `app/seed.py` is where you put demo data worth
+into the running containers. A dependency change (`uv add`, `npm --prefix frontend install
+<pkg>`) rebuilds its image and brings every service on it back up, and a saved `.app.env` or
+`.env` is applied to the running stack by `uv run terp docker dev` itself
+(`uv run terp guide environment`). The one-off `app/seed.py` is where you put demo data worth
 working against; production bootstraps its first admin with
 `uv run terp user create <email> --role admin` instead (never `terp seed`).
 
