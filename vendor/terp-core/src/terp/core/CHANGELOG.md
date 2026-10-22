@@ -35,6 +35,12 @@ block of seam variables one of them never read, about which of two entries in on
 and about what to do with a file it could not read. The words now have one owner, the Terp
 Standard, and a reader says what it does with a version it does not know.
 
+And the development loop stopped services without a word. After a Python dependency change
+the API came back on the new image and the worker, the scheduler and the companion beside it
+stayed stopped; after a frontend dependency change the whole backend could stay stopped; and a
+settings change could be undone by the next rebuild. Every service on a rebuilt image now comes
+back on it, once per change, and a settings change applies itself.
+
 ### Security
 
 - **A rendered environment file can no longer be baked into an image.** The template's
@@ -234,6 +240,18 @@ Standard, and a reader says what it does with a version it does not know.
   values listed under Changed: a reserved variable name, or a value it used to coerce or skip. The
   template has never written either; the message names the field and what it allows.
   `terp workbench adopt` shows what the compose file says a port variable is, if that is the fix.
+- **`copier update` moves the backend image's build from `api` to `migrate` in
+  `docker-compose.yml`**, and its `watch` rule from `pyproject.toml` to `uv.lock`. The file is
+  the template's; keep both moves when you resolve the update. Two consequences reach past it.
+  A service your app added on the backend image must keep `depends_on: migrate` (condition
+  `service_completed_successfully`), or a rebuild recreates it and leaves it stopped, as it did
+  every service before this release. And a tool that builds the backend image by naming `api`
+  (`docker compose build api`) now builds nothing and still exits 0: name `migrate`, or build
+  without a service name.
+- **A tool that runs `docker compose watch` itself** keeps the stack and the watch on one
+  configuration the way `terp docker dev` now does: after changing `.app.env`, `.env` or the
+  compose file, stop `watch` and start it again, and never run `docker compose up` beside a
+  running one.
 
 ### Fixed
 
@@ -244,6 +262,42 @@ Standard, and a reader says what it does with a version it does not know.
   failed with a permission error. The dev image now creates the directory inside the source
   tree it already hands to that user, and the production image creates `/srv/var/files`
   owned by it, so a volume mounted there can be written.
+- **A dependency change brings every service on the rebuilt image back up.** The development
+  compose file built the backend image from `api` and rebuilt it there. A `watch` rebuild
+  recreates every container whose image changed and then starts only the rebuilt service and
+  the services that depend on it (`pkg/compose/watch.go`, in Compose v2.40.3 and v5.5.1
+  alike), so after `uv add` the API ran on the new image and `migrate`, `seed` and every other
+  service on that image sat in `Created`: in the reference app the worker, the scheduler and
+  the companion, stopped after every run on both versions, with no error anywhere. The image is now
+  built, and watched, from `migrate`, which every backend service already waits for, so the
+  rebuild starts all of them in order: the schema goes to head first, a new capability's tables
+  included, then the rest. A template test derives what a rebuild starts from the dependency
+  graph and holds every shipped workbench to it, and the reference app's lane makes the change
+  under `watch` on the runner's Compose (`scripts/check_stack.py --rebuilds`).
+- **One `uv add`, one rebuild.** The rule watched `pyproject.toml`, which `uv add` writes twice,
+  before and after it resolves (0.2 to 1.3 s apart, measured, and over 500 ms whenever the
+  resolution is not already cached), while `watch` batches only what arrives within 500 ms. A
+  second write queued behind the first rebuild and fired a second one, and a second recreate of
+  every backend service. The rule watches `uv.lock`, written once resolution is done, so one
+  change is one rebuild, and an edit to `pyproject.toml` that changes no dependency rebuilds
+  nothing.
+- **A frontend dependency change no longer stops the backend, and a settings change is no
+  longer undone.** `watch` loads the project once and converges the whole stack against that
+  copy on every rebuild, recreating, and not starting, every service whose configuration
+  differs from it. Two things made them differ. A settings change applied with
+  `docker compose up -d` beside a running watch: the next frontend rebuild put every backend
+  service back on the old values and left them stopped. And `up` itself: Compose v2's `watch`
+  keeps a service's `env_file` list in the configuration it hashes and `up` drops it, so after
+  any `up` beside it, a frontend rebuild recreated every service with an `env_file` and started
+  none of them, with nothing changed at all (measured on v2.40.3; v5.5.1 loads the project the
+  way `up` does, and there the same sequence left the backend alone).
+  `terp docker dev` now watches the files the project is loaded from (the compose file, `.env`,
+  every `env_file`) and, when one changes, stops `watch` and starts it again, so its own start
+  applies the change with the hashes its rebuilds use. A settings change needs no command, and
+  there is never an `up` beside the watch. `terp guide environment` says what such a change
+  costs: both images checked against the build cache, `migrate` and `seed` run again (on
+  purpose: every start runs them), and no session ends, because a recreate does not change
+  `SECRET_KEY`.
 
 ## 0.34.0 — 2026-10-09
 

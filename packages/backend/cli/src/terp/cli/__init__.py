@@ -2396,7 +2396,10 @@ do what the command does: stop watch, start watch.
 
 What a change costs, on purpose:
   - Both images are checked against the build cache, as on every start: quick when
-    nothing in the build context moved, a rebuild when something did.
+    nothing in the build context moved, a rebuild when something did. Where the
+    builder attaches a provenance attestation to every build (Docker Desktop's
+    default), even a cached build is a new image, so every container is recreated,
+    not only the ones that read the changed file.
   - `migrate` and `seed` run again. Both read .app.env, and every start runs every
     one-shot, so the schema is at head before the API serves and the (idempotent) seed
     has run. The API answers one migrate later than a bare restart would.
