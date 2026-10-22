@@ -1787,16 +1787,18 @@ Database migrations (terp migrate)
                    ADD CONSTRAINT / CREATE UNIQUE INDEX / VALIDATE CONSTRAINT
   on `op`, a batch block or any alias, and through execute(...) whenever the statement
   is readable in the source. Do this instead, and every finding says which: EXPAND (add
-  the new column or table beside the old one, nullable, or the constraint NOT VALID),
-  BACKFILL (copy or clean the rows, and write both), then CONTRACT in a LATER release
-  (drop the old name, tighten, enforce). The contract step is the destructive one, so it
-  carries `# arch-allow-no-destructive-migrations: <reason>` on (or immediately above)
-  its line, after review, budgeted by the escape-hatch ratchet.
+  the new column, nullable, or the new table beside the old one), BACKFILL (copy or clean
+  the rows with a job, not a statement in the revision, and write both), then CONTRACT in
+  a LATER release (drop the old name, tighten, add the constraint). The contract step is
+  the destructive one, so it carries `# arch-allow-no-destructive-migrations: <reason>` on
+  (or immediately above) its line, after review, budgeted by the escape-hatch ratchet.
   Not refused: anything on a table this upgrade() creates (it holds no rows yet), and a
   unique, foreign-key or unique-index constraint on columns this upgrade() adds nullable
   with no server_default (every existing row holds NULL, which those accept) - the shape
-  autogenerate writes for a new reference column. A type WIDENING is still reported,
-  because nothing in the revision says what the old type was: justify it with the marker.
+  autogenerate writes for a new reference column. Not refused is not the same as an
+  expand step: a constraint on an existing table, or any execute(), is never one. A type
+  WIDENING is still reported, because nothing in the revision says what the old type was:
+  justify it with the marker.
 - ADDING A NOT NULL COLUMN is the revision that passes everything you can run and then
   fails in production. For a new non-nullable field autogenerate writes
   `add_column(sa.Column('rank', sa.Integer(), nullable=False))`, and that statement
@@ -1808,8 +1810,8 @@ Database migrations (terp migrate)
       op.add_column('note', sa.Column('rank', sa.Integer(), nullable=False,
                                       server_default='0'))
   Where no literal default is right, expand/contract instead - add the column nullable,
-  back-fill it in the same release, tighten it in a LATER release (that tightening is a
-  contract step: it takes the destructive-migration marker above). `terp check`
+  back-fill it with a job in the same release, tighten it in a LATER release (that
+  tightening is a contract step: it takes the destructive-migration marker above). `terp check`
   refuses the unbackfilled form (`not_null_columns_are_backfilled`); a table that
   genuinely holds no rows yet opts out with
   `# arch-allow-not-null-columns-are-backfilled: <reason>`.
@@ -2445,9 +2447,9 @@ Compliant decision path for a new NOT NULL column
         op.add_column('note', sa.Column('rank', sa.Integer(), nullable=False,
                                         server_default='0'))
 3. When no literal is right - the value has to be computed, or looked up - use
-    expand/contract across two releases: add the column NULLABLE, back-fill it (a data
-    migration or a backfill job), and tighten it to NOT NULL in a LATER release, once
-    nothing writes a NULL. That tightening is a contract step `no_destructive_migrations`
+    expand/contract across two releases: add the column NULLABLE, back-fill it (a backfill
+    job, not a statement in the revision), and tighten it to NOT NULL in a LATER release,
+    once nothing writes a NULL. That tightening is a contract step `no_destructive_migrations`
     reports, and it takes that rule's marker after review.
 4. Do not make the column nullable in the model merely to silence this. The model is
     the contract; if the field is genuinely optional, say so there and the finding goes
@@ -2469,12 +2471,13 @@ Compliant decision path for a step that is safe only against an empty database
       new one, move the readers; drop the old name in a LATER release.
     - type change: add a column of the new type, backfill it, move the readers; drop
       the old column in a LATER release.
-    - NOT NULL: backfill every NULL (and give the column a server_default) now; tighten
-      it in a LATER release, once nothing writes a NULL.
-    - constraint: add it where no row can break it - on a new nullable column, or
-      NOT VALID for a check or a foreign key - clean or backfill the rows, and enforce
-      it (VALIDATE CONSTRAINT, or the constraint itself) in a LATER release.
+    - NOT NULL: backfill every NULL and make every writer set a value now; tighten it in
+      a LATER release, once nothing writes a NULL.
+    - constraint: clean or backfill the rows now; add the constraint in a LATER release.
     - drop: stop reading and writing it in one release; drop it in a LATER one.
+    Every backfill is a job, not a statement in the revision: a data write holds a lock
+    while the previous release still serves, and the expand release already copes with
+    the rows it has not filled.
 3. The contract step is genuinely destructive, so it is the one that carries
     `# arch-allow-no-destructive-migrations: <reason>`, on or immediately above the
     operation, after a human review, naming the release that expanded it. Each marker

@@ -19,10 +19,17 @@ one of them, and each is a finding here:
   which an empty test database never holds.
 
 Every finding names what to do instead, and it is the same shape each time: expand
-(add the new thing beside the old), backfill, and contract — drop, tighten, enforce —
-in a later release. The contract step is genuinely destructive, so it is the one that
-carries the standard governed opt-out, ``# arch-allow-no-destructive-migrations:
-<reason>`` on or immediately above the operation, counted by the escape-hatch budget.
+(add the new column or table beside the old), backfill the rows with a job rather than a
+statement in the revision, and contract — drop, tighten, constrain — in a later release.
+The contract step is genuinely destructive, so it is the one that carries the standard
+governed opt-out, ``# arch-allow-no-destructive-migrations: <reason>`` on or immediately
+above the operation, counted by the escape-hatch budget.
+
+Not reported is not the same as an expand step. The two exemptions below, a constraint
+added ``NOT VALID``, a back-fill ``UPDATE`` and every other data write are steps no
+existing row can break; none of them is thereby one the previous release is promised to
+keep working after. Whether a revision can be rolled back without a restore is a separate
+question, which this rule does not answer.
 
 Two exemptions exist, and both are about rows that cannot be there yet. A table this
 same ``upgrade()`` creates holds none, so tightening or constraining it cannot fail; and
@@ -67,26 +74,26 @@ _MESSAGES = {
     _RENAME: (
         "migration renames a table or column, and the release still running reads the "
         "old name. Expand instead: add the new name beside the old one and write both, "
-        "backfill it, move the readers, and drop the old name in a later release, after "
-        f"review, with {_MARKER}"
+        "backfill it with a job, move the readers, and drop the old name in a later "
+        f"release, after review, with {_MARKER}"
     ),
     _TYPE: (
         "migration changes a column's type, which can truncate or refuse existing values "
         "while the running release still writes the old type. Add a column of the new "
-        "type, backfill it, move the readers, and drop the old column in a later release; "
-        f"a pure widening that loses nothing takes review and {_MARKER}"
+        "type, backfill it with a job, move the readers, and drop the old column in a "
+        f"later release; a pure widening that loses nothing takes review and {_MARKER}"
     ),
     _NOT_NULL: (
         "migration tightens an existing column to NOT NULL: it fails on the first row "
         "that holds NULL, and the running release may still write NULL. Backfill the "
-        "column (and give it a server_default) in this release, and tighten it in a "
-        f"later release, after review, with {_MARKER}"
+        "NULLs with a job and make every writer set a value in this release, and tighten "
+        f"it in a later release, after review, with {_MARKER}"
     ),
     _CONSTRAINT: (
         "migration adds a constraint every existing row must already satisfy, which an "
-        "empty test database always does and a populated one may not. Add it where no "
-        "row can break it (on a new nullable column, or NOT VALID), clean or backfill "
-        f"the rows, and enforce it in a later release, after review, with {_MARKER}"
+        "empty test database always does and a populated one may not. Clean or backfill "
+        "the rows with a job in this release, and add the constraint in a later release, "
+        f"after review, with {_MARKER}"
     ),
 }
 

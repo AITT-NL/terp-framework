@@ -139,6 +139,11 @@ _MORE: tuple[_Case, ...] = (
         "not-null",
     ),
     _Case(
+        "a tightening that names no table at all",
+        "op.alter_column(column_name='title', nullable=False)",
+        "not-null",
+    ),
+    _Case(
         "a constraint on a table that is not a literal",
         "op.create_unique_constraint('uq', table, ['slug'])",
         "constraint",
