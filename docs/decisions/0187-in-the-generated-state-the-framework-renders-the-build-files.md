@@ -1,7 +1,7 @@
 # 0187 — In the generated state the framework renders the build files, and a release is signed by a job that never runs the app
 
 - **Status:** Proposed. Revised after four rounds of adversarial review (see *Debate*). Built in
-  0.35.0, as decision 8's second, third and fourth pull requests. The second: the tables and the
+  0.35.0, as decision 8's second, third, fourth and fifth pull requests. The second: the tables and the
   kind recipe, the generator (`terp.arch.deployment.generate`) with its golden samples,
   properties and import allowlist, the truth rule's compose unescaping, `terp jobs worker
   --forever`, the `--ignore-scripts` measurement, and the template's three build files replaced
@@ -12,7 +12,11 @@
   question, the `.jinja` seed, the `_exclude` entries, Dependabot, the upgrade recipe, the
   template's `AGENTS.md` and README, `terp deployment adopt`, the answers agreement made red for
   answers that predate the question, the round trip in template acceptance and the generated
-  reference lane. Held by `tests/architecture/test_deployment_generator.py`,
+  reference lane. The fifth: `terp release build`, `gate` and `sign`, the manifest, DSSE, the
+  signer image and `terp promote`'s changes, held by `test_release_*.py` and
+  `test_signer_context.py` with throwaway keys; its Docker lane (a job-local registry, real
+  BuildKit builds, two cold builds compared) waits, see *How it was built*. Held by
+  `tests/architecture/test_deployment_generator.py`,
   `test_deployment_generated.py`, `test_deployment_adopt.py`, `test_copier_round_trip.py`,
   `test_dockerignore.py`, `test_deployment_truth.py`, `test_cli_jobs.py`, `test_cli_version.py`,
   `test_prod_profile.py`, `test_template_build_inputs.py`, `test_template.py`,
@@ -467,7 +471,9 @@ images from the registry as data, and runs nothing of the app.
 whitespace, UTF-8 and no floats. Its sections say who vouches for what:
 
 - **`inputs`**, recomputed by `sign` from the tree: `commit` (SHA, tree hash); `releaseTag` (the
-  value `TERP_RELEASE_TAG` takes, ADR 0185);
+  value `TERP_RELEASE_TAG` takes, ADR 0185); `projectRoot` (the project's place in the checkout)
+  and `developmentProfile` (the development compose file a deploy tool holds apart, ADR 0184
+  decision 6);
   `toolchain` (the signer's version, and the `terp-cli` and `terp-arch` versions the SHA pins);
   `spec` (the Terp Standard release the app pins, through its `terp-arch` mirror, which the
   signer's reader accepts, and that schema's SHA-256); `build`;
@@ -777,3 +783,82 @@ Decision 8's second, third and fourth pull requests, in 0.35.0.
   says where its files volume is mounted, so its `reference-generated` lane adopts with no
   build-file change and is then held to `terp verify --only generated`, its suite and `docker
   compose config`.
+- **Release and promote** (the fifth pull request). `terp.cli.release`: `build`, `gate`, `sign`
+  and `promote`, one module each, beside the parts they share. Where decision 6 left a choice,
+  the simplest secure one was taken, and these are the choices:
+  - *The pristine tree* is git's object store: `rev-parse`, `ls-tree` and `cat-file --batch`,
+    no `git archive`, which applies `export-ignore`, `export-subst` and a checkout's line-ending
+    conversion, so the context would not be the commit's bytes. A release is cut from the full
+    object name only; a branch, a tag or a prefix moves. The project is the repository root
+    (`inputs.projectRoot` is `.`); a project in a subdirectory waits for a need.
+  - *The builder* is `moby/buildkit` pinned by digest (v0.34.1), created per job with the
+    docker-container driver and removed in a `finally`; builds run `--pull --no-cache
+    --provenance=false --sbom=false` with `rewrite-timestamp=true`, so each name is one image
+    manifest whose digest is the one signed. `--registry-http` admits a plain-HTTP registry on
+    the loopback only, the job-local one. A build that says more than its context and its
+    Dockerfile (an argument, a target, a secret) is refused, and so is a built image whose name
+    does not read `TERP_RELEASE_TAG`.
+  - *The gate* reads the schedules with `terp inspect control-plane --format json` (where the
+    catalog's schedules are; `terp inspect jobs` lists jobs), from the image pulled by digest
+    and run sealed, after it checked the image's user is not root; its docker client gets a
+    configuration directory of its own, holding only the pull credential it is given. `sign`
+    refuses a gate whose release-assurance claim does not hold.
+  - *The terp-arch the commit pins* is fetched from the index's JSON API (or a directory of
+    wheels) through the egress capability and held to the SHA-256 the signer's release table
+    carries (`/etc/terp/terp-arch-releases.json` in the image); its Terp Standard release, its
+    schema's SHA-256 and its datastore table are read from the wheel as files, and its generator
+    runs as `python -I -S` with nothing on its path but that wheel and a copy of PyYAML. The
+    floor is 0.35.0, the first release that renders; the table is empty until a release is
+    published, so the release pipeline fills it.
+  - *The registry* is read over the OCI distribution API through
+    `terp.capabilities.egress.EgressClient`, one declared client per host: HTTPS, the SSRF
+    denylist, a bounded read, a bearer-token challenge answered with optional credentials, and
+    a blob store's redirect followed without the credential. Every manifest and blob is held to
+    its digest; `sign` checks the configuration, the platform and that the tag still names the
+    digest.
+  - *The sandbox* is a process, `python -I -m terp.cli.release._sandbox <task>`, handed its
+    input on stdin, the OS's and docker's variables and nothing of the signer's, in a scratch
+    directory; it computes and `sign` judges. Its tasks read the image (layers applied with
+    whiteouts, opaque directories and hard links, in memory), compile the bytecode's sources,
+    ask OSV's batch API, and run gitleaks over the git directory itself (so no working-tree
+    configuration applies) with the `.gitleaksignore` the commit carries. *The image's own
+    interpreter* is the base the Dockerfile's last stage is built from, pinned by digest, run
+    with no network, read-only and as nobody (`python3 -I -S`, `py_compile` checked-hash with
+    `compileall`'s file names), on an image whose first layers are that base's: so no byte the
+    build produced runs. A bytecode file anywhere else under the two roots, or in the app
+    wheel's installed packages, is a finding.
+  - *What sign refuses to sign over*: any difference from the tree or the lock, a wheel that
+    maps files elsewhere (`force-include`, `sources`, a nested `packages` entry), and a secret
+    in the history. Known vulnerabilities are recorded per image, not refused: blocking on them
+    is the gate's `dependency-audit` lane and the environment's policy.
+  - *Which image is the web tier* comes from the commit's plan, never from the build document,
+    which another job wrote.
+  - *Promote* writes the carried files into `--project-dir`, refusing a path that would leave
+    it, runs compose with `--project-directory` and only the variables the carried profile
+    names, the engine's and the operating system's, then the signed `TERP_RELEASE_TAG`. The
+    migration step runs as `compose run --rm --no-deps` once, and the rest start with `up -d
+    --wait --no-build --pull never --no-deps`, so nothing starts it again. The reading of every
+    `alembic_version_*` table is taken in the step's own service and image, with its
+    environment, and journalled in `<dir>/.terp/versions-before-<tag>.json`. A deploy that
+    fails on unchanged tables is restore-free to undo; `--undo-to <envelope>` starts that
+    release after its own check (the step's command with `upgrade` as `check`). `--rollback` is
+    restore-based without `--restored`, and with it the target's own check must pass first. A
+    service under a compose `profiles:` key is not part of a release.
+  - *The signer image* is `packages/backend/cli/signer/Dockerfile`, built in CI from
+    `tools/signer_context.py`'s context: terp-cli with its `release` extra installed with
+    `--require-hashes --no-deps`, the framework's wheels pinned by the SHA-256 of the wheels CI
+    built, gitleaks and the docker client copied from images pinned by digest, the base the
+    table's Python. The release pipeline still has to publish it by digest with provenance,
+    fill the release table from the published terp-arch wheels, and pin git, which apt installs.
+  The tests: `sign` signs a release whose `app/main.py` raises on import, under an audit hook
+  that sees no import of the app; it refuses an image whose app layer differs from the tree,
+  and each way `test_release_compare.py` changes one (a planted file, a missing one, a link, a
+  bytecode file that is not the compile, another interpreter's, a base the image is not built
+  on, a wheel file, an extra distribution, another version); two signs of one commit give
+  byte-identical `inputs`; a manifest with no signature, a broken one, one by another key and
+  one whose image changed under the signature are refused before promote runs a single
+  command, and an image whose id is not the signed one before compose. Each guard was mutated
+  and its test seen to fail. Waiting, because the machine's Docker engine was paused: the Docker
+  lane, which builds a template-shaped app twice cold into a job-local `registry:2` pinned by
+  digest, compares the two `inputs` and installed lists, runs `sign` against the real images
+  and the real sandbox, and promotes the result; and a run of the signer image's CI job.

@@ -2688,6 +2688,53 @@ unhealthy and a disabled one made Compose refuse to wait. The image ships its by
 compiled (checked-hash, so the same lock compiles to the same bytes). Every backend unit loads .app.env, then its own .app.<id>.env. Every value a
 declaration gives (a command, a health path) is written double-quoted with each $
 doubled, so compose passes it on as written.
+
+CUTTING A RELEASE AND PROMOTING IT (ADR 0187)
+
+`terp release` is three jobs, each on a fresh host, so that no job that runs the app outside a
+build container holds a credential or writes into what is built. Each takes the exact commit
+(its full object name) and reads it from git's object store, never from a working copy:
+
+  uv run terp release build --sha <sha> --tag <tag> --registry registry.example/team
+    builds every image the profile builds from the commit's pristine tree, in a BuildKit
+    builder made for the job and removed after it, with --pull and no cache, and pushes
+    <registry>/<image>:<tag> with the credential your docker configuration holds for this
+    release. It writes terp-release-build.json: BuildKit's own digests.
+  uv run terp release gate --sha <sha> --build terp-release-build.json
+    runs in a clean checkout of the commit: `terp verify --profile release --format
+    assurance` with npm's scripts off, then the schedule catalog, read by running the pushed
+    image sealed (no network, read-only, its own non-root user). It holds no push credential
+    and no key. It writes terp-release-gate.json.
+  terp release sign --sha <sha> --tag <tag> --registry ... --build ... --gate ... \\
+      --hosts separated --signer '["your-kms-signer", "--key", "release"]' --public-key k.pub
+    runs from the signer image, never the commit's own toolchain, and runs nothing of the
+    app: it repeats the refusals, renders a generated app's files with the terp-arch the
+    commit pins (fetched by hash, run in a process of its own), reads the backend image from
+    the registry as data and holds it to the tree and the lock, scans for known
+    vulnerabilities and for secrets in the history, and signs the manifest as a DSSE envelope
+    (release.dsse.json). --sign-key <file> is refused without --test-key.
+
+Refused, by name, before anything is built or signed: an undeclared or unmanaged app, a
+declaration that cannot be read or is untrue, a committed .terp-dist/ or submodule, a lock
+naming a path, an image neither built here nor a datastore table digest, a datastore with no
+healthcheck, more than one migration step or one with --revision/--sql, no step and other than
+one api unit, a built image that does not read TERP_RELEASE_TAG, and a build with more than a
+context and a Dockerfile.
+
+  terp promote release.dsse.json --public-key k.pub --project-dir /srv/deploy/app
+    verifies the envelope before reading it, checks the manifest (a newer Terp Standard than
+    its own is refused; --require-generated refuses an own release; a generated profile is
+    audited for every $), pulls each image by its signed digest and tags it
+    <project>-backend-prod:<tag>, writes the carried profile, and runs compose with an
+    allowlisted environment and TERP_RELEASE_TAG set: the datastores, a reading of every
+    alembic_version_* table, the migration step exactly once, then the rest, every `up` with
+    --no-build --pull never. If the deploy fails and the version tables are as they were,
+    going back is restore-free: --undo-to <the running release's envelope> starts it again
+    after its own `terp migrate check`. Otherwise going back is a restore. A rollback in an
+    invocation of its own has no such reading, so it is refused unless --rollback --restored
+    says the database was restored to the backup taken before the release that followed it.
+`terp release` and `terp promote` need terp-cli[release] (cryptography, packaging, the egress
+capability); without it they refuse, and nothing is signed or verified halfway.
 """,
 }
 

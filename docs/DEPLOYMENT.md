@@ -202,6 +202,40 @@ policy (who may publish, approvals, gate policy) never belongs in it. The bundle
 pinned by digest to the datastore table the framework release publishes, so a `docker compose
 pull` cannot move it under a running deployment. `uv run terp guide deployment` has the rules.
 
+## Releasing and promoting (`terp release`, `terp promote`)
+
+A declared app can be released as a signed, exact-commit set of images and deployed from it
+without a checkout or a rebuild (ADR 0187 decision 6). The release is three jobs, and each is
+meant to run on a fresh host that is discarded after it, because the second one runs the app:
+
+| Job | Runs from | Holds | Writes |
+|---|---|---|---|
+| `terp release build` | the operator's toolchain, never the app's environment | a push credential for this release's repositories | the images, and `terp-release-build.json` (BuildKit's digests) |
+| `terp release gate` | a clean checkout of the commit, with the app's environment | at most a pull credential | `terp-release-gate.json` (the release profile's assurance claim, the schedule catalog) |
+| `terp release sign` | the signer image (`packages/backend/cli/signer/`) | a way to reach the signer, never the key | `release.dsse.json`, the manifest, an SBOM and a package list per image |
+
+`build` reads the commit from git's object store and builds from that pristine tree in a
+BuildKit builder of its own, with fresh bases and no cache; `sign` reads the same commit and the
+pushed images as data, holds the backend image's app files, bytecode, installed set and wheel
+to the commit and its lock, scans the SBOMs and the history, and signs. Where one machine runs
+all three, say so: `--hosts shared` is recorded in the manifest, and the guarantee becomes "the
+host is trusted".
+
+`terp promote release.dsse.json --public-key <trusted.pub> --project-dir <dir>` verifies the
+envelope before reading it, pulls each image by its signed digest, tags it
+`<project>-backend-prod:<tag>` (and the frontend's), writes the carried profile into `<dir>`
+and runs it with the release's `TERP_RELEASE_TAG`, the variables the profile names and nothing
+else of your environment: put `.app.env` and the secrets there as for a hand deploy. It reads
+every `alembic_version_*` table before the migration step (`<dir>/.terp/versions-before-<tag>.json`),
+runs the step exactly once, and starts the rest with `--no-build --pull never`. If the deploy
+fails and the version tables are as they were, starting the previous release again is
+restore-free, and `--undo-to <its envelope>` does it after that release's own `terp migrate
+check`; if the step changed them, going back is a restore. A rollback in an invocation of its
+own (`--rollback`) has no such reading and is refused until you restore the backup taken
+before the release that followed the target and say so with `--restored`.
+
+Both commands need `terp-cli[release]` and refuse without it.
+
 ## CI guard
 
 The production profile is itself CI-verified: `.github/workflows/prod-smoke.yml` builds
