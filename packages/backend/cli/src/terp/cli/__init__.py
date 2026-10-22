@@ -34,6 +34,7 @@ from terp.cli.dev import (
 from terp.cli.docker import run_docker_dev_command
 from terp.cli.fmt import changed_python_files, run_fmt_command
 from terp.cli.leases import reap_leases_command, render_leases
+from terp.cli.reseal import reseal_command
 from terp.cli.jobs import (
     render_jobs,
     run_job_command,
@@ -316,6 +317,31 @@ log line cannot quietly become an exfiltration path.
 
 You do not manage a second key: the seal key derives from `SECRET_KEY` through an
 HKDF with a Terp-specific label, so it is domain-separated from every other use of it.
+
+ROTATING `SECRET_KEY` (ADR 0189). Nothing is ever signed or sealed with an old key. Old
+keys only verify or only decrypt, from two lists that run on two different clocks:
+
+  SECRET_KEY_FALLBACKS          verifies signatures only: an access token for 15 minutes
+                                after it was issued, a refresh session until it expires
+  SECRET_KEY_DECRYPT_FALLBACKS  decrypts sealed values only, until they are re-sealed
+
+Both are comma-separated. The procedure, in this order:
+
+  1. Put the old key in BOTH lists and the new one in SECRET_KEY. Deploy.
+  2. Run `terp secrets reseal` where the app runs (its own container, its own
+     environment). It rewrites every value sealed under a fallback under SECRET_KEY,
+     one transaction per table, refuses while a migration is pending, is safe to run
+     twice, and exits 0 only when nothing is left. `--check` counts and writes nothing.
+  3. Drop SECRET_KEY_DECRYPT_FALLBACKS once reseal reports nothing left. Keep the old
+     key itself while a backup sealed under it may still be restored: restoring one
+     means listing it again and running reseal.
+  4. Drop SECRET_KEY_FALLBACKS once the longest signature lifetime has passed since
+     step 1: REFRESH_TOKEN_TTL_SECONDS if the app issues refresh sessions, 15 minutes
+     if not. Dropping it sooner loses nothing; it signs out sessions still on the old key.
+
+A key you believe has leaked goes in SECRET_KEY_DECRYPT_FALLBACKS only, never in
+SECRET_KEY_FALLBACKS: whoever holds it could sign a token the fallback would honour,
+so every session it signed should end at the deploy.
 
 What DOES still belong in the environment: `SECRET_KEY` itself, and deploy-time
 infrastructure names (a database URL, an SMTP host). Those are per-environment, not
@@ -3689,6 +3715,43 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    secrets_parser = subcommands.add_parser(
+        "secrets",
+        help="Key rotation for values sealed at rest: re-seal under SECRET_KEY (ADR 0189)",
+    )
+    secrets_subcommands = secrets_parser.add_subparsers(
+        dest="secrets_command", required=True
+    )
+    reseal_parser = secrets_subcommands.add_parser(
+        "reseal",
+        help=(
+            "Re-seal every value still under a SECRET_KEY_DECRYPT_FALLBACKS key under "
+            "SECRET_KEY, and report what remains (exit 0 only when nothing does)"
+        ),
+    )
+    reseal_parser.add_argument(
+        "--app",
+        default="app.main:app",
+        help="Dotted module:attribute of the FastAPI app or factory (default: app.main:app)",
+    )
+    reseal_parser.add_argument(
+        "--app-root", default=".", help="App root placed first on sys.path (default: .)"
+    )
+    reseal_parser.add_argument(
+        "--package", default="app", help="App import package (default: app)"
+    )
+    reseal_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Only count: say what still needs a fallback key, and write nothing",
+    )
+    reseal_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text for a person, json for a deploy tool (default: text)",
+    )
+
     new_parser = subcommands.add_parser("new", help="Scaffold a canonical module")
     new_subcommands = new_parser.add_subparsers(dest="new_command", required=True)
     module_parser = new_subcommands.add_parser(
@@ -4279,6 +4342,18 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         )
         return
+    if args.command == "secrets" and args.secrets_command == "reseal":
+        status, report = reseal_command(
+            app_ref=args.app,
+            app_root=args.app_root,
+            package=args.package,
+            check=args.check,
+            fmt=args.format,
+        )
+        emit(report)
+        if status:
+            raise SystemExit(status)
+        return
     if args.command == "new" and args.new_command == "module":
         paths = new_module(
             args.name,
@@ -4504,6 +4579,7 @@ __all__ = [
     "new_module",
     "profile_ids",
     "render_jobs",
+    "reseal_command",
     "run_dev_command",
     "run_docker_dev_command",
     "run_fmt_command",
