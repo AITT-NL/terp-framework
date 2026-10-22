@@ -26,7 +26,7 @@
   audit) and, for the new `generated` check only, decision 5's never-red list; is the record ADR
   0184 decision 4 promised for `"build": "generated"`, and settles three of its open items (the
   adoption command, the manifest's signature format, how `terp promote` gets its key). Builds on
-  [ADR 0185](0185-a-release-declares-the-schema-window-it-accepts.md) (labels, per-release tag),
+  [ADR 0185](0185-a-release-declares-the-schema-window-it-accepts.md) (the per-release tag),
   [ADR 0110](0110-an-app-declares-which-parts-of-its-dev-topology-are-load-bearing.md),
   [ADR 0111](0111-flexibility-is-bounded-by-legibility-not-by-capability.md) (the degradation
   test), [ADR 0141](0141-the-gate-scans-every-deployable-not-only-the-mounted-one.md),
@@ -126,8 +126,8 @@ as one merge:
   `test_prod_backend_forwards_app_declared_env` changes deliberately for those two lists; `web`
   keeps no environment file and its fixed healthcheck. The comments are ASCII, as every rendered
   byte is (decision 2), so the template's dashes and ellipsis become hyphens and dots.
-- ADR 0185's tag, labels, release option and the backend's `heads` stage (decision 6) arrive
-  through the generator when that ADR is built; they are its changes.
+- ADR 0185's per-release tag, `TERP_RELEASE_TAG` on both image names, arrives through the
+  generator when that ADR is built; it is that ADR's change.
 
 The header, identical in each file:
 
@@ -361,9 +361,9 @@ profile or in the image, and is ready once it runs; that is the truth about it u
 heartbeat gives it a liveness of its own (decision 9).
 
 - **Images:** `<project>-backend-prod` and `<project>-frontend-prod`, with ADR 0185's `:?`-required
-  tag once that is built. They are the hardened ones, constant in this version.
+  `TERP_RELEASE_TAG` once that is built. They are the hardened ones, constant in this version.
 - **The migration step** is the one-shot without a command (`terp migrate upgrade --app-root
-  /srv/app`, plus ADR 0185's release option later). A one-shot declaring `terp migrate upgrade` is
+  /srv/app`, to which ADR 0185 adds no option). A one-shot declaring `terp migrate upgrade` is
   refused ("drop `command`: the generator owns the migration step"), as is a second one-shot
   without a command.
 - **The web tier** proxies to the one `api` it depends on, or the only one; `API_UPSTREAM` is
@@ -406,9 +406,9 @@ generator refuses, the app can build in the `own` state.
 **6. `terp release` is three jobs: build from a pristine tree, gate without credentials, sign
 without running the app.**
 
-ADR 0184 decision 9's exact SHA, fresh bases, ADR 0185 labels and no shared cache or tag stay. What
-changes is who can touch what: no job that runs the app outside a build container holds a
-credential, or writes into what is built.
+ADR 0184 decision 9's exact SHA, fresh bases and no shared cache or tag stay; an image carries no
+label for ADR 0185. What changes is who can touch what: no job that runs the app outside a build
+container holds a credential, or writes into what is built.
 
 **Hosts.** Each job runs on a fresh host or VM that is discarded after it, and `build` and `sign`
 never run on a host where the gate, or any app code outside a build container, has run. Where a
@@ -421,16 +421,10 @@ registry or the signer trusts is reachable from them, and the build job's own id
 **`terp release build`** builds from a pristine context of the SHA (BuildKit's git context, or a
 `git archive` of the SHA). The app's code runs only inside BuildKit's build containers, which hold
 no credential and no secret mount. It uses a builder created for the job and removed after it,
-`--pull`, no cache import or export, and pushes under `<repository>:<tag>` with a credential scoped
-to the release. ADR 0185's heads label is made in two passes: a `heads` stage, built from the
-runtime stage and left out of the shipped image, runs `terp migrate heads` under `RUN
---network=none`; `build` reads its output, refuses it unless it is JSON of the expected shape
-(package label to revision) within a size cap, and passes it as the label's build argument to the
-second pass, which changes only the image's configuration. An `own` app whose Dockerfile has no
-`heads` stage is released without the label, which ADR 0185 classifies restore-based; it is never
-refused at the second pass. `npm run build` also runs under `RUN
---network=none`. BuildKit's own metadata output carries the pushed digests straight to `sign`. It
-refuses, from data, an undeclared or `unmanaged` app, a tree holding `.terp-dist/`, and a lock
+`--pull`, no cache import or export, and pushes under `<repository>:<tag>`, the tag being the
+release's `TERP_RELEASE_TAG` value, with a credential scoped to the release. `npm run build` runs
+under `RUN --network=none`. BuildKit's own metadata output carries the pushed digests straight to
+`sign`. It refuses, from data, an undeclared or `unmanaged` app, a tree holding `.terp-dist/`, and a lock
 naming a path source.
 
 **`terp release gate`** checks the SHA out and runs `terp verify --profile release` with npm
@@ -454,7 +448,7 @@ images from the registry as data, and runs nothing of the app.
    signer. If the framework's release workflow publishes PEP 740 attestations for `terp-arch`,
    `sign` verifies the wheel's attestation against that workflow instead and the hash list goes. A
    pin below the floor is refused. A committed file that differs is refused.
-4. It checks each digest from `build`'s metadata in the registry, and the labels.
+4. It checks each digest from `build`'s metadata in the registry.
 5. In a sandbox that cannot reach the signer and returns data, it reads the backend image. Each file
    under `/srv/app` and `/srv/control_plane`, and each file the app wheel's `RECORD` lists (but its
    `.dist-info`), must equal the tree's, and each tree file the build context admits under those
@@ -472,24 +466,24 @@ images from the registry as data, and runs nothing of the app.
 **The manifest** is one JSON object, `"schemaVersion": 1`, serialised with sorted keys, no
 whitespace, UTF-8 and no floats. Its sections say who vouches for what:
 
-- **`inputs`**, recomputed by `sign` from the tree: `commit` (SHA, tree hash); `releaseTag`;
+- **`inputs`**, recomputed by `sign` from the tree: `commit` (SHA, tree hash); `releaseTag` (the
+  value `TERP_RELEASE_TAG` takes, ADR 0185);
   `toolchain` (the signer's version, and the `terp-cli` and `terp-arch` versions the SHA pins);
   `spec` (the Terp Standard release the app pins, through its `terp-arch` mirror, which the
   signer's reader accepts, and that schema's SHA-256); `build`;
   `generator` (in the generated state: the version that rendered, the project name, each owned
   file's SHA-256); `declaration` and `profiles` (path, SHA-256 and content, base file then
-  overrides); `baseImages`; `datastores`; `locks` (path and SHA-256); `buildArgs` (`TERP_VERSION`,
-  `SOURCE_DATE_EPOCH`); `platform`; and `fetches`, derived statically (the base images'
+  overrides); `baseImages`; `datastores`; `locks` (path and SHA-256); `buildArgs`
+  (`SOURCE_DATE_EPOCH`); `platform`; and `fetches`, derived statically (the base images'
   registries, the sources `uv.lock` records, the hosts in `package-lock.json`, the index the build
   backend comes from).
 - **`outputs`**, checked by `sign`: per image its repository, manifest digest, image id,
   installed-package list digest, SBOM digest, scan and secret-scan results; per profile service the
   release will run, its image by digest; per unit, its image digest.
 - **`collected`**, other jobs' word: the schedule catalog and the gate's assurance document (the
-  gate's), the migration heads per unit and the build's provenance (the build job's), and the
-  operator's statement of whether the jobs ran on separate hosts. The heads
-  label can rule a restore-free rollback out; only the target's own `terp migrate check`, run from
-  its signed image, rules one in (ADR 0185 decision 6).
+  gate's), the build's provenance (the build job's), and the operator's statement of whether the
+  jobs ran on separate hosts. Nothing in the manifest decides whether a rollback is restore-free:
+  the target's own `terp migrate check`, run from its signed image, does (ADR 0185 decision 6).
 
 **DSSE.** `payloadType` `application/vnd.terp.release-manifest.v1+json`, the payload's bytes in
 base64, signatures over DSSE's pre-authentication encoding, `keyid` the hex SHA-256 of the public
@@ -590,7 +584,8 @@ is a table digest; plain scalars read back as strings under YAML 1.1 and 1.2. A 
   wheel) runs inside `build`'s containers, as in the template. A locked build backend and a
   wheels-only rule are a later change to both states.
 - **`collected` facts** stay other jobs' word until they can be read without running the app.
-- **The fixed-interpolation list** grows with ADR 0185's tag. Executors must carry the new list
+- **The fixed-interpolation list** grows with ADR 0185's `TERP_RELEASE_TAG`, at the `image` of
+  any service. Executors must carry the new list
   before an app may pin the release that extends it: a release-train item. The signer image is the
   same kind of item for every declared app, `own` included: its reader must know the app's spec
   release, and (until PEP 740 attestations replace the list) it carries the wheel hash of each
@@ -702,6 +697,11 @@ Four rounds of adversarial review changed this record; the fourth found nothing 
 **Round four** found nothing new of blocker or serious severity; three minors were taken: `spec`
 records the release the app pins, the heads output is shape- and size-checked before it becomes a
 label, and an `own` app without a `heads` stage releases unlabelled rather than being refused.
+
+**After the rounds**, a review of ADR 0185 removed the `heads` stage, its second pass, the image
+labels, the migration heads in `collected` and every reliance on them: a rollback is classified by
+the target's own `terp migrate check`, which needs none of them, and the tag is `TERP_RELEASE_TAG`.
+`buildArgs` lost `TERP_VERSION`, which only the label read.
 
 ## How it was built
 
