@@ -92,6 +92,7 @@ __all__ = [
     "TERP_REQUIRE_POSTGRES_LANE_ENV",
     "assert_max_queries",
     "count_queries",
+    "seed_checksum",
     "terp_audit",
     "terp_db_url",
     "terp_default_runtime",
@@ -123,6 +124,10 @@ TERP_REQUIRE_POSTGRES_LANE_ENV = "TERP_REQUIRE_POSTGRES_LANE"
 # crossed the 500-line cap; re-exported here because `terp.core.testing` is the
 # import path a test already knows and the split is an internal one.
 from terp.core._query_count import QueryLog, assert_max_queries, count_queries
+
+# The seed checksum lives in its own module for the same reason; it is a test helper
+# (what a seed's determinism test compares), so it is published from here.
+from terp.core._seed_checksum import seed_checksum
 
 class InstallLeases(Protocol):
     """What :func:`terp_leases` hands a test: ``configure_leases``' own signature.

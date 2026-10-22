@@ -1209,6 +1209,40 @@ code looks wrong, every test passes -- until the table has real data in it.
   fixture must not change it -- so write the test with several rows in the fixture, or
   it cannot tell the two apart.
 
+PROVE THE SEED IS DETERMINISTIC. `terp seed` may run on every boot and a fresh
+environment is seeded from nothing, so a seed owes two things: a second run on the same
+database writes NOTHING, and two fresh databases it seeds hold the SAME data. Comparing
+rows as stored cannot show the second, because a fresh run does not repeat what a write
+generates: every id is a new uuid4, every timestamp is now, a password hash has a new
+salt, and every owner, actor stamp and audit target carries some row's new id.
+`seed_checksum` compares the BUSINESS columns instead, by one rule:
+      left out   a table's own single-column primary key, and every DateTime column
+      reduced    a PHC hash ($argon2id$v=19$m=..$<salt>$<digest>) to scheme and params
+      resolved   a value that is some row's UUID key (a foreign key, a text reference,
+                 a JSON payload) to that row's table and business columns
+      kept       everything else, a Date included; rows are compared as a set
+and `generated=True` keeps every column as stored, which is how "nothing was written"
+is asked:
+
+      from terp.core.testing import seed_checksum
+
+      def test_the_seed_is_deterministic(terp_db_url):
+          engine = create_engine(terp_db_url)
+          SQLModel.metadata.create_all(engine)
+          run_the_seed(engine)
+          first, stored = seed_checksum(engine), seed_checksum(engine, generated=True)
+          run_the_seed(engine)                       # the second run is a no-op
+          assert seed_checksum(engine, generated=True) == stored
+          SQLModel.metadata.drop_all(engine)
+          SQLModel.metadata.create_all(engine)
+          run_the_seed(engine)                       # and a fresh database agrees
+          assert seed_checksum(engine) == first
+
+  A seed that fails it reads the clock, a random value or whichever row comes back first.
+  Write through the real services, look each row up by its natural key before creating
+  it (UsersService.ensure_user does), and derive any id the seed must choose with uuid5.
+  `terp_db_url` runs it on PostgreSQL too.
+
 WHAT YOU MUST STILL DO YOURSELF. The platform UNDOES a runtime; it never INSTALLS the
 one your test needs. That distinction is the whole of testing on Terp:
       * whole runtime -> compose the app in a fixture (see apps/example/tests/conftest.py,
@@ -1739,9 +1773,32 @@ Database migrations (terp migrate)
 - Two developers branched the same package? Resolve the within-package divergence:
       terp migrate heads                   # more than one head = diverged
       terp migrate merge <label> -m "merge"
-- Destructive DDL (drop table/column or alter-column type changes) is refused by
-  `terp check` unless the operation carries `# arch-allow-no-destructive-migrations:
-  <reason>` on (or immediately above) its line, budgeted by the escape-hatch ratchet.
+- A STEP THAT IS SAFE ONLY AGAINST AN EMPTY DATABASE is refused by `terp check`
+  (`no_destructive_migrations`). A deploy migrates while the previous release still
+  serves, and a rollback runs that release on the migrated schema, so a revision has two
+  audiences your scratch database never shows: the rows production holds, and the
+  release still running. Five kinds of step fail one of them:
+      drop         drop_table / drop_column / TRUNCATE / DELETE FROM
+      rename       rename_table / alter_column(new_column_name=...) / ALTER TABLE .. RENAME
+      type change  alter_column(type_=...) / ALTER COLUMN .. TYPE
+      NOT NULL     alter_column(nullable=False) on an existing table / SET NOT NULL
+      constraint   create_unique_constraint / create_check_constraint /
+                   create_foreign_key / create_primary_key / create_index(unique=True) /
+                   ADD CONSTRAINT / CREATE UNIQUE INDEX / VALIDATE CONSTRAINT
+  on `op`, a batch block or any alias, and through execute(...) whenever the statement
+  is readable in the source. Do this instead, and every finding says which: EXPAND (add
+  the new column, nullable, or the new table beside the old one), BACKFILL (copy or clean
+  the rows with a job, not a statement in the revision, and write both), then CONTRACT in
+  a LATER release (drop the old name, tighten, add the constraint). The contract step is
+  the destructive one, so it carries `# arch-allow-no-destructive-migrations: <reason>` on
+  (or immediately above) its line, after review, budgeted by the escape-hatch ratchet.
+  Not refused: anything on a table this upgrade() creates (it holds no rows yet), and a
+  unique, foreign-key or unique-index constraint on columns this upgrade() adds nullable
+  with no server_default (every existing row holds NULL, which those accept) - the shape
+  autogenerate writes for a new reference column. Not refused is not the same as an
+  expand step: a constraint on an existing table, or any execute(), is never one. A type
+  WIDENING is still reported, because nothing in the revision says what the old type was:
+  justify it with the marker.
 - ADDING A NOT NULL COLUMN is the revision that passes everything you can run and then
   fails in production. For a new non-nullable field autogenerate writes
   `add_column(sa.Column('rank', sa.Integer(), nullable=False))`, and that statement
@@ -1753,7 +1810,8 @@ Database migrations (terp migrate)
       op.add_column('note', sa.Column('rank', sa.Integer(), nullable=False,
                                       server_default='0'))
   Where no literal default is right, expand/contract instead - add the column nullable,
-  back-fill it in the same release, tighten it in a LATER revision. `terp check`
+  back-fill it with a job in the same release, tighten it in a LATER release (that
+  tightening is a contract step: it takes the destructive-migration marker above). `terp check`
   refuses the unbackfilled form (`not_null_columns_are_backfilled`); a table that
   genuinely holds no rows yet opts out with
   `# arch-allow-not-null-columns-are-backfilled: <reason>`.
@@ -2389,9 +2447,10 @@ Compliant decision path for a new NOT NULL column
         op.add_column('note', sa.Column('rank', sa.Integer(), nullable=False,
                                         server_default='0'))
 3. When no literal is right - the value has to be computed, or looked up - use
-    expand/contract across two releases: add the column NULLABLE, back-fill it (a data
-    migration or a backfill job), and tighten it to NOT NULL in a LATER revision, once
-    nothing writes a NULL.
+    expand/contract across two releases: add the column NULLABLE, back-fill it (a backfill
+    job, not a statement in the revision), and tighten it to NOT NULL in a LATER release,
+    once nothing writes a NULL. That tightening is a contract step `no_destructive_migrations`
+    reports, and it takes that rule's marker after review.
 4. Do not make the column nullable in the model merely to silence this. The model is
     the contract; if the field is genuinely optional, say so there and the finding goes
     away on its own.
@@ -2399,6 +2458,34 @@ Compliant decision path for a new NOT NULL column
     this release introduces, or one seeded from empty - with
     `# arch-allow-not-null-columns-are-backfilled: <reason>` naming which. A table
     created in the same upgrade() needs no marker; it is already exempt.
+""",
+     "no_destructive_migrations": """\
+Compliant decision path for a step that is safe only against an empty database
+
+1. Do not delete the revision's intent, and do not move the statement somewhere the
+    rule cannot read it (a variable, a helper outside upgrade()). The finding is about
+    rows production holds and the release still running while you migrate; neither is
+    in your scratch database, which is why every local test passed.
+2. Split the change across releases - expand, backfill, contract:
+    - rename: add the new column or table beside the old one, write both, backfill the
+      new one, move the readers; drop the old name in a LATER release.
+    - type change: add a column of the new type, backfill it, move the readers; drop
+      the old column in a LATER release.
+    - NOT NULL: backfill every NULL and make every writer set a value now; tighten it in
+      a LATER release, once nothing writes a NULL.
+    - constraint: clean or backfill the rows now; add the constraint in a LATER release.
+    - drop: stop reading and writing it in one release; drop it in a LATER one.
+    Every backfill is a job, not a statement in the revision: a data write holds a lock
+    while the previous release still serves, and the expand release already copes with
+    the rows it has not filled.
+3. The contract step is genuinely destructive, so it is the one that carries
+    `# arch-allow-no-destructive-migrations: <reason>`, on or immediately above the
+    operation, after a human review, naming the release that expanded it. Each marker
+    spends the app's escape-hatch budget.
+4. A step on a table this same upgrade() creates is already exempt, and so is a unique,
+    foreign-key or unique-index constraint on columns this upgrade() adds nullable with
+    no server_default. A type WIDENING is reported because the revision cannot say it
+    is one: justify it with the marker rather than splitting it.
 """,
      "no_raw_outbound_http": """\
 Compliant decision path for outbound HTTP

@@ -18,6 +18,13 @@ boot refuses without and the development loop only warns about — was required 
 development loop too, and a workbench asked for it there from somebody who could not produce it.
 A declaration can now say where it is required.
 
+And the destructive-migration rule knew drops and type changes and nothing else, so a rename
+or a NOT NULL tightening of an existing column passed the gate. Both break a deploy the same
+way a drop does: the release still running reads the old name, and the first row that holds
+`NULL` refuses the tightening. Neither shows on a scratch database, which holds no rows and
+runs no old release. The rule now reads every step of that kind, and each finding says how to
+split it across releases.
+
 ### Added
 
 - **`"requiredIn"` names the environments a value must be set in.** A non-empty list of
@@ -27,6 +34,70 @@ A declaration can now say where it is required.
   check` holds `.app.env` — the development loop's file — to what `local` needs, the template
   declares `JOB_SYSTEM_ACTOR_ID` with `"requiredIn": ["production"]`, and `terp guide
   environment` documents the field. An existing manifest reads exactly as before. ADR 0180.
+- **`seed_checksum`, in `terp.core.testing`: a seed proven deterministic.** A seed owes two
+  things: a second run on the same database writes nothing, and two fresh databases it seeds
+  hold the same data. The second could not be checked by comparing rows. Seeding the
+  reference app twice into fresh databases differs in exactly four places: every primary key
+  is a new `uuid4`, every `created_at` and `updated_at` is that run's moment, every password
+  hash has a new salt, and every owner, actor stamp and audit target carries one of those new
+  ids. Nothing else differs. The checksum covers the business columns, by one rule. It leaves
+  out a table's own single-column primary key and every `DateTime` column. It compares a PHC
+  hash by its scheme and parameters only. It replaces a value that is some row's UUID key,
+  whether in a foreign key, a text reference or a JSON payload, with that row's table and a
+  fingerprint of its business columns. It keeps everything else, a `Date` included, and
+  compares rows as a set. `generated=True` keeps every column as stored, so two equal
+  checksums of that kind mean nothing was written in between. `test_seed_checksum.py` holds
+  the reference app's seed and the template's to both properties, on SQLite and in CI's
+  PostgreSQL lane. Both already met them, so neither seed changed. Their docstrings now state
+  the two properties, and `terp guide testing` shows the test an app writes for its own seed.
+
+### Changed
+
+- **`no_destructive_migrations` reports renames, NOT NULL tightening and constraints the
+  existing rows may break.** A rename (`rename_table`, `alter_column(new_column_name=...)`,
+  `ALTER TABLE ... RENAME`) breaks the release still running, which reads the old name. A NOT
+  NULL tightening of an existing column (`alter_column(nullable=False)`, `SET NOT NULL`) fails
+  on the first row holding `NULL`. A constraint added to an existing table can fail the same
+  way, on the first row that breaks it: `create_unique_constraint`, `create_check_constraint`,
+  `create_foreign_key`, `create_primary_key`, `create_exclude_constraint`,
+  `create_index(unique=True)`, `ADD CONSTRAINT`, `CREATE UNIQUE INDEX` and `VALIDATE
+  CONSTRAINT`. A raw `ALTER COLUMN ... TYPE` is now a type change like
+  `alter_column(type_=...)`. A statement is also read through `exec_driver_sql`, and as a whole
+  when an f-string or a `+` builds it. Each kind has its own message, which says what to do
+  instead: expand, backfill with a job, and contract in a later release, where the contract
+  step takes `# arch-allow-no-destructive-migrations: <reason>` after review. Two shapes stay
+  clean, because no existing row can break them. One is any step on a table the same
+  `upgrade()` creates. The other is a unique, foreign-key or unique-index constraint on columns
+  the same `upgrade()` adds nullable with no server default, which is how autogenerate writes a
+  new reference column. A check or a foreign key added `NOT VALID` is clean too, and so is a
+  constraint rename. Not reported is not the same as an expand step: a constraint on an
+  existing table, and any `execute()`, never is one. `test_destructive_migrations.py` holds the
+  rule to a test set of twenty destructive operations, each in its op, raw-SQL or batch form,
+  and to 27 look-alikes that must pass. `terp guide no_destructive_migrations` carries the
+  decision path, and `terp guide migrations` the five kinds. The rule moved to its own module,
+  `terp.arch.rules.destructive_migrations`. The terp-spec corpus carries the same cases from
+  0.40.0. Until that release is pinned, the one published sample the rule now reports
+  (`compliant-01`, an `alter_column(nullable=False)`) is listed in
+  `VERDICTS_AWAITING_SPEC_RELEASE`, the corpus counterpart of ADR 0116's allowance:
+  `test_spec_corpus` asserts that case inverted, the conformance scorecard leaves the rule
+  unclaimed rather than claim a verdict the harness does not give, and a release cannot be cut
+  while the list is non-empty.
+
+### Fixed
+
+- **A raw `DROP NOT NULL` is no longer read as a drop.** `ALTER TABLE ... ALTER COLUMN ...
+  DROP NOT NULL` relaxes a column. It is the direction `alter_column(nullable=True)` spells,
+  and that call always passed. The `ALTER TABLE ... DROP` pattern matched the word `DROP`
+  anyway.
+
+### Upgrade notes
+
+- **A revision already in an app's history can now be reported.** The rule reads every
+  revision under `migrations/versions`, including the applied ones. A revision that renamed,
+  tightened or constrained an existing table before this release needs
+  `# arch-allow-no-destructive-migrations: <reason>` on the operation, and the app's
+  `escape-hatch-budget.json` needs the new count. The reason records what was reviewed when
+  the revision shipped. None of the framework's own histories needed one.
 
 ## 0.34.0 — 2026-10-09
 

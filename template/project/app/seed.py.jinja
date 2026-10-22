@@ -1,11 +1,16 @@
 """Idempotent demo seed for {{ project_name }} — ``terp seed`` runs :func:`seed`.
 
-Provisions a first administrator so the app is loginnable. Idempotent, so a
-container may seed on every boot; dev / demo only (``terp seed`` refuses to run
-when ``ENVIRONMENT=production`` — bootstrap a real admin with ``terp user
-create``). When your first module lands, extend this to seed whatever makes the
-app useful to work on (create rows through the module's real audited service,
-never with raw SQL).
+Provisions a first administrator so the app is loginnable. Dev / demo only
+(``terp seed`` refuses to run when ``ENVIRONMENT=production`` — bootstrap a real
+admin with ``terp user create``). When your first module lands, extend this to
+seed whatever makes the app useful to work on (create rows through the module's
+real audited service, never with raw SQL).
+
+Keep it deterministic as it grows: a second run on the same database writes
+nothing, so a container may seed on every boot, and two fresh databases it seeds
+hold the same business data. Look each row up by its natural key before creating
+it, as ``ensure_user`` does, and never read the clock or a random value;
+``terp guide testing`` shows the ``seed_checksum`` test that proves both.
 """
 
 from __future__ import annotations

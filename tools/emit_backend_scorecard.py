@@ -30,11 +30,61 @@ import terp_spec
 
 import terp.arch as arch
 
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 _SPEC = terp_spec.spec_dir()
 _CATALOG = _SPEC / "catalog" / "backend"
 _CORPUS = _SPEC / "corpus" / "backend"
 _RULE_ID_RE = re.compile(r"^(backend/[a-z0-9_]+|frontend/[a-z0-9-]+)$")
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
+
+#: Corpus cases whose VERDICT this repository has changed ahead of a spec release: the
+#: corpus counterpart of ``_AWAITING_SPEC_RELEASE`` in ``test_spec_catalog.py`` (ADR
+#: 0116), shrink-only in the same way. It lives here, in the program that publishes the
+#: certification artifact, because the artifact must honour it as well as the gate.
+#:
+#: A rule made stricter turns a sample the published corpus calls compliant into a
+#: finding, and the two repositories are then unsatisfiable together in exactly the way
+#: that ADR describes: the gate reads the PINNED corpus, which still calls the sample
+#: compliant, while terp-spec's certification reads this repository's rule, which no
+#: longer does. Listing a case here says: the reference has deliberately moved past the
+#: installed verdict, and the candidate corpus carries the new one. Against the pinned
+#: corpus, then:
+#:
+#: * ``test_spec_corpus`` asserts a listed case INVERTED, so the allowance proves the
+#:   change rather than waving the case through, and an entry whose verdict the pinned
+#:   corpus has caught up with fails instead of lingering;
+#: * the scorecard does not claim the case's rule, because the harness does not pass that
+#:   rule's pinned corpus, and "a rule not listed is not claimed" is the honest answer;
+#: * ``test_release_versions`` requires the set to be empty to cut a release, so a
+#:   published scorecard always claims the whole catalog.
+#:
+#: Under certification (the pin deleted, a candidate corpus installed) nothing is
+#: excused: the candidate is what is being certified.
+#:
+#: Open: ``no_destructive_migrations/compliant-01`` (terp-spec 0.40.0). The published
+#: sample tightens an existing column with ``alter_column(nullable=False)``, which the
+#: rule now reports as a NOT NULL tightening.
+VERDICTS_AWAITING_SPEC_RELEASE: frozenset[tuple[str, str]] = frozenset(
+    {("no_destructive_migrations", "compliant-01")}
+)
+
+
+def installed_corpus_is_the_pinned_one() -> bool:
+    """True when the installed spec is the release this repository pins.
+
+    False under terp-spec's certification, which deletes the pin and installs a
+    candidate: that is the one situation in which a listed verdict is not excused.
+    """
+    text = (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'"terp-spec==([^"]+)"', text)
+    return match is not None and match.group(1) == terp_spec.spec_version()
+
+
+def rules_awaiting_a_verdict() -> set[str]:
+    """The rules whose pinned corpus the harness has deliberately moved past."""
+    if not installed_corpus_is_the_pinned_one():
+        return set()
+    return {rule for rule, _ in VERDICTS_AWAITING_SPEC_RELEASE}
 
 
 def _run_rule(rule: str, app_root: pathlib.Path) -> list:
@@ -82,10 +132,11 @@ def build_scorecard() -> dict:
         version = importlib.metadata.version("terp-arch")
     except importlib.metadata.PackageNotFoundError:  # a source checkout
         version = "0"
+    awaiting = rules_awaiting_a_verdict()
     rules = []
     for path in sorted(_CATALOG.glob("*.json")):
         entry = json.loads(path.read_text(encoding="utf-8"))
-        if not entry["corpus"]:
+        if not entry["corpus"] or path.stem in awaiting:
             continue
         claim: dict = {"rule": entry["id"], "pass": _rule_passes(path.stem)}
         claimed = residuals.get(entry["id"])
@@ -132,7 +183,8 @@ def validate_scorecard(scorecard: dict) -> list[str]:
         for residual in claim.get("residuals_claimed", []):
             if residual not in residuals.get(rule_id, []):
                 problems.append(f"{rule_id}: claims an unrecorded residual: {residual!r}")
-    missing = catalogued - claimed_ids
+    excused = {f"backend/{rule}" for rule in rules_awaiting_a_verdict()}
+    missing = catalogued - claimed_ids - excused
     if missing:
         problems.append(f"corpus-covered rules missing a claim: {sorted(missing)}")
     return problems

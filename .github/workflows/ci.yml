@@ -162,6 +162,7 @@ jobs:
           uv run pytest -q
           tests/architecture/test_migrations_conformance.py
           tests/architecture/test_audit_activity.py
+          tests/architecture/test_seed_checksum.py
 
   # Generic, tool-independent backstops layered ON TOP of the gate — they never
   # replace terp-arch. Blocking: ruff bandit (`S`) + the import-linter layer-0

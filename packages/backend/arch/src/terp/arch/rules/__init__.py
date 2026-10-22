@@ -97,12 +97,12 @@ from terp.arch.rules.module_roles import (
     check_module_role_writes_go_through_the_capability,
     check_platform_modules_refuse_module_roles,
 )
+from terp.arch.rules.destructive_migrations import check_no_destructive_migrations
 from terp.arch.rules.migrations import (
     check_alembic_downgrades_not_empty,
     check_migration_history_is_intact,
     check_not_null_columns_are_backfilled,
     check_table_ownership_is_not_split,
-    check_no_destructive_migrations,
 )
 from terp.arch.rules.jobs import check_jobs_reference_catalog
 from terp.arch.rules.operations import (

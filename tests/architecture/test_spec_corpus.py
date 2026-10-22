@@ -19,6 +19,7 @@ import json
 import pathlib
 import re
 import shutil
+import sys
 
 import pytest
 from terp_spec import spec_dir
@@ -61,15 +62,45 @@ def _corpus_cases() -> list[tuple[str, str]]:
     return cases
 
 
+# The verdicts this repository has moved past ahead of a spec release, and the test of
+# whether the installed corpus is the pinned one: defined beside the scorecard emitter,
+# which honours the same allowance (its docstring is the rationale, ADR 0116's corpus
+# counterpart).
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "tools"))
+from emit_backend_scorecard import (  # noqa: E402
+    VERDICTS_AWAITING_SPEC_RELEASE as _VERDICTS_AWAITING_SPEC_RELEASE,
+)
+from emit_backend_scorecard import (  # noqa: E402
+    installed_corpus_is_the_pinned_one as _installed_corpus_is_the_pinned_one,
+)
+
+
 @pytest.mark.parametrize(("rule", "case"), _corpus_cases())
 def test_reference_rule_matches_the_corpus(rule: str, case: str, tmp_path: pathlib.Path) -> None:
     app_root = tmp_path / "app"
     shutil.copytree(_CORPUS / rule / case, app_root)
     fired = {violation.rule for violation in _run_rule(rule, app_root)}
+    if (rule, case) in _VERDICTS_AWAITING_SPEC_RELEASE and _installed_corpus_is_the_pinned_one():
+        assert (rule in fired) is not case.startswith("violation-"), (
+            f"{rule}/{case}: listed in _VERDICTS_AWAITING_SPEC_RELEASE, but the reference "
+            "agrees with the pinned corpus again — the release landed, so drop the entry"
+        )
+        return
     if case.startswith("violation-"):
         assert rule in fired, f"{rule}/{case}: the rule must flag its violation sample"
     else:
         assert rule not in fired, f"{rule}/{case}: the rule must stay silent on compliant code"
+
+
+def test_verdicts_awaiting_a_spec_release_name_real_cases() -> None:
+    """The allowance may not rot into names that permit nothing."""
+    if not _installed_corpus_is_the_pinned_one():
+        return
+    cases = set(_corpus_cases())
+    assert _VERDICTS_AWAITING_SPEC_RELEASE <= cases, (
+        "_VERDICTS_AWAITING_SPEC_RELEASE names cases the pinned corpus does not carry: "
+        f"{sorted(_VERDICTS_AWAITING_SPEC_RELEASE - cases)}"
+    )
 
 
 # --------------------------------------------------------------------------- #
