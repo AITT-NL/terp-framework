@@ -43,6 +43,12 @@ of every log record, and a JSON `StructuredFormatter`.
 CORS `"*"`, or rate-limiting disabled). This complements the existing
 `Settings` guardrails (weak secret / DEBUG / SQLite / `"*"` CORS).
 
+> **Corrected 2026-10-22 ([ADR 0188](0188-every-log-line-is-a-record-of-one-versioned-schema.md)).**
+> The table below said "PII redaction". The filter has only ever recognised secrets:
+> credential-like key names and credential-shaped text. Personal data (a name, an
+> address, an email) passes through, and no Terp text promises otherwise until a
+> field-level personal-data marker exists.
+
 ## Two-layer enforcement
 
 Per the platform invariant, every control is a fail-closed **runtime** control
@@ -52,7 +58,7 @@ matching `test_<rule>` enforced by the harness self-completeness meta-test):
 | Control | 🔒 Runtime (fail-closed) | 🧪 Build-time (terp-arch) |
 |---|---|---|
 | Security headers / CORS / rate-limit / body-size / request-id are centralized | `create_app` installs the stack from the one `SecurityConfig`; a module only ever holds an `APIRouter`, never the app | `no_adhoc_middleware` — bans `add_middleware(...)` and `BaseHTTPMiddleware` subclasses in app modules |
-| Structured logging + PII redaction is centralized | `configure_logging()` installs the redaction filter on the root logger at boot | `no_adhoc_logging_config` — bans `logging.basicConfig` / `dictConfig` / `fileConfig` in app modules |
+| Structured logging + secret redaction is centralized | `configure_logging()` installs the redaction filter on the root logger at boot | `no_adhoc_logging_config` — bans `logging.basicConfig` / `dictConfig` / `fileConfig` in app modules |
 | Production runs only on a safe security posture | `create_app` raises `BootError` on unsafe CORS / disabled limits in production | extends the `config` production guardrails (runtime) backed by the kernel-coverage tests |
 
 > **Rule-name note.** The implementation plan §6 sketched
