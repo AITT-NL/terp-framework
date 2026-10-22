@@ -21,13 +21,20 @@ The re-seal command has its own suite, ``test_cli_reseal.py``.
 from __future__ import annotations
 
 import base64
+import datetime
 import secrets
+import uuid
 from collections.abc import Callable, Iterator
 
+import jwt
 import pytest
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine, select
 
 import terp.core.secrets as core_secrets
 from terp.core import (
+    AuthenticationError,
+    Roles,
     SealingDomain,
     SealState,
     SecretsError,
@@ -41,6 +48,17 @@ from terp.core import (
 from terp.core.config import Settings, settings
 from terp.core.secrets import reset_decrypt_call_site_runtime
 
+from terp.capabilities.auth import (
+    FALLBACK_VERIFY_WINDOW,
+    TOKEN_AUDIENCE,
+    TOKEN_ISSUER,
+    create_access_token,
+    decode_access_token,
+    refresh_token_digest,
+    refresh_token_digests,
+)
+from terp.capabilities.auth.tokens import _signing_key
+from terp.capabilities.identity import RefreshToken, RefreshTokenService
 from terp.capabilities.mfa import MfaSecretError
 from terp.capabilities.mfa import seal_secret as seal_totp
 from terp.capabilities.mfa import unseal_secret as unseal_totp
@@ -200,6 +218,151 @@ def test_every_value_sealed_before_this_release_still_opens() -> None:
     assert read(_sealed_the_way_0_34_sealed("dsn-password", _CONFIG_LABEL)) == "dsn-password"
     assert unseal_webhook(_sealed_the_way_0_34_sealed("hook", _WEBHOOK_LABEL)) == "hook"
     assert unseal_totp(_sealed_the_way_0_34_sealed("JBSWY3DP", _TOTP_LABEL)) == "JBSWY3DP"
+
+
+def _claims(*, issued: datetime.timedelta, lifetime: datetime.timedelta) -> dict[str, object]:
+    """Access-token claims issued *issued* ago and valid for *lifetime* from then."""
+    iat = datetime.datetime.now(datetime.UTC) - issued
+    return {
+        "sub": str(uuid.uuid4()),
+        "role": "editor",
+        "rank": 20,
+        "iss": TOKEN_ISSUER,
+        "aud": TOKEN_AUDIENCE,
+        "iat": iat,
+        "exp": iat + lifetime,
+    }
+
+
+def test_a_token_signed_with_the_raw_secret_before_the_derivation_lives_out_its_life() -> None:
+    # Before ADR 0189 a token was signed with SECRET_KEY itself. An upgrade must not sign
+    # anybody out, so that form still verifies — as a retired key does, inside the window.
+    fresh = jwt.encode(_claims(issued=datetime.timedelta(0), lifetime=datetime.timedelta(minutes=15)), _OLD, algorithm="HS256")
+    assert decode_access_token(fresh).role.name == "editor"
+    stale = _claims(issued=FALLBACK_VERIFY_WINDOW + datetime.timedelta(minutes=1), lifetime=datetime.timedelta(hours=2))
+    with pytest.raises(AuthenticationError):
+        decode_access_token(jwt.encode(stale, _OLD, algorithm="HS256"))
+    # The current derivation is not windowed: a long-lived token it signed is still good.
+    assert decode_access_token(jwt.encode(stale, _signing_key(_OLD), algorithm="HS256"))
+
+
+def test_a_new_token_is_signed_with_the_derived_key_and_never_the_raw_secret() -> None:
+    token = create_access_token(subject=uuid.uuid4(), role=Roles.EDITOR)
+    jwt.decode(token, _signing_key(_OLD), algorithms=["HS256"], audience=TOKEN_AUDIENCE, issuer=TOKEN_ISSUER)
+    with pytest.raises(jwt.InvalidSignatureError):
+        jwt.decode(token, _OLD, algorithms=["HS256"], audience=TOKEN_AUDIENCE, issuer=TOKEN_ISSUER)
+
+
+# --------------------------------------------------------------------------- #
+# Signing: verify-only, for the signature's lifetime
+# --------------------------------------------------------------------------- #
+def test_a_session_signed_under_the_old_key_verifies_through_the_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    subject = uuid.uuid4()
+    outstanding = create_access_token(subject=subject, role=Roles.EDITOR)
+    _rotate(monkeypatch, verify=[_OLD])
+    assert decode_access_token(outstanding).subject == subject
+    # A token an older release signed under the old key, raw, verifies too.
+    older = jwt.encode(_claims(issued=datetime.timedelta(0), lifetime=datetime.timedelta(minutes=15)), _OLD, algorithm="HS256")
+    assert decode_access_token(older)
+
+
+def test_the_decrypt_list_never_verifies_a_signature(monkeypatch: pytest.MonkeyPatch) -> None:
+    outstanding = create_access_token(subject=uuid.uuid4(), role=Roles.EDITOR)
+    _rotate(monkeypatch, decrypt=[_OLD])
+    with pytest.raises(AuthenticationError):
+        decode_access_token(outstanding)
+
+
+def test_nothing_new_is_signed_with_a_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    _rotate(monkeypatch, verify=[_OLD], decrypt=[_OLD])
+    fresh = create_access_token(subject=uuid.uuid4(), role=Roles.EDITOR)
+    for retired in (_signing_key(_OLD), _OLD):
+        with pytest.raises(jwt.InvalidSignatureError):
+            jwt.decode(fresh, retired, algorithms=["HS256"], audience=TOKEN_AUDIENCE, issuer=TOKEN_ISSUER)
+    # Back on the old key alone, the new token is foreign: it was never signed under it.
+    monkeypatch.setattr(settings, "SECRET_KEY", _OLD)
+    monkeypatch.setattr(settings, "SECRET_KEY_FALLBACKS", [])
+    with pytest.raises(AuthenticationError):
+        decode_access_token(fresh)
+
+
+def test_a_signature_past_its_lifetime_under_a_fallback_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Signed by this release under the old key, for two hours. Under the CURRENT key that
+    # is honoured to its exp; under a fallback it is honoured only for the window.
+    inside = _claims(issued=FALLBACK_VERIFY_WINDOW - datetime.timedelta(minutes=1), lifetime=datetime.timedelta(hours=2))
+    past = _claims(issued=FALLBACK_VERIFY_WINDOW + datetime.timedelta(minutes=1), lifetime=datetime.timedelta(hours=2))
+    inside_token = jwt.encode(inside, _signing_key(_OLD), algorithm="HS256")
+    past_token = jwt.encode(past, _signing_key(_OLD), algorithm="HS256")
+    assert decode_access_token(past_token)  # the old key is still current here
+    _rotate(monkeypatch, verify=[_OLD])
+    assert decode_access_token(inside_token)
+    with pytest.raises(AuthenticationError):
+        decode_access_token(past_token)
+    # And an expired one is final, fallback or not.
+    expired = _claims(issued=datetime.timedelta(minutes=5), lifetime=datetime.timedelta(minutes=1))
+    with pytest.raises(AuthenticationError):
+        decode_access_token(jwt.encode(expired, _signing_key(_OLD), algorithm="HS256"))
+
+
+def test_dropping_the_verify_fallback_ends_the_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    outstanding = create_access_token(subject=uuid.uuid4(), role=Roles.EDITOR)
+    _rotate(monkeypatch, verify=[])
+    with pytest.raises(AuthenticationError):
+        decode_access_token(outstanding)
+
+
+@pytest.fixture
+def refresh_session() -> Iterator[Session]:
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    SQLModel.metadata.create_all(engine, tables=[RefreshToken.__table__])  # type: ignore[list-item]
+    with Session(engine) as session:
+        yield session
+    engine.dispose()
+
+
+def test_a_refresh_session_survives_a_rotation_and_moves_to_the_new_key(
+    monkeypatch: pytest.MonkeyPatch, refresh_session: Session
+) -> None:
+    service = RefreshTokenService()
+    user = uuid.uuid4()
+    raw = service.issue(refresh_session, user)
+    _rotate(monkeypatch, verify=[_OLD])
+    # Looked up under the current key's digest first, then the fallback's.
+    assert len(refresh_token_digests(raw)) == 2
+    assert refresh_token_digests(raw)[0] == refresh_token_digest(raw)
+    rotation = service.rotate(refresh_session, raw)
+    assert rotation is not None and rotation.user_id == user
+    # The successor is stored under the current key, so it outlives the fallback.
+    _rotate(monkeypatch, verify=[])
+    assert service.rotate(refresh_session, rotation.token) is not None
+
+
+def test_a_refresh_session_needs_the_verify_list_not_the_decrypt_list(
+    monkeypatch: pytest.MonkeyPatch, refresh_session: Session
+) -> None:
+    raw = RefreshTokenService().issue(refresh_session, uuid.uuid4())
+    _rotate(monkeypatch, decrypt=[_OLD])
+    assert RefreshTokenService().rotate(refresh_session, raw) is None
+
+
+def test_a_refresh_session_past_its_lifetime_under_a_fallback_is_refused(
+    monkeypatch: pytest.MonkeyPatch, refresh_session: Session
+) -> None:
+    raw = RefreshTokenService().issue(refresh_session, uuid.uuid4())
+    row = refresh_session.exec(
+        select(RefreshToken).where(RefreshToken.token_hash == refresh_token_digest(raw))
+    ).one()
+    row.expires_at = datetime.datetime.now(datetime.UTC) - datetime.timedelta(seconds=1)
+    refresh_session.add(row)
+    refresh_session.commit()
+    _rotate(monkeypatch, verify=[_OLD])
+    assert RefreshTokenService().rotate(refresh_session, raw) is None
 
 
 # --------------------------------------------------------------------------- #
