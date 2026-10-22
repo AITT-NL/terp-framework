@@ -163,6 +163,40 @@ jobs:
           tests/architecture/test_migrations_conformance.py
           tests/architecture/test_audit_activity.py
 
+  # The signer image (ADR 0187 decision 6): the operator's own toolchain `terp release sign`
+  # runs from, built from this commit's wheels and the lock's hashes, and run. Nothing here
+  # publishes it; the release pipeline will, by digest, with the terp-arch release table filled
+  # from the published wheels (packages/backend/cli/signer/Dockerfile says what else).
+  signer-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+
+      - name: Write the signer's build context
+        run: uv run python tools/signer_context.py /tmp/signer-context
+
+      - name: Build the signer image from it, cold
+        run: docker build --pull --no-cache -t terp-signer:ci /tmp/signer-context
+
+      - name: The signer runs, carries its tools, and refuses to sign with a key in the process
+        run: |
+          set -eux
+          docker run --rm terp-signer:ci sign --help
+          docker run --rm --entrypoint gitleaks terp-signer:ci version
+          docker run --rm --entrypoint git terp-signer:ci --version
+          docker run --rm --entrypoint docker terp-signer:ci --version
+          if docker run --rm terp-signer:ci sign --sha "$GITHUB_SHA" --tag ci --registry r.example \
+               --build b.json --gate g.json --hosts shared --sign-key k.pem; then
+            echo "the signer accepted a private key without --test-key"; exit 1
+          fi
+
   # Generic, tool-independent backstops layered ON TOP of the gate — they never
   # replace terp-arch. Blocking: ruff bandit (`S`) + the import-linter layer-0
   # contract (mirrors test_core_boundary). Advisory (continue-on-error): a missing
