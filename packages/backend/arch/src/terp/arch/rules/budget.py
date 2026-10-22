@@ -41,9 +41,11 @@ def _governed_tokens() -> set[str]:
     excluded: governance cannot be waived by the mechanism it governs, so
     their tokens are invalid budget keys and invalid markers.
     """
-    from terp.arch.rules import GUIDE_TOPIC_BY_RULE
+    from terp.arch.rules import GUIDE_TOPIC_BY_RULE, RULES_ESCAPED_BY_THEIR_DECLARATION
 
-    ungoverned = {"escape_hatch_budget", "ungoverned_escape_hatch"}
+    # A rule escaped by its declaration has no marker at all: the file it reads cannot
+    # carry one, so a token naming it could only ever suppress nothing.
+    ungoverned = {"escape_hatch_budget", "ungoverned_escape_hatch", *RULES_ESCAPED_BY_THEIR_DECLARATION}
     return {_rule_token(rule) for rule in GUIDE_TOPIC_BY_RULE if rule not in ungoverned}
 
 

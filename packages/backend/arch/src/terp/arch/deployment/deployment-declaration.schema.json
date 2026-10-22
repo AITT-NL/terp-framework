@@ -1,0 +1,434 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://terp.dev/spec/deployment-declaration.schema.json",
+  "title": "Terp Standard - the app's deployment declaration",
+  "description": "The normative, stack-neutral schema for the document an app checks in at its project root to declare its deployable units. It describes the app's deployment profile, never its development loop, and nothing in it is read by the running app: its readers are a checker in the app's own gate and the tools that drive a deploy, which read it as data and never import the app. A file sits in exactly one of four states. Absent: the app is undeclared, which passes, and a deploy tool may decline to drive it. 'build': 'own': units are built from the committed profile and build files. 'build': 'generated': units are built from files a generator of the stack renders. Opted out: the whole file is {\"unmanaged\": true, \"reason\": \"...\"}, a tool cannot drive this app and shows the reason, and nothing else may stand beside those two keys. A file that is in no state, or in two (units without 'build', 'build' beside 'unmanaged'), is refused, never guessed into one. The description is partial: a service it does not name is not its business, and every fact another file owns stays there - the profile owns commands, start order, images and volumes, the variable manifest owns variables, the code owns jobs and schedules, the environment's record owns domains, TLS, the backup destination and its credentials, sizes and instance counts per environment, and the digest allowlist. Where this file restates such a fact, the owner wins and a disagreement is refused. A key this vocabulary does not have is refused at every level, because a misspelt key would otherwise be a policy that silently does nothing; a key that begins with '$' is an annotation, carries no behaviour and is exempt. A key for deploy policy - who may publish, how many approvals a deploy needs, who may reach a deployed app, which gate policy applies - is refused with its own message, because anyone who can commit to the app could lower a policy kept here; those keys are named in $defs.deployPolicyKeys so every reader gives that message. There is no image key, so the file cannot name a registry: a unit is built from the checkout through its profile service, or named by 'kind' and 'version' from the closed datastore table the stack publishes, one digest per entry. Every string has a length cap and refuses control characters, and a command is an argument list, never a shell string. Every path the file leads a reader to is resolved against the checkout, following links, and refused when it lands outside; that part cannot be stated in a schema and is the checker's. Every pattern ends in (?![\\s\\S]) rather than $, because in some regular-expression engines $ also matches before a final newline, which would let a newline through the very patterns that exist to refuse control characters.",
+  "type": "object",
+  "if": {
+    "required": ["unmanaged"]
+  },
+  "then": {
+    "description": "The opted-out state: a tool cannot drive this app's deploy, and says so with the reason given here. Exactly 'unmanaged' set to true and a reason, with an optional 'schemaVersion' and annotations; 'build', 'units' or any other key beside them is refused, because a file that opts out and describes units at once is in two states.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["unmanaged", "reason"],
+    "patternProperties": {
+      "^\\$": {
+        "type": "string",
+        "maxLength": 4000,
+        "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+        "description": "An annotation: carries no behaviour and is never read as part of the declaration."
+      }
+    },
+    "properties": {
+      "unmanaged": {
+        "type": "boolean",
+        "const": true,
+        "description": "True, and only ever true: the app's deploy is not one a tool can drive. Leave the key out rather than writing false."
+      },
+      "reason": {
+        "type": "string",
+        "maxLength": 500,
+        "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*[^\\s\\u0000-\\u001F\\u007F-\\u009F][^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+        "description": "Why this app's deploy does not fit the declaration, in a sentence a person reviews and a deploy tool shows. Required and never blank: an escape without a reason is a hole, not an escape."
+      },
+      "schemaVersion": {
+        "type": "integer",
+        "const": 1,
+        "description": "Optional here. When present it is held to the same rule as in the managed states: a version the reader does not know is refused."
+      }
+    }
+  },
+  "else": {
+    "description": "A declared state: 'own' or 'generated', with the units the deployment runs.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["schemaVersion", "build", "compose", "units"],
+    "patternProperties": {
+      "^\\$": {
+        "type": "string",
+        "maxLength": 4000,
+        "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+        "description": "An annotation: carries no behaviour and is never read as part of the declaration."
+      }
+    },
+    "properties": {
+      "schemaVersion": {
+        "type": "integer",
+        "const": 1,
+        "description": "The version of this vocabulary the file is written in. A reader refuses a version it does not know rather than reading a later file with an earlier vocabulary."
+      },
+      "build": {
+        "enum": ["generated", "own"],
+        "description": "How the units without a 'kind' get their images. 'own': built from the build files the app commits, with no build guarantee beyond what they say. 'generated': built from files a generator of the stack renders from this declaration and that stay committed, so drift from them is refused. A toolchain that has no generator refuses 'generated' by name rather than treating it as 'own'. Required whenever units are declared, and never beside 'unmanaged'."
+      },
+      "compose": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file"],
+        "description": "The deployment profile this declaration describes and is checked against. Named, never assumed: the check reads exactly the files named here.",
+        "patternProperties": {
+          "^\\$": {
+            "type": "string",
+            "maxLength": 4000,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+            "description": "An annotation: carries no behaviour and is never read as part of the declaration."
+          }
+        },
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "pattern": "^[A-Za-z0-9._-][A-Za-z0-9._/-]*(?![\\s\\S])",
+            "description": "The base profile file, relative to the project root with forward slashes. It may bear any name, because the name of a deploy profile is not a gate; it may not be the development profile, and it may not resolve outside the checkout."
+          },
+          "overrides": {
+            "type": "array",
+            "maxItems": 16,
+            "uniqueItems": true,
+            "default": [],
+            "description": "Files read after the base file, in order, as one resolved profile - merged the way the profile's own tool merges a base file with its overrides. Every rule that reads the profile reads the resolved one. Each obeys the same path rules as 'file'.",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "^[A-Za-z0-9._-][A-Za-z0-9._/-]*(?![\\s\\S])",
+              "description": "An override file, relative to the project root with forward slashes."
+            }
+          }
+        }
+      },
+      "units": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 64,
+        "description": "The units the deployment runs that this file describes: a partial description, never a whitelist. A profile service no unit names is not this file's business. No two units share an id.",
+        "items": {
+          "description": "One unit: a service of the deployment profile, and what this file says about it.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "role"],
+          "patternProperties": {
+            "^\\$": {
+              "type": "string",
+              "maxLength": 4000,
+              "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+              "description": "An annotation: carries no behaviour and is never read as part of the declaration."
+            }
+          },
+          "dependentRequired": {
+            "kind": ["version"],
+            "version": ["kind"],
+            "backup": ["stateful"]
+          },
+          "if": {
+            "required": ["backup"]
+          },
+          "then": {
+            "properties": {
+              "stateful": {
+                "const": true
+              }
+            }
+          },
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*(?![\\s\\S])",
+              "description": "The profile service this unit is. Unique among the declared units."
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32,
+              "pattern": "^[a-z][a-z0-9-]*(?![\\s\\S])",
+              "description": "What a tool may look the unit up as. An open vocabulary, not an approved list: the words the vocabulary knows are listed in $defs.knownRoles, and a role outside it is information, which is never refused - unless the unit also carries a field listed in $defs.roleResolvedFields, which only a reader of a known role can act on."
+            },
+            "kind": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32,
+              "pattern": "^[a-z][a-z0-9-]*(?![\\s\\S])",
+              "description": "A database or shared store taken from the closed datastore table the stack publishes, one digest per kind and version; the unit's profile service must run exactly that digest. Which kinds exist is the stack's table, so a reader refuses a kind its table does not carry. A unit with no kind is built from the checkout, through its profile service."
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32,
+              "pattern": "^[0-9A-Za-z][0-9A-Za-z._-]*(?![\\s\\S])",
+              "description": "The datastore version from the same table. Declared exactly when 'kind' is."
+            },
+            "command": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 64,
+              "description": "The profile service's command restated as an argument list, so a reader need not parse the profile; the profile owns it, and a restated value that differs is refused. Never a shell string. Each element is passed as data, never to a shell, so a metacharacter inside one is not refused.",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024,
+                "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+                "description": "One argument."
+              }
+            },
+            "healthPath": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*(?![\\s\\S])",
+              "description": "The path that answers whether the unit is ready, which the app must serve. A path, never an address: where it is reached is the role's, so it is resolved by role (see $defs.roleResolvedFields)."
+            },
+            "livenessPath": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*(?![\\s\\S])",
+              "description": "The path that answers whether the unit is alive, which the app must serve. Resolved by role, like 'healthPath'."
+            },
+            "migrations": {
+              "type": "array",
+              "maxItems": 64,
+              "uniqueItems": true,
+              "default": [],
+              "description": "The migration histories this unit owns, by package label; each must be a label some installed package or app module owns. A record for the release, never a narrowing: every installed history is still brought to head, so a label no unit claims, or one two units claim, changes nothing.",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*(?![\\s\\S])",
+                "description": "A migration history's label."
+              }
+            },
+            "env": {
+              "type": "array",
+              "maxItems": 256,
+              "uniqueItems": true,
+              "default": [],
+              "description": "The variable names this unit needs passed: a claim about the profile, which must pass each one to the unit's service, directly or through the environment file the variable manifest routes the name to. It adds no variable and gives none any visibility; the variable's type, secrecy and scope stay in the manifest.",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Z][A-Z0-9_]{0,63}(?![\\s\\S])",
+                "description": "A variable name."
+              }
+            },
+            "dependsOn": {
+              "type": "array",
+              "maxItems": 64,
+              "uniqueItems": true,
+              "description": "Start order restated from the profile service's own, restricted to declared units; the profile owns it, and a restated order that differs is refused. No default: an absent list is not restated, which is not the same as one that is empty.",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*(?![\\s\\S])",
+                "description": "A declared unit's id."
+              }
+            },
+            "instances": {
+              "enum": ["many", "one"],
+              "default": "one",
+              "description": "Whether the unit may run more than one copy. How many copies an environment runs is that environment's record, never this file."
+            },
+            "size": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32,
+              "pattern": "^[a-z][a-z0-9-]{0,31}(?![\\s\\S])",
+              "description": "The smallest size this unit runs at: a key of 'sizes', because a size that points nowhere states nothing. Which size an environment uses is that environment's record."
+            },
+            "stateful": {
+              "type": "boolean",
+              "default": false,
+              "description": "That the unit holds state. A stateful unit's backup policy also covers the named volumes only declared stateful units mount, so those are never declared again in 'volumes'."
+            },
+            "backup": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["every", "keep"],
+              "description": "The unit's backup policy: what is given by where it sits, and here is how often and how long kept. Only on a unit declared stateful, so a policy is never one nothing reads. Where backups go, their credentials and their encryption are the environment's record, never this file. 'client' - a backup left to the owner - is never valid here: a unit the deployment runs is backed up by the deployment.",
+              "properties": {
+                "every": {
+                  "type": "string",
+                  "maxLength": 32,
+                  "pattern": "^P(?=\\d|T\\d)(\\d+Y)?(\\d+M)?(\\d+W)?(\\d+D)?(T(?=\\d)(\\d+H)?(\\d+M)?(\\d+S)?)?(?![\\s\\S])",
+                  "description": "How often, as an ISO 8601 duration (P1D, PT6H)."
+                },
+                "keep": {
+                  "type": "string",
+                  "maxLength": 32,
+                  "pattern": "^P(?=\\d|T\\d)(\\d+Y)?(\\d+M)?(\\d+W)?(\\d+D)?(T(?=\\d)(\\d+H)?(\\d+M)?(\\d+S)?)?(?![\\s\\S])",
+                  "description": "How long each backup is kept, as an ISO 8601 duration (P30D)."
+                }
+              },
+              "patternProperties": {
+                "^\\$": {
+                  "type": "string",
+                  "maxLength": 4000,
+                  "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+                  "description": "An annotation: carries no behaviour and is never read as part of the declaration."
+                }
+              }
+            }
+          }
+        }
+      },
+      "volumes": {
+        "type": "array",
+        "maxItems": 64,
+        "default": [],
+        "description": "Named volumes of the profile that hold state and that no declared stateful unit owns - a files volume, for one - each with its own backup policy. A named volume mounted only by declared stateful units is covered by their policy and is never listed here. No two entries share an id.",
+        "items": {
+          "description": "One named volume of the profile that holds state.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id"],
+          "patternProperties": {
+            "^\\$": {
+              "type": "string",
+              "maxLength": 4000,
+              "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+              "description": "An annotation: carries no behaviour and is never read as part of the declaration."
+            }
+          },
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*(?![\\s\\S])",
+              "description": "The named volume in the resolved profile."
+            },
+            "backup": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["every", "keep"],
+              "description": "The volume's backup policy, in the same shape as a unit's. 'client' is never valid here: a volume the deployment runs is backed up by the deployment.",
+              "properties": {
+                "every": {
+                  "type": "string",
+                  "maxLength": 32,
+                  "pattern": "^P(?=\\d|T\\d)(\\d+Y)?(\\d+M)?(\\d+W)?(\\d+D)?(T(?=\\d)(\\d+H)?(\\d+M)?(\\d+S)?)?(?![\\s\\S])",
+                  "description": "How often, as an ISO 8601 duration (P1D, PT6H)."
+                },
+                "keep": {
+                  "type": "string",
+                  "maxLength": 32,
+                  "pattern": "^P(?=\\d|T\\d)(\\d+Y)?(\\d+M)?(\\d+W)?(\\d+D)?(T(?=\\d)(\\d+H)?(\\d+M)?(\\d+S)?)?(?![\\s\\S])",
+                  "description": "How long each backup is kept, as an ISO 8601 duration (P30D)."
+                }
+              },
+              "patternProperties": {
+                "^\\$": {
+                  "type": "string",
+                  "maxLength": 4000,
+                  "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+                  "description": "An annotation: carries no behaviour and is never read as part of the declaration."
+                }
+              }
+            }
+          }
+        }
+      },
+      "sizes": {
+        "type": "object",
+        "additionalProperties": false,
+        "default": {},
+        "description": "The named sizes this file declares, which a unit's 'size' points into. A size names the smallest resources a unit runs with; which size an environment runs is that environment's record.",
+        "patternProperties": {
+          "^\\$": {
+            "type": "string",
+            "maxLength": 4000,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+            "description": "An annotation: carries no behaviour and is never read as part of the declaration."
+          },
+          "^[a-z][a-z0-9-]{0,31}(?![\\s\\S])": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["cpu", "memoryMiB"],
+            "description": "One size.",
+            "properties": {
+              "cpu": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "CPU cores, fractional allowed (0.5)."
+              },
+              "memoryMiB": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Memory in mebibytes."
+              }
+            },
+            "patternProperties": {
+              "^\\$": {
+                "type": "string",
+                "maxLength": 4000,
+                "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+                "description": "An annotation: carries no behaviour and is never read as part of the declaration."
+              }
+            }
+          }
+        }
+      },
+      "externalDatabase": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["backup"],
+        "description": "That the app's database is one this deployment does not run. It names no profile service, and it is refused beside a resolved profile that still runs a database service. Its connection is an environment fact, never this file.",
+        "properties": {
+          "backup": {
+            "type": "string",
+            "const": "client",
+            "description": "Its owner backs it up. 'client' is valid here and nowhere else."
+          }
+        },
+        "patternProperties": {
+          "^\\$": {
+            "type": "string",
+            "maxLength": 4000,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+            "description": "An annotation: carries no behaviour and is never read as part of the declaration."
+          }
+        }
+      },
+      "rollback": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["strategy"],
+        "description": "What a rollback is. Whether a particular rollback can happen without a restore is never declared here: it is decided from the target release's own images and their migration state.",
+        "properties": {
+          "strategy": {
+            "enum": ["redeploy-previous-release"],
+            "description": "A closed vocabulary. 'redeploy-previous-release': deploy an earlier release's exact artifacts again, without rebuilding them - the one value this schema version knows."
+          }
+        },
+        "patternProperties": {
+          "^\\$": {
+            "type": "string",
+            "maxLength": 4000,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+            "description": "An annotation: carries no behaviour and is never read as part of the declaration."
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "deployPolicyKeys": {
+      "description": "The keys for deploy policy, refused at any level of the document and in any state with their own message rather than as unknown keys: \"<key> is deploy policy: it belongs to the deploying tool's environment policy, not to this file\". Who may publish, how many approvals a deploy needs, who may reach a deployed app and which gate policy applies are decisions about an environment, and anyone who can commit to the app could lower a policy kept here. Only a key is refused: the same word as a value - a unit id, a variable name, annotation prose - is not.",
+      "enum": ["access", "approval", "approvals", "approvers", "gate", "gatePolicy", "previewAccess", "publish", "publishRights", "publishers", "requiredApprovals"]
+    },
+    "knownRoles": {
+      "description": "The role words the vocabulary knows, shared with the development declaration where a word means the same thing there: 'store' is a broker or shared store, and 'one-shot' a unit that runs to completion. A role outside this list is information, never an error by itself.",
+      "enum": ["api", "database", "one-shot", "scheduler", "store", "web", "worker"]
+    },
+    "roleResolvedFields": {
+      "description": "The unit fields a reader resolves by role. The declaration carries a path and never an address, so where a health path is reached is the role's to say; under a role the vocabulary does not know, such a field has no reader, and declaring it is refused.",
+      "enum": ["healthPath", "livenessPath"]
+    }
+  }
+}

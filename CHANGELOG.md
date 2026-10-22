@@ -18,7 +18,103 @@ boot refuses without and the development loop only warns about — was required 
 development loop too, and a workbench asked for it there from somebody who could not produce it.
 A declaration can now say where it is required.
 
+And a tool that deploys a Terp app had to assume the template's four service names, an
+assumption that fails without a word the first day an app adds a worker, a shared store or a
+second deployable. An app can now say which units it deploys, and its gate checks that what it
+says is true.
+
+And a generated app's production image could ship versions its gate never ran. The backend
+image installed the app wheel with `uv pip install`, which ignores `uv.lock` and resolves every
+package from the index again at build time; the frontend image ran `npm install`, which
+rewrites a lock that disagrees with `package.json`. Both images now install exactly the
+committed locks, in layers that an edit to the app does not invalidate.
+
+And the file that says how an app's development loop is driven, `workbench.json`, was read by
+two programs with two copies of its words, and they disagreed: about two command slots, about a
+block of seam variables one of them never read, about which of two entries in one role counts,
+and about what to do with a file it could not read. The words now have one owner, the Terp
+Standard, and a reader says what it does with a version it does not know.
+
+And the development loop stopped services without a word. After a Python dependency change
+the API came back on the new image and the worker, the scheduler and the companion beside it
+stayed stopped; after a frontend dependency change the whole backend could stay stopped; and a
+settings change could be undone by the next rebuild. Every service on a rebuilt image now comes
+back on it, once per change, and a settings change applies itself.
+
+### Security
+
+- **A rendered environment file can no longer be baked into an image.** The template's
+  `.dockerignore` named `.env` and `.app.env` at the project root only, while `.gitignore`
+  keeps them out of a commit at any depth, together with `.env.*` and the per-service
+  `.app.<service>.env` renders. So a `COPY . .` could bake `.app.worker.env`, or a
+  `frontend/.env.local`, into a layer. The `.dockerignore` now carries every pattern the
+  `.gitignore` keeps out of a commit, written to match the same paths, and a template test holds
+  the two files to each other path by path, so a secret-bearing pattern added to one and not
+  the other fails the gate. Local databases with SQLite's `-wal`/`-shm` sidecars, the files
+  capability's `var/` storage root, caches and test output are excluded too, and `.gitignore`
+  gains the ones it lacked. The framework's own root `.dockerignore`, the example app's build
+  context, carries the environment-file patterns at any depth as well.
+
 ### Added
+
+- **`deployment.json` declares how an app is deployed, and the gate holds it to the truth.**
+  At the project root, it names the units of the production profile: each one's role, its
+  health and liveness paths, the migration histories it owns, the variables it needs, its
+  start order, whether it holds state and how that state is backed up, and the closed
+  `rollback` strategy. A database or shared store is named by `kind` and `version` from the
+  framework's datastore table; every other unit is built from the checkout, and there is no
+  `image` key, so the file cannot name a registry. It sits in exactly one of four states:
+  absent (undeclared, and every check passes as before), `"build": "own"`, `"build":
+  "generated"` (refused until a generator ships), or `{"unmanaged": true, "reason": "..."}`.
+  The words are the Terp Standard's `deployment-declaration.schema.json`, carried in
+  `terp-arch` as a byte-for-byte mirror and applied as written. Two `terp.arch` rules read it
+  from files alone, so `terp check` holds an app to them: `deployment_declaration_is_readable`
+  (the schema, one state, unique ids, a `size` that is a key of `sizes`, a kind and version
+  the table carries, every path it leads to inside the checkout and never the development
+  compose file) and `deployment_declaration_tells_the_truth` (a unit is a service of the
+  resolved profile, a restated `command` or `dependsOn` is the profile's own, an `env` name
+  reaches the service, a `kind` unit runs exactly the table's image, `externalDatabase` never
+  stands beside a profile that still runs a database). `terp verify --only deployment`, in
+  every profile, runs both and adds the app part: a claimed migration history some package or
+  module owns, and health paths the API serves. A deploy-policy key (who may publish,
+  approvals, access, gate policy) is refused with its own message, because a commit could
+  lower a policy kept there. Truth only: a service the file does not name, no frontend, three
+  APIs or a stateful unit with no backup is never red. The template writes the file once, at
+  `copier copy`, describing its own profile, and `copier update` never creates it, so an app
+  rendered before it stays undeclared until it declares itself. `apps/example` and the
+  reference app are declared, and the reference app's CI lane runs the check. `terp guide
+  deployment`. ADR 0184; ADR 0185 records the schema window a restore-free rollback will
+  need, and is not built.
+- **`terp verify --only locks` refuses a managed app whose images cannot be built from what it
+  commits.** The template's production images install exactly `uv.lock` and
+  `frontend/package-lock.json` (Changed, below), so a dependency added to a manifest without
+  re-locking is an image that cannot be built, and the first to hear of it was whoever ran the
+  deploy. For an app whose `deployment.json` declares units a deploy tool builds, a lock that is
+  missing or stale is now red, in one message per lock that names the file and the fix (`uv
+  lock`; `npm --prefix frontend install`; then commit the lock). Each package manager answers for
+  its own lock, offline and changing nothing: `uv lock --check` and `npm ci --dry-run`, the very
+  install the web image runs; a tool that is not on PATH is a refusal, never a pass. An app with
+  no declaration, or one that declares itself `unmanaged`, is told the same as a note, and a
+  `deployment.json` that cannot be read is held as managed. It is its own check rather than part
+  of `--only deployment`, whose red list ADR 0184 closes on truth about the declaration; a stale
+  lock contradicts nothing the declaration says. In every profile, after `deployment`.
+- **`SMTP_CA_FILE` names the authority a mail relay's certificate must chain to.**
+  `MailSettings.ca_file`, read from `SMTP_CA_FILE` by `mail_settings_from_environment`, is the
+  absolute path of a PEM file whose CA certificates replace the system's trust store for the
+  relay connection alone, for a relay whose authority is a private one: a TLS mail catcher a
+  test environment is given, an on-premises server. It narrows who may vouch for the relay and
+  cannot loosen how it is checked: certificate, hostname and the TLS 1.2 floor are verified the
+  same either way, and there is still no setting that turns verification off. A missing,
+  relative or unreadable file refuses the boot instead of the first send, and so does a CA file
+  beside `SMTP_SECURITY=none`. Until now such a relay was reachable only through a process-wide
+  `SSL_CERT_FILE`. ADR 0150, amended.
+- **A closed datastore table, and the production profiles pin it.** `terp-arch` publishes
+  `datastore-table.json`: one image by digest per datastore kind and version, in the format
+  the standard's corpus uses. It carries PostgreSQL 17,
+  `postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24`, the
+  multi-platform image index of 17.11 on Alpine 3.24 that `postgres:17-alpine` named when it
+  was read. The template's and `apps/example`'s production profiles run exactly that image
+  instead of the moving tag.
 
 - **`"requiredIn"` names the environments a value must be set in.** A non-empty list of
   distinct `ENVIRONMENT` values (`local`, `staging`, `production`) on a declaration; the
@@ -27,6 +123,181 @@ A declaration can now say where it is required.
   check` holds `.app.env` — the development loop's file — to what `local` needs, the template
   declares `JOB_SYSTEM_ACTOR_ID` with `"requiredIn": ["production"]`, and `terp guide
   environment` documents the field. An existing manifest reads exactly as before. ADR 0180.
+- **A public-safe reference app, run in CI.** `apps/reference` is the stand-in for a real
+  client application wherever a lane needs one, and it is rendered, never committed as a
+  render: `tools/render_reference_app.py` runs `copier copy` with pinned answers, grows the
+  rendered `pyproject.toml` at named anchors, and lays an overlay over it. One module with two
+  records uses each of the capabilities a grown app reaches for, once, through its own seam:
+  the outbox worker, the scheduler, file storage, mail to a development catcher, one call to
+  one declared host, and a companion source root running as its own service on the backend
+  image. `template-acceptance` gains a `reference` variant that runs the app's suite and `terp
+  verify --profile quick`, then brings up its development stack and drives a notice's mail
+  and a snapshot's fetch and storage through it. The overlay's copies of template-owned files
+  are pinned to the template's digests, so a template change that would need carrying into a
+  grown app fails the gate until it is carried into this one.
+- **`workbench.json`'s words are the Terp Standard's.** `terp-arch` carries
+  `workbench-declaration.schema.json` from terp-spec 0.40.0 byte for byte, in
+  `terp.arch.workbench`, and `terp verify --only workbench` reads every list from it and applies
+  it: the versions, the nine command slots, the roles, the fields resolved by role, the reserved
+  variable names and the deployment-profile markers. A test compares the copy, and the spec's
+  fixtures carried beside it, with the pinned spec once a release that ships them is pinned, and
+  every fixture is read through the checker. ADR 0186.
+- **`terp workbench adopt` carries a declaration forward to a schema version.** The template seeds
+  `workbench.json` once and the app owns it, so a later vocabulary never reached an app that
+  already had one. `adopt` shows the diff and writes only with `--write`; it refuses a version
+  the vocabulary does not define (today that is every version but 1, so `--schema 2` writes
+  nothing), a file it cannot read, and a fact it cannot represent: a declared service the compose
+  file no longer defines, a fixed host port, two port variables for one service, a seam the compose
+  file never reads. It carries over everything the compose file cannot settle. `--check` writes
+  nothing and fails when adoption has something to write, for an app's CI to opt into; it is not
+  part of `terp verify`. ADR 0186.
+
+### Changed
+
+- **The template's production images install exactly the committed locks.** The backend image
+  runs `uv sync --locked --no-dev`: the lock's runtime set and nothing else, and a lock that
+  disagrees with `pyproject.toml` stops the build ("The lockfile at `uv.lock` needs to be
+  updated") instead of being resolved again. The frontend image runs `npm ci`, which refuses a
+  lock out of sync with `package.json` where `npm install` rewrote it. `uv sync` rather than a
+  hashed export, because a lock that names pre-release wheels vendored under
+  `.terp-dist/wheels` records them by path and without a hash, which a `--require-hashes`
+  install refuses; `--locked` is uv's own check that the lock still answers the manifest. The
+  runtime image carries the environment, the app wheel and the two source roots `terp migrate`
+  reads, and no longer carries uv.
+- **And in layers, in the order their inputs change.** The manifest and the lock are copied
+  first and installed in a layer of their own; the app comes last. An edit to the app rebuilds a
+  few small layers over an unchanged dependency layer, and a backend edit never rebuilds the web
+  image, which copies nothing from outside `frontend/` but the vendored `@terpjs` tarballs.
+  Neither production Dockerfile uses a BuildKit cache mount, so a release build never reads a
+  cache a development build wrote; the layers are the cache.
+- **`uvicorn[standard]` and `psycopg[binary]` are runtime dependencies of the template**, in
+  `[project] dependencies` rather than the dev group, so the lock pins the server and the
+  driver the image runs. The dev group's comment said the images installed "their own pinned
+  server"; they installed an unpinned one. deptry is told why neither is imported (`DEP002`),
+  and `terp guide dependency-hygiene` teaches the same table.
+- **`terp guide mail` declares the relay `requiredIn` production.** It told apps to put
+  `MAIL_FROM` and `SMTP_HOST` in `required`, which means every environment and so asked the
+  development loop for a relay it does not have. The guide now gives the whole declaration
+  block, `MAIL_FROM` and `SMTP_HOST` with `"requiredIn": ["production"]` (ADR 0180), and says
+  where mail goes: the relay is external and per environment; every environment that is not
+  production, a test environment and a preview included, defaults to a mail catcher that
+  offers TLS, with its authority in `SMTP_CA_FILE`; and a real relay outside production is an
+  operator's opt-in held in the deploying tool's environment policy, never in the app's files
+  and never in `deployment.json`. A test holds the block to the reader `env-seams` uses and to
+  every name the capability reads. The template's manifest guidance and `terp guide
+  environment` name the relay as the second case of `requiredIn`, and the reference app
+  declares `SMTP_CA_FILE` beside its relay.
+- **The template's CI installs the same locks**: `uv sync --locked` in both jobs and `npm
+  --prefix frontend ci`, so the gate proves the set the images ship. The conformance suite is a
+  test harness no image ships and keeps `npm install`.
+- **`containerLogs` and `recreate` are command slots.** A workbench ran both from a `commands`
+  block long before the checker knew them, so neither was shape-checked; both are held like the
+  other seven now.
+- **A declared variable a workbench would set may not be one its commands read for themselves.**
+  A workbench puts every name in `hostPortEnv` and `env` into the environment of the commands it
+  runs, so a name in the container toolchain's or the loader's namespace (`DOCKER_`, `COMPOSE_`,
+  `BUILDKIT_`, `BUILDX_`, `LD_`, `DYLD_`, `XDG_`) or one such as `PATH` or `HOME` is refused with
+  the field and the reason.
+- **A value the checker used to coerce or skip is refused by name**: a field of the wrong type, a
+  blank command, a control character, a string past its cap, a lower-case variable name. A field
+  resolved by role under a role no workbench looks up, and a compose file named as a deployment
+  profile, are refused when the file is read, so `terp ports` refuses them too.
+- **`terp ports` publishes a role's first `hostPortEnv`**, the entry a workbench sets, where it
+  took the last.
+
+### Upgrade notes
+
+- **Commit `uv.lock` and `frontend/package-lock.json`.** After `copier update`, the production
+  images and the template's CI install exactly them and refuse a lock that disagrees with its
+  manifest. `uv lock` and `npm --prefix frontend install` write them. An app that never
+  committed them fails its CI's install step and its image build until it does.
+- **`copier update` moves the server and the driver into `[project] dependencies`** and adds
+  `DEP002 = ["uvicorn", "psycopg"]` to `[tool.deptry.per_rule_ignores]`. Keep both moves when
+  resolving the update against your own dependencies, then run `uv lock`.
+- **The production images need BuildKit**, the builder of every `docker compose` v2 build and of
+  `docker build` since Docker Engine 23: they bind-mount uv and the app wheel from other stages
+  (`RUN --mount=from=`) and copy the vendored packages through a pattern that may match nothing.
+  A legacy builder (`DOCKER_BUILDKIT=0`) refuses them.
+- **`terp verify` gains a `locks` check in every profile**, and it is red for an app with a
+  `deployment.json` that declares units until both locks are committed and current. A driving
+  tool that pins the check list from the manifest sees the new id with the category `build`.
+- **A lock made against a package directory outside the checkout cannot build.** uv records
+  where each package came from, so a lock made with `UV_FIND_LINKS=/some/dir` names that
+  directory, which the image does not have. Vendor pre-release wheels under `.terp-dist/wheels`
+  and lock with `--find-links .terp-dist/wheels`; the relative path is recorded as written.
+- **An app that sends mail moves `MAIL_FROM` and `SMTP_HOST` from `required` to
+  `"requiredIn": ["production"]`** in its `environment.schema.json`, and declares
+  `SMTP_CA_FILE` (`terp guide mail` has the block). A deployment still refuses to go out
+  without a relay; the development loop stops asking for one. The manifest is the app's own,
+  so `copier update` does not make this change.
+- **`copier update` pins the production database by digest.** The template's
+  `docker-compose.prod.yml` now runs `postgres@sha256:b0f9…` where it ran `postgres:17-alpine`;
+  an app that re-renders gets the pin with the rest of the template-owned profile. It is the
+  same PostgreSQL 17 the tag named when the digest was read.
+- **`terp-arch` depends on PyYAML**, to read the compose profile a deployment declaration
+  describes. Every app already installs it through `terp-cli`.
+- **`terp verify --only workbench` can turn red on a `workbench.json` it used to pass**, for the
+  values listed under Changed: a reserved variable name, or a value it used to coerce or skip. The
+  template has never written either; the message names the field and what it allows.
+  `terp workbench adopt` shows what the compose file says a port variable is, if that is the fix.
+- **`copier update` moves the backend image's build from `api` to `migrate` in
+  `docker-compose.yml`**, and its `watch` rule from `pyproject.toml` to `uv.lock`. The file is
+  the template's; keep both moves when you resolve the update. Two consequences reach past it.
+  A service your app added on the backend image must keep `depends_on: migrate` (condition
+  `service_completed_successfully`), or a rebuild recreates it and leaves it stopped, as it did
+  every service before this release. And a tool that builds the backend image by naming `api`
+  (`docker compose build api`) now builds nothing and still exits 0: name `migrate`, or build
+  without a service name.
+- **A tool that runs `docker compose watch` itself** keeps the stack and the watch on one
+  configuration the way `terp docker dev` now does: after changing `.app.env`, `.env` or the
+  compose file, stop `watch` and start it again, and never run `docker compose up` beside a
+  running one.
+
+### Fixed
+
+- **An upload into a generated app's files volume no longer fails on permissions.** Both
+  template Dockerfiles run as a non-root user, and neither created `var/files`, the files
+  capability's default storage root. A named volume mounted at a path the image does not have
+  is created owned by root, so with `use_files` on, the first upload in the development stack
+  failed with a permission error. The dev image now creates the directory inside the source
+  tree it already hands to that user, and the production image creates `/srv/var/files`
+  owned by it, so a volume mounted there can be written.
+- **A dependency change brings every service on the rebuilt image back up.** The development
+  compose file built the backend image from `api` and rebuilt it there. A `watch` rebuild
+  recreates every container whose image changed and then starts only the rebuilt service and
+  the services that depend on it (`pkg/compose/watch.go`, in Compose v2.40.3 and v5.5.1
+  alike), so after `uv add` the API ran on the new image and `migrate`, `seed` and every other
+  service on that image sat in `Created`: in the reference app the worker, the scheduler and
+  the companion, stopped after every run on both versions, with no error anywhere. The image is now
+  built, and watched, from `migrate`, which every backend service already waits for, so the
+  rebuild starts all of them in order: the schema goes to head first, a new capability's tables
+  included, then the rest. A template test derives what a rebuild starts from the dependency
+  graph and holds every shipped workbench to it, and the reference app's lane makes the change
+  under `watch` on the runner's Compose (`scripts/check_stack.py --rebuilds`).
+- **One `uv add`, one rebuild.** The rule watched `pyproject.toml`, which `uv add` writes twice,
+  before and after it resolves (0.2 to 1.3 s apart, measured, and over 500 ms whenever the
+  resolution is not already cached), while `watch` batches only what arrives within 500 ms. A
+  second write queued behind the first rebuild and fired a second one, and a second recreate of
+  every backend service. The rule watches `uv.lock`, written once resolution is done, so one
+  change is one rebuild, and an edit to `pyproject.toml` that changes no dependency rebuilds
+  nothing.
+- **A frontend dependency change no longer stops the backend, and a settings change is no
+  longer undone.** `watch` loads the project once and converges the whole stack against that
+  copy on every rebuild, recreating, and not starting, every service whose configuration
+  differs from it. Two things made them differ. A settings change applied with
+  `docker compose up -d` beside a running watch: the next frontend rebuild put every backend
+  service back on the old values and left them stopped. And `up` itself: Compose v2's `watch`
+  keeps a service's `env_file` list in the configuration it hashes and `up` drops it, so after
+  any `up` beside it, a frontend rebuild recreated every service with an `env_file` and started
+  none of them, with nothing changed at all (measured on v2.40.3; v5.5.1 loads the project the
+  way `up` does, and there the same sequence left the backend alone).
+  `terp docker dev` now watches the files the project is loaded from (the compose file, `.env`,
+  every `env_file`) and, when one changes, stops `watch` and starts it again, so its own start
+  applies the change with the hashes its rebuilds use. A settings change needs no command, and
+  there is never an `up` beside the watch. `terp guide environment` says what such a change
+  costs: both images checked against the build cache, `migrate` and `seed` run again (on
+  purpose: every start runs them), and no session ends, because a recreate does not change
+  `SECRET_KEY`.
 
 ## 0.34.0 — 2026-10-09
 

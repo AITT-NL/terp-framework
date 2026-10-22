@@ -41,6 +41,35 @@
       ]
     },
     {
+      "id": "deployment",
+      "category": "architecture",
+      "command": "terp verify --only deployment",
+      "scope": [
+        "deployment.json",
+        "environment.schema.json",
+        "workbench.json",
+        "pyproject.toml",
+        "uv.lock",
+        "**/*.py",
+        "**/*.yml",
+        "**/*.yaml"
+      ]
+    },
+    {
+      "id": "locks",
+      "category": "build",
+      "command": "terp verify --only locks",
+      "scope": [
+        "deployment.json",
+        "pyproject.toml",
+        "uv.lock",
+        "uv.toml",
+        "frontend/package.json",
+        "frontend/package-lock.json",
+        ".terp-dist/**"
+      ]
+    },
+    {
       "id": "deploy-safety",
       "category": "architecture",
       "command": "terp verify --only deploy-safety",

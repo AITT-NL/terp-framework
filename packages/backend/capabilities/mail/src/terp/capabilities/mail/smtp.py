@@ -9,7 +9,9 @@ clients. Here they are right once:
   byte — and a relay that does not offer STARTTLS is refused, never spoken to in the
   clear, because stripping that one capability line is the whole of a downgrade attack;
 * **the certificate and the hostname are verified**, by the standard library's default
-  context with TLS 1.2 as the floor, and there is no parameter that turns that off;
+  context with TLS 1.2 as the floor, and there is no parameter that turns that off. A
+  declared CA file replaces the system's trust store for this connection: it narrows
+  which authority may vouch for the relay, never whether one must;
 * **credentials are sent only inside that session**;
 * **every socket operation is time-bounded**, so a relay that stops answering holds one
   delivery attempt rather than a worker;
@@ -45,9 +47,14 @@ TIMEOUT_SECONDS: Final[float] = 30.0
 _REPLY_LOG_LIMIT: Final[int] = 300
 
 
-def _tls_context() -> ssl.SSLContext:
-    """Certificate and hostname verified, TLS 1.2 at least — the only context there is."""
-    context = ssl.create_default_context()
+def _tls_context(ca_file: str = "") -> ssl.SSLContext:
+    """Certificate and hostname verified, TLS 1.2 at least — the only context there is.
+
+    *ca_file* (``MailSettings.ca_file``) is the authority the relay's certificate must
+    chain to, loaded in place of the system's trust store; the verification itself is the
+    same either way.
+    """
+    context = ssl.create_default_context(cafile=ca_file or None)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     return context
 
@@ -72,7 +79,7 @@ class SmtpTransport:
                 settings.resolved_port,
                 local_hostname=greeting,
                 timeout=TIMEOUT_SECONDS,
-                context=_tls_context(),
+                context=_tls_context(settings.ca_file),
             )
         return smtplib.SMTP(
             settings.host,
@@ -91,7 +98,7 @@ class SmtpTransport:
             if settings.security is MailSecurity.STARTTLS:
                 # Raises SMTPNotSupportedError when the relay does not offer the upgrade:
                 # there is no fallback to the unencrypted session.
-                client.starttls(context=_tls_context())
+                client.starttls(context=_tls_context(settings.ca_file))
             if settings.username:
                 client.login(settings.username, settings.password)
             refused = client.send_message(message)

@@ -238,6 +238,10 @@ Adopt it by declaring the table (a project from the template already has it):
     # which the template's code, `terp new module` and `terp migrate make` all
     # import directly: constrained by that release, not by a second pin here.
     DEP003 = ["terp", "pydantic", "fastapi", "sqlmodel", "sqlalchemy", "alembic"]
+    # The server and the database driver are runtime dependencies, so uv.lock
+    # pins what the production image installs, and nothing imports them: the
+    # image runs uvicorn as a command, and SQLAlchemy loads psycopg by URL.
+    DEP002 = ["uvicorn", "psycopg"]
 
 and installing the tool: `uv add --dev deptry`.
 
@@ -252,6 +256,11 @@ What it catches, and why each one is a real outage:
   DEP004  a dev dependency in app code  \— absent from the production image
 
 Run it directly while fixing: `uv run deptry .`
+
+A dependency you declare reaches the production image only through uv.lock: the image
+installs exactly the lock (`uv sync --locked --no-dev`), so `uv add` (or an edit and `uv
+lock`) and a commit of uv.lock go together. `terp verify --only locks` names a lock that
+was left behind.
 
 This is a delegated generic check (ADR 0033, the ADR 0085 precedent) and it composes
 into NO assurance lane: the spec's `dependency-audit` lane means both trees against
@@ -1648,14 +1657,44 @@ Sending e-mail (terp-cap-mail)
     SMTP_PORT       optional: 587 for starttls, 465 for tls
     SMTP_SECURITY   starttls (the default) | tls | none
     SMTP_USERNAME / SMTP_PASSWORD   set together, or neither
+    SMTP_CA_FILE    optional: the absolute path of a PEM file of the CA certificates the
+                    relay's certificate must chain to, IN PLACE OF the system's store
+                    (a catcher or an on-premises relay with a private authority)
   The session is encrypted and the certificate verified; there is no setting that turns
-  verification off. `none` exists for a local mail catcher: a production boot refuses
-  it, and signing in over it is refused everywhere. With neither MAIL_FROM nor SMTP_HOST set,
-  development LOGS each message instead of delivering it and a production boot is
-  REFUSED. Declare the variables in environment.schema.json so a deployment renders them
-  per environment: SMTP_PASSWORD with "format": "secret", SMTP_HOST "format":
-  "hostname", SMTP_PORT "format": "port", and MAIL_FROM + SMTP_HOST in "required" so a
-  deploy without a relay is refused before it boots.
+  verification off. SMTP_CA_FILE changes which authority may vouch for the relay, never
+  whether one must: the name is still checked, and a missing or unreadable file refuses
+  the boot. `none` exists for the development stack's own catcher: a production boot
+  refuses it, signing in over it is refused everywhere, and so is a CA file beside it.
+  With neither MAIL_FROM nor SMTP_HOST set, development LOGS each message instead of
+  delivering it and a production boot is REFUSED.
+- The relay is EXTERNAL, never a service of the production profile, and it is a value
+  per environment. Declare the variables in environment.schema.json so a deployment
+  renders them, with MAIL_FROM and SMTP_HOST "requiredIn": ["production"]. Not
+  "required": that means every environment, and would ask the development loop for a
+  relay it does not have (ADR 0180):
+      "MAIL_FROM":     {"type": "string", "group": "Mail", "requiredIn": ["production"]},
+      "SMTP_HOST":     {"type": "string", "group": "Mail", "format": "hostname",
+                        "resolvedBy": "container", "requiredIn": ["production"]},
+      "SMTP_PORT":     {"type": "string", "group": "Mail", "format": "port"},
+      "SMTP_SECURITY": {"type": "string", "group": "Mail",
+                        "enum": ["starttls", "tls", "none"]},
+      "SMTP_USERNAME": {"type": "string", "group": "Mail"},
+      "SMTP_PASSWORD": {"type": "string", "group": "Mail", "format": "secret"},
+      "SMTP_CA_FILE":  {"type": "string", "group": "Mail"}
+  A production deploy without a relay is then refused before it boots, and the
+  development loop runs on the defaults you give them (a catcher on the compose network,
+  SMTP_SECURITY=none). Declare SMTP_CA_FILE even if you never set it: a deployment renders
+  only the declared keys, so it is how one hands the app a catcher's authority.
+- Outside production, mail goes to a CATCHER, never a real relay. Every non-production
+  environment, a test environment and a preview included, defaults to a mail catcher that
+  offers TLS with a certificate the app verifies: a test environment runs the production
+  profile, which refuses SMTP_SECURITY=none, and verification has no off switch, so the
+  deployment gives SMTP_CA_FILE the authority that issued the catcher's certificate, for
+  the name it gives in SMTP_HOST. A real relay outside production is an operator's opt-in
+  for that one environment, held in the deploying tool's environment policy, outside the
+  app's files, and never in deployment.json, which carries no mail field: an opt-in kept
+  in a file any commit can change could switch an environment holding copied data to
+  mailing real people.
 - Register the job the capability enqueues (control_plane/jobs.py):
       from terp.capabilities.mail import MAIL_SEND
       job_catalog = JobCatalog([MAIL_SEND])
@@ -2286,7 +2325,10 @@ configuration, so `env-seams` checks the shape first and reports every defect at
     production): where the value must be set. `required` means every environment, so a
     name is in one or the other, never both. The development loop runs local and every
     Studio deployment runs production; JOB_SYSTEM_ACTOR_ID is the canonical case --
-    production refuses to boot without it, the development loop only warns.
+    production refuses to boot without it, the development loop only warns. A mail
+    relay's MAIL_FROM and SMTP_HOST are another: production refuses to boot without a
+    relay, and the development loop logs each message or hands it to its own catcher
+    (`terp guide mail`).
 
 A FIELD OUTSIDE THAT SET IS REFUSED HERE, because the deploy side DROPS what it does not
 recognise rather than refusing it -- so a misspelled field silently does nothing, and the
@@ -2336,6 +2378,34 @@ file is generated rather than hand-maintained. The command is deliberately in no
 verify profile: env-seams gates the seam, and a gate that edits your files is not
 a gate.
 
+A CHANGED VALUE REACHES THE RUNNING WORKBENCH BY ITSELF
+
+`terp docker dev` watches the files the stack is configured from: .app.env (and any
+.app.<service>.env), .env and docker-compose.yml. Save one -- by hand or with
+`terp env set` -- and it stops `docker compose watch` and starts it again: watch's own
+start recreates every service that reads the changed file. Nothing to run.
+
+The restart is the point. `watch` reads the configuration once, when it starts, and
+every rebuild converges the whole stack against that copy: a service whose
+configuration differs is recreated from the copy, and only the rebuilt service and
+what depends on it are started. So never run `docker compose up -d` beside a running
+watch: the next frontend rebuild recreates the backend from the old values and leaves
+it stopped. On Compose v2 that happens even when nothing changed, because v2's watch
+hashes a service with an `env_file` differently from `up`. Driving compose by hand,
+do what the command does: stop watch, start watch.
+
+What a change costs, on purpose:
+  - Both images are checked against the build cache, as on every start: quick when
+    nothing in the build context moved, a rebuild when something did. Where the
+    builder attaches a provenance attestation to every build (Docker Desktop's
+    default), even a cached build is a new image, so every container is recreated,
+    not only the ones that read the changed file.
+  - `migrate` and `seed` run again. Both read .app.env, and every start runs every
+    one-shot, so the schema is at head before the API serves and the (idempotent) seed
+    has run. The API answers one migrate later than a bare restart would.
+  - Nobody is signed out. Tokens are signed with SECRET_KEY, and a recreate does not
+    change it; changing SECRET_KEY in .env does, and that signs every session out.
+
 WHEN A FEATURE ADDS A VARIABLE
 
 1. Declare it in environment.schema.json (UPPER_SNAKE; `"format": "secret"` for tokens,
@@ -2372,7 +2442,125 @@ it lands: .app.env.example stays ONE committed file listing every declared name,
 scoped app uses `terp env init` rather than `cp`; and a service that adds its own
 `env_file:` REPLACES the shared anchor's list rather than adding to it (YAML merge does
 not concatenate sequences), so both files have to be listed.
-""",}
+""",
+    "deployment": """\
+The deploy declaration: deployment.json, and what `terp verify --only deployment` holds
+
+WHAT IT IS (ADR 0184)
+
+deployment.json at the project root tells a tool that deploys the app which units exist,
+which one serves the API, how to tell each is healthy, which migration histories each
+owns, what holds state and how it is backed up, and what a rollback is -- instead of the
+tool assuming the template's four service names. It describes the PRODUCTION profile
+(docker-compose.prod.yml, or whatever file it names) and never the development loop,
+which workbench.json describes. Nothing in it is read by the running app.
+
+The words are the Terp Standard's (deployment-declaration.schema.json in terp-spec,
+mirrored byte for byte in terp-arch). The template writes the file once, at `copier
+copy`, describing its own profile; `copier update` never creates or rewrites it. An app
+rendered before it existed stays undeclared until it writes one itself.
+
+    {
+      "schemaVersion": 1,
+      "build": "own",
+      "compose": { "file": "docker-compose.prod.yml" },
+      "units": [
+        { "id": "db", "role": "database", "kind": "postgres", "version": "17",
+          "stateful": true, "backup": { "every": "P1D", "keep": "P30D" } },
+        { "id": "migrate", "role": "one-shot", "dependsOn": ["db"] },
+        { "id": "api", "role": "api", "healthPath": "/health/ready",
+          "livenessPath": "/health/live", "migrations": ["notes"],
+          "dependsOn": ["db", "migrate"] },
+        { "id": "worker", "role": "worker", "command": ["terp", "jobs", "worker"],
+          "env": ["SOME_API_BASE_URL"], "dependsOn": ["db"] },
+        { "id": "web", "role": "web", "dependsOn": ["api"] }
+      ],
+      "volumes": [ { "id": "files-data", "backup": { "every": "P1D", "keep": "P30D" } } ],
+      "rollback": { "strategy": "redeploy-previous-release" }
+    }
+
+FOUR STATES, EXACTLY ONE AT A TIME
+
+  absent                          undeclared: every check passes, as before
+  "build": "own"                  units built from the build files the app commits
+  "build": "generated"            refused until the framework ships a generator:
+                                  "this toolchain cannot honour generated; upgrade,
+                                  or declare own"
+  {"unmanaged": true, "reason"}   no tool can drive this deploy; the checks are off and
+                                  a tool shows the reason. Nothing may stand beside it.
+
+Units without "build", or "unmanaged" beside "build", is refused -- never guessed.
+
+IT IS PARTIAL, AND IT MUST BE TRUE
+
+A service no unit names is not this file's business: add a worker, a cache, a scanner
+or a second API to the profile and nothing here objects. A role nobody has heard of is
+information. What the file DOES say must be true of the resolved profile -- the file
+plus compose.overrides, merged the way `docker compose -f ... -f ...` merges them:
+
+  - a unit is a service of the profile; a volume is a named volume a service mounts;
+  - a restated "command" (an argument list, never a shell string) or "dependsOn" is the
+    profile's own, the order restricted to declared units;
+  - an "env" name reaches the unit's service: in its environment: block, or through the
+    file environment.schema.json routes it to (.app.env; .app.<service>.env when the
+    declaration names services) and the service loads with env_file:;
+  - a unit with "kind" runs EXACTLY the image the datastore table publishes for that
+    kind and version (postgres 17 today, by digest); every other unit runs an image the
+    profile builds from the checkout. There is no "image" key: the file cannot name a
+    registry;
+  - "externalDatabase": {"backup": "client"} never stands beside a profile that still
+    runs a database (name the override that removes `db` in compose.overrides);
+  - "healthPath" and "livenessPath" are read BY ROLE, so they belong under a role the
+    vocabulary knows (api, database, one-shot, scheduler, store, web, worker).
+
+From the app (`terp verify --only deployment` only, because it needs the composed
+app): a "migrations" label is one an installed package or app module owns, and an api
+unit's health paths are routes the app serves. Where app.main:build cannot be imported
+that part is skipped with a named note.
+
+NEVER RED: no frontend, three APIs, a stateful unit with no backup, a schedule with no
+scheduler unit, "instances": "many", an installed history no unit claims, a profile of
+any file name other than the development one. A missing backup is a safety property for
+the deploy boundary, not for this check.
+
+REFUSED AS UNREADABLE: a key the vocabulary lacks at any level (a $-prefixed key is a
+comment), a control character, a string over its cap, a version this toolchain does not
+read, a size that is not a key of "sizes", "client" anywhere but externalDatabase, a
+backup on a unit not declared stateful, two units or volumes with one id, a profile
+path or build context that resolves outside the checkout (links followed), and the
+development compose file named as the profile.
+
+DEPLOY POLICY NEVER BELONGS HERE. Who may publish, how many approvals a deploy needs,
+who may reach a deployed app and which gate policy applies are set per environment by
+the deploying tool, where a commit cannot lower them. Such a key is refused with:
+"<key> is deploy policy: it belongs to the deploying tool's environment policy, not to
+this file". Domains, TLS, CORS, the backup destination, sizes per environment and the
+digest allowlist are environment facts and stay out too.
+
+WHERE IT IS CHECKED
+
+  terp check                       the two terp.arch rules, from files alone:
+                                   deployment_declaration_is_readable and
+                                   deployment_declaration_tells_the_truth
+  terp verify --only deployment    both, plus the app part and notes on what the app
+                                   uses that the file does not state (a files volume
+                                   with no backup policy, a companion root no unit
+                                   runs, a datastore kind no unit declares)
+
+Neither rule has an `# arch-allow-*` marker -- a JSON file cannot carry one. The way
+out is the declaration's own: {"unmanaged": true, "reason": "..."}.
+
+THE LOCKS A DECLARED APP IS BUILT FROM
+
+A tool that drives the units builds the committed Dockerfiles, and the template's install
+exactly the committed locks (`uv sync --locked --no-dev`, `npm ci`). So `terp verify --only
+locks`, its own check and not part of this one, refuses an app with units declared whose
+uv.lock or frontend/package-lock.json is missing or stale against its manifest, and names
+the fix: `uv lock`, `npm --prefix frontend install`, then commit the lock. uv and npm answer
+for their own locks, offline (`uv lock --check`, `npm ci --dry-run`). An undeclared or
+unmanaged app is told the same as a note.
+""",
+}
 
 # Topics whose body is generated from a live registry (not a static recipe above).
 _GENERATED_TOPICS: tuple[str, ...] = ("changelog", "rules")
@@ -3572,6 +3760,39 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Pick a new pair even if one is already claimed or published",
     )
 
+    workbench_parser = subcommands.add_parser(
+        "workbench",
+        help="The app's development-loop declaration, workbench.json",
+    )
+    workbench_subcommands = workbench_parser.add_subparsers(
+        dest="workbench_command", required=True
+    )
+    workbench_adopt_parser = workbench_subcommands.add_parser(
+        "adopt",
+        help=(
+            "Bring workbench.json to a schema version: shows the diff, and writes it "
+            "only with --write"
+        ),
+    )
+    workbench_adopt_parser.add_argument(
+        "--root", default=".", help="Project root (default: .)"
+    )
+    workbench_adopt_parser.add_argument(
+        "--schema",
+        type=int,
+        default=None,
+        help="The schema version to adopt (default: the newest this toolchain defines)",
+    )
+    workbench_adopt_mode = workbench_adopt_parser.add_mutually_exclusive_group()
+    workbench_adopt_mode.add_argument(
+        "--write", action="store_true", help="Write workbench.json as the diff shows"
+    )
+    workbench_adopt_mode.add_argument(
+        "--check",
+        action="store_true",
+        help="Write nothing, and exit 1 if adoption has something to write (for CI)",
+    )
+
     outbox_parser = subcommands.add_parser(
         "outbox",
         help="Report the durable outbox: whether anything is draining it, and what gave up",
@@ -4236,6 +4457,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                 action=args.ports_command,
                 root=args.root,
                 reassign=getattr(args, "reassign", False),
+            )
+        )
+    if args.command == "workbench":
+        from terp.cli.workbench_adopt import run_workbench_adopt
+
+        raise SystemExit(
+            run_workbench_adopt(
+                root=args.root, schema=args.schema, write=args.write, check=args.check
             )
         )
     if args.command == "outbox" and args.outbox_command == "backlog":

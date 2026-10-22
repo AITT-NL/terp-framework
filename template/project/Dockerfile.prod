@@ -1,51 +1,97 @@
-# Production backend image (ADR 0062). Multi-stage: stage 1 builds the app wheel with
-# uv; stage 2 is a clean runtime that installs ONLY the wheel (+ its published terp-*
-# dependencies), the ASGI server, and the Postgres driver — no editable installs, no
-# source tree, no build tooling. The same image backs the one-shot `migrate` job and the
-# `api` server; bootstrap the first admin with `terp user create` (never `terp seed`,
-# which refuses ENVIRONMENT=production). The dev workbench keeps its own Dockerfile.
+# Production backend image (ADR 0062). It installs exactly the committed lock: every
+# dependency, the ASGI server and the Postgres driver included, at the version and hash
+# uv.lock records, and the build refuses a lock that has drifted from pyproject.toml
+# instead of resolving again. No editable installs, no source tree beyond the two roots
+# `terp migrate` reads, no build tooling, no uv. The same image backs the one-shot
+# `migrate` job and the `api` server; bootstrap the first admin with `terp user create`
+# (never `terp seed`, which refuses ENVIRONMENT=production). The dev workbench keeps its
+# own Dockerfile.
+#
+# Layered so an edit to the app rebuilds only the app: the manifest and the lock first,
+# the dependencies installed from them in a layer of their own, the app last. The
+# runtime image is the same three parts, a base, the locked dependencies and the app, so
+# a release that changes only code ships a new app layer over an unchanged dependency
+# layer.
+#
+# No BuildKit cache mounts, on purpose: a release build must never read a cache that a
+# development build wrote. The layers are the cache, keyed by their inputs. The image does
+# need BuildKit, the builder of every `docker compose` build and of `docker build` since
+# Docker Engine 23, for the `RUN --mount=from=` bind mounts below and for a COPY pattern
+# that may match nothing.
 
-# --- Stage 1: build the app wheel ----------------------------------------------------
-FROM python:3.14-slim AS wheels
+# The uv binary, named once so a stage can mount it without the runtime image keeping it.
+FROM ghcr.io/astral-sh/uv:latest AS uv
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+# --- Stage 1: the locked dependencies -------------------------------------------------
+FROM python:3.14-slim AS deps
+
+COPY --from=uv /uv /bin/uv
+
+# The environment is built where the runtime runs it from (/srv/.venv), on this image's
+# own interpreter, so the copy below needs no relocation and no interpreter download.
+ENV UV_PROJECT_ENVIRONMENT=/srv/.venv \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_NO_CACHE=1 \
+    UV_LINK_MODE=copy
 
 WORKDIR /build
-COPY . .
-# The app wheel, plus any vendored pre-release terp-* wheels (.terp-dist/, staged by
-# Terp Studio before the packages are published) so stage 2 resolves them offline.
-RUN uv build --wheel --out-dir /build/dist . \
-    && if [ -d .terp-dist/wheels ]; then cp .terp-dist/wheels/*.whl /build/dist/; fi
 
-# --- Stage 2: minimal runtime --------------------------------------------------------
+# Only what decides the dependencies: the manifest, the lock, and the pre-release terp-*
+# wheels a checkout vendors under .terp-dist/wheels before the packages are published
+# (the lock names them by that relative path). The brackets make the second COPY a
+# pattern, so a checkout with no vendored wheels copies nothing.
+COPY pyproject.toml uv.lock ./
+COPY .terp-dis[t]/wheel[s] .terp-dist/wheels/
+# Exactly the lock's runtime set: no dev group, nothing the lock does not name, and a
+# refusal ("The lockfile at `uv.lock` needs to be updated") instead of a fresh
+# resolution when pyproject.toml and the lock disagree. `uv lock` is the fix.
+RUN uv sync --locked --no-dev --no-install-project
+
+# --- Stage 2: the app wheel -----------------------------------------------------------
+# The whole context, which .dockerignore keeps free of secrets, local databases, caches
+# and dependency trees. The wheel holds exactly the packages pyproject.toml ships
+# ([tool.hatch.build.targets.wheel]), so a companion root needs no line here.
+FROM deps AS app
+COPY . .
+RUN uv build --wheel --out-dir /dist .
+
+# --- Stage 3: minimal runtime ---------------------------------------------------------
 FROM python:3.14-slim
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
-
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    VIRTUAL_ENV=/srv/.venv \
+    PATH="/srv/.venv/bin:$PATH"
 
 WORKDIR /srv
 
-# Install the built wheel (terp-* dependencies resolve from the package index) + the
-# ASGI server + the Postgres driver.
-COPY --from=wheels /build/dist /wheels
-RUN uv pip install --system --no-cache --find-links /wheels \
-        /wheels/*.whl "uvicorn[standard]" "psycopg[binary]" \
-    && rm -rf /wheels
+# The user the process runs as, created before anything the app changes, so this layer is
+# reused as well. The runtime never writes to the image filesystem (read-only-FS safe).
+# `var/files`, the files capability's default storage root, is a mount point and not image
+# filesystem: it exists, owned by that user, so a volume mounted there can be written (a
+# named volume mounted at a path the image does not have is created owned by root).
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /srv/var/files && chown appuser /srv/var/files
 
-# `terp migrate --app-root` and the app ref resolve the app package from /srv.
+# The dependency layer: reused until pyproject.toml, uv.lock or a vendored wheel changes.
+COPY --from=deps /srv/.venv /srv/.venv
+# The app layers, last: the wheel, with no dependencies of its own to resolve (the lock
+# already installed them), from mounts that leave neither the wheel nor uv in the image;
+# then the two source roots `terp migrate --app-root` and the app ref resolve from /srv.
+RUN --mount=from=uv,source=/uv,target=/bin/uv \
+    --mount=from=app,source=/dist,target=/dist \
+    uv pip install --python /srv/.venv/bin/python --no-deps --no-cache /dist/*.whl
 COPY app app
 COPY control_plane control_plane
 
-# Drop privileges; the runtime never writes to the image filesystem (read-only-FS safe).
-RUN useradd --create-home --uid 10001 appuser
+# Drop privileges.
 USER appuser
 
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=10s \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
-# No --reload: production serves immutable code.
+# No --reload: production serves immutable code. The server is pyproject.toml's runtime
+# dependency "uvicorn[standard]", at the version uv.lock pins.
 # --timeout-graceful-shutdown bounds the wait for in-flight tasks; unset, uvicorn waits
 # forever, and a realtime stream never ends on its own. Eight seconds sits under Compose's
 # ten-second default stop grace, so the process exits on its own terms instead of being killed.

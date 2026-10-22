@@ -51,7 +51,10 @@ x-logging: &container-logging
 
 services:
   db:
-    image: postgres:17-alpine
+    # PostgreSQL 17 (17.11, Alpine), pinned by digest to the datastore table this
+    # framework release publishes (terp-arch's datastore-table.json, ADR 0184): a tag
+    # can move under a deployed app, and a declared `kind` unit must run exactly this.
+    image: postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     restart: unless-stopped
     environment:
       POSTGRES_USER: app

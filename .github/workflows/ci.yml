@@ -262,6 +262,12 @@ jobs:
   # module's retirement; the default render is the blank shell). The hub variant
   # additionally proves the on-demand path a real project takes: `terp new module`,
   # mount it, generate its migration, and hold the grown app to the same gate.
+  #
+  # The reference variant is the public-safe reference app (apps/reference/README.md):
+  # this template rendered with pinned answers and grown the way a client app grows -- a
+  # module with tests, the outbox worker, the scheduler, mail to a catcher, one egress
+  # call, file storage and a companion source root. It stands in for a real client app in
+  # every lane, so it runs the whole of its own stack here, not only its suite.
   template-acceptance:
     runs-on: ubuntu-latest
     strategy:
@@ -278,6 +284,8 @@ jobs:
             copier-args: "--data layout=process"
           - variant: portal
             copier-args: "--data layout=portal"
+          - variant: reference
+            copier-args: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -303,8 +311,15 @@ jobs:
           done
 
       - name: Render the template (${{ matrix.variant }})
+        if: matrix.variant != 'reference'
         run: |
           uvx copier copy --defaults --trust ${{ matrix.copier-args }} template /tmp/acceptance-app
+
+      # The renderer every lane uses, from a bare checkout (no project environment): the
+      # template with apps/reference/answers.yml, grown at named anchors, then the overlay.
+      - name: Render the reference app (template + apps/reference)
+        if: matrix.variant == 'reference'
+        run: uv run --no-project python tools/render_reference_app.py /tmp/acceptance-app
 
       - name: Run the generated project's gate against the staged wheels
         working-directory: /tmp/acceptance-app
@@ -475,6 +490,10 @@ jobs:
           });
           PROBE
           npm test
+          # The probe is this step's, not the app's: take it out again, so a later step
+          # that holds the app's own source (the reference app's `terp verify`, whose
+          # frontend lint refuses the probe's static strings) judges what was rendered.
+          rm src/confirm-dialog.acceptance.test.tsx
 
       # The generated workbench publishes its host ports through REQUIRED variables
       # (ADR 0134), and the generated CI's conformance job had never assigned them, so
@@ -496,6 +515,122 @@ jobs:
           fi
           uv run terp ports assign
           docker compose config -q
+
+      # ADR 0184 decision 1: the deploy declaration is written by `copier copy` and by
+      # nothing else. `_skip_if_exists` alone would let `copier update` CREATE it in an app
+      # that never had one, so the template also excludes it on update. Proven end to end:
+      # the template as it was before the seed, a render of it, an update to this
+      # template, and no deployment.json afterwards -- while a fresh copy has one.
+      - name: An update never creates the deploy declaration (default-blank)
+        if: matrix.variant == 'default-blank'
+        run: |
+          set -eux
+          work="$(mktemp -d)"
+          cp -r template "$work/tpl"
+          cd "$work/tpl"
+          git init -q
+          git config user.email ci@example.invalid
+          git config user.name ci
+          mv project/deployment.json "$work/seed.json"
+          sed -i "/_copier_operation == 'update'/d; /^_exclude:\$/d; /^  - deployment.json\$/d" copier.yml
+          git add -A && git commit -qm before-the-seed && git tag v1
+          cp "$GITHUB_WORKSPACE/template/copier.yml" copier.yml
+          mv "$work/seed.json" project/deployment.json
+          git add -A && git commit -qm the-seed && git tag v2
+          cd "$work"
+          uvx copier copy --defaults --trust --vcs-ref v1 tpl app
+          git -C app init -q
+          git -C app -c user.email=ci@example.invalid -c user.name=ci add -A
+          git -C app -c user.email=ci@example.invalid -c user.name=ci commit -qm render
+          uvx copier update --defaults --trust --vcs-ref v2 app
+          test ! -e app/deployment.json
+          uvx copier copy --defaults --trust --vcs-ref v2 tpl fresh
+          test -f fresh/deployment.json
+
+      # The reference app is held to `terp verify` itself, not to a list restated here: the
+      # quick profile is every static check (env seams, the workbench declaration, deploy
+      # safety, production readiness, the gate over all three source roots, the declared
+      # package boundaries, the frontend's). The steps above already ran the rest of `full`.
+      - name: Hold the reference app to its own verify profile (reference)  # zizmor: ignore[adhoc-packages]
+        if: matrix.variant == 'reference'
+        working-directory: /tmp/acceptance-app
+        env:
+          UV_FIND_LINKS: /tmp/terp-wheels
+        run: |
+          set -eux
+          # zizmor: ignore[adhoc-packages] this repository's own `npm pack` output, as in
+          # the frontend build above: platform-install reads both manifests' installed copies.
+          (cd conformance && npm install /tmp/terp-npm/terpjs-conformance-*.tgz)
+          # Installing a tarball writes a `file:` spec into the manifest, and platform-install
+          # holds every @terpjs/* declaration to `^<platform>`. Put back the `^<version>` the
+          # template declares, the version each tarball carries, so the check judges the
+          # app's own pins; node_modules keeps this commit's packed packages, which
+          # platform-install still holds to that same version.
+          python3 - <<'PINS'
+          import json
+          import pathlib
+          import re
+
+          for manifest in (pathlib.Path("frontend/package.json"), pathlib.Path("conformance/package.json")):
+              data = json.loads(manifest.read_text(encoding="utf-8"))
+              for key in ("dependencies", "devDependencies"):
+                  for name, declared in (data.get(key) or {}).items():
+                      packed = re.fullmatch(r"file:.*-(\d+\.\d+\.\d+[^/]*)\.tgz", declared)
+                      if name.startswith("@terpjs/") and packed:
+                          data[key][name] = f"^{packed.group(1)}"
+              manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+          PINS
+          # ...and bring each lock to the manifest it now answers, as an app commits the pair:
+          # its root entry back to `^<version>`, every package still the packed one (already
+          # locked at that version), node_modules untouched. Offline, so nothing is resolved
+          # from the index. The `locks` check in the profile below then judges the app's own
+          # lock and manifest with the tool the image installs with, not the tarball paths
+          # this workflow wrote.
+          for workspace in frontend conformance; do
+            npm --prefix "$workspace" install --package-lock-only --offline --no-audit --no-fund
+          done
+          # Its deploy declaration first, on its own, so a lane reading this log sees the
+          # verdict on deployment.json by name (ADR 0184): the file part and the app part,
+          # against the rendered profile and the composed app.
+          uv run terp verify --only deployment
+          uv run terp verify --profile quick
+
+      # Then its whole stack, built from the staged packages, through the app's own stack
+      # check -- named here, not restated, so every lane runs the one procedure. It starts
+      # the development stack and seeds it, signs in, posts a notice and waits for its mail
+      # in the catcher (API -> outbox -> worker -> relay), asks for a snapshot and waits for
+      # the worker to fetch it through the egress policy and store it, reads the stored bytes
+      # back, and then holds what no request reaches: the scheduler registered its cron, the
+      # companion read the backlog, every long-running service is still up.
+      - name: Run the reference app's stack check (reference)
+        if: matrix.variant == 'reference'
+        working-directory: /tmp/acceptance-app
+        env:
+          UV_FIND_LINKS: /tmp/terp-wheels
+        run: |
+          set -eux
+          mkdir -p .terp-dist/wheels
+          cp /tmp/terp-wheels/*.whl .terp-dist/wheels/
+          # The declared defaults: the relay is the stack's own mail catcher.
+          uv run terp env init
+          uv run python scripts/check_stack.py --workbench
+
+      # And the development loop's dependency change, against that same running stack and
+      # under `docker compose watch`, on the compose this runner has: a change to the lock
+      # is one rebuild, after which every long-running backend service (the worker, the
+      # scheduler and the companion as well as the API) runs on the new image and migrate
+      # has run first. Built from `api`, that rebuild left the other three stopped.
+      - name: Hold the reference app's dependency rebuild (reference)
+        if: matrix.variant == 'reference'
+        working-directory: /tmp/acceptance-app
+        env:
+          UV_FIND_LINKS: /tmp/terp-wheels
+        run: uv run python scripts/check_stack.py --rebuilds --timeout 600
+
+      - name: Why the reference stack failed (reference)
+        if: failure() && matrix.variant == 'reference'
+        working-directory: /tmp/acceptance-app
+        run: docker compose logs --no-color --tail=150
 
       # The generated app's own conformance job, end to end, on one variant. It had never
       # passed on a fresh app: besides the ports, its suite drove a port the workbench no

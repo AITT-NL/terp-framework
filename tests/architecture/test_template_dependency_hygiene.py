@@ -252,18 +252,21 @@ def test_a_new_revision_imports_only_what_the_template_accounts_for(
     )
 
 
-def test_the_dependency_hygiene_guide_teaches_the_templates_exemptions() -> None:
+@pytest.mark.parametrize("rule", ["DEP003", "DEP002"])
+def test_the_dependency_hygiene_guide_teaches_the_templates_exemptions(rule: str) -> None:
     # `terp guide dependency-hygiene` hands an existing project the table to adopt and
     # says a generated project already has it. A list there that fell behind the
-    # template would hand that project the failure this suite exists to prevent.
+    # template would hand that project the failure this suite exists to prevent. DEP002
+    # is the server and the driver, runtime dependencies nothing imports, which every
+    # project that moves them into the locked runtime set meets on its first deptry run.
     match = re.search(
-        r"^\s*DEP003 = (\[.*\])$", _GUIDE_TOPICS["dependency-hygiene"], re.MULTILINE
+        rf"^\s*{rule} = (\[.*\])$", _GUIDE_TOPICS["dependency-hygiene"], re.MULTILINE
     )
-    assert match, "`terp guide dependency-hygiene` no longer shows a DEP003 list"
+    assert match, f"`terp guide dependency-hygiene` no longer shows a {rule} list"
     taught = ast.literal_eval(match.group(1))
-    exempt = _template_deptry()["per_rule_ignores"]["DEP003"]
+    exempt = _template_deptry()["per_rule_ignores"][rule]
     assert taught == exempt, (
-        f"`terp guide dependency-hygiene` teaches DEP003 = {taught}, while "
+        f"`terp guide dependency-hygiene` teaches {rule} = {taught}, while "
         f"template/project/pyproject.toml.jinja exempts {exempt}; the two must move "
         "together"
     )

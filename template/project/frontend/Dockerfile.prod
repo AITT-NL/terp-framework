@@ -1,18 +1,33 @@
-# Production frontend image (ADR 0062). Multi-stage: stage 1 runs `vite build`; stage 2
-# serves the static bundle from a non-root nginx with an SPA fallback and an /api
-# reverse proxy to the backend, so the browser calls the API same-origin (no CORS).
+# Production frontend image (ADR 0062). Multi-stage: stage 1 runs `vite build` over the
+# exact tree frontend/package-lock.json records; stage 2 serves the static bundle from a
+# non-root nginx with an SPA fallback and an /api reverse proxy to the backend, so the
+# browser calls the API same-origin (no CORS).
+#
+# Layered so an edit to a screen rebuilds only the bundle: the manifest and the lock
+# first, `npm ci` in a layer of its own, the source last. It copies nothing outside
+# frontend/ but the pre-release @terpjs tarballs a checkout may vendor, so a backend edit
+# never touches this image. No BuildKit cache mounts, on purpose: a release build must
+# never read a cache that a development build wrote.
 
 # --- Stage 1: build the static bundle ------------------------------------------------
 FROM node:26-slim AS build
 
-WORKDIR /app
-
-# Preserve the project tree shape (frontend/ plus the optional .terp-dist/ of
-# pre-release @terp tarballs vendored by Terp Studio): the file: refs recorded in
-# package.json resolve inside the image exactly as they do on the host.
-COPY . .
 WORKDIR /app/frontend
-RUN npm install
+
+# Only what decides the dependencies: the manifest, the lock, and the pre-release @terpjs
+# tarballs a checkout vendors under .terp-dist/npm (package.json names them as
+# file:../.terp-dist/npm/..., so they keep that place relative to frontend/). The
+# brackets make the second COPY a pattern, so a checkout with none copies nothing.
+COPY frontend/package.json frontend/package-lock.json ./
+COPY .terp-dis[t]/np[m] /app/.terp-dist/npm/
+# Exactly the lock: `npm ci` installs what package-lock.json records and refuses, rather
+# than rewrites, a lock that disagrees with package.json ("`npm ci` can only install
+# packages when your package.json and package-lock.json ... are in sync").
+# `npm --prefix frontend install` is the fix, run and committed in the checkout.
+RUN npm ci --no-audit --no-fund
+
+# The source, last. .dockerignore keeps node_modules, build output and env files out.
+COPY frontend/ ./
 RUN npm run build
 
 # --- Stage 2: non-root nginx runtime -------------------------------------------------

@@ -23,8 +23,11 @@ RUN if [ -d .terp-dist/wheels ]; then \
         uv pip install --system --no-cache -e . "uvicorn[standard]" "psycopg[binary]"; \
     fi
 
-# Run as a non-root user that owns the (sync-mutable) source.
-RUN useradd --create-home --uid 10001 appuser && chown -R appuser /app
+# Run as a non-root user that owns the (sync-mutable) source. `var/files` is the files
+# capability's default storage root, and it is created here so that user owns it: a named
+# volume mounted at a path the image does not have is created owned by root, and an
+# upload into it then fails with a permission error.
+RUN useradd --create-home --uid 10001 appuser && mkdir -p /app/var/files && chown -R appuser /app
 USER appuser
 
 EXPOSE 8000
