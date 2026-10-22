@@ -1,0 +1,45 @@
+{
+  "$comment": "How this app is deployed, for the tools that deploy it (ADR 0184). It describes the production profile, docker-compose.prod.yml, and never the development loop, and nothing in it is read by the running app. \"build\" says who writes the build files. Under \"own\" they are the app's, and this file is PARTIAL: a service it does not name is not its business, so add a worker, a scheduler or a store to the profile and nothing here objects, and `terp verify --only deployment` checks only that what it CLAIMS is true: each unit is a service of the profile, a restated command or dependsOn is the profile's, an env name reaches the unit, a kind unit runs exactly the datastore table's image, a unit without kind is built from this checkout, a migrations label is owned, and the api serves its health paths. Under \"generated\" the framework renders docker-compose.prod.yml, Dockerfile.prod and frontend/Dockerfile.prod from this file (ADR 0187): declare a unit here, run `uv run terp deployment render` and commit both, and `terp verify --only generated` refuses a copy that is not the render. `uv run terp deployment adopt --build own` or `--build generated` moves an app between the two. A key this vocabulary does not have is refused; a key starting with $ is a comment. There is no image key. Deploy policy (who may publish, approvals, access, gate policy) never belongs here. If no tool can drive this deploy, replace the whole file with {\"unmanaged\": true, \"reason\": \"why\"}. The template writes this file once, at copier copy, and never on an update: it is the app's. See `terp guide deployment`.",
+  "schemaVersion": 1,
+  "build": "{{ deploy_build }}",
+  "compose": {
+    "file": "docker-compose.prod.yml"
+  },
+  "units": [
+    {
+      "id": "db",
+      "role": "database",
+      "kind": "postgres",
+      "version": "17",
+      "stateful": true,
+      "backup": {
+        "every": "P1D",
+        "keep": "P30D"
+      }
+    },
+    {
+      "id": "migrate",
+      "role": "one-shot",
+      "dependsOn": [
+        "db"
+      ]
+    },
+    {
+      "id": "api",
+      "role": "api",
+      "healthPath": "/health/ready",
+      "livenessPath": "/health/live",
+      "dependsOn": [
+        "db",
+        "migrate"
+      ]
+    },
+    {
+      "id": "web",
+      "role": "web",
+      "dependsOn": [
+        "api"
+      ]
+    }
+  ]
+}

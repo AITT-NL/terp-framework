@@ -73,20 +73,21 @@ def run_generated_check(project_root: pathlib.Path) -> tuple[int, str]:
     )
 
 
-def _write_all(project_root: pathlib.Path, files: dict[str, bytes]) -> list[str]:
-    """Write every file or none, remove the owned paths the render has not got; what changed."""
-    changed = [
-        path
-        for path, data in files.items()
-        if not (project_root / path).is_file() or (project_root / path).read_bytes() != data
-    ]
+def write_files(
+    project_root: pathlib.Path, files: dict[str, bytes], removed: list[str]
+) -> None:
+    """Write every one of *files* or none, then remove *removed*.
+
+    Each file is staged beside its target first, so a write that fails part-way leaves every
+    committed file as it was; the staged files then replace their targets.
+    """
     pending: list[tuple[pathlib.Path, pathlib.Path]] = []
     try:
-        for path in changed:
+        for path, data in files.items():
             target = project_root / path
             target.parent.mkdir(parents=True, exist_ok=True)
             staged = target.with_name(target.name + _PENDING)
-            staged.write_bytes(files[path])
+            staged.write_bytes(data)
             pending.append((staged, target))
     except OSError:
         for staged, _target in pending:
@@ -94,9 +95,27 @@ def _write_all(project_root: pathlib.Path, files: dict[str, bytes]) -> list[str]
         raise
     for staged, target in pending:
         os.replace(staged, target)
-    stale = [path for path in OWNED_PATHS if path not in files and (project_root / path).exists()]
-    for path in stale:
+    for path in removed:
         (project_root / path).unlink()
+
+
+def render_changes(
+    project_root: pathlib.Path, files: dict[str, bytes]
+) -> tuple[list[str], list[str]]:
+    """The owned paths a render writes because they differ, and the ones it removes."""
+    changed = [
+        path
+        for path, data in files.items()
+        if not (project_root / path).is_file() or (project_root / path).read_bytes() != data
+    ]
+    stale = [path for path in OWNED_PATHS if path not in files and (project_root / path).exists()]
+    return changed, stale
+
+
+def _write_all(project_root: pathlib.Path, files: dict[str, bytes]) -> list[str]:
+    """Write every file or none, remove the owned paths the render has not got; what changed."""
+    changed, stale = render_changes(project_root, files)
+    write_files(project_root, {path: files[path] for path in changed}, stale)
     return [*(f"wrote {path}" for path in changed), *(f"removed {path}" for path in stale)]
 
 
@@ -132,4 +151,10 @@ def run_render_command(*, root: str | pathlib.Path = ".", check: bool = False) -
     return 0
 
 
-__all__ = ["RENDER_COMMAND", "run_generated_check", "run_render_command"]
+__all__ = [
+    "RENDER_COMMAND",
+    "render_changes",
+    "run_generated_check",
+    "run_render_command",
+    "write_files",
+]

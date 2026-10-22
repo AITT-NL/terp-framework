@@ -2431,7 +2431,9 @@ which workbench.json describes. Nothing in it is read by the running app.
 The words are the Terp Standard's (deployment-declaration.schema.json in terp-spec,
 mirrored byte for byte in terp-arch). The template writes the file once, at `copier
 copy`, describing its own profile; `copier update` never creates or rewrites it. An app
-rendered before it existed stays undeclared until it writes one itself.
+rendered before it existed stays undeclared until it writes one itself, or has `uv run
+terp deployment adopt --build own` write it from its production profile (MOVING
+BETWEEN STATES, below).
 
     {
       "schemaVersion": 1,
@@ -2565,6 +2567,52 @@ in this release); a unit id that is not a lower-case compose name. Any of them: 
 The generator's two words: "generator": {"systemPackages": [...]}, valid only beside
 "build": "generated", and "mount": {"path": "var/files", "units": [...]} on a volume,
 required under generated and a restatement the truth rule holds to the profile under own.
+
+MOVING BETWEEN STATES: terp deployment adopt (ADR 0187)
+
+The state is two recorded facts that must agree: "build" in deployment.json, which the
+gate reads, and deploy_build in .copier-answers.yml, the template question `copier
+update` reads. Copier renders an update's OLD template version with the RECORDED
+answers, so adoption writes the answer itself; never `copier update --data
+deploy_build=...`, whose old render still has the files it would then delete. Each form
+writes all its files or none and prints the diff; --dry-run only prints.
+
+  uv run terp deployment adopt --build generated
+      needs a readable, true, renderable deployment.json and scaffolding from a template
+      version that asks deploy_build. Sets both facts, renders, removes a generator path
+      the declaration does not produce. A template-shaped app at the template version it
+      was rendered from changes NO build file: the template's are the seed's render.
+      Refused, writing nothing: a declaration the generator cannot render (each refusal
+      above), a project name compose or Docker refuses, an environment file git or the
+      build context would carry, and an answers file that records no deploy_build --
+      its template version's every update renders the build files over the generator's,
+      so `copier update` first, which records deploy_build: own, then adopt.
+  uv run terp deployment adopt --build own
+      on a generated app: both facts back to own, and no file changes; the last render is
+      the app's, and the next update merges into it as into any own app's. On an
+      undeclared app: deployment.json written from docker-compose.prod.yml as it runs --
+      a datastore by the table's kind (its image pinned to the table's digest in the same
+      change), a service built from the checkout by what it does (web from frontend/,
+      one-shot when it does not restart, worker and scheduler by `terp jobs`, api when it
+      runs the image's own command, with the framework's health routes; otherwise its own
+      name as the role), dependsOn restricted to declared units, and a volume a declared
+      unit mounts with its mount where it is one path inside var/. A service on an image
+      neither built here nor in the table is refused by name. A backup policy, env names,
+      sizes and a rollback strategy are not in a profile: the notes name them.
+  uv run terp deployment adopt --unmanaged "<reason>"
+      ADR 0184's opt-out, and deploy_build: own, since the build files are the app's.
+
+A copier answers file is optional: an app without one changes deployment.json only.
+
+A FRAMEWORK UPDATE OF A GENERATED APP
+
+`copier update`, then the install (`uv sync`, `npm --prefix frontend install`), then
+`uv run terp deployment render`, committed together, in the copy the update is made in.
+The template leaves the three files to the generator of the release just installed, so a
+missed render is red there under `terp verify --only generated`. `uv run terp upgrade
+--check` prints the render as its own step for an app whose deployment.json says
+generated. A fresh `copier copy --data deploy_build=generated` has none of the three until
+the first render, which needs frontend/package-lock.json (`npm --prefix frontend install`).
 
 THE LOCKS A DECLARED APP IS BUILT FROM
 
@@ -3874,6 +3922,38 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Write nothing; exit 1 when a committed file is not the render (for CI)",
     )
+    deployment_adopt_parser = deployment_subcommands.add_parser(
+        "adopt",
+        help=(
+            "Move the app between deployment.json's states, writing its build and the "
+            "template answer together, and show the diff (ADR 0187)"
+        ),
+    )
+    deployment_adopt_state = deployment_adopt_parser.add_mutually_exclusive_group(
+        required=True
+    )
+    deployment_adopt_state.add_argument(
+        "--build",
+        choices=("own", "generated"),
+        help=(
+            "generated: the framework renders the build files from deployment.json; own: "
+            "they are the app's (on an undeclared app, deployment.json is written from the "
+            "production profile)"
+        ),
+    )
+    deployment_adopt_state.add_argument(
+        "--unmanaged",
+        metavar="REASON",
+        help="Declare that no tool can drive this deploy, and why",
+    )
+    deployment_adopt_parser.add_argument(
+        "--root", default=".", help="Project root (default: .)"
+    )
+    deployment_adopt_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the diff and write nothing",
+    )
 
     outbox_parser = subcommands.add_parser(
         "outbox",
@@ -4541,6 +4621,17 @@ def main(argv: Sequence[str] | None = None) -> None:
                 action=args.ports_command,
                 root=args.root,
                 reassign=getattr(args, "reassign", False),
+            )
+        )
+    if args.command == "deployment" and args.deployment_command == "adopt":
+        from terp.cli.deployment_adopt import run_adopt_command
+
+        raise SystemExit(
+            run_adopt_command(
+                root=args.root,
+                build=args.build,
+                unmanaged=args.unmanaged,
+                dry_run=args.dry_run,
             )
         )
     if args.command == "deployment":

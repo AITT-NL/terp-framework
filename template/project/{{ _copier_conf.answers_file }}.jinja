@@ -1,4 +1,7 @@
 # This file records the Copier template and the answers used to render this
 # project so `copier update` (and Terp Studio's upgrade flow) can carry them
-# forward. Managed by Copier — do not edit by hand.
+# forward. Managed by Copier — do not edit by hand. The one exception is
+# deploy_build, which `terp deployment adopt` writes together with deployment.json's
+# "build" (ADR 0187): an update renders the old template version with the answers
+# recorded here, so the build state changes here, never through `copier update --data`.
 {{ _copier_answers|to_nice_yaml }}

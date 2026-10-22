@@ -268,6 +268,11 @@ jobs:
   # module with tests, the outbox worker, the scheduler, mail to a catcher, one egress
   # call, file storage and a companion source root. It stands in for a real client app in
   # every lane, so it runs the whole of its own stack here, not only its suite.
+  #
+  # The reference-generated variant is the same app adopting "build": "generated" (ADR
+  # 0187): the template's build files are the generator's render, so adoption changes none
+  # of them, and the app is then held to `terp verify --only generated`, its own suite and
+  # `docker compose config` of the profile the generator owns.
   template-acceptance:
     runs-on: ubuntu-latest
     strategy:
@@ -285,6 +290,8 @@ jobs:
           - variant: portal
             copier-args: "--data layout=portal"
           - variant: reference
+            copier-args: ""
+          - variant: reference-generated
             copier-args: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -311,14 +318,14 @@ jobs:
           done
 
       - name: Render the template (${{ matrix.variant }})
-        if: matrix.variant != 'reference'
+        if: ${{ !startsWith(matrix.variant, 'reference') }}
         run: |
           uvx copier copy --defaults --trust ${{ matrix.copier-args }} template /tmp/acceptance-app
 
       # The renderer every lane uses, from a bare checkout (no project environment): the
       # template with apps/reference/answers.yml, grown at named anchors, then the overlay.
       - name: Render the reference app (template + apps/reference)
-        if: matrix.variant == 'reference'
+        if: startsWith(matrix.variant, 'reference')
         run: uv run --no-project python tools/render_reference_app.py /tmp/acceptance-app
 
       - name: Run the generated project's gate against the staged wheels
@@ -531,11 +538,11 @@ jobs:
           git init -q
           git config user.email ci@example.invalid
           git config user.name ci
-          mv project/deployment.json "$work/seed.json"
-          sed -i "/_copier_operation == 'update'/d; /^_exclude:\$/d; /^  - deployment.json\$/d" copier.yml
+          mv project/deployment.json.jinja "$work/seed.json.jinja"
+          sed -i "/_copier_operation == 'update'/d; /^  - deployment.json\$/d" copier.yml
           git add -A && git commit -qm before-the-seed && git tag v1
           cp "$GITHUB_WORKSPACE/template/copier.yml" copier.yml
-          mv "$work/seed.json" project/deployment.json
+          mv "$work/seed.json.jinja" project/deployment.json.jinja
           git add -A && git commit -qm the-seed && git tag v2
           cd "$work"
           uvx copier copy --defaults --trust --vcs-ref v1 tpl app
@@ -546,6 +553,16 @@ jobs:
           test ! -e app/deployment.json
           uvx copier copy --defaults --trust --vcs-ref v2 tpl fresh
           test -f fresh/deployment.json
+
+      # ADR 0187 decision 4: the build state is the recorded deploy_build answer, which
+      # `terp deployment adopt` writes, and copier honours it on every update. Run for real,
+      # both ways, against a template repository of four revisions, with every step held to
+      # the exact files it changes: own -> generated -> update (same and newer revision) ->
+      # own -> update; a generated copy, rendered; and scaffolding that predates the
+      # question, which adopt refuses until an update records the answer.
+      - name: The build-state round trip, copier and terp deployment adopt (default-blank)
+        if: matrix.variant == 'default-blank'
+        run: uv run python tools/copier_round_trip.py --copier "uvx copier"
 
       # The reference app is held to `terp verify` itself, not to a list restated here: the
       # quick profile is every static check (env seams, the workbench declaration, deploy
@@ -619,6 +636,34 @@ jobs:
         if: failure() && matrix.variant == 'reference'
         working-directory: /tmp/acceptance-app
         run: docker compose logs --no-color --tail=150
+
+      # The reference app adopting "build": "generated" (ADR 0187), the way a client app
+      # does it: committed first, so the adoption's own diff is what git shows. Its profile
+      # is the generator's render of its declaration and both Dockerfiles are the
+      # template's, so the adoption changes deployment.json and the answers file and no
+      # build file. Then it is held to the generated check (in a git work tree, so the
+      # ignore half is judged), to its own suite, and to compose's own reading of the
+      # profile the generator now owns. The frontend lock the web unit is built from exists
+      # by now: the frontend build above installed it.
+      - name: Adopt the generated state and hold the reference app to it (reference-generated)
+        if: matrix.variant == 'reference-generated'
+        working-directory: /tmp/acceptance-app
+        env:
+          UV_FIND_LINKS: /tmp/terp-wheels
+        run: |
+          set -eux
+          git init -q
+          git -c user.email=ci@example.invalid -c user.name=ci add -A
+          git -c user.email=ci@example.invalid -c user.name=ci commit -qm render
+          uv run terp deployment adopt --build generated
+          git diff --exit-code -- Dockerfile.prod frontend/Dockerfile.prod docker-compose.prod.yml
+          changed="$(git status --porcelain | awk '{print $2}' | sort | tr '\n' ' ')"
+          test "$changed" = ".copier-answers.yml deployment.json "
+          grep -q '^deploy_build: generated$' .copier-answers.yml
+          uv run terp verify --only generated
+          uv run pytest
+          SECRET_KEY=acceptance-only-not-a-secret-0123456789 POSTGRES_PASSWORD=acceptance \
+            docker compose -f docker-compose.prod.yml config -q
 
       # The generated app's own conformance job, end to end, on one variant. It had never
       # passed on a fresh app: besides the ports, its suite drove a port the workbench no

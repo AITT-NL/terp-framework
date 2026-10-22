@@ -21,6 +21,7 @@ import pathlib
 import posixpath
 import re
 import shlex
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -121,6 +122,30 @@ def _parse(text: str) -> Any:
         loader.dispose()
 
 
+def _profile_file(
+    read: Callable[[], str], field: str, name: str
+) -> tuple[dict[str, Any], list[Finding]]:
+    """One profile file, parsed: the mapping, or why it is not one."""
+    try:
+        data = _parse(read())
+    except (OSError, yaml.YAMLError) as exc:
+        return {}, [Finding(f"{field} {name} is not readable YAML: {exc}", file=name)]
+    if not isinstance(data, dict):
+        return {}, [
+            Finding(f"{field} {name} is not a compose file: it holds no mapping", file=name)
+        ]
+    return data, []
+
+
+def profile_from_text(text: str, name: str) -> tuple[dict[str, Any], list[Finding]]:
+    """One profile file's text, read as :func:`resolve_profile` reads a base file.
+
+    For a caller judging a profile it has not written yet (``terp deployment adopt``).
+    """
+    data, problems = _profile_file(lambda: text, "compose.file", name)
+    return (_merge({}, data), []) if not problems else ({}, problems)
+
+
 def resolve_profile(
     project_root: pathlib.Path, declaration: Declaration
 ) -> tuple[dict[str, Any], list[Finding]]:
@@ -136,14 +161,9 @@ def resolve_profile(
                     "exists, whose services the units are)"
                 )
             ]
-        try:
-            data = _parse(path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError) as exc:
-            return {}, [Finding(f"{field} {name} is not readable YAML: {exc}", file=name)]
-        if not isinstance(data, dict):
-            return {}, [
-                Finding(f"{field} {name} is not a compose file: it holds no mapping", file=name)
-            ]
+        data, problems = _profile_file(lambda: path.read_text(encoding="utf-8"), field, name)
+        if problems:
+            return {}, problems
         merged = _merge(merged, data)
     return merged, []
 
@@ -178,13 +198,21 @@ def _remote(path: str) -> bool:
     return "://" in path or path.startswith("git@")
 
 
-def build_path_findings(project_root: pathlib.Path, declaration: Declaration) -> list[Finding]:
+def build_path_findings(
+    project_root: pathlib.Path,
+    declaration: Declaration,
+    resolved: dict[str, Any] | None = None,
+) -> list[Finding]:
     """The build contexts and build files of the declared units: inside the checkout.
 
     A profile that cannot be read yet leads nowhere, so it is silent here; whether the
-    profile is there and reads is the truth check's to report.
+    profile is there and reads is the truth check's to report. *resolved* is the profile
+    already resolved, for a caller that judges one it has not written yet (``terp
+    deployment adopt``); the files on disk are read otherwise.
     """
-    profile, problems = resolve_profile(project_root, declaration)
+    profile, problems = (
+        (resolved, []) if resolved is not None else resolve_profile(project_root, declaration)
+    )
     if problems:
         return []
     services = services_of(profile)
@@ -394,10 +422,18 @@ def _external_database_findings(
 
 
 def truth_findings(
-    project_root: pathlib.Path, declaration: Declaration, table: DatastoreTable
+    project_root: pathlib.Path,
+    declaration: Declaration,
+    table: DatastoreTable,
+    resolved: dict[str, Any] | None = None,
 ) -> list[Finding]:
-    """Rule 2 from the files: every fact the declaration restates from the profile."""
-    profile, problems = resolve_profile(project_root, declaration)
+    """Rule 2 from the files: every fact the declaration restates from the profile.
+
+    *resolved*, as for :func:`build_path_findings`: a profile resolved already.
+    """
+    profile, problems = (
+        (resolved, []) if resolved is not None else resolve_profile(project_root, declaration)
+    )
     if problems:
         return problems
     label = " + ".join(declaration.profile_files)

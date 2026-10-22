@@ -14,8 +14,10 @@ alone and without importing the app, whether what is committed is what that rend
   (:mod:`terp.arch.deployment.dockerignore`). In a tree that lies in no git work tree the git
   half is noted, not judged; a pattern either cannot read is a finding, never a crash;
 * the build the app's template answers record (``deploy_build`` in ``.copier-answers.yml``)
-  must agree with the declaration's, which is silent for an app with no answers file and
-  noted for answers that predate the question.
+  must agree with the declaration's, which is silent for an app with no answers file. Now
+  that the template asks the question, answers that record none disagree too: they come
+  from a template version that does not ask, whose every ``copier update`` still renders
+  the three files over the generator's.
 
 It also notes, never red, a profile ``terp release`` will refuse under ADR 0184 decision 9:
 no migration step and other than exactly one ``api`` unit. Everything else - an undeclared
@@ -234,32 +236,40 @@ def _git_half(project_root: pathlib.Path, names: list[str]) -> tuple[list[Findin
     return found, []
 
 
-def _answers(project_root: pathlib.Path) -> tuple[list[Finding], list[str]]:
+def _answers(project_root: pathlib.Path) -> list[Finding]:
     path = project_root / ANSWERS_FILE
     if not path.is_file():
-        return [], []
+        return []
     try:
-        answers = yaml.safe_load(path.read_text(encoding="utf-8"))
+        recorded = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        return [Finding(f"{ANSWERS_FILE} cannot be read as YAML ({exc})", file=ANSWERS_FILE)]
+    if not isinstance(recorded, dict) or ANSWER not in recorded:
         return [
-            Finding(f"{ANSWERS_FILE} cannot be read as YAML ({exc})", file=ANSWERS_FILE)
-        ], []
-    if not isinstance(answers, dict) or ANSWER not in answers:
-        return [], [
-            f"{ANSWERS_FILE} records no {ANSWER}: the template version it was rendered from "
-            "does not ask, so the build it records is not compared"
+            Finding(
+                f"{ANSWERS_FILE} records no {ANSWER}: the template version this app was "
+                "rendered from does not ask it, so its next `copier update` still renders "
+                "Dockerfile.prod, frontend/Dockerfile.prod and docker-compose.prod.yml from "
+                "the template, over the generator's (allowed: deploy_build: generated, "
+                "recorded by a template version that asks)",
+                'Declare "build": "own" again (`uv run terp deployment adopt --build own`), '
+                "run `copier update` to a template version that asks deploy_build, then "
+                "`uv run terp deployment adopt --build generated`.",
+                ANSWERS_FILE,
+            )
         ]
-    if answers[ANSWER] == "generated":
-        return [], []
+    if recorded[ANSWER] == "generated":
+        return []
     return [
         Finding(
-            f'{ANSWER} is {answers[ANSWER]!r} in {ANSWERS_FILE}, and deployment.json says '
+            f"{ANSWER} is {recorded[ANSWER]!r} in {ANSWERS_FILE}, and deployment.json says "
             '"build": "generated" (allowed: generated, the build deployment.json declares)',
             "The next `copier update` reads the answer and would render the template's own "
-            "build files over the generator's. Record one state in both files.",
+            "build files over the generator's. Record one state in both files: "
+            "`uv run terp deployment adopt --build generated` writes both.",
             ANSWERS_FILE,
         )
-    ], []
+    ]
 
 
 def release_note(declaration: Declaration) -> list[str]:
@@ -277,6 +287,15 @@ def release_note(declaration: Declaration) -> list[str]:
     ]
 
 
+def ignore_findings(
+    project_root: pathlib.Path, declaration: Declaration
+) -> tuple[list[Finding], list[str]]:
+    """Whether every environment file a unit loads is ignored by git and the build context."""
+    names = _loaded_env_files(declaration)
+    git_findings, git_notes = _git_half(project_root, names)
+    return [*_docker_half(project_root, names), *git_findings], git_notes
+
+
 def check(project_root: pathlib.Path, declaration: Declaration, tables: Tables) -> Drift:
     """Everything this check finds for a generated *declaration* under *project_root*."""
     drift = Drift()
@@ -292,13 +311,19 @@ def check(project_root: pathlib.Path, declaration: Declaration, tables: Tables) 
         )
         drift.files = files
         drift.findings.extend(refused if refused else _drift(project_root, files))
-    names = _loaded_env_files(declaration)
-    drift.findings.extend(_docker_half(project_root, names))
-    git_findings, git_notes = _git_half(project_root, names)
-    answer_findings, answer_notes = _answers(project_root)
-    drift.findings.extend([*git_findings, *answer_findings])
-    drift.notes.extend([*git_notes, *answer_notes, *release_note(declaration)])
+    ignored, git_notes = ignore_findings(project_root, declaration)
+    drift.findings.extend([*ignored, *_answers(project_root)])
+    drift.notes.extend([*git_notes, *release_note(declaration)])
     return drift
 
 
-__all__ = ["ANSWER", "ANSWERS_FILE", "DEPLOYMENT_FILE", "Drift", "RENDER_COMMAND", "check"]
+__all__ = [
+    "ANSWER",
+    "ANSWERS_FILE",
+    "DEPLOYMENT_FILE",
+    "Drift",
+    "RENDER_COMMAND",
+    "check",
+    "ignore_findings",
+    "project_name",
+]
