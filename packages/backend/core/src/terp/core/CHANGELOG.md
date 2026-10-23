@@ -52,6 +52,15 @@ stayed stopped; after a frontend dependency change the whole backend could stay 
 settings change could be undone by the next rebuild. Every service on a rebuilt image now comes
 back on it, once per change, and a settings change applies itself.
 
+And two things a fresh render did in production went untested. An app with file uploads had no
+volume behind the files capability's storage root there: only the development compose file
+mounted one, so stored files lived in the API container and went with it at the next deploy.
+And an app rendered with single sign-on could not boot in production at all, configured or not:
+its composition root built the federated-identity service with no allowlist, which production
+refuses. The production profile now keeps the files in a volume the runtime user owns, the
+template reads the allowlist from `OIDC_ALLOWED_EMAIL_DOMAINS`, and template acceptance boots
+every render in production mode.
+
 ### Security
 
 - **A rendered environment file can no longer be baked into an image.** The template's
@@ -245,8 +254,27 @@ back on it, once per change, and a settings change applies itself.
   and drains again until SIGTERM or SIGINT, which end it cleanly after the batch in flight. A
   profile no longer needs a shell loop around a single drain, and the reference app's worker
   runs it in both profiles.
+- **Template acceptance boots every render in production mode** (`tools/production_boot.py`).
+  From the render's own environment, so exactly the capabilities it installs are discovered,
+  it brings a scratch PostgreSQL database to every head (production refuses SQLite, and the
+  template's migration guard a database behind the code), then builds the app in a fresh
+  interpreter with `ENVIRONMENT=production` and a generated `SECRET_KEY`, starts its lifespan
+  and asks `/health/ready` for a 200. A render with single sign-on boots twice more: SSO
+  configured with `OIDC_ALLOWED_EMAIL_DOMAINS`, which mounts the SSO routes, and SSO configured
+  without it, which must be refused in the federated-identity service's own words. The job
+  gains a PostgreSQL service with no password, reachable only from the job.
+- **And it runs the production profile on Docker** for the variant with files and single
+  sign-on: the backend image built from the render, the api up and healthy under `up --wait`
+  with SSO configured and its allowlist set, and the files volume written by the user the image
+  runs as and read back from a second container.
 
 ### Changed
+
+- **The generator says who owns a files mount.** A unit's `volumes:` in a generated profile
+  opens with a comment: the files capability's storage root, made by the backend image and
+  owned by the user it runs as, and Docker gives an empty named volume the owner of the
+  directory it is mounted over. The reference app's profile and the `grown` and
+  `hostile-values` samples carry it.
 
 - **The template's production images install exactly the committed locks.** The backend image
   runs `uv sync --locked --no-dev`: the lock's runtime set and nothing else, and a lock that
@@ -333,6 +361,36 @@ back on it, once per change, and a settings change applies itself.
 
 ### Upgrade notes
 
+- **An app with the files capability and `"build": "own"`** takes the volume in
+  `docker-compose.prod.yml` from `copier update`: the mount on `api` and `files-data` under
+  `volumes:`. `deployment.json` is the app's, and no update touches it, so declare the volume
+  there in the same change, or `terp verify --only deployment` keeps noting that `files-data`
+  has no backup policy:
+
+      "volumes": [
+        { "id": "files-data",
+          "mount": { "path": "var/files", "units": ["api"] },
+          "backup": { "every": "P1D", "keep": "P30D" } }
+      ]
+
+  A unit of your own that reads stored files, a worker, mounts the same volume: add it to the
+  profile and to `mount.units`. An app that already mounts a volume of its own at
+  `/srv/var/files` keeps one of the two when it resolves the merge, and declares that one. A
+  volume created by an image older than this release was made owned by root (the image had no
+  `/srv/var/files` for Docker to copy the owner from) and stays so; hand it over once with
+  `docker compose -f docker-compose.prod.yml run --rm --no-deps --user root api chown 10001
+  /srv/var/files`.
+- **An app with the files capability and `"build": "generated"`** declares the same volume,
+  with its `mount`, and runs `uv run terp deployment render`.
+- **An app with single sign-on sets `OIDC_ALLOWED_EMAIL_DOMAINS` wherever it runs as
+  production**, beside the other `OIDC_*` values: the email domains whose verified users get an
+  account, comma-separated. With SSO configured and the list empty, a production boot is
+  refused by name; with SSO not configured, the app boots without it. `copier update` rewrites
+  the SSO block of `app/auth.py`, which is the template's: an app that changed it meets one
+  merge there, and one that already passes its own `allowed_email_domains` or
+  `provision_allowed` keeps it. Where a deployment renders `.app.env` from
+  `environment.schema.json`, declare the variable there with the other `OIDC_*` values, and take
+  it out of the development compose file's block in the same change, as that block says.
 - **To have the framework own the build files**, take this release's `copier update` first
   (it records `deploy_build: own`), give each volume in `deployment.json` its `mount`, drop a
   `command` the generator renders itself (the migration step's, and a worker's or scheduler's
@@ -432,6 +490,27 @@ back on it, once per change, and a settings change applies itself.
   failed with a permission error. The dev image now creates the directory inside the source
   tree it already hands to that user, and the production image creates `/srv/var/files`
   owned by it, so a volume mounted there can be written.
+- **With the files capability on, the production profile keeps the files in a volume.** Only
+  the development compose file mounted one, so in production the storage root was the api
+  container's own filesystem, and a deploy that recreated the container took every stored file
+  with it. With `use_files` the seed declaration now names `files-data`, mounted at `var/files`
+  on `api` with a daily backup policy, and the profile mounts it there: the generator's render
+  of that seed, held byte for byte like the default render, and by the copier round trip,
+  where a render with files adopts `generated` with no build-file change. The volume is the
+  runtime user's because the image makes the mount point owned by that user before it drops to
+  it, and Docker gives an empty named volume the owner of the directory it is mounted over;
+  template acceptance writes it as that user and reads it back from a second container. `terp
+  verify --only deployment` on such a render no longer notes that its files live in a
+  container's writable layer.
+- **A render with single sign-on boots in production.** Its `app/auth.py` built
+  `FederatedIdentityService(allow_provisioning=True)` at import with no allowlist, which a
+  production boot refuses, so every production start of such an app failed, whether or not SSO
+  was configured, with a message about an allowlist the template gave no way to set. The
+  template now reads the allowlist from `OIDC_ALLOWED_EMAIL_DOMAINS` (comma-separated, in
+  `.env.example` and forwarded by the development compose file), and provisions only while SSO
+  is configured: with SSO off the app boots; with SSO configured it provisions verified users of
+  the listed domains only, and refuses a production boot without the list, by name. Outside
+  production the empty list still warns and provisions anyone the IdP verifies.
 - **A dependency change brings every service on the rebuilt image back up.** The development
   compose file built the backend image from `api` and rebuilt it there. A `watch` rebuild
   recreates every container whose image changed and then starts only the rebuilt service and

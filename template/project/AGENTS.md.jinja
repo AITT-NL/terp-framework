@@ -31,11 +31,16 @@ row scoping for you, with precise, fixable messages.
 {%- endif %}
 {%- if use_files %}
 - **File uploads** (`terp-cap-files`): auto-discovered admin surface at `/api/v1/files`;
-  streamed storage, local `var/files` profile by default — `uv run terp guide files`.
+  streamed storage, local `var/files` profile by default — `uv run terp guide files`. The
+  production profile keeps `var/files` in the `files-data` volume, which `deployment.json`
+  declares with its backup policy.
 {%- endif %}
 {%- if use_sso %}
 - **Single sign-on** (`terp-cap-oidc`): wired in `app/auth.py`, mounts once the `OIDC_*`
-  variables are set (see `.env.example`); JIT-provisions viewer-ranked SSO accounts.
+  variables are set (see `.env.example`); JIT-provisions viewer-ranked SSO accounts for the
+  email domains in `OIDC_ALLOWED_EMAIL_DOMAINS`. With SSO configured, a production boot
+  refuses an empty list (`allowed_email_domains`), so a deployed environment sets it with
+  the other `OIDC_*` values.
 {%- endif %}
 {%- if use_events %}
 - **Domain events** (`terp-cap-eventbus`): `dispatch_in_process` is wired in `app/main.py`;

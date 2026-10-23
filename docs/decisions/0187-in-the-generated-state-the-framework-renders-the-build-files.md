@@ -97,7 +97,10 @@ has no check at all (decision 5).
 **The template's files are the render of the seed** (`db`, `migrate`, `api`, `web`, `"build":
 "generated"`), held byte for byte by a test, with the slug left as the template's placeholder. So
 template and generator cannot drift, a hardening change is made once, and adopting `generated` in
-a template-shaped app at the same template version changes no build file. Becoming that render
+a template-shaped app at the same template version changes no build file. That holds for every
+answer the seed renders on: with the files capability on, the seed also declares the files
+volume, and the template's profile is the render of that seed (amended in 0.35.0; *How it was
+built*). Becoming that render
 changes the template once, in these places, and an `own` app that edited the same lines meets them
 as one merge:
 
@@ -373,7 +376,9 @@ heartbeat gives it a liveness of its own (decision 9).
   `.app.<id>.env` listed on each backend unit. A file a variable names (`SMTP_CA_FILE`, say) is the
   environment's to mount; the generator renders none.
 - **Volumes:** a `kind` unit's data in `<id>-data` at its recipe's path; a declared volume at
-  `/srv/var/files` on the units its `mount` names.
+  `/srv/var/files` on the units its `mount` names, under a comment saying who owns it: the
+  backend image makes the mount point owned by the user it runs as, and Docker gives an empty
+  named volume the owner of the directory it is mounted over.
 - **Never rendered:** `instances`, `size`/`sizes`, `env`, `migrations`, `stateful`, `backup`. A size
   is the smallest a unit runs at; the environment chooses one, and an executor applies it.
 - **Logging:** the template's json-file driver, 10 MB by three files, on every service.
@@ -777,3 +782,22 @@ Decision 8's second, third and fourth pull requests, in 0.35.0.
   says where its files volume is mounted, so its `reference-generated` lane adopts with no
   build-file change and is then held to `terp verify --only generated`, its suite and `docker
   compose config`.
+- **The files volume and the production boot** (later in 0.35.0, amending decision 1 and
+  decision 5's volume line, contradicting neither). The template's production profile had no
+  volume behind the files capability's storage root, so with `use_files` the stored files lived
+  in the api container. The seed now renders on that answer too: `deployment.json.jinja`
+  declares `files-data`, mounted at `var/files` on `api` with a daily backup policy, inside a
+  `use_files` block, and `docker-compose.prod.yml.jinja` carries the generator's render of that
+  seed in two blocks of the same answer (the mount on `api` and the top-level volume). The
+  byte-for-byte test renders both answers, resolving the blocks as copier's Jinja does, without
+  a Jinja engine; the copier round trip gains a fourth app, a copy with `use_files` that adopts
+  `generated` with no build-file change and passes `terp deployment render --check`. The
+  generator's mount gains its three-line ownership comment, so the `grown` and
+  `hostile-values` samples and the reference app's profile carry it. The ownership itself is
+  the image's (`mkdir -p /srv/var/files && chown appuser /srv/var/files` before `USER`) and
+  Docker's copy of the mount point's owner into an empty named volume; template acceptance
+  proves it on Docker for the variant with files, writing the volume as the image's user and
+  reading it back from a second container. The same change has template acceptance boot every
+  render in production mode (`tools/production_boot.py`), against a PostgreSQL service, which
+  found the template's single sign-on wiring refused by every production boot; the template
+  now renders the federated allowlist from `OIDC_ALLOWED_EMAIL_DOMAINS`.

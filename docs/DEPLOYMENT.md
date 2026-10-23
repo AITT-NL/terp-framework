@@ -152,9 +152,21 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   pin the timeout at the role (`ALTER ROLE terp_rt SET statement_timeout = '30s'`)
   and route the app through a pooler that accepts (or strips) the `options` startup
   parameter while keeping `DB_STATEMENT_TIMEOUT_MS` positive.
-- **Backups:** the state lives in the `db-data` volume (and your file-storage backend if
-  the `files` capability is on) — snapshot it with your regular Postgres tooling
+- **Backups:** the state lives in the `db-data` volume (and, with the `files` capability on,
+  in the `files-data` volume the template's profile mounts at the storage root, or your
+  file-storage backend) — snapshot it with your regular Postgres tooling
   (`pg_dump` via `docker compose exec db`).
+- **Stored files:** with `use_files`, the profile mounts the named volume `files-data` at
+  `/srv/var/files` on `api`, and `deployment.json` declares it with a daily backup policy. The
+  image makes that directory owned by the user it runs as, and Docker gives an empty named
+  volume the owner of the directory it is mounted over, so the volume is that user's from its
+  first mount. A volume made by an image that predates the directory stays owned by root;
+  hand it over once (`docker compose -f docker-compose.prod.yml run --rm --no-deps --user
+  root api chown 10001 /srv/var/files`).
+- **Single sign-on:** a production boot with SSO configured refuses an empty
+  `OIDC_ALLOWED_EMAIL_DOMAINS`, the email domains whose verified users get an account. Set it
+  with the other `OIDC_*` values wherever the app runs as production; with SSO not configured,
+  the app boots without it.
 
   **Dump the whole database, not a table list.** A Terp schema is not one migration
   history: every table-owning package keeps its own, behind its own

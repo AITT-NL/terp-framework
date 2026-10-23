@@ -1558,6 +1558,12 @@ File objects (files capability, ADR 0056/0057)
   invoice via your own service (its policy + row scope decide visibility), then
       row, data = FileService().load_for(session, invoice, "attachment_file_id")
   load_for fail-closes on an undeclared reference; /api/v1/files itself stays ADMIN-only.
+- The local profile's bytes need a volume in production, or they live in the container and
+  go with it. The template's production profile (use_files) mounts the files-data volume at
+  var/files on api, and deployment.json declares it with its backup policy, so a deploy tool
+  backs it up. A unit of your own that reads stored bytes (a worker) mounts the same volume:
+  add it to the profile and to the volume's "mount": {"units": [...]}. A store behind
+  another adapter needs no volume. `terp guide deployment` has the rest.
 """,
     "capability": """\
 Using capabilities
@@ -2658,7 +2664,11 @@ The template's Dockerfile.prod, frontend/Dockerfile.prod and docker-compose.prod
 the framework generator's render of the seed declaration (terp.arch.deployment.generate),
 held byte for byte by a test, so a hardening change reaches them once. Each says so in
 its header. Under "build": "own" they are the app's to change; under "build": "generated"
-they are the render (THE GENERATED STATE, above).
+they are the render (THE GENERATED STATE, above). With the files capability on (use_files),
+the seed also declares the files-data volume, mounted at var/files on api with a daily
+backup policy, and the profile mounts it: the render of that seed, held the same way. The
+backend image makes /srv/var/files owned by the user it runs as, and Docker gives an empty
+named volume the owner of the directory it is mounted over, so that user can write it.
 
   start it, with its required secrets set (compose stops on an unset one):
     SECRET_KEY=... POSTGRES_PASSWORD=... \\
