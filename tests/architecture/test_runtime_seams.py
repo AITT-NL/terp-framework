@@ -20,7 +20,10 @@ import inspect
 import pkgutil
 from typing import TYPE_CHECKING, cast
 
+import pytest
+
 import terp.core
+import terp.core.runtime as runtime_module
 from terp.core.events import EventCatalog
 from terp.core.runtime import (
     capture_runtimes,
@@ -65,8 +68,13 @@ def test_registered_seams_round_trip_their_state() -> None:
     assert capture_runtimes() == before
 
 
-def test_a_seam_registered_after_a_snapshot_is_reset_not_skipped() -> None:
+def test_a_seam_registered_after_a_snapshot_is_reset_not_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A capability imported mid-test must not leave its runtime installed afterwards."""
+    # The probe registers into a copy of the registry, so it is gone after this test: left
+    # in place it reads as an unowned seam to whichever test asks for the registry next.
+    monkeypatch.setattr(runtime_module, "_seams", dict(runtime_module._seams))
     installed = ["live"]
     snapshot = capture_runtimes()
     register_runtime_seam(

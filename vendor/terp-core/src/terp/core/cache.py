@@ -18,10 +18,10 @@ backends are opt-in capability packages a consumer wires at ``create_app(...)``.
 from __future__ import annotations
 
 import math
-import threading
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from threading import Lock
 
 
 class CacheStore(ABC):
@@ -59,7 +59,7 @@ class InMemoryCacheStore(CacheStore):
 
     def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
-        self._lock = threading.Lock()
+        self._lock = Lock()
         self._entries: dict[str, tuple[float, str]] = {}
         self._next_sweep_at = -math.inf
 

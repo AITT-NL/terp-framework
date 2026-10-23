@@ -82,6 +82,9 @@ dev = [
     "pyyaml>=6.0.3",
     # Exercises the terp-core[secrets] sealing cipher (terp.core.secrets, design §5.4).
     "cryptography>=50.0.2",
+    # Validates every log line a production app writes against the terp-log/1 schema
+    # (terp.core's log-record.schema.json, ADR 0188) with a full draft 2020-12 validator.
+    "jsonschema>=4.25.1",
     # The Terp Standard (ADR 0082): the certification tests locate the
     # catalog/corpus through terp_spec.spec_dir(), never a repo path. Pinned to
     # one exact release (ADR 0086) so the Python and npm pins can be compared.

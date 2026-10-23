@@ -15,8 +15,10 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from terp.core.logging import configure_logging
 
 _PLACEHOLDER_SECRETS = {"", "changethis"}
 _MIN_SECRET_LEN = 32
@@ -29,6 +31,11 @@ class Settings(BaseSettings):
         env_file=".env",
         env_ignore_empty=True,
         extra="ignore",
+        # A refused configuration must not print the configuration. Without this the
+        # validation error repeats its input, which is every setting read from the
+        # environment -- SECRET_KEY and the DATABASE_URL with its password among them --
+        # truncated in the middle, so the tail of a credential reached the boot log.
+        hide_input_in_errors=True,
     )
 
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
@@ -165,7 +172,22 @@ class Settings(BaseSettings):
         return self
 
 
-settings = Settings()
+def _load_settings() -> Settings:
+    """Read the settings, or refuse — with the refusal written as a structured record.
+
+    This runs when ``terp.core`` is first imported, before any composition root has
+    configured logging, so the refusal's traceback would otherwise be the one
+    plain-text block a deployed process prints. Routing the interpreter's printer
+    through the structured handler first makes it a record like every other line.
+    """
+    try:
+        return Settings()
+    except ValidationError:
+        configure_logging(capture_process=True)
+        raise
+
+
+settings = _load_settings()
 
 
 def get_settings() -> Settings:

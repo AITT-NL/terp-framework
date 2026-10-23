@@ -1071,6 +1071,52 @@ The security declaration (SecurityConfig, refused at production boot)
 - No terp.arch check applies - there is no module code shape to police. Enforcement is
   the create_app production fail-fast plus the production-readiness verify lane.
 """,
+    "logging": """\
+Logging (one JSON record per line, the terp-log/1 schema, ADR 0188)
+
+- Log with the standard library and nothing else:
+      import logging
+      _log = logging.getLogger(__name__)
+      _log.info("invoice %s sent", invoice.id, extra={"invoice_total": total})
+  create_app configures logging once: the root logger, uvicorn's own loggers and,
+  outside local development, uncaught exceptions and warnings. Never call
+  logging.basicConfig / dictConfig / fileConfig yourself (the no_adhoc_logging_config
+  rule refuses it): that is how a line escapes the redaction.
+- Every line is ONE JSON object in the terp-log/1 schema, which ships in terp-core
+  (terp.core.log_record_schema(); its id is terp.core.LOG_SCHEMA):
+      {"time": "2026-10-21T08:15:02.317Z", "schema": "terp-log/1", "level": "INFO",
+       "logger": "app.modules.invoices", "request_id": "6cd94d79...",
+       "message": "invoice 42 sent", "extra": {"invoice_total": 120}}
+  time is UTC with milliseconds; request_id joins every line of one request and is the
+  X-Request-ID response header. Your extra= fields land under "extra". A key is only
+  ever ADDED in a later release, so a reader takes what it knows and ignores the rest.
+- The framework writes these records itself. Do not write your own copy of them:
+    http.access      one per request: method, the route TEMPLATE (never the path, which
+                     holds ids), status, duration_ms, and actor / tenant when the
+                     request was authenticated (absent otherwise, never a token)
+    guard (on it)    the rule that allowed or denied the request -- role:editor,
+                     permission:invoices.send, authenticated, public -- its reason slug,
+                     whose policy it was (module or route) and the read/write tier
+    error.app        each AppError, ONCE: its code, its status and its log_context
+    error.unhandled  each unexpected exception, ONCE, with its traceback
+  So never log an AppError before raising it, and never log a request yourself. The
+  reason the client must not see goes in log_context, which is written and never sent:
+      raise ConflictError("The invoice was already sent.", log_context={"state": row.state})
+- Redaction covers SECRETS ONLY: a credential-like key (password, token, secret,
+  api_key, cookie, authorization) anywhere in extra or log_context, and
+  credential-shaped text (an Authorization, Bearer or cookie value, a URL's password, a
+  password=... pair) in the message and in tracebacks. Personal data is NOT recognised:
+  an email or a name you log is written as you logged it. Log ids, not people.
+- Levels: a client's AppError (4xx) is INFO beside its access line; a 5xx is ERROR.
+  Production runs at INFO. A guard decision with no access line to ride (a WebSocket)
+  is its own guard.decision record: a deny at INFO, an allow at DEBUG.
+- Serve the app the template's way (uvicorn app.main:app ...): uvicorn's own lines
+  become records when create_app runs, and its access line is retired in favour of
+  http.access. A supervisor process (--reload, --workers) never imports the app, so
+  its own few lines stay uvicorn's; production runs one process per container.
+- No terp.arch check covers the format: the runtime is the control, and the suite
+  validates every line a production process writes against the schema.
+""",
     "passwords": """\
 Password strength (PasswordPolicy, Tier-B)
 

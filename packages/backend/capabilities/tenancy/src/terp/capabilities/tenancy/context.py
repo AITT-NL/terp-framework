@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Iterator
 from contextvars import ContextVar
 
-from terp.core import AppError
+from terp.core import AppError, register_log_tenant_reader
 
 _current_tenant: ContextVar[uuid.UUID | None] = ContextVar(
     "terp_current_tenant", default=None
@@ -33,6 +33,11 @@ def require_tenant() -> uuid.UUID:
     if tenant is None:
         raise TenantContextError()
     return tenant
+
+
+# The access line names the tenant of an authenticated request; the kernel reads it
+# through this seam because it cannot import the capability that owns the context.
+register_log_tenant_reader(current_tenant_id)
 
 
 @contextlib.contextmanager

@@ -61,11 +61,11 @@ deliberately **unmarked**, so ``create_app(require_durable_leases=True)`` refuse
 
 from __future__ import annotations
 
-import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from threading import Lock
 from types import MappingProxyType
 from typing import Final
 
@@ -311,7 +311,7 @@ class InMemoryLeaseStore(LeaseStore):
 
     def __init__(self, *, clock: Callable[[], datetime] = _utc_now) -> None:
         self.clock = clock
-        self._lock = threading.Lock()
+        self._lock = Lock()
         self._entries: dict[LeaseResource, _Entry] = {}
 
     def acquire(

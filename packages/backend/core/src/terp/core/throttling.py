@@ -19,10 +19,10 @@ per-instance behaviour are deliberately **unchanged**; a shared store is opt-in.
 from __future__ import annotations
 
 import math
-import threading
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from threading import Lock
 
 
 class ThrottleStore(ABC):
@@ -69,7 +69,7 @@ class InMemoryThrottleStore(ThrottleStore):
 
     def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
-        self._lock = threading.Lock()
+        self._lock = Lock()
         self._hits: dict[str, tuple[float, int]] = {}
         self._locks: dict[str, float] = {}
 

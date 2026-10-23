@@ -7,7 +7,7 @@ the application's :class:`~terp.core.security.SecurityConfig`. They live under
 always the one central declaration.
 
 Order (outermost → innermost), so each response — including a CORS preflight —
-carries every control: request-id · security-headers · CORS · client-ip ·
+carries every control: request-id · access-log · security-headers · CORS · client-ip ·
 rate-limit · request-size-limit · idempotency · non-finite-json · app.
 """
 
@@ -31,6 +31,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from terp.core._request_log import AccessLogMiddleware
 from terp.core.idempotency import IdempotencyStore, StoredResponse
 from terp.core.logging import request_id_ctx
 from terp.core.routing import MUTATING_METHODS
@@ -832,9 +833,11 @@ def install_security_middleware(
 ) -> None:
     """Attach the full security stack to *app* from its central ``SecurityConfig``.
 
-    Added innermost-first so the resulting outer→inner order is request-id,
+    Added innermost-first so the resulting outer→inner order is request-id, access-log,
     security-headers, CORS, client-ip, rate-limit, request-size-limit, idempotency,
     non-finite-json.
+    The access log sits just inside request-id, so its one line per request carries the
+    correlation id and sees every status the stack answers with, a refusal included.
     Request-id and the security headers wrap CORS so that even a CORS preflight
     (handled and short-circuited by the CORS middleware) still carries a correlation
     id and the security headers. The client-ip resolver always attaches (it feeds
@@ -899,6 +902,7 @@ def install_security_middleware(
     stack.append(
         Middleware(SecurityHeadersMiddleware, headers=config.headers, include_hsts=not is_local)
     )
+    stack.append(Middleware(AccessLogMiddleware))
     stack.append(Middleware(RequestIdMiddleware, header_name=config.request_id_header))
     for layer in stack:
         app.add_middleware(layer.cls, *layer.args, **layer.kwargs)
