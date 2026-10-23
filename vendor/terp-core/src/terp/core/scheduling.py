@@ -109,7 +109,6 @@ class Misfire(StrEnum):
 ON_TIME_SECONDS: Final[float] = 60.0
 
 
-
 @dataclass(frozen=True)
 class ScheduleDefinition:
     """A typed schedule: a namespaced *name*, the *job* to enqueue, a *cron* trigger and a

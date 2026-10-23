@@ -253,10 +253,11 @@ def run_worker_command(
     try:
         with _on_stop(stopping.set):
             while not stopping.is_set():
+                # The drain beats before each claim and after each job, so an idle worker
+                # beats once per pass and a worker stuck in one job not at all.
                 results.append(
                     worker.run(max_cycles=max_cycles, stop=stopping, beat=heartbeat.beat)
                 )
-                heartbeat.beat()
                 stopping.wait(poll_seconds)
     finally:
         heartbeat.clear()

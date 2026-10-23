@@ -1,6 +1,6 @@
 """A worker finishes or gives back its work when it stops, and a killed one's job comes back.
 
-ADR 0191's exit test for workers: no job lost, and an interrupted job redelivered. Held on
+What ADR 0191 holds a worker to: no job lost, and an interrupted job redelivered. Held on
 the outbox worker ``terp jobs worker --forever`` runs:
 
 * **a stop** claims nothing more, finishes the job in flight, and releases the rest of the

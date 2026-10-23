@@ -61,7 +61,9 @@ check per store a `require_shared_*` made mandatory: `throttle_store`, `cache_st
 `idempotency_store` from `create_app`'s own arguments, and `realtime_broker` while
 `configure_realtime(require_shared_broker=True)` stands. 200 when every check passes, 503
 otherwise, each check named `ok` or `error` in `checks`. A store that is wired but not required
-is not asked: requiring it is the deployment's statement that it cannot serve without it.
+is not asked: requiring it is the deployment's statement that it cannot serve without it. The
+bound its tests hold it to: 503 within 30 seconds of losing the database or a mandatory store,
+and 200 within 30 seconds of its return.
 
 - **How a store is asked.** Each store port (`ThrottleStore`, `CacheStore`, `IdempotencyStore`,
   `RealtimeBroker`) gains `ping()`: raise when the backend cannot be reached. The per-process
@@ -253,5 +255,12 @@ seconds):
   in a process of its own, passes a fresh heartbeat and fails one past its bound, a missing one, a
   broken one and another role's. A worker loop stuck in a job writes nothing more while an idle
   one beats every poll.
-- **Mutation checks**: each guard was removed or weakened in turn and the suite run against it;
-  see the change's report.
+- **Mutation checks**: 28 mutants, each a guard removed or weakened in turn with the tests that
+  hold it run against it, among them readiness dropping the stores, an unbounded probe, a
+  hanging probe asked again, the rate limiter refusing `/health`, a skip run late, a late slot
+  called on time, both ledgers overwriting, a lost compare-and-set committing its row, a stopped
+  worker that keeps claiming or releases nothing, an expired lease never reclaimed, Celery
+  acknowledging on receipt, a heartbeat that outlives its process and a probe that never calls
+  one stale. All 28 fail the suite (one by hanging it: a worker that ignores its stop claims and
+  releases the same rows forever). A twenty-ninth, the forever loop's own beat after each drain,
+  survived because the drain already beats before each claim, so that beat was removed.

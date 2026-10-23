@@ -239,7 +239,7 @@ def test_apscheduler_runs_a_heartbeat_on_its_own_engine(session_factory) -> None
 
 
 def test_a_restarted_apscheduler_applies_each_schedule_s_misfire_policy(outbox_db) -> None:
-    """ADR 0191's exit test, on the adapter `terp jobs scheduler` runs: one scheduler fires
+    """ADR 0191's restart, on the adapter `terp jobs scheduler` runs: one scheduler fires
     at nine and stops; another, sharing only the database, starts at half past eleven."""
     job = _job()
     configure_jobs(JobCatalog([job]), queue=OutboxJobQueue())
@@ -340,7 +340,7 @@ def test_to_crontab_parses_five_fields_and_rejects_others() -> None:
 
 
 def test_a_restarted_beat_applies_each_schedule_s_misfire_policy(outbox_db) -> None:
-    """The same exit test on Celery beat: a tick beat fires late on start is settled as the
+    """The same restart on Celery beat: a tick beat fires late on start is settled as the
     misfire it is, and `catch_up` (from beat_init) settles a gap beat never fires for."""
     job = _job()
     configure_jobs(JobCatalog([job]), queue=OutboxJobQueue())

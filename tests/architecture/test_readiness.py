@@ -10,11 +10,11 @@ the store failed. A store a ``require_shared_*`` guard requires is now part of t
 * **how it is asked**: on a worker thread, within a bound, and never twice at once, so a
   store that accepts connections and never answers turns readiness 503 within the bound and
   cannot pile up a thread per probe;
-* **the timing** the managed-deployment plan holds it to: 503 within 30 seconds of losing a
-  mandatory store, and 200 within 30 seconds of its recovery. Measured here against a store
+* **the timing** ADR 0191 holds it to: 503 within 30 seconds of losing a mandatory store, and
+  200 within 30 seconds of its recovery. Measured here against a store
   that really goes away: terp-cap-redis' own stores, over redis-py's own client and real
   sockets, to an in-test server speaking the Redis protocol, which is stopped, made silent
-  and started again on the same port. The database half of the same exit test needs a
+  and started again on the same port. The database half needs a
   server, so it runs in the PostgreSQL lane (``test_readiness_postgres.py``).
 """
 
@@ -50,7 +50,7 @@ from terp.core.health import (
 
 from terp.capabilities.redis import RedisCacheStore, RedisIdempotencyStore, RedisThrottleStore
 
-#: The plan's bound on both transitions.
+#: ADR 0191's bound on both transitions.
 _BOUND_SECONDS = 30.0
 
 

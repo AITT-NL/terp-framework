@@ -1,6 +1,6 @@
 """Readiness turns 503 within 30 seconds of losing the database, and 200 within 30 of its return.
 
-The database half of ADR 0191's exit test (the shared-store half is in
+The database half of ADR 0191's readiness bound (the shared-store half is in
 ``test_readiness.py``). It needs a real server, so it runs where ``TERP_TEST_POSTGRES_URL``
 names one: CI's PostgreSQL lane runs this module, and anywhere else it skips. The app reaches
 the server through a TCP relay the test owns, so losing the database is what a deployment
