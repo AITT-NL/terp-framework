@@ -275,6 +275,10 @@ every render in production mode.
   owned by the user it runs as, and Docker gives an empty named volume the owner of the
   directory it is mounted over. The reference app's profile and the `grown` and
   `hostile-values` samples carry it.
+- **And it refuses a second volume at a mount point a unit already has.** Two volumes that both
+  name one unit rendered two entries at `/srv/var/files` on its service, a duplicate mount
+  point Compose refuses, so the render was a profile no deploy could start. The refusal names
+  the unit and the volume that holds the path; two volumes on two units still render.
 
 - **The template's production images install exactly the committed locks.** The backend image
   runs `uv sync --locked --no-dev`: the lock's runtime set and nothing else, and a lock that

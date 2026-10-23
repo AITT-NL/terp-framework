@@ -274,6 +274,22 @@ def test_a_refusal_sample_is_refused_with_its_own_message(name: str) -> None:
     assert all("(allowed: " in message for message in messages), "and what is allowed"
 
 
+def test_two_volumes_render_where_each_unit_mounts_one() -> None:
+    """The refusal of a second volume at one mount point is per unit: two volumes on two
+    units are two mount points, and render."""
+    raw = template_seed("generated", use_files=True)
+    raw["volumes"].append(
+        {"id": "more-files", "mount": {"path": "var/files", "units": ["migrate"]}}
+    )
+    files, found = generate(
+        _declare(raw, published_tables()), _SLUG, tables=published_tables(), frontend_lock=True
+    )
+    assert found == []
+    services = _profile(files)["services"]
+    assert services["api"]["volumes"] == [f"files-data:{APP_ROOT}/{MOUNT_PATH}"]
+    assert services["migrate"]["volumes"] == [f"more-files:{APP_ROOT}/{MOUNT_PATH}"]
+
+
 def test_a_refusal_names_the_file_it_is_about() -> None:
     sample = _REFUSALS["a-project-name-docker-refuses"]
     _files, found = generate(

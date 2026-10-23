@@ -391,7 +391,9 @@ single `api` to proxy to; two `web` units; an `api` unit without both health pat
 cycle, or one naming a unit the declaration does not have (a generated profile runs only declared
 units); a `kind` under a role other than its table entry's, or a kind this release has no recipe
 for; a volume without `mount`, a mount path other than `var/files`, a mount on a unit not on the
-backend image, or a volume id equal to a `kind` unit's `<id>-data`; any system package; a unit id
+backend image, a second volume a unit mounts at a path one already holds (Compose refuses a
+duplicate mount point; amended in 0.35.0), or a volume id equal to a `kind` unit's `<id>-data`;
+any system package; a unit id
 that is not a lowercase compose name; and (the reader) a `generator` block beside `own`. What the
 generator refuses, the app can build in the `own` state.
 
@@ -724,7 +726,7 @@ Decision 8's second, third and fourth pull requests, in 0.35.0.
 - **The golden samples** are `tests/architecture/generator_goldens/`: `grown`, `no-frontend`,
   `no-api`, `no-api-no-migration`, `external-database`, `hostile-values`, `store`, `renamed`,
   `no-database` and `datastore-only`, each a declaration, its sample record and the exact
-  profile, and 30 refusal samples, one per refusal. `seed`'s expected files are the template's
+  profile, and 31 refusal samples, one per refusal. `seed`'s expected files are the template's
   own. Over every sample: the same bytes in processes with hash seeds 0, 1, 4242 and random;
   every plain scalar a string under PyYAML (YAML 1.1) and the 1.2 core schema; every command,
   liveness path and mount back as declared after compose's unescaping; the truth rule,
