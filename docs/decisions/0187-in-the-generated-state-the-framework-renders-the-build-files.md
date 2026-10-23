@@ -858,7 +858,7 @@ Decision 8's second, third and fourth pull requests, in 0.35.0.
   byte-identical `inputs`; a manifest with no signature, a broken one, one by another key and
   one whose image changed under the signature are refused before promote runs a single
   command, and an image whose id is not the signed one before compose. Each guard was mutated
-  and its test seen to fail. Waiting, because the machine's Docker engine was paused: the Docker
+  and its test seen to fail. Still to run, on a Docker engine: the Docker
   lane, which builds a template-shaped app twice cold into a job-local `registry:2` pinned by
   digest, compares the two `inputs` and installed lists, runs `sign` against the real images
   and the real sandbox, and promotes the result; and a run of the signer image's CI job.

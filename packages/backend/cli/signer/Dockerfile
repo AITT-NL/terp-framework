@@ -3,7 +3,7 @@
 # `sign` never runs at the version a release pins, so an app cannot choose its own verifier: it
 # runs from this image, at the framework's newest release. The image holds terp-cli with its
 # `release` extra, installed from a hash-locked requirements file and the framework's own wheels
-# (tools/signer_requirements.py writes both), gitleaks for the secret scan, the docker client the
+# (tools/signer_context.py writes both), gitleaks for the secret scan, the docker client the
 # bytecode check runs the base image's interpreter with (never an app image), git to read the
 # commit, and the terp-arch release table: the wheel SHA-256 of every terp-arch release from the
 # floor up, the only wheels `sign` renders with.
