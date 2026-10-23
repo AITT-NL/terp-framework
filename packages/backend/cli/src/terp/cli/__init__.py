@@ -3498,7 +3498,12 @@ def _render_json(plane: ControlPlane, specs: Sequence[ModuleSpec]) -> str:
             "request_id_header": plane.security.request_id_header,
         },
         "schedules": [
-            {"name": schedule.name, "cron": schedule.cron, "job": schedule.job.name}
+            {
+                "name": schedule.name,
+                "cron": schedule.cron,
+                "job": schedule.job.name,
+                "misfire": schedule.misfire.value,
+            }
             for schedule in sorted(
                 plane.schedules.schedules, key=lambda item: item.name
             )
@@ -3605,7 +3610,10 @@ def _render_text(plane: ControlPlane, specs: Sequence[ModuleSpec]) -> str:
     if not plane.schedules.schedules:
         lines.append("  <none declared>")
     for schedule in sorted(plane.schedules.schedules, key=lambda item: item.name):
-        lines.append(f"  {schedule.name}  {schedule.cron}  -> {schedule.job.name}")
+        lines.append(
+            f"  {schedule.name}  {schedule.cron}  -> {schedule.job.name}  "
+            f"misfire={schedule.misfire.value}"
+        )
     return "\n".join(lines)
 
 

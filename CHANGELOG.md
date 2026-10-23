@@ -335,7 +335,9 @@ the work in flight, and a schedule says what a missed tick becomes (ADR 0191).
   `outbox_schedule_fire` table, in the same transaction as the outbox row the tick enqueued;
   `create_app(schedule_ledger=..., require_durable_schedules=...)` wires and promises it. The
   APScheduler adapter settles every schedule on start (and takes a `timezone`), and the Celery-beat
-  adapter's tick settles through the ledger, with `catch_up()` for beat's `beat_init`.
+  adapter's tick settles through the ledger, with `catch_up()` for beat's `beat_init`. `terp
+  inspect control-plane` shows each schedule's policy, `misfire` in its JSON, so a tool that reads
+  the catalog from an image (`terp release gate`) can carry it.
 - **A stopped worker finishes or gives back its work.** `OutboxWorker.run(stop=...)` claims
   nothing once the event is set, finishes the job running and releases the rest of its batch for
   another worker at once (`DrainResult.released`); `terp jobs worker --forever` sets it on SIGTERM

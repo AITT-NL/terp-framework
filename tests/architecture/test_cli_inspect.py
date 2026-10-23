@@ -345,8 +345,8 @@ def test_render_json_covers_non_default_platform_policies() -> None:
     }
     assert payload["security"]["rate_limit"]["enabled"] is False
     assert payload["schedules"] == [
-        {"name": "billing.nightly", "cron": "0 2 * * *", "job": "billing.sync"}
-    ]
+        {"name": "billing.nightly", "cron": "0 2 * * *", "job": "billing.sync", "misfire": "skip"}
+    ], "the declared misfire policy travels with the schedule (ADR 0191)"
     assert payload["job_system_actor"] is True
 
 
@@ -433,7 +433,7 @@ def test_render_text_covers_non_default_platform_policies() -> None:
     assert "RELAXED (kiosk PINs)" in rendered
     assert "cors allow https://app.example" in rendered
     assert "rate_limit DISABLED" in rendered
-    assert "billing.nightly  0 2 * * *  -> billing.sync" in rendered
+    assert "billing.nightly  0 2 * * *  -> billing.sync  misfire=skip" in rendered
 
     disabled = ControlPlane(
         audit=AuditPolicy.disabled(reason="prototype spike"),
