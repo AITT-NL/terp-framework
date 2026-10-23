@@ -41,6 +41,7 @@ import json
 import logging
 import time
 import uuid
+import weakref
 from collections.abc import Callable
 from contextvars import ContextVar
 from importlib import resources
@@ -89,6 +90,14 @@ TOP_LEVEL_FIELDS: Final[tuple[str, ...]] = (
 _NOT_EXTRA: Final[frozenset[str]] = frozenset({_FIELDS, "color_message"})
 
 _PLAIN_FORMATTER = logging.Formatter()
+
+# The formatter each handler had before ``_protect_handler`` replaced it. A handler the
+# framework did not create belongs to someone else -- a test runner's capture, a host's
+# log shipper -- and undoing the configuration (``reset_logging_runtime``) has to be able
+# to give it back.
+_original_formatters: weakref.WeakKeyDictionary[logging.Handler, logging.Formatter | None] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 def get_request_id() -> str | None:
@@ -222,6 +231,9 @@ class StructuredFormatter(logging.Formatter):
             "request_id": getattr(record, "request_id", None) or "-",
             "message": _scrub_text(record.getMessage()),
         }
+        # What ``logging.Formatter.format`` leaves on the record, and what a handler
+        # sharing the record afterwards (a test runner's capture, for one) reads.
+        record.message = payload["message"]
         fields = record.__dict__.get(_FIELDS)
         if isinstance(fields, dict):
             payload.update(
@@ -285,6 +297,10 @@ def _protect_handler(handler: logging.Handler) -> logging.Handler:
     logger's filters. Installing the filter only on the root logger would let a
     child logger bypass redaction through a pre-existing root/uvicorn handler.
     """
+    if handler not in _original_formatters and not isinstance(
+        handler.formatter, StructuredFormatter
+    ):
+        _original_formatters[handler] = handler.formatter
     handler.setFormatter(StructuredFormatter())
     if not any(isinstance(f, RedactingFilter) for f in handler.filters):
         handler.addFilter(RedactingFilter())

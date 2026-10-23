@@ -91,6 +91,15 @@ versioned schema.
   validation error repeated its input, truncated in the middle, so the tail of `DATABASE_URL`,
   password included, could reach the boot log. `Settings` hides its input in errors, and the
   refusal is written as a record.
+- **A test no longer sees the logging an earlier test's app configured.** `create_app`
+  configures logging for the whole process, and terp-core's pytest plugin did not put it back:
+  the first test to compose an app re-dressed pytest's own capture handlers with the JSON
+  formatter and the redaction filters for the rest of the session, so a later test reading
+  `caplog` got records without `.message`, and passed or failed by what had run before it. The
+  root logger and its handlers, uvicorn's loggers and the process hooks are now one per-app
+  runtime seam (`reset_logging_runtime`), snapshotted before each test and restored after it;
+  the reset gives a handler the framework did not create its own formatter back. The JSON
+  formatter also leaves `record.message` on the record, as `logging.Formatter` does.
 - **No framework text claims personal-data redaction any more.** ADR 0005, ADR 0006, the
   logging module and the `no_adhoc_logging_config` rule's docstring and finding said "PII
   redaction"; the filter recognises secrets only, and they now say so. The Terp Standard's

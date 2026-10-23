@@ -114,9 +114,15 @@ exception the framework has already written (decision 5) is dropped by a filter 
 printers, so an uncaught exception, one that ends a thread, an unraisable one and a warning each
 become a record (`error.uncaught`, or logger `py.warnings`). It replaces only a hook still at the
 interpreter's default: one somebody else installed (a test runner's, an APM agent's) is theirs.
-Local development keeps them: there, a test runner owns those hooks. The hooks are a per-app
-runtime seam (`reset_logging_runtime`), so a test that composes a production app leaves the
-process as it found it.
+Local development keeps them: there, a test runner owns those hooks.
+
+All of this configures the process, and a test process composes many apps, so it is one per-app
+runtime seam (`reset_logging_runtime`): the root logger and its handlers, uvicorn's loggers and
+the hooks, snapshotted by terp-core's test plugin before each test and put back after it. Before
+it was, the first test to compose an app dressed pytest's own capture handlers with the JSON
+formatter and the redaction filters for the rest of the session, and a later test reading
+`caplog` passed or failed by what had run before it. A reset takes off only what the framework
+put on: its own handler goes, and a handler it did not create gets its own formatter back.
 
 A settings refusal happens while `terp.core` is still importing, before any composition root
 runs. `Settings` now hides its input in errors, and the import routes the refusal through the

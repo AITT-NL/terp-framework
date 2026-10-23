@@ -131,17 +131,25 @@ def assert_record(line: dict[str, Any]) -> None:
 
 @contextlib.contextmanager
 def captured(level: int = logging.DEBUG) -> Iterator[list[dict[str, Any]]]:
-    """Collect every record the root logger sees, as parsed ``terp-log/1`` lines."""
+    """Collect every record the root logger sees, as parsed ``terp-log/1`` lines.
+
+    The root logger is held at INFO, the level a composed app runs at, rather than
+    whatever the process happens to have: a test that does not compose an app must not
+    depend on an earlier one having done so.
+    """
     stream = io.StringIO()
     handler = _protect_handler(logging.StreamHandler(stream))
     handler.setLevel(level)
     root = logging.getLogger()
+    previous_level = root.level
+    root.setLevel(logging.INFO)
     root.addHandler(handler)
     lines: list[dict[str, Any]] = []
     try:
         yield lines
     finally:
         root.removeHandler(handler)
+        root.setLevel(previous_level)
         lines.extend(json.loads(text) for text in stream.getvalue().splitlines())
 
 
@@ -483,6 +491,16 @@ def test_tracebacks_are_redacted() -> None:
     assert "ConnectionError" in line["exc_info"]
     assert _PASSWORD not in line["exc_info"] and _TOKEN not in line["exc_info"]
     assert_record(line)
+
+
+def test_a_str_subclass_is_scrubbed_like_a_str() -> None:
+    # A StrEnum member or a str-derived label takes the slower path through redaction,
+    # and is redacted all the same.
+    class Label(str):
+        pass
+
+    line = _render(_record("m", note=Label(f"Bearer {_TOKEN}")))
+    assert line["extra"] == {"note": "Bearer [REDACTED]"}
 
 
 def test_redaction_recognises_secrets_and_only_secrets() -> None:
@@ -1062,3 +1080,103 @@ def test_configure_logging_on_a_named_logger_touches_nothing_process_wide(
     configure_logging(logger=logger, capture_process=True)
     assert sys.excepthook is sys.__excepthook__
     assert logging.getLogger("uvicorn").handlers
+
+
+# --------------------------------------------------------------------------- #
+# a test process composes many apps: what one configures, the next must not see
+# --------------------------------------------------------------------------- #
+def _framework_dressed(handler: logging.Handler) -> bool:
+    return isinstance(handler.formatter, StructuredFormatter) or any(
+        isinstance(existing, RedactingFilter) for existing in handler.filters
+    )
+
+
+def test_composing_an_app_dresses_the_handlers_already_on_the_root(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The first of a pair, in file order. Inside the test the composition root does what
+    # it does in production: every handler on the root, the test runner's capture handler
+    # included, renders the record and redacts it.
+    _app()
+    assert caplog.handler in logging.getLogger().handlers
+    assert _framework_dressed(caplog.handler)
+
+
+def test_the_next_test_finds_the_root_as_the_test_runner_left_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The second of the pair. Before the logging runtime was a seam, the dressing above
+    # outlived its test, so a later test reading ``caplog`` got a JSON formatter and
+    # records without ``.message`` -- and passed or failed by what had run before it.
+    root = logging.getLogger()
+    assert not any(_framework_dressed(handler) for handler in root.handlers)
+    assert not any(isinstance(existing, RedactingFilter) for existing in root.filters)
+    with caplog.at_level(logging.INFO, logger="terp.test.structured.next"):
+        logging.getLogger("terp.test.structured.next").info("plain %s", "text")
+    assert caplog.records[-1].message == "plain text"
+    assert caplog.text.rstrip().endswith("plain text")
+
+
+def test_the_logging_seam_puts_back_everything_configure_logging_changes(
+    default_hooks: None, server_loggers: None
+) -> None:
+    from uvicorn.config import LOGGING_CONFIG
+
+    from terp.core.runtime import capture_runtimes, restore_runtimes
+
+    logging.config.dictConfig(LOGGING_CONFIG)  # what uvicorn's command line does first
+    theirs = logging.StreamHandler(io.StringIO())
+    their_formatter = logging.Formatter("%(levelname)s %(message)s")
+    theirs.setFormatter(their_formatter)
+    root = logging.getLogger()
+    root.addHandler(theirs)
+    try:
+        before = capture_runtimes()["logging"]
+        uvicorn_handlers = list(logging.getLogger("uvicorn").handlers)
+        configure_logging(capture_process=True)
+        assert capture_runtimes()["logging"] != before
+        assert _framework_dressed(theirs) and logging.getLogger("uvicorn").handlers == []
+        restore_runtimes({"logging": before})
+        assert capture_runtimes()["logging"] == before
+        assert theirs.formatter is their_formatter and theirs.filters == []
+        assert logging.getLogger("uvicorn").handlers == uvicorn_handlers
+        assert sys.excepthook is sys.__excepthook__
+    finally:
+        root.removeHandler(theirs)
+
+
+def test_resetting_the_logging_runtime_undoes_configure_logging_and_keeps_the_rest(
+    default_hooks: None, server_loggers: None
+) -> None:
+    root = logging.getLogger()
+    saved = list(root.handlers), list(root.filters), root.level
+    root.handlers[:] = []
+    theirs = logging.StreamHandler(io.StringIO())
+    their_formatter = logging.Formatter("%(message)s")
+    theirs.setFormatter(their_formatter)
+    try:
+        configure_logging()  # no handler on the root: the framework adds its own
+        (ours,) = root.handlers
+        assert isinstance(ours, _StructuredStreamHandler)
+        root.addHandler(theirs)
+        configure_logging()  # now it dresses theirs as well
+        configure_logging()  # and a second time records nothing new
+        assert _framework_dressed(theirs)
+        reset_logging_runtime()
+        assert root.handlers == [theirs]
+        assert theirs.formatter is their_formatter and theirs.filters == []
+        assert not any(isinstance(existing, RedactingFilter) for existing in root.filters)
+        assert not logging.getLogger("uvicorn.error").filters
+        reset_logging_runtime()  # idempotent: nothing of the framework's is left to undo
+        assert root.handlers == [theirs] and theirs.formatter is their_formatter
+    finally:
+        root.handlers[:], root.filters[:] = saved[0], saved[1]
+        root.setLevel(saved[2])
+
+
+def test_the_structured_formatter_leaves_the_message_on_the_record() -> None:
+    # As ``logging.Formatter.format`` does: a handler that shares the record afterwards
+    # (a test runner's capture, a host's shipper) reads ``record.message``.
+    record = _record("password=%s", (_PASSWORD,))
+    StructuredFormatter().format(record)
+    assert record.message == "password=[REDACTED]"
