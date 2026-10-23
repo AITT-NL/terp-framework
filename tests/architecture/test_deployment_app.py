@@ -18,7 +18,14 @@ import pytest
 from terp.arch.deployment import Datastore, DatastoreTable, published_table
 from terp.cli import deployment_app
 from terp.cli.deployment_check import run_deployment_check
-from tests.architecture.deployment_fixtures import PROBE_REF, profile, project, seed, unit
+from tests.architecture.deployment_fixtures import (
+    PROBE_REF,
+    profile,
+    project,
+    seed,
+    template_profile,
+    unit,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -120,6 +127,25 @@ def test_file_storage_with_no_volume_at_its_root_is_noted(tmp_path) -> None:
     code, output = _run(project(tmp_path, seed(), files={"pyproject.toml": _FILES_APP}))
     assert code == 0
     assert "no declared unit mounts a named volume at its storage root (var/files)" in output
+
+
+def test_the_template_rendered_with_files_leaves_nothing_to_note(tmp_path) -> None:
+    """A render with use_files: the seed declares the volume its profile mounts at the
+    storage root, with a backup policy. Without that answer's blocks, which is what such a
+    render was before, its files lived in the api container, and the note said so."""
+    with_files = project(
+        tmp_path / "files",
+        seed(use_files=True),
+        template_profile(use_files=True),
+        files={"pyproject.toml": _FILES_APP},
+    )
+    code, output = _run(with_files)
+    assert code == 0 and "note: " not in output, output
+    before = project(
+        tmp_path / "before", seed(), template_profile(), files={"pyproject.toml": _FILES_APP}
+    )
+    code, output = _run(before)
+    assert code == 0 and "so stored files live in a container's writable layer" in output
 
 
 def test_a_volume_only_stateful_units_mount_is_covered_by_their_policy(tmp_path) -> None:
