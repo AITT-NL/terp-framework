@@ -245,12 +245,11 @@ def build_health_router(
 
     @router.get("/ready")
     def ready(session: SessionDep) -> JSONResponse:
-        """Readiness: 200 when the database and every mandatory store answer, else 503.
-
-        A plain function, so the database is asked exactly as ADR 0024 asks it: on the
-        request's own session, in the worker thread that serves the request. The stores are
-        then asked together from the event loop, each on a thread of its own.
-        """
+        """Readiness: 200 when the database and every mandatory shared store answer, else 503."""
+        # A plain function, so the database is asked exactly as ADR 0024 asks it: on the
+        # request's own session, in the worker thread that serves the request. The stores
+        # are then asked together from the event loop, each on a thread of its own. (The
+        # docstring is the OpenAPI description, so it stays one line.)
         stores = dict(app_stores)
         for name, mandatory in mandatory_stores().items():
             probe = mandatory()
