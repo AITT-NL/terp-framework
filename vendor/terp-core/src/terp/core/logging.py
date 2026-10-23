@@ -18,8 +18,10 @@ Four responsibilities, all *secure by default*:
    (``password``, ``token``, ``secret``, ``api_key``, ``cookie``, ``authorization``),
    an ``Authorization`` / ``Bearer`` / cookie value, a URL's password and a
    ``password=...``-shaped pair in free text — in the message, its arguments,
-   ``extra=`` fields and exception text. It recognises secrets only: personal data
-   (a name, an address, an email) is not recognised and passes through.
+   ``extra=`` fields and exception text. Personal data is withheld where it is
+   **declared** (``Personal``, ADR 0190): a model is rendered with its personal fields
+   as ``[PERSONAL]``, and so is a value under a declared field's name. An undeclared
+   name, address or email has no shape to find, and passes through.
 4. :func:`configure_logging` wires both plus a :class:`StructuredFormatter` and is
    idempotent — the composition root calls it once. It also re-points uvicorn's own
    loggers at the same handler and, outside local development, routes uncaught
@@ -46,10 +48,9 @@ from contextvars import ContextVar
 from importlib import resources
 from typing import Any, Final
 
-from terp.core._redaction import REDACTED as _REDACTED
-from terp.core._redaction import looks_sensitive as _looks_sensitive
 from terp.core._redaction import scrub as _scrub
 from terp.core._redaction import scrub_text as _scrub_text
+from terp.core._redaction import withheld_under as _withheld_under
 
 #: The id of the record shape, carried by every line in its ``schema`` key.
 LOG_SCHEMA: Final[str] = "terp-log/1"
@@ -125,7 +126,8 @@ def _withhold(record: logging.LogRecord, exc: BaseException) -> None:
 
 
 class RedactingFilter(logging.Filter):
-    """Redact secrets from a record's message, ``args``, ``extra`` fields and exception text."""
+    """Redact secrets and declared personal fields from a record's message, ``args``,
+    ``extra`` fields and exception text."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         try:
@@ -137,8 +139,9 @@ class RedactingFilter(logging.Filter):
     def _redact(self, record: logging.LogRecord) -> None:
         if not isinstance(record.msg, str):
             # An exception or an object logged as the message renders through str();
-            # rendering it here is what lets its text be scrubbed.
-            record.msg = str(record.msg)
+            # rendering it here is what lets its text be scrubbed, and a model renders
+            # with its declared personal fields withheld.
+            record.msg = str(_scrub(record.msg))
         record.msg = _scrub_text(record.msg)
         if isinstance(record.args, dict):
             record.args = _scrub(record.args)
@@ -161,9 +164,9 @@ class RedactingFilter(logging.Filter):
                 # what an app handed over is ``context``, an error's log_context.
                 if "context" in value:
                     setattr(record, key, {**value, "context": _scrub(value["context"])})
-            elif _looks_sensitive(key):
-                setattr(record, key, _REDACTED)
-            elif isinstance(value, (str, dict, list, tuple)):
+            elif (mark := _withheld_under(key)) is not None:
+                setattr(record, key, mark)
+            else:
                 setattr(record, key, _scrub(value))
 
 

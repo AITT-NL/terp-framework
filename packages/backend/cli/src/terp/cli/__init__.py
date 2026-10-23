@@ -1102,11 +1102,16 @@ Logging (one JSON record per line, the terp-log/1 schema, ADR 0188)
   So never log an AppError before raising it, and never log a request yourself. The
   reason the client must not see goes in log_context, which is written and never sent:
       raise ConflictError("The invoice was already sent.", log_context={"state": row.state})
-- Redaction covers SECRETS ONLY: a credential-like key (password, token, secret,
-  api_key, cookie, authorization) anywhere in extra or log_context, and
+- Redaction covers SECRETS by name and shape: a credential-like key (password, token,
+  secret, api_key, cookie, authorization) anywhere in extra or log_context, and
   credential-shaped text (an Authorization, Bearer or cookie value, a URL's password, a
-  password=... pair) in the message and in tracebacks. Personal data is NOT recognised:
-  an email or a name you log is written as you logged it. Log ids, not people.
+  password=... pair) in the message and in tracebacks.
+- PERSONAL DATA is redacted where it is DECLARED (Personal(...), `terp guide
+  personal-data`): a model you log -- as an argument, inside extra or log_context, in an
+  f-string or an exception's text -- renders [PERSONAL] in place of each declared field,
+  and so does a value under a declared field's name ({"email": ...}). A bare string is
+  not a field: log.info("invited %s", customer.email) writes the address. Log the model
+  or its id, never the value on its own.
 - Levels: a client's AppError (4xx) is INFO beside its access line; a 5xx is ERROR.
   Production runs at INFO. A guard decision with no access line to ride (a WebSocket)
   is its own guard.decision record: a deny at INFO, an allow at DEBUG.
@@ -1116,6 +1121,47 @@ Logging (one JSON record per line, the terp-log/1 schema, ADR 0188)
   its own few lines stay uvicorn's; production runs one process per container.
 - No terp.arch check covers the format: the runtime is the control, and the suite
   validates every line a production process writes against the schema.
+""",
+    "personal-data": """\
+Personal data (Personal, ADR 0190)
+
+- Declare every field that holds a person's data with Personal(...) instead of Field(...).
+  It takes exactly Field's keywords, on the table AND on every schema that redeclares the
+  field (a schema that writes `email: str` plainly has said it is not personal):
+      from terp.core import BaseSchema, BaseTable, Personal
+      class Customer(BaseTable, table=True):
+          email: str = Personal(max_length=320, index=True, unique=True)
+          date_of_birth: datetime.date | None = Personal(default=None)
+      class CustomerRead(BaseSchema):
+          id: uuid.UUID
+          email: str = Personal()
+  It changes no DDL and no API contract: no migration, no OpenAPI change.
+- What reads the declaration:
+    the log          a model renders [PERSONAL] in place of each declared field wherever
+                     it is rendered (an argument, extra=, log_context, an f-string, an
+                     exception, a traceback), and a value under a declared field's name
+                     ({"email": ...}) is replaced; a database refusal (a duplicate email)
+                     loses the row's personal values before it reaches log_context
+    the audit trail  a payload keeps each declared field's key and loses its value: the
+                     trail says the field was there, the row holds the value
+    events and jobs  a PUBLIC event or job may not declare a personal field in its payload
+                     (refused where it is declared); redact_personal(payload) is the copy
+                     of a payload that may leave the process
+    errors           a model with a personal field hides its input in a ValidationError's
+                     text; the 422 a client gets still shows what that client sent
+  personal_fields(Model), personal_field_names() and personal_columns() read it back,
+  the last from database metadata alone.
+- What it cannot see: a value that has stopped being a field. f"{customer.email}" is a
+  string, and so is customer.email logged on its own. Log the model or its id.
+- The personal_fields_are_declared rule refuses a model field NAMED like personal data
+  that is not declared: email, phone (and phone_number, telephone, mobile_number),
+  date_of_birth (birth_date, birthday, dob), national_id (ssn, bsn, passport_number),
+  first_name / last_name / full_name / given_name / family_name / middle_name /
+  surname, home_address / residential_address -- the name's LAST words, so contact_email
+  counts and email_verified does not. A field that only looks personal says why it is not:
+      # arch-allow-personal-fields-are-declared: the organisation's shared mailbox
+      support_email: str = Field(max_length=320)
+  The vocabulary is short on purpose; declare every other personal field by hand.
 """,
     "passwords": """\
 Password strength (PasswordPolicy, Tier-B)

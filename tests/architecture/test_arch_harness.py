@@ -89,6 +89,7 @@ from terp.arch import (
     check_routes_declare_response_model,
     check_declared_read_only_routes_do_not_write,
     check_references_declare_delete_behaviour,
+    check_personal_fields_are_declared,
     check_safe_methods_are_read_only,
     check_schemas_exclude_sensitive_fields,
     check_session_imported_from_sqlmodel,
@@ -99,6 +100,7 @@ from terp.arch import (
     check_tenant_scoped_models_use_scoped_service,
     check_update_schemas_inherit_base_update_schema,
 )
+from terp.arch.rules.personal import is_personal_field_name
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _EXAMPLE_APP = _REPO_ROOT / "apps" / "example" / "app"
@@ -5844,3 +5846,161 @@ def test_references_declare_delete_behaviour(tmp_path: pathlib.Path) -> None:
         '    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.CASCADE)\n',
     )
     assert check_references_declare_delete_behaviour(app) == []
+
+
+# --------------------------------------------------------------------------- #
+# personal_fields_are_declared (ADR 0190)
+# --------------------------------------------------------------------------- #
+_PERSONAL_HEADER = (
+    "import datetime\n\n"
+    "from sqlmodel import Field, SQLModel\n"
+    "from terp.core import BaseSchema, BaseTable, BaseUpdateSchema, Personal\n\n\n"
+)
+
+
+def test_personal_fields_are_declared(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # Each model shape the rule reads: a table, each schema base, a plain SQLModel, and a
+    # field declared on a model's own base defined in the tree.
+    undeclared = {
+        "table": "class Customer(BaseTable, table=True):\n    email: str = Field(max_length=320)\n",
+        "schema": "class CustomerRead(BaseSchema):\n    phone_number: str\n",
+        "update": "class CustomerUpdate(BaseUpdateSchema):\n    date_of_birth: datetime.date | None = None\n",
+        "plain": "class Contact(SQLModel):\n    last_name: str = ''\n",
+        "inherited": (
+            "class PersonBase(SQLModel):\n    pass\n\n\n"
+            "class Person(PersonBase):\n    national_id: str = ''\n"
+        ),
+    }
+    for shape, body in undeclared.items():
+        _write(app, "modules/crm/models.py", _PERSONAL_HEADER + body)
+        found = check_personal_fields_are_declared(app)
+        assert _rule_names(found) == {"personal_fields_are_declared"}, shape
+        assert len(found) == 1, shape
+        assert "Personal(...)" in found[0].message and "arch-allow" in found[0].message
+
+    # Declared, on the value or inside Annotated, the rule is satisfied.
+    _write(
+        app,
+        "modules/crm/models.py",
+        "from typing import Annotated\n" + _PERSONAL_HEADER
+        + "class Customer(BaseTable, table=True):\n"
+        "    email: str = Personal(max_length=320, unique=True)\n"
+        "    contact_email: Annotated[str, Personal(max_length=320)] = ''\n"
+        "    note: str = Field(default='', max_length=200)\n",
+    )
+    assert check_personal_fields_are_declared(app) == []
+
+
+def test_personal_fields_are_declared_reads_the_name_not_a_substring(
+    tmp_path: pathlib.Path,
+) -> None:
+    app = tmp_path / "app"
+    # The personal noun has to be the field's LAST word: an email's verification flag, a
+    # count of phones or a domain an address belongs to is not the address.
+    _write(
+        app,
+        "modules/crm/models.py",
+        _PERSONAL_HEADER
+        + "class Customer(BaseTable, table=True):\n"
+        "    email_verified: bool = False\n"
+        "    phone_count: int = 0\n"
+        "    email_domain: str = Field(default='', max_length=255)\n"
+        "    postcode: str = Field(default='', max_length=12)\n"
+        "    company_name: str = Field(default='', max_length=200)\n",
+    )
+    assert check_personal_fields_are_declared(app) == []
+    for name in ("email", "contact_email", "Email_Address", "e_mail", "emails", "phone",
+                 "mobile_number", "telephone", "birth_date", "birthdate", "dob", "ssn", "bsn",
+                 "passport_number", "national_identity_number", "first_name", "surname",
+                 "home_address"):
+        assert is_personal_field_name(name), name
+
+
+def test_personal_fields_are_declared_leaves_non_models_alone(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # A dataclass, a settings class and a plain class cannot carry the declaration, and a
+    # model field is an annotated class attribute -- a function argument is not one.
+    _write(
+        app,
+        "modules/crm/service.py",
+        "from dataclasses import dataclass\n"
+        "from pydantic_settings import BaseSettings\n\n\n"
+        "@dataclass\nclass Claims:\n    email: str\n\n\n"
+        "class MailSettings(BaseSettings):\n    reply_email: str = ''\n\n\n"
+        "class Holder:\n    email: str = ''\n\n\n"
+        "def invite(email: str) -> None:\n    return None\n",
+    )
+    assert check_personal_fields_are_declared(app) == []
+
+
+def test_personal_fields_are_declared_is_suppressed_by_a_justified_marker(
+    tmp_path: pathlib.Path,
+) -> None:
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/crm/models.py",
+        _PERSONAL_HEADER
+        + "class Settings(BaseTable, table=True):\n"
+        "    # arch-allow-personal-fields-are-declared: the organisation's shared mailbox\n"
+        "    support_email: str = Field(max_length=320)\n",
+    )
+    assert "personal_fields_are_declared" not in _rule_names(check_app(app))
+    # The marker is the not-personal declaration, so it needs its reason like any other.
+    _write(
+        app,
+        "modules/crm/models.py",
+        _PERSONAL_HEADER
+        + "class Settings(BaseTable, table=True):\n"
+        "    support_email: str = Field(max_length=320)  # arch-allow-personal-fields-are-declared\n",
+    )
+    assert "ungoverned_escape_hatch" in _rule_names(check_app(app))
+
+
+def test_field_rules_read_personal_like_field(tmp_path: pathlib.Path) -> None:
+    """``Personal`` forwards every keyword to ``Field``, so it is no way around a rule.
+
+    Three rules read a field's keywords: the length cap, a unique column on a
+    soft-deletable table, and an undeclared foreign key. Each reads ``Personal`` exactly
+    as it reads ``Field``.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/crm/schemas.py",
+        "from terp.core import BaseSchema, Personal\n\n\n"
+        "class CustomerCreate(BaseSchema):\n    email: str = Personal()\n",
+    )
+    assert _rule_names(check_input_str_fields_have_max_length(app)) == {
+        "input_str_fields_have_max_length"
+    }
+    _write(
+        app,
+        "modules/crm/schemas.py",
+        "from terp.core import BaseSchema, Personal\n\n\n"
+        "class CustomerCreate(BaseSchema):\n    email: str = Personal(max_length=320)\n",
+    )
+    assert check_input_str_fields_have_max_length(app) == []
+
+    _write(
+        app,
+        "modules/crm/models.py",
+        "from terp.core import BaseTable, Personal, SoftDeleteMixin\n\n\n"
+        "class Customer(BaseTable, SoftDeleteMixin, table=True):\n"
+        "    email: str = Personal(max_length=320, unique=True)\n",
+    )
+    assert _rule_names(check_no_unique_columns_on_soft_delete_models(app)) == {
+        "no_unique_columns_on_soft_delete_models"
+    }
+
+    _write(
+        app,
+        "modules/crm/models.py",
+        "import uuid\n\nfrom terp.core import BaseTable, Personal\n\n\n"
+        "class Customer(BaseTable, table=True):\n"
+        "    referrer_id: uuid.UUID = Personal(foreign_key='customer.id')\n",
+    )
+    assert _rule_names(check_references_declare_delete_behaviour(app)) == {
+        "references_declare_delete_behaviour"
+    }

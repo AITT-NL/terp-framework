@@ -168,7 +168,8 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   line per request (route template, status, duration, request id, the authenticated actor
   and tenant, the guard's deciding rule), each error once, and uncaught exceptions. The
   records go to stderr, so collect the container's whole output. Redaction covers
-  secrets, not personal data (`terp guide logging`). OpenTelemetry wiring is on the
+  secrets, and personal data where a model declares the field `Personal` (`terp guide
+  personal-data`); an undeclared value is written as logged. OpenTelemetry wiring is on the
   roadmap.
 
 ## CI guard

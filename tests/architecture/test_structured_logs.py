@@ -485,11 +485,12 @@ def test_tracebacks_are_redacted() -> None:
     assert_record(line)
 
 
-def test_redaction_recognises_secrets_and_only_secrets() -> None:
-    # The documented boundary: nothing here knows which field holds personal data, so an
-    # address passes through. A later field-level marker is what will change this line.
-    line = _render(_record("invited %s", ("ada@example.com",)))
-    assert line["message"] == "invited ada@example.com"
+def test_redaction_does_not_guess_at_an_undeclared_value() -> None:
+    # The documented boundary: a bare string carries no declaration, so an address passes
+    # through. A field declared Personal is withheld (test_personal_data.py, ADR 0190).
+    address = f"invitee-{secrets.token_hex(4)}@example.test"
+    line = _render(_record("invited %s", (address,)))
+    assert line["message"] == f"invited {address}"
 
 
 # --------------------------------------------------------------------------- #

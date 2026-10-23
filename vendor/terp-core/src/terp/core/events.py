@@ -38,6 +38,7 @@ from typing import Any
 from sqlmodel import Session
 
 from terp.core.logging import get_request_id
+from terp.core.personal import refuse_public_personal_payload
 from terp.core.runtime import register_runtime_seam
 
 
@@ -58,7 +59,8 @@ class EventVisibility(str, Enum):
     is **advisory metadata, not yet an enforced gate**: the in-process bus relays only
     to backend handlers, so no outward relay exists to enforce it today — a future
     realtime/broker adapter is responsible for honoring it (failing closed on a
-    non-``PUBLIC`` payload).
+    non-``PUBLIC`` payload). One half is enforced where the event is declared: a
+    ``PUBLIC`` event's payload schema may not declare a personal field (ADR 0190).
     """
 
     PUBLIC = "public"  # safe to surface outward (e.g. a realtime hint)
@@ -90,6 +92,8 @@ class EventDefinition:
                 f"EventDefinition.payload_schema must be a model type with "
                 f"model_validate (e.g. a BaseSchema), got {self.payload_schema!r}"
             )
+        if self.visibility is EventVisibility.PUBLIC:
+            refuse_public_personal_payload("event", self.name, self.payload_schema)
 
 
 @dataclass(frozen=True)

@@ -46,8 +46,8 @@ CORS `"*"`, or rate-limiting disabled). This complements the existing
 > **Corrected 2026-10-22 ([ADR 0188](0188-every-log-line-is-a-record-of-one-versioned-schema.md)).**
 > The table below said "PII redaction". The filter has only ever recognised secrets:
 > credential-like key names and credential-shaped text. Personal data (a name, an
-> address, an email) passes through, and no Terp text promises otherwise until a
-> field-level personal-data marker exists.
+> address, an email) passes through unless its field is declared `Personal`
+> ([ADR 0190](0190-a-field-declares-itself-personal.md)), in which case it is withheld.
 
 ## Two-layer enforcement
 

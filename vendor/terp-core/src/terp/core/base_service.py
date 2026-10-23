@@ -64,6 +64,7 @@ from terp.core.filtering import (
 )
 from terp.core.object_authz import apply_object_authz
 from terp.core.pagination import CursorPaginationParams, decode_cursor, encode_cursor
+from terp.core.personal import withhold_personal_values
 from terp.core.scoping import apply_row_scope
 from terp.core._internal.session_guard import (
     enter_write_unit,
@@ -474,11 +475,12 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
                 # A unique / referential constraint violation becomes a uniform
                 # 409 envelope instead of a leaked 500, whether it surfaces during
                 # nested flush or outer commit; the raw detail rides log_context.
+                detail = _integrity_detail(exc, session, entity)
                 if outermost:
                     session.rollback()
                 raise ConflictError(
                     "This write conflicts with a unique or referential constraint.",
-                    log_context={"integrity_error": str(exc)},
+                    log_context={"integrity_error": detail},
                 ) from exc
             except ORMStaleDataError as exc:
                 # A concurrent UPDATE/DELETE changed the row since it was read, so the
@@ -523,11 +525,12 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
                 # becomes a uniform 409 envelope instead of a leaked 500, whether it
                 # surfaces during nested flush or outer commit; the raw detail rides
                 # log_context.
+                detail = _integrity_detail(exc, session, entity)
                 if outermost:
                     session.rollback()
                 raise ConflictError(
                     "This delete conflicts with a referential constraint.",
-                    log_context={"integrity_error": str(exc)},
+                    log_context={"integrity_error": detail},
                 ) from exc
             except ORMStaleDataError as exc:
                 # A concurrent UPDATE/DELETE changed the row since it was read, so the
@@ -609,6 +612,27 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
             self._save(session, entity, AuditAction.DELETED)
         else:
             self._remove(session, entity)
+
+
+def _integrity_detail(exc: IntegrityError, session: Session, entity: object) -> str:
+    """The database's refusal as text, without the personal values of the rows it was about.
+
+    SQLAlchemy's message repeats the statement's parameters and the database's own detail
+    repeats the conflicting key (``Key (email)=(...) already exists``), so a refused signup
+    would write the address into the log. The rows in flight are in hand, so their declared
+    personal values are what is removed (ADR 0190); read before the rollback, which empties
+    the session of them.
+    """
+    text = str(exc)
+    in_flight = [entity]
+    if isinstance(session, Session):
+        in_flight.extend((*session.new, *session.dirty, *session.deleted))
+    seen: set[int] = set()
+    for row in in_flight:
+        if isinstance(row, SQLModel) and id(row) not in seen:
+            seen.add(id(row))
+            text = withhold_personal_values(text, row)
+    return text
 
 
 __all__ = ["BaseService"]
