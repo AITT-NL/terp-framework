@@ -1337,11 +1337,39 @@ Background jobs (terp.core.enqueue + JobCatalog)
 - Trigger a scheduled job from any cron / k8s CronJob / systemd or cloud timer:
       terp jobs run sync.customers.pull --payload '{"source": "crm"}'
   Inspect the declared jobs:  terp jobs list   /   terp inspect jobs.
-- Declare a schedule (ScheduleDefinition: a cron + a catalog JobDefinition) on the control
-  plane (ControlPlane(schedules=ScheduleCatalog([...]))); boot validates each schedule's job
-  against the JobCatalog. Run schedules in-process with `terp jobs scheduler` (APScheduler;
-  needs terp-cap-scheduler-apscheduler) or via Celery beat — each cron tick enqueues through
-  the same typed seam, so a scheduled job stays audited + system-actor stamped.
+- Declare a schedule (ScheduleDefinition: a cron + a catalog JobDefinition + a misfire
+  policy) on the control plane (ControlPlane(schedules=ScheduleCatalog([...]))); boot
+  validates each schedule's job against the JobCatalog. Run schedules in-process with
+  `terp jobs scheduler` (APScheduler; needs terp-cap-scheduler-apscheduler) or via Celery
+  beat — each cron tick enqueues through the same typed seam, so a scheduled job stays
+  audited + system-actor stamped.
+- DECLARE WHAT A MISSED TICK BECOMES (ADR 0191). A deploy stops the scheduler, and a cron
+  time that passes meanwhile is a misfire. misfire= is a required keyword:
+      ScheduleDefinition(name="reports.hourly", job=REPORT, cron="0 * * * *",
+                         misfire=Misfire.RUN_ONCE)   # run it once, late, when back
+      ScheduleDefinition(name="reminders.morning", job=REMIND, cron="0 8 * * *",
+                         misfire=Misfire.SKIP)       # pointless late: record it skipped
+  RUN_ONCE folds every tick of one gap into one run; a slot settled within a minute of its
+  cron time is on time either way. The scheduler can only apply the policy to a tick it
+  knows it missed, so keep each schedule's last settled slot in the database:
+      create_app(..., job_queue=OutboxJobQueue(),
+                 schedule_ledger=DatabaseScheduleLedger(),        # terp-cap-outbox
+                 require_durable_schedules=settings.is_production)
+  The record commits in the same transaction as the outbox row the tick enqueued, so a
+  crash leaves both or neither. `terp jobs scheduler` settles every schedule when it
+  starts. On Celery beat, call scheduler.catch_up() from beat's `beat_init` signal.
+- THE TWO LONG-RUNNING PROCESSES STOP CLEANLY AND BEAT. On SIGTERM or SIGINT, `terp jobs
+  worker --forever` finishes the job it is running and gives the rest of its batch back
+  (another worker takes it at once), and `terp jobs scheduler` lets its ticks in flight
+  finish. A worker killed before that (the stop grace ran out) loses nothing: its job is
+  redelivered once its lease lapses, so a handler must tolerate running twice. Each
+  process writes a heartbeat from its own loop, <tmp>/terp-worker.heartbeat or
+  terp-scheduler.heartbeat in its container, with the bound it may not outgrow
+  (worker: max(--lease-seconds, --poll-seconds) + 30s; scheduler: 60s). The generated
+  production profile checks it with a probe that reads the file; `terp guide deployment`.
+- On Celery, the Terp task acknowledges a message only after the job ran (acks_late,
+  reject_on_worker_lost), so a killed worker's job is redelivered. Set
+  worker_prefetch_multiplier=1, and on Redis a visibility_timeout above your longest job.
 """,
     "outbox": """\
 Durable post-commit delivery (outbox capability)
@@ -1366,6 +1394,8 @@ Durable post-commit delivery (outbox capability)
 - Run the relay as its own process (not inside the API container):
       terp jobs worker --forever
   (without --forever it drains what is due once and returns, for an external trigger).
+  A stop finishes the job in flight and releases the rest of the batch; the process writes
+  a heartbeat its container's healthcheck reads (`terp guide jobs`).
   It leases rows (claim_id + locked_until, SKIP LOCKED), delivers AT LEAST ONCE, retries
   with exponential backoff, and dead-letters once max_attempts is exhausted. Every
   handler must therefore be safe to run twice - see `terp guide idempotency`.
@@ -1442,7 +1472,9 @@ Idempotency (the Idempotency-Key header, terp.core.idempotency)
       create_app(..., idempotency_store=RedisIdempotencyStore(...),
                  require_shared_idempotency_store=get_settings().is_production)
   Only a store that marks itself shared (mark_shared_idempotency_store) satisfies the
-  guard, so a load-balanced deployment cannot silently lose the guarantee.
+  guard, so a load-balanced deployment cannot silently lose the guarantee. A required
+  store is part of readiness too (ADR 0191): /health/ready asks its ping() and answers 503
+  while it cannot be reached, and a shared store with no ping() of its own refuses the boot.
   Until you opt in, a production boot logs a WARNING saying idempotency is deduplicated
   per worker - the property is stated where you can read it before scaling, because
   after scaling the only symptom is duplicate rows with nothing to connect them to.
@@ -1483,6 +1515,9 @@ Realtime push (realtime capability)
       configure_broker(RedisRealtimeBroker.from_url(settings.REDIS_URL))
       configure_ticket_store(RedisConnectionTicketStore.from_url(settings.REDIS_URL))
       configure_realtime(..., require_shared_broker=settings.is_production)
+  While that promise stands the broker is part of readiness (ADR 0191): /health/ready
+  asks its ping() and answers 503 while Redis cannot be reached, and a shared broker with
+  no ping() of its own is refused under the promise.
   The worker runs the same composition root, so it wires the same broker. Pub/sub is
   server-wide: the database index is in the channel names, but two deployments sharing
   one Redis server AND database need distinct namespace=... values. Delivery is
@@ -2671,12 +2706,18 @@ backup policy, and the profile mounts it: the render of that seed, held the same
 backend image makes /srv/var/files owned by the user it runs as, and Docker gives an empty
 named volume the owner of the directory it is mounted over, so that user can write it.
 
-  start it, with its required secrets set (compose stops on an unset one):
-    SECRET_KEY=... POSTGRES_PASSWORD=... \\
-      docker compose -f docker-compose.prod.yml up -d --wait
-  bootstrap the first administrator (`terp seed` refuses ENVIRONMENT=production):
+  start it, with its required secrets and a new per-release image tag set (compose
+  stops on an unset one; the tag keeps the previous release's images beside this
+  one's, so it can be started again):
+    SECRET_KEY=... POSTGRES_PASSWORD=... TERP_RELEASE_TAG=$(git rev-parse --short=12 HEAD) \\
+      docker compose -f docker-compose.prod.yml up -d --wait --build
+  bootstrap the first administrator (`terp seed` refuses ENVIRONMENT=production), with
+  the same variables set:
     docker compose -f docker-compose.prod.yml run --rm -e TERP_USER_PASSWORD api \\
       terp user create admin@your-domain.example --role admin
+  start an earlier release again: set its TERP_RELEASE_TAG and run `up -d --wait
+    --no-build`, so an image that is gone fails instead of being rebuilt from this
+    checkout under the old tag
   a database this deployment does not run: set DATABASE_URL, which every backend unit
     reads before its default; to drop the bundled `db` service too, add an override
     that removes it, name it in compose.overrides and declare
@@ -2685,14 +2726,87 @@ named volume the owner of the directory it is mounted over, so that user can wri
 What each unit becomes: a datastore runs its table digest and its own healthcheck; an
 api is probed on its livenessPath, passed to a fixed probe as an argument; a worker runs
 `terp jobs worker --forever` (drain, wait --poll-seconds, drain again, until stopped)
-and a scheduler `terp jobs scheduler`, each with init and no healthcheck; the one-shot
-without a command is the migration step; the web tier proxies to its api. The backend image
-carries no HEALTHCHECK: a unit that serves no request has no check, so `docker compose up
---wait` (what a deploy runs) waits for it to run, where an inherited HTTP probe turned it
-unhealthy and a disabled one made Compose refuse to wait. The image ships its bytecode
-compiled (checked-hash, so the same lock compiles to the same bytes). Every backend unit loads .app.env, then its own .app.<id>.env. Every value a
+and a scheduler `terp jobs scheduler`, each with init and a healthcheck on the heartbeat
+its own loop writes (ADR 0191); the one-shot without a command is the migration step; the
+web tier proxies to its api. The backend image carries no HEALTHCHECK. A unit that serves
+no request and writes no heartbeat (a companion, a drain without --forever) has no check,
+so `docker compose up --wait` (what a deploy runs) waits for it to run, where an inherited
+HTTP probe turned it unhealthy and a disabled one made Compose refuse to wait.
+The image ships its bytecode compiled (checked-hash, so the same lock compiles to the same
+bytes). Every backend unit loads .app.env, then its own .app.<id>.env. Every value a
 declaration gives (a command, a health path) is written double-quoted with each $
 doubled, so compose passes it on as written.
+
+THE HEARTBEAT CHECK (ADR 0191)
+
+A unit whose command is `terp jobs worker ... --forever` or `terp jobs scheduler ...`,
+declared or the role's default, is checked every 10 seconds with a fixed probe: python -c
+<standard library only> worker|scheduler. It reads <tmp>/terp-<role>.heartbeat in the
+container, prints {"heartbeat", "age_seconds", "stale_after_seconds"} as one JSON line, and
+fails when the heartbeat is older than the bound the process wrote into it, or missing. So
+a worker stuck in one job turns unhealthy once its bound has passed (60s with the default
+lease), while a container that merely runs is not called healthy. A deploy tool reads the
+same answer per unit, with no HTTP and no database: the container's health status, and the
+last probe's output for the age (docker inspect, .State.Health.Log), or the probe run in
+the container. Dependants of such a unit wait for service_healthy. Do not set TMPDIR
+differently for the process and its healthcheck: both find the file through it.
+
+READINESS (ADR 0191)
+
+/health/ready answers 200 when the database answers SELECT 1 and every shared store a
+require_shared_* made mandatory answers its ping(); 503 otherwise, naming each check. A
+store is asked on a thread of its own within 2 seconds, never twice at once, so one that
+stops answering turns readiness 503 instead of holding the probe. Workers, schedulers and
+the outbox backlog are never part of it. Bound the Redis client's own commands too, or a
+Redis that stops answering holds every request the rate limiter counts:
+REDIS_URL=redis://host:6379/0?socket_timeout=2&socket_connect_timeout=2.
+
+CUTTING A RELEASE AND PROMOTING IT (ADR 0187)
+
+`terp release` is three jobs, each on a fresh host, so that no job that runs the app outside a
+build container holds a credential or writes into what is built. Each takes the exact commit
+(its full object name) and reads it from git's object store, never from a working copy:
+
+  uv run terp release build --sha <sha> --tag <tag> --registry registry.example/team
+    builds every image the profile builds from the commit's pristine tree, in a BuildKit
+    builder made for the job and removed after it, with --pull and no cache, and pushes
+    <registry>/<image>:<tag> with the credential your docker configuration holds for this
+    release. It writes terp-release-build.json: BuildKit's own digests.
+  uv run terp release gate --sha <sha> --build terp-release-build.json
+    runs in a clean checkout of the commit: `terp verify --profile release --format
+    assurance` with npm's scripts off, then the schedule catalog, read by running the pushed
+    image sealed (no network, read-only, its own non-root user). It holds no push credential
+    and no key. It writes terp-release-gate.json.
+  terp release sign --sha <sha> --tag <tag> --registry ... --build ... --gate ... \\
+      --hosts separated --signer '["your-kms-signer", "--key", "release"]' --public-key k.pub
+    runs from the signer image, never the commit's own toolchain, and runs nothing of the
+    app: it repeats the refusals, renders a generated app's files with the terp-arch the
+    commit pins (fetched by hash, run in a process of its own), reads the backend image from
+    the registry as data and holds it to the tree and the lock, scans for known
+    vulnerabilities and for secrets in the history, and signs the manifest as a DSSE envelope
+    (release.dsse.json). --sign-key <file> is refused without --test-key.
+
+Refused, by name, before anything is built or signed: an undeclared or unmanaged app, a
+declaration that cannot be read or is untrue, a committed .terp-dist/ or submodule, a lock
+naming a path, an image neither built here nor a datastore table digest, a datastore with no
+healthcheck, more than one migration step or one with --revision/--sql, no step and other than
+one api unit, a built image that does not read TERP_RELEASE_TAG, and a build with more than a
+context and a Dockerfile.
+
+  terp promote release.dsse.json --public-key k.pub --project-dir /srv/deploy/app
+    verifies the envelope before reading it, checks the manifest (a newer Terp Standard than
+    its own is refused; --require-generated refuses an own release; a generated profile is
+    audited for every $), pulls each image by its signed digest and tags it
+    <project>-backend-prod:<tag>, writes the carried profile, and runs compose with an
+    allowlisted environment and TERP_RELEASE_TAG set: the datastores, a reading of every
+    alembic_version_* table, the migration step exactly once, then the rest, every `up` with
+    --no-build --pull never. If the deploy fails and the version tables are as they were,
+    going back is restore-free: --undo-to <the running release's envelope> starts it again
+    after its own `terp migrate check`. Otherwise going back is a restore. A rollback in an
+    invocation of its own has no such reading, so it is refused unless --rollback --restored
+    says the database was restored to the backup taken before the release that followed it.
+`terp release` and `terp promote` need terp-cli[release] (cryptography, packaging, the egress
+capability); without it they refuse, and nothing is signed or verified halfway.
 """,
 }
 
@@ -3395,7 +3509,12 @@ def _render_json(plane: ControlPlane, specs: Sequence[ModuleSpec]) -> str:
             "request_id_header": plane.security.request_id_header,
         },
         "schedules": [
-            {"name": schedule.name, "cron": schedule.cron, "job": schedule.job.name}
+            {
+                "name": schedule.name,
+                "cron": schedule.cron,
+                "job": schedule.job.name,
+                "misfire": schedule.misfire.value,
+            }
             for schedule in sorted(
                 plane.schedules.schedules, key=lambda item: item.name
             )
@@ -3502,7 +3621,10 @@ def _render_text(plane: ControlPlane, specs: Sequence[ModuleSpec]) -> str:
     if not plane.schedules.schedules:
         lines.append("  <none declared>")
     for schedule in sorted(plane.schedules.schedules, key=lambda item: item.name):
-        lines.append(f"  {schedule.name}  {schedule.cron}  -> {schedule.job.name}")
+        lines.append(
+            f"  {schedule.name}  {schedule.cron}  -> {schedule.job.name}  "
+            f"misfire={schedule.misfire.value}"
+        )
     return "\n".join(lines)
 
 
@@ -3938,6 +4060,10 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Write nothing, and exit 1 if adoption has something to write (for CI)",
     )
+
+    from terp.cli.release.cli import add_parsers as add_release_parsers
+
+    add_release_parsers(subcommands)
 
     deployment_parser = subcommands.add_parser(
         "deployment",
@@ -4662,6 +4788,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                 reassign=getattr(args, "reassign", False),
             )
         )
+    if args.command in ("release", "promote"):
+        from terp.cli.release.cli import run_release
+
+        raise SystemExit(run_release(args))
     if args.command == "deployment" and args.deployment_command == "adopt":
         from terp.cli.deployment_adopt import run_adopt_command
 

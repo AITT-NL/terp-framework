@@ -35,6 +35,15 @@ jobs = [
     "terp-cap-outbox==0.34.0",
     "terp-cap-scheduler-apscheduler==0.34.0",
 ]
+# `terp release` and `terp promote` (ADR 0187): the DSSE signature (cryptography), the lock's
+# markers (packaging), and the one declared way to a registry, an index and the vulnerability
+# database (the egress capability). Optional, because no app's own process needs them; without
+# them both commands refuse to run, and never skip a verification.
+release = [
+    "cryptography>=46",
+    "packaging>=24",
+    "terp-cap-egress==0.34.0",
+]
 
 [project.scripts]
 terp = "terp.cli:main"

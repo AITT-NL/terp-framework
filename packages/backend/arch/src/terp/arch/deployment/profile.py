@@ -223,6 +223,8 @@ def build_path_findings(
     builders = sorted({name for unit in declaration.units if (name := _builder_of(unit, services))})
     for builder in builders:
         build = services[builder]["build"]
+        if not isinstance(build, (str, dict)):
+            continue  # no build compose reads: it leads nowhere, and compose refuses it itself
         context = build if isinstance(build, str) else str(build.get("context", "."))
         dockerfile = None if isinstance(build, str) else build.get("dockerfile")
         targets = [("context", context, base)]

@@ -21,6 +21,24 @@ actor is ``ControlPlane.job_system_actor_id``, and it is not optional in product
 declaring a schedule without one refuses the boot, because a nightly tick whose rows name
 no actor is the one answer a provenance column must not give.
 
+**A tick that fell due while no scheduler ran** (ADR 0191). A scheduler is a process, and a
+deploy, a crash or a host restart stops it; a cron time that passed meanwhile left no trace,
+so nothing could say it was missed. Two things change that:
+
+* every :class:`ScheduleDefinition` **declares** what a missed tick becomes, its
+  :class:`Misfire` policy, as a required keyword: :attr:`Misfire.RUN_ONCE` runs it once,
+  late, as soon as a scheduler is back (every earlier tick of the same gap folded into that
+  one run), and :attr:`Misfire.SKIP` records it as skipped and waits for the next cron time.
+  A default would read in the source exactly like a choice, which is why there is none;
+* a :class:`ScheduleLedger` holds each schedule's **last settled slot**: the cron time it
+  last fired, ran late or skipped, or the moment it was first seen. An adapter settles
+  every tick through :func:`settle_schedule`, at start and on each cron time alike, so a
+  scheduler that comes back across a cron time finds the slot the ledger has not settled
+  and applies the policy to it. :class:`InMemoryScheduleLedger` is the default and forgets
+  on restart; the durable one is the outbox capability's ``DatabaseScheduleLedger``, whose
+  record commits in the same transaction as the outbox row the tick enqueues, and
+  ``create_app(require_durable_schedules=True)`` refuses anything else.
+
 Two-layer enforcement (ADR 0006), mirroring the jobs catalog: ``create_app`` boot-validates
 every :class:`ScheduleDefinition` in the control plane's :class:`ScheduleCatalog` against the
 :class:`~terp.core.JobCatalog` (a schedule enqueuing an undeclared job fails the boot), and a
@@ -31,15 +49,31 @@ boot check + the kernel test, not a module-policing rule.
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
+from typing import Any, Final
 
 from sqlmodel import Session
 
 from terp.core.jobs import JobCatalog, JobDefinition, enqueue
 from terp.core.runtime import register_runtime_seam
+from terp.core.schedule_ledger import (
+    BASELINE,
+    FIRED,
+    LATE,
+    SKIPPED,
+    InMemoryScheduleLedger,
+    ScheduleLedger,
+    ScheduleRecord,
+    is_durable_schedule_ledger,
+    mark_durable_schedule_ledger,
+)
+
+_logger = logging.getLogger("terp.core.scheduling")
 
 
 def _is_dotted_token(value: str) -> bool:
@@ -52,9 +86,33 @@ def _is_dotted_token(value: str) -> bool:
     )
 
 
+class Misfire(StrEnum):
+    """What a schedule makes of a cron time no scheduler fired on time (ADR 0191).
+
+    A slot is *on time* when it is settled within :data:`ON_TIME_SECONDS` of its cron time.
+    One settled later is a misfire, almost always because no scheduler ran when it fell due:
+    a deploy, a crash, a host restart.
+    """
+
+    #: Run it once, late, as soon as a scheduler is back. Every earlier slot of the same gap
+    #: is folded into that one run, so a scheduler down for a day runs an hourly job once,
+    #: not twenty-four times. The job must make sense late.
+    RUN_ONCE = "run-once"
+    #: Record it as skipped and wait for the next cron time: for work that is pointless
+    #: late, such as a reminder for a meeting that has already started.
+    SKIP = "skip"
+
+
+#: A slot settled within this many seconds of its cron time is on time; later is a misfire.
+#: A minute, the resolution of a five-field cron, so a tick an overloaded host started a few
+#: seconds late is still the tick it was meant to be.
+ON_TIME_SECONDS: Final[float] = 60.0
+
+
 @dataclass(frozen=True)
 class ScheduleDefinition:
-    """A typed schedule: a namespaced *name*, the *job* to enqueue, and a *cron* trigger.
+    """A typed schedule: a namespaced *name*, the *job* to enqueue, a *cron* trigger and a
+    declared *misfire* policy.
 
     The only thing a :class:`ScheduleCatalog` holds, so every schedule references a declared
     :class:`~terp.core.JobDefinition` catalog constant (never a bare string — the no-drift
@@ -64,12 +122,16 @@ class ScheduleDefinition:
     the job's empty/default payload), so a schedule whose payload depends on "now" stays
     dynamic — an adapter re-evaluates it each fire (both shipped adapters route every tick
     through this factory rather than freezing a payload at registration).
+
+    *misfire* is required and keyword-only: what a tick that fell due while no scheduler ran
+    should become is a property of the work, which only its author knows (ADR 0191).
     """
 
     name: str
     job: JobDefinition
     cron: str
     payload_factory: Callable[[], Any] | None = None
+    misfire: Misfire = field(kw_only=True)
 
     def __post_init__(self) -> None:
         if not _is_dotted_token(self.name):
@@ -87,6 +149,12 @@ class ScheduleDefinition:
         if self.payload_factory is not None and not callable(self.payload_factory):
             raise TypeError(
                 f"ScheduleDefinition.payload_factory must be callable, got {self.payload_factory!r}"
+            )
+        if not isinstance(self.misfire, Misfire):
+            raise TypeError(
+                "ScheduleDefinition.misfire must be Misfire.RUN_ONCE or Misfire.SKIP, got "
+                f"{self.misfire!r}: declare what a tick that fell due while no scheduler "
+                "ran becomes (ADR 0191)"
             )
 
 
@@ -150,6 +218,8 @@ class Scheduler(ABC):
     deployment builds the app to configure the live :class:`ScheduleCatalog`, then a chosen
     adapter :meth:`register_all` + starts it. The safe default needs no adapter at all: an
     external cron invokes ``terp jobs schedule <name>``, which calls :func:`trigger_schedule`.
+    Both shipped adapters settle each tick through :func:`settle_schedule`, so a schedule's
+    misfire policy holds whichever engine fires it.
     """
 
     @abstractmethod
@@ -162,40 +232,60 @@ class Scheduler(ABC):
             self.register(schedule)
 
 
-_active_schedule_catalog: ScheduleCatalog = ScheduleCatalog.default()
+@dataclass(frozen=True)
+class _SchedulesRuntime:
+    catalog: ScheduleCatalog
+    ledger: ScheduleLedger
+
+
+def _default_runtime() -> _SchedulesRuntime:
+    return _SchedulesRuntime(catalog=ScheduleCatalog.default(), ledger=InMemoryScheduleLedger())
+
+
+_runtime: _SchedulesRuntime = _default_runtime()
 
 
 def active_schedule_catalog() -> ScheduleCatalog:
     """The schedule catalog the runtime currently holds (set by ``create_app``)."""
-    return _active_schedule_catalog
+    return _runtime.catalog
 
 
-def configure_schedules(catalog: ScheduleCatalog) -> None:
-    """Install the active schedule *catalog* (called by ``create_app``).
+def active_schedule_ledger() -> ScheduleLedger:
+    """The schedule ledger the runtime currently holds (set by ``create_app``)."""
+    return _runtime.ledger
+
+
+def configure_schedules(
+    catalog: ScheduleCatalog, *, ledger: ScheduleLedger | None = None
+) -> None:
+    """Install the active schedule *catalog* and *ledger* (called by ``create_app``).
 
     Mirrors :func:`~terp.core.configure_jobs`: a scheduler process / the ``terp jobs
     schedule`` CLI reads the active catalog after building the app, so what it triggers
-    always matches what the app declares.
+    always matches what the app declares. ``ledger=None`` installs a fresh
+    :class:`InMemoryScheduleLedger`.
     """
-    global _active_schedule_catalog
-    _active_schedule_catalog = catalog
+    global _runtime
+    _runtime = _SchedulesRuntime(
+        catalog=catalog, ledger=ledger if ledger is not None else InMemoryScheduleLedger()
+    )
 
 
 def reset_schedules_runtime() -> None:
-    """Restore the empty schedule catalog (the per-app / test baseline)."""
-    global _active_schedule_catalog
-    _active_schedule_catalog = ScheduleCatalog.default()
+    """Restore the empty catalog and a fresh in-memory ledger (the per-app / test baseline)."""
+    global _runtime
+    _runtime = _default_runtime()
 
 
-def _capture_schedules_runtime() -> ScheduleCatalog:
-    """Snapshot the installed schedule catalog (the runtime-seam capture hook)."""
-    return _active_schedule_catalog
+def _capture_schedules_runtime() -> _SchedulesRuntime:
+    """Snapshot the installed catalog and ledger (the runtime-seam capture hook)."""
+    return _runtime
 
 
-def _restore_schedules_runtime(state: ScheduleCatalog) -> None:
+def _restore_schedules_runtime(state: _SchedulesRuntime) -> None:
     """Put back a :func:`_capture_schedules_runtime` snapshot (the runtime-seam restore hook)."""
-    global _active_schedule_catalog
-    _active_schedule_catalog = state
+    global _runtime
+    _runtime = state
 
 
 register_runtime_seam(
@@ -209,23 +299,158 @@ register_runtime_seam(
 def trigger_schedule(session: Session, schedule: ScheduleDefinition) -> str:
     """Fire *schedule* once: build its payload and enqueue its job; return the job id.
 
-    The producer-side helper an adapter's tick / the external-trigger CLI calls. It enqueues
-    through the typed :func:`~terp.core.enqueue` chokepoint, so the job flows through the
-    active :class:`~terp.core.JobQueue` (in-process / outbox / broker) and the context-binding
-    runner — with no originating user, the configured system actor stands in, so the job's
-    writes stay audited + stamped. ``payload_factory`` is called per tick (``None`` → the
-    job's empty/default payload), so a "now"-dependent payload stays fresh.
+    The producer-side helper the external-trigger CLI calls, and the half of
+    :func:`settle_schedule` that enqueues. It goes through the typed :func:`~terp.core.enqueue`
+    chokepoint, so the job flows through the active :class:`~terp.core.JobQueue` (in-process
+    / outbox / broker) and the context-binding runner — with no originating user, the
+    configured system actor stands in, so the job's writes stay audited + stamped.
+    ``payload_factory`` is called per tick (``None`` → the job's empty/default payload), so a
+    "now"-dependent payload stays fresh. It records nothing in a ledger.
     """
     payload = schedule.payload_factory() if schedule.payload_factory is not None else None
     return enqueue(session, job=schedule.job, payload=payload)
 
 
+#: An adapter's cron, asked one question: the latest of its cron times in ``(after, until]``,
+#: or ``None`` when there is none. The kernel parses no cron; the engine that does answers.
+SlotFinder = Callable[[datetime, datetime], datetime | None]
+
+
+@dataclass(frozen=True)
+class Settled:
+    """What :func:`settle_schedule` did: the outcome it recorded, for which slot, and the job.
+
+    *outcome* is ``None`` when nothing was owed (the latest slot is already settled) or
+    another scheduler settled it first; *job_id* is set when a job was enqueued.
+    """
+
+    schedule: str
+    outcome: str | None = None
+    slot: datetime | None = None
+    job_id: str | None = None
+
+
+def _utc(moment: datetime) -> datetime:
+    """*moment* as an aware UTC value; a naive one is taken to be UTC already."""
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC)
+
+
+def settle_schedule(
+    session: Session,
+    schedule: ScheduleDefinition,
+    *,
+    latest_slot: SlotFinder,
+    now: datetime | None = None,
+    ledger: ScheduleLedger | None = None,
+) -> Settled:
+    """Settle *schedule*'s latest cron time up to *now*, applying its misfire policy.
+
+    The one decision every adapter makes, at start and on each cron time alike, on a session
+    of the adapter's own. With the ledger's last slot ``L`` (or, for a schedule the ledger has
+    never held, a minute before *now*), *latest_slot* names the latest cron time ``S`` in
+    ``(L, now]``:
+
+    * there is none: nothing is owed. A schedule the ledger has never held is recorded at
+      *now* as its :data:`BASELINE`, so a later restart knows where its knowledge starts;
+    * ``S`` is within :data:`ON_TIME_SECONDS` of *now*: its job is enqueued, :data:`FIRED`;
+    * ``S`` is older: a misfire. :attr:`Misfire.RUN_ONCE` enqueues the job once,
+      :data:`LATE`; :attr:`Misfire.SKIP` records :data:`SKIPPED` and enqueues nothing.
+
+    Every slot between ``L`` and ``S`` is folded into ``S``: one run, or one skip. The ledger
+    enqueues the job and moves its record as one unit (:meth:`ScheduleLedger.settle`): on the
+    outbox queue and the database ledger that is one transaction, so a crash leaves both or
+    neither. A record another scheduler moved first is never overwritten, and what was staged
+    is rolled back. A broker queue publishes before the record commits, so delivery stays at
+    least once and a scheduled job must tolerate running twice.
+    """
+    ledger = ledger if ledger is not None else active_schedule_ledger()
+    moment = _utc(now if now is not None else datetime.now(UTC))
+    record = ledger.last(session, schedule.name)
+    after = record.slot if record is not None else moment - timedelta(seconds=ON_TIME_SECONDS)
+    found = latest_slot(after, moment)
+    if found is None:
+        if record is not None:
+            return Settled(schedule.name)
+        return _settle(session, schedule, ledger, record, slot=moment, outcome=BASELINE)
+    slot = _utc(found)
+    if (moment - slot).total_seconds() <= ON_TIME_SECONDS:
+        outcome = FIRED
+    elif schedule.misfire is Misfire.RUN_ONCE:
+        outcome = LATE
+    else:
+        outcome = SKIPPED
+    return _settle(session, schedule, ledger, record, slot=slot, outcome=outcome)
+
+
+def _settle(
+    session: Session,
+    schedule: ScheduleDefinition,
+    ledger: ScheduleLedger,
+    record: ScheduleRecord | None,
+    *,
+    slot: datetime,
+    outcome: str,
+) -> Settled:
+    """Hand the decision to the ledger, which enqueues and records as one unit."""
+    runs = outcome in (FIRED, LATE)
+    moved, job_id = ledger.settle(
+        session,
+        schedule.name,
+        expected=record,
+        slot=slot,
+        outcome=outcome,
+        enqueue=(lambda: trigger_schedule(session, schedule)) if runs else None,
+    )
+    if not moved:
+        _logger.warning(
+            "schedule %r: the slot at %s was settled by another scheduler first, so this "
+            "one recorded nothing%s",
+            schedule.name,
+            slot.isoformat(),
+            "; its job had already left on a queue outside the transaction"
+            if job_id is not None
+            else "",
+        )
+        return Settled(schedule.name)
+    if outcome == LATE:
+        _logger.warning(
+            "schedule %r: the tick due at %s ran late, once (misfire policy run-once)",
+            schedule.name,
+            slot.isoformat(),
+        )
+    elif outcome == SKIPPED:
+        _logger.warning(
+            "schedule %r: the tick due at %s was skipped (misfire policy skip); the next "
+            "cron time runs as usual",
+            schedule.name,
+            slot.isoformat(),
+        )
+    return Settled(schedule.name, outcome=outcome, slot=slot, job_id=job_id)
+
+
 __all__ = [
+    "BASELINE",
+    "FIRED",
+    "LATE",
+    "ON_TIME_SECONDS",
+    "SKIPPED",
+    "InMemoryScheduleLedger",
+    "Misfire",
     "ScheduleCatalog",
     "ScheduleDefinition",
+    "ScheduleLedger",
+    "ScheduleRecord",
     "Scheduler",
+    "Settled",
+    "SlotFinder",
     "active_schedule_catalog",
+    "active_schedule_ledger",
     "configure_schedules",
+    "is_durable_schedule_ledger",
+    "mark_durable_schedule_ledger",
     "reset_schedules_runtime",
+    "settle_schedule",
     "trigger_schedule",
 ]

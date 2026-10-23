@@ -628,8 +628,15 @@ def test_boot_refuses_an_unmarked_store_when_a_shared_one_is_required() -> None:
         create_app([_spec()], require_shared_idempotency_store=True)  # …and so does none at all.
 
 
+class _ReachableIdempotency(InMemoryIdempotencyStore):
+    """A store standing in for a shared one, which says how readiness reaches it (ADR 0191)."""
+
+    def ping(self) -> None:
+        return None
+
+
 def test_boot_accepts_a_marked_shared_store() -> None:
-    shared = mark_shared_idempotency_store(InMemoryIdempotencyStore())
+    shared = mark_shared_idempotency_store(_ReachableIdempotency())
     create_app([_spec()], idempotency_store=shared, require_shared_idempotency_store=True)
 
 

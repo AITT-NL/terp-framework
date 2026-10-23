@@ -514,7 +514,13 @@ def test_the_production_profile_s_invariants_hold(name: str) -> None:
             assert service["restart"] == "unless-stopped" and "init" not in service
         else:
             assert service["restart"] == "unless-stopped" and service["init"] is True
-            assert "healthcheck" not in service, "ready once it runs; see the next test"
+            role = generator.heartbeat_role(_commands(declaration)[unit.id])
+            if role is None:
+                assert "healthcheck" not in service, "ready once it runs; see the next test"
+            else:
+                assert service["healthcheck"]["test"] == [
+                    "CMD", "python", "-c", generator.HEARTBEAT_PROBE, role
+                ], "the heartbeat the unit's own command writes (ADR 0191)"
 
 
 @pytest.mark.parametrize("name", _SAMPLES)
@@ -523,20 +529,74 @@ def test_a_render_can_pass_docker_compose_up_wait(name: str) -> None:
     container that turns unhealthy and a service whose check is disabled ("has no healthcheck
     configured"), and waits for a service with no check until it runs. So the backend image
     carries no HEALTHCHECK for a unit that serves no HTTP to inherit, no rendered service
-    disables one, and every service that has one probes something it serves."""
+    disables one, and every service that has one probes something it serves, or the
+    heartbeat its own command writes (ADR 0191)."""
     files = _render(name)
     if BACKEND_DOCKERFILE in files:
         lines = files[BACKEND_DOCKERFILE].decode("ascii").splitlines()
         assert not any(line.startswith("HEALTHCHECK") for line in lines)
     _meta, declaration, _tables_ = _sample(name)
     services = _services(files)
+    commands = _commands(declaration)
     for unit in declaration.units:
         check = services[unit.id].get("healthcheck")
+        beats = unit.kind is None and generator.heartbeat_role(commands.get(unit.id)) is not None
         if check is None:
-            assert unit.kind is None and unit.role not in ("api", "web"), unit.id
+            assert unit.kind is None and unit.role not in ("api", "web") and not beats, unit.id
             continue
         assert "disable" not in check and check["test"], unit.id
-        assert unit.kind is not None or unit.role in ("api", "web"), unit.id
+        assert unit.kind is not None or unit.role in ("api", "web") or beats, unit.id
+
+
+@pytest.mark.parametrize(
+    ("command", "role"),
+    [
+        (("terp", "jobs", "worker", "--forever"), "worker"),
+        (("terp", "jobs", "worker", "--lease-seconds", "120", "--forever"), "worker"),
+        (("terp", "jobs", "worker"), None),
+        (("terp", "jobs", "worker", "--max-cycles", "5"), None),
+        (("terp", "jobs", "scheduler"), "scheduler"),
+        (("terp", "jobs", "scheduler", "--app", "app.main:app"), "scheduler"),
+        (("python", "-m", "monitor"), None),
+        (("celery", "-A", "app.celery", "worker"), None),
+        (None, None),
+    ],
+)
+def test_only_a_command_that_writes_a_heartbeat_is_checked_on_one(
+    command: tuple[str, ...] | None, role: str | None
+) -> None:
+    """ADR 0191: `terp jobs worker --forever` and `terp jobs scheduler` write a heartbeat,
+    and nothing else does; a check of a heartbeat nobody writes could only ever fail, so a
+    single drain or a companion keeps no check at all."""
+    assert generator.heartbeat_role(command) == role
+
+
+def test_a_unit_that_waits_for_a_worker_waits_for_it_to_be_healthy() -> None:
+    """With a check of its own, a worker is waited for as every checked unit is: healthy,
+    not merely started."""
+    meta, _declaration, tables = _sample("grown")
+    raw = json.loads((_GOLDENS / "grown" / "deployment.json").read_text(encoding="utf-8"))
+    for unit in raw["units"]:
+        if unit["id"] == "monitor":
+            unit["dependsOn"] = [*unit["dependsOn"], "worker", "scheduler"]
+    files, found = generate(
+        _declare(raw, tables), meta["project"], tables=tables, frontend_lock=True
+    )
+    assert found == []
+    waits = _services(files)["monitor"]["depends_on"]
+    assert waits["worker"] == {"condition": "service_healthy"}
+    assert waits["scheduler"] == {"condition": "service_healthy"}
+    assert waits["db"] == {"condition": "service_healthy"}
+
+
+def test_the_heartbeat_probe_reads_its_role_s_file_and_is_pure_text() -> None:
+    """The probe is framework text with the role as its one argument: no `$` for compose to
+    interpolate, ASCII, and the file name the CLI writes (`terp.cli.heartbeat`)."""
+    from terp.cli.heartbeat import heartbeat_path
+
+    assert "$" not in generator.HEARTBEAT_PROBE and generator.HEARTBEAT_PROBE.isascii()
+    assert "'terp-' + sys.argv[1] + '.heartbeat'" in generator.HEARTBEAT_PROBE
+    assert heartbeat_path("worker").name == "terp-worker.heartbeat"
 
 
 def test_every_from_is_a_base_image_table_digest() -> None:
@@ -625,6 +685,19 @@ def test_the_escape_audit_finds_every_interpolation_outside_its_place() -> None:
         (lambda p: p["x-backend"]["environment"].update(
             DATABASE_URL="${DATABASE_URL:-postgresql+psycopg://app:${HOME}@db:5432/app}"),
          "x-backend.environment.DATABASE_URL"),
+        # The per-release tag is accepted on an image name and nowhere else, and only as
+        # the generator writes it: another variable in an image name is still refused.
+        (lambda p: p["services"]["api"].update(image="demo-backend-prod:${OTHER}"),
+         "services.api.image"),
+        (lambda p: p["services"]["web"].update(image="${REGISTRY}/demo-frontend-prod:x"),
+         "services.web.image"),
+        (lambda p: p["services"]["api"]["environment"].update(TAG=generator.RELEASE_TAG_SEAM),
+         "services.api.environment.TAG"),
+        (lambda p: p["services"]["migrate"].update(
+            command=["terp", "migrate", "upgrade", generator.RELEASE_TAG_SEAM]),
+         "services.migrate.command[]"),
+        (lambda p: p.update(image=f"demo-backend-prod:{generator.RELEASE_TAG_SEAM}"),
+         "image"),
     ):
         profile = copy.deepcopy(seed)
         change(profile)
@@ -632,6 +705,9 @@ def test_the_escape_audit_finds_every_interpolation_outside_its_place() -> None:
         assert any(expected in item for item in found), (expected, found)
     listed = [place for place, _pattern in fixed_interpolations(tables)]
     assert "environment.POSTGRES_PASSWORD" in listed and "environment.DATABASE_URL" in listed
+    assert "*.image" in listed
+    assert seed["x-backend"]["image"] == f"demo-backend-prod:{generator.RELEASE_TAG_SEAM}"
+    assert seed["services"]["web"]["image"] == f"demo-frontend-prod:{generator.RELEASE_TAG_SEAM}"
     assert escape_findings(["$$x", "plain"], tables) == []
     assert escape_findings(["$x"], tables) == ["[]: '$x' interpolates outside the fixed list"]
 
@@ -772,7 +848,12 @@ def test_docker_compose_reads_every_hostile_value_back_literally(tmp_path: pathl
         if key.upper() not in ("DATABASE_URL", "WEB_PORT", "BACKEND_CORS_ORIGINS",
                                "COMPOSE_FILE", "COMPOSE_PROJECT_NAME", "COMPOSE_PROFILES")
     }
-    environment |= {"SECRET_KEY": "s" * 40, "POSTGRES_PASSWORD": "p", "HOME": "/home/someone"}
+    environment |= {
+        "SECRET_KEY": "s" * 40,
+        "POSTGRES_PASSWORD": "p",
+        "HOME": "/home/someone",
+        generator.RELEASE_TAG_VARIABLE: "r-1.2",
+    }
     run = subprocess.run(
         [*compose, "-p", "gen-hostile", "-f", str(tmp_path / PROFILE), "config", "--format",
          "json"],
@@ -789,4 +870,8 @@ def test_docker_compose_reads_every_hostile_value_back_literally(tmp_path: pathl
     api = next(unit for unit in declaration.units if unit.role == "api")
     assert compose_literal(services[api.id]["healthcheck"]["test"][-1]) == api.liveness_path
     assert services["web"]["environment"]["API_UPSTREAM"] == "1e3:8000"
+    # The per-release tag is the one value compose is meant to interpolate into an image name.
+    assert {service["image"] for service in services.values() if "build" in service} == {
+        "demo-backend-prod:r-1.2", "demo-frontend-prod:r-1.2"
+    }
     assert {v["source"] for v in services["0o17"]["volumes"]} == {"files"}

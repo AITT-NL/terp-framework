@@ -13,7 +13,9 @@
 name: demo-prod
 
 x-backend: &backend
-  image: demo-backend-prod
+  image: "demo-backend-prod:${TERP_RELEASE_TAG:?TERP_RELEASE_TAG is required, one new image tag per release}"
+  # The per-release tag: required, so a release's images stay on the host beside
+  # the next one's and the previous release can be started again (ADR 0185).
   # App-declared environment variables (environment.schema.json): the deploy
   # pipeline renders exactly the declared keys into .app.env per environment.
   # Optional by design -- plain `docker compose up` works without the file. Each
@@ -153,7 +155,7 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile.prod
-    image: demo-frontend-prod
+    image: "demo-frontend-prod:${TERP_RELEASE_TAG:?TERP_RELEASE_TAG is required, one new image tag per release}"
     restart: unless-stopped
     environment:
       # The api unit this tier proxies /api to; the image's default is api:8000.

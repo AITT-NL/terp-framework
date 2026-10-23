@@ -71,6 +71,26 @@ def test_prod_secrets_have_no_dev_fallback() -> None:
         assert ":?" in db_env["POSTGRES_PASSWORD"], "POSTGRES_PASSWORD must be required"
 
 
+def test_the_template_s_images_carry_a_required_per_release_tag() -> None:
+    """ADR 0185 decision 6: both image names read the per-release tag, ``:?``-required like
+    the secrets, so a release's images stay beside the next one's and an unset tag stops
+    compose instead of overwriting a fixed one. Every backend service inherits the backend
+    name through the merge key. The example app builds from the monorepo and is released by
+    no `terp release`, so its profile keeps its untagged names."""
+    from terp.arch.deployment.generator import RELEASE_TAG_SEAM, RELEASE_TAG_VARIABLE
+
+    template = _template_prod_compose()
+    services = template["services"]
+    assert RELEASE_TAG_SEAM == (
+        "${TERP_RELEASE_TAG:?TERP_RELEASE_TAG is required, one new image tag per release}"
+    )
+    assert RELEASE_TAG_VARIABLE == "TERP_RELEASE_TAG"
+    assert template["x-backend"]["image"] == f"app-backend-prod:{RELEASE_TAG_SEAM}"
+    for name in ("migrate", "api"):
+        assert services[name]["image"] == f"app-backend-prod:{RELEASE_TAG_SEAM}", name
+    assert services["web"]["image"] == f"app-frontend-prod:{RELEASE_TAG_SEAM}"
+
+
 def test_prod_database_url_reads_from_the_environment() -> None:
     """The external-database seam: the bundled `db` service is the *default*,
     and a deployment can point the app at a PostgreSQL it operates itself by
@@ -291,7 +311,18 @@ _PLATFORM_OWNED_NAMES = {
     "ENVIRONMENT",
     "WEB_PORT",
     "BACKEND_CORS_ORIGINS",
+    "TERP_RELEASE_TAG",
 }
+
+
+def test_the_platform_owned_names_are_the_ones_the_cli_refuses() -> None:
+    """One owner per variable: every name the profile interpolates for the platform, the
+    per-release tag among them, is one a manifest may not declare into ``.app.env``."""
+    from terp.arch.deployment.generator import RELEASE_TAG_VARIABLE
+    from terp.cli.envschema import PLATFORM_OWNED_NAMES
+
+    assert PLATFORM_OWNED_NAMES == _PLATFORM_OWNED_NAMES
+    assert RELEASE_TAG_VARIABLE in PLATFORM_OWNED_NAMES
 
 
 def test_prod_backend_forwards_app_declared_env() -> None:

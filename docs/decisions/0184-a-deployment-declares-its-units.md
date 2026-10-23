@@ -451,7 +451,8 @@ left is the reverse of a generated adoption, back to `own`. `terp inspect` stays
   digest of every base image; the hash of each lock file; the build arguments; the content of
   `deployment.json` and of each profile file it names, the base file and its overrides in order,
   with a digest of each, so the profile a deploy runs is under the signature and an executor
-  needs no checkout and no repository; the per-release tag of 0185 decision 6
+  needs no checkout and no repository; the project root's place in the checkout and the
+  development profile a deploy tool holds apart (decision 6); the per-release tag of 0185 decision 6
   (`TERP_RELEASE_TAG`), under which the release's images are named; the schedule catalog, each schedule's name, cron and catalog job, read from the app's
   `ControlPlane` inside the gate worktree, so a deploy tool that
   never imports the app can trigger every schedule; and, per unit, the image digest. The
@@ -587,14 +588,16 @@ Proposed. The framework's half of decisions 1 to 6 and 8 is built (above). What 
    test asserts the pinned spec carries no schema yet. The pin bump moves the Python and npm
    spec pins together, and the spec's `REFERENCE_SHA` then moves to the framework commit
    that implements them, bringing it current from `03065436`.
-2. `terp release` and `terp promote` with the release manifest (decision 9), with a fixture
-   for each shape of the migration step, the schedule catalog in the manifest, and a manifest
-   signed with throwaway keys refused in each way decision 9 names.
+2. ~~`terp release` and `terp promote` with the release manifest (decision 9)~~: built in
+   0.35.0 as ADR 0187 decision 6 has them, three release jobs and a promote that verifies a
+   DSSE envelope; a fixture for each shape of the migration step, the schedule catalog in the
+   manifest, and manifests signed with throwaway keys refused in each way decision 9 names
+   (ADR 0187, *How it was built*).
 3. The deploy-boundary check of decision 7, in the tool that drives the deploy.
 4. The generator ADR that amends ADR 0062 and makes `generated` usable, with the adoption step
    and its reverse.
 
 Still open, each for its own record: how an upgrade that moves a digest is shown to whoever
-keeps an environment's allowlist; the adoption step's command name; the release manifest's
-signature format and how `terp promote` is given its key; and what `staging` guarantees.
+keeps an environment's allowlist; and what `staging` guarantees. The adoption step's command
+name, the manifest's signature format and how `terp promote` is given its key are ADR 0187's.
 Whether a rollback is restore-free is ADR 0185's.

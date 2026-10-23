@@ -29,6 +29,7 @@ browser ──► web (nginx, port 8080)
 ```bash
 export SECRET_KEY="$(openssl rand -hex 32)"     # >= 32 chars, required
 export POSTGRES_PASSWORD="$(openssl rand -hex 16)"
+export TERP_RELEASE_TAG="$(git rev-parse --short=12 HEAD)"   # required, new per release
 
 docker compose -f docker-compose.prod.yml up -d --wait --build
 
@@ -55,6 +56,7 @@ weak `SECRET_KEY`, `DEBUG=true`, SQLite, CORS `*`, or an insecure refresh cookie
 | `SECRET_KEY` | yes | ≥ 32 chars; JWT signing + config sealing (ADR 0055) |
 | `SECRET_KEY_FALLBACKS` | no | Previous keys (JSON list) for zero-downtime rotation (ADR 0076); each ≥ 32 chars |
 | `POSTGRES_PASSWORD` | yes | Bundled Postgres; compose fails fast when unset |
+| `TERP_RELEASE_TAG` | yes | The tag of this release's images, `<project>-backend-prod:<tag>` and `<project>-frontend-prod:<tag>` (ADR 0185): a Docker tag, new for every release, so the previous release's images stay on the host and can be started again. Compose fails fast when unset; it cannot tell a stale value from a new one, so set it per release. Platform-owned: `environment.schema.json` may not declare it |
 | `DATABASE_URL` | derived | Defaults to the bundled `db` service. Set it to run on a managed/external PostgreSQL — then also drop the `db` service (and the `depends_on` waiting on it) with a compose override |
 | `BACKEND_CORS_ORIGINS` | no | Deny-by-default; only for cross-origin SPAs, never `*` |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_TIMEOUT` / `DB_POOL_RECYCLE` | no | Pool tuning (ADR 0024) |
@@ -127,9 +129,18 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
 
 ## Operational notes
 
-- **Health:** `GET /health/live` (process up) and `GET /health/ready` (DB reachable) on
-  the API (ADR 0024); both containers ship `HEALTHCHECK`s and the profile uses
-  `--wait`-able healthchecks + `restart: unless-stopped`.
+- **Health:** `GET /health/live` (process up) and `GET /health/ready` (the database, and
+  every shared store a `require_shared_*` made mandatory, reachable; ADR 0024, ADR 0191) on
+  the API. The profile probes the API on its liveness path and the web tier on its root, and
+  a worker or a scheduler on the heartbeat its own loop writes, with `--wait`-able checks
+  and `restart: unless-stopped`. Workers stay out of readiness: a queue nobody drains is a
+  reason to page someone, not to take the API out of the load balancer.
+- **Stopping a worker or a scheduler:** `docker compose stop` sends SIGTERM; `terp jobs
+  worker --forever` finishes the job it runs and gives the rest of its batch back, and
+  `terp jobs scheduler` lets its ticks finish. A job that outlives the stop grace is killed
+  and redelivered once its lease lapses. A restarted scheduler applies each schedule's
+  declared misfire policy to the cron times it missed, when the app keeps its schedule
+  ledger in the database (`terp guide jobs`).
 - **Builds install the committed locks:** the template's backend image runs `uv sync
   --locked --no-dev` and its web image `npm ci`, so an image holds exactly what `uv.lock` and
   `frontend/package-lock.json` record, and a lock that disagrees with its manifest stops the
@@ -139,8 +150,15 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   the app), carry no BuildKit cache mount, and need BuildKit, the builder of every `docker
   compose` build.
 - **Migrations on upgrade:** pull/build the new images, re-run the `migrate` one-shot,
-  then restart `api`. `docker compose -f docker-compose.prod.yml up -d --wait --build`
-  does all three in order.
+  then restart `api`. With a new `TERP_RELEASE_TAG`,
+  `docker compose -f docker-compose.prod.yml up -d --wait --build` does all three in order,
+  and leaves the previous release's images under their own tag.
+- **Starting the previous release again:** set its `TERP_RELEASE_TAG` and run
+  `docker compose -f docker-compose.prod.yml up -d --wait --no-build`. `--no-build` is the
+  point: the profile builds the images it names, so with `--build`, or with an image of that
+  tag pruned, compose would build this checkout and run it under the old tag. Across a
+  migration the previous release's `migrate` refuses a database it does not know; restore
+  the backup taken before the upgrade first.
 - **DBA-gated releases:** where the migration runner may not touch production, render
   the upgrade as reviewable SQL instead — `terp migrate upgrade --sql > release.sql`
   connects to nothing and includes the version-table bookkeeping, so a script-applied
@@ -161,8 +179,8 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   image makes that directory owned by the user it runs as, and Docker gives an empty named
   volume the owner of the directory it is mounted over, so the volume is that user's from its
   first mount. A volume made by an image that predates the directory stays owned by root;
-  hand it over once (`docker compose -f docker-compose.prod.yml run --rm --no-deps --user
-  root api chown 10001 /srv/var/files`).
+  hand it over once, with the release's `TERP_RELEASE_TAG` and secrets set (`docker compose
+  -f docker-compose.prod.yml run --rm --no-deps --user root api chown 10001 /srv/var/files`).
 - **Single sign-on:** a production boot with SSO configured refuses an empty
   `OIDC_ALLOWED_EMAIL_DOMAINS`, the email domains whose verified users get an account. Set it
   with the other `OIDC_*` values wherever the app runs as production; with SSO not configured,
@@ -204,6 +222,40 @@ what holds state (ADR 0184). The template writes one describing `db`, `migrate`,
 policy (who may publish, approvals, gate policy) never belongs in it. The bundled database is
 pinned by digest to the datastore table the framework release publishes, so a `docker compose
 pull` cannot move it under a running deployment. `uv run terp guide deployment` has the rules.
+
+## Releasing and promoting (`terp release`, `terp promote`)
+
+A declared app can be released as a signed, exact-commit set of images and deployed from it
+without a checkout or a rebuild (ADR 0187 decision 6). The release is three jobs, and each is
+meant to run on a fresh host that is discarded after it, because the second one runs the app:
+
+| Job | Runs from | Holds | Writes |
+|---|---|---|---|
+| `terp release build` | the operator's toolchain, never the app's environment | a push credential for this release's repositories | the images, and `terp-release-build.json` (BuildKit's digests) |
+| `terp release gate` | a clean checkout of the commit, with the app's environment | at most a pull credential | `terp-release-gate.json` (the release profile's assurance claim, the schedule catalog) |
+| `terp release sign` | the signer image (`packages/backend/cli/signer/`) | a way to reach the signer, never the key | `release.dsse.json`, the manifest, an SBOM and a package list per image |
+
+`build` reads the commit from git's object store and builds from that pristine tree in a
+BuildKit builder of its own, with fresh bases and no cache; `sign` reads the same commit and the
+pushed images as data, holds the backend image's app files, bytecode, installed set and wheel
+to the commit and its lock, scans the SBOMs and the history, and signs. Where one machine runs
+all three, say so: `--hosts shared` is recorded in the manifest, and the guarantee becomes "the
+host is trusted".
+
+`terp promote release.dsse.json --public-key <trusted.pub> --project-dir <dir>` verifies the
+envelope before reading it, pulls each image by its signed digest, tags it
+`<project>-backend-prod:<tag>` (and the frontend's), writes the carried profile into `<dir>`
+and runs it with the release's `TERP_RELEASE_TAG`, the variables the profile names and nothing
+else of your environment: put `.app.env` and the secrets there as for a hand deploy. It reads
+every `alembic_version_*` table before the migration step (`<dir>/.terp/versions-before-<tag>.json`),
+runs the step exactly once, and starts the rest with `--no-build --pull never`. If the deploy
+fails and the version tables are as they were, starting the previous release again is
+restore-free, and `--undo-to <its envelope>` does it after that release's own `terp migrate
+check`; if the step changed them, going back is a restore. A rollback in an invocation of its
+own (`--rollback`) has no such reading and is refused until you restore the backup taken
+before the release that followed the target and say so with `--restored`.
+
+Both commands need `terp-cli[release]` and refuse without it.
 
 ## CI guard
 

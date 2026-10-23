@@ -3,13 +3,26 @@
 For each :class:`~terp.core.ScheduleDefinition`, :meth:`CeleryBeatScheduler.register` registers
 a small **tick task** on the Celery app and a ``beat_schedule`` entry that runs that task on the
 schedule's cron. When Celery beat fires the tick (on a worker), the tick opens a session and
-calls :func:`~terp.core.trigger_schedule` — i.e. it **enqueues** the schedule's job through the
-typed chokepoint and the active :class:`~terp.core.JobQueue`. Routing through a tick task (rather
-than beat sending a fixed message) keeps the schedule's ``payload_factory`` **dynamic** per fire
-and the no-drift ``enqueue`` validation in force.
+settles the schedule through :func:`~terp.core.settle_schedule` — it **enqueues** the
+schedule's job through the typed chokepoint and the active :class:`~terp.core.JobQueue`, and
+records the slot in the active :class:`~terp.core.ScheduleLedger` (ADR 0191). Routing
+through a tick task (rather than beat sending a fixed message) keeps the schedule's
+``payload_factory`` **dynamic** per fire and the no-drift ``enqueue`` validation in force.
 
 The cron string is translated to a Celery ``crontab`` (a standard 5-field ``minute hour
 day-of-month month day-of-week``), so a malformed cron fails at registration.
+
+**A tick missed while beat was down** (ADR 0191). The tick decides what it is from the ledger,
+not from beat: a tick beat fires late on start (beat's own catch-up, when its schedule file
+survived the restart) is settled as the misfire it is, and the schedule's declared policy runs
+it once or records it skipped. Where beat's schedule file does not survive (a container that
+starts clean), beat fires nothing for the gap, so call :meth:`CeleryBeatScheduler.catch_up` once
+when beat starts, from Celery's ``beat_init`` signal::
+
+    from celery.signals import beat_init
+    beat_init.connect(lambda **_: scheduler.catch_up(), weak=False)
+
+Both paths settle through the same ledger, so whichever runs second finds the slot settled.
 
 **Deployment.** The tick tasks are registered on the Celery app *in the calling process*, so
 every Celery **worker** that may run them must be bootstrapped the same way — import the
@@ -25,9 +38,18 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from datetime import UTC, datetime
+
 from sqlmodel import Session
 
-from terp.core import ScheduleDefinition, Scheduler, trigger_schedule
+from terp.core import (
+    ScheduleDefinition,
+    ScheduleLedger,
+    Scheduler,
+    Settled,
+    settle_schedule,
+)
+from terp.core.scheduling import SlotFinder
 
 from celery import Celery  # arch-allow-no-adhoc-background-runtime: this capability IS the Celery-beat adapter — the one governed place the engine is imported, behind the scheduler seam
 from celery.schedules import crontab  # arch-allow-no-adhoc-background-runtime: the cron parser the scheduler seam delegates to
@@ -58,6 +80,32 @@ def _to_crontab(cron: str) -> crontab:
     )
 
 
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _slot_finder(schedule: crontab) -> SlotFinder:
+    """The latest fire time of *schedule* in ``(after, until]``, as the kernel asks for it.
+
+    ``remaining_delta(t)`` is Celery's own answer to "when does this crontab fire next
+    after *t*": its start plus its delta.
+    """
+
+    def _next(after: datetime) -> datetime:
+        start, delta, _now = schedule.remaining_delta(after)
+        return start + delta
+
+    def latest(after: datetime, until: datetime) -> datetime | None:
+        found = None
+        moment = _next(after)
+        while moment <= until:
+            found = moment
+            moment = _next(moment)
+        return found
+
+    return latest
+
+
 class CeleryBeatScheduler(Scheduler):
     """A :class:`~terp.core.Scheduler` that drives catalog schedules from Celery beat.
 
@@ -74,28 +122,44 @@ class CeleryBeatScheduler(Scheduler):
         session_factory: Callable[[], Session],
         *,
         task_prefix: str = _TASK_PREFIX,
+        ledger: ScheduleLedger | None = None,
+        clock: Callable[[], datetime] = _utc_now,
     ) -> None:
         self._app = celery_app
         self._session_factory = session_factory
         self._task_prefix = task_prefix
+        self._ledger = ledger
+        self._clock = clock
         self._beat_schedule: dict[str, dict[str, Any]] = {}
+        self._registered: list[tuple[ScheduleDefinition, SlotFinder]] = []
 
     def register(self, schedule: ScheduleDefinition) -> None:
         """Register *schedule*'s tick task and a beat entry firing it on its cron."""
         task_name = f"{self._task_prefix}{schedule.name}"
-        self._app.task(name=task_name)(self._make_tick(schedule))
-        self._beat_schedule[schedule.name] = {
-            "task": task_name,
-            "schedule": _to_crontab(schedule.cron),
-        }
+        cron = _to_crontab(schedule.cron)
+        finder = _slot_finder(cron)
+        self._app.task(name=task_name)(self._make_tick(schedule, finder))
+        self._beat_schedule[schedule.name] = {"task": task_name, "schedule": cron}
+        self._registered.append((schedule, finder))
 
-    def _make_tick(self, schedule: ScheduleDefinition) -> Callable[[], str]:
-        """Build the per-tick callable: open a session and fire the schedule (enqueue)."""
-        session_factory = self._session_factory
+    def settle(self, schedule: ScheduleDefinition, finder: SlotFinder) -> Settled:
+        """Settle *schedule* now, on a session of its own."""
+        with self._session_factory() as session:
+            return settle_schedule(
+                session, schedule, latest_slot=finder, now=self._clock(), ledger=self._ledger
+            )
 
-        def _tick() -> str:
-            with session_factory() as session:
-                return trigger_schedule(session, schedule)
+    def catch_up(self) -> list[Settled]:
+        """Settle every registered schedule now; call it once when beat starts (``beat_init``)."""
+        return [self.settle(schedule, finder) for schedule, finder in self._registered]
+
+    def _make_tick(
+        self, schedule: ScheduleDefinition, finder: SlotFinder
+    ) -> Callable[[], str | None]:
+        """Build the per-tick callable: settle the schedule; return the job id it enqueued."""
+
+        def _tick() -> str | None:
+            return self.settle(schedule, finder).job_id
 
         return _tick
 

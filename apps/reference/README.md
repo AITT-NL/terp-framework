@@ -36,8 +36,8 @@ built wheels with `UV_FIND_LINKS`, as template acceptance does.
 
 | Capability | In the app | Proven by |
 |---|---|---|
-| **Worker** (`terp-cap-outbox`) | `app/main.py` wires `OutboxJobQueue`, so every job is a row committed with the write that caused it. The `worker` service runs `terp jobs worker --forever` in both compose profiles. | The suite drains the outbox with `OutboxWorker`; the stack check waits for the mail and the snapshot only the worker can produce. |
-| **Scheduler** (`terp-cap-scheduler-apscheduler`) | `control_plane/schedules.py` declares `notices.snapshot.hourly`. The `scheduler` service runs `terp jobs scheduler`, with no healthcheck and nothing depending on it, so it stays out of readiness. | The suite fires a tick through `trigger_schedule` and registers the cron with APScheduler; CI reads the registration from the scheduler's log. |
+| **Worker** (`terp-cap-outbox`) | `app/main.py` wires `OutboxJobQueue`, so every job is a row committed with the write that caused it. The `worker` service runs `terp jobs worker --forever` in both compose profiles: a stop finishes the job in flight and gives the rest of its batch back, and the production profile checks it on the heartbeat it writes. | The suite drains the outbox with `OutboxWorker`; the stack check waits for the mail and the snapshot only the worker can produce. |
+| **Scheduler** (`terp-cap-scheduler-apscheduler`) | `control_plane/schedules.py` declares `notices.snapshot.hourly`, whose missed hour runs once late (`Misfire.RUN_ONCE`), and `app/main.py` wires the outbox's `DatabaseScheduleLedger`, so a scheduler a deploy restarted takes the hour it missed. The `scheduler` service runs `terp jobs scheduler`, with nothing depending on it, so it stays out of readiness; the production profile checks it on its heartbeat. | The suite fires a tick through `trigger_schedule`, registers the cron with APScheduler, and restarts a scheduler across two cron times; CI reads the registration from the scheduler's log. |
 | **File storage** (`terp-cap-files`) | The snapshot job stores what the upstream returned through `FileService`; `Snapshot.file_id` is a declared `FileRef`; one `files-data` volume is shared by the API and the worker. | The suite reads the bytes back with `load_for`; the stack check downloads them from `/api/v1/files/{id}/content` and compares the size. |
 | **Mail** (`terp-cap-mail`) | `configure_mail` reads the relay from `MAIL_FROM` / `SMTP_*`; a new notice is mailed from `NoticeService._after_write`. In development the relay is the `mailcatcher` service (Mailpit), which is what `terp env init` writes from the declared defaults. | The suite captures the delivery with `CapturingMailTransport`; the stack check finds the mail in the catcher's inbox. |
 | **Egress** (`terp-cap-egress`) | `app/modules/notices/upstream.py` declares one `EgressPolicy`: `example.com` (the domain reserved for documentation), HTTPS only, bounded. The snapshot job makes the one call. | The suite swaps the transport and keeps the policy, and proves every other host and plain HTTP are refused before a lookup; the stack check makes the real call from the worker container. |
@@ -64,7 +64,8 @@ it joins the app when it ships.
   repository, and runs a scripted change, its gate, its publish step and a Test deploy
   against that, in place of a client's app. No new repository and no second pin: the app moves with the framework.
 - **A deployment test environment** deploys its production profile, `docker-compose.prod.yml`: the
-  worker, the scheduler and the companion on the backend image beside the API. The file is
+  worker, the scheduler and the companion on the backend image beside the API, the worker
+  and the scheduler each checked on its heartbeat. The file is
   the generator's render of the reference shape (the `grown` golden sample of ADR 0187),
   kept as the app's own under `"build": "own"`, and a test holds the two equal. That
   profile has no mail catcher: the relay is external, and `MAIL_FROM` and `SMTP_HOST` are

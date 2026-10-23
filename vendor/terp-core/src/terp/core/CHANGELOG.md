@@ -46,12 +46,28 @@ render. The template asks the same question, `terp deployment adopt` moves an ex
 that state and back, and from then on `copier update` leaves the three files to the generator,
 so a framework update is a re-render and never a merge.
 
+And a release could be cut only by whatever built the images, from whatever its working copy
+held, with nothing anyone could check afterwards: the job that ran the app's tests also held
+the push credential, and nothing said which commit an image was built from. A declared app is
+now released in three jobs, `terp release build`, `gate` and `sign`, so that no job that runs
+the app holds a credential or writes into what is built, and the result is a signed manifest
+that `terp promote` verifies before it pulls anything and deploys without rebuilding.
+
 And the development loop stopped services without a word. After a Python dependency change
 the API came back on the new image and the worker, the scheduler and the companion beside it
 stayed stopped; after a frontend dependency change the whole backend could stay stopped; and a
 settings change could be undone by the next rebuild. Every service on a rebuilt image now comes
 back on it, once per change, and a settings change applies itself.
 
+And a deployment with a worker, a scheduler and a shared store could not get a true answer to
+the four questions it asks of them. Readiness asked the database alone, so an instance that had
+lost the shared store it was told to require reported ready while every request failed. A
+worker stuck in a job that never returned was exactly as healthy as one draining the outbox,
+because nothing checked a worker at all. A stopped worker drained the outbox empty before it
+let go, and a Celery worker killed mid-job took its job with it. A cron time that passed during
+a deploy left no trace. Readiness now asks every store a deployment made mandatory, a worker
+and a scheduler write a heartbeat their container is checked on, a stop finishes or gives back
+the work in flight, and a schedule says what a missed tick becomes (ADR 0191).
 And two things a fresh render did in production went untested. An app with file uploads had no
 volume behind the files capability's storage root there: only the development compose file
 mounted one, so stored files lived in the API container and went with it at the next deploy.
@@ -250,10 +266,92 @@ every render in production mode.
   runs it wherever copier can be found. The matrix gains `reference-generated`: the reference
   app adopts `generated` with no build-file change, then is held to `terp verify --only
   generated`, its suite and `docker compose config` of its profile.
+- **`terp release build`, `gate` and `sign`: a release in three jobs** (ADR 0187 decision 6).
+  Each takes an exact commit, its full object name, and reads it from git's object store, never
+  from a working copy. `build` writes that tree out as a pristine build context, builds every
+  image the production profile builds in a BuildKit builder made for the job (pinned by digest,
+  removed after it) with `--pull` and no cache import or export, pushes
+  `<registry>/<image>:<tag>`, and writes BuildKit's own digests to `terp-release-build.json`.
+  `gate` runs in a clean checkout of the commit: `terp verify --profile release --format
+  assurance` with npm's scripts off, then the schedule catalog, read by running the pushed image
+  with no network, a read-only filesystem and its own non-root user, through a docker
+  configuration of its own that holds at most a pull credential. `sign` runs from the signer
+  image, never the commit's toolchain, and runs nothing of the app: it repeats every refusal,
+  validates the declaration with its own reader against the datastore table of the terp-arch the
+  commit pins (whose wheel it fetches and holds to the SHA-256 the signer's release table
+  carries), renders a generated app's files with that terp-arch in a process of its own and
+  refuses a committed file that differs, checks every pushed digest in the registry over the
+  OCI distribution API, reads the backend image's layers as data in a sandbox process and holds
+  them to the commit (every file under `/srv/app` and `/srv/control_plane`, every bytecode file
+  as the checked-hash compile of its source by the image's own base interpreter, every file of
+  the app wheel, and the installed set to the lock's runtime set), computes an SBOM per image,
+  asks OSV about it, scans the history reachable from the commit with gitleaks, and signs the
+  manifest as a DSSE envelope (`application/vnd.terp.release-manifest.v1+json`, Ed25519 or ECDSA
+  P-256). `--signer '<json argv>'` is the production path, held to `--public-key` before
+  anything is written; `--sign-key` is refused without `--test-key`. Refused from data, by name:
+  an undeclared or unmanaged app, a declaration that cannot be read or is untrue, a committed
+  `.terp-dist/` or submodule, a lock naming a path, a profile service on an image neither built
+  here nor a datastore table digest, a datastore with no healthcheck, two migration steps or one
+  with `--revision`/`--sql`, no step and other than one api unit, a built image that does not
+  read `TERP_RELEASE_TAG`, a build with more than a context and a Dockerfile, a wheel that maps
+  files elsewhere, a failed gate, and a secret in the history. `terp guide deployment`.
+- **`terp promote` deploys a signed release without rebuilding it.** It verifies the envelope
+  against `--public-key` (repeatable) before it parses the manifest, refuses a Terp Standard
+  release newer than its own, reads the carried declaration against the manifest's own datastore
+  record, audits a generated profile for every `$` and any YAML tag, and with
+  `--require-generated` refuses an `own` release. Then it pulls each image by its signed digest,
+  holds its id to the manifest's, tags it under the profile's name and the release tag, writes
+  the carried profile and runs compose with only the variables the profile names: the
+  datastores, a reading of every `alembic_version_*` table, the migration step exactly once, the
+  rest, every `up` with `--no-build --pull never`. A deploy that fails on unchanged version
+  tables is restore-free to undo, and `--undo-to <envelope>` starts the previous release after
+  its own `terp migrate check`; a rollback in an invocation of its own is refused until
+  `--rollback --restored`. ADR 0184 decision 9, ADR 0185 decision 6.
+- **The signer image**, `packages/backend/cli/signer/Dockerfile`: terp-cli with its `release`
+  extra installed by hash from this commit's wheels and the lock (`tools/signer_context.py`
+  writes the build context), gitleaks and the docker client by digest, and the terp-arch release
+  table. CI builds and runs it; nothing publishes it yet.
+- **`terp-cli[release]`**, an optional extra: cryptography, packaging and the egress capability.
+  Without it `terp release sign` and `terp promote` refuse to run.
 - **`terp jobs worker --forever`** drains the outbox, waits `--poll-seconds` (5 by default),
   and drains again until SIGTERM or SIGINT, which end it cleanly after the batch in flight. A
   profile no longer needs a shell loop around a single drain, and the reference app's worker
   runs it in both profiles.
+- **Readiness asks every shared store a `require_shared_*` made mandatory** (ADR 0191, amending
+  ADR 0024). `GET /health/ready` keeps its `SELECT 1` and adds `throttle_store`, `cache_store` and
+  `idempotency_store` for each `require_shared_*_store=True`, and `realtime_broker` while
+  `configure_realtime(require_shared_broker=True)` stands: 503 names the check that failed. Each
+  store is asked through a new `ping()` on its port (terp-cap-redis' stores and broker answer with a
+  Redis `PING`), on a thread of its own within 2 seconds and never twice at once, so a store that
+  stops answering turns readiness 503 within the bound instead of holding the probe. Workers,
+  schedulers and the outbox backlog stay out. A capability's own store joins through
+  `register_mandatory_store`. Measured against redis-py's client and real sockets: 503 about 4 s
+  after the store went away, 200 within half a second of its return; the database half runs in
+  the PostgreSQL lane through a relay the test cuts and restores.
+- **A worker and a scheduler report a heartbeat.** `terp jobs worker --forever` and `terp jobs
+  scheduler` write `terp-<role>.heartbeat` in their container's temporary directory from the loop
+  whose progress it vouches for: the worker before each claim, after each job and between drains,
+  the scheduler every 10 seconds from its own engine. The file says when it was written and how
+  stale it may grow, `max(--lease-seconds, --poll-seconds)` plus 30 s for a worker (60 s by
+  default) and 60 s for a scheduler, and is removed when the process starts and stops.
+- **A schedule declares what a missed tick becomes, and a ledger remembers.**
+  `ScheduleDefinition(..., misfire=Misfire.RUN_ONCE)` runs a tick that fell due while no scheduler
+  ran once, late, folding a whole gap into one run; `misfire=Misfire.SKIP` records it skipped. A
+  slot settled within a minute of its cron time is on time. `ScheduleLedger` keeps each schedule's
+  last settled slot, and `settle_schedule` is the one decision both adapters make, at start and on
+  every cron time. terp-cap-outbox's `DatabaseScheduleLedger` keeps it in a new
+  `outbox_schedule_fire` table, in the same transaction as the outbox row the tick enqueued;
+  `create_app(schedule_ledger=..., require_durable_schedules=...)` wires and promises it. The
+  APScheduler adapter settles every schedule on start (and takes a `timezone`), and the Celery-beat
+  adapter's tick settles through the ledger, with `catch_up()` for beat's `beat_init`. `terp
+  inspect control-plane` shows each schedule's policy, `misfire` in its JSON, so a tool that reads
+  the catalog from an image (`terp release gate`) can carry it.
+- **A stopped worker finishes or gives back its work.** `OutboxWorker.run(stop=...)` claims
+  nothing once the event is set, finishes the job running and releases the rest of its batch for
+  another worker at once (`DrainResult.released`); `terp jobs worker --forever` sets it on SIGTERM
+  or SIGINT, and `terp jobs scheduler` shuts its engine down once, letting the ticks in flight
+  finish. A killed worker's job is redelivered once its lease lapses, proven with two real worker
+  processes over one database.
 - **Template acceptance boots every render in production mode** (`tools/production_boot.py`).
   From the render's own environment, so exactly the capabilities it installs are discovered,
   it brings a scratch PostgreSQL database to every head (production refuses SQLite, and the
@@ -358,13 +456,77 @@ every render in production mode.
   roots after they are copied, with `python -m compileall --invalidation-mode checked-hash`, whose
   bytecode records a hash of its source rather than a time: two cold builds of one lock gave the
   same 1355 files byte for byte, and the installed set is unchanged.
+- **The production profile tags its images per release.** Both image names read a required
+  tag, `<project>-backend-prod:${TERP_RELEASE_TAG:?...}` and the same for the frontend, so
+  `up --build` no longer overwrites the image the previous release ran, and that release can
+  be started again under its own tag (ADR 0185 decision 6). With the variable unset compose
+  stops with "TERP_RELEASE_TAG is required, one new image tag per release", as it does for
+  `SECRET_KEY`. The escape audit an executor runs over a generated profile accepts that one
+  interpolation on an image name (`*.image`) and nowhere else, and `TERP_RELEASE_TAG` is
+  platform-owned: `environment.schema.json` may not declare it.
 - **The truth rule reads a profile as compose does.** A restated command is compared with what
   compose makes of the profile's: `$$` is one `$`, `$name` and `${...}` are interpolations that
   never equal a restated literal, and any other `$` is literal. It compared raw strings, and
   would have called a generated profile, which doubles every `$` of a value, untrue.
 
+- **The Celery task acknowledges a job only after it ran.** `register_terp_worker` registers it
+  with `acks_late` and `reject_on_worker_lost`, so a Celery worker killed mid-job hands the
+  message back and the broker redelivers it, where Celery's default acknowledged it on receipt.
+- **The generator checks a worker and a scheduler on their heartbeat** (amending ADR 0187
+  decision 5). A unit whose command is `terp jobs worker ... --forever` or `terp jobs scheduler
+  ...` is probed every 10 seconds by a fixed `python -c` probe, standard library only, that
+  reads the heartbeat, prints its age and bound as one JSON line, and fails when it is older than
+  its bound or missing; its dependants wait for `service_healthy`. A deploy tool reads the same
+  answer per unit from the container's health log. Any other unit that serves no request keeps
+  no check. Five golden samples and the reference app's production profile gain the check; the
+  template's files do not change.
+- **A throttle-store outage no longer turns `/health` into 429.** The rate limiter fails closed
+  on a store error and still does for every other path, but lets a request to `/health` through,
+  so liveness stays up and readiness answers 503 naming the store.
+
 ### Upgrade notes
 
+- **Every `ScheduleDefinition` declares `misfire=`.** It is a required keyword, so a schedule
+  without one raises `TypeError` when the control plane is imported. Choose per schedule:
+  `Misfire.RUN_ONCE` for work that is still worth doing late (a report, a sync, a cleanup),
+  `Misfire.SKIP` for work that is not (a reminder for a meeting that has started). The leases and
+  sync capabilities' helpers choose `RUN_ONCE` and take `misfire=` to choose otherwise.
+- **A scheduler remembers only what its ledger keeps.** Wire
+  `create_app(schedule_ledger=DatabaseScheduleLedger(), require_durable_schedules=
+  settings.is_production)` from terp-cap-outbox, and run `terp migrate upgrade` for the outbox's
+  new `outbox_schedule_fire` revision. Without it a restarted scheduler never sees the tick it
+  missed, and `terp jobs scheduler` says so in its log. The first start records each schedule's
+  baseline and runs nothing it does not know it owes.
+- **A shared store you wrote yourself needs `ping()`** wherever a `require_shared_*` requires it:
+  readiness asks it, and the boot (or, for the realtime broker, the promise) refuses a shared
+  store that does not say how to reach it. Raise when the backend cannot be reached; terp-cap-redis'
+  stores already do.
+- **Bound your Redis client.** The stores keep redis-py's defaults, so a Redis that stops
+  answering holds every request the rate limiter counts. Readiness's own probe is bounded;
+  bound the client with the URL: `redis://host:6379/0?socket_timeout=2&socket_connect_timeout=2`.
+- **A worker and a scheduler in a profile of your own** can be checked as the generator checks
+  them: copy its heartbeat healthcheck from `terp guide deployment` or a render, and point
+  dependants at `service_healthy`. Leave `TMPDIR` the same for the process and its check, and give
+  a read-only root filesystem a writable `TMPDIR`.
+- **On Celery**, set `worker_prefetch_multiplier=1`, and on Redis a `visibility_timeout` above your
+  longest job: with late acknowledgement that is how long a dead worker's message waits.
+- **`DrainResult` gains `released`**, and the worker's tally line ends with `released=N`; a tool
+  that parses the line sees one more field.
+- **To release with `terp release`, install `terp-cli[release]`** where `build` and `promote`
+  run, and run `sign` from the signer image. A commit that vendors pre-release wheels under
+  `.terp-dist/` is refused: release on a published framework version. Tag your built images
+  `<name>:${TERP_RELEASE_TAG:?...}` in an `own` profile (`copier update` brings the template's),
+  and give a build nothing but its context and Dockerfile.
+- **Every compose command on the production profile needs `TERP_RELEASE_TAG`**: `up`,
+  `run` (the first administrator's bootstrap), `down`, `logs`, `config`. Set a new Docker tag
+  for every release (`git rev-parse --short=12 HEAD` is one), beside `SECRET_KEY` and
+  `POSTGRES_PASSWORD`. To start the previous release again, set its tag and run `up -d --wait
+  --no-build`: the profile builds the images it names, so `--build`, or a pruned image, would
+  build the current checkout under the old tag. `copier update` brings the two `image:` lines;
+  a service your app added on the backend image inherits the tagged name through `<<:
+  *backend`. A tool that pulls release images by digest tags them
+  `<project>-backend-prod:<tag>` and `<project>-frontend-prod:<tag>` before `up`. An
+  executor's escape audit needs this release's fixed-interpolation list before an app pins it.
 - **An app with the files capability and `"build": "own"`** takes the volume in
   `docker-compose.prod.yml` from `copier update`: the mount on `api` and `files-data` under
   `volumes:`. `deployment.json` is the app's, and no update touches it, so declare the volume
@@ -381,9 +543,9 @@ every render in production mode.
   profile and to `mount.units`. An app that already mounts a volume of its own at
   `/srv/var/files` keeps one of the two when it resolves the merge, and declares that one. A
   volume created by an image older than this release was made owned by root (the image had no
-  `/srv/var/files` for Docker to copy the owner from) and stays so; hand it over once with
-  `docker compose -f docker-compose.prod.yml run --rm --no-deps --user root api chown 10001
-  /srv/var/files`.
+  `/srv/var/files` for Docker to copy the owner from) and stays so; hand it over once, with the
+  release's `TERP_RELEASE_TAG` and secrets set, with `docker compose -f docker-compose.prod.yml
+  run --rm --no-deps --user root api chown 10001 /srv/var/files`.
 - **An app with the files capability and `"build": "generated"`** declares the same volume,
   with its `mount`, and runs `uv run terp deployment render`.
 - **An app with single sign-on sets `OIDC_ALLOWED_EMAIL_DOMAINS` wherever it runs as
@@ -486,6 +648,10 @@ every render in production mode.
   running one.
 
 ### Fixed
+
+- **A production profile whose `build` is neither a path nor a mapping no longer crashes the
+  deployment reader.** Compose refuses such a profile itself; the reader now leads nowhere for it
+  instead of raising.
 
 - **An upload into a generated app's files volume no longer fails on permissions.** Both
   template Dockerfiles run as a non-root user, and neither created `var/files`, the files

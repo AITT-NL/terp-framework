@@ -4,7 +4,7 @@
     ".app.env.example": "8408109ac5fd2c906d08e51a2334bc6cccc10848860f816280108c550de099b9",
     "app/main.py": "fdf8819de419f128cdd0b3ff8436a3339980ec27960784787a376b3068085a55",
     "control_plane/__init__.py": "e14b3de04e63c6fbcfd3aa52cc05fee2f40e8ad05ef886d3aa9b7abf9eb32b8e",
-    "docker-compose.prod.yml": "509579df99c0cdc944e98fc0a3ea4216872f52a332d1a65ad83cc018ad0b0922",
+    "docker-compose.prod.yml": "48edbda87984703217c485358ea4695eee713ca13fbc0dca1be4b10c876f072f",
     "docker-compose.yml": "00f4587ea8cdfc6dc95df2d8c5d718c5d8a45d881edeacf48a0bb32729b1d788"
   }
 }

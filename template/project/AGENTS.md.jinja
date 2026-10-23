@@ -117,8 +117,9 @@ variable, update the manifest in the same change:
 
 - Preserve existing declarations and declare only variables the app actually reads.
 - Names are UPPER_SNAKE (`^[A-Z][A-Z0-9_]{0,63}$`). Never shadow platform-owned
-  `SECRET_KEY`, `POSTGRES_PASSWORD`, `DATABASE_URL`, `ENVIRONMENT`, `WEB_PORT`, or
-  `BACKEND_CORS_ORIGINS`; never put frontend build-time `VITE_*` values here.
+  `SECRET_KEY`, `POSTGRES_PASSWORD`, `DATABASE_URL`, `ENVIRONMENT`, `WEB_PORT`,
+  `BACKEND_CORS_ORIGINS` or `TERP_RELEASE_TAG`; never put frontend build-time `VITE_*`
+  values here.
 - Mark tokens, passwords, API keys and client secrets with `"format": "secret"`.
   Never write secret values into the manifest, `.env`, source, tests, prompts or logs.
 - **Never also list a declared variable in a compose `environment:` block.** Compose

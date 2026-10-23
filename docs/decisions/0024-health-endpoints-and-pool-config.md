@@ -1,6 +1,9 @@
 # 0024 - Built-in health endpoints + connection-pool configuration
 
-- **Status:** Accepted
+- **Status:** Accepted; amended 2026-10-22 by
+  [ADR 0191](0191-readiness-asks-the-stores-a-deployment-requires-and-a-worker-reports-a-heartbeat.md)
+  (readiness also asks every shared store a `require_shared_*` made mandatory; workers and
+  schedulers report a heartbeat of their own, outside readiness)
 - **Date:** 2026-06-25
 - **Context phase:** Phase 2 (base profile) — production-readiness
 - **Relates:** [ADR 0015](0015-runtime-write-guarded-session.md) (the write-guarded
@@ -26,7 +29,8 @@ one, and a real deployment could not size its pool.
    - `GET /health/ready` — *readiness*: a `SELECT 1` through the same `SessionDep`
      seam the app uses; `200 {"status":"ready","checks":{"database":"ok"}}` when the
      database answers, `503 not_ready` otherwise, so a load balancer withholds
-     traffic until the dependency recovers. The ping is a `Select` — a read the
+     traffic until the dependency recovers. *(Amended by ADR 0191: every shared store a
+     `require_shared_*` made mandatory is asked too, each named in `checks`.)* The ping is a `Select` — a read the
      write-guarded session permits (ADR 0015) — and goes through `SessionDep`, so it
      honors the configured engine and is overridable in tests.
 

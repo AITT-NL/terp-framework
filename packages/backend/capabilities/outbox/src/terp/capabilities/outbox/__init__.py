@@ -12,7 +12,13 @@ one append-only :class:`OutboxMessage` table and supplies:
 * :class:`OutboxWorker` — the leased, retrying consumer (``terp jobs worker``) that
   claims due rows, runs jobs through the context-binding kernel runner and events
   through the in-process handlers, and retries / dead-letters per the
-  :class:`~terp.core.RetryPolicy`.
+  :class:`~terp.core.RetryPolicy`. Asked to stop, it finishes the job it is running and
+  releases the rest of its batch.
+* :class:`DatabaseScheduleLedger` — the durable :class:`~terp.core.ScheduleLedger` (ADR
+  0191): each schedule's last settled slot, recorded in the same transaction as the outbox
+  row its tick enqueued, so a scheduler restarted across a cron time applies the
+  schedule's misfire policy. ``create_app(schedule_ledger=DatabaseScheduleLedger(),
+  require_durable_schedules=...)``.
 * ``terp outbox backlog`` and a registered **health detail** (``GET
   /health/detail``, opt-in via ``create_app(expose_health_detail=True)``),
   which report what is waiting. The capability had no operator surface at all: if
@@ -37,6 +43,7 @@ from sqlmodel import Session
 
 from terp.core import register_health_detail
 
+from terp.capabilities.outbox.ledger import DatabaseScheduleLedger
 from terp.capabilities.outbox.models import (
     KIND_EVENT,
     KIND_JOB,
@@ -44,6 +51,7 @@ from terp.capabilities.outbox.models import (
     STATUS_DISPATCHED,
     STATUS_PENDING,
     OutboxMessage,
+    ScheduleFire,
 )
 from terp.capabilities.outbox.queue import OutboxJobQueue, outbox_event_dispatcher
 from terp.capabilities.outbox.store import (
@@ -64,12 +72,14 @@ __all__ = [
     "STATUS_DEAD_LETTERED",
     "STATUS_DISPATCHED",
     "STATUS_PENDING",
+    "DatabaseScheduleLedger",
     "DrainResult",
     "OutboxBacklog",
     "OutboxDeadLetter",
     "OutboxJobQueue",
     "OutboxMessage",
     "OutboxWorker",
+    "ScheduleFire",
     "backlog",
     "dead_letters",
     "deliver_event_in_process",

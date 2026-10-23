@@ -836,3 +836,40 @@ def test_public_module_exports_are_complete() -> None:
     assert redis_stores.RedisConnectionTicketStore is RedisConnectionTicketStore
     assert redis_realtime.__all__ == ["RedisConnectionTicketStore", "RedisRealtimeBroker"]
     assert redis_oidc.__all__ == ["RedisOIDCStateStore"]
+
+
+class _PingCounter:
+    """A client that counts PINGs and can stop answering them."""
+
+    def __init__(self) -> None:
+        self.pings = 0
+        self.down = False
+        self.connection_pool = None
+
+    def ping(self) -> bool:
+        self.pings += 1
+        if self.down:
+            raise ConnectionError("Redis is gone")
+        return True
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        RedisIdempotencyStore,
+        RedisThrottleStore,
+        RedisCacheStore,
+        lambda client: RedisRealtimeBroker(client, subscriber_factory=lambda: None),
+    ],
+    ids=["idempotency", "throttle", "cache", "broker"],
+)
+def test_each_shared_store_answers_readiness_with_a_ping(build: Callable[[Any], Any]) -> None:
+    """ADR 0191: readiness asks a required store through ping(), so each adapter's is a
+    Redis PING on its own client, raising when the server cannot answer."""
+    client = _PingCounter()
+    store = build(client)
+    store.ping()
+    assert client.pings == 1
+    client.down = True
+    with pytest.raises(ConnectionError):
+        store.ping()

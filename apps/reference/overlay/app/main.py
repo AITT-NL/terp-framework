@@ -16,7 +16,11 @@ the same durable queue:
   mail``). With none set, development logs each message instead of sending it and a
   production boot is refused;
 * the **durable job queue**: ``OutboxJobQueue`` records every enqueued job in the same
-  transaction as the write that caused it, and production refuses the in-process default.
+  transaction as the write that caused it, and production refuses the in-process default;
+* the **durable schedule ledger**: ``DatabaseScheduleLedger`` records each slot the
+  scheduler settles in the same transaction as the job it enqueued, so a scheduler a
+  deploy restarted applies the schedule's misfire policy to the hour it missed (ADR 0191),
+  and production refuses the per-process default.
 """
 
 from __future__ import annotations
@@ -27,7 +31,7 @@ import pathlib
 
 from terp.capabilities.audit import persist_audit
 from terp.capabilities.mail import configure_mail, mail_settings_from_environment
-from terp.capabilities.outbox import OutboxJobQueue
+from terp.capabilities.outbox import DatabaseScheduleLedger, OutboxJobQueue
 from terp.core import create_app, get_settings
 from terp.migrations import assert_migrations_current
 
@@ -49,6 +53,8 @@ def build():
         require_token_revocation=True,
         job_queue=OutboxJobQueue(),
         require_durable_jobs=get_settings().is_production,
+        schedule_ledger=DatabaseScheduleLedger(),
+        require_durable_schedules=get_settings().is_production,
         # In production the app refuses to serve against a database that is behind
         # the code, missing a module's history, or holding a revision this code no
         # longer defines - a wrong schema fails loudly at boot instead of at the

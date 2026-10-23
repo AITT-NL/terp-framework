@@ -24,6 +24,11 @@ optimistic-concurrency ``version`` (the lease, not OCC, arbitrates concurrent
 workers) and no ``updated_at`` (the explicit ``dispatched_at`` / ``dead_lettered_at``
 stamps are the meaningful timeline). Every caller-influenceable ``str`` column caps
 its length so an oversized payload can never break the INSERT.
+
+Beside it, :class:`ScheduleFire`: one row per schedule, the last cron time a scheduler
+settled for it (ADR 0191). It lives here because a scheduler's tick is an outbox row: the
+record commits in the same transaction as the row the tick enqueued, so a crash leaves both
+or neither.
 """
 
 from __future__ import annotations
@@ -121,6 +126,32 @@ class OutboxMessage(UUIDPrimaryKeyMixin, SQLModel, table=True):  # arch-allow-ta
                 )
 
 
+class ScheduleFire(SQLModel, table=True):  # arch-allow-table-models-use-base-table: one bookkeeping row per schedule, written by the scheduler inside the write unit of the outbox row it records (ADR 0191) - the compare-and-set on `fires`, not OCC version/updated_at, arbitrates two schedulers
+    """The last slot a scheduler settled for one schedule (ADR 0191).
+
+    *name* is the schedule's (the catalog's unique key); *slot* the cron time settled last
+    (or, for ``outcome="baseline"``, the moment the ledger first saw the schedule);
+    *outcome* what became of it (``fired``, ``late``, ``skipped``, ``baseline``); *fires*
+    how many times the row has moved, the token a second scheduler's compare-and-set loses
+    on; *recorded_at* when it moved last.
+    """
+
+    __tablename__ = "outbox_schedule_fire"
+
+    name: str = Field(primary_key=True, max_length=_NAME_MAX)
+    slot: datetime = Field(
+        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        nullable=False,
+    )
+    outcome: str = Field(max_length=16)
+    fires: int = Field(default=1)
+    recorded_at: datetime = Field(
+        default_factory=_utc_now,
+        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        nullable=False,
+    )
+
+
 __all__ = [
     "KIND_EVENT",
     "KIND_JOB",
@@ -128,4 +159,5 @@ __all__ = [
     "STATUS_DISPATCHED",
     "STATUS_PENDING",
     "OutboxMessage",
+    "ScheduleFire",
 ]

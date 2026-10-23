@@ -41,7 +41,10 @@ APP_ENV_SCHEMA_FILE = "environment.schema.json"
 #: means the container itself.
 RESOLVED_BY_VALUES = frozenset({"host", "container", "browser"})
 
-#: Names the platform already owns; a manifest may never shadow them.
+#: Names the platform already owns; a manifest may never shadow them. ``TERP_RELEASE_TAG``
+#: is the per-release tag the production profile's image names read (ADR 0185), spelled once
+#: in ``terp.arch.deployment.generator.RELEASE_TAG_VARIABLE`` and held equal to this entry by
+#: ``tests/architecture/test_prod_profile.py``: this module stays off terp-arch's import path.
 PLATFORM_OWNED_NAMES = frozenset(
     {
         "SECRET_KEY",
@@ -50,6 +53,7 @@ PLATFORM_OWNED_NAMES = frozenset(
         "ENVIRONMENT",
         "WEB_PORT",
         "BACKEND_CORS_ORIGINS",
+        "TERP_RELEASE_TAG",
     }
 )
 

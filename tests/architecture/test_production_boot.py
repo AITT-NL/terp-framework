@@ -271,6 +271,9 @@ def test_template_acceptance_runs_the_production_profile_with_files_and_sso_on_d
         '$profile run --rm --no-deps api python -c',
         "my-terp-app-prod_files-data",
         "$profile down -v",
+        # The profile's images are `:?`-tagged per release (ADR 0185), so every compose
+        # command on it needs the tag set.
+        "export SECRET_KEY POSTGRES_PASSWORD TERP_RELEASE_TAG",
     ):
         assert fragment in run, fragment
     assert "SECRET_KEY=\"$(secret)\"" in run and "POSTGRES_PASSWORD=\"$(secret)\"" in run
