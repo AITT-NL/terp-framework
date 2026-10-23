@@ -3,8 +3,8 @@
 ADR 0187 decision 4 rests on copier reading the build state from the recorded answer on
 every update. ``tools/copier_round_trip.py`` proves it with the copier an app uses, against
 a template repository of four revisions built from ``template/``: own to generated and back
-through updates to the same and to newer revisions, a generated copy, and scaffolding that
-predates the question. Template acceptance runs the same tool on every pull request; here it
+through updates to the same and to newer revisions, a generated copy, scaffolding that
+predates the question, and an app with files. Template acceptance runs the same tool on every pull request; here it
 runs in the gate whenever copier can be found (on the PATH, or through ``uvx``), and the
 copier-free cases hold what it does when a step goes wrong.
 """
@@ -51,6 +51,8 @@ def test_the_round_trip_holds_both_ways_with_copier_itself(tmp_path, capsys) -> 
         "template's, byte for byte",
         "ok  scaffolding that predates the question: adopt is refused and writes nothing; "
         "copier update records deploy_build: own; adopt then changes no build file",
+        "ok  with use_files: the production profile mounts the files volume the seed "
+        "declares, and adopt --build generated changes no build file",
     ]
 
 

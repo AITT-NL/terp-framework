@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import json
 import pathlib
+import re
 from typing import Any
 
 import yaml
@@ -43,11 +44,40 @@ def probe_app() -> FastAPI:
     return app
 
 
-def seed(build: str = "own") -> dict[str, Any]:
-    """The template's own seed, as data, rendered with *build* as copier renders it."""
+#: The template's production profile, the seed's render with the slug as its placeholder.
+PROFILE_PATH = REPO_ROOT / "template" / "project" / "docker-compose.prod.yml.jinja"
+SLUG_PLACEHOLDER = "{{ project_slug }}"
+
+#: The one answer the seed and the production profile render conditionally on: the files
+#: volume, when the files capability is on. Written the one way copier's Jinja reads both
+#: halves alike: ``{%-`` strips the whitespace before its tag, the newline included, and
+#: nothing after it.
+_FILES_BLOCK = re.compile(r"\s*\{%- if use_files %\}(.*?)\s*\{%- endif %\}", re.DOTALL)
+
+
+def answer_files(text: str, use_files: bool) -> str:
+    """*text* with its ``use_files`` blocks resolved as copier resolves them.
+
+    No Jinja engine: the framework's environment has none, and the template holds no other
+    construct here, which this refuses rather than renders around.
+    """
+    resolved = _FILES_BLOCK.sub(lambda match: match.group(1) if use_files else "", text)
+    assert "{%" not in resolved, "a Jinja construct other than a use_files block"
+    return resolved
+
+
+def seed(build: str = "own", *, use_files: bool = False) -> dict[str, Any]:
+    """The template's own seed, as data, rendered with *build* and *use_files* as copier
+    renders it."""
     text = SEED_PATH.read_text(encoding="utf-8")
     assert text.count(SEED_PLACEHOLDER) == 1, "the seed takes build from the answer, once"
-    return json.loads(text.replace(SEED_PLACEHOLDER, build))
+    return json.loads(answer_files(text, use_files).replace(SEED_PLACEHOLDER, build))
+
+
+def template_profile(slug: str = "app", *, use_files: bool = False) -> str:
+    """The template's production profile as copier renders it for *slug* and *use_files*."""
+    text = answer_files(PROFILE_PATH.read_text(encoding="utf-8"), use_files)
+    return text.replace(SLUG_PLACEHOLDER, slug)
 
 
 def profile(**services: dict | None) -> dict[str, Any]:

@@ -30,6 +30,7 @@ from tests.architecture.deployment_fixtures import (
     profile,
     project,
     seed,
+    template_profile,
     unit,
 )
 
@@ -56,12 +57,19 @@ def _true(root: pathlib.Path) -> None:
 # --- rule 2 from the files -------------------------------------------------
 
 
-def test_the_template_seed_tells_the_truth_about_the_template_profile(tmp_path) -> None:
-    text = (REPO_ROOT / "template" / "project" / "docker-compose.prod.yml.jinja").read_text(
-        encoding="utf-8"
-    )
-    text = text.replace("{{ project_slug }}", "app").replace("{{ project_name }}", "App")
-    _true(project(tmp_path, seed(), text))
+@pytest.mark.parametrize("use_files", [False, True], ids=["default", "use_files"])
+def test_the_template_seed_tells_the_truth_about_the_template_profile(
+    tmp_path, use_files: bool
+) -> None:
+    text = template_profile(use_files=use_files)
+    _true(project(tmp_path, seed(use_files=use_files), text))
+
+
+def test_the_seed_s_files_volume_is_one_the_profile_mounts(tmp_path) -> None:
+    """The files volume the seed declares under use_files is the one the profile renders
+    for that answer: held against the profile of the other answer, it is a lie."""
+    message = _untrue(project(tmp_path, seed(use_files=True), template_profile()))
+    assert 'volumes[0].id "files-data"' in message
 
 
 def test_a_unit_that_is_not_a_service_is_a_lie(tmp_path) -> None:

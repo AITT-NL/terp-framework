@@ -12,7 +12,7 @@ the last render as the app's edits. This runs that, for real, against a copy of
 * ``v2`` and ``v3`` -- ``v1`` with a line added to each of the three build files and to the
   README, each time, standing in for a later framework release that changes them.
 
-Three apps then go through it, and every step says exactly which files it changes:
+Four apps then go through it, and every step says exactly which files it changes:
 
 1. **own, generated, own.** Copy ``v1`` with ``own``; adopt ``generated`` (only
    ``deployment.json`` and the answers file change, no build file); update to ``v1`` again
@@ -26,6 +26,9 @@ Three apps then go through it, and every step says exactly which files it change
 3. **Scaffolding that predates the question.** Copy ``v0``; ``adopt --build generated`` is
    refused and writes nothing; update to ``v1``, which records ``deploy_build: own``; adopt
    again, and no build file changes.
+4. **An app with files.** Copy ``v1`` with ``use_files``: the production profile mounts the
+   files volume the seed declares, and ``adopt --build generated`` changes no build file, so
+   the template is the generator's render for that answer too.
 
 Usage::
 
@@ -41,6 +44,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import shlex
 import shutil
 import subprocess
@@ -57,6 +61,13 @@ ANSWERS = ".copier-answers.yml"
 DECLARATION = "deployment.json"
 #: The lock a web unit is built from, which `npm install` writes and the template does not.
 LOCK = "frontend/package-lock.json"
+
+#: The files volume, the seed's one conditional block. The template before the question
+#: wrote a plain declaration, so its seed is the render with the answer off.
+FILES_BLOCK = re.compile(r"\s*\{%- if use_files %\}.*?\{%- endif %\}", re.DOTALL)
+
+#: Where the files capability's volume lands in the production profile.
+FILES_MOUNT = '"files-data:/srv/var/files"'
 
 #: What each later revision adds, so a merge can be told apart from a re-render.
 MARKERS = {
@@ -215,7 +226,7 @@ def _before_the_question(tpl: pathlib.Path) -> None:
     )
     seed.unlink()
     (tpl / "project" / DECLARATION).write_text(
-        text.replace("{{ deploy_build }}", "own"), encoding="utf-8"
+        FILES_BLOCK.sub("", text).replace("{{ deploy_build }}", "own"), encoding="utf-8"
     )
 
 
@@ -381,10 +392,41 @@ def before_the_question(trip: Trip) -> list[str]:
     ]
 
 
+def with_files(trip: Trip, rendered: dict[str, bytes | None]) -> list[str]:
+    """The files answer: its profile mounts the volume its seed declares, and it adopts."""
+    app = trip.work / "with-files"
+    trip.copy("v1", app, "use_files=true")
+    with_volume = snapshot(app)
+    profile = (with_volume["docker-compose.prod.yml"] or b"").decode("utf-8")
+    require(
+        profile.count(FILES_MOUNT) == 1,
+        "copy v1 with use_files: the production profile does not mount the files volume "
+        "on the api",
+    )
+    require(
+        with_volume["Dockerfile.prod"] == rendered["Dockerfile.prod"]
+        and with_volume["frontend/Dockerfile.prod"] == rendered["frontend/Dockerfile.prod"],
+        "copy v1 with use_files: a Dockerfile differs from the default render's",
+    )
+    trip.adopt(app, "generated")
+    same_build(app, "adopt --build generated with use_files", with_volume)
+    expect(trip, app, "adopt --build generated with use_files", {ANSWERS, DECLARATION})
+    trip.render(app, "--check")
+    return [
+        "with use_files: the production profile mounts the files volume the seed declares, "
+        "and adopt --build generated changes no build file"
+    ]
+
+
 def round_trip(trip: Trip) -> list[str]:
     template_repository(trip)
     done, rendered = own_generated_own(trip)
-    return [*done, *generated_copy(trip, rendered), *before_the_question(trip)]
+    return [
+        *done,
+        *generated_copy(trip, rendered),
+        *before_the_question(trip),
+        *with_files(trip, rendered),
+    ]
 
 
 def main(argv: Sequence[str] | None = None, *, run: Runner = subprocess.run) -> int:

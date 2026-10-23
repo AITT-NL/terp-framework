@@ -258,9 +258,10 @@ def test_a_table_is_read_from_a_file_or_falls_back_to_the_published_one(tmp_path
 )
 def test_every_production_profile_pins_its_database_to_the_table(path) -> None:
     """ADR 0184 decision 3: the template and the example pin the table's digest."""
+    from tests.architecture.deployment_fixtures import answer_files
+
     text = (
-        (_REPO / path)
-        .read_text(encoding="utf-8")
+        answer_files((_REPO / path).read_text(encoding="utf-8"), False)
         .replace("{{ project_slug }}", "app")
         .replace("{{ project_name }}", "App")
     )

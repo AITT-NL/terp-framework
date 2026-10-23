@@ -239,7 +239,12 @@ def _backend_service(plan: _Plan, unit: Unit) -> list[str]:
         if volume.mount is not None and unit.id in volume.mount.units
     ]
     if mounts:
-        lines.append("    volumes:")
+        lines += [
+            "    # The files capability's storage root. The backend image makes it, owned by the",
+            "    # user the image runs as, and Docker gives an empty named volume the owner of",
+            "    # the directory it is mounted over, so that user can write the volume.",
+            "    volumes:",
+        ]
         lines += [
             f"      - {value(f'{volume}:{APP_ROOT}/{MOUNT_PATH}')}" for volume in mounts
         ]

@@ -17,7 +17,6 @@ one for the inner loop.
 from __future__ import annotations
 
 import pathlib
-import re
 
 import yaml
 
@@ -327,23 +326,13 @@ def test_an_escape_excuses_only_the_service_it_sits_on() -> None:
 def test_the_template_deployment_profile_satisfies_its_own_envelope() -> None:
     """The profile every app deploys from has to pass the gate it ships with.
 
-    It is Jinja and does not parse as YAML, so this strips the wizard's
-    conditional blocks the way test_compose_workbench.py does — the same reason,
-    and the same limitation: the toggled-on renders are covered by the
-    template-acceptance matrix.
+    It is Jinja and does not parse as YAML, so it is rendered for each answer it renders
+    on: its one conditional block is the files volume.
     """
-    text = (
-        _REPO_ROOT / "template" / "project" / "docker-compose.prod.yml.jinja"
-    ).read_text(encoding="utf-8")
-    text = text.replace("{{ project_slug }}", "app").replace(
-        "{{ project_name }}", "App"
-    )
-    text = re.sub(
-        r"\{%-?\s*if\b.*?%\}.*?\{%-?\s*endif\s*-?%\}", "", text, flags=re.DOTALL
-    )
-    assert "{%" not in text, "unstripped Jinja block in the deployment profile"
+    from tests.architecture.deployment_fixtures import template_profile
 
-    assert audit(yaml.safe_load(text)) == []
+    for use_files in (False, True):
+        assert audit(yaml.safe_load(template_profile(use_files=use_files))) == [], use_files
 
 
 def test_the_check_reads_the_deployment_profile_and_says_so(tmp_path) -> None:

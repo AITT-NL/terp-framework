@@ -49,8 +49,10 @@ import yaml
 from terp.arch.deployment import generator, reader
 from terp.arch.deployment.datastores import read_table
 from terp.arch.deployment.generator import (
+    APP_ROOT,
     BACKEND_DOCKERFILE,
     FRONTEND_DOCKERFILE,
+    MOUNT_PATH,
     OWNED_PATHS,
     PROFILE,
     escape_findings,
@@ -71,6 +73,7 @@ from terp.arch.deployment.tables import (
     read_system_packages,
 )
 from terp.cli.deploy_safety import audit
+from tests.architecture.deployment_fixtures import answer_files
 from tests.architecture.deployment_fixtures import seed as template_seed
 
 _REPO = pathlib.Path(__file__).resolve().parents[2]
@@ -137,8 +140,8 @@ def _render(name: str) -> dict[str, bytes]:
     return files
 
 
-def _seed() -> reader.Declaration:
-    return _declare(template_seed("generated"), published_tables())
+def _seed(*, use_files: bool = False) -> reader.Declaration:
+    return _declare(template_seed("generated", use_files=use_files), published_tables())
 
 
 def _profile(files: dict[str, bytes]) -> dict:
@@ -148,22 +151,50 @@ def _profile(files: dict[str, bytes]) -> dict:
 # --------------------------------------------------------------------------- #
 # the seed is the template                                                      #
 # --------------------------------------------------------------------------- #
-def test_the_seed_renders_the_template_s_own_files_byte_for_byte() -> None:
+@pytest.mark.parametrize("use_files", [False, True], ids=["default", "use_files"])
+def test_the_seed_renders_the_template_s_own_files_byte_for_byte(use_files: bool) -> None:
     """Decision 1: the template's three files are the render of the seed, held byte for
     byte, with the slug left as the template's placeholder. So a hardening change is made
     once, in the generator, and adopting generated in a template-shaped app at the same
-    template version changes no build file."""
-    files, found = generate(_seed(), _SLUG, tables=published_tables(), frontend_lock=True)
+    template version changes no build file.
+
+    For every answer the seed renders on: with ``use_files`` the seed declares the files
+    volume, and the profile carries it exactly as the generator renders it, so an
+    app with files adopts ``generated`` without a build-file change either."""
+    files, found = generate(
+        _seed(use_files=use_files), _SLUG, tables=published_tables(), frontend_lock=True
+    )
     assert found == []
     assert set(files) == set(OWNED_PATHS)
     for path, template in _TEMPLATE_FILES.items():
         rendered = files[path].replace(_SLUG.encode(), _PLACEHOLDER.encode())
-        assert template.read_bytes() == rendered, (
+        text = answer_files(template.read_bytes().decode("ascii"), use_files)
+        assert text.encode("ascii") == rendered, (
             f"template/project/{template.name} is not the seed's render: change the generator "
             "(terp.arch.deployment.generator), never the template's copy, and write the "
             "template's file from the render"
         )
     assert _SLUG.encode() not in b"".join(_TEMPLATE_FILES[path].read_bytes() for path in files)
+
+
+def test_the_files_volume_is_rendered_only_where_the_answer_is_on() -> None:
+    """The use_files answer is the only difference: the volume, its mount on the api and
+    nothing else. Without the answer the profile mounts nothing at the storage
+    root, as the seed declares no volume."""
+    without, _ = generate(_seed(), _SLUG, tables=published_tables(), frontend_lock=True)
+    with_files, _ = generate(
+        _seed(use_files=True), _SLUG, tables=published_tables(), frontend_lock=True
+    )
+    assert without[BACKEND_DOCKERFILE] == with_files[BACKEND_DOCKERFILE]
+    assert without[FRONTEND_DOCKERFILE] == with_files[FRONTEND_DOCKERFILE]
+    plain, files = _profile(without), _profile(with_files)
+    assert files["volumes"] == {"db-data": None, "files-data": None}
+    assert files["services"]["api"]["volumes"] == [f"files-data:{APP_ROOT}/{MOUNT_PATH}"]
+    for name, service in files["services"].items():
+        if name != "api":
+            assert service == plain["services"][name], f"{name} changed with use_files"
+    assert "volumes" not in plain["services"]["api"]
+    assert plain["volumes"] == {"db-data": None}
 
 
 def test_the_template_s_placeholder_is_the_project_name_a_render_uses() -> None:
@@ -173,7 +204,10 @@ def test_the_template_s_placeholder_is_the_project_name_a_render_uses() -> None:
     assert f'name = "{_PLACEHOLDER}"' in pyproject
     profile = _TEMPLATE_FILES[PROFILE].read_text(encoding="utf-8")
     assert profile.count(_PLACEHOLDER) == 3
-    assert "{%" not in profile and "{#" not in profile, "the render holds no other Jinja"
+    for use_files in (False, True):
+        text = answer_files(profile, use_files)
+        assert "{%" not in text and "{#" not in text, "the render holds no other Jinja"
+    assert profile.count("{%- if use_files %}") == 2, "the volume and its mount, nothing else"
 
 
 # --------------------------------------------------------------------------- #

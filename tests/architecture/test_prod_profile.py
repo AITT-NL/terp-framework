@@ -17,9 +17,10 @@ import tomllib
 
 import yaml
 
+from tests.architecture.deployment_fixtures import template_profile
+
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _PROD_COMPOSE = _REPO_ROOT / "apps" / "example" / "docker-compose.prod.yml"
-_TEMPLATE_PROD_COMPOSE = _REPO_ROOT / "template" / "project" / "docker-compose.prod.yml.jinja"
 _PROD_DOCKERFILE = _REPO_ROOT / "apps" / "example" / "Dockerfile.prod"
 _TEMPLATE_PROD_DOCKERFILE = _REPO_ROOT / "template" / "project" / "Dockerfile.prod"
 _PROD_WEB_DOCKERFILE = _REPO_ROOT / "apps" / "example" / "frontend" / "Dockerfile.prod"
@@ -33,14 +34,13 @@ def _prod_compose() -> dict:
     return yaml.safe_load(_PROD_COMPOSE.read_text(encoding="utf-8"))
 
 
-def _template_prod_compose() -> dict:
-    text = _TEMPLATE_PROD_COMPOSE.read_text(encoding="utf-8")
-    text = text.replace("{{ project_slug }}", "app").replace("{{ project_name }}", "App")
-    return yaml.safe_load(text)
+def _template_prod_compose(*, use_files: bool = False) -> dict:
+    return yaml.safe_load(template_profile(use_files=use_files))
 
 
 def _both_composes() -> list[dict]:
-    return [_prod_compose(), _template_prod_compose()]
+    """The example's profile and the template's, rendered for each answer it renders on."""
+    return [_prod_compose(), _template_prod_compose(), _template_prod_compose(use_files=True)]
 
 
 def test_prod_compose_is_present_and_valid_yaml() -> None:
@@ -242,8 +242,38 @@ def test_prod_smoke_exercises_websocket_through_nginx() -> None:
 def test_example_and_template_prod_profiles_share_a_topology() -> None:
     """Template parity: a generated repo deploys exactly like the dogfood app."""
     example = _prod_compose()["services"]
-    template = _template_prod_compose()["services"]
-    assert set(example) == set(template) == {"db", "migrate", "api", "web"}
+    for use_files in (False, True):
+        template = _template_prod_compose(use_files=use_files)["services"]
+        assert set(example) == set(template) == {"db", "migrate", "api", "web"}
+
+
+def test_with_files_the_api_keeps_them_in_a_volume_its_user_can_write() -> None:
+    """With the files capability on, the production profile mounts a named volume at
+    the capability's storage root, so stored files outlive the container. Before, only the
+    development file mounted one, and production kept them in the api container's writable
+    layer, gone at the next deploy.
+
+    The volume is writable by the user the image runs as because the image makes the
+    mount point and hands it to that user before it drops to it, and Docker gives an empty
+    named volume the owner of the directory it is mounted over. The Docker half, a fresh
+    volume written by that user and read back from a second container, runs in template
+    acceptance."""
+    with_files = _template_prod_compose(use_files=True)
+    assert with_files["volumes"] == {"db-data": None, "files-data": None}
+    assert with_files["services"]["api"]["volumes"] == ["files-data:/srv/var/files"]
+    for name in ("db", "migrate", "web"):
+        mounts = with_files["services"][name].get("volumes") or []
+        assert "files-data:/srv/var/files" not in mounts, name
+    without = _template_prod_compose()
+    assert "volumes" not in without["services"]["api"]
+    assert without["volumes"] == {"db-data": None}
+
+    dockerfile = _TEMPLATE_PROD_DOCKERFILE.read_text(encoding="utf-8")
+    runtime = dockerfile.rsplit("\nFROM ", 1)[1]
+    assert "WORKDIR /srv\n" in runtime, "the storage root, var/files, is relative to /srv"
+    made = runtime.index("mkdir -p /srv/var/files && chown appuser /srv/var/files")
+    assert "useradd --create-home --uid 10001 appuser" in runtime
+    assert made < runtime.index("\nUSER appuser\n"), "made and handed over before the drop"
 
 
 # ---- app-declared environment variables (plan: app-declared-environment-config) --

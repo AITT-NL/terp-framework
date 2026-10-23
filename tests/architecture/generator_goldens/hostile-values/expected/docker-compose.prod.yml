@@ -96,6 +96,9 @@ services:
       - path: .app.1e3.env
         required: false
     restart: unless-stopped
+    # The files capability's storage root. The backend image makes it, owned by the
+    # user the image runs as, and Docker gives an empty named volume the owner of
+    # the directory it is mounted over, so that user can write the volume.
     volumes:
       - "files:/srv/var/files"
     depends_on:
@@ -121,6 +124,9 @@ services:
         required: false
     init: true
     restart: unless-stopped
+    # The files capability's storage root. The backend image makes it, owned by the
+    # user the image runs as, and Docker gives an empty named volume the owner of
+    # the directory it is mounted over, so that user can write the volume.
     volumes:
       - "files:/srv/var/files"
     depends_on:

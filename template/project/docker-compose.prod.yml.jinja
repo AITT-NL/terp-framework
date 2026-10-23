@@ -96,6 +96,13 @@ services:
       - path: .app.api.env
         required: false
     restart: unless-stopped
+{%- if use_files %}
+    # The files capability's storage root. The backend image makes it, owned by the
+    # user the image runs as, and Docker gives an empty named volume the owner of
+    # the directory it is mounted over, so that user can write the volume.
+    volumes:
+      - "files-data:/srv/var/files"
+{%- endif %}
     depends_on:
       db:
         condition: service_healthy
@@ -134,3 +141,6 @@ services:
 
 volumes:
   db-data:
+{%- if use_files %}
+  files-data:
+{%- endif %}
