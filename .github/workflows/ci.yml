@@ -273,8 +273,25 @@ jobs:
   # 0187): the template's build files are the generator's render, so adoption changes none
   # of them, and the app is then held to `terp verify --only generated`, its own suite and
   # `docker compose config` of the profile the generator owns.
+  #
+  # Every rendered variant is also booted the way a deploy runs it, in production mode
+  # (tools/production_boot.py), against the PostgreSQL service below: production refuses
+  # SQLite, and the template's migration guard a database behind the code. No password:
+  # the service answers only this job, and a fixed one would be a credential in a file.
   template-acceptance:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     strategy:
       fail-fast: false
       matrix:
@@ -343,6 +360,21 @@ jobs:
           # is grown: a fresh render was red here once, over the template's own seed
           # module, and only the hub variant ran deptry, after it had been grown.
           uv run deptry .
+
+      # The render, booted as every deploy runs it: ENVIRONMENT=production, a generated
+      # SECRET_KEY, the database brought to every head first, the lifespan started and
+      # /health/ready answering 200, in-process and from the app's own environment, so
+      # exactly the capabilities it installs are discovered. An app rendered with use_sso
+      # boots twice more: SSO configured with OIDC_ALLOWED_EMAIL_DOMAINS (the SSO routes
+      # mount) and without it (refused, in the federated-identity service's own words).
+      # Each variant's service is its own, so the database is empty: a first deploy.
+      - name: Boot the render in production mode
+        if: ${{ !startsWith(matrix.variant, 'reference') }}
+        working-directory: /tmp/acceptance-app
+        env:
+          UV_FIND_LINKS: /tmp/terp-wheels
+          BOOT_DATABASE_URL: postgresql+psycopg://postgres@localhost:${{ job.services.postgres.ports['5432'] }}/postgres
+        run: uv run python "$GITHUB_WORKSPACE/tools/production_boot.py" --database-url "$BOOT_DATABASE_URL"
 
       # The workflow a client actually runs is held to the bar this repository
       # holds itself to. It is the one artifact that reaches every consumer, so a
@@ -732,4 +764,57 @@ jobs:
           name: acceptance-playwright-report
           path: /tmp/acceptance-app/conformance/playwright-report/
           retention-days: 7
+
+      # The production profile on Docker, for the variant with files and single sign-on.
+      # The backend image is built from this render, the api comes up healthy in production
+      # with SSO configured and its OIDC_ALLOWED_EMAIL_DOMAINS set, and the files volume is
+      # the runtime user's: the image makes var/files owned by that user, Docker gives an
+      # empty named volume the owner of the directory it is mounted over, and a file the api
+      # writes there is read back from a second container. Last in the job, because it locks
+      # the app against the wheels where its build context holds them.
+      - name: The production profile on Docker - SSO and the files volume (hub-all-capabilities)
+        if: matrix.variant == 'hub-all-capabilities'
+        working-directory: /tmp/acceptance-app
+        run: |
+          set -eux
+          mkdir -p .terp-dist/wheels
+          cp /tmp/terp-wheels/*.whl .terp-dist/wheels/
+          # The image installs exactly uv.lock (`uv sync --locked`), so the lock names the
+          # staged wheels by the path the build context holds them at.
+          UV_FIND_LINKS=.terp-dist/wheels uv lock
+          secret() { python3 -c 'import secrets; print(secrets.token_hex(32))'; }
+          SECRET_KEY="$(secret)"
+          POSTGRES_PASSWORD="$(secret)"
+          export SECRET_KEY POSTGRES_PASSWORD
+          {
+            echo "OIDC_ISSUER=https://idp.example.test"
+            echo "OIDC_CLIENT_ID=terp-production-boot"
+            echo "OIDC_CLIENT_SECRET=$(secret)"
+            echo "OIDC_REDIRECT_URI=https://app.example.test/auth/sso/callback"
+            echo "OIDC_ALLOWED_EMAIL_DOMAINS=example.test"
+          } > .app.api.env
+          profile="docker compose -f docker-compose.prod.yml"
+          # Built once, by the one service that declares the build; up starts db and migrate
+          # first, and --wait holds out for the api's healthcheck in production.
+          $profile build api
+          $profile up -d --wait api
+          $profile exec -T api python -c '
+          import os, pathlib
+          root = pathlib.Path("/srv/var/files")
+          assert os.path.ismount(root), "var/files is not a mount: the profile mounts no volume"
+          assert os.getuid() == 10001, os.getuid()
+          assert root.stat().st_uid == os.getuid(), ("owned by", root.stat().st_uid)
+          (root / "probe").write_text("written by the api", encoding="utf-8")
+          '
+          $profile run --rm --no-deps api python -c '
+          import pathlib
+          assert pathlib.Path("/srv/var/files/probe").read_text(encoding="utf-8") == "written by the api"
+          '
+          docker volume inspect --format '{{ .Name }}' my-terp-app-prod_files-data
+          $profile down -v
+
+      - name: Why the production profile did not come up (hub-all-capabilities)
+        if: failure() && matrix.variant == 'hub-all-capabilities'
+        working-directory: /tmp/acceptance-app
+        run: docker compose -f docker-compose.prod.yml logs --no-color --tail=150
 

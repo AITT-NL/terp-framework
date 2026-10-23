@@ -5,6 +5,6 @@
     "app/main.py": "fdf8819de419f128cdd0b3ff8436a3339980ec27960784787a376b3068085a55",
     "control_plane/__init__.py": "e14b3de04e63c6fbcfd3aa52cc05fee2f40e8ad05ef886d3aa9b7abf9eb32b8e",
     "docker-compose.prod.yml": "509579df99c0cdc944e98fc0a3ea4216872f52a332d1a65ad83cc018ad0b0922",
-    "docker-compose.yml": "06001419bb70c60b20154e00571e600c90bd191bc404161d1b99f1a2d68d421e"
+    "docker-compose.yml": "00f4587ea8cdfc6dc95df2d8c5d718c5d8a45d881edeacf48a0bb32729b1d788"
   }
 }

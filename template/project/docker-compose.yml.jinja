@@ -93,6 +93,9 @@ x-backend: &backend
     OIDC_ISSUER: ${OIDC_ISSUER:-}
     OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
     OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+    # Whose identities get an account on a first SSO sign-in (app/auth.py). Empty, the
+    # workbench provisions anyone the IdP verifies and warns; production refuses that.
+    OIDC_ALLOWED_EMAIL_DOMAINS: ${OIDC_ALLOWED_EMAIL_DOMAINS:-}
     # Resolved by the BROWSER, not by a container: the IdP redirects the user's
     # browser here, so a host address (localhost:5173) is the correct value and a
     # compose service name would be wrong. This is the distinction the manifest

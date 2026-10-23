@@ -55,7 +55,23 @@ me_module = build_me_module(_identity.current_user)
 # Identity resolution rides the federated store: a validated (issuer, subject)
 # pair resolves to a linked user, and JIT provisioning creates a viewer-ranked,
 # SSO-only account on a first login with a verified email.
-_federated = FederatedIdentityService(allow_provisioning=True)
+_OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "")
+
+# Whose identities get an account: the email domains this deployment trusts, from
+# OIDC_ALLOWED_EMAIL_DOMAINS, comma-separated ("example.com,example.org"). A verified
+# email is a check on the claim, not on who may hold one, so with SSO configured a
+# production boot refuses an empty list and says so by name; outside production it
+# warns and provisions anyone the IdP verifies. Provisioning is on only while SSO is
+# configured, so an app with SSO off boots in production without the list.
+_ALLOWED_EMAIL_DOMAINS = [
+    domain
+    for domain in os.environ.get("OIDC_ALLOWED_EMAIL_DOMAINS", "").split(",")
+    if domain.strip()
+]
+_federated = FederatedIdentityService(
+    allow_provisioning=bool(_OIDC_ISSUER),
+    allowed_email_domains=_ALLOWED_EMAIL_DOMAINS or None,
+)
 
 
 def _resolve_sso_principal(session: Session, claims: OIDCClaims) -> Principal | None:
@@ -71,8 +87,6 @@ def _resolve_sso_principal(session: Session, claims: OIDCClaims) -> Principal | 
         return None
     return _identity.principal_for_user(session, user)
 
-
-_OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "")
 
 # The provider config validates fail-fast at boot (https required in production);
 # the SSO session is minted through the exact seams /login uses (token epoch +
