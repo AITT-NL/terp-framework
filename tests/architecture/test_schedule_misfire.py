@@ -282,13 +282,13 @@ def test_settle_reads_the_clock_and_the_active_ledger_by_default(
 def test_times_are_compared_in_utc_whatever_zone_a_finder_answers_in(
     queue: _Queue, session: Session
 ) -> None:
-    amsterdam = timezone(timedelta(hours=2))
+    plus_two = timezone(timedelta(hours=2))
     naive_nine = datetime(2026, 10, 22, 9, 0)
     settled = settle_schedule(
         session,
         _schedule(Misfire.SKIP),
         latest_slot=lambda after, until: naive_nine,
-        now=datetime(2026, 10, 22, 11, 0, 30, tzinfo=amsterdam),
+        now=datetime(2026, 10, 22, 11, 0, 30, tzinfo=plus_two),
         ledger=InMemoryScheduleLedger(),
     )
     assert (settled.outcome, settled.slot) == (FIRED, _at(9)), "11:00:30+02:00 is 09:00:30Z"

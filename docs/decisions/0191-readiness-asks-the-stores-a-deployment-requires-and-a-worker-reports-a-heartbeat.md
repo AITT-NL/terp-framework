@@ -112,9 +112,8 @@ own, so the file is per unit by construction. It is one JSON object, replaced at
 - **What reads it.** The container's healthcheck (decision 3), with the standard library alone:
   no HTTP, no database, no import of the app. A deploy tool reads the same answer per unit
   from the container: its health status, and the age from the last probe's output (`docker
-  inspect`, `.State.Health.Log`), or by running the probe in the container. That is the
-  per-unit reading such a tool needs (its worker heartbeat age), and it is there whether or not
-  the API is up.
+  inspect`, `.State.Health.Log`), or by running the probe in the container. That is a per-unit
+  reading, there whether or not the API is up.
 - **Considered and rejected:** a database row per worker (it needs each process mapped to its
   unit, and a worker whose database is down could not report at all); an HTTP endpoint on the
   worker (a server in a process that serves nothing, and a port); `/health/detail` (the API's
