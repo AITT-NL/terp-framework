@@ -62,6 +62,8 @@ from terp.arch.deployment._generator_text import (
     OWNED_PATHS,
     PROFILE,
     PROFILE_FILE,
+    RELEASE_TAG_SEAM,
+    RELEASE_TAG_VARIABLE,
     WEB_PORT,
     heartbeat_role,
 )
@@ -106,14 +108,19 @@ def generate(
 
 _ID = r"[a-z0-9][a-z0-9_.-]{0,62}"
 
+#: A project name as an image name starts with it: the characters compose and Docker both
+#: accept, which never include a ``$``.
+_PROJECT = r"[a-z0-9][a-z0-9_.-]*"
+
 
 def fixed_interpolations(tables: Tables) -> tuple[tuple[str, re.Pattern[str]], ...]:
     """Every interpolation the generator writes, as (place, the exact scalar it may be).
 
     A place is the last two steps of the path to a mapping value - its key and the key
     above it, ``environment.SECRET_KEY`` - or, for an item of a list, the list's own key,
-    ``ports[]``. The closed list an executor carries,
-    which a framework release only extends.
+    ``ports[]``; ``*.image`` is an ``image`` under any key, a service or ``x-backend``. The
+    closed list an executor carries, which a framework release only extends: this one
+    added the per-release tag of ADR 0185 on the two image names.
     """
     places = [
         ("environment.DATABASE_URL", re.escape(EXTERNAL_DATABASE_URL)),
@@ -121,6 +128,7 @@ def fixed_interpolations(tables: Tables) -> tuple[tuple[str, re.Pattern[str]], .
         ("environment.SECRET_KEY", re.escape(KEY_SEAM)),
         ("environment.BACKEND_CORS_ORIGINS", re.escape(CORS_ORIGINS)),
         ("ports[]", re.escape(WEB_PORT)),
+        ("*.image", rf"{_PROJECT}-(?:backend|frontend)-prod:{re.escape(RELEASE_TAG_SEAM)}"),
     ]
     for recipe in tables.recipes:
         url = re.escape(recipe.url).replace(re.escape("{host}"), _ID)
@@ -136,6 +144,13 @@ def fixed_interpolations(tables: Tables) -> tuple[tuple[str, re.Pattern[str]], .
 def _literal(text: str) -> bool:
     """Whether every ``$`` in *text* is half of a ``$$``."""
     return "$" not in text.replace("$$", "")
+
+
+def _at(where: str, place: str) -> bool:
+    """Whether a fixed interpolation's *where* names *place* (``*.`` is any key above)."""
+    if where.startswith("*."):
+        return "." in place and place.rsplit(".", 1)[1] == where[2:]
+    return where == place
 
 
 def escape_findings(profile: object, tables: Tables) -> list[str]:
@@ -158,7 +173,7 @@ def escape_findings(profile: object, tables: Tables) -> list[str]:
                 walk(item, (*path[:-1], f"{path[-1]}[]") if path else ("[]",))
         elif isinstance(node, str) and not _literal(node):
             place = path[-1] if path[-1].endswith("[]") else ".".join(path[-2:])
-            if not any(where == place and pattern.fullmatch(node) for where, pattern in allowed):
+            if not any(_at(where, place) and pattern.fullmatch(node) for where, pattern in allowed):
                 found.append(f"{'.'.join(path)}: {node!r} interpolates outside the fixed list")
 
     walk(profile, ())
@@ -184,6 +199,8 @@ __all__ = [
     "OWN_REMEDY",
     "PROFILE",
     "PROFILE_FILE",
+    "RELEASE_TAG_SEAM",
+    "RELEASE_TAG_VARIABLE",
     "WEB_PORT",
     "escape_findings",
     "fixed",

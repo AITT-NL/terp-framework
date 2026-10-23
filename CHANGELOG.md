@@ -46,6 +46,13 @@ render. The template asks the same question, `terp deployment adopt` moves an ex
 that state and back, and from then on `copier update` leaves the three files to the generator,
 so a framework update is a re-render and never a merge.
 
+And a release could be cut only by whatever built the images, from whatever its working copy
+held, with nothing anyone could check afterwards: the job that ran the app's tests also held
+the push credential, and nothing said which commit an image was built from. A declared app is
+now released in three jobs, `terp release build`, `gate` and `sign`, so that no job that runs
+the app holds a credential or writes into what is built, and the result is a signed manifest
+that `terp promote` verifies before it pulls anything and deploys without rebuilding.
+
 And the development loop stopped services without a word. After a Python dependency change
 the API came back on the new image and the worker, the scheduler and the companion beside it
 stayed stopped; after a frontend dependency change the whole backend could stay stopped; and a
@@ -251,6 +258,53 @@ the work in flight, and a schedule says what a missed tick becomes (ADR 0191).
   runs it wherever copier can be found. The matrix gains `reference-generated`: the reference
   app adopts `generated` with no build-file change, then is held to `terp verify --only
   generated`, its suite and `docker compose config` of its profile.
+- **`terp release build`, `gate` and `sign`: a release in three jobs** (ADR 0187 decision 6).
+  Each takes an exact commit, its full object name, and reads it from git's object store, never
+  from a working copy. `build` writes that tree out as a pristine build context, builds every
+  image the production profile builds in a BuildKit builder made for the job (pinned by digest,
+  removed after it) with `--pull` and no cache import or export, pushes
+  `<registry>/<image>:<tag>`, and writes BuildKit's own digests to `terp-release-build.json`.
+  `gate` runs in a clean checkout of the commit: `terp verify --profile release --format
+  assurance` with npm's scripts off, then the schedule catalog, read by running the pushed image
+  with no network, a read-only filesystem and its own non-root user, through a docker
+  configuration of its own that holds at most a pull credential. `sign` runs from the signer
+  image, never the commit's toolchain, and runs nothing of the app: it repeats every refusal,
+  validates the declaration with its own reader against the datastore table of the terp-arch the
+  commit pins (whose wheel it fetches and holds to the SHA-256 the signer's release table
+  carries), renders a generated app's files with that terp-arch in a process of its own and
+  refuses a committed file that differs, checks every pushed digest in the registry over the
+  OCI distribution API, reads the backend image's layers as data in a sandbox process and holds
+  them to the commit (every file under `/srv/app` and `/srv/control_plane`, every bytecode file
+  as the checked-hash compile of its source by the image's own base interpreter, every file of
+  the app wheel, and the installed set to the lock's runtime set), computes an SBOM per image,
+  asks OSV about it, scans the history reachable from the commit with gitleaks, and signs the
+  manifest as a DSSE envelope (`application/vnd.terp.release-manifest.v1+json`, Ed25519 or ECDSA
+  P-256). `--signer '<json argv>'` is the production path, held to `--public-key` before
+  anything is written; `--sign-key` is refused without `--test-key`. Refused from data, by name:
+  an undeclared or unmanaged app, a declaration that cannot be read or is untrue, a committed
+  `.terp-dist/` or submodule, a lock naming a path, a profile service on an image neither built
+  here nor a datastore table digest, a datastore with no healthcheck, two migration steps or one
+  with `--revision`/`--sql`, no step and other than one api unit, a built image that does not
+  read `TERP_RELEASE_TAG`, a build with more than a context and a Dockerfile, a wheel that maps
+  files elsewhere, a failed gate, and a secret in the history. `terp guide deployment`.
+- **`terp promote` deploys a signed release without rebuilding it.** It verifies the envelope
+  against `--public-key` (repeatable) before it parses the manifest, refuses a Terp Standard
+  release newer than its own, reads the carried declaration against the manifest's own datastore
+  record, audits a generated profile for every `$` and any YAML tag, and with
+  `--require-generated` refuses an `own` release. Then it pulls each image by its signed digest,
+  holds its id to the manifest's, tags it under the profile's name and the release tag, writes
+  the carried profile and runs compose with only the variables the profile names: the
+  datastores, a reading of every `alembic_version_*` table, the migration step exactly once, the
+  rest, every `up` with `--no-build --pull never`. A deploy that fails on unchanged version
+  tables is restore-free to undo, and `--undo-to <envelope>` starts the previous release after
+  its own `terp migrate check`; a rollback in an invocation of its own is refused until
+  `--rollback --restored`. ADR 0184 decision 9, ADR 0185 decision 6.
+- **The signer image**, `packages/backend/cli/signer/Dockerfile`: terp-cli with its `release`
+  extra installed by hash from this commit's wheels and the lock (`tools/signer_context.py`
+  writes the build context), gitleaks and the docker client by digest, and the terp-arch release
+  table. CI builds and runs it; nothing publishes it yet.
+- **`terp-cli[release]`**, an optional extra: cryptography, packaging and the egress capability.
+  Without it `terp release sign` and `terp promote` refuse to run.
 - **`terp jobs worker --forever`** drains the outbox, waits `--poll-seconds` (5 by default),
   and drains again until SIGTERM or SIGINT, which end it cleanly after the batch in flight. A
   profile no longer needs a shell loop around a single drain, and the reference app's worker
@@ -369,6 +423,14 @@ the work in flight, and a schedule says what a missed tick becomes (ADR 0191).
   roots after they are copied, with `python -m compileall --invalidation-mode checked-hash`, whose
   bytecode records a hash of its source rather than a time: two cold builds of one lock gave the
   same 1355 files byte for byte, and the installed set is unchanged.
+- **The production profile tags its images per release.** Both image names read a required
+  tag, `<project>-backend-prod:${TERP_RELEASE_TAG:?...}` and the same for the frontend, so
+  `up --build` no longer overwrites the image the previous release ran, and that release can
+  be started again under its own tag (ADR 0185 decision 6). With the variable unset compose
+  stops with "TERP_RELEASE_TAG is required, one new image tag per release", as it does for
+  `SECRET_KEY`. The escape audit an executor runs over a generated profile accepts that one
+  interpolation on an image name (`*.image`) and nowhere else, and `TERP_RELEASE_TAG` is
+  platform-owned: `environment.schema.json` may not declare it.
 - **The truth rule reads a profile as compose does.** A restated command is compared with what
   compose makes of the profile's: `$$` is one `$`, `$name` and `${...}` are interpolations that
   never equal a restated literal, and any other `$` is literal. It compared raw strings, and
@@ -417,6 +479,21 @@ the work in flight, and a schedule says what a missed tick becomes (ADR 0191).
   longest job: with late acknowledgement that is how long a dead worker's message waits.
 - **`DrainResult` gains `released`**, and the worker's tally line ends with `released=N`; a tool
   that parses the line sees one more field.
+- **To release with `terp release`, install `terp-cli[release]`** where `build` and `promote`
+  run, and run `sign` from the signer image. A commit that vendors pre-release wheels under
+  `.terp-dist/` is refused: release on a published framework version. Tag your built images
+  `<name>:${TERP_RELEASE_TAG:?...}` in an `own` profile (`copier update` brings the template's),
+  and give a build nothing but its context and Dockerfile.
+- **Every compose command on the production profile needs `TERP_RELEASE_TAG`**: `up`,
+  `run` (the first administrator's bootstrap), `down`, `logs`, `config`. Set a new Docker tag
+  for every release (`git rev-parse --short=12 HEAD` is one), beside `SECRET_KEY` and
+  `POSTGRES_PASSWORD`. To start the previous release again, set its tag and run `up -d --wait
+  --no-build`: the profile builds the images it names, so `--build`, or a pruned image, would
+  build the current checkout under the old tag. `copier update` brings the two `image:` lines;
+  a service your app added on the backend image inherits the tagged name through `<<:
+  *backend`. A tool that pulls release images by digest tags them
+  `<project>-backend-prod:<tag>` and `<project>-frontend-prod:<tag>` before `up`. An
+  executor's escape audit needs this release's fixed-interpolation list before an app pins it.
 - **To have the framework own the build files**, take this release's `copier update` first
   (it records `deploy_build: own`), give each volume in `deployment.json` its `mount`, drop a
   `command` the generator renders itself (the migration step's, and a worker's or scheduler's
@@ -508,6 +585,10 @@ the work in flight, and a schedule says what a missed tick becomes (ADR 0191).
   running one.
 
 ### Fixed
+
+- **A production profile whose `build` is neither a path nor a mapping no longer crashes the
+  deployment reader.** Compose refuses such a profile itself; the reader now leads nowhere for it
+  instead of raising.
 
 - **An upload into a generated app's files volume no longer fails on permissions.** Both
   template Dockerfiles run as a non-root user, and neither created `var/files`, the files

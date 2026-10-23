@@ -2695,12 +2695,18 @@ held byte for byte by a test, so a hardening change reaches them once. Each says
 its header. Under "build": "own" they are the app's to change; under "build": "generated"
 they are the render (THE GENERATED STATE, above).
 
-  start it, with its required secrets set (compose stops on an unset one):
-    SECRET_KEY=... POSTGRES_PASSWORD=... \\
-      docker compose -f docker-compose.prod.yml up -d --wait
-  bootstrap the first administrator (`terp seed` refuses ENVIRONMENT=production):
+  start it, with its required secrets and a new per-release image tag set (compose
+  stops on an unset one; the tag keeps the previous release's images beside this
+  one's, so it can be started again):
+    SECRET_KEY=... POSTGRES_PASSWORD=... TERP_RELEASE_TAG=$(git rev-parse --short=12 HEAD) \\
+      docker compose -f docker-compose.prod.yml up -d --wait --build
+  bootstrap the first administrator (`terp seed` refuses ENVIRONMENT=production), with
+  the same variables set:
     docker compose -f docker-compose.prod.yml run --rm -e TERP_USER_PASSWORD api \\
       terp user create admin@your-domain.example --role admin
+  start an earlier release again: set its TERP_RELEASE_TAG and run `up -d --wait
+    --no-build`, so an image that is gone fails instead of being rebuilt from this
+    checkout under the old tag
   a database this deployment does not run: set DATABASE_URL, which every backend unit
     reads before its default; to drop the bundled `db` service too, add an override
     that removes it, name it in compose.overrides and declare
@@ -2743,6 +2749,53 @@ stops answering turns readiness 503 instead of holding the probe. Workers, sched
 the outbox backlog are never part of it. Bound the Redis client's own commands too, or a
 Redis that stops answering holds every request the rate limiter counts:
 REDIS_URL=redis://host:6379/0?socket_timeout=2&socket_connect_timeout=2.
+
+CUTTING A RELEASE AND PROMOTING IT (ADR 0187)
+
+`terp release` is three jobs, each on a fresh host, so that no job that runs the app outside a
+build container holds a credential or writes into what is built. Each takes the exact commit
+(its full object name) and reads it from git's object store, never from a working copy:
+
+  uv run terp release build --sha <sha> --tag <tag> --registry registry.example/team
+    builds every image the profile builds from the commit's pristine tree, in a BuildKit
+    builder made for the job and removed after it, with --pull and no cache, and pushes
+    <registry>/<image>:<tag> with the credential your docker configuration holds for this
+    release. It writes terp-release-build.json: BuildKit's own digests.
+  uv run terp release gate --sha <sha> --build terp-release-build.json
+    runs in a clean checkout of the commit: `terp verify --profile release --format
+    assurance` with npm's scripts off, then the schedule catalog, read by running the pushed
+    image sealed (no network, read-only, its own non-root user). It holds no push credential
+    and no key. It writes terp-release-gate.json.
+  terp release sign --sha <sha> --tag <tag> --registry ... --build ... --gate ... \\
+      --hosts separated --signer '["your-kms-signer", "--key", "release"]' --public-key k.pub
+    runs from the signer image, never the commit's own toolchain, and runs nothing of the
+    app: it repeats the refusals, renders a generated app's files with the terp-arch the
+    commit pins (fetched by hash, run in a process of its own), reads the backend image from
+    the registry as data and holds it to the tree and the lock, scans for known
+    vulnerabilities and for secrets in the history, and signs the manifest as a DSSE envelope
+    (release.dsse.json). --sign-key <file> is refused without --test-key.
+
+Refused, by name, before anything is built or signed: an undeclared or unmanaged app, a
+declaration that cannot be read or is untrue, a committed .terp-dist/ or submodule, a lock
+naming a path, an image neither built here nor a datastore table digest, a datastore with no
+healthcheck, more than one migration step or one with --revision/--sql, no step and other than
+one api unit, a built image that does not read TERP_RELEASE_TAG, and a build with more than a
+context and a Dockerfile.
+
+  terp promote release.dsse.json --public-key k.pub --project-dir /srv/deploy/app
+    verifies the envelope before reading it, checks the manifest (a newer Terp Standard than
+    its own is refused; --require-generated refuses an own release; a generated profile is
+    audited for every $), pulls each image by its signed digest and tags it
+    <project>-backend-prod:<tag>, writes the carried profile, and runs compose with an
+    allowlisted environment and TERP_RELEASE_TAG set: the datastores, a reading of every
+    alembic_version_* table, the migration step exactly once, then the rest, every `up` with
+    --no-build --pull never. If the deploy fails and the version tables are as they were,
+    going back is restore-free: --undo-to <the running release's envelope> starts it again
+    after its own `terp migrate check`. Otherwise going back is a restore. A rollback in an
+    invocation of its own has no such reading, so it is refused unless --rollback --restored
+    says the database was restored to the backup taken before the release that followed it.
+`terp release` and `terp promote` need terp-cli[release] (cryptography, packaging, the egress
+capability); without it they refuse, and nothing is signed or verified halfway.
 """,
 }
 
@@ -3989,6 +4042,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write nothing, and exit 1 if adoption has something to write (for CI)",
     )
 
+    from terp.cli.release.cli import add_parsers as add_release_parsers
+
+    add_release_parsers(subcommands)
+
     deployment_parser = subcommands.add_parser(
         "deployment",
         help="The app's deployment declaration, deployment.json, and what it renders",
@@ -4712,6 +4769,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                 reassign=getattr(args, "reassign", False),
             )
         )
+    if args.command in ("release", "promote"):
+        from terp.cli.release.cli import run_release
+
+        raise SystemExit(run_release(args))
     if args.command == "deployment" and args.deployment_command == "adopt":
         from terp.cli.deployment_adopt import run_adopt_command
 

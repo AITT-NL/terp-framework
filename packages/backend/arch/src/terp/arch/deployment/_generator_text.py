@@ -27,6 +27,18 @@ APP_ROOT = "/srv"
 #: which the backend image already makes as a mount point owned by its user.
 MOUNT_PATH = "var/files"
 
+#: The variable the profile's image names read their per-release tag from (ADR 0185 decision
+#: 6). This is the one place it is spelled: everything that sets or reads it imports the name.
+RELEASE_TAG_VARIABLE = "TERP_RELEASE_TAG"
+
+#: The tag, ``:?``-required like ``SECRET_KEY``: with it unset compose stops instead of
+#: falling back to a fixed tag a build would overwrite, so a release's images stay on the
+#: host beside the next one's and the previous release can be started again. The message is
+#: fixed text, so an executor's escape audit matches the whole scalar.
+RELEASE_TAG_SEAM = (
+    f"${{{RELEASE_TAG_VARIABLE}:?{RELEASE_TAG_VARIABLE} is required, one new image tag per release}}"
+)
+
 #: The migration step, rendered on the one ``one-shot`` unit that declares no command.
 MIGRATION_STEP = ("terp", "migrate", "upgrade", "--app-root", "/srv/app")
 
