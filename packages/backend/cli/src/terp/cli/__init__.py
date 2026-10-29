@@ -1808,18 +1808,66 @@ Database migrations (terp migrate)
   before the table that references it - regardless of label ordering. (A cross-package
   FK *cycle* cannot be ordered and fails closed; break it with a nullable FK populated
   in a later migration.)
-- Apply / inspect / roll back across every package:
+- Apply / inspect / walk back across every package:
       terp migrate upgrade                 # each package to head (run on deploy)
       terp migrate upgrade --sql > release.sql   # render DBA-reviewable offline SQL
                                            # instead (nothing connects; flat layout)
       terp migrate status                  # current-vs-head per package
+      terp migrate check                   # exit 0 only at head or inside the window
       terp migrate downgrade               # every package back to base (or -N)
       terp migrate downgrade --label notes --revision <rev>   # one package only
   A concrete revision is package-specific, so the all-package downgrade takes only
   base or a relative -N; pass --label to roll one package to any of its own revisions.
+  A downgrade is for walking a history back while developing. A production rollback
+  never migrates (next point).
+- ROLLING BACK A RELEASE (ADR 0185). Each revision says whether it is expand-only:
+      expand_only = True    # the previous release still runs on the schema this leaves
+  `terp migrate make` always writes `expand_only = False` (a contract revision), and adds
+  a comment where every operation it generated is on the expand list. Raise the mark
+  yourself, once the previous release may run without what the revision adds: a NOT NULL
+  scan state with a default, or a token epoch, is on the list and still carries a
+  restriction a rollback would drop. The expand list is closed: create_table (a key from
+  it only with CASCADE or SET NULL, never onto a soft-deleted table) and bulk_insert into
+  it; add_column that is nullable, has a server_default or is Computed, with no unique, no
+  check and at most a SET NULL key on a nullable column; create_index that is not unique;
+  a batch block of those, never recreate="always". Anything else (a drop, a rename,
+  tightening, execute(), a statement through op.get_bind(), a back-fill of an existing
+  table) is refused by `terp check` (expand_revisions_only_expand, no opt-out) and again
+  by the migration run, before its DDL. A back-fill runs as a job: the expand release
+  already handles rows it has not filled.
+  When every revision release N applied is expand-only, release N-1 starts again on N's
+  database: its boot guard admits a database one migration run ahead (it logs which
+  revisions it runs behind), and its `migrate` finds nothing to apply and runs no DDL. The
+  rollback check is the target's own `terp migrate check`, run from the target's image
+  against the live database: exit 0 is restore-free, anything else is a restore. Two
+  expanding releases in a row are one too many, a contract revision or another Terp
+  version is never crossed, and a migration applied from an offline script is not in
+  the record, so each of those rolls back by restore.
+  Until the contract release, N keeps writing the old shape N-1 reads, treats it as the
+  truth for what N-1 writes (compute a derived value on read, or make it a generated
+  column), and handles NULL in its new columns.
+  Every release after a rollback keeps N's revision files and the model fields and tables
+  they create, and reverts behaviour only; removing them is a later contract release. A
+  release cut from N-1 that adds a revision of its own is refused by `migrate`.
+- CONTRACT STEPS GO INTO A LATER RELEASE than the one that expanded: drop, rename or
+  tighten once nothing in the release before still needs the old shape. A release that
+  mixes expand and contract revisions is legal and rolls back by restore.
+- Removing a module or capability from the app RETIRES it, in the same release: list its
+  label in <app root>/modules/__init__.py, read without importing the app,
+      RETIRED_MIGRATIONS = ("invoices",)
+  a literal tuple of strings (anything else refuses). Its tables stay yours. A package
+  that comes back takes a new label.
 - Two developers branched the same package? Resolve the within-package divergence:
       terp migrate heads                   # more than one head = diverged
       terp migrate merge <label> -m "merge"
+  Before a release, re-parent one unreleased revision onto the other instead: a merge
+  revision is a contract revision.
+- Locks: `migrate` runs before `api` is recreated, so the previous release still serves
+  while it runs. A create_index without postgresql_concurrently (inside
+  op.get_context().autocommit_block()), a volatile default and a generated column (stored,
+  so the table is rewritten) hold a lock that long; on a large table compute a derived
+  value on read. A new child table of a soft-deleted parent is a contract revision:
+  neither CASCADE nor SET NULL can fire onto it.
 - Destructive DDL (drop table/column or alter-column type changes) is refused by
   `terp check` unless the operation carries `# arch-allow-no-destructive-migrations:
   <reason>` on (or immediately above) its line, budgeted by the escape-hatch ratchet.
@@ -1834,7 +1882,7 @@ Database migrations (terp migrate)
       op.add_column('note', sa.Column('rank', sa.Integer(), nullable=False,
                                       server_default='0'))
   Where no literal default is right, expand/contract instead - add the column nullable,
-  back-fill it in the same release, tighten it in a LATER revision. `terp check`
+  back-fill it, tighten it in a later release. `terp check`
   refuses the unbackfilled form (`not_null_columns_are_backfilled`); a table that
   genuinely holds no rows yet opts out with
   `# arch-allow-not-null-columns-are-backfilled: <reason>`.
@@ -2825,9 +2873,9 @@ Compliant decision path for a new NOT NULL column
         op.add_column('note', sa.Column('rank', sa.Integer(), nullable=False,
                                         server_default='0'))
 3. When no literal is right - the value has to be computed, or looked up - use
-    expand/contract across two releases: add the column NULLABLE, back-fill it (a data
-    migration or a backfill job), and tighten it to NOT NULL in a LATER revision, once
-    nothing writes a NULL.
+    expand/contract across two releases: add the column NULLABLE, back-fill it (a
+    backfill job: an expand-only revision writes no existing row), and tighten it to NOT
+    NULL in a LATER release, once nothing writes a NULL.
 4. Do not make the column nullable in the model merely to silence this. The model is
     the contract; if the field is genuinely optional, say so there and the finding goes
     away on its own.

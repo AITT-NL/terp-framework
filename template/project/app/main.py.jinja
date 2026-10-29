@@ -43,9 +43,11 @@ def build():
 {%- endif %}
         require_token_revocation=True,
         # In production the app refuses to serve against a database that is behind
-        # the code, missing a module's history, or holding a revision this code no
-        # longer defines - a wrong schema fails loudly at boot instead of at the
-        # first request. Development keeps auto-applying migrations for you.
+        # the code, missing a module's history, or holding a revision this code does
+        # not define outside its schema window - a wrong schema fails loudly at boot
+        # instead of at the first request. A database one expand-only migration run
+        # ahead is the window: the previous release starts again on it (ADR 0185).
+        # Development keeps auto-applying migrations for you.
         migration_check=(
             functools.partial(
                 assert_migrations_current,

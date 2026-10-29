@@ -1,7 +1,7 @@
 # 0185 — A release declares the schema window it accepts
 
-- **Status:** Proposed (awaiting review). Revised after four rounds of adversarial review (see *Review*).
-  Nothing is built.
+- **Status:** Accepted, built for 0.35.0 (see *How it was built*). Revised after four rounds of
+  adversarial review (see *Review*).
 - **Date:** 2026-10-13 (drafted); brought into this repository on 2026-10-21; revised on
   2026-10-22. 0182 and 0183 are reserved for other records.
 - **Relates:** [ADR 0027](0027-packaged-migrations-per-package-histories.md) (amended: each
@@ -83,7 +83,9 @@ Nothing else in the tree closes that gap:
      own primary key, constraints and indexes, unique ones included, and `bulk_insert` into it:
      seeding a table the same revision creates;
    - `add_column` that is nullable, carries a `server_default` or is generated (`Computed`),
-     and whose `Column` declares no `unique`, no check and no foreign key but the one below;
+     and whose `Column` declares no `unique`, no check and no foreign key but the one below,
+     inline or as a `create_foreign_key` over columns the same revision adds, which is the
+     shape autogenerate writes;
    - `create_index` that is not unique.
 
    A `batch_alter_table` block is judged by the operations it records, and one created with
@@ -124,7 +126,7 @@ Nothing else in the tree closes that gap:
    | Layer | Control |
    |---|---|
    | Build-time | A new terp-spec rule, `backend/expand_revisions_only_expand`, checked by `terp.arch`: a revision marked `expand_only = True` that contains an operation off the list, reading each `Column` it adds and each batch block's `recreate`, is refused. No opt-out marker: a revision that needs one is a contract revision, and saying so costs only restore-free rollback for its release. A `no_destructive_migrations` marker never excuses an operation in an expand-only revision. |
-   | Runtime, fail-closed | Three checks, through the Terp-owned `env.py`, which wraps each revision's `upgrade()` so the checks know where a step starts and ends (Alembic signals only the end). Each operation of an expand-only revision is classified as Alembic dispatches it (`Operations.invoke`), and one off the list raises before it runs; a batch block whose recorded operations are all admitted is admitted, with the statements its flush emits, reflection included. Any other statement the revision sends is refused before it runs online and before it is written offline; `op.get_bind()` bypasses the dispatch in both modes, and in `--sql` mode it returns a mock connection that writes straight into the script (measured on Alembic 1.18.5). Alembic's version-table statements, the record's inserts and the run's own catalogue reads fall outside `upgrade()` and are not judged. Online, at each step's `on_version_apply`, inside the step's transaction after its version update, the run also reads the database's own catalogue and raises when an expand-only step left anything the list does not admit, which is how a batch flush that rebuilt its table is judged; it reads with the guard's catalogue queries, widened to every schema and to triggers, policies and enum types, and the first step does not count the record's own creation. A raise rolls back what the package's upgrade has not committed, its record rows included; a package already upgraded earlier in the same `migrate` stays, as on any failure today. DDL an `autocommit_block` ran is not rolled back, because Alembic commits the transaction before the block unconditionally: it is judged after the fact, and the pre-migrate backup recovers it. Offline, a refusal exits non-zero naming the operation or statement, and the output is not a release script. The checks run in the process of the revision they judge, so they catch mistakes, not a hostile revision; the backup before every `migrate` is the defence against that. The rule's `runtime.applicability` is `required` (ADR 0084). |
+   | Runtime, fail-closed | Three checks, through the Terp-owned `env.py`, which wraps each revision's `upgrade()` so the checks know where a step starts and ends (Alembic signals only the end). Each operation of an expand-only revision is classified as Alembic dispatches it (`Operations.invoke`), and one off the list raises before it runs; a batch block whose recorded operations are all admitted is admitted, with the statements its flush emits, reflection included. Any other statement the revision sends is refused before it runs online and before it is written offline; `op.get_bind()` bypasses the dispatch in both modes, and in `--sql` mode it returns a mock connection that writes straight into the script (measured on Alembic 1.18.5). Alembic's version-table statements, the record's inserts and the run's own catalogue reads fall outside `upgrade()` and are not judged. Online on PostgreSQL, at each step's `on_version_apply`, inside the step's transaction after its version update, the run also reads the database's own catalogue and raises when an expand-only step left anything the list does not admit, which is how a batch flush that rebuilt its table is judged; it reads with the server's own renderers, as the guard's catalogue queries do, widened to every schema and to triggers, policies and enum types, and leaves the bookkeeping tables out, so the first step does not count the record's own creation. SQLite keeps a table's constraints only inside the text of its `CREATE TABLE`, so there is no catalogue to diff by object; there the operation and statement checks stand alone. A raise rolls back what the package's upgrade has not committed, its record rows included; a package already upgraded earlier in the same `migrate` stays, as on any failure today. DDL an `autocommit_block` ran is not rolled back, because Alembic commits the transaction before the block unconditionally: it is judged after the fact, and the pre-migrate backup recovers it. Offline, a refusal exits non-zero naming the operation or statement, and the output is not a release script. The checks run in the process of the revision they judge, so they catch mistakes, not a hostile revision; the backup before every `migrate` is the defence against that. The rule's `runtime.applicability` is `required` (ADR 0084). |
 
 2. **The migration run records every revision it applies, and which run applied it, where
    older code can read it.** `terp migrate upgrade` writes one row per applied revision into
@@ -206,8 +208,8 @@ Nothing else in the tree closes that gap:
    an uninstalled capability, as a literal `RETIRED_MIGRATIONS` tuple in
    `<app root>/modules/__init__.py`, read with `ast` and never imported; `pyproject.toml` would be
    simpler to edit, but the runtime image does not carry it, and every image carries the app
-   root. A list that is not a literal tuple of strings, or a file that does not parse, makes the
-   guard refuse; it is never read as empty. Terp keeps the same list for capability histories
+   root. A list that is not one module-level assignment of a literal tuple of strings, or a
+   file that does not parse, makes the guard refuse; it is never read as empty. Terp keeps the same list for capability histories
    it retired itself. The guard, the
    `migrate` preflight and the check ignore a retired package's rows; its tables stay the app's,
    as today. They refuse a retired label the code still defines, so the app's own upgrade test
@@ -224,7 +226,7 @@ Nothing else in the tree closes that gap:
 
    This narrows the guard by decision; it does not weaken it. A rewritten or deleted history is
    still refused, because a rewritten revision was never recorded as an expand step whose
-   parent is the code's head. The framework's PostgreSQL lane gains the proof: the example app
+   parent is the code's head. The framework's PostgreSQL lane gains the proof: an app
    at N-1, with the guard armed as in production, boots on a database upgraded to an
    expand-only N; refuses one with a contract revision, one whose record is missing, one two
    expanding releases ahead, one where the older of those two only installed a new module whose
@@ -432,13 +434,11 @@ Nothing else in the tree closes that gap:
 
 ## Where this stands
 
-Proposed, not built. The first Terp release that carries it is the earliest version a
+Built for 0.35.0 (see *How it was built*). That release is the earliest version a
 restore-free rollback across a migration can target; until an app has two consecutive releases
-on such a version, its rollback across a migration is restore-based (decision 7), while rule
-zero holds from the start. It needs acceptance before any rollback test, or any deployment
-declaration's rollback field, relies on the window. ADR 0184's `rollback.strategy`, built in
-0.35.0, says what a rollback is and claims nothing about whether one is restore-free, so it
-does not wait on this decision.
+on it, its rollback across a migration is restore-based (decision 7), while rule zero holds
+from the start. ADR 0184's `rollback.strategy` says what a rollback is and claims nothing about
+whether one is restore-free, and stays so.
 
 What proves it, and the decisions each proof needs:
 
@@ -458,7 +458,99 @@ What proves it, and the decisions each proof needs:
 
 Open for implementation, not for this decision: whether `terp migrate make` or `terp.arch` can
 also refuse a new revision whose parent is behind a recorded expand step before it ships;
-offline record inserts; and the final spelling of the table and the mark.
+offline record inserts. The table and the mark keep the spelling this record gives them.
+
+## How it was built
+
+Each decision, as it now stands in the tree:
+
+1. **The mark and the list.** `expand_only` is read as `module.expand_only is True` at
+   runtime, and as the literal `True` statically; a computed mark is refused by the rule
+   rather than taken for either answer. `script.py.mako` writes `expand_only = False`, and the
+   env's `process_revision_directives` classifies the generated operations with the runtime
+   classifier, so `make`'s comment and the run never disagree about the list. The build-time
+   half is `terp.arch.rules.expand.check_expand_revisions_only_expand`, catalogued in
+   terp-spec 0.40.0 as `backend/expand_revisions_only_expand` with 10 violation and 3
+   compliant corpus cases, two detector residuals (an operation made in a helper function,
+   and the order of operations inside one revision), and `runtime.applicability: required`.
+   It is the first rule with no way out at all: the harness gains `RULES_WITHOUT_AN_OPT_OUT`
+   (no marker suppresses one of its findings, the budget refuses its token), and the spec
+   suite lists such rules by name beside the governance rules.
+   The runtime half is `terp.migrations._expand.ExpandJudge`. The env wraps every revision's
+   `upgrade()`; `AbstractOperations.invoke`, `Operations.batch_alter_table` and
+   `BatchOperationsImpl.flush` are routed through the active judge for the length of one run
+   (a context variable, so another thread passes straight through). Statements are judged
+   online by a `before_cursor_execute` listener on the run's own connection and offline by
+   wrapping the implementation that writes the script; `op.get_bind()` in `--sql` mode writes
+   through that implementation, measured again on Alembic 1.20.1. The catalogue diff
+   (`_catalogue.py`) reads PostgreSQL only.
+2. **The record** is `terp.migrations.window`: `terp migrate upgrade` creates
+   `terp_migration_window` before the run when it is missing, and only then, and a row is
+   written by the env's `on_version_apply` callback inside the step's transaction. `seq` is
+   one more than the largest present, inside that transaction. A merge revision's parents are
+   recorded joined, so a walk can never cross one. The orchestrator passes its digest to the
+   env, and an Alembic command run against one package's config computes the same value from
+   the same revision files.
+3. **The guard** is `window.judge_window`, called through `orchestrate.window_of` by the boot
+   guard, the `migrate` preflight and `terp migrate check` alike. Rule (a), the horizon and the
+   walk are as decided; a record that is missing, reshaped or unreadable reads as no rows,
+   never as an error. `RETIRED_MIGRATIONS` must be one module-level assignment of a literal
+   tuple of strings; `TERP_RETIRED_MIGRATIONS` is empty.
+4. **A rollback never migrates.** The preflight skips a package ahead inside the window, and a
+   package at its head is not run at all; the search path is the union, written only when a
+   label is missing; and an existing package schema is not created again, so the previous
+   release's `migrate` sends nothing but reads.
+5. **Contract steps later**: the migrations guide, the NOT NULL rule's guide and message, and
+   the terp-spec intent say "a later release".
+6. **The check** exits 1 with the refusal printed for every answer but current or inside the
+   window. The tag, the `--no-build --pull never` start and `terp promote`'s version-table
+   reading were built with ADR 0187 and are unchanged; `terp promote --undo-to` still undoes
+   restore-free only when the version tables are as they were (rule zero), because a release
+   manifest does not record the Terp version that would say whether the target carries this
+   decision.
+7. `docs/DEPLOYMENT.md` gains *Rolling back a release* and a backup before every `migrate`.
+
+What the proof table became (`tests/architecture/test_schema_window.py`, both dialects unless
+noted; the PostgreSQL lane runs it with `TERP_REQUIRE_POSTGRES_LANE`):
+
+| Proof | Test |
+|---|---|
+| N-1 boots on N's expand-only database (a batch-style revision), logs what it runs behind, its check exits 0, its `migrate` sends no write, and rolling forward applies nothing | `test_n_minus_1_boots_on_an_expanded_database_and_its_migrate_runs_no_ddl` |
+| The rule refuses an off-list operation; the run raises before its DDL (seven forms); `--sql` refuses to render one, a statement through `get_bind()` included, and prints no script | `test_expand_revisions_rule.py`, `test_an_off_list_operation_raises_before_its_ddl`, `test_offline_sql_refuses_to_render_an_off_list_operation` |
+| The catalogue judges DDL no operation asked for (a raw driver cursor), and the step is rolled back (PostgreSQL) | `test_the_catalogue_judges_what_no_operation_asked_for` |
+| A contract revision, a missing or reshaped record, two runs ahead, an older run that only installed a contract module, another Terp version: refused | `test_a_contract_step_ships_in_a_later_release_…`, `test_a_missing_or_unreadable_record_…`, `test_two_expanding_releases_are_one_run_too_many`, `test_an_older_run_that_only_installed_…`, `test_a_run_on_another_terp_version_is_never_crossed` |
+| The round trip: N writes, N-1 reads, inserts and updates a row N wrote, N reads both | `test_the_round_trip_n_then_n_minus_1_then_n` |
+| A revert release passes the drift check and boots; a release cut from N-1 that adds a revision is refused before DDL | `test_a_revert_release_keeps_ns_revisions_and_models_and_boots`, `test_a_release_that_dropped_ns_revisions_…` |
+| N to N-1 restore-free and N to N-2 restore-based, by the target's own check | `test_two_expanding_releases_are_one_run_too_many` |
+| A fresh environment's first deploy of N with a contract module is refused by N-1, and one that only expanded is not | `test_a_fresh_environment_…` (two tests) |
+| N-2 refuses a database first deployed at N-1 by one run with a contract revision, then expanded | `test_n_minus_2_refuses_a_database_first_deployed_at_n_minus_1` |
+| Retirement: refused without it naming it, boots with it; a retired label still defined, and an unreadable list (six forms), refused | `test_a_removed_package_is_retired_…`, `test_a_retired_label_…`, `test_a_retired_list_that_cannot_be_read_refuses` |
+| A per-module rollback writes nothing and keeps the newer schema on the path; a database without the setting is routed again by the next `migrate` (PostgreSQL) | `test_a_per_module_rollback_writes_nothing_…`, `test_a_per_module_database_restored_…` |
+| Rows carry the run's heads digest and Terp version, however the step is run | `test_every_applied_revision_is_recorded_…`, `test_the_record_carries_the_same_digest_…` |
+| A rollback over a release that applied nothing is restore-free | `test_a_rollback_over_a_release_that_applied_nothing_is_restore_free` (the older target through `terp promote`'s reading: `test_release_promote.py`) |
+| The runtime role reads the record and is refused `INSERT`, `UPDATE` and `DELETE` on it under `per-module` (PostgreSQL) | `test_the_runtime_role_reads_the_record_…`, and ADR 0071's lane in `test_migrations_conformance.py` |
+| A profile without `TERP_RELEASE_TAG` refuses | `test_prod_profile.py` (built with ADR 0187) |
+
+The restore case states the restored state (a database with no database-level `search_path`)
+rather than dumping and restoring, so it needs no client tools of a matching version; the
+restore drill in `test_migrations_conformance.py` still dumps and restores, and the record
+comes through it. The proofs build an app per release in a temporary tree, each imported under
+its own package name, rather than editing the example app: two releases of one app must not
+share an imported module.
+
+What the build showed this record had wrong, and fixed in its text:
+
+- **Autogenerate writes a key on a new column as a separate `create_foreign_key`.** Decision 1
+  admitted the key only inline, which would have refused the commonest expand revision as
+  generated; a `create_foreign_key` over columns the same revision adds, nullable, with `SET
+  NULL`, is now on the list, in the rule and in the run.
+- **SQLite has no catalogue by object.** The diff runs on PostgreSQL only, said in decision 1.
+- **"The example app at N-1"** became "an app at N-1": the proofs need releases of their own.
+
+And two defects it found outside this record: a database URL with a percent-encoded character
+(a password's `@`, a Windows drive colon) made Alembic's ConfigParser refuse it, so the boot
+guard could not read such a database at all; and the restore drill's missing-client branch
+called a helper that did not exist. Both are fixed in 0.35.0.
 
 ## Review
 
