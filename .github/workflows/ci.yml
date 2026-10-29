@@ -164,6 +164,7 @@ jobs:
           tests/architecture/test_migrations_conformance.py
           tests/architecture/test_audit_activity.py
           tests/architecture/test_readiness_postgres.py
+          tests/architecture/test_schema_window.py
 
   # The signer image (ADR 0187 decision 6): the operator's own toolchain `terp release sign`
   # runs from, built from this commit's wheels and the lock's hashes, and run. Nothing here
