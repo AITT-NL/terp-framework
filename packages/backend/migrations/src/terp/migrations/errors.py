@@ -104,11 +104,33 @@ class OrphanedRevisionsError(MigrationError):
     re-baselined with ``terp migrate stamp`` once its schema is confirmed to match.
     """
 
-    def __init__(self, orphaned: Mapping[str, Sequence[str]]) -> None:
+    def __init__(
+        self,
+        orphaned: Mapping[str, Sequence[str]],
+        reasons: Mapping[str, str] | None = None,
+    ) -> None:
         self.orphaned = {label: tuple(revs) for label, revs in orphaned.items()}
+        #: Per package, why the schema window (ADR 0185) does not admit what it holds,
+        #: when the refusal is about the window rather than a rewritten history.
+        self.reasons = dict(reasons or {})
         joined = "; ".join(
             f"{label} is at {', '.join(revs)}" for label, revs in self.orphaned.items()
         )
+        if self.reasons:
+            listed = "".join(
+                f"\n  - {label}: {reason}" for label, reason in sorted(self.reasons.items())
+            )
+            super().__init__(
+                f"the database holds migrations this code does not define, outside the "
+                f"schema window it accepts (ADR 0185): {joined}.{listed}\nNothing was "
+                "changed. If this is a rollback, it is restore-based: restore the backup "
+                "taken before the release that followed this one, then start this one. If "
+                "this code's own history was rewritten after it was applied, recreate the "
+                "database if it holds no data worth keeping, or confirm its schema matches "
+                "the models and re-baseline it with `terp migrate stamp <label> <revision>`. "
+                "Never resolve this by editing history further."
+            )
+            return
         super().__init__(
             f"the database has applied migrations this code no longer defines: "
             f"{joined}. A migration that was already applied has been rewritten or "
@@ -117,6 +139,47 @@ class OrphanedRevisionsError(MigrationError):
             f"with `terp migrate stamp <label> <revision>`. Never resolve this by "
             f"editing history further."
         )
+
+
+class ExpandRevisionError(MigrationError):
+    """A revision marked ``expand_only = True`` did something the expand list does not admit.
+
+    Raised by the migration run (ADR 0185 decision 1) before the operation runs online,
+    before it is written offline, and, for what only the catalogue shows (a batch block
+    that rebuilt its table), at the end of the step inside the step's transaction. The
+    mark is a promise that the previous release keeps working on the schema this
+    revision leaves; an operation off the list breaks that promise, so the run stops
+    rather than ship a release whose rollback would silently need a restore.
+    """
+
+    def __init__(self, label: str, revision: str, what: str, *, after: bool = False) -> None:
+        self.label = label
+        self.revision = revision
+        self.what = what
+        stopped = (
+            "The step is rolled back with the package's upgrade."
+            if after
+            else "The migration stopped before running it."
+        )
+        super().__init__(
+            f"revision {revision} of {label!r} is marked expand_only = True, and {what} "
+            "is not on the expand list (ADR 0185): the previous release could not be "
+            f"trusted to run on the schema it leaves. {stopped} Move that step to a later "
+            "release, or set expand_only = False, which makes this release's rollback "
+            "restore-based."
+        )
+
+
+class RetiredMigrationsError(MigrationError):
+    """The app's ``RETIRED_MIGRATIONS`` list cannot be read, or retires a live package.
+
+    A release that removes a module or capability lists its label in
+    ``<app root>/modules/__init__.py`` (ADR 0185 decision 3), and the guard, the migrate
+    preflight and ``terp migrate check`` then ignore its rows. A list that is not a
+    literal tuple of strings is never read as empty, because an empty list quietly
+    un-retires every package; and a retired label the code still defines is refused,
+    because a package that comes back takes a new label.
+    """
 
 
 class MigrationDriftError(MigrationError):
@@ -140,10 +203,10 @@ class MigrationDriftError(MigrationError):
 class MigrationReversibilityError(MigrationError):
     """A downgrade did not put the schema back the way it found it.
 
-    Raised by :func:`terp.migrations.assert_migrations_reverse_cleanly`. Every Terp
-    app's rollback plan is ``terp migrate downgrade``, and until this existed the only
-    thing checked about that plan was that the ``downgrade()`` body was not an empty
-    stub — a source-level check that cannot see a downgrade which dies on its first
+    Raised by :func:`terp.migrations.assert_migrations_reverse_cleanly`. A downgrade
+    is how a history is walked back (a production rollback never migrates, ADR 0185),
+    and until this existed the only thing checked about it was that the
+    ``downgrade()`` body was not an empty stub — a source-level check that cannot see a downgrade which dies on its first
     statement, and cannot see one that runs green and comes back with a different
     schema.
 
@@ -163,8 +226,8 @@ class MigrationReversibilityError(MigrationError):
         super().__init__(
             f"the migration history does not reverse cleanly ({len(self.differences)} "
             f"difference(s) after downgrade to base and upgrade again):{listed}\n"
-            "A downgrade that does not restore what it found is a rollback plan that "
-            "changes the schema under the version you are rolling back to."
+            "A downgrade that does not restore what it found changes the schema under "
+            "the version it walks back to."
         )
 
 
@@ -217,6 +280,7 @@ class MigrationHistoryNotEmptiedError(MigrationError):
 
 
 __all__ = [
+    "ExpandRevisionError",
     "MigrationDriftError",
     "MigrationError",
     "MigrationHistoryNotEmptiedError",
@@ -225,4 +289,5 @@ __all__ = [
     "MissingMigrationsError",
     "OrphanedRevisionsError",
     "PendingMigrationsError",
+    "RetiredMigrationsError",
 ]

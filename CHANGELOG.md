@@ -77,6 +77,16 @@ refuses. The production profile now keeps the files in a volume the runtime user
 template reads the allowlist from `OIDC_ALLOWED_EMAIL_DOMAINS`, and template acceptance boots
 every render in production mode.
 
+And a release could not be rolled back across a migration without restoring its database. The
+boot guard refused any revision its code did not define, which could not tell a newer
+release's revision from a history rewritten after it was applied, so starting the previous
+release again failed at its `migrate` step, and the only way back was the backup taken before
+the upgrade, losing every write since. A revision now says whether it is expand-only, a raised
+mark is held to a closed list twice (by `terp check` and by the migration run, before its DDL),
+the run records every revision it applies, and the guard admits a database one expand-only run
+ahead. The previous release's own `terp migrate check` decides, before a rollback is offered,
+whether it is restore-free (ADR 0185).
+
 ### Security
 
 - **A rendered environment file can no longer be baked into an image.** The template's
@@ -383,9 +393,82 @@ every render in production mode.
   sign-on: the backend image built from the render, the api up and healthy under `up --wait`
   with SSO configured and its allowlist set, and the files volume written by the user the image
   runs as and read back from a second container.
+- **A revision says whether it is expand-only, and a raised mark is held to the expand list**
+  (ADR 0185 decision 1). `expand_only = True` at module level promises that the previous
+  release keeps working on the schema the revision leaves; absent or `False`, it is a contract
+  revision. The list is closed: `create_table` with what is its own (a key from it only with
+  `CASCADE` or `SET NULL`, never onto a soft-deleted table) and `bulk_insert` into it;
+  `add_column` that is nullable, has a `server_default` or is `Computed`, with no `unique`, no
+  check and at most a `SET NULL` key on a nullable column (inline, or a `create_foreign_key`
+  over columns the same revision adds); `create_index` that is not unique; a
+  `batch_alter_table` block of those, never `recreate="always"`. A new terp-arch rule,
+  `expand_revisions_only_expand` (terp-spec 0.40.0), refuses anything else in a marked
+  revision, drops, renames, tightening, `execute()`, a statement through `op.get_bind()`, a
+  data write into an existing table and a merge revision included. It has no opt-out marker,
+  the first rule without one: the harness gains `RULES_WITHOUT_AN_OPT_OUT`, whose findings no
+  marker suppresses and whose token the budget refuses, and a `no_destructive_migrations`
+  marker excuses nothing here.
+- **And the migration run holds the same list as it executes.** The Terp-owned `env.py` wraps
+  each revision's `upgrade()`. An operation of an expand-only revision off the list raises
+  `ExpandRevisionError` before its DDL runs, or, offline, before `--sql` writes it (the CLI
+  exits 1 naming it, and prints no script); any other statement the revision sends outside an
+  admitted operation is refused the same way, in both modes; and online on PostgreSQL the
+  catalogue each expand-only step left, read inside the step's transaction with the server's
+  own renderers across every schema, triggers, policies and enum types included, is compared
+  with the one it started from, which is how a batch block that rebuilt its table is judged.
+- **The migration run records every revision it applies** (decision 2), in
+  `terp_migration_window` (`public` on PostgreSQL under either layout): label, revision,
+  parent, `expand` or `contract`, `applied_by` (the SHA-256 of the canonical JSON of the
+  run's own code heads per package), `applied_terp`, a rising `seq` and the time. Nothing is
+  passed to it: what identifies a run is its own code. A row is written in the same
+  transaction as its revision's version-table update, `downgrade` deletes the rows of what it
+  reverses, and `stamp` writes none and clears the package's rows above the revision it
+  stamps. `terp migrate upgrade` creates the table when it is missing, and only then. It takes
+  exactly the version tables' grants, so under `per-module` the runtime role reads it and
+  cannot write it. Offline `--sql` writes no row, so a script-applied release rolls back by
+  restore.
+- **A release that removes a module or capability retires it** in `RETIRED_MIGRATIONS`, a
+  literal tuple of labels in `<app root>/modules/__init__.py`, read with `ast` and never
+  imported. The guard, the `migrate` preflight and `terp migrate check` ignore a retired
+  package's rows; a list that is not a literal tuple of strings, a file that does not parse, or
+  a retired label the code still defines raises `RetiredMigrationsError`.
 
 ### Changed
 
+- **The boot guard admits a database one migration run ahead, inside its schema window**
+  (ADR 0185 decision 3). A package at a revision the code does not define is walked back
+  through the record to exactly the code's head. Every row the newest run wrote for a revision
+  the code does not define must be `expand` on the guard's own Terp version, and every such row
+  above the horizon (the newest row this code's own run wrote) must be the newest run's. So two
+  expanding releases in a row, a contract revision, a run on another Terp version, a record
+  that is missing or unreadable, and a history this release dropped are each refused with
+  `OrphanedRevisionsError`, which now says which and what to do; a rewritten history still is.
+  A guard that admits a window logs one warning naming the revisions it runs behind. There is
+  no switch back: the guard, the preflight and the check share one judgment
+  (`terp.migrations.window_of`).
+- **A rollback never migrates.** `terp migrate upgrade` runs the window as its preflight,
+  leaves a package ahead inside the window alone and does not run a package already at its
+  head, so the previous release's `migrate` one-shot finds nothing to apply and sends no DDL.
+  Under `per-module` the database's `search_path` only grows: it is the union of its setting and
+  the code's labels, `public` last, and is written only when a label is missing, so a rollback
+  writes nothing and a database restored into a clean one is routed again by the next
+  `migrate`, pending or not. A package schema that exists is not created again.
+- **`terp migrate check` is the rollback check** (decision 6). It exits 0 only at the code's
+  heads or inside its window, and 1, with the refusal printed, for every other answer: it
+  exited 1 only for pending migrations and let any other refusal escape as a traceback. Run from
+  a rollback target's image against the live database, 0 is restore-free. `terp migrate
+  upgrade` prints a refusal and exits 1 the same way.
+- **`terp migrate make` writes `expand_only = False`** into every revision, and the comment
+  `# every operation is on the expand list; set True once the previous release may run without
+  what this adds` where every operation it generated is on the list. The author raises the mark.
+- **`assert_migrations_reverse_cleanly` leaves the window record out of its residue check**, as
+  it leaves out the version tables, so an app's reverse-cleanly test stays green; its docstring
+  and `MigrationReversibilityError` no longer call a downgrade the app's rollback plan.
+- **The migrations guide and the NOT NULL rule say "tighten it in a later release"**, where
+  they said "a later revision": a later revision in the same release ships the contract step
+  with the expand step. The guide gains rolling back a release, contract steps in a later
+  release, retiring a package, re-parenting instead of merging, and the lock notes, and
+  `docs/DEPLOYMENT.md` gains *Rolling back a release* and a backup before every `migrate`.
 - **The generator says who owns a files mount.** A unit's `volumes:` in a generated profile
   opens with a comment: the files capability's storage root, made by the backend image and
   owned by the user it runs as, and Docker gives an empty named volume the owner of the
@@ -505,6 +588,30 @@ every render in production mode.
   so liveness stays up and readiness answers 503 naming the store.
 
 ### Upgrade notes
+
+- **Back up the database before every `migrate`.** A rollback whose target's check does not
+  pass is a restore of that backup. Nothing else changes for a deploy: the record is created by
+  the first `terp migrate upgrade` on this release, and a database without one boots as before.
+- **Re-run `terp migrate grant-runtime <role>` after that first upgrade** (with `--owner-role`
+  where another role runs `migrate`), so the runtime role reads the new
+  `terp_migration_window` table as it reads the version tables. A guard that cannot read it
+  treats the database as outside the window, which only matters during a rollback.
+- **A revision you author from now on carries `expand_only = False`.** Leave it, and the
+  release that ships it rolls back by restore, as every release did before. Raise it to `True`
+  only once the previous release may run without what the revision adds, and only when every
+  operation is on the expand list (`terp guide migrations`); `terp check` and the migration run
+  refuse a raised mark otherwise. A release that rolls back restore-free needs two consecutive
+  releases on this version.
+- **A release that removes a module or capability** adds its label to `RETIRED_MIGRATIONS =
+  ("<label>",)` in `app/modules/__init__.py` in the same release; without it, that release's
+  guard refuses a database whose newest migration run applied a contract revision of the
+  package.
+- **Every release after a rollback keeps the rolled-back release's revision files**, and the
+  model fields and tables they create; a release cut from the older commit that adds a revision
+  is refused by `migrate`. `copier update` brings the template's reworded boot-guard and
+  reverse-cleanly comments.
+- **`terp migrate check` exits 1 for an orphaned revision now**, where a traceback did before:
+  a script that told the two apart by the exit code reads the printed refusal instead.
 
 - **Every `ScheduleDefinition` declares `misfire=`.** It is a required keyword, so a schedule
   without one raises `TypeError` when the control plane is imported. Choose per schedule:
@@ -668,6 +775,16 @@ every render in production mode.
   running one.
 
 ### Fixed
+
+- **A database URL with a percent sign reaches the migration tooling intact.** Alembic keeps
+  its options in a ConfigParser, which reads a bare `%` as an interpolation and refuses the
+  value, and a URL is rendered with its special characters percent-encoded: a password's `@`
+  as `%40`, a Windows path's drive colon as `%3A`. So `assert_migrations_current`, `terp migrate
+  check` and `status` refused such a URL with "invalid interpolation syntax" before reading
+  anything, the boot guard included. Every option is now escaped for the parser and reads back
+  unchanged.
+- **The restore drill's missing-client branch no longer raises a `NameError`.** It called a
+  helper that did not exist; it now skips locally and fails where the lane declares it runs.
 
 - **A production profile whose `build` is neither a path nor a mapping no longer crashes the
   deployment reader.** Compose refuses such a profile itself; the reader now leads nowhere for it

@@ -20,11 +20,24 @@ import pathlib
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from sqlalchemy import MetaData, create_engine, pool
+from sqlalchemy import MetaData, create_engine, pool, text
 from sqlmodel import SQLModel
 
-from terp.core.migrations import MigrationTree, resolve_all_migration_trees
+from terp.core.migrations import (
+    MigrationTree,
+    resolve_all_migration_trees,
+    resolve_migration_trees,
+)
+from terp.migrations._expand import ExpandJudge, generated_operations_on_list, is_expand_only
 from terp.migrations.errors import MigrationError
+from terp.migrations.window import (
+    CONTRACT,
+    EXPAND,
+    delete_record_rows,
+    heads_digest,
+    terp_version,
+    write_record_row,
+)
 
 
 def owned_table_names(import_path: str) -> frozenset[str]:
@@ -434,6 +447,84 @@ def order_trees_by_dependencies(trees: list[MigrationTree]) -> list[MigrationTre
     return _toposort(trees, deps)
 
 
+def _run_digest(app_root: str | None, package: str) -> str:
+    """This run's heads digest, read from the code, when the orchestrator passed none.
+
+    ``terp migrate upgrade`` computes it once per run and passes it down; an Alembic
+    command run directly against one package's config still records the same value,
+    because it is read from the same revision files.
+    """
+    from alembic.script import ScriptDirectory
+
+    from terp.migrations._config import alembic_config_for
+
+    heads = {
+        tree.label: list(
+            ScriptDirectory.from_config(
+                alembic_config_for(tree, "sqlite://", app_root=app_root, package=package)
+            ).get_heads()
+        )
+        for tree in resolve_migration_trees(app_root, package=package)
+    }
+    return heads_digest(heads)
+
+
+def _record_versions(
+    judge: ExpandJudge, label: str, script: Any, applied_by: Callable[[], str], *, offline: bool
+) -> Callable[..., None]:
+    """The ``on_version_apply`` callback: judge each step's end, and record it (ADR 0185).
+
+    It runs inside the step's transaction, after Alembic updated the version table, so
+    a row is written in the same transaction as its revision's version update, and a
+    downgrade deletes the rows of the revisions it reverses. A stamp writes none (the
+    orchestrator clears the rows above it). Offline (``--sql``) it judges and writes
+    nothing: a release applied from a script rolls back by restore.
+    """
+
+    def on_version_apply(*, ctx: Any, step: Any, heads: Any, run_args: Any) -> None:
+        if step.is_stamp:
+            return
+        for revision in step.up_revision_ids:
+            if not step.is_upgrade:
+                if not offline:
+                    delete_record_rows(ctx.connection, label, revisions=[revision])
+                continue
+            expand = judge.finish(revision)
+            if offline:
+                continue
+            if expand is None:  # pragma: no cover - every upgrade step runs its wrapper
+                expand = is_expand_only(script.get_revision(revision).module)
+            parents = step.down_revision_ids
+            write_record_row(
+                ctx.connection,
+                label=label,
+                revision=revision,
+                parent=",".join(parents) if parents else None,
+                kind=EXPAND if expand else CONTRACT,
+                applied_by=applied_by(),
+                applied_terp=terp_version(),
+            )
+
+    return on_version_apply
+
+
+def _note_the_expand_list(migration_context: Any, revision: Any, directives: Any) -> None:
+    """``process_revision_directives`` for ``make``: say where raising the mark is possible.
+
+    ``terp migrate make`` always writes ``expand_only = False``. Where every operation it
+    generated is on the expand list, the template adds the comment that says so; the
+    author raises the mark (ADR 0185 decision 1), never the generator.
+    """
+    template_args = migration_context.opts.get("template_args")
+    if template_args is None:
+        return
+    template_args["terp_expand_note"] = all(
+        generated_operations_on_list(upgrade_ops)
+        for directive in directives
+        for upgrade_ops in directive.upgrade_ops_list
+    )
+
+
 def run_migrations(context: Any) -> None:
     """Run the migrations for the package named by the active Alembic *context*."""
     config = context.config
@@ -444,11 +535,26 @@ def run_migrations(context: Any) -> None:
     app_root = config.get_main_option("terp_app_root") or None
     package = config.get_main_option("terp_package") or "app"
     schema_layout = config.get_main_option("terp_schema_layout") or "flat"
+    passed_digest = config.get_main_option("terp_applied_by") or None
+    digest: list[str] = [passed_digest] if passed_digest else []
+
+    def applied_by() -> str:
+        if not digest:
+            digest.append(_run_digest(app_root, package))
+        return digest[0]
 
     target_module = f"{import_path}.models"
     for module in _model_modules(import_path, app_root, package):
         _import_model_module(module, required=module == target_module)
     include_name, include_object = scoped_filters(owned_table_names(import_path))
+    script = getattr(context, "script", None)
+
+    def judged(*, catalogue: bool) -> ExpandJudge:
+        judge = ExpandJudge(label, catalogue=catalogue)
+        if script is not None:
+            for revision in script.walk_revisions():
+                judge.wrap(revision)
+        return judge
 
     if context.is_offline_mode():
         # Offline (--sql) rendering: no engine, no connection — Alembic renders the
@@ -461,6 +567,7 @@ def run_migrations(context: Any) -> None:
                 "database migrates online so the layout's session state routes "
                 "each package's DDL (ADR 0072)"
             )
+        judge = judged(catalogue=False)
         context.configure(
             url=database_url,
             target_metadata=SQLModel.metadata,
@@ -469,8 +576,11 @@ def run_migrations(context: Any) -> None:
             include_object=include_object,
             compare_type=True,
             literal_binds=True,
+            on_version_apply=_record_versions(judge, label, script, applied_by, offline=True),
         )
-        with context.begin_transaction():
+        migration_context = context.get_context() if hasattr(context, "get_context") else None
+        impl = getattr(migration_context, "impl", None)
+        with judge.active(impl=impl), context.begin_transaction():
             context.run_migrations()
         return
 
@@ -486,6 +596,7 @@ def run_migrations(context: Any) -> None:
                 # The version table stays in the default schema so status / the boot
                 # guard read it over a plain connection, layout-unaware (ADR 0070).
                 configure_opts["version_table_schema"] = "public"
+            judge = judged(catalogue=connection.dialect.name == "postgresql")
             context.configure(
                 connection=connection,
                 target_metadata=SQLModel.metadata,
@@ -494,9 +605,13 @@ def run_migrations(context: Any) -> None:
                 include_object=include_object,
                 compare_type=True,
                 render_as_batch=_render_as_batch(connection),
+                on_version_apply=_record_versions(
+                    judge, label, script, applied_by, offline=False
+                ),
+                process_revision_directives=_note_the_expand_list,
                 **configure_opts,
             )
-            with context.begin_transaction():
+            with judge.active(connection=connection), context.begin_transaction():
                 context.run_migrations()
     finally:
         connectable.dispose()
@@ -532,7 +647,11 @@ def _enter_per_module_schema(connection: Any, label: str, labels: Iterable[str])
             "schema layout 'per-module' requires PostgreSQL; "
             f"got dialect {connection.dialect.name!r} (ADR 0070)"
         )
-    connection.exec_driver_sql(f'CREATE SCHEMA IF NOT EXISTS "{label}"')
+    exists = connection.execute(
+        text("SELECT 1 FROM pg_namespace WHERE nspname = :label"), {"label": label}
+    ).first()
+    if exists is None:
+        connection.exec_driver_sql(f'CREATE SCHEMA IF NOT EXISTS "{label}"')
     connection.exec_driver_sql(search_path_statement(label, labels))
     # Commit the autobegun setup transaction: Alembic treats a connection with an
     # in-progress transaction as caller-managed and would never commit the migration

@@ -880,8 +880,14 @@ def test_runtime_role_gets_dml_and_is_refused_ddl_and_tampering(pg_url: str) -> 
                 "CREATE TABLE notes.evil (id int)",
                 "DROP TABLE notes.note",
                 "ALTER TABLE notes.note ADD COLUMN evil int",
-                # …and refuses tampering with migration state (public is read-only).
+                # …and refuses tampering with migration state (public is read-only),
+                # the schema window's record included (ADR 0185): it takes exactly the
+                # version tables' grants.
                 "DELETE FROM public.alembic_version_notes WHERE 1=0",
+                "INSERT INTO public.terp_migration_window"
+                " SELECT * FROM public.terp_migration_window WHERE 1=0",
+                "UPDATE public.terp_migration_window SET kind = 'expand' WHERE 1=0",
+                "DELETE FROM public.terp_migration_window WHERE 1=0",
             ):
                 with runtime.connect() as conn, pytest.raises(ProgrammingError):
                     conn.exec_driver_sql(refused)
@@ -1015,6 +1021,17 @@ def pg_url_pair() -> Iterator[tuple[str, str]]:
 #: PostgreSQL and no client tools should not be blocked by a PostgreSQL-only lane. In the
 #: lane, where the workflow starts a server and installs a matching client on purpose, a
 #: skip means one of those steps stopped working and nothing else would say so.
+def _absent_lane(reason: str) -> None:
+    """Skip locally; fail where the lane declared it runs (``TERP_REQUIRE_POSTGRES_LANE``)."""
+    import os
+
+    from terp.core.testing import TERP_REQUIRE_POSTGRES_LANE_ENV
+
+    if os.environ.get(TERP_REQUIRE_POSTGRES_LANE_ENV):
+        pytest.fail(f"{reason}. {TERP_REQUIRE_POSTGRES_LANE_ENV} is set, so this fails")
+    pytest.skip(reason)
+
+
 def _require_pg_client(url: str) -> None:
     client = _pg_client_version()
     if client is None:

@@ -140,8 +140,9 @@ def test_migrations_match_models(terp_db_url: str) -> None:
 
 
 def test_migrations_reverse_cleanly(terp_db_url: str) -> None:
-    # The REVERSE half, and the one that had nothing executed behind it. Your rollback
-    # plan is `terp migrate downgrade`; the catalogued rule proves only that each
+    # The REVERSE half, and the one that had nothing executed behind it. A downgrade is
+    # how you walk a history back while developing (a production rollback never
+    # migrates: `terp guide migrations`); the catalogued rule proves only that each
     # `downgrade()` body is not a lone `pass`, which cannot see a downgrade that dies on
     # its first statement (easy to write: batch mode re-applies the naming convention,
     # so a hand-written constraint name is often wrong) or one that quietly leaves a
