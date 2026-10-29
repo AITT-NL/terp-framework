@@ -145,6 +145,8 @@ class Runs:
 
     answers: list[tuple[tuple[str, ...], Callable[[list[str], bytes | None], tuple[int, bytes, bytes]]]] = field(default_factory=list)
     calls: list[list[str]] = field(default_factory=list)
+    #: The environment each answered call was given (``None``: the caller's own).
+    envs: list[dict[str, str] | None] = field(default_factory=list)
     real: Callable[..., Any] | None = None
 
     def on(self, *prefix: str, code: int = 0, out: bytes = b"", err: bytes = b"",
@@ -157,6 +159,7 @@ class Runs:
         for prefix, answer in self.answers:
             if tuple(argv[: len(prefix)]) == prefix:
                 self.calls.append(argv)
+                self.envs.append(None if env is None else dict(env))
                 code, out, err = answer(argv, stdin)
                 return subprocess.CompletedProcess(argv, code, out, err)
         if self.real is not None:

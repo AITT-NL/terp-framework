@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import json
 import pathlib
+import re
 import sys
 
 import pytest
@@ -199,7 +200,14 @@ def test_an_envelope_that_does_not_verify_is_refused_before_anything_starts(tmp_
 
 def test_a_changed_image_under_a_valid_signature_is_refused_before_compose(tmp_path: pathlib.Path, keys, monkeypatch) -> None:
     runs = docker(image_id="sha256:" + "f" * 64)
-    with pytest.raises(ReleaseError, match=f"is sha256:f+, not {IMAGE_ID}, the image the release signs"):
+    # Both names of the signed image: an engine on the containerd store shows the manifest's
+    # digest as the local id, the classic store the configuration's, and the refusal is read
+    # on whichever the deploy runs on.
+    with pytest.raises(
+        ReleaseError,
+        match=r"is sha256:f+, not the image the release signs "
+        + re.escape(f"(manifest {DIGEST}, configuration {IMAGE_ID})"),
+    ):
         _promote(tmp_path, keys, runs=runs, monkeypatch=monkeypatch, env={})
     assert runs.ran("docker", "compose") == []
     gone = docker().on("docker", "pull", code=1, err=b"manifest unknown")

@@ -244,7 +244,7 @@ def test_template_acceptance_boots_every_render_against_postgresql() -> None:
     assert postgres["env"] == {"POSTGRES_HOST_AUTH_METHOD": "trust"}, "no password in a file"
     (step,) = [s for s in job["steps"] if "tools/production_boot.py" in str(s.get("run", ""))]
     assert step["if"] == "${{ !startsWith(matrix.variant, 'reference') }}"
-    assert step["working-directory"] == "/tmp/acceptance-app"
+    assert step["working-directory"] == "/tmp/acceptance-app"  # noqa: S108 - the CI runner's path
     assert "job.services.postgres.ports['5432']" in step["env"]["BOOT_DATABASE_URL"]
     assert step["run"].startswith("uv run python "), "in the render's own environment"
     variants = {e["variant"]: e["copier-args"] for e in job["strategy"]["matrix"]["include"]}

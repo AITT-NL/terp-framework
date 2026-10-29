@@ -17,16 +17,24 @@
 #
 # Built as: docker build --pull --no-cache -f Dockerfile <context>, the context holding this
 # file, requirements.txt, wheels/ and terp-arch-releases.json.
+#
+# Run with the checkout mounted read-only and the engine the bytecode check starts the base
+# interpreter on: its socket mounted, and the socket's group added (`--group-add`), because the
+# image runs as its own user, `signer`, who owns neither (a checkout another user owns is read
+# all the same: sign tells git the named repository is safe). A registry on the loopback, the
+# release lane's, is reached with `--network host`. The release lane runs it exactly so
+# (tests/release_lane/).
 
 # python:3.14-slim, the base-image table's interpreter (terp-arch's base-images.json).
 FROM python@sha256:fbecd461fc72d21b2143c6eaba25143738079154a6d0ea3da3aec724f50eed4a AS install
 COPY wheels/ /wheels/
 COPY requirements.txt /requirements.txt
 # Every distribution by its hash: the third-party ones as uv.lock pins them, the framework's as
-# built for this image. --no-deps: the file names every one, so nothing is resolved here.
+# built for this image, each named by its file under /wheels and never by its version, which an
+# index may carry too (between two releases the tree's is the last published one, and pip took
+# that wheel). --no-deps: the file names every one, so nothing is resolved here.
 RUN python -m venv /opt/terp \
-    && /opt/terp/bin/pip install --no-cache-dir --no-deps --require-hashes --find-links /wheels \
-       -r /requirements.txt
+    && /opt/terp/bin/pip install --no-cache-dir --no-deps --require-hashes -r /requirements.txt
 
 # gitleaks v8.30.1, by digest (zricethezav/gitleaks:v8.30.1, read 2026-10-22).
 FROM zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f AS gitleaks

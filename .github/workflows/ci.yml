@@ -200,6 +200,41 @@ jobs:
             echo "the signer accepted a private key without --test-key"; exit 1
           fi
 
+  # The release lane (ADR 0187 decision 8, the sixth pull request): `terp release` and `terp
+  # promote` on this runner's Docker engine. The generated reference app on two framework
+  # releases built from this commit (0.35.0 and 0.36.0, served by a job-local index), four
+  # releases built cold into a job-local registry:2 pinned by digest, gated, signed from the
+  # signer image built as the job above builds it, then promoted: up one minor, back by
+  # promoting the previous release, a failed migration undone without a restore, a changed
+  # envelope and a changed image refused. Two cold builds of one commit are compared and their
+  # image digests printed. No secret: the keys are throwaway, made in the run.
+  release-lane:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Run the release lane on the runner's engine
+        env:
+          # Every skip in this job is a failure: the job exists to run the lane, so a missing
+          # engine, buildx or compose must not pass it green.
+          TERP_REQUIRE_RELEASE_LANE: "1"
+        run: uv run pytest -m release_lane tests/release_lane -rA -s
+
   # Generic, tool-independent backstops layered ON TOP of the gate — they never
   # replace terp-arch. Blocking: ruff bandit (`S`) + the import-linter layer-0
   # contract (mirrors test_core_boundary). Advisory (continue-on-error): a missing
