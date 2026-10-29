@@ -937,7 +937,7 @@ Decision 8's second, third and fourth pull requests, in 0.35.0.
     address. An ephemeral port (`-p 127.0.0.1::5000`) does too on Linux, but on Docker Desktop
     the engine's host network is a VM's and the build step's connection was refused. The lane
     chooses its ports; the deployment guide says to.
-  - *Build.* Each release, both images cold, took about 80 s on an otherwise idle engine and
+  - *Build.* Each release, both images cold, took 60 to 80 s on an otherwise idle engine and
     110 to 260 s beside other lanes. BuildKit's metadata carried `containerimage.digest` and
     `containerimage.config.digest`, each name was one OCI image manifest, `rewrite-timestamp`
     clamped every file the build wrote to the commit's time, and the builder made for the job
@@ -953,14 +953,14 @@ Decision 8's second, third and fourth pull requests, in 0.35.0.
     to a decision of its own.
   - *Gate.* The schedule catalog, read from each pushed image pulled by digest and run sealed
     as its non-root user, took 4 to 20 s.
-  - *Sign*, from the signer image built as CI builds it: 17 to 53 s per release, holding the app
+  - *Sign*, from the signer image built as CI builds it: 13 to 53 s per release, holding the app
     layer and its bytecode to the tree (recompiled by the base image's interpreter, byte for
     byte), the installed set to the lock, the SBOMs to OSV (no known vulnerability) and the
     history to gitleaks. The lane also holds the image's own interpreter's list of what is
     installed to `sign`'s and to the lock's runtime set as `uv export` resolves it. An image
     with one more layer that rewrote `/srv/app/main.py`, pushed under a tag of its own beside
     the web image, was refused with that file named.
-  - *Promote*, of exactly the signed digests (21 to 50 s each): up one minor, 0.35.0 then
+  - *Promote*, of exactly the signed digests (12 to 50 s each): up one minor, 0.35.0 then
     0.36.0, then back by promoting 0.35.0's envelope again. Its step found every history at its
     own heads and applied nothing, a row written under 0.35.0 survived both moves, and the seven
     version tables read before each step stayed the same. A release whose migration fails
