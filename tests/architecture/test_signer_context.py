@@ -41,8 +41,15 @@ def test_the_context_pins_every_wheel_this_run_built_and_the_lock_s_hashes(tmp_p
     signer_context.write_context(tmp_path / "ctx", run=_runner(calls))
     requirements = (tmp_path / "ctx" / "requirements.txt").read_text(encoding="utf-8").splitlines()
     assert requirements[:2] == EXPORTED.splitlines()
-    assert f"terp-cli==0.34.0 --hash=sha256:{hashlib.sha256(b'cli').hexdigest()}" in requirements
+    # By its file, never by name and version: between two releases the tree's version is the
+    # last published one, and an index then answers for that name with the published wheel,
+    # whose hash is not this build's (the signer image's first real build failed so).
+    assert (
+        f"terp-cli @ file:///wheels/terp_cli-0.34.0-py3-none-any.whl "
+        f"--hash=sha256:{hashlib.sha256(b'cli').hexdigest()}"
+    ) in requirements
     assert len([line for line in requirements if line.startswith("terp-")]) == len(signer_context.PACKAGES)
+    assert all(" @ file:///wheels/" in line for line in requirements if line.startswith("terp-"))
     assert calls[-1] == list(signer_context.EXPORT)
     assert {"Dockerfile", "terp-arch-releases.json", "requirements.txt", "wheels"} == {
         path.name for path in (tmp_path / "ctx").iterdir()}
@@ -79,6 +86,8 @@ def test_the_signer_image_installs_only_by_hash_and_copies_only_from_digests() -
     froms = re.findall(r"^FROM (\S+)", text, re.MULTILINE)
     assert froms and all("@sha256:" in image for image in froms), froms
     assert "--require-hashes" in text and "--no-deps" in text
+    # No index or link may stand in for a framework wheel: the file names each one.
+    assert "--find-links" not in text and "COPY wheels/ /wheels/" in text
     assert re.search(r"^USER (?!root|0)\S+", text, re.MULTILINE)
     from terp.arch.deployment.tables import published_tables
 

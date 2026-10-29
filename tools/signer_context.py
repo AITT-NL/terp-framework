@@ -54,8 +54,17 @@ def _run(argv: Sequence[str]) -> str:
     ).stdout
 
 
+#: Where the image's build finds the wheels this context holds.
+WHEELS_IN_IMAGE = "/wheels"
+
+
 def pinned_wheels(wheels: pathlib.Path) -> list[str]:
-    """One ``name==version --hash=sha256:...`` line per wheel built under *wheels*."""
+    """One ``name @ file:///wheels/<wheel> --hash=sha256:...`` line per wheel built under *wheels*.
+
+    By its file, never by ``name==version``: between two releases the tree carries the version
+    last published, and pip then finds that name on the index too and may take the published
+    wheel, whose hash is not this build's. The signer image's first real build failed so.
+    """
     lines: list[str] = []
     for wheel in sorted(wheels.glob("*.whl")):
         found = _WHEEL.fullmatch(wheel.name)
@@ -63,7 +72,7 @@ def pinned_wheels(wheels: pathlib.Path) -> list[str]:
             raise SystemExit(f"{wheel.name} is not a pure-Python wheel this context pins")
         name = found.group("name").replace("_", "-")
         digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
-        lines.append(f"{name}=={found.group('version')} --hash=sha256:{digest}")
+        lines.append(f"{name} @ file://{WHEELS_IN_IMAGE}/{wheel.name} --hash=sha256:{digest}")
     return lines
 
 
