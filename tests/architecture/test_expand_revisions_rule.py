@@ -81,6 +81,17 @@ _ADMITTED = {
         "op.create_foreign_key(op.f('fk_notes_project'), 'notes', 'project',"
         " ['project_id'], ['id'], ondelete='SET NULL')"
     ),
+    "an unqualified key from a new table": (
+        "op.create_table('drafts', Column('note_id', Uuid(), ForeignKey('notes.id', ondelete='CASCADE')))"
+    ),
+    "a key from a new table, written after it": (
+        "op.create_table('drafts', sa.Column('note_id', sa.Uuid()))\n"
+        "op.create_foreign_key('fk_drafts_note', 'drafts', 'notes', ['note_id'], ['id'], ondelete='CASCADE')"
+    ),
+    "a SET NULL key whose target is a name": (
+        "op.add_column('notes', sa.Column('p', sa.Uuid(), sa.ForeignKey(PROJECT_ID, ondelete='SET NULL')))"
+    ),
+    "a call that names no operation at all": "HELPERS['note']()",
     "a concurrent index in an autocommit block": (
         "with op.get_context().autocommit_block():\n"
         "    op.create_index('ix_notes_rank', 'notes', ['rank'], postgresql_concurrently=True)"
@@ -107,6 +118,14 @@ _REFUSED = {
     "a unique add_column": (
         "op.add_column('notes', sa.Column('code', sa.String(8), unique=True))",
         "with unique",
+    ),
+    "a computed uniqueness": (
+        "op.add_column('notes', sa.Column('code', sa.String(8), unique=CODES_ARE_UNIQUE))",
+        "with unique",
+    ),
+    "a primary key column": (
+        "op.add_column('notes', sa.Column('id2', sa.Integer(), primary_key=True))",
+        "primary key",
     ),
     "a checked add_column": (
         "op.add_column('notes', sa.Column('rank', sa.Integer(), sa.CheckConstraint('rank > 0')))",
