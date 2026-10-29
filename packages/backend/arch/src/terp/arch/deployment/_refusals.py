@@ -318,9 +318,10 @@ def _volume_findings(declaration: Declaration) -> list[Finding]:
     found: list[Finding] = []
     backend = _backend_ids(declaration)
     data = {f"{unit.id}-data" for unit in declaration.units if unit.kind is not None}
-    # Which volume already holds each (unit, path): Compose refuses a second volume at a
-    # mount point a service already has (a duplicate mount point), so that render would be
-    # a profile no deploy can start.
+    # Which volume already holds each (unit, path). Compose does not refuse a second volume
+    # at a mount point a service already has: it keeps the last and drops the others
+    # without a word (2.40, measured), so that render would start with the unit's files in
+    # a volume the declaration did not put there.
     holder: dict[tuple[str, str], tuple[int, str]] = {}
     for index, volume in enumerate(declaration.volumes):
         where = f"volumes[{index}]"
@@ -362,8 +363,8 @@ def _volume_findings(declaration: Declaration) -> list[Finding]:
                     _finding(
                         f'{where}.mount.units[{position}] "{ident}" already mounts '
                         f'volumes[{first[0]}] "{first[1]}" at {volume.mount.path}, and Compose '
-                        "refuses a second volume at one mount point (allowed: one volume per "
-                        "unit at each mount path)"
+                        "keeps only the last volume at one mount point and drops the others "
+                        "without a word (allowed: one volume per unit at each mount path)"
                     )
                 )
     return found

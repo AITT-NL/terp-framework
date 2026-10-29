@@ -353,3 +353,36 @@ def test_template_acceptance_runs_the_reference_app_generated() -> None:
     assert steps.index("Build the generated frontend against the packed tarballs") < steps.index(
         lane["name"]
     ), "the web unit renders only beside frontend/package-lock.json, which that step writes"
+
+
+def _stack_check():
+    """The overlay's stack check as a module: standard library only, and nothing at import."""
+    import importlib.util
+
+    path = reference.OVERLAY / "scripts" / "check_stack.py"
+    spec = importlib.util.spec_from_file_location("reference_check_stack", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_rebuild_check_waits_through_a_stack_being_recreated() -> None:
+    """A rebuild recreates every backend container, so the check reads the stack while some
+    of it, the API included, is missing, and may read nothing at all while `ps` refuses
+    mid-rename. That is "not yet". On Docker Desktop (Compose 2.40) the check read the API
+    missing and failed with KeyError: 'api' instead of waiting for it."""
+    check = _stack_check()
+
+    def running(image: str, ident: str = "old") -> dict:
+        return {"id": ident, "image": image, "status": "running", "exit": 0}
+
+    before = {name: running("sha256:old") for name in check.BACKEND_SERVICES}
+    before["migrate"] = {"id": "m1", "image": "sha256:old", "status": "exited", "exit": 0}
+    assert check.rebuilt_stack(before, {}) is None
+    assert check.rebuilt_stack(before, {"worker": running("sha256:old")}) is None
+    rebuilt = {name: running("sha256:new", "new") for name in check.BACKEND_SERVICES}
+    migrated = {"id": "m2", "image": "sha256:new", "status": "exited", "exit": 0}
+    assert check.rebuilt_stack(before, rebuilt) is None, "migrate has not run again"
+    assert check.rebuilt_stack(before, {**rebuilt, "migrate": migrated}) is not None
+    partial = {name: entry for name, entry in rebuilt.items() if name != "monitor"}
+    assert check.rebuilt_stack(before, {**partial, "migrate": migrated}) is None

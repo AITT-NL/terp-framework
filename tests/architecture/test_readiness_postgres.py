@@ -11,6 +11,7 @@ refused, and then the same address answers again.
 from __future__ import annotations
 
 import socket
+import sys
 import threading
 import time
 from collections.abc import Iterator
@@ -46,6 +47,15 @@ class _Relay:
     def cut(self) -> None:
         listener, self._listener = self._listener, None
         if listener is not None:
+            # Shut down before closing: on Linux, closing a listener another thread is
+            # blocked accepting on leaves it listening until that accept returns, so the
+            # relay went on accepting and readiness never saw the database go. Shutting it
+            # down wakes the accept. Windows refuses to shut down a listener (it is not
+            # connected), and there the close alone wakes the accept.
+            try:
+                listener.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             listener.close()
         with self._lock:
             sockets, self._sockets = self._sockets, []
@@ -95,7 +105,14 @@ def relayed_database(terp_pg_url: str, monkeypatch: pytest.MonkeyPatch) -> Itera
     url = make_url(terp_pg_url)
     relay = _Relay(url.host or "127.0.0.1", url.port or 5432)
     relay.start()
-    relayed = url.set(host="127.0.0.1", port=relay.port).render_as_string(hide_password=False)
+    relayed_url = url.set(host="127.0.0.1", port=relay.port)
+    if sys.platform == "win32":
+        # psycopg on Windows never sees a refused connection: it waits out its connect
+        # timeout, 130 s by default, where Linux (every container a deployment runs)
+        # fails at once. Measured against a real server; the bound is the driver's there,
+        # so the test gives the driver the bound a deployment would (ADR 0191, *Open*).
+        relayed_url = relayed_url.update_query_dict({"connect_timeout": "5"})
+    relayed = relayed_url.render_as_string(hide_password=False)
     monkeypatch.setattr(settings, "DATABASE_URL", relayed)
     reset_engine()
     yield relay
@@ -104,11 +121,20 @@ def relayed_database(terp_pg_url: str, monkeypatch: pytest.MonkeyPatch) -> Itera
 
 
 def _until(client: TestClient, status: int) -> float:
+    """Seconds until readiness answers *status*, each answer held to the bound.
+
+    The bound is on the answer, not on the gap between two polls: a probe that blocks for
+    two minutes and then answers 503 has not answered within 30 seconds."""
     started = time.monotonic()
-    while client.get("/health/ready").status_code != status:
-        assert time.monotonic() - started < _BOUND_SECONDS, f"readiness never answered {status}"
+    while True:
+        answered = client.get("/health/ready").status_code
+        elapsed = time.monotonic() - started
+        assert elapsed < _BOUND_SECONDS, (
+            f"readiness answered {answered} after {elapsed:.1f}s, waiting for {status}"
+        )
+        if answered == status:
+            return elapsed
         time.sleep(0.2)
-    return time.monotonic() - started
 
 
 def test_readiness_follows_the_database_away_and_back(relayed_database: _Relay) -> None:
