@@ -64,6 +64,8 @@ def egress_getter(host: str, *, http: bool) -> Getter:
 
     *host* is the registry (``host[:port]``). A blob store's redirect is followed to its own
     host over HTTPS only, under the same denylist: the blob is held to its digest either way.
+    A client is made per host and per response limit, because the limit is the client's
+    policy: one made for a manifest would hold every layer after it to a manifest's size.
     """
     try:
         from terp.capabilities.egress import EgressClient, EgressPolicy
@@ -71,12 +73,12 @@ def egress_getter(host: str, *, http: bool) -> Getter:
         raise ReleaseError(
             "reading a registry needs the egress capability: install terp-cli[release]"
         ) from exc
-    clients: dict[tuple[str, bool], Any] = {}
+    clients: dict[tuple[str, bool, int], Any] = {}
 
     def get(url: str, headers: dict[str, str], limit: int) -> Response:
         parts = urllib.parse.urlsplit(url)
         own = parts.netloc == host
-        key = (parts.hostname or "", own)
+        key = (parts.hostname or "", own, limit)
         if key not in clients:
             clients[key] = EgressClient(
                 EgressPolicy(

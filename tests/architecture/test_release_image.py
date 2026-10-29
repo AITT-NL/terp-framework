@@ -239,6 +239,30 @@ def test_the_egress_getter_is_a_declared_client_per_host(monkeypatch) -> None:
         get("https://refuse.example/x", {}, 10)
 
 
+def test_a_layer_is_read_under_the_layer_s_limit_after_a_manifest(monkeypatch) -> None:
+    """The sandbox reads a manifest (4 MB at most), then the layers (1 GB) from one registry. A
+    client made for the first request held every later one to the manifest's limit, so the
+    signer's first run against a real registry refused the image's 30 MB base layer."""
+    from terp.capabilities import egress
+
+    class Client:
+        def __init__(self, policy):  # type: ignore[no-untyped-def]
+            self.policy = policy
+
+        def get(self, url, headers=None):  # type: ignore[no-untyped-def]
+            body = b"x" * (64 if "/blobs/" in url else 8)
+            if len(body) > self.policy.max_response_bytes:
+                raise egress.EgressFailedError("larger", log_context={"limit": self.policy.max_response_bytes})
+            return egress.EgressResponse(200, {}, body)
+
+    monkeypatch.setattr(egress, "EgressClient", Client)
+    get = _registry.egress_getter("127.0.0.1:5000", http=True)
+    assert get("http://127.0.0.1:5000/v2/x/manifests/r1", {}, 16).body == b"x" * 8
+    assert get("http://127.0.0.1:5000/v2/x/blobs/sha256:y", {}, 128).body == b"x" * 64
+    with pytest.raises(ReleaseError, match="could not be read"):
+        get("http://127.0.0.1:5000/v2/x/blobs/sha256:z", {}, 32)
+
+
 def test_without_the_egress_capability_no_registry_is_read(monkeypatch) -> None:
     import sys
 
