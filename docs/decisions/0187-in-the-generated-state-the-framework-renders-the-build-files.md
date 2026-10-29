@@ -900,4 +900,16 @@ Decision 8's second, third and fourth pull requests, in 0.35.0.
   reading it back from a second container. The same change has template acceptance boot every
   render in production mode (`tools/production_boot.py`), against a PostgreSQL service, which
   found the template's single sign-on wiring refused by every production boot; the template
-  now renders the federated allowlist from `OIDC_ALLOWED_EMAIL_DOMAINS`.
+  now renders the federated allowlist from `OIDC_ALLOWED_EMAIL_DOMAINS`. Measured on Docker
+  Desktop (Engine 29.1.3, Compose 2.40.3), the hub variant's step run as CI runs it, after its
+  gate, its production boot against PostgreSQL 17 (all three cases) and its grown module: the
+  backend image built in 38 s, and `up -d --wait api` came back healthy in 20 s with SSO
+  configured and its allowlist set (`/health/ready` 200; the SSO route mounted, answering 502
+  for the unreachable test issuer). The api ran as uid 10001 on a mount owned by 10001, wrote
+  its file, and a second container read it back.
+- **What Compose does with two volumes at one mount point** (amending decision 5's refusal):
+  measured on Compose 2.40.3, it does not refuse them. `config` and `up` both succeed, and the
+  service gets the last volume declared at the path alone; only the engine refuses a duplicate
+  mount point, and Compose never hands it both. The refusal stands, for that reason, and
+  `test_deployment_generator.py` runs `docker compose config` over such a profile so the reason
+  the refusal gives cannot drift from what Compose does.

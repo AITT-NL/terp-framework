@@ -4,8 +4,8 @@
   `test_readiness_postgres.py` (the PostgreSQL lane), `test_realtime.py`,
   `test_schedule_misfire.py`, `test_scheduler_adapters.py`, `test_worker_lifecycle.py`,
   `test_worker_heartbeat.py`, `test_cli_jobs.py`, `test_jobs_celery.py`,
-  `test_deployment_generator.py` and `test_reference_app.py`. Two checks against a real stack
-  are not yet measured (*Open*).
+  `test_deployment_generator.py` and `test_reference_app.py`. The heartbeat checks and the
+  database half of readiness were measured against a real stack (*How it was built*).
 - **Date:** 2026-10-22
 - **Relates:** amends [ADR 0024](0024-health-endpoints-and-pool-config.md) decision 1 (what
   readiness asks); amends [ADR 0187](0187-in-the-generated-state-the-framework-renders-the-build-files.md)
@@ -206,11 +206,6 @@ does.
 
 ## Open
 
-- **Two checks against a real stack are not yet measured**: `docker compose up -d --wait` of the
-  reference app's production profile with the heartbeat checks in place, and a worker whose loop
-  hangs (its process stopped with `SIGSTOP` in a running container) turning unhealthy and back.
-  The probe, the writer, the stuck loop and the profile's text are held by the suite; the
-  measurement on a Docker engine joins this record when it is taken.
 - **A Redis client without a socket timeout** holds every request the rate limiter counts when
   Redis stops answering, readiness included, because the stores keep redis-py's defaults.
   Readiness's own probe is bounded; the client is bounded by the URL
@@ -218,7 +213,10 @@ does.
   the adapter's default is a decision about every store call, not about readiness.
 - **The database check** is bounded by the driver and the pool, not by the 2-second probe bound:
   a database that accepts connections and never answers holds it until the driver gives up
-  (`connect_timeout` in `DATABASE_URL`).
+  (`connect_timeout` in `DATABASE_URL`). psycopg's own default is 130 s, and on a Windows host
+  it waits all of it even for a refused connection, so a database that is simply gone holds the
+  check that long there (measured, *How it was built*); in a Linux container the refusal
+  answers at once.
 - **Two schedulers** still hold no lock between them. On the outbox and the database ledger the
   second loses the compare-and-set and enqueues nothing; on a broker queue both publish.
 - **A job that kills its worker every time** is redelivered every time under late
@@ -238,7 +236,28 @@ seconds):
   never answering): 503 after 2.0 s, a second probe answered at once, 200 within 0.3 s of the
   server answering again. All under the 30-second bound.
 - **The database going away** (`test_readiness_postgres.py`): the app reaches PostgreSQL through
-  a relay the test cuts and restores; held to the same 30-second bounds in CI's PostgreSQL lane.
+  a relay the test cuts and restores, held to the same 30-second bounds in CI's PostgreSQL lane.
+  Its first run against a real server (PostgreSQL 17) found the test wrong on both platforms. On
+  Linux the relay never stopped accepting, because a listener closed while another thread is
+  blocked in `accept` goes on listening, so readiness stayed 200 and the test failed. On Windows
+  the first probe blocked for 130 s and then answered 503, and the test passed, because the
+  bound was checked between polls and not on the answer. The relay now shuts its listener down
+  before closing it, and each answer is held to the bound. Measured then, on Linux
+  (`python:3.14-slim` beside `postgres:17`, the lane's three modules, 80 passed in 84 s): 503
+  0.02 s after the cut and 200 0.01 s after the restore, in three runs. On Windows psycopg waits
+  out its connect timeout for a refused connection, so the test gives it `connect_timeout=5`
+  there, as a deployment bounds its driver: 503 after 5.0 s, 200 after 0.03 s.
+- **The heartbeat checks on a Docker engine** (Docker Desktop, Engine 29.1.3, Compose 2.40.3).
+  The reference app's production profile, rendered and built for real with `TERP_RELEASE_TAG`
+  set, came up under `docker compose up -d --wait` in 34 s with exit 0, the worker and the
+  scheduler healthy on their heartbeats (the probe's line: `{"heartbeat": "worker",
+  "age_seconds": 3.9, "stale_after_seconds": 60.0}`). The worker's loop stopped with `SIGSTOP`
+  (`kill -STOP` on its process inside the running container; `init`'s process stays up) turned
+  the container unhealthy 79 s later, after three failed probes at heartbeat ages 61.5, 71.8 and
+  82.3 s: within its 60-second bound plus three probes. `SIGCONT` turned it healthy at the next
+  probe, 10 s later, with no restart. The scheduler, stopped the same way: unhealthy after 80 s,
+  healthy 10 s after `SIGCONT`. A `docker compose stop` of each ended it on SIGTERM within 2 s,
+  exit code 0.
 - **Redelivery after a kill** (`test_worker_lifecycle.py`): two worker processes over one
   database. The first, `terp jobs worker --forever --lease-seconds 2`, takes the job and is
   killed in it; the row stays pending, leased to the dead claim, attempts 0. The second, started
