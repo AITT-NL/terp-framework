@@ -875,3 +875,37 @@ def test_docker_compose_reads_every_hostile_value_back_literally(tmp_path: pathl
         "demo-backend-prod:r-1.2", "demo-frontend-prod:r-1.2"
     }
     assert {v["source"] for v in services["0o17"]["volumes"]} == {"files"}
+
+
+def test_docker_compose_keeps_one_of_two_volumes_at_one_mount_point(tmp_path: pathlib.Path) -> None:
+    """Why the generator refuses a second volume at a mount point a unit already has, held to
+    compose itself: compose neither refuses such a profile nor mounts both. It keeps the last
+    volume at the path and drops the other without a word (2.40, measured; the engine alone
+    refuses a duplicate mount point), so a deploy would start with the unit's files in a
+    volume the declaration did not put there, and the refusal's text says so."""
+    compose = _docker_compose()
+    if compose is None:
+        pytest.skip("no docker compose here; CI's runners carry it")
+    target = f"{APP_ROOT}/{MOUNT_PATH}"
+    (tmp_path / PROFILE).write_text(
+        "services:\n"
+        "  api:\n"
+        "    image: demo-backend-prod:r-1\n"
+        "    volumes:\n"
+        f'      - "files-data:{target}"\n'
+        f'      - "more-files:{target}"\n'
+        "volumes:\n"
+        "  files-data:\n"
+        "  more-files:\n",
+        encoding="utf-8",
+    )
+    run = subprocess.run(
+        [*compose, "-p", "gen-one-mount-point", "-f", str(tmp_path / PROFILE), "config",
+         "--format", "json"],
+        capture_output=True, text=True, encoding="utf-8", cwd=tmp_path, check=False,
+    )
+    assert run.returncode == 0, run.stderr
+    mounts = json.loads(run.stdout)["services"]["api"]["volumes"]
+    assert [(mount["source"], mount["target"]) for mount in mounts] == [("more-files", target)]
+    message = _REFUSALS["two-volumes-at-one-mount-point"]["refused"][0]
+    assert "keeps only the last volume at one mount point" in message

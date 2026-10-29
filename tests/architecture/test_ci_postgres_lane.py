@@ -1,8 +1,8 @@
-"""Every test module that takes ``terp_db_url`` runs in CI's PostgreSQL lane.
+"""Every test module that takes ``terp_db_url`` or ``terp_pg_url`` runs in CI's PostgreSQL lane.
 
-The fixture runs a test on SQLite and again on PostgreSQL wherever
-``TERP_TEST_POSTGRES_URL`` names a server. Only one job has a server, so a module the
-lane does not name runs its PostgreSQL half nowhere. A skip is green, and the module's
+The first runs a test on SQLite and again on PostgreSQL wherever ``TERP_TEST_POSTGRES_URL``
+names a server, and the second on PostgreSQL alone. Only one job has a server, so a module
+the lane does not name runs its PostgreSQL half nowhere. A skip is green, and the module's
 claim to cover both dialects reads as true. That happened to the audit activity's
 per-day counts in 0.32.0's development: claimed for both, run on one.
 """
@@ -29,7 +29,7 @@ def _lane_command() -> str:
 
 
 def _modules_taking_the_fixture() -> set[str]:
-    taking = re.compile(r"\bterp_db_url\b")
+    taking = re.compile(r"\bterp_(?:db|pg)_url\b")
     return {
         path.relative_to(_REPO_ROOT).as_posix()
         for path in (_REPO_ROOT / "tests").rglob("test_*.py")
@@ -48,8 +48,10 @@ def test_the_lane_runs_every_module_that_takes_the_fixture() -> None:
 
 
 def test_the_fixture_is_found_where_it_is_taken() -> None:
-    """Held against the two modules known to take it, so an empty scan cannot pass."""
+    """Held against the modules known to take one, so an empty scan cannot pass."""
     assert {
         "tests/architecture/test_migrations_conformance.py",
         "tests/architecture/test_audit_activity.py",
+        # terp_pg_url, the PostgreSQL-only half: it skips anywhere but the lane just the same.
+        "tests/architecture/test_readiness_postgres.py",
     } <= _modules_taking_the_fixture()

@@ -304,6 +304,29 @@ def _rebuilds(log: pathlib.Path) -> int:
     return log.read_text(encoding="utf-8", errors="replace").count("Rebuilding service(s)")
 
 
+def rebuilt_stack(
+    before: dict[str, dict[str, Any]], now: dict[str, dict[str, Any]]
+) -> dict[str, dict[str, Any]] | None:
+    """*now* once every backend service runs one new image and migrate ran again; else None.
+
+    *now* is read while the rebuild recreates the stack, so any service may be missing from
+    it, the API included, and the listing may be empty: that is "not yet", never a failure.
+    A missing API once read as an image of None that every missing service matched, and the
+    check failed on the first service it then looked up.
+    """
+    image = now.get("api", {}).get("image")
+    on_new = image is not None and all(
+        now.get(name, {}).get("image") == image and now.get(name, {}).get("status") == "running"
+        for name in BACKEND_SERVICES
+    )
+    migrated = now.get("migrate", {})
+    ran = (
+        migrated.get("id") != before.get("migrate", {}).get("id")
+        and migrated.get("status") == "exited"
+    )
+    return now if image != before["api"]["image"] and on_new and ran else None
+
+
 def check_rebuilds(root: pathlib.Path, *, timeout: float) -> list[str]:
     """A dependency change under `watch`: every service on the rebuilt image comes back, once.
 
@@ -331,21 +354,11 @@ def check_rebuilds(root: pathlib.Path, *, timeout: float) -> list[str]:
         # A trailing newline: the same lock to every reader, and a changed file to watch.
         lock.write_bytes(original + b"\n")
 
-        def backend_back() -> dict[str, dict[str, Any]] | None:
-            now = _containers()
-            image = now.get("api", {}).get("image")
-            on_new = all(
-                now.get(name, {}).get("image") == image and now[name]["status"] == "running"
-                for name in BACKEND_SERVICES
-            )
-            migrated = now.get("migrate", {})
-            ran = (
-                migrated.get("id") != before.get("migrate", {}).get("id")
-                and migrated.get("status") == "exited"
-            )
-            return now if image != before["api"]["image"] and on_new and ran else None
-
-        rebuilt = _wait_for("every backend service back on the rebuilt image", backend_back, timeout=timeout)
+        rebuilt = _wait_for(
+            "every backend service back on the rebuilt image",
+            lambda: rebuilt_stack(before, _containers()),
+            timeout=timeout,
+        )
         if rebuilt["migrate"]["exit"] != 0:
             raise StackCheckFailed(f"migrate exited {rebuilt['migrate']['exit']} after the rebuild")
         time.sleep(REBUILD_QUIET_SECONDS)

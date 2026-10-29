@@ -2678,9 +2678,9 @@ its own and none declared; a web unit with a command, with no single api to prox
 without frontend/package-lock.json; an api without both health paths; a start-order cycle
 or a unit it names that is not declared; a volume without its mount, mounted anywhere but
 var/files, on a unit not on the backend image, or on a unit that already mounts another
-volume there (Compose refuses a duplicate mount point); any system package (the table is empty
-in this release); a unit id that is not a lower-case compose name. Any of them: declare
-"build": "own" and keep the files yourself.
+volume there (Compose would mount only the last of them, without a word); any system
+package (the table is empty in this release); a unit id that is not a lower-case compose
+name. Any of them: declare "build": "own" and keep the files yourself.
 
 The generator's two words: "generator": {"systemPackages": [...]}, valid only beside
 "build": "generated", and "mount": {"path": "var/files", "units": [...]} on a volume,
