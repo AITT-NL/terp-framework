@@ -204,7 +204,10 @@ def _images(release: Release, env: Mapping[str, str], *, pull: bool) -> None:
         # An engine names a local image by its configuration's digest (the classic store) or by
         # its manifest's (the containerd store); the manifest signs both, and nothing else is it.
         if found not in (image["imageId"], image["digest"]):
-            raise ReleaseError(f"{local} is {found}, not {image['imageId']}, the image the release signs")
+            raise ReleaseError(
+                f"{local} is {found}, not the image the release signs "
+                f"(manifest {image['digest']}, configuration {image['imageId']})"
+            )
     if pull:
         for reference in sorted(set(release.manifest["outputs"]["services"].values()) - {f"{i['repository']}@{i['digest']}" for i in built.values()}):
             require(run(["docker", "pull", reference], env=env), f"pulling {reference}")
