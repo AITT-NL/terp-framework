@@ -108,6 +108,10 @@ def test_an_admitted_operation_is_not_refused(tmp_path: pathlib.Path, body: str)
 
 _REFUSED = {
     "a drop": ("op.drop_column('notes', 'legacy')", "drop_column"),
+    "a drop through another name for the handle": (
+        "operations = op\noperations.drop_column('notes', 'legacy')",
+        "drop_column",
+    ),
     "a rename": ("op.rename_table('notes', 'memos')", "rename_table"),
     "a type change": ("op.alter_column('notes', 'title', type_=sa.Text())", "alter_column"),
     "tightening to NOT NULL": ("op.alter_column('notes', 'rank', nullable=False)", "alter_column"),
