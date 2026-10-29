@@ -12,6 +12,7 @@ fail-closed boot guard, the status view, the ``terp migrate`` CLI, and the
 from __future__ import annotations
 
 import contextlib
+import os
 import pathlib
 import re
 import shutil
@@ -29,6 +30,7 @@ from sqlalchemy.pool import NullPool
 
 from terp.core import ModuleSpec, Policy, create_app
 from terp.core.migrations import MigrationTree, resolve_migration_trees
+from terp.core.testing import TERP_REQUIRE_POSTGRES_LANE_ENV
 from terp.migrations import (
     DatabaseBehindForAutogenerateError,
     MigrationDriftError,
@@ -1008,13 +1010,24 @@ def pg_url_pair() -> Iterator[tuple[str, str]]:
                 next(generator)
 
 
-#: Set by CI to turn this lane's skips into failures.
-#:
-#: A skip is GREEN, and a check that silently does not run is worse than not having one,
-#: because the green implies it ran. Locally the skip is right -- a developer with no
-#: PostgreSQL and no client tools should not be blocked by a PostgreSQL-only lane. In the
-#: lane, where the workflow starts a server and installs a matching client on purpose, a
-#: skip means one of those steps stopped working and nothing else would say so.
+def _absent_lane(reason: str) -> None:
+    """Skip, or fail when the running lane declared that it must not have to.
+
+    The lane sets ``TERP_REQUIRE_POSTGRES_LANE`` to turn this lane's skips into failures.
+    A skip is GREEN, and a check that silently does not run is worse than not having one,
+    because the green implies it ran. Locally the skip is right -- a developer with no
+    PostgreSQL and no client tools should not be blocked by a PostgreSQL-only lane. In the
+    lane, where the workflow starts a server and installs a matching client on purpose, a
+    skip means one of those steps stopped working and nothing else would say so.
+    """
+    if os.environ.get(TERP_REQUIRE_POSTGRES_LANE_ENV):
+        pytest.fail(
+            f"{reason}. {TERP_REQUIRE_POSTGRES_LANE_ENV} is set, so this is a failure "
+            "rather than a skip: the lane is configured to run these tests and cannot"
+        )
+    pytest.skip(reason)
+
+
 def _require_pg_client(url: str) -> None:
     client = _pg_client_version()
     if client is None:
@@ -1026,6 +1039,29 @@ def _require_pg_client(url: str) -> None:
             f"pg_dump is {client[0]} and the server is {server}; pg_dump refuses a "
             "newer server, so install the matching postgresql-client"
         )
+
+
+@pytest.mark.parametrize(("client", "server"), [(None, 17), ((16, 4), 17)], ids=["missing", "older"])
+def test_the_restore_drill_skips_without_a_usable_pg_dump_and_fails_in_the_lane(
+    monkeypatch: pytest.MonkeyPatch, client: tuple[int, ...] | None, server: int
+) -> None:
+    # Neither branch runs in the lane itself, which installs a matching client, so only
+    # this test notices when the decision they reach stops being a skip or a failure.
+    monkeypatch.setitem(globals(), "_pg_client_version", lambda: client)
+    monkeypatch.setitem(globals(), "_server_major", lambda url: server)
+    monkeypatch.delenv(TERP_REQUIRE_POSTGRES_LANE_ENV, raising=False)
+    with pytest.raises(pytest.skip.Exception, match="pg_dump"):
+        _require_pg_client("postgresql://unused")
+    monkeypatch.setenv(TERP_REQUIRE_POSTGRES_LANE_ENV, "1")
+    with pytest.raises(pytest.fail.Exception, match="failure rather than a skip"):
+        _require_pg_client("postgresql://unused")
+
+
+def test_the_restore_drill_proceeds_with_a_matching_pg_dump(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(globals(), "_pg_client_version", lambda: (17, 2))
+    monkeypatch.setitem(globals(), "_server_major", lambda url: 17)
+    monkeypatch.setenv(TERP_REQUIRE_POSTGRES_LANE_ENV, "1")
+    assert _require_pg_client("postgresql://unused") is None
 
 
 def _dump(url: str, target: pathlib.Path, *, exclude: str | None = None) -> None:
