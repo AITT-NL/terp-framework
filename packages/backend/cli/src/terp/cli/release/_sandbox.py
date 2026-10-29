@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -45,6 +46,7 @@ from terp.cli.release._common import (
     require,
     run,
 )
+from terp.cli.release._git import SAFE_DIRECTORY, SAFE_DIRECTORY_ENV
 from terp.cli.release._image import read_filesystem
 from terp.cli.release._registry import Registry, egress_getter
 
@@ -192,8 +194,11 @@ def secrets_task(payload: dict[str, Any]) -> dict[str, Any]:
     """gitleaks over the history reachable from the SHA, and what it found, redacted."""
     gitleaks = payload["gitleaks"]
     git_dir = require(
-        run(["git", "-C", payload["repo"], "rev-parse", "--absolute-git-dir"]), "finding the git directory"
+        run(["git", *SAFE_DIRECTORY, "-C", payload["repo"], "rev-parse", "--absolute-git-dir"]),
+        "finding the git directory",
     ).decode().strip()
+    # gitleaks runs git itself, so it is told the same, through git's environment.
+    scan_env = {**os.environ, **SAFE_DIRECTORY_ENV}
     version = run([gitleaks, "version"])
     with tempfile.TemporaryDirectory(prefix="terp-secrets-") as scratch:
         report = pathlib.Path(scratch) / "report.json"
@@ -206,7 +211,7 @@ def secrets_task(payload: dict[str, Any]) -> dict[str, Any]:
             ignore = pathlib.Path(scratch) / ".gitleaksignore"
             ignore.write_text(payload["ignore"], encoding="utf-8")
             argv += ["--gitleaks-ignore-path", str(ignore)]
-        require(run(argv), "scanning the history for secrets")
+        require(run(argv, env=scan_env), "scanning the history for secrets")
         try:
             found = json.loads(report.read_text(encoding="utf-8") or "[]")
         except (OSError, ValueError) as exc:

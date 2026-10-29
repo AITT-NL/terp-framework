@@ -176,6 +176,18 @@ def test_a_tree_is_read_from_an_exact_commit_only(tmp_path: pathlib.Path, monkey
         _git.Tree.read(root, sha)
 
 
+def test_a_checkout_another_user_owns_is_read_all_the_same(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """The signer image runs as its own user, never the owner of the checkout it is handed, and
+    git refuses such a repository ("dubious ownership"): the signer's first real run did. The
+    operator named the repository and the jobs read it as data, so their git calls say so."""
+    root = tmp_path / "repo"
+    sha = committed_app(root)
+    monkeypatch.setenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")  # git's own switch for the check
+    refused = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, check=False)  # noqa: S603, S607
+    assert refused.returncode != 0 and b"dubious ownership" in refused.stderr
+    assert _git.Tree.read(root, sha).commit == sha
+
+
 def test_the_batch_reader_refuses_an_answer_for_another_object(monkeypatch) -> None:
     monkeypatch.setattr(_git, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, b"abc tree 0\n\n", b""))
     with pytest.raises(ReleaseError, match="git answered abc tree where blob"):

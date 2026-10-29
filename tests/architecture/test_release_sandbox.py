@@ -196,6 +196,30 @@ def test_the_secret_scan_is_gitleaks_over_the_git_directory_with_the_tree_s_ackn
         _sandbox.secrets_task({"gitleaks": "terp-no-such-gitleaks", "repo": str(repo), "sha": sha, "ignore": None})
 
 
+def test_the_secret_scan_reads_a_checkout_another_user_owns(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """git refuses a repository another user owns, and so does gitleaks, which runs git: the
+    scan's own git call and gitleaks are both told the named repository is safe."""
+    from terp.cli.release._common import run as real
+    from tests.architecture.release_fixtures import committed_app
+
+    repo = tmp_path / "repo"
+    sha = committed_app(repo)
+    monkeypatch.setenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")  # git's own switch for the check
+
+    def clean(argv, stdin):  # type: ignore[no-untyped-def]
+        pathlib.Path(argv[argv.index("--report-path") + 1]).write_text("[]")
+        return 0, b"", b""
+
+    runs = Runs(real=real).on("fake-gitleaks", "version").on("fake-gitleaks", "detect", then=clean)
+    monkeypatch.setattr(_sandbox, "run", runs)
+    assert _sandbox.secrets_task({"gitleaks": "fake-gitleaks", "repo": str(repo), "sha": sha, "ignore": None})["findings"] == []
+    (scan_env,) = [env for call, env in zip(runs.calls, runs.envs, strict=True) if call[1] == "detect"]
+    assert scan_env is not None
+    assert (scan_env["GIT_CONFIG_COUNT"], scan_env["GIT_CONFIG_KEY_0"], scan_env["GIT_CONFIG_VALUE_0"]) == (
+        "1", "safe.directory", "*")
+    assert scan_env["GIT_TEST_ASSUME_DIFFERENT_OWNER"] == "1", "the rest of the environment is the task's own"
+
+
 def test_a_task_runs_in_its_own_process_handed_its_input_alone(monkeypatch) -> None:
     seen: dict = {}
 

@@ -17,6 +17,14 @@ from dataclasses import dataclass, field
 
 from terp.cli.release._common import ReleaseError, commit_id, require, run
 
+#: git refuses a repository another user owns ("detected dubious ownership"), and a release job
+#: reads a checkout it is handed: the signer image runs as a user of its own, never the owner of
+#: the checkout mounted into it. The operator names the repository and the job reads it as data,
+#: so each of its git calls says the repository is safe, in git's protected command-line scope
+#: and for that call alone. Read by the secret scan too, as the environment gitleaks runs git in.
+SAFE_DIRECTORY = ("-c", "safe.directory=*")
+SAFE_DIRECTORY_ENV = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": "*"}
+
 #: The modes ``ls-tree`` prints for what a tree can hold.
 _FILE_MODES = frozenset({"100644", "100755"})
 _LINK_MODE = "120000"
@@ -56,7 +64,7 @@ class Tree:
     def read(cls, repo: str | os.PathLike[str], sha: str) -> Tree:
         """The tree of commit *sha* in the repository at *repo*."""
         commit_id(sha)
-        git = ["git", "-C", str(repo), "-c", "core.quotepath=off"]
+        git = ["git", *SAFE_DIRECTORY, "-C", str(repo), "-c", "core.quotepath=off"]
         resolved = require(
             run([*git, "rev-parse", "--verify", "--quiet", "--end-of-options", f"{sha}^{{commit}}"]),
             f"finding commit {sha} in {repo}",
@@ -151,4 +159,4 @@ def head(repo: str | os.PathLike[str]) -> tuple[str, bool]:
     return commit, not status.strip()
 
 
-__all__ = ["Entry", "Tree", "head"]
+__all__ = ["SAFE_DIRECTORY", "SAFE_DIRECTORY_ENV", "Entry", "Tree", "head"]
