@@ -242,6 +242,23 @@ to the commit and its lock, scans the SBOMs and the history, and signs. Where on
 all three, say so: `--hosts shared` is recorded in the manifest, and the guarantee becomes "the
 host is trusted".
 
+Run the signer image with the checkout mounted read-only and an engine to start the base
+image's interpreter on (the bytecode check): mount the engine's socket and add its group, since
+the image runs as its own user. A checkout that user does not own is read all the same.
+
+```bash
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+  --group-add "$(stat -c %g /var/run/docker.sock)" -v "$PWD:/repo:ro" -v "$PWD/out:/out" \
+  <signer image> sign --repo /repo --sha "$SHA" --tag "$TAG" --registry "$REGISTRY" \
+  --build terp-release-build.json --gate terp-release-gate.json --hosts separated \
+  --signer '["your-signer", "--key", "release"]' --public-key release.pub --out-dir /out
+```
+
+A registry on the loopback, a job-local one with `--registry-http`, is published on a port you
+choose (`-p 127.0.0.1:5000:5000`) and reached from the signer with `--network host`: on Docker
+Desktop an ephemeral port (`-p 127.0.0.1::5000`) answers your shell but not the builder, which
+runs on the engine's own network.
+
 `terp promote release.dsse.json --public-key <trusted.pub> --project-dir <dir>` verifies the
 envelope before reading it, pulls each image by its signed digest, tags it
 `<project>-backend-prod:<tag>` (and the frontend's), writes the carried profile into `<dir>`
@@ -254,6 +271,13 @@ restore-free, and `--undo-to <its envelope>` does it after that release's own `t
 check`; if the step changed them, going back is a restore. A rollback in an invocation of its
 own (`--rollback`) has no such reading and is refused until you restore the backup taken
 before the release that followed the target and say so with `--restored`.
+
+Going back over a release that applied no revision, a framework update released on its own
+for one, is promoting the previous envelope again: its images start by their signed digests,
+and its migration step finds every history at its own heads and applies nothing. Where the
+newer release moved a history the previous one knows, that step fails on unchanged tables and
+nothing of it starts. CI's release lane (`tests/release_lane`) does exactly this on a Docker
+engine: the reference app one framework minor up and back.
 
 Both commands need `terp-cli[release]` and refuse without it.
 

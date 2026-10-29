@@ -2784,7 +2784,10 @@ build container holds a credential or writes into what is built. Each takes the 
     commit pins (fetched by hash, run in a process of its own), reads the backend image from
     the registry as data and holds it to the tree and the lock, scans for known
     vulnerabilities and for secrets in the history, and signs the manifest as a DSSE envelope
-    (release.dsse.json). --sign-key <file> is refused without --test-key.
+    (release.dsse.json). --sign-key <file> is refused without --test-key. Run the image with
+    the checkout mounted read-only (/repo) and the engine's socket and its group
+    (-v /var/run/docker.sock:/var/run/docker.sock --group-add <the socket's group>): the
+    bytecode check starts the base image's interpreter, and the image runs as its own user.
 
 Refused, by name, before anything is built or signed: an undeclared or unmanaged app, a
 declaration that cannot be read or is untrue, a committed .terp-dist/ or submodule, a lock
@@ -2805,6 +2808,8 @@ context and a Dockerfile.
     after its own `terp migrate check`. Otherwise going back is a restore. A rollback in an
     invocation of its own has no such reading, so it is refused unless --rollback --restored
     says the database was restored to the backup taken before the release that followed it.
+    Over a release that applied no revision, going back is promoting the previous envelope
+    again: its step finds every history at its own heads and applies nothing.
 `terp release` and `terp promote` need terp-cli[release] (cryptography, packaging, the egress
 capability); without it they refuse, and nothing is signed or verified halfway.
 """,

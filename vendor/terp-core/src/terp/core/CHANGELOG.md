@@ -287,8 +287,9 @@ every render in production mode.
   the app wheel, and the installed set to the lock's runtime set), computes an SBOM per image,
   asks OSV about it, scans the history reachable from the commit with gitleaks, and signs the
   manifest as a DSSE envelope (`application/vnd.terp.release-manifest.v1+json`, Ed25519 or ECDSA
-  P-256). `--signer '<json argv>'` is the production path, held to `--public-key` before
-  anything is written; `--sign-key` is refused without `--test-key`. Refused from data, by name:
+  P-256). The sandbox reads each layer under a layer's size limit (a client made for the first
+  manifest had held every layer to 4 MB). `--signer '<json argv>'` is the production path, held
+  to `--public-key` before anything is written; `--sign-key` is refused without `--test-key`. Refused from data, by name:
   an undeclared or unmanaged app, a declaration that cannot be read or is untrue, a committed
   `.terp-dist/` or submodule, a lock naming a path, a profile service on an image neither built
   here nor a datastore table digest, a datastore with no healthcheck, two migration steps or one
@@ -300,7 +301,9 @@ every render in production mode.
   release newer than its own, reads the carried declaration against the manifest's own datastore
   record, audits a generated profile for every `$` and any YAML tag, and with
   `--require-generated` refuses an `own` release. Then it pulls each image by its signed digest,
-  holds its id to the manifest's, tags it under the profile's name and the release tag, writes
+  holds its id to the manifest's (an engine's local id is the manifest's digest on the
+  containerd store and the configuration's on the classic one, and a refusal names both), tags
+  it under the profile's name and the release tag, writes
   the carried profile and runs compose with only the variables the profile names: the
   datastores, a reading of every `alembic_version_*` table, the migration step exactly once, the
   rest, every `up` with `--no-build --pull never`. A deploy that fails on unchanged version
@@ -310,7 +313,22 @@ every render in production mode.
 - **The signer image**, `packages/backend/cli/signer/Dockerfile`: terp-cli with its `release`
   extra installed by hash from this commit's wheels and the lock (`tools/signer_context.py`
   writes the build context), gitleaks and the docker client by digest, and the terp-arch release
-  table. CI builds and runs it; nothing publishes it yet.
+  table. Each framework wheel is named by its file, never by its version, which the index also
+  carries between two releases (pip took the published wheel, whose hash is not the build's, and
+  the image did not build). It is run with the checkout read-only and the engine's socket and
+  group (`terp guide deployment`), and reads a checkout its own user does not own: `sign` tells
+  git, and the gitleaks it runs, that the repository it was named is safe. CI builds it, runs it,
+  and signs real releases with it in the release lane; nothing publishes it yet.
+- **The release lane** (`tests/release_lane`, CI's `release-lane` job): `terp release` and
+  `terp promote` on a real Docker engine, on the generated reference app at two framework
+  releases built from the commit, through a job-local index and a job-local `registry:2` pinned
+  by digest. Four releases are built cold, gated and signed from the signer image; two cold
+  builds of one commit give byte-identical `inputs` and installed lists, and their digests are
+  printed; an image whose app layer changed after the build is refused; and the app is promoted
+  one framework minor up and back by promoting the previous release, a failed migration is
+  undone without a restore, and a changed envelope and a changed image are refused. The gate
+  deselects it (`-m release_lane`); its job sets `TERP_REQUIRE_RELEASE_LANE`, so a missing
+  engine fails it rather than skipping. ADR 0187 decision 8.
 - **`terp-cli[release]`**, an optional extra: cryptography, packaging and the egress capability.
   Without it `terp release sign` and `terp promote` refuse to run.
 - **`terp jobs worker --forever`** drains the outbox, waits `--poll-seconds` (5 by default),

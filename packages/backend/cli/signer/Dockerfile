@@ -17,6 +17,13 @@
 #
 # Built as: docker build --pull --no-cache -f Dockerfile <context>, the context holding this
 # file, requirements.txt, wheels/ and terp-arch-releases.json.
+#
+# Run with the checkout mounted read-only and the engine the bytecode check starts the base
+# interpreter on: its socket mounted, and the socket's group added (`--group-add`), because the
+# image runs as its own user, `signer`, who owns neither (a checkout another user owns is read
+# all the same: sign tells git the named repository is safe). A registry on the loopback, the
+# release lane's, is reached with `--network host`. The release lane runs it exactly so
+# (tests/release_lane/).
 
 # python:3.14-slim, the base-image table's interpreter (terp-arch's base-images.json).
 FROM python@sha256:fbecd461fc72d21b2143c6eaba25143738079154a6d0ea3da3aec724f50eed4a AS install

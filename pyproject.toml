@@ -103,7 +103,14 @@ lint = [
 [tool.pytest.ini_options]
 testpaths = ["tests", "apps/example/tests"]
 pythonpath = ["apps/example"]
-addopts = "-q"
+# The release lane (tests/release_lane, ADR 0187) builds four releases cold from the package
+# indexes and deploys them on a Docker engine: about fifteen minutes and a network, so the gate
+# deselects it and CI runs it in a job of its own, `pytest -m release_lane tests/release_lane`,
+# where a later `-m` replaces this one.
+addopts = "-q -m 'not release_lane'"
+markers = [
+    "release_lane: the release lane on a real Docker engine (tests/release_lane); deselected unless selected with -m release_lane",
+]
 # The framework runs its own suites the way it tells a generated project to run theirs
 # (`template/project/pyproject.toml.jinja`): every test starts from the platform
 # baseline, so nothing here can pass on a runtime a stray collection-time import

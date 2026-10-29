@@ -1,7 +1,7 @@
 # 0187 — In the generated state the framework renders the build files, and a release is signed by a job that never runs the app
 
 - **Status:** Proposed. Revised after four rounds of adversarial review (see *Debate*). Built in
-  0.35.0, as decision 8's second, third, fourth and fifth pull requests. The second: the tables and the
+  0.35.0, as decision 8's second to sixth pull requests. The second: the tables and the
   kind recipe, the generator (`terp.arch.deployment.generate`) with its golden samples,
   properties and import allowlist, the truth rule's compose unescaping, `terp jobs worker
   --forever`, the `--ignore-scripts` measurement, and the template's three build files replaced
@@ -14,8 +14,10 @@
   answers that predate the question, the round trip in template acceptance and the generated
   reference lane. The fifth: `terp release build`, `gate` and `sign`, the manifest, DSSE, the
   signer image and `terp promote`'s changes, held by `test_release_*.py` and
-  `test_signer_context.py` with throwaway keys; its Docker lane (a job-local registry, real
-  BuildKit builds, two cold builds compared) waits, see *How it was built*. Held by
+  `test_signer_context.py` with throwaway keys. The sixth: the release lane,
+  `tests/release_lane/`, which runs all of it on a Docker engine in CI's `release-lane` job
+  (held to that job by `test_ci_release_lane.py`), and the four fixes its first runs found; see
+  *How it was built*. Held by
   `tests/architecture/test_deployment_generator.py`,
   `test_deployment_generated.py`, `test_deployment_adopt.py`, `test_copier_round_trip.py`,
   `test_dockerignore.py`, `test_deployment_truth.py`, `test_cli_jobs.py`, `test_cli_version.py`,
@@ -621,7 +623,9 @@ is a table digest; plain scalars read back as strings under YAML 1.1 and 1.2. A 
   package also needs a pinned source two cold builds read alike.
 - **Worker and scheduler health**, which waited for ADR 0024's heartbeat, is settled by ADR
   0191: each is checked on the heartbeat its own loop writes (decision 5, amended).
-- **One platform per release; bit-for-bit images** stay a measurement.
+- **One platform per release.** Bit-for-bit images stay a measurement: the web image is one,
+  and the backend image is one but for uv's record of when it found the app wheel (*How it was
+  built*, the sixth pull request).
 - **Signing keys, the environment policy, and which key an environment trusts** are the deploy
   tool's.
 - **The deploy-safety audit over a resolved plan** is a separate request.
@@ -877,10 +881,8 @@ Decision 8's second, third and fourth pull requests, in 0.35.0.
   byte-identical `inputs`; a manifest with no signature, a broken one, one by another key and
   one whose image changed under the signature are refused before promote runs a single
   command, and an image whose id is not the signed one before compose. Each guard was mutated
-  and its test seen to fail. Still to run, on a Docker engine: the Docker
-  lane, which builds a template-shaped app twice cold into a job-local `registry:2` pinned by
-  digest, compares the two `inputs` and installed lists, runs `sign` against the real images
-  and the real sandbox, and promotes the result; and a run of the signer image's CI job.
+  and its test seen to fail. What only an engine could show ran in the sixth pull request
+  (*The lanes*, below).
 - **The files volume and the production boot** (later in 0.35.0, amending decision 1 and
   decision 5's volume line, contradicting neither). The template's production profile had no
   volume behind the files capability's storage root, so with `use_files` the stored files lived
@@ -900,3 +902,69 @@ Decision 8's second, third and fourth pull requests, in 0.35.0.
   render in production mode (`tools/production_boot.py`), against a PostgreSQL service, which
   found the template's single sign-on wiring refused by every production boot; the template
   now renders the federated allowlist from `OIDC_ALLOWED_EMAIL_DOMAINS`.
+- **The lanes** (the sixth pull request). `tests/release_lane/` runs `terp release` and `terp
+  promote` on a Docker engine, locally and in CI's `release-lane` job. The gate deselects it
+  (`-m release_lane`); the job sets `TERP_REQUIRE_RELEASE_LANE`, so a runner without an engine
+  fails it rather than skipping it, as the PostgreSQL lane does. Every name it gives the engine
+  starts with one prefix. Its subject is the generated reference app: rendered as every lane
+  renders it and adopted with `terp deployment adopt --build generated`, its terp-*
+  distributions locked from a job-local index and its `@terpjs` packages taken from the same
+  index by URL (a `.terp-dist/` is refused), its images pushed to a job-local `registry:2`
+  pinned by digest. No published framework release carries the generator yet, and the tree's
+  packages still say 0.34.0, below the floor `sign` reads (`FLOOR`, 0.35.0, which stays): so
+  "one minor up" is two releases built from the tree, 0.35.0 and 0.36.0, with every lockstep
+  pin rewritten and nothing else, served from a job-local PEP 503 index; the signer's release
+  table carries their two terp-arch wheels. The gate's `terp verify --profile release` runs
+  the app's own suite and conformance stack, which are the app's subject: the lane hands the
+  gate a passing claim and runs the half that needs an engine. Measured on Docker Desktop 29.1
+  (the containerd image store, Compose 2.40, buildx 0.30) with BuildKit v0.34.1:
+  - *Where a job-local service listens.* Published on a loopback port chosen explicitly, a
+    registry or an index answers the operator's process, BuildKit's build steps (on the
+    engine's host network, where `--registry-http` puts the builder) and the engine, at one
+    address. An ephemeral port (`-p 127.0.0.1::5000`) does too on Linux, but on Docker Desktop
+    the engine's host network is a VM's and the build step's connection was refused. The lane
+    chooses its ports; the deployment guide says to.
+  - *Build.* Each release, both images cold, took about 80 s on an otherwise idle engine and
+    110 to 260 s beside other lanes. BuildKit's metadata carried `containerimage.digest` and
+    `containerimage.config.digest`, each name was one OCI image manifest, `rewrite-timestamp`
+    clamped every file the build wrote to the commit's time, and the builder made for the job
+    was gone after it.
+  - *Two cold builds of one commit and tag*, into two registry paths so both stay signable:
+    byte-identical `inputs` (14 KB), identical installed lists (57 Python
+    distributions, 251 npm packages) and the same web image digest. The backend digests differ,
+    in one layer and two files: the app wheel's `uv_cache.json`, where `uv pip install`
+    records when it found the wheel (the file's change time, which no build setting moves and
+    `touch` cannot reset), and the `RECORD` row that hashes it. Every other layer is the same,
+    the dependency layer's bytecode included. Dropping that file in `Dockerfile.prod` would
+    make the backend image bit for bit too; it changes every app's build file, so it is left
+    to a decision of its own.
+  - *Gate.* The schedule catalog, read from each pushed image pulled by digest and run sealed
+    as its non-root user, took 4 to 20 s.
+  - *Sign*, from the signer image built as CI builds it: 17 to 53 s per release, holding the app
+    layer and its bytecode to the tree (recompiled by the base image's interpreter, byte for
+    byte), the installed set to the lock, the SBOMs to OSV (no known vulnerability) and the
+    history to gitleaks. The lane also holds the image's own interpreter's list of what is
+    installed to `sign`'s and to the lock's runtime set as `uv export` resolves it. An image
+    with one more layer that rewrote `/srv/app/main.py`, pushed under a tag of its own beside
+    the web image, was refused with that file named.
+  - *Promote*, of exactly the signed digests (21 to 50 s each): up one minor, 0.35.0 then
+    0.36.0, then back by promoting 0.35.0's envelope again. Its step found every history at its
+    own heads and applied nothing, a row written under 0.35.0 survived both moves, and the seven
+    version tables read before each step stayed the same. A release whose migration fails
+    part-way, which PostgreSQL rolls back whole, was undone with `--undo-to`: the reading was
+    unchanged, so the previous release started again after its own check, without a restore.
+    An envelope whose payload was changed under its signature was refused before a command
+    ran, and an undo onto a local tag moved to another image before compose.
+  - *Compose, as assumed.* `run --entrypoint python` read the version tables with the step's
+    environment files; `up -d --wait --no-deps` started every service but the step, which left
+    no container; and on the containerd store an image's local id is its manifest's digest,
+    which promote accepts beside the configuration's.
+  - *What the first runs found*, each fixed with a test that failed first: the signer image did
+    not build (pip took the published terp-arch 0.34.0 wheel for the tree's, so the framework
+    wheels are now named by file); `sign` from the image read no checkout (git refused a
+    repository its user does not own, so its git calls, and gitleaks, now say the named one is
+    safe); the sandbox refused every layer over 4 MB (a client made for the first manifest held
+    every later request to its limit); and promote's refusal of a changed local image named
+    only the digest the classic store shows. The signer image is run with the engine's socket
+    and its group (`--group-add`), which its header and the deployment guide now say, and CI's
+    signer job builds it as the lane does.

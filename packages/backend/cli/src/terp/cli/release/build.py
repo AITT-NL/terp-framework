@@ -62,6 +62,10 @@ _LOOPBACK = frozenset({"localhost", "127.0.0.1"})
 
 DOCUMENT = "terpReleaseBuild"
 
+#: What the builder created for one job is named, before its random part: a lane that runs on a
+#: shared engine names everything it creates under a prefix of its own.
+BUILDER_PREFIX = "rel-"
+
 
 def registry(value: str) -> tuple[str, str]:
     """``(host, prefix)`` of a release registry, refused when it is not one."""
@@ -167,7 +171,7 @@ def build(
         root = scratch / "context"
         tree.materialize(root)
         plan: Plan = release_plan(tree, root, published_table())
-        name = f"rel-{secrets.token_hex(6)}"
+        name = f"{BUILDER_PREFIX}{secrets.token_hex(6)}"
         _builder(name, host, registry_http, scratch)
         try:
             versions = _versions(name)
