@@ -407,8 +407,9 @@ single `api` to proxy to; two `web` units; an `api` unit without both health pat
 cycle, or one naming a unit the declaration does not have (a generated profile runs only declared
 units); a `kind` under a role other than its table entry's, or a kind this release has no recipe
 for; a volume without `mount`, a mount path other than `var/files`, a mount on a unit not on the
-backend image, a second volume a unit mounts at a path one already holds (Compose refuses a
-duplicate mount point; amended in 0.35.0), or a volume id equal to a `kind` unit's `<id>-data`;
+backend image, a second volume a unit mounts at a path one already holds (Compose 2.40 mounts
+only the last and drops the others without a word, measured; amended in 0.35.0), or a volume id
+equal to a `kind` unit's `<id>-data`;
 any system package; a unit id
 that is not a lowercase compose name; and (the reader) a `generator` block beside `own`. What the
 generator refuses, the app can build in the `own` state.

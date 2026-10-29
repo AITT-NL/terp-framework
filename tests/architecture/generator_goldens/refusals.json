@@ -1429,7 +1429,7 @@
       "project": "demo",
       "frontendLock": true,
       "refused": [
-        "volumes[1].mount.units[0] \"api\" already mounts volumes[0] \"files-data\" at var/files, and Compose refuses a second volume at one mount point (allowed: one volume per unit at each mount path)"
+        "volumes[1].mount.units[0] \"api\" already mounts volumes[0] \"files-data\" at var/files, and Compose keeps only the last volume at one mount point and drops the others without a word (allowed: one volume per unit at each mount path)"
       ]
     },
     "a-system-package": {
