@@ -97,7 +97,11 @@ from terp.arch.rules.module_roles import (
     check_module_role_writes_go_through_the_capability,
     check_platform_modules_refuse_module_roles,
 )
-from terp.arch.rules.destructive_migrations import check_no_destructive_migrations
+from terp.arch.rules.destructive_migrations import (
+    DestructiveOperation,
+    check_no_destructive_migrations,
+    destructive_operations,
+)
 from terp.arch.rules.migrations import (
     check_alembic_downgrades_not_empty,
     check_migration_history_is_intact,
@@ -653,6 +657,7 @@ __all__ = [
     "APP_ROOT_ONLY",
     "EVERY_ROOT",
     "ArchViolation",
+    "DestructiveOperation",
     "GUIDE_TOPIC_BY_RULE",
     "RULE_ROOT_KINDS",
     "RootKind",
@@ -732,6 +737,7 @@ __all__ = [
     "check_no_manual_table_schema",
     "check_tables_have_migrations",
     "check_tenant_scoped_models_use_scoped_service",
+    "destructive_operations",
     "guide_topic_for",
     "root_kinds_for",
     "ungoverned_marker_violations",
