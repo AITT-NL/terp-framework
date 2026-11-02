@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.35.0 — unreleased
+## 0.35.0 — 2026-11-02
 
 A value only a deployment needs had to be required everywhere. `environment.schema.json` could
 say that a variable must be set, but not where, so `JOB_SYSTEM_ACTOR_ID` — which a production
@@ -565,6 +565,14 @@ split it across releases.
 
 ### Changed
 
+- **Certified against terp-spec 0.40.0.** The five rules this release implemented ahead of
+  their catalog entries — `personal_fields_are_declared`, `deployment_declaration_is_readable`,
+  `deployment_declaration_tells_the_truth`, `deployment_generated_files_match_their_render`
+  and `expand_revisions_only_expand` — and the destructive-migrations sample it reported
+  ahead of the published corpus are in that release; the four pins (`pyproject.toml`,
+  `terp.arch.SPEC_VERSION`, `@terpjs/eslint-boundaries`'s dependency and its `SPEC_VERSION`)
+  move to it, and the three allowances (`_AWAITING_SPEC_RELEASE` for rules and for lanes,
+  `VERDICTS_AWAITING_SPEC_RELEASE` for corpus verdicts) are empty again.
 - **The boot guard admits a database one migration run ahead, inside its schema window**
   (ADR 0185 decision 3). A package at a revision the code does not define is walked back
   through the record to exactly the code's head. Every row the newest run wrote for a revision
