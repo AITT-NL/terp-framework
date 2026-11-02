@@ -45,6 +45,15 @@ import drop_column``) or named by a literal ``getattr(op, "drop_table")`` is tha
 operation; and ``upgrade = _up`` makes ``_up`` the upgrade. A statement is read one at a
 time, so ``"DROP TABLE a; ALTER TABLE b RENAME TO c"`` is two findings. What has no static
 form (a statement held in a variable, an operation whose name is computed) is not read.
+
+What the rule finds in one revision is also a value, :func:`destructive_operations`, for
+a reader that lists a release's destructive steps rather than gating them: each one,
+excused by its marker or not, with its kind, its line, its place in the revision and a
+line of text that names it. The rule reports exactly that list's five kinds, so the gate
+and such a reader cannot disagree about what is destructive. The list also holds what the
+rule cannot read, as a sixth kind, ``opaque``: a statement with no static text and a call
+the reading cannot follow. The rule reports none of those (they are its residuals), and
+a reader that must not miss a step has a person confirm each one.
 """
 
 from __future__ import annotations
@@ -52,24 +61,41 @@ from __future__ import annotations
 import ast
 import pathlib
 import re
-from collections.abc import Iterator
+from dataclasses import dataclass
 
 from terp.arch._ast import parse
+from terp.arch.rules._destructive_sql import (
+    _CONSTRAINT,
+    _DROP,
+    _EXECUTING,
+    _NOT_NULL,
+    _RENAME,
+    _TYPE,
+    _classify_sql,
+    _statement_is_read,
+)
 from terp.arch.rules._support import ArchViolation, _rel
-from terp.arch.rules._upgrade_calls import _Call, _calls, _literal, _Revision
+from terp.arch.rules._upgrade_calls import (
+    _UNKNOWN,
+    _Call,
+    _calls,
+    _dotted,
+    _literal,
+    _Revision,
+    _root,
+)
 from terp.arch.rules.migrations import (
     _column_argument,
     _literal_name,
     _migration_files,
 )
 
-_DROP = "drop"
-_RENAME = "rename"
-_TYPE = "type"
-_NOT_NULL = "not-null"
-_CONSTRAINT = "constraint"
-
 _MARKER = "'# arch-allow-no-destructive-migrations: <reason>'"
+
+#: The list's word for an operation the reading cannot see into. It is not a kind of
+#: finding: the rule reports the five kinds below, and an opaque operation is one of its
+#: residuals, listed so that a reader can have a person confirm it.
+_OPAQUE = "opaque"
 
 #: One message per kind of finding, each saying what to do instead.
 _MESSAGES = {
@@ -105,61 +131,6 @@ _MESSAGES = {
     ),
 }
 
-# Destructive SQL verbs a revision can smuggle through ``op.execute(...)``. Matched
-# against string literals only (a statically reviewable statement); DROP TRIGGER /
-# DROP FUNCTION / DROP INDEX are excluded — they destroy no row data — and so is
-# ``DROP NOT NULL``, the relaxing direction ``alter_column(nullable=True)`` spells.
-_DESTRUCTIVE_SQL_RE = re.compile(
-    r"\b(DROP\s+TABLE|DROP\s+COLUMN|DROP\s+SCHEMA|TRUNCATE(\s+TABLE)?|DELETE\s+FROM"
-    r"|ALTER\s+TABLE\s+.+\bDROP\b(?!\s+NOT\s+NULL\b))\b",
-    re.IGNORECASE | re.DOTALL,
-)
-
-# The rest are read one statement at a time, so a clause of one statement can never
-# pair with the ``ALTER TABLE`` of another. A constraint rename is left alone: no
-# query names a constraint, so the running release cannot be reading the old name.
-_RENAME_SQL_RE = re.compile(
-    r"\bALTER\s+TABLE\b.*?\bRENAME\b(?!\s+CONSTRAINT\b)|\bRENAME\s+TABLE\b",
-    re.IGNORECASE | re.DOTALL,
-)
-_TYPE_SQL_RE = re.compile(
-    r"\bALTER\s+TABLE\b.*?\bALTER\s+(?:COLUMN\s+)?(?!COLUMN\b)\S+\s+(?:SET\s+DATA\s+)?TYPE\b",
-    re.IGNORECASE | re.DOTALL,
-)
-_NOT_NULL_SQL_RE = re.compile(
-    r"\bALTER\s+TABLE\b.*?\bSET\s+NOT\s+NULL\b", re.IGNORECASE | re.DOTALL
-)
-_ADD_CONSTRAINT_SQL_RE = re.compile(
-    r"\bALTER\s+TABLE\b.*?\bADD\s+(?:CONSTRAINT\s+(?:\"[^\"]*\"|\S+)\s+)?"
-    r"(?P<kind>UNIQUE|PRIMARY\s+KEY|CHECK|FOREIGN\s+KEY|EXCLUDE)\b",
-    re.IGNORECASE | re.DOTALL,
-)
-_ENFORCE_SQL_RE = re.compile(
-    r"\bCREATE\s+UNIQUE\s+INDEX\b|\bVALIDATE\s+CONSTRAINT\b", re.IGNORECASE
-)
-#: ``NOT VALID`` skips the existing rows, which is the expand half of a check or a
-#: foreign key; the ``VALIDATE CONSTRAINT`` that follows it is the contract half.
-_NOT_VALID_RE = re.compile(r"\bNOT\s+VALID\b", re.IGNORECASE)
-_NOT_VALID_KINDS = ("CHECK", "FOREIGN")
-
-#: Calls whose arguments are a statement the database runs as written.
-_EXECUTING = frozenset({"execute", "exec_driver_sql"})
-
-#: What a ``;`` inside does not end a statement in: a quoted string, a quoted identifier
-#: (in double quotes or backticks), a dollar-quoted body and a comment. Each is matched
-#: whole, so the only ``;`` left for the last alternative is one between statements. An
-#: unterminated span runs to the end of the text.
-_SQL_SPANS = re.compile(
-    r"'(?:[^']|'')*'?"
-    r'|"(?:[^"]|"")*"?'
-    r"|`[^`]*`?"
-    r"|--[^\n]*"
-    r"|/\*.*?(?:\*/|\Z)"
-    r"|(?P<tag>\$(?:[A-Za-z_][A-Za-z_0-9]*)?\$).*?(?:(?P=tag)|\Z)"
-    r"|;",
-    re.DOTALL,
-)
-
 #: For each constraint operation: the op-form position and keyword of its table, and
 #: the op-form position and keyword of its columns (``None`` when it names none). On a
 #: batch block the table comes from the block, so each position is one lower.
@@ -177,90 +148,50 @@ _CONSTRAINT_OPS: dict[str, tuple[int, str, int | None, str | None]] = {
 #: neither is exempted by being on a new column.
 _NULL_SATISFIES = frozenset({"create_unique_constraint", "create_foreign_key", "create_index"})
 
-_PLACEHOLDER = " ? "
+#: For each call an operation's text names: the op-form position and keyword of the
+#: table it acts on, and of its column (``None`` when the text names no column). A call
+#: on a batch block's handle takes its table from the block, so its column sits one
+#: position lower.
+_SUBJECTS: dict[str, tuple[int, str, int | None, str | None]] = {
+    "drop_table": (0, "table_name", None, None),
+    "drop_column": (0, "table_name", 1, "column_name"),
+    "rename_table": (0, "old_table_name", None, None),
+    "alter_column": (0, "table_name", 1, "column_name"),
+    **{attr: (spec[0], spec[1], None, None) for attr, spec in _CONSTRAINT_OPS.items()},
+}
+
+#: The operations read by name on any receiver, so that a call of one is never opaque.
+_READ_OPERATIONS = frozenset(
+    {"add_column", "create_table", *_SUBJECTS, *_EXECUTING}
+)
+#: The most code points an operation's text holds, and the mark that ends a cut one.
+_TEXT_LIMIT = 200
+_CUT = "\u2026"
+#: What an operation's text never holds: every control character and every character
+#: Unicode counts as white space, listed rather than looked up so that the set cannot
+#: move with a Python release. A run of them is written as one space.
+_SEPARATORS_RE = re.compile(
+    r"[\u0000-\u0020\u007f-\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+"
+)
 
 
-def _static_text(node: ast.expr) -> str | None:
-    """The statement *node* spells, with each interpolated part read as a placeholder.
+@dataclass(frozen=True)
+class DestructiveOperation:
+    """One destructive step a revision's ``upgrade()`` takes, as the rule finds it.
 
-    A literal, an f-string and a ``+`` of strings are each one statement, so
-    ``f"ALTER TABLE {name} RENAME TO entry"`` is read whole rather than as two halves
-    that each look harmless. ``None`` when *node* holds no static text at all.
+    ``ordinal`` is its place among the revision's operations, counted from 1 in source
+    order. ``kind`` is the rule's word for it, one of ``drop``, ``rename``, ``type``,
+    ``not-null`` and ``constraint``, each with one finding message, or ``opaque`` for a
+    step the reading cannot see into, which no finding reports. ``line`` is the line its
+    call starts on, which is where a finding is reported and where its marker is looked
+    for. ``operation`` is one line naming the step; :func:`destructive_operations` gives
+    its exact form.
     """
-    if isinstance(node, ast.Constant):
-        return node.value if isinstance(node.value, str) else None
-    if isinstance(node, ast.JoinedStr):
-        return "".join(
-            part.value if isinstance(part, ast.Constant) else _PLACEHOLDER
-            for part in node.values
-        )
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left, right = _static_text(node.left), _static_text(node.right)
-        if left is None and right is None:
-            return None
-        return (left if left is not None else _PLACEHOLDER) + (
-            right if right is not None else _PLACEHOLDER
-        )
-    return None
 
-
-def _sql_texts(node: ast.AST) -> Iterator[str]:
-    """Yield every statically known statement under *node* (``sa.text(...)`` included)."""
-    text = _static_text(node) if isinstance(node, ast.expr) else None
-    if text is not None:
-        yield text
-        return
-    for child in ast.iter_child_nodes(node):
-        yield from _sql_texts(child)
-
-
-def _statements(text: str) -> list[str]:
-    """*text* split into statements at each ``;`` that ends one (see ``_SQL_SPANS``)."""
-    statements: list[str] = []
-    start = 0
-    for span in _SQL_SPANS.finditer(text):
-        if span.group() == ";":
-            statements.append(text[start : span.start()])
-            start = span.end()
-    statements.append(text[start:])
-    return statements
-
-
-def _classify_statement(statement: str) -> str | None:
-    """The kind of destructive step one SQL statement takes, if any."""
-    if _DESTRUCTIVE_SQL_RE.search(statement):
-        return _DROP
-    if _RENAME_SQL_RE.search(statement):
-        return _RENAME
-    if _TYPE_SQL_RE.search(statement):
-        return _TYPE
-    if _NOT_NULL_SQL_RE.search(statement):
-        return _NOT_NULL
-    added = _ADD_CONSTRAINT_SQL_RE.search(statement)
-    if added and not (
-        added.group("kind").upper().startswith(_NOT_VALID_KINDS)
-        and _NOT_VALID_RE.search(statement)
-    ):
-        return _CONSTRAINT
-    if _ENFORCE_SQL_RE.search(statement):
-        return _CONSTRAINT
-    return None
-
-
-def _classify_sql(call: ast.Call) -> list[str]:
-    """The kind of each destructive statement an ``execute(...)`` runs, in order.
-
-    Every statement is its own step, so a text that drops one table and renames another
-    is a drop and a rename, never just the first of them.
-    """
-    kinds: list[str] = []
-    for argument in [*call.args, *(keyword.value for keyword in call.keywords)]:
-        for text in _sql_texts(argument):
-            for statement in _statements(text):
-                kind = _classify_statement(statement)
-                if kind is not None:
-                    kinds.append(kind)
-    return kinds
+    ordinal: int
+    kind: str
+    line: int
+    operation: str
 
 
 def _is_false(node: ast.expr | None) -> bool:
@@ -290,6 +221,25 @@ def _literal_names(node: ast.expr | None) -> set[str] | None:
         if isinstance(element, ast.Constant) and isinstance(element.value, str)
     }
     return names if len(names) == len(node.elts) else None
+
+
+def _subject(call: ast.Call, attr: str, batch_table: str | None, *, batch: bool) -> str:
+    """``<attr> <table>`` or ``<attr> <table>.<column>``: what *call* acts on."""
+    table_position, table_keyword, column_position, column_keyword = _SUBJECTS[attr]
+    table = batch_table if batch else _literal(_argument(call, table_position, table_keyword))
+    text = f"{attr} {_UNKNOWN if table is None else table}"
+    if column_position is None:
+        return text
+    column = _literal(_argument(call, column_position - (1 if batch else 0), column_keyword))
+    return f"{text}.{_UNKNOWN if column is None else column}"
+
+
+def _one_line(text: str) -> str:
+    """*text* as an operation's text: one line, trimmed, at most ``_TEXT_LIMIT`` long."""
+    text = _SEPARATORS_RE.sub(" ", text).strip(" ")
+    if len(text) <= _TEXT_LIMIT:
+        return text
+    return text[: _TEXT_LIMIT - 1].rstrip(" ") + _CUT
 
 
 class _Upgrade:
@@ -324,9 +274,9 @@ class _Upgrade:
 
     def classify(
         self, call: ast.Call, attr: str, batch_table: str | None, *, batch: bool
-    ) -> list[str]:
-        """The kind of each destructive step *call* takes: one, or several for a statement
-        text that holds several, or none.
+    ) -> list[tuple[str, str]]:
+        """The kind and the naming text of each destructive step *call* takes: one, or
+        one for each destructive statement of a text that holds several, or none.
 
         *batch* says the call is made on a ``batch_alter_table`` block's handle, whose
         table is *batch_table* and whose operations therefore name no table themselves.
@@ -336,7 +286,7 @@ class _Upgrade:
         rule exists for.
         """
         if attr in _EXECUTING:
-            return _classify_sql(call)
+            return [(kind, f"{attr}: {statement}") for kind, statement in _classify_sql(call)]
         if attr in {"drop_table", "drop_column"}:
             kind: str | None = _DROP
         elif attr == "rename_table":
@@ -346,8 +296,8 @@ class _Upgrade:
         elif attr in _CONSTRAINT_OPS:
             kind = self._classify_constraint(call, attr, batch_table, batch=batch)
         else:
-            kind = None
-        return [] if kind is None else [kind]
+            return []
+        return [] if kind is None else [(kind, _subject(call, attr, batch_table, batch=batch))]
 
     def _classify_alter(
         self, call: ast.Call, batch_table: str | None, *, batch: bool
@@ -421,22 +371,124 @@ def check_no_destructive_migrations(
     operation, counted against the app's escape-hatch budget, so every accepted risk is
     explicit, reviewable, greppable, and ratcheted. See the module docstring for the two
     exemptions, both about rows that cannot exist yet.
+
+    The findings for a revision file are its :func:`destructive_operations` of the five
+    kinds, one per operation, on the operation's line, with its kind's message. An
+    ``opaque`` operation is not a finding: it is what the rule cannot read.
     """
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
     for path in _migration_files(root):
         rel = _rel(path, root)
-        tree = parse(path)
-        revision = _Revision(tree)
-        for function in revision.upgrades(tree):
-            calls = _calls(function, revision)
-            upgrade = _Upgrade(calls)
-            for entry in calls:
-                batch, batch_table = entry.batch()
-                for kind in upgrade.classify(entry.call, entry.attr, batch_table, batch=batch):
-                    violations.append(
-                        ArchViolation(
-                            "no_destructive_migrations", rel, entry.call.lineno, _MESSAGES[kind]
-                        )
-                    )
+        violations.extend(
+            ArchViolation(
+                "no_destructive_migrations", rel, operation.line, _MESSAGES[operation.kind]
+            )
+            for operation in _operations(parse(path))
+            if operation.kind != _OPAQUE
+        )
     return violations
+
+
+def destructive_operations(source: str) -> list[DestructiveOperation]:
+    """Every destructive step the ``upgrade()`` of the revision *source* takes, and every
+    step in it the reading cannot see into.
+
+    The operations of the five kinds are the findings
+    :func:`check_no_destructive_migrations` reports for the file, one for one and found
+    by the same reading, the ones a ``# arch-allow-no-destructive-migrations`` marker
+    excuses included: an excused step is still destructive, and a reader listing a
+    release's steps must see it. An ``opaque`` operation is one the rule cannot read, and
+    is never a finding; a reader that must not miss a step has a person confirm it. Nothing is
+    read from ``downgrade()``, and a revision with no ``upgrade()`` has none; what an
+    upgrade runs is read as the rule reads it (see the module docstring). The list
+    is in source order, by the line and then the column each call starts at, and an
+    operation's ``ordinal`` is its place in it, counted from 1. *source* is parsed with
+    :func:`ast.parse` and is never imported or executed; source that does not parse
+    raises :class:`SyntaxError`, as the rule does.
+
+    An operation's text names the call that takes the step and what it acts on:
+
+    * ``<call> <table>`` for ``drop_table``, ``rename_table``,
+      ``create_unique_constraint``, ``create_primary_key``, ``create_foreign_key``,
+      ``create_check_constraint``, ``create_exclude_constraint`` and ``create_index``,
+      and ``<call> <table>.<column>`` for ``drop_column`` and ``alter_column``.
+      ``<call>`` is the operation's name, whatever its receiver is called and whatever
+      name it was imported under. On a
+      ``batch_alter_table`` block's handle the table is the block's (its first
+      argument, or ``table_name=``) and the column is the call's first argument, or
+      ``column_name=``. Otherwise the table is the call's first argument, its second
+      for the five ``create_*`` constraint calls and ``create_index``, or the keyword
+      ``table_name=`` (``old_table_name=`` for ``rename_table``, ``source_table=`` for
+      ``create_foreign_key``), and the column is the call's second argument, or
+      ``column_name=``. A table or column that is not a string literal is written
+      ``?``. For example ``drop_column invoice.legacy_ref`` or ``create_index customer``.
+    * ``<call>: <statement>`` for ``execute`` and ``exec_driver_sql``, one for each
+      destructive statement the call runs. The rule reads every text in the call's
+      arguments, in order, where a string literal, an f-string or a ``+`` of strings is
+      read whole wherever it sits in an argument (inside ``sa.text(...)`` too) and each
+      interpolated part is written `` ? ``; it splits each text into statements at every
+      ``;`` outside a quoted string or name, a dollar-quoted body and a comment, and the
+      statement is the one it classified. For example ``execute: TRUNCATE invoice_run``.
+
+    An ``opaque`` operation's text names what could not be read:
+
+    * ``<call>: ?`` for an ``execute`` or ``exec_driver_sql`` whose statement (its first
+      argument, or ``sqltext=`` / ``statement=``) has no text in the source: anything but
+      a string literal, an f-string, a ``+`` of strings, or ``text()`` of one, with
+      ``.bindparams(...)``, ``.columns(...)`` or ``.execution_options(...)`` on it. A
+      statement in a variable, ``sa.text(name)`` and a SQLAlchemy construct such as
+      ``invoice.delete()`` are each ``execute: ?``. It is listed beside whatever
+      destructive statement the call's other arguments spell.
+    * ``call <name>`` for a call by a bare name that the reading cannot follow: not an
+      operation imported from ``alembic.op`` at the top level, not a top-level function
+      of the revision (which is read as part of the upgrade, as is a function defined
+      inside one that is read), not a name the top level imports from Alembic,
+      SQLAlchemy, SQLModel or the standard library, and not a builtin other than
+      ``exec`` and ``eval`` that the top level leaves unbound. A helper imported from
+      another module, a top-level class, a callable held in a local or top-level name
+      and a name nothing binds are each ``call <name>``.
+    * ``call <name>.<attr>`` (the whole chain, ``call steps.legacy.contract``) for a
+      method called on a name the top level imports from any other module, or on a
+      top-level class of the revision, unless the method is one the rule reads by name
+      (``add_column``, ``create_table``, the destructive operations, ``execute`` and
+      ``exec_driver_sql``). ``getattr(steps, "contract")(...)`` reads as
+      ``steps.contract(...)``.
+    * ``call getattr`` for ``getattr(...)(...)`` whose name is not a literal, and
+      ``call ?`` for a call of anything else: a subscript, a call's result, a lambda.
+
+    Then, over the whole text, each run of characters from U+0000 to U+0020, U+007F to
+    U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F and U+3000 becomes
+    one space, and spaces at either end are removed. A text still longer than 200 code
+    points keeps its first 199, less any trailing space, followed by ``…`` (U+2026). So
+    the text is one line of 1 to 200 code points and holds no control character.
+    """
+    return _operations(ast.parse(source))
+
+
+def _operations(tree: ast.Module) -> list[DestructiveOperation]:
+    """The destructive steps of every upgrade in *tree*, in source order."""
+    found: list[tuple[int, int, str, str]] = []
+    revision = _Revision(tree)
+    for function in revision.upgrades(tree):
+        calls, unread = _calls(function, revision)
+        upgrade = _Upgrade(calls)
+        for entry in calls:
+            batch, batch_table = entry.batch()
+            for kind, text in upgrade.classify(entry.call, entry.attr, batch_table, batch=batch):
+                found.append((entry.call.lineno, entry.call.col_offset, kind, text))
+            if entry.attr in _EXECUTING and not _statement_is_read(entry.call):
+                unread.append((entry.call, f"{entry.attr}: {_UNKNOWN}"))
+            # A method of a module imported from outside the libraries, or of a class the
+            # revision defines, can run anything, unless it is an operation read by name.
+            root = _root(entry.receiver) if entry.receiver is not None else None
+            if entry.attr not in _READ_OPERATIONS and root and revision.foreign(root.id):
+                unread.append((entry.call, f"call {_dotted(entry.receiver)}.{entry.attr}"))
+        found.extend((call.lineno, call.col_offset, _OPAQUE, text) for call, text in unread)
+    # Stable, so two calls that start at one place (a call made on another call's
+    # result) keep the order the walk met them in.
+    found.sort(key=lambda entry: entry[:2])
+    return [
+        DestructiveOperation(ordinal, kind, line, _one_line(text))
+        for ordinal, (line, _, kind, text) in enumerate(found, start=1)
+    ]

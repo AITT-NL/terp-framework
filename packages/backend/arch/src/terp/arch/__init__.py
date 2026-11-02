@@ -27,6 +27,7 @@ from terp.arch.declaration import (
     ArchDeclarationError,
     declared_roots,
 )
+from terp.arch.revisions import RevisionHeader, revision_header
 from terp.arch.rules import (
     APP_ROOT_ONLY,
     EVERY_ROOT,
@@ -36,6 +37,7 @@ from terp.arch.rules import (
     RULES_ESCAPED_BY_THEIR_DECLARATION,
     RULES_WITHOUT_AN_OPT_OUT,
     ArchViolation,
+    DestructiveOperation,
     RootKind,
     ScanRoot,
     assert_app_clean,
@@ -126,6 +128,7 @@ from terp.arch.rules import (
     check_tables_have_migrations,
     check_tenant_scoped_models_use_scoped_service,
     check_update_schemas_inherit_base_update_schema,
+    destructive_operations,
     guide_topic_for,
     root_kinds_for,
     ungoverned_marker_violations,
@@ -145,11 +148,13 @@ __all__ = [
     "ArchDeclarationError",
     "EVERY_ROOT",
     "ArchViolation",
+    "DestructiveOperation",
     "GUIDE_TOPIC_BY_RULE",
     "PROJECT_ROOT_RULES",
     "RULE_ROOT_KINDS",
     "RULES_ESCAPED_BY_THEIR_DECLARATION",
     "RULES_WITHOUT_AN_OPT_OUT",
+    "RevisionHeader",
     "RootKind",
     "SPEC_VERSION",
     "ScanRoot",
@@ -242,7 +247,9 @@ __all__ = [
     "check_tables_have_migrations",
     "check_tenant_scoped_models_use_scoped_service",
     "check_update_schemas_inherit_base_update_schema",
+    "destructive_operations",
     "guide_topic_for",
+    "revision_header",
     "root_kinds_for",
     "ungoverned_marker_violations",
 ]

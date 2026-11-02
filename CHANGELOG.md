@@ -129,8 +129,8 @@ split it across releases.
 - **A refused setting no longer prints its value.** When the settings object refused a value,
   Pydantic printed a shortened copy of the input beside the error, and for a production boot
   refused over another field that copy ended in the tail of `DATABASE_URL`, which is where its
-  password is. Every settings error now names the field and the rule and nothing of the value.
-  ADR 0189.
+  password is. Every settings error now names the field and the rule and nothing of the value,
+  and a refused production boot is written as one log record. ADRs 0188 and 0189.
 
 ### Added
 
@@ -543,6 +543,25 @@ split it across releases.
   the reference app's seed and the template's to both properties, on SQLite and in CI's
   PostgreSQL lane. Both already met them, so neither seed changed. Their docstrings now state
   the two properties, and `terp guide testing` shows the test an app writes for its own seed.
+- **`destructive_operations` and `revision_header`, in `terp.arch`: a revision read as data.**
+  `destructive_operations(source)` lists every destructive step `no_destructive_migrations`
+  finds in a revision's `upgrade()`, excused by its marker or not, as
+  `DestructiveOperation(ordinal, kind, line, operation)`. `kind` is one of the rule's five
+  (`drop`, `rename`, `type`, `not-null`, `constraint`), `ordinal` counts from 1 in source
+  order, and `operation` is one line of at most 200 code points naming the call and what it
+  acts on, such as `drop_column invoice.legacy_ref` or `execute: TRUNCATE invoice_run`. The
+  docstring pins its format. The rule now reports exactly the list's five kinds, so the gate
+  and a reader that lists a release's destructive steps cannot disagree. Its findings are
+  unchanged; within one file they are now in source order. The list has a sixth kind the rule
+  never reports, `opaque`, for each step it cannot read: an `execute` or `exec_driver_sql`
+  whose statement has no text in the source (`execute: ?`, a statement in a variable or a
+  SQLAlchemy construct), and a call the reading cannot follow (`call <name>`: a helper imported
+  from another module, a callable held in a name, a method of an imported module or of a class
+  the revision defines, a `getattr` whose name is computed). A reader that must not miss a
+  destructive step has a person confirm each one. The framework's own histories hold two, the
+  computed trigger statements of the audit capability's append-only revision. `revision_header(source)` returns the `revision` and
+  the `down_revision` (`None`, a string or a tuple), and refuses by name a header it cannot
+  read for certain. Neither function imports or runs the file.
 
 ### Changed
 
@@ -1088,10 +1107,6 @@ split it across releases.
   set, an object with its own `__str__`) is redacted as that text; a value that starts with `%`
   (`%40...`) is no longer taken for a message placeholder, which only a template still waiting
   for its arguments has; and a URL password holding an unencoded `/` is caught.
-- **A refused production configuration printed part of the configuration.** The settings'
-  validation error repeated its input, truncated in the middle, so the tail of `DATABASE_URL`,
-  password included, could reach the boot log. `Settings` hides its input in errors, and the
-  refusal is written as a record.
 - **A test no longer sees the logging an earlier test's app configured.** `create_app`
   configures logging for the whole process, and terp-core's pytest plugin did not put it back:
   the first test to compose an app re-dressed pytest's own capture handlers with the JSON

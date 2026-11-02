@@ -21,7 +21,8 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 from terp.arch import check_app, check_no_destructive_migrations
-from terp.arch.rules.destructive_migrations import _MESSAGES, _statements
+from terp.arch.rules._destructive_sql import _statements
+from terp.arch.rules.destructive_migrations import _MESSAGES
 from terp.arch.rules.migrations import _migration_files
 
 _REVISION = "modules/notes/migrations/versions/0001_change.py"

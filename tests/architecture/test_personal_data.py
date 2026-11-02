@@ -592,6 +592,15 @@ def test_every_create_engine_call_in_the_framework_hides_parameters(tmp_path: pa
     assert _engine_calls_without_hidden_parameters(tmp_path) == ["src/probe.py:1"]
 
 
+def test_the_engine_the_promote_script_builds_hides_parameters_too() -> None:
+    """The version-table reader runs as a script in the release's own image, so the scan of
+    the framework's sources above cannot see its engine; it is held here instead."""
+    from terp.cli.release import promote
+
+    assert "create_engine(" in promote._READ_VERSIONS
+    assert "hide_parameters=True" in promote._READ_VERSIONS
+
+
 def test_every_row_in_flight_loses_its_values(session: Session) -> None:
     first, second = _Customer(email=_EMAIL), _Customer(email=_OTHER_EMAIL, phone=_PHONE)
     session.add(first)
