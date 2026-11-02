@@ -1,7 +1,7 @@
 {
   "//": "The template source each overlay file replaces, by digest. When the gate says one moved, carry the template's change into the overlay copy (or decide it does not apply), then run `python tools/render_reference_app.py --record-baseline`.",
   "files": {
-    ".app.env.example": "8408109ac5fd2c906d08e51a2334bc6cccc10848860f816280108c550de099b9",
+    ".app.env.example": "a84bfaf05247fb167870a08a64c6239812eb1d440f62fc3ebce071b6d3c8687f",
     "app/main.py": "e890ffbae768f092e0afaae7bdf8d39cff643064900aa63db138d3e55e201a28",
     "control_plane/__init__.py": "e14b3de04e63c6fbcfd3aa52cc05fee2f40e8ad05ef886d3aa9b7abf9eb32b8e",
     "docker-compose.prod.yml": "48edbda87984703217c485358ea4695eee713ca13fbc0dca1be4b10c876f072f",

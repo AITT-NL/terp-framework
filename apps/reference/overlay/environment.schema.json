@@ -71,6 +71,20 @@
       "requiredIn": [
         "production"
       ]
+    },
+    "SECRET_KEY_FALLBACKS": {
+      "type": "string",
+      "title": "Previous signing keys (verify only)",
+      "description": "Earlier SECRET_KEY values, comma-separated. They only verify sessions signed before a key rotation, each for its own lifetime, and never sign. Empty outside a rotation; drop once the longest session lifetime has passed (ADR 0189).",
+      "format": "secret",
+      "group": "Key rotation"
+    },
+    "SECRET_KEY_DECRYPT_FALLBACKS": {
+      "type": "string",
+      "title": "Previous sealing keys (decrypt only)",
+      "description": "Earlier SECRET_KEY values, comma-separated. They only decrypt values sealed at rest before a key rotation, and never seal. Empty outside a rotation; drop once `terp secrets reseal` reports nothing left under them (ADR 0189).",
+      "format": "secret",
+      "group": "Key rotation"
     }
   },
   "required": []

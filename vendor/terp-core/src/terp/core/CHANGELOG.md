@@ -87,6 +87,12 @@ the run records every revision it applies, and the guard admits a database one e
 ahead. The previous release's own `terp migrate check` decides, before a rollback is offered,
 whether it is restore-free (ADR 0185).
 
+And changing `SECRET_KEY` broke the deployment it was changed in. The key both signs and seals,
+and its one fallback list only verified access tokens: after a change every sealed config value,
+webhook signing secret and MFA enrolment stopped opening, and every refresh session ended at its
+next refresh. A previous key now goes in two lists with two clocks, one that only verifies and one
+that only decrypts, and `terp secrets reseal` moves what was sealed under it to the new key.
+
 ### Security
 
 - **A rendered environment file can no longer be baked into an image.** The template's
@@ -100,6 +106,11 @@ whether it is restore-free (ADR 0185).
   capability's `var/` storage root, caches and test output are excluded too, and `.gitignore`
   gains the ones it lacked. The framework's own root `.dockerignore`, the example app's build
   context, carries the environment-file patterns at any depth as well.
+- **A refused setting no longer prints its value.** When the settings object refused a value,
+  Pydantic printed a shortened copy of the input beside the error, and for a production boot
+  refused over another field that copy ended in the tail of `DATABASE_URL`, which is where its
+  password is. Every settings error now names the field and the rule and nothing of the value.
+  ADR 0189.
 
 ### Added
 
@@ -435,6 +446,27 @@ whether it is restore-free (ADR 0185).
   imported. The guard, the `migrate` preflight and `terp migrate check` ignore a retired
   package's rows; a list that is not a literal tuple of strings, a file that does not parse, or
   a retired label the code still defines raises `RetiredMigrationsError`.
+- **`SECRET_KEY_DECRYPT_FALLBACKS`: previous keys that only decrypt (ADR 0189).** Every value
+  sealed at rest — sealed config, webhook signing secrets, MFA enrolments — opens under
+  `SECRET_KEY` and then each entry, and is sealed under `SECRET_KEY` alone. It never verifies a
+  signature, as `SECRET_KEY_FALLBACKS` never decrypts, so a signing key no longer has to stay
+  listed for as long as old backups need the sealing key.
+- **`terp secrets reseal` moves sealed values to the current key.** It walks every string column
+  of every mapped table, re-seals each value that still needs a decrypt fallback, one transaction
+  per table, compare-and-swap per value, and moves no `updated_at`; it refuses while a migration
+  is pending and is safe to run twice. `--check` only counts, `--format json` is for a pipeline,
+  and it exits 0 only when every sealed value opens under `SECRET_KEY`. A table it can read but
+  not rewrite, a mapped table with no primary key or a table in the database the app does not
+  map, is read and counted, and the report names it and why nothing in it was re-sealed; a value
+  in one that still needs a fallback keeps the exit at 1, where such a table used to be passed
+  over and the run reported clean.
+- **`SealingDomain`, `derive_key`, `check_sealed_value` and `sealing_domains` in `terp.core`.** A
+  sealing domain owns the rotation rule for one kind of sealed value and registers itself, which
+  is how the re-seal finds it; the three shipped sealers are domains now, with their labels and
+  formats unchanged. `derive_key` is the HKDF every use of the key derives through.
+- **The template declares both fallback lists** in `environment.schema.json`, as secrets required
+  nowhere, and lists them empty in `.app.env.example`, so a deploy pipeline can set them.
+  `terp guide secrets` and `docs/DEPLOYMENT.md` give the rotation procedure.
 
 ### Changed
 
@@ -589,6 +621,14 @@ whether it is restore-free (ADR 0185).
 - **A throttle-store outage no longer turns `/health` into 429.** The rate limiter fails closed
   on a store error and still does for every other path, but lets a request to `/health` through,
   so liveness stays up and readiness answers 503 naming the store.
+- **Access tokens are signed with a key derived from `SECRET_KEY`, not with `SECRET_KEY`.** One
+  key per use: the signing key no longer is the secret every other key is derived from. A token
+  signed with the raw key before this release verifies for the rest of its life.
+- **A signature under a retired key is honoured for its lifetime and no longer.** Under the raw key
+  or a `SECRET_KEY_FALLBACKS` entry, an access token verifies for `FALLBACK_VERIFY_WINDOW` (15
+  minutes) from its `iat`, whatever its `exp` says.
+- **Both fallback lists read comma-separated**, the shape a deploy tool writes; the JSON list form
+  keeps working.
 
 ### Upgrade notes
 
@@ -776,6 +816,25 @@ whether it is restore-free (ADR 0185).
   configuration the way `terp docker dev` now does: after changing `.app.env`, `.env` or the
   compose file, stop `watch` and start it again, and never run `docker compose up` beside a
   running one.
+- **Rotate with both lists, in order:** the old key into `SECRET_KEY_FALLBACKS` *and*
+  `SECRET_KEY_DECRYPT_FALLBACKS` with the new one in `SECRET_KEY`, deploy, `terp secrets reseal`,
+  drop the decrypt list once it reports nothing left, and drop the verify list once the longest
+  signature lifetime has passed (`REFRESH_TOKEN_TTL_SECONDS` with refresh sessions, else 15
+  minutes). A deployment midway through a rotation on the old single list adds its old key to
+  `SECRET_KEY_DECRYPT_FALLBACKS` as well.
+- **Production refuses a fallback list with a slip in it**: an entry that is `SECRET_KEY` itself or
+  repeats another entry, as well as a weak one, in either list. A deployment that left its current
+  key in `SECRET_KEY_FALLBACKS` no longer boots until the entry is removed.
+- **Anything outside the app that verifies its access tokens with `SECRET_KEY` stops verifying new
+  ones.** It must derive the same key — `derive_key(SECRET_KEY, b"terp.capabilities.auth.access-token.v1")`,
+  base64url-encoded — or ask the app. A test that hand-signs a token with `SECRET_KEY` keeps
+  passing while the token's `iat` is fresh.
+- **A token an app mints itself for longer than 15 minutes survives a rotation for 15 minutes**
+  under the old key, not for its whole lifetime.
+- **`terp-core` requires `pydantic-settings>=2.7`**, the first release with `NoDecode`.
+- **A template update brings the two declarations.** An app whose `environment.schema.json` and
+  `.app.env.example` it rewrites gets both; an app that keeps its own adds them by hand to set the
+  lists through a deploy pipeline.
 
 ### Fixed
 
@@ -857,6 +916,11 @@ whether it is restore-free (ADR 0185).
   costs: both images checked against the build cache, `migrate` and `seed` run again (on
   purpose: every start runs them), and no session ends, because a recreate does not change
   `SECRET_KEY`.
+- **A key rotation no longer signs everyone out at their next refresh.** The refresh lookup tries
+  the current key's digest, then each `SECRET_KEY_FALLBACKS` entry's (`refresh_token_digests`),
+  and stores the successor under the current key.
+- **A key rotation no longer leaves sealed values unreadable**, nor fails every webhook delivery
+  terminally, nor locks every enrolled user out at the second factor.
 
 ## 0.34.0 — 2026-10-09
 
