@@ -62,23 +62,30 @@ split it across releases.
   `create_foreign_key`, `create_primary_key`, `create_exclude_constraint`,
   `create_index(unique=True)`, `ADD CONSTRAINT`, `CREATE UNIQUE INDEX` and `VALIDATE
   CONSTRAINT`. A raw `ALTER COLUMN ... TYPE` is now a type change like
-  `alter_column(type_=...)`. A statement is also read through `exec_driver_sql`, and as a whole
-  when an f-string or a `+` builds it. Each kind has its own message, which says what to do
-  instead: expand, backfill with a job, and contract in a later release, where the contract
-  step takes `# arch-allow-no-destructive-migrations: <reason>` after review. Two shapes stay
-  clean, because no existing row can break them. One is any step on a table the same
-  `upgrade()` creates. The other is a unique, foreign-key or unique-index constraint on columns
-  the same `upgrade()` adds nullable with no server default, which is how autogenerate writes a
-  new reference column. A check or a foreign key added `NOT VALID` is clean too, and so is a
-  constraint rename. Not reported is not the same as an expand step: a constraint on an
-  existing table, and any `execute()`, never is one. `test_destructive_migrations.py` holds the
-  rule to a test set of twenty destructive operations, each in its op, raw-SQL or batch form,
-  and to 27 look-alikes that must pass. `terp guide no_destructive_migrations` carries the
-  decision path, and `terp guide migrations` the five kinds. The rule moved to its own module,
-  `terp.arch.rules.destructive_migrations`. The terp-spec corpus carries the same cases from
-  0.40.0. Until that release is pinned, the one published sample the rule now reports
-  (`compliant-01`, an `alter_column(nullable=False)`) is listed in
-  `VERDICTS_AWAITING_SPEC_RELEASE`, the corpus counterpart of ADR 0116's allowance:
+  `alter_column(type_=...)`, and a raw `DROP SCHEMA` a drop. A statement is also read through
+  `exec_driver_sql`, and as a whole when an f-string or a `+` builds it; a text holding several
+  statements is read one statement at a time, split at each `;` outside a quoted string or name,
+  a dollar-quoted body and a comment, so a drop and a rename in one `execute()` are two
+  findings. The rule reads what the migration runs, not only what `upgrade()` spells: every
+  function of the revision `upgrade()` calls by name, transitively and each once, an operation
+  imported by name (`from alembic.op import drop_column`) or looked up with a literal
+  `getattr(op, "drop_table")`, and the function a top-level `upgrade = _up` names. A statement
+  held in a variable and an operation whose name is computed stay unread. Each kind has its own
+  message, which says what to do instead: expand, backfill with a job, and contract in a later
+  release, where the contract step takes `# arch-allow-no-destructive-migrations: <reason>`
+  after review. Two shapes stay clean, because no existing row can break them. One is any step
+  on a table the same `upgrade()` creates. The other is a unique, foreign-key or unique-index
+  constraint on columns the same `upgrade()` adds nullable with no server default, which is how
+  autogenerate writes a new reference column. A check or a foreign key added `NOT VALID` is
+  clean too, and so is a constraint rename. Not reported is not the same as an expand step: a
+  constraint on an existing table, and any `execute()`, never is one.
+  `test_destructive_migrations.py` holds the rule to a test set of twenty destructive
+  operations, each in its op, raw-SQL or batch form, and to 27 look-alikes that must pass.
+  `terp guide no_destructive_migrations` carries the decision path, and `terp guide migrations`
+  the five kinds. The rule moved to its own module, `terp.arch.rules.destructive_migrations`. The
+  terp-spec corpus carries the same cases from 0.40.0. Until that release is pinned, the one
+  published sample the rule now reports (`compliant-01`, an `alter_column(nullable=False)`) is
+  listed in `VERDICTS_AWAITING_SPEC_RELEASE`, the corpus counterpart of ADR 0116's allowance:
   `test_spec_corpus` asserts that case inverted, the conformance scorecard leaves the rule
   unclaimed rather than claim a verdict the harness does not give, and a release cannot be cut
   while the list is non-empty.

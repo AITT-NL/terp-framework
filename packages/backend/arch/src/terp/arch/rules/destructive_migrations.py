@@ -6,8 +6,8 @@ has two audiences its author's scratch database never shows: the rows production
 already holds, and the release that is still running. Five kinds of statement fail
 one of them, and each is a finding here:
 
-* a **drop** (a table, a column, ``TRUNCATE``, ``DELETE FROM``) destroys rows no later
-  step can bring back;
+* a **drop** (a table, a column, a schema, ``TRUNCATE``, ``DELETE FROM``) destroys rows
+  no later step can bring back;
 * a **rename** (of a table or a column) breaks the running release, which still reads
   the old name;
 * a **type change** can truncate or refuse existing values while the running release
@@ -37,6 +37,14 @@ a unique, foreign-key or unique-index constraint whose columns this ``upgrade()`
 nullable, with no server default, meets only ``NULL``\\ s, which those constraints accept.
 The second is the shape autogenerate emits for a new reference column, and refusing it
 would make the most common additive change a finding.
+
+What the migration runs is what is read, not only what ``upgrade()`` spells itself: a
+function of the same revision that ``upgrade()`` calls by name is read as part of it, and
+so is each one that calls, transitively; an operation imported by name (``from alembic.op
+import drop_column``) or named by a literal ``getattr(op, "drop_table")`` is that
+operation; and ``upgrade = _up`` makes ``_up`` the upgrade. A statement is read one at a
+time, so ``"DROP TABLE a; ALTER TABLE b RENAME TO c"`` is two findings. What has no static
+form (a statement held in a variable, an operation whose name is computed) is not read.
 """
 
 from __future__ import annotations
@@ -45,14 +53,14 @@ import ast
 import pathlib
 import re
 from collections.abc import Iterator
+from typing import NamedTuple
 
 from terp.arch._ast import parse
 from terp.arch.rules._support import ArchViolation, _rel
 from terp.arch.rules.migrations import (
-    _added_columns,
+    _column_argument,
     _literal_name,
     _migration_files,
-    _tables_created_in,
 )
 
 _DROP = "drop"
@@ -102,7 +110,7 @@ _MESSAGES = {
 # DROP FUNCTION / DROP INDEX are excluded — they destroy no row data — and so is
 # ``DROP NOT NULL``, the relaxing direction ``alter_column(nullable=True)`` spells.
 _DESTRUCTIVE_SQL_RE = re.compile(
-    r"\b(DROP\s+TABLE|DROP\s+COLUMN|TRUNCATE(\s+TABLE)?|DELETE\s+FROM"
+    r"\b(DROP\s+TABLE|DROP\s+COLUMN|DROP\s+SCHEMA|TRUNCATE(\s+TABLE)?|DELETE\s+FROM"
     r"|ALTER\s+TABLE\s+.+\bDROP\b(?!\s+NOT\s+NULL\b))\b",
     re.IGNORECASE | re.DOTALL,
 )
@@ -136,6 +144,24 @@ _NOT_VALID_KINDS = ("CHECK", "FOREIGN")
 
 #: Calls whose arguments are a statement the database runs as written.
 _EXECUTING = frozenset({"execute", "exec_driver_sql"})
+
+#: What a ``;`` inside does not end a statement in: a quoted string, a quoted identifier
+#: (in double quotes or backticks), a dollar-quoted body and a comment. Each is matched
+#: whole, so the only ``;`` left for the last alternative is one between statements. An
+#: unterminated span runs to the end of the text.
+_SQL_SPANS = re.compile(
+    r"'(?:[^']|'')*'?"
+    r'|"(?:[^"]|"")*"?'
+    r"|`[^`]*`?"
+    r"|--[^\n]*"
+    r"|/\*.*?(?:\*/|\Z)"
+    r"|(?P<tag>\$(?:[A-Za-z_][A-Za-z_0-9]*)?\$).*?(?:(?P=tag)|\Z)"
+    r"|;",
+    re.DOTALL,
+)
+
+#: The module an Alembic operation can be imported from by name.
+_OPERATIONS_MODULE = "alembic.op"
 
 #: For each constraint operation: the op-form position and keyword of its table, and
 #: the op-form position and keyword of its columns (``None`` when it names none). On a
@@ -191,8 +217,22 @@ def _sql_texts(node: ast.AST) -> Iterator[str]:
         yield from _sql_texts(child)
 
 
+def _statements(text: str) -> list[str]:
+    """*text* split into statements at each ``;`` that ends one (see ``_SQL_SPANS``)."""
+    statements: list[str] = []
+    start = 0
+    for span in _SQL_SPANS.finditer(text):
+        if span.group() == ";":
+            statements.append(text[start : span.start()])
+            start = span.end()
+    statements.append(text[start:])
+    return statements
+
+
 def _classify_statement(statement: str) -> str | None:
     """The kind of destructive step one SQL statement takes, if any."""
+    if _DESTRUCTIVE_SQL_RE.search(statement):
+        return _DROP
     if _RENAME_SQL_RE.search(statement):
         return _RENAME
     if _TYPE_SQL_RE.search(statement):
@@ -210,17 +250,20 @@ def _classify_statement(statement: str) -> str | None:
     return None
 
 
-def _classify_sql(call: ast.Call) -> str | None:
-    """The kind of destructive step the statement an ``execute(...)`` runs takes."""
+def _classify_sql(call: ast.Call) -> list[str]:
+    """The kind of each destructive statement an ``execute(...)`` runs, in order.
+
+    Every statement is its own step, so a text that drops one table and renames another
+    is a drop and a rename, never just the first of them.
+    """
+    kinds: list[str] = []
     for argument in [*call.args, *(keyword.value for keyword in call.keywords)]:
         for text in _sql_texts(argument):
-            if _DESTRUCTIVE_SQL_RE.search(text):
-                return _DROP
-            for statement in text.split(";"):
+            for statement in _statements(text):
                 kind = _classify_statement(statement)
                 if kind is not None:
-                    return kind
-    return None
+                    kinds.append(kind)
+    return kinds
 
 
 def _is_false(node: ast.expr | None) -> bool:
@@ -259,15 +302,50 @@ def _literal(node: ast.expr | None) -> str | None:
     return None
 
 
+_Function = ast.FunctionDef | ast.AsyncFunctionDef
+
+
+class _Call(NamedTuple):
+    """One operation call the migration makes, as the rule reads it.
+
+    ``attr`` is the operation's name. ``receiver`` is what it is called on, ``None`` for an
+    operation imported by name, which acts like one called on ``op``. ``handles`` maps the
+    ``as`` name of each enclosing ``batch_alter_table(...)`` block to that block's literal
+    table (``None`` when the table is not a literal).
+    """
+
+    call: ast.Call
+    attr: str
+    receiver: ast.expr | None
+    handles: dict[str, str | None]
+
+    def batch(self) -> tuple[bool, str | None]:
+        """Whether the call is made on a batch block's handle, and that block's table."""
+        handle = self.receiver.id if isinstance(self.receiver, ast.Name) else None
+        if handle is None or handle not in self.handles:
+            return False, None
+        return True, self.handles[handle]
+
+
 class _Upgrade:
     """What one ``upgrade()`` knows about the rows its operations can meet."""
 
-    def __init__(self, function: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
-        self.created = _tables_created_in(function)
+    def __init__(self, calls: list[_Call]) -> None:
+        #: Tables this upgrade creates: they cannot hold a row yet.
+        self.created: set[str] = set()
         #: Columns this upgrade adds nullable with no server default, per table: they
         #: hold only ``NULL`` on every existing row.
         self.null_only: dict[str | None, set[str]] = {}
-        for _, column, table in _added_columns(function):
+        for entry in calls:
+            if entry.attr == "create_table":
+                name = _literal_name(entry.call)
+                if name is not None:
+                    self.created.add(name)
+                continue
+            column = _column_argument(entry.call) if entry.attr == "add_column" else None
+            if column is None:
+                continue
+            table = _literal_name(entry.call, keyword="table_name") or entry.batch()[1]
             keywords = {keyword.arg: keyword.value for keyword in column.keywords}
             name = _literal_name(column, keyword="name")
             if (
@@ -281,8 +359,9 @@ class _Upgrade:
 
     def classify(
         self, call: ast.Call, attr: str, batch_table: str | None, *, batch: bool
-    ) -> str | None:
-        """The kind of destructive step *call* takes, if any.
+    ) -> list[str]:
+        """The kind of each destructive step *call* takes: one, or several for a statement
+        text that holds several, or none.
 
         *batch* says the call is made on a ``batch_alter_table`` block's handle, whose
         table is *batch_table* and whose operations therefore name no table themselves.
@@ -291,17 +370,19 @@ class _Upgrade:
         rows — the conservative direction, because the populated table is the case the
         rule exists for.
         """
-        if attr in {"drop_table", "drop_column"}:
-            return _DROP
-        if attr == "rename_table":
-            return _RENAME
-        if attr == "alter_column":
-            return self._classify_alter(call, batch_table, batch=batch)
-        if attr in _CONSTRAINT_OPS:
-            return self._classify_constraint(call, attr, batch_table, batch=batch)
         if attr in _EXECUTING:
             return _classify_sql(call)
-        return None
+        if attr in {"drop_table", "drop_column"}:
+            kind: str | None = _DROP
+        elif attr == "rename_table":
+            kind = _RENAME
+        elif attr == "alter_column":
+            kind = self._classify_alter(call, batch_table, batch=batch)
+        elif attr in _CONSTRAINT_OPS:
+            kind = self._classify_constraint(call, attr, batch_table, batch=batch)
+        else:
+            kind = None
+        return [] if kind is None else [kind]
 
     def _classify_alter(
         self, call: ast.Call, batch_table: str | None, *, batch: bool
@@ -346,15 +427,92 @@ class _Upgrade:
         return _CONSTRAINT
 
 
-def _calls(
-    function: ast.FunctionDef | ast.AsyncFunctionDef,
-) -> list[tuple[ast.Call, ast.Attribute, dict[str, str | None]]]:
-    """Every method call in *function*, with the batch handles in scope where it is made.
+class _Revision:
+    """What a revision binds at its top level, so a call out of ``upgrade()`` can be followed.
 
-    The handles map each ``as`` name of an enclosing ``batch_alter_table(...)`` block to
-    that block's literal table (``None`` when the table is not a literal).
+    ``functions`` holds every top-level function by name; a name defined twice keeps both,
+    because which one a call meets is settled only when it runs. ``aliases`` holds each
+    top-level ``name = other``, which makes *name* call what *other* calls: that is how
+    ``upgrade = _up`` names the function the migration runs. ``operations`` holds each name
+    imported from ``alembic.op``, by the name it is bound to and the operation it is.
     """
-    found: list[tuple[ast.Call, ast.Attribute, dict[str, str | None]]] = []
+
+    def __init__(self, tree: ast.Module) -> None:
+        self.functions: dict[str, list[_Function]] = {}
+        self.aliases: dict[str, list[str]] = {}
+        self.operations: dict[str, str] = {}
+        for statement in tree.body:
+            if isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef):
+                self.functions.setdefault(statement.name, []).append(statement)
+            elif isinstance(statement, ast.Assign) and isinstance(statement.value, ast.Name):
+                for target in statement.targets:
+                    if isinstance(target, ast.Name):
+                        self.aliases.setdefault(target.id, []).append(statement.value.id)
+            elif (
+                isinstance(statement, ast.ImportFrom)
+                and statement.module == _OPERATIONS_MODULE
+                and not statement.level
+            ):
+                for alias in statement.names:
+                    self.operations[alias.asname or alias.name] = alias.name
+
+    def functions_named(self, name: str) -> list[_Function]:
+        """Every top-level function a call of *name* can run, through any chain of aliases."""
+        found: list[_Function] = []
+        seen: set[str] = set()
+        pending = [name]
+        while pending:
+            current = pending.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            found.extend(self.functions.get(current, ()))
+            pending.extend(self.aliases.get(current, ()))
+        return found
+
+    def upgrades(self, tree: ast.Module) -> list[_Function]:
+        """The functions the migration runs as its upgrade, each once.
+
+        Every function named ``upgrade`` (as before, wherever it is defined), and every
+        top-level function a top-level ``upgrade = ...`` names.
+        """
+        found: dict[int, _Function] = {}
+        for function in ast.walk(tree):
+            if isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
+                if function.name == "upgrade":
+                    found.setdefault(id(function), function)
+        for target in self.aliases.get("upgrade", ()):
+            for function in self.functions_named(target):
+                found.setdefault(id(function), function)
+        return list(found.values())
+
+
+def _literal_getattr(node: ast.expr) -> tuple[ast.expr, str] | None:
+    """``(receiver, name)`` for ``getattr(receiver, "name")``, a lookup by a literal name."""
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+    ):
+        name = _literal(node.args[1])
+        if name is not None:
+            return node.args[0], name
+    return None
+
+
+def _calls(upgrade: _Function, revision: _Revision) -> list[_Call]:
+    """Every operation call the upgrade makes, in *upgrade* and in each function it reaches.
+
+    A call by name to a top-level function of the revision is followed into that function,
+    and from there into each function it calls, each read once however often it is called,
+    so a helper that calls itself, or two that call each other, cannot loop. A batch
+    block's handle is known inside its block only, so a helper that is handed one reads
+    its calls in the op form.
+    """
+    found: list[_Call] = []
+    reached: list[_Function] = [upgrade]
+    seen = {id(upgrade)}
 
     def walk(node: ast.AST, handles: dict[str, str | None]) -> None:
         if isinstance(node, ast.With | ast.AsyncWith):
@@ -374,12 +532,27 @@ def _calls(
             for statement in node.body:
                 walk(statement, inner)
             return
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            found.append((node, node.func, handles))
+        if isinstance(node, ast.Call):
+            func = node.func
+            looked_up = _literal_getattr(func)
+            if isinstance(func, ast.Attribute):
+                found.append(_Call(node, func.attr, func.value, handles))
+            elif looked_up is not None:
+                found.append(_Call(node, looked_up[1], looked_up[0], handles))
+            elif isinstance(func, ast.Name) and func.id in revision.operations:
+                found.append(_Call(node, revision.operations[func.id], None, handles))
+            elif isinstance(func, ast.Name):
+                for function in revision.functions_named(func.id):
+                    if id(function) not in seen:
+                        seen.add(id(function))
+                        reached.append(function)
         for child in ast.iter_child_nodes(node):
             walk(child, handles)
 
-    walk(function, {})
+    index = 0
+    while index < len(reached):
+        walk(reached[index], {})
+        index += 1
     return found
 
 
@@ -388,7 +561,9 @@ def check_no_destructive_migrations(
 ) -> list[ArchViolation]:
     """A revision may not take a step that is safe only against an empty database.
 
-    In ``upgrade()``, on ``op``, a ``batch_alter_table`` block or any alias: a drop
+    In ``upgrade()``, and in every top-level function of the revision it calls by name,
+    transitively; on ``op``, a ``batch_alter_table`` block or any alias, as an operation
+    imported by name from ``alembic.op``, or looked up with a literal ``getattr``: a drop
     (``drop_table`` / ``drop_column``), a rename (``rename_table``,
     ``alter_column(new_column_name=...)``), a type change (``alter_column(type_=...)``),
     a NOT NULL tightening of an existing column (``alter_column(nullable=False)``), and
@@ -396,11 +571,13 @@ def check_no_destructive_migrations(
     ``create_check_constraint`` / ``create_foreign_key`` / ``create_primary_key`` /
     ``create_exclude_constraint`` / ``create_index(unique=True)``). The same steps
     smuggled through ``execute(...)`` / ``exec_driver_sql(...)`` as a statically
-    readable statement are caught too: ``DROP TABLE`` / ``DROP COLUMN`` /
-    ``TRUNCATE`` / ``DELETE FROM`` / ``ALTER TABLE ... DROP``, ``ALTER TABLE ...
-    RENAME`` / ``RENAME TABLE``, ``ALTER COLUMN ... TYPE``, ``SET NOT NULL``, ``ADD
+    readable statement are caught too: ``DROP TABLE`` / ``DROP COLUMN`` / ``DROP
+    SCHEMA`` / ``TRUNCATE`` / ``DELETE FROM`` / ``ALTER TABLE ... DROP``, ``ALTER TABLE
+    ... RENAME`` / ``RENAME TABLE``, ``ALTER COLUMN ... TYPE``, ``SET NOT NULL``, ``ADD
     CONSTRAINT`` (a check or a foreign key ``NOT VALID`` excepted), ``CREATE UNIQUE
-    INDEX`` and ``VALIDATE CONSTRAINT``.
+    INDEX`` and ``VALIDATE CONSTRAINT``, each statement of a text on its own, split at
+    every ``;`` outside a quoted string or name, a dollar-quoted body and a comment. A
+    top-level ``upgrade = <function>`` makes that function the upgrade.
 
     Each operation is one violation whose message says what to do instead — expand,
     backfill, contract in a later release — and the contract step, reviewed, carries
@@ -414,20 +591,16 @@ def check_no_destructive_migrations(
     for path in _migration_files(root):
         rel = _rel(path, root)
         tree = parse(path)
-        for function in ast.walk(tree):
-            if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
-                continue
-            if function.name != "upgrade":
-                continue
-            upgrade = _Upgrade(function)
-            for call, func, handles in _calls(function):
-                receiver = func.value
-                handle = receiver.id if isinstance(receiver, ast.Name) else None
-                batch = handle in handles
-                batch_table = handles.get(handle) if handle is not None else None
-                kind = upgrade.classify(call, func.attr, batch_table, batch=batch)
-                if kind is not None:
+        revision = _Revision(tree)
+        for function in revision.upgrades(tree):
+            calls = _calls(function, revision)
+            upgrade = _Upgrade(calls)
+            for entry in calls:
+                batch, batch_table = entry.batch()
+                for kind in upgrade.classify(entry.call, entry.attr, batch_table, batch=batch):
                     violations.append(
-                        ArchViolation("no_destructive_migrations", rel, call.lineno, _MESSAGES[kind])
+                        ArchViolation(
+                            "no_destructive_migrations", rel, entry.call.lineno, _MESSAGES[kind]
+                        )
                     )
     return violations
