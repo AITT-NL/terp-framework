@@ -129,6 +129,10 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         # committed locks, so a dependency added without re-locking is an image that
         # cannot be built, found by whoever runs the deploy. Red for a managed app only.
         "locks",
+        # ...and, where deployment.json says "build": "generated", are the build files the
+        # generator's render? A copy that is not the render is a build nobody declared, and
+        # the gate never writes: `terp deployment render` does (ADR 0187).
+        "generated",
         # Would this deployment ship something that cannot be taken back? A
         # dev stack that is wrong does not come up; a deployment that is wrong
         # comes up perfectly, so this one belongs on the merge bar rather than

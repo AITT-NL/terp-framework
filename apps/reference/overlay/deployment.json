@@ -1,5 +1,5 @@
 {
-  "$comment": "The reference app's deploy declaration (ADR 0184). Beside the template's units it declares what the app adds to docker-compose.prod.yml, all on the backend image: the outbox worker and the relay variables it needs, the scheduler (one instance: APScheduler holds no lock), the monitor companion under a role no tool looks up, and the files volume the API and the worker share, with its own backup policy. `terp verify --only deployment` holds every claim to the profile and to the app; the CI lane runs it on every render.",
+  "$comment": "The reference app's deploy declaration (ADR 0184). Beside the template's units it declares what the app adds to docker-compose.prod.yml, all on the backend image: the outbox worker and the relay variables it needs, the scheduler (one instance: APScheduler holds no lock), the monitor companion under a role no tool looks up, and the files volume the API and the worker share, with its own backup policy. `terp verify --only deployment` holds every claim to the profile and to the app; the CI lane runs it on every render. It states nothing the generator would refuse (the migration step and the scheduler run the commands it renders for them, and the files volume says where it is mounted), so the same file also adopts \"build\": \"generated\" and renders the profile this app commits byte for byte (ADR 0187), which the generated lane does.",
   "schemaVersion": 1,
   "build": "own",
   "compose": {
@@ -20,13 +20,6 @@
     {
       "id": "migrate",
       "role": "one-shot",
-      "command": [
-        "terp",
-        "migrate",
-        "upgrade",
-        "--app-root",
-        "/srv/app"
-      ],
       "dependsOn": [
         "db"
       ]
@@ -67,11 +60,6 @@
     {
       "id": "scheduler",
       "role": "scheduler",
-      "command": [
-        "terp",
-        "jobs",
-        "scheduler"
-      ],
       "env": [
         "JOB_SYSTEM_ACTOR_ID"
       ],
@@ -98,6 +86,13 @@
   "volumes": [
     {
       "id": "files-data",
+      "mount": {
+        "path": "var/files",
+        "units": [
+          "api",
+          "worker"
+        ]
+      },
       "backup": {
         "every": "P1D",
         "keep": "P30D"

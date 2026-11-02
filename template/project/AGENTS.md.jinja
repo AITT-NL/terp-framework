@@ -31,11 +31,16 @@ row scoping for you, with precise, fixable messages.
 {%- endif %}
 {%- if use_files %}
 - **File uploads** (`terp-cap-files`): auto-discovered admin surface at `/api/v1/files`;
-  streamed storage, local `var/files` profile by default — `uv run terp guide files`.
+  streamed storage, local `var/files` profile by default — `uv run terp guide files`. The
+  production profile keeps `var/files` in the `files-data` volume, which `deployment.json`
+  declares with its backup policy.
 {%- endif %}
 {%- if use_sso %}
 - **Single sign-on** (`terp-cap-oidc`): wired in `app/auth.py`, mounts once the `OIDC_*`
-  variables are set (see `.env.example`); JIT-provisions viewer-ranked SSO accounts.
+  variables are set (see `.env.example`); JIT-provisions viewer-ranked SSO accounts for the
+  email domains in `OIDC_ALLOWED_EMAIL_DOMAINS`. With SSO configured, a production boot
+  refuses an empty list (`allowed_email_domains`), so a deployed environment sets it with
+  the other `OIDC_*` values.
 {%- endif %}
 {%- if use_events %}
 - **Domain events** (`terp-cap-eventbus`): `dispatch_in_process` is wired in `app/main.py`;
@@ -72,7 +77,11 @@ or `python` will not resolve.
   `uv run terp guide changelog --since <the version you are on>` first — it renders only
   what you have not seen, leading with `### Security` and `### Upgrade notes`: a
   green gate proves the upgrade did not break the app, not that the release
-  changed nothing the app should adopt.
+  changed nothing the app should adopt. Where `deployment.json` says
+  `"build": "generated"`, the upgrade is `copier update`, then the install
+  (`uv sync`), then **`uv run terp deployment render`**, committed together: the
+  template no longer writes the three production build files, the new release's
+  generator does, and a missed render is red under `uv run terp verify --only generated`.
 - **`uv run terp inspect capabilities`** — every maintained `terp-cap-*` package:
   what this app already has, what it can adopt, the exact `uv add` line and the
   composition-root wiring. **Read this before building infrastructure by hand** —
@@ -108,8 +117,9 @@ variable, update the manifest in the same change:
 
 - Preserve existing declarations and declare only variables the app actually reads.
 - Names are UPPER_SNAKE (`^[A-Z][A-Z0-9_]{0,63}$`). Never shadow platform-owned
-  `SECRET_KEY`, `POSTGRES_PASSWORD`, `DATABASE_URL`, `ENVIRONMENT`, `WEB_PORT`, or
-  `BACKEND_CORS_ORIGINS`; never put frontend build-time `VITE_*` values here.
+  `SECRET_KEY`, `POSTGRES_PASSWORD`, `DATABASE_URL`, `ENVIRONMENT`, `WEB_PORT`,
+  `BACKEND_CORS_ORIGINS` or `TERP_RELEASE_TAG`; never put frontend build-time `VITE_*`
+  values here.
 - Mark tokens, passwords, API keys and client secrets with `"format": "secret"`.
   Never write secret values into the manifest, `.env`, source, tests, prompts or logs.
 - **Never also list a declared variable in a compose `environment:` block.** Compose
@@ -170,7 +180,7 @@ npm --prefix frontend run lint        # frontend boundary lint + budget
 npm --prefix frontend run build       # the production build CI ships
 ```
 
-Five of the profile's checks ask questions the test suite cannot, and each of them
+Six of the profile's checks ask questions the test suite cannot, and each of them
 reddens for a reason no test failure will explain:
 
 - `production-readiness` — would this app boot in production? Three refusals are
@@ -192,6 +202,13 @@ reddens for a reason no test failure will explain:
   without re-locking is an image that cannot be built. After changing a dependency, run
   `uv lock` or `npm --prefix frontend install` and commit the lock with the manifest. Red for
   an app whose `deployment.json` declares units; a note for any other.
+- `generated` — are the production build files the framework's render? Where
+  `deployment.json` says `"build": "generated"`, `Dockerfile.prod`, `frontend/Dockerfile.prod`
+  and `docker-compose.prod.yml` are rendered from it: change `deployment.json`, run
+  `uv run terp deployment render`, and commit both. Never edit the three files by hand; a
+  copy that is not the render is red, and so is a `deploy_build` in `.copier-answers.yml`
+  that disagrees. `uv run terp deployment adopt --build generated` (or `--build own`, back)
+  moves the app between the two states and writes both files. Silent for any other state.
 
 A frontend module that fails typecheck breaks the app at runtime (a blank page —
 Vite refuses the module graph), so a red typecheck means the app does not work,

@@ -23,6 +23,7 @@ from terp.core import (
     JobDefinition,
     JobEnvelope,
     JobQueue,
+    Misfire,
     ModuleSpec,
     Policy,
     ScheduleCatalog,
@@ -56,6 +57,7 @@ def _schedule(job: JobDefinition | None = None, **kwargs: object) -> ScheduleDef
         name=kwargs.pop("name", "sync.customers.nightly"),  # type: ignore[arg-type]
         job=job if job is not None else _job(),
         cron=kwargs.pop("cron", "0 2 * * *"),  # type: ignore[arg-type]
+        misfire=kwargs.pop("misfire", Misfire.SKIP),  # type: ignore[arg-type]
         **kwargs,  # type: ignore[arg-type]
     )
 
@@ -96,7 +98,7 @@ def test_schedule_definition_validates_name_job_and_cron() -> None:
     with pytest.raises(ValueError, match="dotted token"):
         _schedule(name="")
     with pytest.raises(TypeError, match="must be a JobDefinition"):
-        ScheduleDefinition(name="x.y", job="nope", cron="* * * * *")  # type: ignore[arg-type]
+        ScheduleDefinition(name="x.y", job="nope", cron="* * * * *", misfire=Misfire.SKIP)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="cron"):
         _schedule(cron="   ")
     with pytest.raises(TypeError, match="payload_factory must be callable"):

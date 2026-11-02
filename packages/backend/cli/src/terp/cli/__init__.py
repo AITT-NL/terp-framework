@@ -1337,11 +1337,39 @@ Background jobs (terp.core.enqueue + JobCatalog)
 - Trigger a scheduled job from any cron / k8s CronJob / systemd or cloud timer:
       terp jobs run sync.customers.pull --payload '{"source": "crm"}'
   Inspect the declared jobs:  terp jobs list   /   terp inspect jobs.
-- Declare a schedule (ScheduleDefinition: a cron + a catalog JobDefinition) on the control
-  plane (ControlPlane(schedules=ScheduleCatalog([...]))); boot validates each schedule's job
-  against the JobCatalog. Run schedules in-process with `terp jobs scheduler` (APScheduler;
-  needs terp-cap-scheduler-apscheduler) or via Celery beat — each cron tick enqueues through
-  the same typed seam, so a scheduled job stays audited + system-actor stamped.
+- Declare a schedule (ScheduleDefinition: a cron + a catalog JobDefinition + a misfire
+  policy) on the control plane (ControlPlane(schedules=ScheduleCatalog([...]))); boot
+  validates each schedule's job against the JobCatalog. Run schedules in-process with
+  `terp jobs scheduler` (APScheduler; needs terp-cap-scheduler-apscheduler) or via Celery
+  beat — each cron tick enqueues through the same typed seam, so a scheduled job stays
+  audited + system-actor stamped.
+- DECLARE WHAT A MISSED TICK BECOMES (ADR 0191). A deploy stops the scheduler, and a cron
+  time that passes meanwhile is a misfire. misfire= is a required keyword:
+      ScheduleDefinition(name="reports.hourly", job=REPORT, cron="0 * * * *",
+                         misfire=Misfire.RUN_ONCE)   # run it once, late, when back
+      ScheduleDefinition(name="reminders.morning", job=REMIND, cron="0 8 * * *",
+                         misfire=Misfire.SKIP)       # pointless late: record it skipped
+  RUN_ONCE folds every tick of one gap into one run; a slot settled within a minute of its
+  cron time is on time either way. The scheduler can only apply the policy to a tick it
+  knows it missed, so keep each schedule's last settled slot in the database:
+      create_app(..., job_queue=OutboxJobQueue(),
+                 schedule_ledger=DatabaseScheduleLedger(),        # terp-cap-outbox
+                 require_durable_schedules=settings.is_production)
+  The record commits in the same transaction as the outbox row the tick enqueued, so a
+  crash leaves both or neither. `terp jobs scheduler` settles every schedule when it
+  starts. On Celery beat, call scheduler.catch_up() from beat's `beat_init` signal.
+- THE TWO LONG-RUNNING PROCESSES STOP CLEANLY AND BEAT. On SIGTERM or SIGINT, `terp jobs
+  worker --forever` finishes the job it is running and gives the rest of its batch back
+  (another worker takes it at once), and `terp jobs scheduler` lets its ticks in flight
+  finish. A worker killed before that (the stop grace ran out) loses nothing: its job is
+  redelivered once its lease lapses, so a handler must tolerate running twice. Each
+  process writes a heartbeat from its own loop, <tmp>/terp-worker.heartbeat or
+  terp-scheduler.heartbeat in its container, with the bound it may not outgrow
+  (worker: max(--lease-seconds, --poll-seconds) + 30s; scheduler: 60s). The generated
+  production profile checks it with a probe that reads the file; `terp guide deployment`.
+- On Celery, the Terp task acknowledges a message only after the job ran (acks_late,
+  reject_on_worker_lost), so a killed worker's job is redelivered. Set
+  worker_prefetch_multiplier=1, and on Redis a visibility_timeout above your longest job.
 """,
     "outbox": """\
 Durable post-commit delivery (outbox capability)
@@ -1364,7 +1392,10 @@ Durable post-commit delivery (outbox capability)
       def _after_write(self, session, entity, *, action):
           enqueue(session, job=RUN_START, payload=RunStartPayload(run_id=entity.id))
 - Run the relay as its own process (not inside the API container):
-      terp jobs worker
+      terp jobs worker --forever
+  (without --forever it drains what is due once and returns, for an external trigger).
+  A stop finishes the job in flight and releases the rest of the batch; the process writes
+  a heartbeat its container's healthcheck reads (`terp guide jobs`).
   It leases rows (claim_id + locked_until, SKIP LOCKED), delivers AT LEAST ONCE, retries
   with exponential backoff, and dead-letters once max_attempts is exhausted. Every
   handler must therefore be safe to run twice - see `terp guide idempotency`.
@@ -1441,7 +1472,9 @@ Idempotency (the Idempotency-Key header, terp.core.idempotency)
       create_app(..., idempotency_store=RedisIdempotencyStore(...),
                  require_shared_idempotency_store=get_settings().is_production)
   Only a store that marks itself shared (mark_shared_idempotency_store) satisfies the
-  guard, so a load-balanced deployment cannot silently lose the guarantee.
+  guard, so a load-balanced deployment cannot silently lose the guarantee. A required
+  store is part of readiness too (ADR 0191): /health/ready asks its ping() and answers 503
+  while it cannot be reached, and a shared store with no ping() of its own refuses the boot.
   Until you opt in, a production boot logs a WARNING saying idempotency is deduplicated
   per worker - the property is stated where you can read it before scaling, because
   after scaling the only symptom is duplicate rows with nothing to connect them to.
@@ -1482,6 +1515,9 @@ Realtime push (realtime capability)
       configure_broker(RedisRealtimeBroker.from_url(settings.REDIS_URL))
       configure_ticket_store(RedisConnectionTicketStore.from_url(settings.REDIS_URL))
       configure_realtime(..., require_shared_broker=settings.is_production)
+  While that promise stands the broker is part of readiness (ADR 0191): /health/ready
+  asks its ping() and answers 503 while Redis cannot be reached, and a shared broker with
+  no ping() of its own is refused under the promise.
   The worker runs the same composition root, so it wires the same broker. Pub/sub is
   server-wide: the database index is in the channel names, but two deployments sharing
   one Redis server AND database need distinct namespace=... values. Delivery is
@@ -1557,6 +1593,12 @@ File objects (files capability, ADR 0056/0057)
   invoice via your own service (its policy + row scope decide visibility), then
       row, data = FileService().load_for(session, invoice, "attachment_file_id")
   load_for fail-closes on an undeclared reference; /api/v1/files itself stays ADMIN-only.
+- The local profile's bytes need a volume in production, or they live in the container and
+  go with it. The template's production profile (use_files) mounts the files-data volume at
+  var/files on api, and deployment.json declares it with its backup policy, so a deploy tool
+  backs it up. A unit of your own that reads stored bytes (a worker) mounts the same volume:
+  add it to the profile and to the volume's "mount": {"units": [...]}. A store behind
+  another adapter needs no volume. `terp guide deployment` has the rest.
 """,
     "capability": """\
 Using capabilities
@@ -2458,7 +2500,9 @@ which workbench.json describes. Nothing in it is read by the running app.
 The words are the Terp Standard's (deployment-declaration.schema.json in terp-spec,
 mirrored byte for byte in terp-arch). The template writes the file once, at `copier
 copy`, describing its own profile; `copier update` never creates or rewrites it. An app
-rendered before it existed stays undeclared until it writes one itself.
+rendered before it existed stays undeclared until it writes one itself, or has `uv run
+terp deployment adopt --build own` write it from its production profile (MOVING
+BETWEEN STATES, below).
 
     {
       "schemaVersion": 1,
@@ -2471,7 +2515,7 @@ rendered before it existed stays undeclared until it writes one itself.
         { "id": "api", "role": "api", "healthPath": "/health/ready",
           "livenessPath": "/health/live", "migrations": ["notes"],
           "dependsOn": ["db", "migrate"] },
-        { "id": "worker", "role": "worker", "command": ["terp", "jobs", "worker"],
+        { "id": "worker", "role": "worker", "command": ["terp", "jobs", "worker", "--forever"],
           "env": ["SOME_API_BASE_URL"], "dependsOn": ["db"] },
         { "id": "web", "role": "web", "dependsOn": ["api"] }
       ],
@@ -2483,9 +2527,10 @@ FOUR STATES, EXACTLY ONE AT A TIME
 
   absent                          undeclared: every check passes, as before
   "build": "own"                  units built from the build files the app commits
-  "build": "generated"            refused until the framework ships a generator:
-                                  "this toolchain cannot honour generated; upgrade,
-                                  or declare own"
+  "build": "generated"            the framework renders Dockerfile.prod,
+                                  frontend/Dockerfile.prod and docker-compose.prod.yml
+                                  from this file (`terp deployment render`), and a
+                                  committed copy that is not the render is refused
   {"unmanaged": true, "reason"}   no tool can drive this deploy; the checks are off and
                                   a tool shows the reason. Nothing may stand beside it.
 
@@ -2498,7 +2543,9 @@ or a second API to the profile and nothing here objects. A role nobody has heard
 information. What the file DOES say must be true of the resolved profile -- the file
 plus compose.overrides, merged the way `docker compose -f ... -f ...` merges them:
 
-  - a unit is a service of the profile; a volume is a named volume a service mounts;
+  - a unit is a service of the profile; a volume is a named volume a service mounts, and
+    a restated "mount" names exactly the declared units whose services mount it there
+    (its path relative to /srv, where the images run the app);
   - a restated "command" (an argument list, never a shell string) or "dependsOn" is the
     profile's own, the order restricted to declared units;
   - an "env" name reaches the unit's service: in its environment: block, or through the
@@ -2539,16 +2586,103 @@ digest allowlist are environment facts and stay out too.
 
 WHERE IT IS CHECKED
 
-  terp check                       the two terp.arch rules, from files alone:
-                                   deployment_declaration_is_readable and
-                                   deployment_declaration_tells_the_truth
-  terp verify --only deployment    both, plus the app part and notes on what the app
-                                   uses that the file does not state (a files volume
-                                   with no backup policy, a companion root no unit
-                                   runs, a datastore kind no unit declares)
+  terp check                       the three terp.arch rules, from files alone:
+                                   deployment_declaration_is_readable,
+                                   deployment_declaration_tells_the_truth and
+                                   deployment_generated_files_match_their_render
+  terp verify --only deployment    the first two, plus the app part and notes on what
+                                   the app uses that the file does not state (a files
+                                   volume with no backup policy, a companion root no
+                                   unit runs, a datastore kind no unit declares)
+  terp verify --only generated     the third, with notes: what it did not judge, and a
+                                   profile `terp release` will refuse
 
-Neither rule has an `# arch-allow-*` marker -- a JSON file cannot carry one. The way
-out is the declaration's own: {"unmanaged": true, "reason": "..."}.
+None of them has an `# arch-allow-*` marker -- a JSON file cannot carry one, and a marker
+in a file the generator rewrites would be erased by the next render. The way out is the
+declaration's own: {"unmanaged": true, "reason": "..."}, or, for the third, "build": "own".
+
+THE GENERATED STATE (ADR 0187)
+
+Under "build": "generated" the three production build files are the framework's. Change
+deployment.json (or pyproject.toml's name, or the framework version), then:
+
+  uv run terp deployment render          writes the render, every file or none, and
+                                         removes a generator-owned file the declaration
+                                         no longer renders; refuses, in the generator's
+                                         own words, what it cannot render faithfully
+  uv run terp deployment render --check  writes nothing; exit 1 when a committed file is
+                                         not the render (the same rule as the gate's)
+
+and commit the files with the declaration. The gate never writes. `terp verify --only
+generated` is red when a committed file differs from the render (a short diff and the
+fix), when a generator-owned path the render does not produce exists, when the generator
+refuses the declaration, when [project].name is one compose or Docker refuses, when .env,
+.app.env or a backend unit's .app.<id>.env would be committed (asked of git check-ignore)
+or baked into an image (asked of a matcher with Docker's own .dockerignore semantics), and
+when deploy_build in .copier-answers.yml disagrees. In a tree git finds no work tree in,
+the git half is noted, not judged.
+
+What the generator refuses, each with the field and what is allowed: another profile name
+or an override; externalDatabase beside a database unit; a database or store without kind,
+or two of a kind; a one-shot that declares `terp migrate upgrade` (drop the command: the
+one-shot without one is the migration step) or a second step; a role with no command of
+its own and none declared; a web unit with a command, with no single api to proxy to, or
+without frontend/package-lock.json; an api without both health paths; a start-order cycle
+or a unit it names that is not declared; a volume without its mount, mounted anywhere but
+var/files, on a unit not on the backend image, or on a unit that already mounts another
+volume there (Compose would mount only the last of them, without a word); any system
+package (the table is empty in this release); a unit id that is not a lower-case compose
+name. Any of them: declare "build": "own" and keep the files yourself.
+
+The generator's two words: "generator": {"systemPackages": [...]}, valid only beside
+"build": "generated", and "mount": {"path": "var/files", "units": [...]} on a volume,
+required under generated and a restatement the truth rule holds to the profile under own.
+
+MOVING BETWEEN STATES: terp deployment adopt (ADR 0187)
+
+The state is two recorded facts that must agree: "build" in deployment.json, which the
+gate reads, and deploy_build in .copier-answers.yml, the template question `copier
+update` reads. Copier renders an update's OLD template version with the RECORDED
+answers, so adoption writes the answer itself; never `copier update --data
+deploy_build=...`, whose old render still has the files it would then delete. Each form
+writes all its files or none and prints the diff; --dry-run only prints.
+
+  uv run terp deployment adopt --build generated
+      needs a readable, true, renderable deployment.json and scaffolding from a template
+      version that asks deploy_build. Sets both facts, renders, removes a generator path
+      the declaration does not produce. A template-shaped app at the template version it
+      was rendered from changes NO build file: the template's are the seed's render.
+      Refused, writing nothing: a declaration the generator cannot render (each refusal
+      above), a project name compose or Docker refuses, an environment file git or the
+      build context would carry, and an answers file that records no deploy_build --
+      its template version's every update renders the build files over the generator's,
+      so `copier update` first, which records deploy_build: own, then adopt.
+  uv run terp deployment adopt --build own
+      on a generated app: both facts back to own, and no file changes; the last render is
+      the app's, and the next update merges into it as into any own app's. On an
+      undeclared app: deployment.json written from docker-compose.prod.yml as it runs --
+      a datastore by the table's kind (its image pinned to the table's digest in the same
+      change), a service built from the checkout by what it does (web from frontend/,
+      one-shot when it does not restart, worker and scheduler by `terp jobs`, api when it
+      runs the image's own command, with the framework's health routes; otherwise its own
+      name as the role), dependsOn restricted to declared units, and a volume a declared
+      unit mounts with its mount where it is one path inside var/. A service on an image
+      neither built here nor in the table is refused by name. A backup policy, env names,
+      sizes and a rollback strategy are not in a profile: the notes name them.
+  uv run terp deployment adopt --unmanaged "<reason>"
+      ADR 0184's opt-out, and deploy_build: own, since the build files are the app's.
+
+A copier answers file is optional: an app without one changes deployment.json only.
+
+A FRAMEWORK UPDATE OF A GENERATED APP
+
+`copier update`, then the install (`uv sync`, `npm --prefix frontend install`), then
+`uv run terp deployment render`, committed together, in the copy the update is made in.
+The template leaves the three files to the generator of the release just installed, so a
+missed render is red there under `terp verify --only generated`. `uv run terp upgrade
+--check` prints the render as its own step for an app whose deployment.json says
+generated. A fresh `copier copy --data deploy_build=generated` has none of the three until
+the first render, which needs frontend/package-lock.json (`npm --prefix frontend install`).
 
 THE LOCKS A DECLARED APP IS BUILT FROM
 
@@ -2559,6 +2693,125 @@ uv.lock or frontend/package-lock.json is missing or stale against its manifest, 
 the fix: `uv lock`, `npm --prefix frontend install`, then commit the lock. uv and npm answer
 for their own locks, offline (`uv lock --check`, `npm ci --dry-run`). An undeclared or
 unmanaged app is told the same as a note.
+
+THE PRODUCTION PROFILE THE TEMPLATE SHIPS (ADR 0187)
+
+The template's Dockerfile.prod, frontend/Dockerfile.prod and docker-compose.prod.yml are
+the framework generator's render of the seed declaration (terp.arch.deployment.generate),
+held byte for byte by a test, so a hardening change reaches them once. Each says so in
+its header. Under "build": "own" they are the app's to change; under "build": "generated"
+they are the render (THE GENERATED STATE, above). With the files capability on (use_files),
+the seed also declares the files-data volume, mounted at var/files on api with a daily
+backup policy, and the profile mounts it: the render of that seed, held the same way. The
+backend image makes /srv/var/files owned by the user it runs as, and Docker gives an empty
+named volume the owner of the directory it is mounted over, so that user can write it.
+
+  start it, with its required secrets and a new per-release image tag set (compose
+  stops on an unset one; the tag keeps the previous release's images beside this
+  one's, so it can be started again):
+    SECRET_KEY=... POSTGRES_PASSWORD=... TERP_RELEASE_TAG=$(git rev-parse --short=12 HEAD) \\
+      docker compose -f docker-compose.prod.yml up -d --wait --build
+  bootstrap the first administrator (`terp seed` refuses ENVIRONMENT=production), with
+  the same variables set:
+    docker compose -f docker-compose.prod.yml run --rm -e TERP_USER_PASSWORD api \\
+      terp user create admin@your-domain.example --role admin
+  start an earlier release again: set its TERP_RELEASE_TAG and run `up -d --wait
+    --no-build`, so an image that is gone fails instead of being rebuilt from this
+    checkout under the old tag
+  a database this deployment does not run: set DATABASE_URL, which every backend unit
+    reads before its default; to drop the bundled `db` service too, add an override
+    that removes it, name it in compose.overrides and declare
+    "externalDatabase": {"backup": "client"}
+
+What each unit becomes: a datastore runs its table digest and its own healthcheck; an
+api is probed on its livenessPath, passed to a fixed probe as an argument; a worker runs
+`terp jobs worker --forever` (drain, wait --poll-seconds, drain again, until stopped)
+and a scheduler `terp jobs scheduler`, each with init and a healthcheck on the heartbeat
+its own loop writes (ADR 0191); the one-shot without a command is the migration step; the
+web tier proxies to its api. The backend image carries no HEALTHCHECK. A unit that serves
+no request and writes no heartbeat (a companion, a drain without --forever) has no check,
+so `docker compose up --wait` (what a deploy runs) waits for it to run, where an inherited
+HTTP probe turned it unhealthy and a disabled one made Compose refuse to wait.
+The image ships its bytecode compiled (checked-hash, so the same lock compiles to the same
+bytes). Every backend unit loads .app.env, then its own .app.<id>.env. Every value a
+declaration gives (a command, a health path) is written double-quoted with each $
+doubled, so compose passes it on as written.
+
+THE HEARTBEAT CHECK (ADR 0191)
+
+A unit whose command is `terp jobs worker ... --forever` or `terp jobs scheduler ...`,
+declared or the role's default, is checked every 10 seconds with a fixed probe: python -c
+<standard library only> worker|scheduler. It reads <tmp>/terp-<role>.heartbeat in the
+container, prints {"heartbeat", "age_seconds", "stale_after_seconds"} as one JSON line, and
+fails when the heartbeat is older than the bound the process wrote into it, or missing. So
+a worker stuck in one job turns unhealthy once its bound has passed (60s with the default
+lease), while a container that merely runs is not called healthy. A deploy tool reads the
+same answer per unit, with no HTTP and no database: the container's health status, and the
+last probe's output for the age (docker inspect, .State.Health.Log), or the probe run in
+the container. Dependants of such a unit wait for service_healthy. Do not set TMPDIR
+differently for the process and its healthcheck: both find the file through it.
+
+READINESS (ADR 0191)
+
+/health/ready answers 200 when the database answers SELECT 1 and every shared store a
+require_shared_* made mandatory answers its ping(); 503 otherwise, naming each check. A
+store is asked on a thread of its own within 2 seconds, never twice at once, so one that
+stops answering turns readiness 503 instead of holding the probe. Workers, schedulers and
+the outbox backlog are never part of it. Bound the Redis client's own commands too, or a
+Redis that stops answering holds every request the rate limiter counts:
+REDIS_URL=redis://host:6379/0?socket_timeout=2&socket_connect_timeout=2.
+
+CUTTING A RELEASE AND PROMOTING IT (ADR 0187)
+
+`terp release` is three jobs, each on a fresh host, so that no job that runs the app outside a
+build container holds a credential or writes into what is built. Each takes the exact commit
+(its full object name) and reads it from git's object store, never from a working copy:
+
+  uv run terp release build --sha <sha> --tag <tag> --registry registry.example/team
+    builds every image the profile builds from the commit's pristine tree, in a BuildKit
+    builder made for the job and removed after it, with --pull and no cache, and pushes
+    <registry>/<image>:<tag> with the credential your docker configuration holds for this
+    release. It writes terp-release-build.json: BuildKit's own digests.
+  uv run terp release gate --sha <sha> --build terp-release-build.json
+    runs in a clean checkout of the commit: `terp verify --profile release --format
+    assurance` with npm's scripts off, then the schedule catalog, read by running the pushed
+    image sealed (no network, read-only, its own non-root user). It holds no push credential
+    and no key. It writes terp-release-gate.json.
+  terp release sign --sha <sha> --tag <tag> --registry ... --build ... --gate ... \\
+      --hosts separated --signer '["your-kms-signer", "--key", "release"]' --public-key k.pub
+    runs from the signer image, never the commit's own toolchain, and runs nothing of the
+    app: it repeats the refusals, renders a generated app's files with the terp-arch the
+    commit pins (fetched by hash, run in a process of its own), reads the backend image from
+    the registry as data and holds it to the tree and the lock, scans for known
+    vulnerabilities and for secrets in the history, and signs the manifest as a DSSE envelope
+    (release.dsse.json). --sign-key <file> is refused without --test-key. Run the image with
+    the checkout mounted read-only (/repo) and the engine's socket and its group
+    (-v /var/run/docker.sock:/var/run/docker.sock --group-add <the socket's group>): the
+    bytecode check starts the base image's interpreter, and the image runs as its own user.
+
+Refused, by name, before anything is built or signed: an undeclared or unmanaged app, a
+declaration that cannot be read or is untrue, a committed .terp-dist/ or submodule, a lock
+naming a path, an image neither built here nor a datastore table digest, a datastore with no
+healthcheck, more than one migration step or one with --revision/--sql, no step and other than
+one api unit, a built image that does not read TERP_RELEASE_TAG, and a build with more than a
+context and a Dockerfile.
+
+  terp promote release.dsse.json --public-key k.pub --project-dir /srv/deploy/app
+    verifies the envelope before reading it, checks the manifest (a newer Terp Standard than
+    its own is refused; --require-generated refuses an own release; a generated profile is
+    audited for every $), pulls each image by its signed digest and tags it
+    <project>-backend-prod:<tag>, writes the carried profile, and runs compose with an
+    allowlisted environment and TERP_RELEASE_TAG set: the datastores, a reading of every
+    alembic_version_* table, the migration step exactly once, then the rest, every `up` with
+    --no-build --pull never. If the deploy fails and the version tables are as they were,
+    going back is restore-free: --undo-to <the running release's envelope> starts it again
+    after its own `terp migrate check`. Otherwise going back is a restore. A rollback in an
+    invocation of its own has no such reading, so it is refused unless --rollback --restored
+    says the database was restored to the backup taken before the release that followed it.
+    Over a release that applied no revision, going back is promoting the previous envelope
+    again: its step finds every history at its own heads and applies nothing.
+`terp release` and `terp promote` need terp-cli[release] (cryptography, packaging, the egress
+capability); without it they refuse, and nothing is signed or verified halfway.
 """,
 }
 
@@ -3261,7 +3514,12 @@ def _render_json(plane: ControlPlane, specs: Sequence[ModuleSpec]) -> str:
             "request_id_header": plane.security.request_id_header,
         },
         "schedules": [
-            {"name": schedule.name, "cron": schedule.cron, "job": schedule.job.name}
+            {
+                "name": schedule.name,
+                "cron": schedule.cron,
+                "job": schedule.job.name,
+                "misfire": schedule.misfire.value,
+            }
             for schedule in sorted(
                 plane.schedules.schedules, key=lambda item: item.name
             )
@@ -3368,7 +3626,10 @@ def _render_text(plane: ControlPlane, specs: Sequence[ModuleSpec]) -> str:
     if not plane.schedules.schedules:
         lines.append("  <none declared>")
     for schedule in sorted(plane.schedules.schedules, key=lambda item: item.name):
-        lines.append(f"  {schedule.name}  {schedule.cron}  -> {schedule.job.name}")
+        lines.append(
+            f"  {schedule.name}  {schedule.cron}  -> {schedule.job.name}  "
+            f"misfire={schedule.misfire.value}"
+        )
     return "\n".join(lines)
 
 
@@ -3683,6 +3944,18 @@ def _build_parser() -> argparse.ArgumentParser:
         default=30.0,
         help="Lease duration before a stalled row may be reclaimed (default: 30)",
     )
+    jobs_worker_parser.add_argument(
+        "--forever",
+        action="store_true",
+        help="Keep draining until stopped: drain, wait --poll-seconds, drain again; SIGTERM or "
+        "SIGINT ends it after the batch in flight (the worker container's command)",
+    )
+    jobs_worker_parser.add_argument(
+        "--poll-seconds",
+        type=float,
+        default=5.0,
+        help="With --forever, the pause between two drains (default: 5)",
+    )
 
     jobs_scheduler_parser = jobs_subcommands.add_parser(
         "scheduler",
@@ -3791,6 +4064,65 @@ def _build_parser() -> argparse.ArgumentParser:
         "--check",
         action="store_true",
         help="Write nothing, and exit 1 if adoption has something to write (for CI)",
+    )
+
+    from terp.cli.release.cli import add_parsers as add_release_parsers
+
+    add_release_parsers(subcommands)
+
+    deployment_parser = subcommands.add_parser(
+        "deployment",
+        help="The app's deployment declaration, deployment.json, and what it renders",
+    )
+    deployment_subcommands = deployment_parser.add_subparsers(
+        dest="deployment_command", required=True
+    )
+    deployment_render_parser = deployment_subcommands.add_parser(
+        "render",
+        help=(
+            'Write the build files deployment.json renders, where it says "build": '
+            '"generated" (ADR 0187); --check compares instead of writing'
+        ),
+    )
+    deployment_render_parser.add_argument(
+        "--root", default=".", help="Project root (default: .)"
+    )
+    deployment_render_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Write nothing; exit 1 when a committed file is not the render (for CI)",
+    )
+    deployment_adopt_parser = deployment_subcommands.add_parser(
+        "adopt",
+        help=(
+            "Move the app between deployment.json's states, writing its build and the "
+            "template answer together, and show the diff (ADR 0187)"
+        ),
+    )
+    deployment_adopt_state = deployment_adopt_parser.add_mutually_exclusive_group(
+        required=True
+    )
+    deployment_adopt_state.add_argument(
+        "--build",
+        choices=("own", "generated"),
+        help=(
+            "generated: the framework renders the build files from deployment.json; own: "
+            "they are the app's (on an undeclared app, deployment.json is written from the "
+            "production profile)"
+        ),
+    )
+    deployment_adopt_state.add_argument(
+        "--unmanaged",
+        metavar="REASON",
+        help="Declare that no tool can drive this deploy, and why",
+    )
+    deployment_adopt_parser.add_argument(
+        "--root", default=".", help="Project root (default: .)"
+    )
+    deployment_adopt_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the diff and write nothing",
     )
 
     outbox_parser = subcommands.add_parser(
@@ -4436,6 +4768,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 max_cycles=args.max_cycles,
                 batch_size=args.batch_size,
                 lease_seconds=args.lease_seconds,
+                forever=args.forever,
+                poll_seconds=args.poll_seconds,
             )
         )
         return
@@ -4459,6 +4793,25 @@ def main(argv: Sequence[str] | None = None) -> None:
                 reassign=getattr(args, "reassign", False),
             )
         )
+    if args.command in ("release", "promote"):
+        from terp.cli.release.cli import run_release
+
+        raise SystemExit(run_release(args))
+    if args.command == "deployment" and args.deployment_command == "adopt":
+        from terp.cli.deployment_adopt import run_adopt_command
+
+        raise SystemExit(
+            run_adopt_command(
+                root=args.root,
+                build=args.build,
+                unmanaged=args.unmanaged,
+                dry_run=args.dry_run,
+            )
+        )
+    if args.command == "deployment":
+        from terp.cli.deployment_render import run_render_command
+
+        raise SystemExit(run_render_command(root=args.root, check=args.check))
     if args.command == "workbench":
         from terp.cli.workbench_adopt import run_workbench_adopt
 

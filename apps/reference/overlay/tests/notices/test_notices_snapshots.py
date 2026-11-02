@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlmodel import Session, select
 
-from terp.core import Roles, trigger_schedule
-from terp.core.scheduling import active_schedule_catalog
+from terp.core import Misfire, Roles, is_durable_schedule_ledger, trigger_schedule
+from terp.core.scheduling import active_schedule_catalog, active_schedule_ledger
 
 from terp.capabilities.egress import EgressClient, EgressFailedError, EgressRefusedError
 from terp.capabilities.files import FileService
@@ -125,3 +127,31 @@ def test_the_scheduler_registers_the_declared_cron(application, db_engine) -> No
     assert job is not None
     fields = {field.name: str(field) for field in job.trigger.fields}
     assert (fields["minute"], fields["hour"]) == ("0", "*")
+
+
+def test_the_hour_a_deploy_stopped_the_scheduler_across_is_taken_once_late(
+    application, fake_upstream, storage, drain, db_engine
+) -> None:
+    # ADR 0191: the app's ledger is the database's, so the only thing a restarted scheduler
+    # carries over is what this test carries over: the database.
+    assert active_schedule_catalog().get(_SCHEDULE).misfire is Misfire.RUN_ONCE
+    assert is_durable_schedule_ledger(active_schedule_ledger())
+
+    def scheduler(at: datetime) -> ApschedulerScheduler:
+        started = ApschedulerScheduler(
+            lambda: Session(db_engine),
+            scheduler=BackgroundScheduler(),
+            timezone=UTC,
+            clock=lambda: at,
+        )
+        started.register_all(active_schedule_catalog())
+        return started
+
+    [first] = scheduler(datetime(2026, 10, 22, 9, 0, 20, tzinfo=UTC)).catch_up()
+    assert first.outcome == "fired"  # nine o'clock, on time
+    # Down across ten and eleven; back at twenty past eleven.
+    [late] = scheduler(datetime(2026, 10, 22, 11, 20, tzinfo=UTC)).catch_up()
+    assert (late.outcome, late.slot) == ("late", datetime(2026, 10, 22, 11, 0, tzinfo=UTC))
+    [again] = scheduler(datetime(2026, 10, 22, 11, 25, tzinfo=UTC)).catch_up()
+    assert again.outcome is None, "a second restart owes nothing"
+    assert drain().dispatched == 2  # nine o'clock, and one run for the gap

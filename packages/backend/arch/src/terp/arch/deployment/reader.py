@@ -28,14 +28,21 @@ import dataclasses
 import functools
 import json
 import pathlib
-from dataclasses import dataclass
 from typing import Any
 
 from terp.arch.deployment import _jsonschema
+from terp.arch.deployment.model import (
+    DEPLOYMENT_FILE,
+    Backup,
+    Declaration,
+    Finding,
+    Mount,
+    Unit,
+    Unmanaged,
+    Volume,
+)
 from terp.arch.deployment.datastores import DatastoreTable
-
-#: The declaration's filename, at the project root.
-DEPLOYMENT_FILE = "deployment.json"
+from terp.arch.deployment.tables import SystemPackageTable, published_system_packages
 
 #: The schema mirror, beside this module in the wheel.
 SCHEMA_FILE = "deployment-declaration.schema.json"
@@ -53,90 +60,22 @@ SUPPORTED_VERSIONS = frozenset({1})
 DEV_COMPOSE_FILE = "docker-compose.yml"
 
 #: Keys that put a file in a declared state; any of them beside ``unmanaged`` is two.
-_DECLARED_KEYS = ("build", "compose", "units", "volumes", "sizes", "externalDatabase", "rollback")
+_DECLARED_KEYS = (
+    "build",
+    "compose",
+    "units",
+    "volumes",
+    "sizes",
+    "externalDatabase",
+    "rollback",
+    "generator",
+)
 
 #: The message every reader gives a deploy-policy key, from the schema's own ``$defs``.
 POLICY_MESSAGE = (
     "{path} is deploy policy: it belongs to the deploying tool's environment policy, "
     "not to this file"
 )
-
-
-@dataclass(frozen=True)
-class Finding:
-    """One reason the declaration cannot be read or is not true, phrased for its fixer.
-
-    *message* names the field and what is allowed there; *file* is the file it is about.
-    """
-
-    message: str
-    remedy: str = ""
-    file: str = DEPLOYMENT_FILE
-
-
-@dataclass(frozen=True)
-class Backup:
-    """A backup policy: how often, and how long each backup is kept (ISO 8601)."""
-
-    every: str
-    keep: str
-
-
-@dataclass(frozen=True)
-class Unit:
-    """One declared unit: a service of the deployment profile."""
-
-    id: str
-    role: str
-    kind: str | None = None
-    version: str | None = None
-    #: ``None`` when the declaration does not restate the profile's command.
-    command: tuple[str, ...] | None = None
-    health_path: str | None = None
-    liveness_path: str | None = None
-    migrations: tuple[str, ...] = ()
-    env: tuple[str, ...] = ()
-    #: ``None`` when the declaration does not restate the start order.
-    depends_on: tuple[str, ...] | None = None
-    instances: str = "one"
-    size: str | None = None
-    stateful: bool = False
-    backup: Backup | None = None
-
-
-@dataclass(frozen=True)
-class Volume:
-    """A named volume of the profile that holds state no declared stateful unit owns."""
-
-    id: str
-    backup: Backup | None = None
-
-
-@dataclass(frozen=True)
-class Declaration:
-    """A ``deployment.json`` in a declared state (``own`` or ``generated``)."""
-
-    build: str
-    compose_file: str
-    compose_overrides: tuple[str, ...]
-    units: tuple[Unit, ...]
-    volumes: tuple[Volume, ...] = ()
-    #: ``(name, cpu cores, memory in MiB)`` for every declared size.
-    sizes: tuple[tuple[str, float, int], ...] = ()
-    rollback: str | None = None
-    external_database: bool = False
-
-    @property
-    def profile_files(self) -> tuple[str, ...]:
-        """The base profile and its overrides, in the order they are merged."""
-        return (self.compose_file, *self.compose_overrides)
-
-
-@dataclass(frozen=True)
-class Unmanaged:
-    """``{"unmanaged": true, "reason": "..."}``: a tool cannot drive this deploy."""
-
-    reason: str
 
 
 #: A unit field's name in the file -> its attribute on :class:`Unit`. Held to the
@@ -260,6 +199,18 @@ def _shape_findings(raw: dict[str, Any], table: DatastoreTable) -> list[tuple[st
         for path in _policy_key_paths(raw)
     ]
     found.extend(_state_findings(raw))
+    if raw.get("build") == "own" and "generator" in raw and "unmanaged" not in raw:
+        found.append(
+            (
+                "generator",
+                Finding(
+                    'generator stands beside build "own": the generator\'s words are read only '
+                    'where build is "generated" (allowed: no generator block beside own)',
+                    'Drop the block, or declare "build": "generated" to have the framework '
+                    "render the build files from this declaration.",
+                ),
+            )
+        )
     for path, entry in [*_entries(raw, "units"), *_entries(raw, "volumes")]:
         if entry.get("backup") == "client":
             message = f'{path}.backup is "client", which is valid only on externalDatabase (allowed: a policy with every and keep)'
@@ -310,12 +261,14 @@ def _covered(path: str, taken: list[str]) -> bool:
 
 
 def read(
-    raw: object, table: DatastoreTable
+    raw: object, table: DatastoreTable, packages: SystemPackageTable | None = None
 ) -> tuple[Declaration | Unmanaged | None, list[Finding]]:
     """Read a parsed declaration as data: no filesystem, no app, no profile.
 
     ``(None, findings)`` when it cannot be read. A tool that must never execute the
-    app's code needs nothing more than this to refuse a file.
+    app's code needs nothing more than this to refuse a file. *packages* is the
+    system-package table ``generator.systemPackages`` resolves against: this framework
+    release's when none is given.
     """
     if not isinstance(raw, dict):
         return None, [
@@ -328,6 +281,10 @@ def read(
         return None, [version]
     special = _shape_findings(raw, table)
     taken = [path for path, _ in special]
+    if "generator" in taken:
+        # The schema states the same refusal at build (a generator block asks for build
+        # generated); the reader names the block, which is what the person removes.
+        taken.append("build")
     problems = [
         Finding(f"{problem.path or DEPLOYMENT_FILE} {problem.detail}")
         for problem in _jsonschema.validate(raw, schema())
@@ -339,12 +296,17 @@ def read(
     if "unmanaged" in raw:
         return Unmanaged(reason=raw["reason"].strip()), []
     declaration = _declaration(raw)
-    findings = _meaning_findings(declaration, table)
+    offered = packages if packages is not None else published_system_packages()
+    findings = _meaning_findings(declaration, table, offered)
     return (None, findings) if findings else (declaration, [])
 
 
 def _backup(raw: object) -> Backup | None:
     return Backup(raw["every"], raw["keep"]) if isinstance(raw, dict) else None
+
+
+def _mount(raw: object) -> Mount | None:
+    return Mount(raw["path"], tuple(raw["units"])) if isinstance(raw, dict) else None
 
 
 def _unit(raw: dict[str, Any]) -> Unit:
@@ -374,7 +336,8 @@ def _declaration(raw: dict[str, Any]) -> Declaration:
         compose_overrides=tuple(compose.get("overrides", ())),
         units=tuple(_unit(entry) for entry in raw["units"]),
         volumes=tuple(
-            Volume(entry["id"], _backup(entry.get("backup"))) for entry in raw.get("volumes", ())
+            Volume(entry["id"], _backup(entry.get("backup")), _mount(entry.get("mount")))
+            for entry in raw.get("volumes", ())
         ),
         sizes=tuple(
             (name, float(size["cpu"]), int(size["memoryMiB"]))
@@ -382,6 +345,7 @@ def _declaration(raw: dict[str, Any]) -> Declaration:
         ),
         rollback=raw.get("rollback", {}).get("strategy"),
         external_database="externalDatabase" in raw,
+        system_packages=tuple(raw.get("generator", {}).get("systemPackages", ())),
     )
 
 
@@ -399,15 +363,11 @@ def _duplicates(where: str, ids: list[str]) -> list[Finding]:
     return found
 
 
-def _meaning_findings(declaration: Declaration, table: DatastoreTable) -> list[Finding]:
-    """What the schema cannot state: the table, the build modes, and references."""
+def _meaning_findings(
+    declaration: Declaration, table: DatastoreTable, packages: SystemPackageTable
+) -> list[Finding]:
+    """What the schema cannot state: the tables, and references within the file."""
     findings: list[Finding] = []
-    if declaration.build == "generated":
-        findings.append(
-            Finding(
-                'build is "generated": this toolchain cannot honour generated; upgrade, or declare own (allowed: own)'
-            )
-        )
     findings.extend(_duplicates("units", [unit.id for unit in declaration.units]))
     findings.extend(_duplicates("volumes", [volume.id for volume in declaration.volumes]))
     sizes = [name for name, _cpu, _memory in declaration.sizes]
@@ -432,6 +392,27 @@ def _meaning_findings(declaration: Declaration, table: DatastoreTable) -> list[F
                     f'{where}.version is "{unit.version}" for kind {unit.kind}, which the datastore table does not carry (allowed: {", ".join(offered[unit.kind])})'
                 )
             )
+    ids = [unit.id for unit in declaration.units]
+    for index, volume in enumerate(declaration.volumes):
+        for position, ident in enumerate(volume.mount.units if volume.mount else ()):
+            if ident not in ids:
+                findings.append(
+                    Finding(
+                        f'volumes[{index}].mount.units[{position}] "{ident}" is no declared unit '
+                        f"(allowed: a declared unit's id: {', '.join(sorted(ids))})"
+                    )
+                )
+    listed = packages.packages
+    for index, name in enumerate(declaration.system_packages):
+        if name not in listed:
+            findings.append(
+                Finding(
+                    f'generator.systemPackages[{index}] "{name}" is not in the system-package '
+                    f"table (allowed: a package of the table: {', '.join(listed) or 'none in this release'})",
+                    "A system package waits for a measured need and a pinned source the table "
+                    'records; until then, build this unit under "build": "own".',
+                )
+            )
     return findings
 
 
@@ -454,3 +435,19 @@ def role_findings(declaration: Declaration) -> list[Finding]:
         for name in role_resolved_fields()
         if _carries(unit, name)
     ]
+
+
+__all__ = [
+    "DEPLOYMENT_FILE",
+    "SCHEMA_FILE",
+    "SPEC_RELEASE",
+    "Backup",
+    "Declaration",
+    "Finding",
+    "Mount",
+    "Unit",
+    "Unmanaged",
+    "Volume",
+    "read",
+    "role_findings",
+]

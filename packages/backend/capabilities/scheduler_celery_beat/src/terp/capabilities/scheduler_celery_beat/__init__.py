@@ -10,11 +10,14 @@ deployment already running the Celery stack. Wiring is composition-root only::
 
 For each :class:`~terp.core.ScheduleDefinition` it registers a small **tick task** on the
 Celery app and a ``beat_schedule`` entry that runs that task on the schedule's cron. When beat
-fires the tick (on a worker), the tick opens a session and calls
-:func:`~terp.core.trigger_schedule` — i.e. it **enqueues** the schedule's job through the typed
-chokepoint and the active :class:`~terp.core.JobQueue`. Routing through a tick task (rather than
-sending a fixed message) keeps the schedule's ``payload_factory`` dynamic per fire and the
-no-drift ``enqueue`` validation in force.
+fires the tick (on a worker), the tick opens a session and settles the schedule through
+:func:`~terp.core.settle_schedule` — it **enqueues** the schedule's job through the typed
+chokepoint and the active :class:`~terp.core.JobQueue`, and records the slot in the active
+:class:`~terp.core.ScheduleLedger`, so a tick beat missed is settled by the schedule's misfire
+policy (ADR 0191; call ``catch_up()`` from ``beat_init`` where beat's schedule file does not
+survive a restart). Routing through a tick task (rather than sending a fixed message) keeps
+the schedule's ``payload_factory`` dynamic per fire and the no-drift ``enqueue`` validation in
+force.
 
 It depends only on ``terp-core`` + ``celery`` and imports the engine solely behind the
 scheduler seam (``no_adhoc_background_runtime`` keeps it out of app code).

@@ -30,3 +30,9 @@ packages/backend/arch/src/terp/arch/deployment/deployment-declaration.schema.jso
 # a byte comparison, so both are LF on every checkout.
 packages/backend/arch/src/terp/arch/workbench/workbench-declaration.schema.json text eol=lf
 tests/architecture/workbench-declaration.fixtures.json text eol=lf
+
+# The generator's golden samples and the reference app's production profile are compared
+# with a render byte for byte (ADR 0187), so they are LF on every checkout, as the
+# template's own build files are by the template's .gitattributes.
+tests/architecture/generator_goldens/** text eol=lf
+apps/reference/overlay/docker-compose.prod.yml text eol=lf

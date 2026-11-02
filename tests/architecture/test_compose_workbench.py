@@ -17,6 +17,8 @@ import tomllib
 
 import yaml
 
+from terp.arch.deployment.tables import published_tables
+
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _COMPOSE = _REPO_ROOT / "apps" / "example" / "docker-compose.yml"
 _TEMPLATE_COMPOSE = _REPO_ROOT / "template" / "project" / "docker-compose.yml.jinja"
@@ -43,14 +45,26 @@ _BACKEND_DOCKERFILES = (
 
 
 def _python_bases(dockerfile: pathlib.Path) -> set[str]:
-    """Every `python:<tag>` this Dockerfile builds a stage on."""
-    return set(
-        re.findall(
-            r"^FROM\s+(python:\S+)",
-            dockerfile.read_text(encoding="utf-8"),
-            re.MULTILINE,
-        )
-    )
+    """Every `python:<tag>` this Dockerfile builds a stage on.
+
+    Written on the FROM line, or - for a base pinned by digest, as the template's production
+    image is (ADR 0187) - in the comment above it, which names the tag the digest was read
+    from; that digest must then be the base-image table's.
+    """
+    lines = dockerfile.read_text(encoding="utf-8").splitlines()
+    bases: set[str] = set()
+    for index, line in enumerate(lines):
+        match = re.match(r"FROM\s+(python[:@]\S+)", line)
+        if match is None:
+            continue
+        reference = match.group(1)
+        if reference.startswith("python@"):
+            table = published_tables().base_images.get("python")
+            assert reference == table.image, f"{dockerfile}: {reference} is not the table's"
+            assert lines[index - 1] == f"# {table.tag}", f"{dockerfile}: no tag above {line}"
+            reference = table.tag
+        bases.add(reference)
+    return bases
 
 
 def _compose() -> dict:

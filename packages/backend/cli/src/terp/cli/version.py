@@ -246,6 +246,34 @@ _APP_OWNED_SCAFFOLD_FILES = (
 )
 
 
+#: The production build files the framework's generator owns where deployment.json says
+#: ``"build": "generated"`` (``terp.arch.deployment.generator.OWNED_PATHS``, ADR 0187).
+_GENERATOR_OWNED_FILES = ("Dockerfile.prod", "frontend/Dockerfile.prod", "docker-compose.prod.yml")
+
+
+def _is_generated(root: pathlib.Path) -> bool:
+    """Whether the app's ``deployment.json`` says ``"build": "generated"``; ``False`` unreadable.
+
+    Read as plain JSON, not through the reader: this only decides which recipe to print,
+    and ``terp verify`` is where a declaration that cannot be read is reported.
+    """
+    try:
+        declared = json.loads((root / "deployment.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(declared, dict) and declared.get("build") == "generated"
+
+
+def _render_step(number: int) -> list[str]:
+    """The step a generated app's upgrade adds once the new release is installed."""
+    return [
+        f"  {number}. uv run terp deployment render   (deployment.json says \"build\":",
+        '     "generated": the template leaves Dockerfile.prod, frontend/Dockerfile.prod',
+        "     and docker-compose.prod.yml to the new release's generator. Commit what it",
+        "     writes; a missed render is red under `terp verify --only generated`.)",
+    ]
+
+
 def _scaffold_lines(
     root: pathlib.Path,
     platform: str,
@@ -296,6 +324,16 @@ def _scaffold_lines(
         "checkout the boundary lint reads.",
         "These are seeded once and then the app's, so a re-render leaves them alone:",
         *(f"  {name}" for name in _APP_OWNED_SCAFFOLD_FILES),
+        *(
+            [
+                'And deployment.json says "build": "generated", so these are the framework',
+                "generator's: a re-render leaves them alone too, and `uv run terp deployment",
+                "render` writes them from the release that is installed:",
+                *(f"  {name}" for name in _GENERATOR_OWNED_FILES),
+            ]
+            if _is_generated(root)
+            else []
+        ),
         *_rerender_offer(include_command=include_command, blocked_because=blocked_because),
     ]
 
@@ -421,7 +459,9 @@ def _copier_update_blocker(root: pathlib.Path) -> str | None:
     return None
 
 
-def _rerender_recipe(target: str, current: str, count: int) -> list[str]:
+def _rerender_recipe(
+    target: str, current: str, count: int, *, generated: bool = False
+) -> list[str]:
     """The upgrade for an app the template rendered: re-render first, sync once.
 
     The order used to be the other way round and could not be followed as printed.
@@ -436,8 +476,12 @@ def _rerender_recipe(target: str, current: str, count: int) -> list[str]:
     "a recipe that names only one is how the other goes stale" — which is an admission
     that the hand-pinning step was a footgun, for a job already done one step later.
 
-    So: read, clean the tree, re-render, resolve, sync once, confirm, verify.
+    So: read, clean the tree, re-render, resolve, sync once, confirm, verify. A generated
+    app renders its build files between the sync and the confirmation (ADR 0187): the
+    template no longer writes them, and the release just installed has the generator.
     """
+    render = _render_step(6) if generated else []
+    after = 7 if generated else 6
     return [
         "",
         f"All {count} terp-* distributions can move to {target} together, and the",
@@ -465,8 +509,9 @@ def _rerender_recipe(target: str, current: str, count: int) -> list[str]:
         "                                 re-render touches (ADR 0130).",
         "  5. uv sync --refresh && npm --prefix frontend install",
         "     (once, now that the manifests are final — not before the re-render.)",
-        "  6. uv run terp --version          (confirm the set agrees)",
-        "  7. uv run terp verify --profile full",
+        *render,
+        f"  {after}. uv run terp --version          (confirm the set agrees)",
+        f"  {after + 1}. uv run terp verify --profile full",
         "",
         "  Running the dev stack in containers?",
         "  Rebuild it rather than reloading into it: the images bake the terp packages",
@@ -484,7 +529,9 @@ def _rerender_recipe(target: str, current: str, count: int) -> list[str]:
     ]
 
 
-def _hand_pin_recipe(target: str, current: str, count: int, reason: str) -> list[str]:
+def _hand_pin_recipe(
+    target: str, current: str, count: int, reason: str, *, generated: bool = False
+) -> list[str]:
     """The upgrade for an app that cannot re-render: every pin by hand.
 
     The pins the template would have written have to be written here instead. Kept in
@@ -493,8 +540,10 @@ def _hand_pin_recipe(target: str, current: str, count: int, reason: str) -> list
 
     *reason* says which way the re-render is unavailable, because "no answers file" is
     only one of them and a recipe that names the wrong obstacle sends a reader to fix
-    something that is not broken.
+    something that is not broken. A generated app renders after the sync, as above.
     """
+    render = _render_step(5) if generated else []
+    after = 6 if generated else 5
     return [
         "",
         f"All {count} terp-* distributions can move to {target} together, and the",
@@ -511,8 +560,9 @@ def _hand_pin_recipe(target: str, current: str, count: int, reason: str) -> list
         "     declares one — frontend/package.json AND conformance/package.json",
         "     (a recipe that names only one is how the other goes stale).",
         "  4. uv sync --refresh && npm --prefix frontend install",
-        "  5. uv run terp --version          (confirm the set agrees)",
-        "  6. uv run terp verify --profile full",
+        *render,
+        f"  {after}. uv run terp --version          (confirm the set agrees)",
+        f"  {after + 1}. uv run terp verify --profile full",
         "",
         "A green gate proves the upgrade did not break this app. It cannot prove the",
         "release did not change something this app should adopt — step 1 is the only",
@@ -689,10 +739,11 @@ def render_upgrade_check(root: pathlib.Path | None = None, *, fmt: str = "text")
     # app that could re-render, is what produced two needless installs and a stash
     # halfway through.
     blocker = status.rerender_blocker
+    generated = _is_generated(project_root)
     if blocker is None:
-        lines += _rerender_recipe(target, current, len(landing))
+        lines += _rerender_recipe(target, current, len(landing), generated=generated)
     else:
-        lines += _hand_pin_recipe(target, current, len(landing), blocker)
+        lines += _hand_pin_recipe(target, current, len(landing), blocker, generated=generated)
     # Suppressed on both paths: the re-render recipe numbers the command as a step, and
     # the hand-pin recipe has just said why it is unavailable. Either way, printing it
     # again below reads as a second, different thing to do.

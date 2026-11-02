@@ -30,6 +30,7 @@ from tests.architecture.deployment_fixtures import (
     profile,
     project,
     seed,
+    template_profile,
     unit,
 )
 
@@ -56,12 +57,19 @@ def _true(root: pathlib.Path) -> None:
 # --- rule 2 from the files -------------------------------------------------
 
 
-def test_the_template_seed_tells_the_truth_about_the_template_profile(tmp_path) -> None:
-    text = (REPO_ROOT / "template" / "project" / "docker-compose.prod.yml.jinja").read_text(
-        encoding="utf-8"
-    )
-    text = text.replace("{{ project_slug }}", "app").replace("{{ project_name }}", "App")
-    _true(project(tmp_path, seed(), text))
+@pytest.mark.parametrize("use_files", [False, True], ids=["default", "use_files"])
+def test_the_template_seed_tells_the_truth_about_the_template_profile(
+    tmp_path, use_files: bool
+) -> None:
+    text = template_profile(use_files=use_files)
+    _true(project(tmp_path, seed(use_files=use_files), text))
+
+
+def test_the_seed_s_files_volume_is_one_the_profile_mounts(tmp_path) -> None:
+    """The files volume the seed declares under use_files is the one the profile renders
+    for that answer: held against the profile of the other answer, it is a lie."""
+    message = _untrue(project(tmp_path, seed(use_files=True), template_profile()))
+    assert 'volumes[0].id "files-data"' in message
 
 
 def test_a_unit_that_is_not_a_service_is_a_lie(tmp_path) -> None:
@@ -96,6 +104,42 @@ def test_a_command_restated_from_a_shell_form_profile_compares_as_a_list(tmp_pat
         profile()["services"]["migrate"], command="terp migrate upgrade --app-root /srv/app"
     )
     _true(project(tmp_path, raw, profile(migrate=migrate)))
+
+
+@pytest.mark.parametrize(
+    ("declared", "written"),
+    [
+        (["sh", "-c", "echo $HOME"], ["sh", "-c", "echo $$HOME"]),
+        (["echo", "${SECRET_KEY}", "$$", "$!", "a$"], ["echo", "$${SECRET_KEY}", "$$$$", "$!", "a$"]),
+        (["echo", "$1", "cost: 5$"], ["echo", "$1", "cost: 5$"]),
+        (["echo", "$HOME"], "echo $$HOME"),
+    ],
+    ids=["doubled", "every-form", "literal-dollar", "shell-form"],
+)
+def test_a_restated_command_reads_the_profile_as_compose_does(tmp_path, declared, written) -> None:
+    # ADR 0187: `$$` is one `$`, and any other `$` that opens no interpolation is literal,
+    # so a generated profile, which doubles every `$` of a value, restates its declaration
+    # exactly. Before, the rule compared raw strings and would call that render untrue.
+    raw = seed()
+    unit(raw, "migrate")["command"] = declared
+    migrate = dict(profile()["services"]["migrate"], command=written)
+    _true(project(tmp_path, raw, profile(migrate=migrate)))
+
+
+@pytest.mark.parametrize(
+    "written",
+    [["echo", "$HOME"], ["echo", "${HOME}"], ["echo", "${HOME:-/root}"], "echo ${HOME}"],
+    ids=["named", "braced", "defaulted", "shell-form"],
+)
+def test_an_interpolation_never_equals_a_restated_literal(tmp_path, written) -> None:
+    # Its value is the environment's: whatever the declaration says, it is not that.
+    raw = seed()
+    unit(raw, "migrate")["command"] = ["echo", "$HOME"] if "$HOME" in str(written) else ["echo", "${HOME}"]
+    migrate = dict(profile()["services"]["migrate"], command=written)
+    shown = written if isinstance(written, str) else " ".join(written)
+    assert f"docker-compose.prod.yml runs {shown} for migrate" in _untrue(
+        project(tmp_path, raw, profile(migrate=migrate))
+    )
 
 
 def test_a_command_for_a_service_that_runs_its_image_default_is_a_lie(tmp_path) -> None:

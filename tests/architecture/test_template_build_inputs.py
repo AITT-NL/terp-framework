@@ -97,6 +97,37 @@ def test_the_backend_image_installs_exactly_the_lock_and_refuses_a_stale_one() -
     )
 
 
+def test_the_backend_image_ships_its_bytecode_compiled_and_deterministic() -> None:
+    # ADR 0187, from a measurement: the image held no .pyc at all, its user cannot write
+    # the environment, and so every process start compiled the platform again - importing
+    # the app took 11.5 s against 2 s with bytecode. Both parts are compiled where they are
+    # installed, each in its own layer, with checked-hash bytecode (PEP 552), which records
+    # a hash of the source rather than an mtime, so the same lock compiles to the same bytes.
+    stages = _stages(_instructions(_BACKEND))
+    deps, runtime = stages["deps"], stages["runtime"]
+    compile_deps = _index(deps, "compileall")
+    assert _index(deps, "uv sync") < compile_deps
+    assert deps[compile_deps] == (
+        "RUN /srv/.venv/bin/python -m compileall -q -j 0 --invalidation-mode checked-hash "
+        "/srv/.venv/lib"
+    )
+    compile_app = _index(runtime, "compileall")
+    assert runtime[compile_app] == (
+        "RUN python -m compileall -q -j 0 --invalidation-mode checked-hash app control_plane"
+    )
+    assert _index(runtime, "COPY control_plane") < compile_app < _index(runtime, "USER appuser")
+    assert "PYTHONDONTWRITEBYTECODE=1" in runtime[_index(runtime, "PYTHONDONTWRITEBYTECODE")], (
+        "nothing is written at run time: what is not compiled at build is compiled in memory"
+    )
+
+
+def test_the_backend_image_carries_no_healthcheck_a_worker_could_inherit() -> None:
+    # Every backend unit runs this image and only an api serves HTTP. With a probe baked in,
+    # a worker turned unhealthy and `docker compose up --wait` failed every deploy of a
+    # profile that ran one (ADR 0187); the profile probes each api unit instead.
+    assert not any(line.startswith("HEALTHCHECK") for line in _instructions(_BACKEND))
+
+
 def test_the_web_image_installs_exactly_the_lock() -> None:
     instructions = _instructions(_WEB)
     assert any(line.startswith("RUN npm ci") for line in instructions)
@@ -190,7 +221,21 @@ def test_the_web_image_installs_from_its_lock_before_it_copies_its_source() -> N
     manifests = _index(build, "COPY frontend/package.json frontend/package-lock.json ./")
     install = _index(build, "RUN npm ci")
     source = _index(build, "COPY frontend/ ./")
-    assert manifests < install < source < _index(build, "RUN npm run build")
+    assert manifests < install < source < _index(build, "npm run build")
+
+
+def test_no_package_s_lifecycle_script_runs_in_the_web_image() -> None:
+    # ADR 0187, measured on a template render and the reference app before it was made: of
+    # the 251 packages their locks hold, only fsevents declares an install script, and it is
+    # macOS-only and never installed on Linux; the app declares no pre- or post-script; the
+    # bundle built with scripts off and without the network is byte for byte the one built
+    # with them. So the install runs no hook, and the build reads nothing but what `npm ci`
+    # installed and the source.
+    build = _stages(_instructions(_WEB))["build"]
+    assert build[_index(build, "RUN npm ci")] == "RUN npm ci --ignore-scripts --no-audit --no-fund"
+    assert build[_index(build, "npm run build")] == (
+        "RUN --network=none npm run build --ignore-scripts"
+    )
 
 
 def test_the_web_image_copies_nothing_from_outside_the_frontend() -> None:

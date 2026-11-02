@@ -17,9 +17,10 @@ import tomllib
 
 import yaml
 
+from tests.architecture.deployment_fixtures import template_profile
+
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _PROD_COMPOSE = _REPO_ROOT / "apps" / "example" / "docker-compose.prod.yml"
-_TEMPLATE_PROD_COMPOSE = _REPO_ROOT / "template" / "project" / "docker-compose.prod.yml.jinja"
 _PROD_DOCKERFILE = _REPO_ROOT / "apps" / "example" / "Dockerfile.prod"
 _TEMPLATE_PROD_DOCKERFILE = _REPO_ROOT / "template" / "project" / "Dockerfile.prod"
 _PROD_WEB_DOCKERFILE = _REPO_ROOT / "apps" / "example" / "frontend" / "Dockerfile.prod"
@@ -33,14 +34,13 @@ def _prod_compose() -> dict:
     return yaml.safe_load(_PROD_COMPOSE.read_text(encoding="utf-8"))
 
 
-def _template_prod_compose() -> dict:
-    text = _TEMPLATE_PROD_COMPOSE.read_text(encoding="utf-8")
-    text = text.replace("{{ project_slug }}", "app").replace("{{ project_name }}", "App")
-    return yaml.safe_load(text)
+def _template_prod_compose(*, use_files: bool = False) -> dict:
+    return yaml.safe_load(template_profile(use_files=use_files))
 
 
 def _both_composes() -> list[dict]:
-    return [_prod_compose(), _template_prod_compose()]
+    """The example's profile and the template's, rendered for each answer it renders on."""
+    return [_prod_compose(), _template_prod_compose(), _template_prod_compose(use_files=True)]
 
 
 def test_prod_compose_is_present_and_valid_yaml() -> None:
@@ -69,6 +69,26 @@ def test_prod_secrets_have_no_dev_fallback() -> None:
         assert ":?" in env["SECRET_KEY"], "SECRET_KEY must be required (no dev default)"
         db_env = data["services"]["db"]["environment"]
         assert ":?" in db_env["POSTGRES_PASSWORD"], "POSTGRES_PASSWORD must be required"
+
+
+def test_the_template_s_images_carry_a_required_per_release_tag() -> None:
+    """ADR 0185 decision 6: both image names read the per-release tag, ``:?``-required like
+    the secrets, so a release's images stay beside the next one's and an unset tag stops
+    compose instead of overwriting a fixed one. Every backend service inherits the backend
+    name through the merge key. The example app builds from the monorepo and is released by
+    no `terp release`, so its profile keeps its untagged names."""
+    from terp.arch.deployment.generator import RELEASE_TAG_SEAM, RELEASE_TAG_VARIABLE
+
+    template = _template_prod_compose()
+    services = template["services"]
+    assert RELEASE_TAG_SEAM == (
+        "${TERP_RELEASE_TAG:?TERP_RELEASE_TAG is required, one new image tag per release}"
+    )
+    assert RELEASE_TAG_VARIABLE == "TERP_RELEASE_TAG"
+    assert template["x-backend"]["image"] == f"app-backend-prod:{RELEASE_TAG_SEAM}"
+    for name in ("migrate", "api"):
+        assert services[name]["image"] == f"app-backend-prod:{RELEASE_TAG_SEAM}", name
+    assert services["web"]["image"] == f"app-frontend-prod:{RELEASE_TAG_SEAM}"
 
 
 def test_prod_database_url_reads_from_the_environment() -> None:
@@ -118,7 +138,11 @@ def test_prod_backend_images_are_multistage_wheel_builds() -> None:
     """
     for path in (_PROD_DOCKERFILE, _TEMPLATE_PROD_DOCKERFILE):
         text = path.read_text(encoding="utf-8")
-        assert text.count("FROM python:") == 2, f"{path.name} must be multi-stage"
+        # By tag in the example; by digest from the base-image table in the template, whose
+        # files are the generator's render (ADR 0187).
+        assert len(re.findall(r"^FROM python[:@]", text, re.MULTILINE)) == 2, (
+            f"{path.name} must be multi-stage"
+        )
         assert "uv build --wheel" in text
         assert "-e " not in text, f"{path.name} must not install editable"
         assert "USER " in text, f"{path.name} must drop root"
@@ -126,8 +150,17 @@ def test_prod_backend_images_are_multistage_wheel_builds() -> None:
             line for line in text.splitlines() if line.strip() and not line.strip().startswith("#")
         ]
         assert not any("--reload" in line for line in code_lines)
-        assert "HEALTHCHECK" in text
         assert 'CMD ["uvicorn", "app.main:app"' in text
+    # The example's image serves only its api. The template's backs every backend unit, and
+    # changed on purpose (ADR 0187): no HEALTHCHECK of its own, because a worker or a
+    # scheduler that inherits an HTTP probe turns unhealthy and `docker compose up --wait`
+    # then refuses the deployment. Its profile probes each api unit itself.
+    assert "HEALTHCHECK" in _PROD_DOCKERFILE.read_text(encoding="utf-8")
+    assert not any(
+        line.startswith("HEALTHCHECK")
+        for line in _TEMPLATE_PROD_DOCKERFILE.read_text(encoding="utf-8").splitlines()
+    )
+    assert "healthcheck" in _template_prod_compose()["services"]["api"]
     example = _PROD_DOCKERFILE.read_text(encoding="utf-8")
     assert '"uvicorn[standard]"' in example, "the example image must serve WebSockets"
 
@@ -229,8 +262,38 @@ def test_prod_smoke_exercises_websocket_through_nginx() -> None:
 def test_example_and_template_prod_profiles_share_a_topology() -> None:
     """Template parity: a generated repo deploys exactly like the dogfood app."""
     example = _prod_compose()["services"]
-    template = _template_prod_compose()["services"]
-    assert set(example) == set(template) == {"db", "migrate", "api", "web"}
+    for use_files in (False, True):
+        template = _template_prod_compose(use_files=use_files)["services"]
+        assert set(example) == set(template) == {"db", "migrate", "api", "web"}
+
+
+def test_with_files_the_api_keeps_them_in_a_volume_its_user_can_write() -> None:
+    """With the files capability on, the production profile mounts a named volume at
+    the capability's storage root, so stored files outlive the container. Before, only the
+    development file mounted one, and production kept them in the api container's writable
+    layer, gone at the next deploy.
+
+    The volume is writable by the user the image runs as because the image makes the
+    mount point and hands it to that user before it drops to it, and Docker gives an empty
+    named volume the owner of the directory it is mounted over. The Docker half, a fresh
+    volume written by that user and read back from a second container, runs in template
+    acceptance."""
+    with_files = _template_prod_compose(use_files=True)
+    assert with_files["volumes"] == {"db-data": None, "files-data": None}
+    assert with_files["services"]["api"]["volumes"] == ["files-data:/srv/var/files"]
+    for name in ("db", "migrate", "web"):
+        mounts = with_files["services"][name].get("volumes") or []
+        assert "files-data:/srv/var/files" not in mounts, name
+    without = _template_prod_compose()
+    assert "volumes" not in without["services"]["api"]
+    assert without["volumes"] == {"db-data": None}
+
+    dockerfile = _TEMPLATE_PROD_DOCKERFILE.read_text(encoding="utf-8")
+    runtime = dockerfile.rsplit("\nFROM ", 1)[1]
+    assert "WORKDIR /srv\n" in runtime, "the storage root, var/files, is relative to /srv"
+    made = runtime.index("mkdir -p /srv/var/files && chown appuser /srv/var/files")
+    assert "useradd --create-home --uid 10001 appuser" in runtime
+    assert made < runtime.index("\nUSER appuser\n"), "made and handed over before the drop"
 
 
 # ---- app-declared environment variables (plan: app-declared-environment-config) --
@@ -248,19 +311,41 @@ _PLATFORM_OWNED_NAMES = {
     "ENVIRONMENT",
     "WEB_PORT",
     "BACKEND_CORS_ORIGINS",
+    "TERP_RELEASE_TAG",
 }
+
+
+def test_the_platform_owned_names_are_the_ones_the_cli_refuses() -> None:
+    """One owner per variable: every name the profile interpolates for the platform, the
+    per-release tag among them, is one a manifest may not declare into ``.app.env``."""
+    from terp.arch.deployment.generator import RELEASE_TAG_VARIABLE
+    from terp.cli.envschema import PLATFORM_OWNED_NAMES
+
+    assert PLATFORM_OWNED_NAMES == _PLATFORM_OWNED_NAMES
+    assert RELEASE_TAG_VARIABLE in PLATFORM_OWNED_NAMES
 
 
 def test_prod_backend_forwards_app_declared_env() -> None:
     """The one generic seam: backend services read the optional .app.env the
     deploy pipeline renders from environment.schema.json. `required: false`
     keeps plain `docker compose up` working; the frontend (build-time vars
-    only) deliberately gets no seam."""
-    for data in _both_composes():
-        for name in ("migrate", "api"):
-            assert data["services"][name].get("env_file") == _APP_ENV_SEAM, (
-                f"{name} must read the optional .app.env (app-declared variables)"
-            )
+    only) deliberately gets no seam.
+
+    Changed on purpose by ADR 0187: the template's profile is the generator's render, which
+    lists on each backend unit `.app.env` and then that unit's own `.app.<id>.env` (where
+    the manifest routes a variable scoped to it), while `x-backend` keeps `.app.env` alone,
+    so a service an app added through the merge key still inherits it. The example app's
+    profile is its own and keeps the single seam."""
+    example, template = _prod_compose(), _template_prod_compose()
+    for name in ("migrate", "api"):
+        assert example["services"][name].get("env_file") == _APP_ENV_SEAM, (
+            f"{name} must read the optional .app.env (app-declared variables)"
+        )
+        assert template["services"][name].get("env_file") == [
+            *_APP_ENV_SEAM, {"path": f".app.{name}.env", "required": False}
+        ], f"{name} reads .app.env, then its own .app.{name}.env"
+    assert template["x-backend"]["env_file"] == _APP_ENV_SEAM
+    for data in (example, template):
         assert "env_file" not in data["services"]["web"]
 
 

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://terp.dev/spec/deployment-declaration.schema.json",
   "title": "Terp Standard - the app's deployment declaration",
-  "description": "The normative, stack-neutral schema for the document an app checks in at its project root to declare its deployable units. It describes the app's deployment profile, never its development loop, and nothing in it is read by the running app: its readers are a checker in the app's own gate and the tools that drive a deploy, which read it as data and never import the app. A file sits in exactly one of four states. Absent: the app is undeclared, which passes, and a deploy tool may decline to drive it. 'build': 'own': units are built from the committed profile and build files. 'build': 'generated': units are built from files a generator of the stack renders. Opted out: the whole file is {\"unmanaged\": true, \"reason\": \"...\"}, a tool cannot drive this app and shows the reason, and nothing else may stand beside those two keys. A file that is in no state, or in two (units without 'build', 'build' beside 'unmanaged'), is refused, never guessed into one. The description is partial: a service it does not name is not its business, and every fact another file owns stays there - the profile owns commands, start order, images and volumes, the variable manifest owns variables, the code owns jobs and schedules, the environment's record owns domains, TLS, the backup destination and its credentials, sizes and instance counts per environment, and the digest allowlist. Where this file restates such a fact, the owner wins and a disagreement is refused. A key this vocabulary does not have is refused at every level, because a misspelt key would otherwise be a policy that silently does nothing; a key that begins with '$' is an annotation, carries no behaviour and is exempt. A key for deploy policy - who may publish, how many approvals a deploy needs, who may reach a deployed app, which gate policy applies - is refused with its own message, because anyone who can commit to the app could lower a policy kept here; those keys are named in $defs.deployPolicyKeys so every reader gives that message. There is no image key, so the file cannot name a registry: a unit is built from the checkout through its profile service, or named by 'kind' and 'version' from the closed datastore table the stack publishes, one digest per entry. Every string has a length cap and refuses control characters, and a command is an argument list, never a shell string. Every path the file leads a reader to is resolved against the checkout, following links, and refused when it lands outside; that part cannot be stated in a schema and is the checker's. Every pattern ends in (?![\\s\\S]) rather than $, because in some regular-expression engines $ also matches before a final newline, which would let a newline through the very patterns that exist to refuse control characters.",
+  "description": "The normative, stack-neutral schema for the document an app checks in at its project root to declare its deployable units. It describes the app's deployment profile, never its development loop, and nothing in it is read by the running app: its readers are a checker in the app's own gate and the tools that drive a deploy, which read it as data and never import the app. A file sits in exactly one of four states. Absent: the app is undeclared, which passes, and a deploy tool may decline to drive it. 'build': 'own': units are built from the committed profile and build files. 'build': 'generated': units are built from files a generator of the stack renders, and the words only that generator reads sit in 'generator', which no other state may carry. Opted out: the whole file is {\"unmanaged\": true, \"reason\": \"...\"}, a tool cannot drive this app and shows the reason, and nothing else may stand beside those two keys. A file that is in no state, or in two (units without 'build', 'build' beside 'unmanaged'), is refused, never guessed into one. The description is partial: a service it does not name is not its business, and every fact another file owns stays there - the profile owns commands, start order, images and volumes, the variable manifest owns variables, the code owns jobs and schedules, the environment's record owns domains, TLS, the backup destination and its credentials, sizes and instance counts per environment, and the digest allowlist. Where this file restates such a fact, the owner wins and a disagreement is refused. A key this vocabulary does not have is refused at every level, because a misspelt key would otherwise be a policy that silently does nothing; a key that begins with '$' is an annotation, carries no behaviour and is exempt. A key for deploy policy - who may publish, how many approvals a deploy needs, who may reach a deployed app, which gate policy applies - is refused with its own message, because anyone who can commit to the app could lower a policy kept here; those keys are named in $defs.deployPolicyKeys so every reader gives that message. There is no image key, so the file cannot name a registry: a unit is built from the checkout through its profile service, or named by 'kind' and 'version' from the closed datastore table the stack publishes, one digest per entry. Every string has a length cap and refuses control characters, and a command is an argument list, never a shell string. Every path the file leads a reader to is resolved against the checkout, following links, and refused when it lands outside; that part cannot be stated in a schema and is the checker's. Every pattern ends in (?![\\s\\S]) rather than $, because in some regular-expression engines $ also matches before a final newline, which would let a newline through the very patterns that exist to refuse control characters.",
   "type": "object",
   "if": {
     "required": ["unmanaged"]
@@ -52,6 +52,46 @@
         "description": "An annotation: carries no behaviour and is never read as part of the declaration."
       }
     },
+    "if": {
+      "description": "A 'generator' block is present.",
+      "required": ["generator"]
+    },
+    "then": {
+      "description": "The generator's words are read only by a generator, so they are valid only beside 'build': 'generated'; beside 'own' they would be a request nothing honours. In the generated state every volume says where it is mounted.",
+      "properties": {
+        "build": {
+          "const": "generated",
+          "description": "The one state a 'generator' block may stand in."
+        },
+        "volumes": {
+          "items": {
+            "required": ["mount"]
+          }
+        }
+      }
+    },
+    "else": {
+      "description": "No 'generator' block: in the generated state every volume still says where it is mounted.",
+      "if": {
+        "description": "The generated state.",
+        "required": ["build"],
+        "properties": {
+          "build": {
+            "const": "generated"
+          }
+        }
+      },
+      "then": {
+        "description": "A generator renders where each volume is mounted, so the mount is required here rather than restated.",
+        "properties": {
+          "volumes": {
+            "items": {
+              "required": ["mount"]
+            }
+          }
+        }
+      }
+    },
     "properties": {
       "schemaVersion": {
         "type": "integer",
@@ -60,7 +100,7 @@
       },
       "build": {
         "enum": ["generated", "own"],
-        "description": "How the units without a 'kind' get their images. 'own': built from the build files the app commits, with no build guarantee beyond what they say. 'generated': built from files a generator of the stack renders from this declaration and that stay committed, so drift from them is refused. A toolchain that has no generator refuses 'generated' by name rather than treating it as 'own'. Required whenever units are declared, and never beside 'unmanaged'."
+        "description": "How the units without a 'kind' get their images. 'own': built from the build files the app commits, with no build guarantee beyond what they say. 'generated': built from files a generator of the stack renders from this declaration and that stay committed, so drift from them is refused. A toolchain that has no generator refuses 'generated' by name rather than treating it as 'own'. Required whenever units are declared, and never beside 'unmanaged'. The words only a generator reads sit in 'generator', which is valid only beside 'generated'."
       },
       "compose": {
         "type": "object",
@@ -281,7 +321,7 @@
         "type": "array",
         "maxItems": 64,
         "default": [],
-        "description": "Named volumes of the profile that hold state and that no declared stateful unit owns - a files volume, for one - each with its own backup policy. A named volume mounted only by declared stateful units is covered by their policy and is never listed here. No two entries share an id.",
+        "description": "Named volumes of the profile that hold state and that no declared stateful unit owns - a files volume, for one - each with its own backup policy and, where it says so, its mount. A named volume mounted only by declared stateful units is covered by their policy and is never listed here. No two entries share an id.",
         "items": {
           "description": "One named volume of the profile that holds state.",
           "type": "object",
@@ -302,6 +342,43 @@
               "maxLength": 63,
               "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*(?![\\s\\S])",
               "description": "The named volume in the resolved profile."
+            },
+            "mount": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "units"],
+              "description": "Where the volume is mounted, and on which declared units. Under 'build': 'own' it restates the profile, which owns it, so a mount the profile does not make is refused. Under 'build': 'generated' it is what the generator renders, and it is required: a generator has no other place to learn where a volume goes. Which paths a stack's generator can render is that stack's to say, and a path it cannot render is refused by name.",
+              "patternProperties": {
+                "^\\$": {
+                  "type": "string",
+                  "maxLength": 4000,
+                  "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+                  "description": "An annotation: carries no behaviour and is never read as part of the declaration."
+                }
+              },
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255,
+                  "pattern": "^var(/[A-Za-z0-9][A-Za-z0-9._-]*)+(?![\\s\\S])",
+                  "description": "The mount point, relative to the directory each unit's image runs the app from, with forward slashes, and always inside its var/ directory: the part of that tree an app writes at run time, which the image keeps out of its own filesystem. No segment begins with a dot, so the path cannot climb out of var/ or hide a directory."
+                },
+                "units": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 64,
+                  "uniqueItems": true,
+                  "description": "The declared units whose services mount the volume at 'path', each by id. Every id names a unit of this file.",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*(?![\\s\\S])",
+                    "description": "A declared unit's id."
+                  }
+                }
+              }
             },
             "backup": {
               "type": "object",
@@ -412,6 +489,35 @@
             "maxLength": 4000,
             "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
             "description": "An annotation: carries no behaviour and is never read as part of the declaration."
+          }
+        }
+      },
+      "generator": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The words only a generator reads: what the stack's generator renders into the build files beyond the units. Valid only beside 'build': 'generated', and refused beside 'own', where nothing would honour it. No default: an absent block asks for nothing.",
+        "patternProperties": {
+          "^\\$": {
+            "type": "string",
+            "maxLength": 4000,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+            "description": "An annotation: carries no behaviour and is never read as part of the declaration."
+          }
+        },
+        "properties": {
+          "systemPackages": {
+            "type": "array",
+            "maxItems": 64,
+            "uniqueItems": true,
+            "default": [],
+            "description": "Operating-system packages the generated backend image installs, each named from the closed system-package table the stack publishes, one pinned source per entry, so two builds of one commit install the same thing. Which packages exist is the stack's table: a reader refuses a name its table does not carry and names the ones it does, and a stack whose table is empty refuses every name. A name is data, never a shell word or an option.",
+            "items": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 64,
+              "pattern": "^[a-z0-9][a-z0-9+.-]+(?![\\s\\S])",
+              "description": "A package name: lower-case letters, digits, '+', '.' and '-', beginning with a letter or a digit, so it can never be read as an option."
+            }
           }
         }
       }

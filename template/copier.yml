@@ -62,20 +62,63 @@ _skip_if_exists:
 # absent -- which is how a seed reaches an app that never had it. The deploy declaration
 # is a statement about the app's own deployment, so it is written by `copier copy` into a
 # fresh render and by nothing else: an app rendered before it existed stays undeclared
-# (its check a no-op) until it declares itself on purpose (ADR 0184 decision 1). Held by
-# the `copier update` step of template acceptance.
+# (its check a no-op) until it declares itself on purpose (ADR 0184 decision 1). The seed
+# is `deployment.json.jinja`, and the entry matches the path it renders to. Held by the
+# `copier update` step of template acceptance.
+#
+# Files the template never renders for an app whose build is GENERATED (ADR 0187): the
+# three production build files are then the framework generator's, written by `terp
+# deployment render` from deployment.json. Excluded, an update neither renders nor merges
+# them, so the last render stays exactly what the generator wrote, and a generator path the
+# declaration no longer renders (frontend/Dockerfile.prod without a web unit) is not
+# created again. Copier renders an update's old version with the RECORDED answers, so an
+# app changes state by changing the recorded answer -- `terp deployment adopt --build
+# generated` (or `--build own` to go back) writes it -- and never through `copier update
+# --data deploy_build=...`, whose old render still holds the files it would then delete.
+# Held by the round trip of template acceptance (tools/copier_round_trip.py).
 _exclude:
   - "{% if _copier_operation == 'update' %}deployment.json{% endif %}"
+  - "{% if deploy_build == 'generated' %}/Dockerfile.prod{% endif %}"
+  - "{% if deploy_build == 'generated' %}/frontend/Dockerfile.prod{% endif %}"
+  - "{% if deploy_build == 'generated' %}/docker-compose.prod.yml{% endif %}"
 
 project_name:
   type: str
   help: Human-readable application name
   default: My Terp App
 
+# No validator, though compose and Docker refuse some names as a project or an image
+# (`<slug>-prod`, `<slug>-backend-prod`): copier runs validators on the RECORDED answers
+# during every `copier update` too, so one would cut an app with such a name off from every
+# template fix. `terp deployment adopt --build generated` and `terp verify --only generated`
+# refuse it where it matters, by name (ADR 0187 decision 4).
 project_slug:
   type: str
   help: Distribution name (lowercase, dashes)
   default: my-terp-app
+
+# ---------------------------------------------------------------------------
+# Who writes the production build files -- Dockerfile.prod, frontend/Dockerfile.prod and
+# docker-compose.prod.yml (ADR 0187).
+#   own       -- the template renders them, they are the app's to change, and every
+#                `copier update` merges the template's changes into whatever the app made
+#                of them.
+#   generated -- the framework renders them from deployment.json (`terp deployment
+#                render`), and the template leaves them alone (the `_exclude` entries
+#                above), so a framework update is a re-render, never a merge.
+# A fresh `generated` copy has none of the three until `uv run terp deployment render`
+# runs, and `terp verify --only generated` is red until then, which fails closed. No
+# validator, for the reason project_slug has none. An app that exists already changes the
+# state with `terp deployment adopt`, which writes this answer and deployment.json's "build"
+# together.
+# ---------------------------------------------------------------------------
+deploy_build:
+  type: str
+  help: Production build files
+  default: own
+  choices:
+    "Own -- the template writes them, and they are the app's to change": own
+    "Generated -- the framework renders them from deployment.json": generated
 
 # ---------------------------------------------------------------------------
 # Layout preset — the shape the app starts in. All four render a runnable,

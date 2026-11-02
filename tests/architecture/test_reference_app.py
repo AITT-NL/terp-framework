@@ -288,12 +288,75 @@ def test_the_stack_check_starts_every_service_the_app_adds() -> None:
         # And nothing waits on them: none of them may turn readiness red.
         for other in (*compose["services"].values(), *prod["services"].values()):
             assert service not in (other.get("depends_on") or {}), f"something depends on {service}"
-    assert "healthcheck" not in prod["services"]["scheduler"]
+    # And none of them carries an HTTP probe. Before ADR 0187 each inherited the backend
+    # image's, turned unhealthy, and made every `docker compose up --wait` of this profile
+    # fail; disabling the probe per service made Compose refuse to wait on it instead. The
+    # image carries no probe now: the api unit has one of its own, the worker and the
+    # scheduler are checked on the heartbeat their own loop writes (ADR 0191), and the
+    # companion, which writes none, has no check and is ready once it runs.
+    for service in ("worker", "scheduler"):
+        test = prod["services"][service]["healthcheck"]["test"]
+        assert test[:3] == ["CMD", "python", "-c"] and test[-1] == service
+        assert "urllib" not in test[3] and "heartbeat" in test[3]
+    assert "healthcheck" not in prod["services"]["monitor"]
+    assert "healthcheck" in prod["services"]["api"]
     assert "mailcatcher" not in prod["services"], "the production relay is a real, encrypted one"
 
 
+def test_the_reference_declaration_adopts_generated_with_no_build_file_change() -> None:
+    """ADR 0187's generated lane, without copier: the overlay's own declaration, read in the
+    generated state, renders the profile the app commits and the template's two Dockerfiles,
+    byte for byte. So `terp deployment adopt --build generated` on a render changes
+    deployment.json and the answers file and no build file, which the lane asserts with git.
+    It restates no command the generator renders itself (the migration step, the scheduler)
+    and says where the files volume is mounted, which generated requires."""
+    from terp.arch.deployment import generate, published_table, published_tables, read
+
+    raw = json.loads((reference.OVERLAY / "deployment.json").read_text(encoding="utf-8"))
+    assert raw["build"] == "own"
+    declared, findings = read({**raw, "build": "generated"}, published_table())
+    assert findings == [], findings
+    answers = yaml.safe_load(reference.ANSWERS.read_text(encoding="utf-8"))
+    files, refused = generate(
+        declared, answers["project_slug"], tables=published_tables(), frontend_lock=True
+    )
+    assert refused == [], refused
+    assert files["docker-compose.prod.yml"] == (
+        reference.OVERLAY / "docker-compose.prod.yml"
+    ).read_bytes()
+    for path in ("Dockerfile.prod", "frontend/Dockerfile.prod"):
+        assert files[path] == (reference.TEMPLATE_PROJECT / path).read_bytes()
+
+
+def test_template_acceptance_runs_the_reference_app_generated() -> None:
+    job = _acceptance()
+    include = job["strategy"]["matrix"]["include"]
+    assert {"variant": "reference-generated", "copier-args": ""} in include
+    by_name = {step.get("name", ""): step for step in job["steps"]}
+    render = by_name["Render the reference app (template + apps/reference)"]
+    assert render["if"] == "startsWith(matrix.variant, 'reference')"
+    [lane] = [step for name, step in by_name.items() if name.endswith("(reference-generated)")]
+    assert lane["if"] == "matrix.variant == 'reference-generated'"
+    run = lane["run"]
+    order = [
+        "commit -qm render",
+        "uv run terp deployment adopt --build generated",
+        "git diff --exit-code -- Dockerfile.prod frontend/Dockerfile.prod docker-compose.prod.yml",
+        'test "$changed" = ".copier-answers.yml deployment.json "',
+        "uv run terp verify --only generated",
+        "uv run pytest",
+        "docker compose -f docker-compose.prod.yml config -q",
+    ]
+    positions = [run.index(part) for part in order]
+    assert positions == sorted(positions), "adopt, prove no build file moved, then hold it"
+    steps = list(by_name)
+    assert steps.index("Build the generated frontend against the packed tarballs") < steps.index(
+        lane["name"]
+    ), "the web unit renders only beside frontend/package-lock.json, which that step writes"
+
+
 def _stack_check():
-    """The overlay's stack check as a module: standard library only, and guarded by `__main__`."""
+    """The overlay's stack check as a module: standard library only, and nothing at import."""
     import importlib.util
 
     path = reference.OVERLAY / "scripts" / "check_stack.py"
@@ -302,6 +365,28 @@ def _stack_check():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_the_rebuild_check_waits_through_a_stack_being_recreated() -> None:
+    """A rebuild recreates every backend container, so the check reads the stack while some
+    of it, the API included, is missing, and may read nothing at all while `ps` refuses
+    mid-rename. That is "not yet". On Docker Desktop (Compose 2.40) the check read the API
+    missing and failed with KeyError: 'api' instead of waiting for it."""
+    check = _stack_check()
+
+    def running(image: str, ident: str = "old") -> dict:
+        return {"id": ident, "image": image, "status": "running", "exit": 0}
+
+    before = {name: running("sha256:old") for name in check.BACKEND_SERVICES}
+    before["migrate"] = {"id": "m1", "image": "sha256:old", "status": "exited", "exit": 0}
+    assert check.rebuilt_stack(before, {}) is None
+    assert check.rebuilt_stack(before, {"worker": running("sha256:old")}) is None
+    rebuilt = {name: running("sha256:new", "new") for name in check.BACKEND_SERVICES}
+    migrated = {"id": "m2", "image": "sha256:new", "status": "exited", "exit": 0}
+    assert check.rebuilt_stack(before, rebuilt) is None, "migrate has not run again"
+    assert check.rebuilt_stack(before, {**rebuilt, "migrate": migrated}) is not None
+    partial = {name: entry for name, entry in rebuilt.items() if name != "monitor"}
+    assert check.rebuilt_stack(before, {**partial, "migrate": migrated}) is None
 
 
 def test_the_rebuild_check_watches_exactly_the_services_on_the_backend_image(

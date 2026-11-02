@@ -5847,7 +5847,7 @@ def test_references_declare_delete_behaviour(tmp_path: pathlib.Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# the deployment declaration (ADR 0184): two rules over the PROJECT root
+# the deployment declaration (ADR 0184, 0187): three rules over the PROJECT root
 # --------------------------------------------------------------------------- #
 # The cases live in test_deployment_declaration.py and test_deployment_truth.py; these
 # hold what is particular to the harness: check_app hands both rules the project root
@@ -5899,6 +5899,31 @@ def test_deployment_declaration_tells_the_truth(tmp_path: pathlib.Path) -> None:
     assert "units[1].command restates" in violation.message
     assert [v.rule for v in check_app(project / "app")] == ["deployment_declaration_tells_the_truth"]
     assert check_deployment_declaration_tells_the_truth(_declared_project(tmp_path / "true", seed())) == []
+
+
+def test_deployment_generated_files_match_their_render(tmp_path: pathlib.Path) -> None:
+    from terp.arch import check_deployment_generated_files_match_their_render
+    from tests.architecture.deployment_fixtures import seed
+
+    generated = seed()
+    generated["build"] = "generated"
+    project = _declared_project(tmp_path, generated)
+    (project / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+    (project / "frontend").mkdir()
+    (project / "frontend" / "package-lock.json").write_text("{}\n", encoding="utf-8")
+    violations = check_deployment_generated_files_match_their_render(project)
+    assert {v.rule for v in violations} == {"deployment_generated_files_match_their_render"}
+    assert "docker-compose.prod.yml is not the render of deployment.json" in "\n".join(
+        v.message for v in violations
+    )
+    # check_app reaches it through the app root, at the project root beside it; the profile
+    # fixture is not a render, so the truth rule is silent and this one is not.
+    assert "deployment_generated_files_match_their_render" in {
+        v.rule for v in check_app(project / "app")
+    }
+    assert check_deployment_generated_files_match_their_render(
+        _declared_project(tmp_path / "own", seed())
+    ) == []
 
 
 def test_the_declaration_rules_have_no_marker_and_no_budget_key(tmp_path: pathlib.Path) -> None:

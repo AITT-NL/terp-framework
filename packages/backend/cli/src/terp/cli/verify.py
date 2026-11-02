@@ -189,7 +189,8 @@ class VerifyCheck:
     #: subprocess — same verdict surface, no interpreter round-trip.
     # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift"
     # | "platform-install" | "env-seams" | "api-client" | "package-boundaries"
-    # | "dependency-hygiene" | "workbench" | "deployment" | "locks" | "deploy-safety"
+    # | "dependency-hygiene" | "workbench" | "deployment" | "locks" | "generated"
+    # | "deploy-safety"
     # | "production-readiness" | "conformance"
     runner: str = "subprocess"
 
@@ -372,6 +373,34 @@ _LOCKS = VerifyCheck(
         ".terp-dist/**",
     ),
     runner="locks",
+)
+
+# Are the build files of a generated app the generator's render (ADR 0187)? Where
+# deployment.json says "build": "generated", Dockerfile.prod, frontend/Dockerfile.prod and
+# docker-compose.prod.yml are the framework's, rendered by `terp deployment render`, and a
+# committed copy that is not the render is a build nobody declared. Red also when an
+# environment file a unit loads is not ignored by git and the build context, and when the
+# template's recorded build disagrees. Silent for every other state. Its own check rather than
+# part of `deployment`, for the reason `locks` is: a stale render contradicts nothing the
+# declaration says. Category `build`, like `routes-drift`, the other generate-commit-gate
+# artifact. The scope is every input of the render and of the ignore and answers questions;
+# `pyproject.toml` also pins the terp-arch whose generator renders.
+_GENERATED = VerifyCheck(
+    id="generated",
+    category="build",
+    command="terp verify --only generated",
+    scope=(
+        "Dockerfile.prod",
+        "frontend/Dockerfile.prod",
+        "docker-compose.prod.yml",
+        "deployment.json",
+        "pyproject.toml",
+        "frontend/package-lock.json",
+        ".gitignore",
+        ".dockerignore",
+        ".copier-answers.yml",
+    ),
+    runner="generated",
 )
 
 # The deployment safety envelope. Separate from `workbench` because the two
@@ -630,6 +659,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _WORKBENCH,
         _DEPLOYMENT,
         _LOCKS,
+        _GENERATED,
         _DEPLOY_SAFETY,
         _PRODUCTION_READINESS,
         _ARCHITECTURE,
@@ -645,6 +675,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _WORKBENCH,
         _DEPLOYMENT,
         _LOCKS,
+        _GENERATED,
         _DEPLOY_SAFETY,
         _PRODUCTION_READINESS,
         _ARCHITECTURE,
@@ -668,6 +699,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _WORKBENCH,
         _DEPLOYMENT,
         _LOCKS,
+        _GENERATED,
         _DEPLOY_SAFETY,
         _PRODUCTION_READINESS,
         _ARCHITECTURE,
@@ -2252,6 +2284,10 @@ def run_verify_command(
             from terp.cli.locks import run_locks_check
 
             exit_code, output = run_locks_check(project_root)
+        elif check.runner == "generated":
+            from terp.cli.deployment_render import run_generated_check
+
+            exit_code, output = run_generated_check(project_root)
         elif check.runner == "deploy-safety":
             from terp.cli.deploy_safety import run_deploy_safety_check
 
