@@ -133,9 +133,14 @@ never reaches the command. What needed a fallback is rewritten.
 - **Safe twice**: a value already under `SECRET_KEY` is left alone. `--check` only counts, and
   `--format json` is for a deploy tool.
 
+A table it can read but not rewrite is read all the same. A mapped table with no primary key cannot
+be updated one row at a time, and a table the database holds in a schema the app maps into, but that
+the app does not map, has no model to write through. Their sealed values are counted with the rest,
+and the report names each such table and why nothing in it was re-sealed.
+
 It exits 0 only when every sealed value it found opens under `SECRET_KEY` and every table was read;
-1 when something still needs a fallback, opens under no configured key, changed mid-run or sat in a
-table that failed; 2 when it refused to run.
+1 when something still needs a fallback (in a table it could not rewrite as well), opens under no
+configured key, changed mid-run or sat in a table that failed; 2 when it refused to run.
 
 ### 6. The template declares both lists
 

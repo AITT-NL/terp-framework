@@ -50,7 +50,11 @@ that only decrypts, and `terp secrets reseal` moves what was sealed under it to 
   of every mapped table, re-seals each value that still needs a decrypt fallback, one transaction
   per table, compare-and-swap per value, and moves no `updated_at`; it refuses while a migration
   is pending and is safe to run twice. `--check` only counts, `--format json` is for a pipeline,
-  and it exits 0 only when every sealed value opens under `SECRET_KEY`.
+  and it exits 0 only when every sealed value opens under `SECRET_KEY`. A table it can read but
+  not rewrite, a mapped table with no primary key or a table in the database the app does not
+  map, is read and counted, and the report names it and why nothing in it was re-sealed; a value
+  in one that still needs a fallback keeps the exit at 1, where such a table used to be passed
+  over and the run reported clean.
 - **`SealingDomain`, `derive_key`, `check_sealed_value` and `sealing_domains` in `terp.core`.** A
   sealing domain owns the rotation rule for one kind of sealed value and registers itself, which
   is how the re-seal finds it; the three shipped sealers are domains now, with their labels and

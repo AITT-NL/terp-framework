@@ -12,6 +12,8 @@ tests are written from that seat:
 * it moves no ``updated_at``: a re-seal changes no value, only the key;
 * a table that cannot be written rolls back whole, and the others keep their re-seal;
 * a value rewritten by someone else mid-run is never overwritten;
+* a table it can read but not rewrite (no primary key, or not mapped by the app) is
+  read, counted and named, so a value in one never leaves the report clean;
 * it refuses to run while a migration is pending.
 
 The database is a RELATIVE SQLite path in the test's own directory: the migration guard
@@ -294,3 +296,98 @@ def test_the_command_line_exits_with_the_verdict(
     assert remains.value.code == 1
     main(["secrets", "reseal", "--app", "cli_reseal_app:build"])
     assert "Every sealed value opens under SECRET_KEY" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- #
+# a table it can read but not rewrite is read, and named
+# --------------------------------------------------------------------------- #
+def _legacy_table(*values: str) -> None:
+    """A table the database holds and the app does not map, holding *values*."""
+    with _session() as session:
+        session.exec(text("CREATE TABLE cli_reseal_legacy (id INTEGER PRIMARY KEY, token TEXT)"))
+        for value in values:
+            session.exec(text("INSERT INTO cli_reseal_legacy (token) VALUES (:v)").bindparams(v=value))
+        session.commit()
+
+
+def test_a_table_the_app_does_not_map_is_read_and_never_reported_clean_unread(
+    app: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sealed = encrypt_config("legacy-token")
+    _legacy_table(sealed)
+    _rotate(monkeypatch)
+    status, report = _run()
+    assert status == 1, report
+    assert "cli_reseal_legacy.token" in report
+    assert "1 value(s) still open only under SECRET_KEY_DECRYPT_FALLBACKS" in report
+    assert (
+        "Read cli_reseal_legacy but re-sealed nothing in it: the app does not map it" in report
+    )
+    assert "SECRET_KEY_DECRYPT_FALLBACKS can come out" not in report
+    with _session() as session:
+        assert session.exec(text("SELECT token FROM cli_reseal_legacy")).one()[0] == sealed
+    payload = json.loads(_run(check=True, fmt="json")[1])
+    assert payload["clean"] is False
+    assert payload["skipped"] == {
+        "cli_reseal_legacy": "the app does not map it, so there is no model to write it through"
+    }
+
+
+def test_an_unmapped_table_whose_values_are_current_is_named_and_clean(
+    app: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _rotate(monkeypatch)
+    _legacy_table(encrypt_config("legacy-token"), "plain text")
+    status, report = _run()
+    assert status == 0, report
+    assert "Read cli_reseal_legacy but re-sealed nothing in it" in report
+    assert "SECRET_KEY_DECRYPT_FALLBACKS can come out of the environment" in report
+
+
+def test_a_mapped_table_with_no_primary_key_is_counted_and_never_written(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sqlalchemy import Column, MetaData, String, Table, create_engine, insert, select as select_rows
+
+    from terp.cli.reseal import survey
+
+    monkeypatch.setattr(settings, "SECRET_KEY", _OLD)
+    monkeypatch.setattr(settings, "SECRET_KEY_DECRYPT_FALLBACKS", [])
+    mapping = MetaData()
+    keyless = Table("cli_reseal_keyless", mapping, Column("token", String(512)))
+    engine = create_engine("sqlite://")
+    mapping.create_all(engine)
+    sealed = encrypt_config("keyless-token")
+    with engine.begin() as conn:
+        conn.execute(insert(keyless).values(token=sealed))
+    _rotate(monkeypatch)
+
+    report = survey(engine, write=True, metadata=mapping)
+    assert (report.total("fallback"), report.total("resealed"), report.clean) == (1, 0, False)
+    assert report.skipped == {
+        "cli_reseal_keyless": (
+            "it has no primary key, so no value in it can be rewritten one row at a time"
+        )
+    }
+    with engine.connect() as conn:
+        assert conn.execute(select_rows(keyless.c.token)).scalar_one() == sealed
+
+
+def test_the_tables_it_cannot_list_are_a_failure_not_a_clean_report(
+    app: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlalchemy.exc import OperationalError
+
+    import terp.cli.reseal as reseal
+
+    def unlisted(*_: object) -> list[object]:
+        raise OperationalError("SELECT name FROM sqlite_master", {}, Exception("disk I/O error"))
+
+    monkeypatch.setattr(reseal, "_unmapped_tables", unlisted)
+    _rotate(monkeypatch)
+    status, report = _run()
+    assert status == 1
+    assert (
+        "Could not re-seal the database's tables the app does not map "
+        "(OperationalError: disk I/O error)" in report
+    )

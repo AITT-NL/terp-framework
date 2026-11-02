@@ -11,6 +11,11 @@ it. This command is how an operator gets there, and how they know they have:
   domain hands back the value already re-sealed under ``SECRET_KEY``.
 * A value under a fallback is rewritten in place. A value already under ``SECRET_KEY``
   is left alone, so a second run writes nothing.
+* A table it can read but not rewrite is still read, and named. A mapped table with no
+  primary key cannot be updated one row at a time, and a table in the database that the
+  app does not map has no model to write through. Their sealed values are counted, so a
+  value in one that still needs a fallback keeps the verdict from being clean, and the
+  report names each such table and why nothing in it was re-sealed.
 * ``--check`` only counts. The report says, per column, what opens under the current
   key, what was re-sealed, what still needs a fallback and what opens under no
   configured key at all; the exit status is 0 only when every sealed value opens under
@@ -39,14 +44,14 @@ import functools
 import json
 import pathlib
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from terp.cli._appref import load_app, push_app_root
 from terp.cli.schema import import_declared_models
 
 if TYPE_CHECKING:
-    from sqlalchemy import Column, Connection, Engine, Table
+    from sqlalchemy import Column, Connection, Engine, MetaData, Table
 
 __all__ = ["ColumnTally", "ResealReport", "reseal_command", "survey"]
 
@@ -82,15 +87,21 @@ class ResealReport:
     wrote: bool
     columns: list[ColumnTally]
     failed: dict[str, str]  # table -> why it was rolled back
+    skipped: dict[str, str] = field(default_factory=dict)  # table -> why nothing was re-sealed
 
-    def total(self, field: str) -> int:
-        return sum(getattr(tally, field) for tally in self.columns)
+    def total(self, name: str) -> int:
+        return sum(getattr(tally, name) for tally in self.columns)
 
     @property
     def clean(self) -> bool:
-        """Every sealed value found opens under ``SECRET_KEY``, and every table was read."""
+        """Every sealed value found opens under ``SECRET_KEY``, and every table was read.
+
+        A skipped table was read, so its values are in the totals: one that still needs a
+        fallback keeps the report from being clean, and one that opens under ``SECRET_KEY``
+        needs nothing.
+        """
         return not self.failed and not any(
-            self.total(field) for field in ("fallback", "unreadable", "changed")
+            self.total(name) for name in ("fallback", "unreadable", "changed")
         )
 
 
@@ -152,12 +163,17 @@ def _settle(
 
 
 def _survey_table(conn: Connection, table: Table, *, write: bool) -> list[ColumnTally]:
-    """Every sealed value in *table*, counted and (with *write*) re-sealed."""
+    """Every sealed value in *table*, counted and (with *write*) re-sealed.
+
+    A table with no primary key is counted and never written: without a key, an update
+    that matches a row matches every row holding the same value.
+    """
     from sqlalchemy import inspect, or_, select
 
     columns = _string_columns(table)
     primary = list(table.primary_key.columns)
-    if not columns or not primary or not inspect(conn).has_table(table.name, schema=table.schema):
+    write = write and bool(primary)
+    if not columns or not inspect(conn).has_table(table.name, schema=table.schema):
         return []
     tallies = {column.name: ColumnTally(table.name, column.name) for column in columns}
     rows = conn.execute(
@@ -173,22 +189,72 @@ def _survey_table(conn: Connection, table: Table, *, write: bool) -> list[Column
     return [tally for tally in tallies.values() if tally.found]
 
 
-def survey(engine: Engine, *, write: bool) -> ResealReport:
-    """Walk every mapped table once, in one transaction per table."""
+#: Why a table that holds sealed values had none of them re-sealed.
+_NO_PRIMARY_KEY = "it has no primary key, so no value in it can be rewritten one row at a time"
+_UNMAPPED = "the app does not map it, so there is no model to write it through"
+#: Where the database's own tables are listed, when the app maps none of its tables there.
+_OTHER_TABLES = "the database's tables the app does not map"
+
+
+def _failure(exc: Exception) -> str:
+    # The driver's own message, not SQLAlchemy's rendering of the statement: that one
+    # carries the bound parameters, which here are sealed values.
+    return f"{type(exc).__name__}: {getattr(exc, 'orig', exc)}"
+
+
+def _unmapped_tables(conn: Connection, metadata: MetaData) -> list[Table]:
+    """The tables the database holds, in the schemas the app maps into, that it does not map.
+
+    Each is reflected from the database, so its string columns can be read.
+    """
+    from sqlalchemy import MetaData, Table, inspect
+
+    mapped = {(table.schema, table.name) for table in metadata.sorted_tables}
+    schemas = sorted({None, *(schema for schema, _ in mapped)}, key=lambda schema: schema or "")
+    inspector = inspect(conn)
+    reflected = MetaData()
+    return [
+        Table(name, reflected, schema=schema, autoload_with=conn)
+        for schema in schemas
+        for name in inspector.get_table_names(schema=schema)
+        if (schema, name) not in mapped
+    ]
+
+
+def survey(engine: Engine, *, write: bool, metadata: MetaData | None = None) -> ResealReport:
+    """Walk every mapped table once, in one transaction per table, then read the rest.
+
+    *metadata* is the app's mapping, ``SQLModel.metadata`` unless a caller names another.
+    A table the database holds and the app does not map is read too, never written.
+    """
     from sqlalchemy.exc import SQLAlchemyError
     from sqlmodel import SQLModel
 
+    mapping = metadata if metadata is not None else SQLModel.metadata
     report = ResealReport(wrote=write, columns=[], failed={})
-    for table in SQLModel.metadata.sorted_tables:
+
+    def read(table: Table, *, writable: bool, skipped: str | None) -> None:
         try:
             with engine.begin() as conn:
-                tallies = _survey_table(conn, table, write=write)
+                tallies = _survey_table(conn, table, write=write and writable)
         except SQLAlchemyError as exc:
-            # The driver's own message, not SQLAlchemy's rendering of the statement:
-            # that one carries the bound parameters, which here are sealed values.
-            report.failed[table.name] = f"{type(exc).__name__}: {getattr(exc, 'orig', exc)}"
-            continue
+            report.failed[table.name] = _failure(exc)
+            return
         report.columns.extend(tallies)
+        if tallies and skipped is not None:
+            report.skipped[table.name] = skipped
+
+    for table in mapping.sorted_tables:
+        keyless = not table.primary_key.columns
+        read(table, writable=True, skipped=_NO_PRIMARY_KEY if keyless else None)
+    try:
+        with engine.connect() as conn:
+            unmapped = _unmapped_tables(conn, mapping)
+    except SQLAlchemyError as exc:
+        report.failed[_OTHER_TABLES] = _failure(exc)
+        return report
+    for table in unmapped:
+        read(table, writable=False, skipped=_UNMAPPED)
     return report
 
 
@@ -206,6 +272,11 @@ def _render(report: ResealReport) -> str:
     out.append("")
     for table, reason in report.failed.items():
         out.append(f"Could not re-seal {table} ({reason}); nothing in it was written.")
+    for table, reason in report.skipped.items():
+        out.append(
+            f"Read {table} but re-sealed nothing in it: {reason}. Its values are counted "
+            "above; re-seal any that need a fallback through the code that owns it."
+        )
     if report.total("fallback"):
         out.append(
             f"{report.total('fallback')} value(s) still open only under "
@@ -285,6 +356,7 @@ def reseal_command(
             "clean": report.clean,
             "columns": [asdict(tally) for tally in report.columns],
             "failed": report.failed,
+            "skipped": report.skipped,
         }
         return status, json.dumps(payload, indent=2)
     return status, _render(report)
