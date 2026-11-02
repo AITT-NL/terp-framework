@@ -36,7 +36,7 @@ c7138152e6deb603b779ad98a843dd8d0980d349:tests/architecture/test_webhooks.py:gen
 a1d66b636b2249b398513dff9b972938b6c23ca5:tests/architecture/test_audit_activity.py:generic-api-key:155
 82c80bfe3a15f1aeab187156ea7177e86c3ae04d:.gitleaksignore:generic-api-key:32
 
-# Another CI smoke-test SECRET_KEY, of the first entry's kind: the template
-# acceptance job that renders the generated reference app gets a literal written
-# to be obviously fake, which reaches only that job's throwaway stack.
-0f3b897c2f36852776fb270b8b1c31a71be1f672:.github/workflows/ci.yml:generic-api-key:665
+# Not a credential either: the release signer's check that a public key is on
+# the curve it expects checks the key's curve attribute against a curve class, which
+# the generic rule reads as an assignment to something called a key.
+1d78e290facac24a607f6b140a52ae531b84a2a2:packages/backend/cli/src/terp/cli/release/dsse.py:generic-api-key:61
