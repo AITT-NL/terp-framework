@@ -5,9 +5,9 @@ terp-spec is only a development dependency of the framework, so terp-arch ships 
 byte for byte (:mod:`terp.arch.workbench`), and this suite carries the spec's fixtures beside
 it for the reader's own tests. What is held here:
 
-* the mirror and the fixtures equal the spec's the moment a pinned release carries them,
-  and until then the pin is honestly one that does not (no skip that could outlive the
-  window);
+* the mirror and the fixtures equal the spec's when the pinned release is the one
+  ``SPEC_RELEASE`` names, and while the pin is older they are not both the pinned
+  release's files (:mod:`.spec_copies`; no skip that could outlive the window);
 * every list the gate's checker uses is the schema's, and nothing restates one;
 * every fixture reads as it says through the gate's own reader, :func:`terp.cli.workbench.read`
   -- a valid document resolves to exactly the facts the fixture lists, an invalid one is
@@ -28,6 +28,7 @@ from terp.arch import workbench as vocabulary
 from terp.arch.deployment import _jsonschema
 from terp.arch.deployment.reader import DEV_COMPOSE_FILE
 from terp.cli import workbench
+from tests.architecture import spec_copies
 
 _REPO = pathlib.Path(__file__).resolve().parents[2]
 _MIRROR = (
@@ -40,34 +41,25 @@ _FIXTURES = json.loads(_FIXTURES_COPY.read_text(encoding="utf-8"))
 _SCHEMA = json.loads(_MIRROR.read_text(encoding="utf-8"))
 
 
-def _version(text: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in text.split("."))
-
-
 # --- the mirror ------------------------------------------------------------
 
 
-@pytest.mark.parametrize(("ours", "name"), [(_MIRROR, vocabulary.SCHEMA_FILE), (_FIXTURES_COPY, _FIXTURES_FILE)])
-def test_the_copies_are_the_spec_s_once_a_pinned_release_carries_them(ours, name) -> None:
-    """Byte for byte against the pinned spec, from the release ``SPEC_RELEASE`` names onward.
+def test_the_copies_are_the_spec_s_of_the_release_they_name() -> None:
+    """Byte for byte against the pinned spec when the pin is ``SPEC_RELEASE``.
 
-    Before that release is pinned the comparison cannot be made, and saying so is the
-    assertion: the installed spec must be older than SPEC_RELEASE AND carry no such file.
-    The day the pin moves the first branch takes over, and a pin that moved without the
-    copies fails here rather than passing on a skip.
+    While the pin is older the comparison cannot be made, and saying so is the
+    assertion: the pinned spec does not carry both copies as they are here. The
+    schema and its fixtures share one release, so a later release may change one and
+    leave the other. A pin that moved without the copies, and one newer than
+    SPEC_RELEASE, fail here rather than passing on a skip.
     """
-    installed = terp_spec.spec_version()
-    published = terp_spec.spec_dir() / name
-    if _version(installed) >= _version(vocabulary.SPEC_RELEASE):
-        assert published.is_file(), f"terp-spec {installed} ships no {name}"
-        assert ours.read_bytes() == published.read_bytes(), (
-            f"this repository's {name} differs from terp-spec {installed}'s: copy the spec's "
-            "file over it, then make the reader honour whatever changed"
-        )
-    else:
-        assert not published.is_file(), (
-            f"terp-spec {installed} already carries {name}: move SPEC_RELEASE to it"
-        )
+    found = spec_copies.findings(
+        {vocabulary.SCHEMA_FILE: _MIRROR.read_bytes(), _FIXTURES_FILE: _FIXTURES_COPY.read_bytes()},
+        terp_spec.spec_dir(),
+        terp_spec.spec_version(),
+        vocabulary.SPEC_RELEASE,
+    )
+    assert found == []
 
 
 @pytest.mark.parametrize("copy", [_MIRROR, _FIXTURES_COPY])
