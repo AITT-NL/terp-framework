@@ -348,7 +348,7 @@ coverage**. See
 (`SecurityHeaders` + deny‑by‑default `CorsPolicy` + `RateLimit` + body‑size +
 request‑id header) on `ControlPlane.security`; `create_app` installs the middleware
 stack (CORS · request‑id · security‑headers · rate‑limit · request‑size‑limit) and
-`configure_logging()` (request‑id context var + `RedactingFilter` PII scrubbing +
+`configure_logging()` (request‑id context var + `RedactingFilter` secret scrubbing +
 JSON `StructuredFormatter`); production fail‑fast extended to refuse unset/`"*"`
 CORS and a disabled rate limit. The two enforceable build‑time rules are the
 **centralization** pair `no_adhoc_middleware` + `no_adhoc_logging_config` (the
@@ -584,7 +584,7 @@ place — not no‑code, and honest about it.
 
 | Tier | Meaning | How opinionated | Examples |
 |---|---|---|---|
-| **A — Mandatory** | No business app should ever skip it. On by default; opt‑out is explicit + justified + **budgeted**. | Maximally. Fail‑closed runtime + build‑time test. | authz, **audit of mutations**, input caps, error envelope, security headers, OCC, pagination, PII redaction, no‑raw‑SQL |
+| **A — Mandatory** | No business app should ever skip it. On by default; opt‑out is explicit + justified + **budgeted**. | Maximally. Fail‑closed runtime + build‑time test. | authz, **audit of mutations**, input caps, error envelope, security headers, OCC, pagination, secret redaction, no‑raw‑SQL |
 | **B — Defaulted, overridable** | Varies by company. Ships a safe default in a typed control‑plane registry; the consumer overrides the *values*, never the *shape*. | The *shape* is fixed; the *content* is the consumer's. | password policy, rate‑limit numbers, table‑name pattern, route prefix, retention windows, CORS origins, soft‑delete on/off |
 | **C — Optional sugar** | Authoring convenience; never the only path. | Provided, but a module may always drop to native FastAPI/SQLModel with the same arch rules applying. | CRUD router factory, `terp new module` scaffolding |
 
@@ -612,12 +612,12 @@ concerns without removing their ability to *configure* them.
 | Security headers · CORS · rate‑limit · body‑size · request‑id | A | ✅ built | `SecurityConfig` (Phase C, ADR 0005); rate‑limit counter behind the pluggable `ThrottleStore` (default in‑memory; shared seam ADR 0036, Redis‑backed adapter shipped in `terp-cap-redis`, ADR 0078) |
 | **Idempotency keys for unsafe methods** | B | ✅ built | `terp.core.idempotency` `IdempotencyStore` + innermost `IdempotencyMiddleware` (credential‑scoped, fail‑closed 503, replay 422/409, ADR 0077); Redis adapter in `terp-cap-redis` |
 | **Shared stores for multi‑instance** (throttle / idempotency / cache) | B | ✅ built | `terp-cap-redis` Redis‑backed `ThrottleStore` / `IdempotencyStore` / `CacheStore` adapters (atomic Lua; ADR 0078) |
-| Structured logging + PII redaction | A | ✅ built | `terp.core.logging` (handler‑level redaction + `extra=` in the hardening) |
+| Structured logging + secret redaction | A | ✅ built | `terp.core.logging` (handler‑level redaction + `extra=` in the hardening; one versioned record shape, `terp-log/1`, ADR 0188). Secrets only: personal-data redaction waits on a field-level marker |
 | **Audit log of mutations (auto‑emit)** | A | ✅ built | `AuditPolicy` registry on `ControlPlane.audit`; fail‑closed emit from the single `BaseService.create/update/delete` chokepoint; central redaction; core seam + `terp-cap-audit` durable sink; the `mutations_emit_audit` rule **and a runtime write‑guarded `SessionDep`** (a write outside the chokepoint raises `UnauditedWriteError`, ADR 0015); budgeted opt‑out (ADR 0007) |
 | **Password policy** (length/complexity/breach) | B | ✅ built | `PasswordPolicy` registry on `ControlPlane.passwords` (safe default: 12+ chars, 2+ classes, common-password denylist); fail-closed at the `UsersService` credential boundary (typed `WeakPasswordError`, uniform 422); `create_app` production fail-fast on a relaxed policy; `PasswordPolicy.relaxed(reason=…)` opt-out (ADR 0032). Runtime/boot-only — no AST rule. HIBP breach-corpus check deferred. |
 | Account lockout / brute‑force throttle | B | ✅ built | `terp-cap-auth` `LoginThrottle` (on by default; per‑account; explicit `LoginThrottle.disabled(reason=…)`); typed 429 `AccountLockedError` (ADR 0031). Multi‑instance correct via the shared `ThrottleStore` seam (ADR 0036). |
 | **Token revocation + mid‑session `is_active` re‑check** | A/B | ✅ built | per‑user **token epoch** (`token_version`) on the access token + a revocable `get_principal` (`build_get_principal(token_validator=…)`, one‑call via `IdentityService.principal_provider()`); bumped on deactivate / role‑change / password‑reset / logout through the audited `users` chokepoint; `create_app(require_token_revocation=True)` boot guard (ADR 0031). Runtime/boot‑only — no AST rule. Refresh‑token rotation + `jti` deny‑list deferred. |
-| Access/request logging (per request) | B | ⬜ backlog | opt‑in, structured, redacted |
+| Access/request logging (per request) | B | ✅ built | one `http.access` record per request, on by default: route template, status, duration, request id, the authenticated actor and tenant, the guard's deciding rule (ADR 0188) |
 | **`__tablename__` required + name pattern** | A/B | ⬜ planned | runtime `BaseTable.__init_subclass__` check **+** arch rule; the *pattern* (snake_case, length) is a control‑plane default. *Today: implicit SQLModel naming is unenforced drift.* |
 | **Route prefix/suffix in the control plane** | B | ⬜ planned | promote the hardcoded `/api/v1/{name}` to a routing registry default |
 | **CRUD router factory** | C | ⬜ planned | `build_crud_router(service, schemas=…, policy=…)` returning a native `APIRouter`; kills router drift without a DSL |

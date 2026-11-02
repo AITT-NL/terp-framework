@@ -1258,7 +1258,7 @@ removed `projects`: business nouns are client modules, never capabilities).
 Core substrate not yet carved into `terp.core`:
 
 - [x] **Middleware** — security headers, rate-limit, request-id, request-size-limit, deny-by-default CORS (ADR 0005, `SecurityConfig` + `create_app` install). CSRF is intentionally out of scope (Terp authenticates via Bearer tokens, not cookies).
-- [x] **Logging / telemetry** — structured logging + request-id context var + PII redaction (`terp.core.logging`, ADR 0005). OTel wiring remains deferred.
+- [x] **Logging / telemetry** — structured logging + request-id context var + secret redaction (`terp.core.logging`, ADR 0005); every line a `terp-log/1` record with one access line per request (ADR 0188). Personal-data redaction waits on a field-level marker. OTel wiring remains deferred.
 - [x] **Secrets sealing** — `encrypt_config` / `mask_config` / `decrypt_config` (single
   decrypt call-site, §5.4) — shipped (ADR 0055): `terp.core.secrets` + the
   `no_adhoc_config_decrypt` rule; the cipher is the optional `terp-core[secrets]` extra

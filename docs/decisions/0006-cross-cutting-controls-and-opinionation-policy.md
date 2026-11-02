@@ -39,7 +39,9 @@ not a framework control, and it stays out of `terp.core`.
 
 - **Tier A, built:** authz, error envelope (incl. the catch-all 500), OCC,
   pagination caps, input caps, security headers/CORS/rate-limit/body-size/
-  request-id, structured logging + PII redaction.
+  request-id, structured logging + secret redaction (corrected from "PII
+  redaction" by [ADR 0188](0188-every-log-line-is-a-record-of-one-versioned-schema.md):
+  the filter recognises secrets, not personal data).
 - **Tier A, next (Phase D):** **audit log of mutations**, auto-emitted from the
   single `BaseService.create/update/delete` chokepoint, with central redaction/
   retention and a budgeted opt-out (`AuditPolicy`).

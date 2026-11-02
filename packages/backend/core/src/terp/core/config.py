@@ -16,8 +16,10 @@ import json
 import uuid
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from terp.core.logging import configure_logging
 
 _PLACEHOLDER_SECRETS = {"", "changethis"}
 _MIN_SECRET_LEN = 32
@@ -244,7 +246,22 @@ class Settings(BaseSettings):
         return self
 
 
-settings = Settings()
+def _load_settings() -> Settings:
+    """Read the settings, or refuse — with the refusal written as a structured record.
+
+    This runs when ``terp.core`` is first imported, before any composition root has
+    configured logging, so the refusal's traceback would otherwise be the one
+    plain-text block a deployed process prints. Routing the interpreter's printer
+    through the structured handler first makes it a record like every other line.
+    """
+    try:
+        return Settings()
+    except ValidationError:
+        configure_logging(capture_process=True)
+        raise
+
+
+settings = _load_settings()
 
 
 def get_settings() -> Settings:

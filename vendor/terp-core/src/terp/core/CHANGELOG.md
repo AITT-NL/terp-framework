@@ -93,6 +93,13 @@ webhook signing secret and MFA enrolment stopped opening, and every refresh sess
 next refresh. A previous key now goes in two lists with two clocks, one that only verifies and one
 that only decrypts, and `terp secrets reseal` moves what was sealed under it to the new key.
 
+And a production process wrote its log in three shapes. The app's own records were JSON
+without a timestamp; uvicorn's startup, shutdown and access lines were plain text, the access
+line naming the raw path with its ids and any query-string token; and a traceback nothing caught
+was a plain block. Nothing said which rule the guard decided by, no code read an `AppError`'s
+`log_context`, and an unexpected exception was written twice. Every line is now one record in a
+versioned schema.
+
 ### Security
 
 - **A rendered environment file can no longer be baked into an image.** The template's
@@ -467,6 +474,30 @@ that only decrypts, and `terp secrets reseal` moves what was sealed under it to 
 - **The template declares both fallback lists** in `environment.schema.json`, as secrets required
   nowhere, and lists them empty in `.app.env.example`, so a deploy pipeline can set them.
   `terp guide secrets` and `docs/DEPLOYMENT.md` give the rotation procedure.
+- **Every log line is a `terp-log/1` record.** One JSON object per line, with `time` (UTC,
+  RFC 3339, milliseconds) and `schema` (`"terp-log/1"`) beside the four keys every line already
+  had (`level`, `logger`, `request_id`, `message`), and typed fields for the framework's own
+  events (`event`, `http`, `actor`, `tenant`, `guard`, `error`, `context`). The JSON Schema
+  ships in terp-core (`log-record.schema.json`, loaded by `terp.core.log_record_schema()`; its
+  id is `terp.core.LOG_SCHEMA`) and grows only by addition, so a reader of one release's lines
+  reads the next one's. The suite validates every line a production uvicorn process writes
+  against it. ADR 0188.
+- **One access line per request** (`event: "http.access"`, logger `terp.access`, INFO): the
+  method, the route template (never the requested path), the status, `duration_ms`, the
+  request id, and the authenticated actor and tenant, absent when the request was not
+  authenticated and held to the UUID shape, so a token cannot reach either field. A
+  tenant-scoped app gets the tenant through the new `register_log_tenant_reader` seam, which the
+  tenancy capability fills.
+- **The guard's deciding rule rides that line** (`guard`): the outcome, the reason slug, the
+  rule (`role:editor`, `permission:invoices.send`, `authenticated`, `public`), whose policy it
+  was (`module` or `route`) and the read/write tier, for every allow and every deny, at no
+  extra line. A connection without an access line, a WebSocket, gets its own `guard.decision`
+  record: a deny at INFO, an allow at DEBUG.
+- **Each `AppError` is logged once** (`event: "error.app"`, logger `terp.errors`), with its
+  code, its status and its `log_context`, redacted. A client's error (4xx) is INFO; a server's
+  (5xx) is ERROR, with its traceback.
+- **`terp guide logging`**: the record format, what the framework writes for you, and what
+  redaction covers.
 
 ### Changed
 
@@ -629,6 +660,24 @@ that only decrypts, and `terp secrets reseal` moves what was sealed under it to 
   minutes) from its `iat`, whatever its `exp` says.
 - **Both fallback lists read comma-separated**, the shape a deploy tool writes; the JSON list form
   keeps working.
+- **uvicorn's loggers and the interpreter's printers go through the framework's handler.**
+  `create_app` re-points `uvicorn`, `uvicorn.error`, `uvicorn.access` and `uvicorn.asgi` at the
+  root handler (uvicorn's command line configures them, unpropagated, before it imports the
+  app) and retires uvicorn's own access line. Outside local development it also routes uncaught
+  exceptions, an exception that ends a thread, unraisable exceptions and warnings through it,
+  replacing only a hook still at the interpreter's default. Logging is now configured before the
+  first boot check, so a refused boot is a record too.
+- **An unexpected exception is written once.** Starlette re-raises it to the server after the
+  500 has gone, and uvicorn wrote it a second time as "Exception in ASGI application"; that
+  copy is dropped. The framework's record (`event: "error.unhandled"`, logger `terp.core` as
+  before) now carries the request id in `request_id`, where it carried `-`.
+- **A failure inside logging never escapes.** A record that cannot be redacted is withheld; one
+  that cannot be rendered (a `%d` handed a string) becomes a `log.failure` record; a write the
+  stream refuses is retried once in the record's shape instead of printing `--- Logging error
+  ---`.
+- `cache`, `idempotency`, `throttling` and `leases` import `Lock` by name, as the
+  `no_adhoc_background_runtime` rule asks, so core's unscanned record for that rule falls from 4
+  to 1.
 
 ### Upgrade notes
 
@@ -835,6 +884,13 @@ that only decrypts, and `terp secrets reseal` moves what was sealed under it to 
 - **A template update brings the two declarations.** An app whose `environment.schema.json` and
   `.app.env.example` it rewrites gets both; an app that keeps its own adds them by hand to set the
   lists through a deploy pipeline.
+- A reader that keys on `level` or `message` reads every line as before; `time`, `schema` and
+  the event fields are new keys. A tool that parsed uvicorn's plain-text access line reads the
+  `http.access` records instead.
+- An app that logs each request itself now writes two lines per request: drop its own.
+- An app started with `uvicorn.run(app)` from Python, rather than uvicorn's command line,
+  composes before uvicorn configures its loggers; pass `log_config=None` to keep uvicorn's lines
+  on the framework's handler.
 
 ### Fixed
 
@@ -921,6 +977,32 @@ that only decrypts, and `terp secrets reseal` moves what was sealed under it to 
   and stores the successor under the current key.
 - **A key rotation no longer leaves sealed values unreadable**, nor fails every webhook delivery
   terminally, nor locks every enrolled user out at the second factor.
+- **`Authorization: Bearer <token>` in free text kept the token.** The redaction pattern took
+  the scheme word for the value, so `Bearer` was redacted and the credential after it was
+  written. The scheme word now stays and the credential goes. Redaction also covers a cookie
+  header's value, a URL's password and a `password=` / `client_secret:` / `api_key=` pair, and
+  it now reads exception text: the traceback, and an exception logged as an argument. An
+  object in `extra=` or `log_context` that the line writes through its text (an exception, a
+  set, an object with its own `__str__`) is redacted as that text; a value that starts with `%`
+  (`%40...`) is no longer taken for a message placeholder, which only a template still waiting
+  for its arguments has; and a URL password holding an unencoded `/` is caught.
+- **A refused production configuration printed part of the configuration.** The settings'
+  validation error repeated its input, truncated in the middle, so the tail of `DATABASE_URL`,
+  password included, could reach the boot log. `Settings` hides its input in errors, and the
+  refusal is written as a record.
+- **A test no longer sees the logging an earlier test's app configured.** `create_app`
+  configures logging for the whole process, and terp-core's pytest plugin did not put it back:
+  the first test to compose an app re-dressed pytest's own capture handlers with the JSON
+  formatter and the redaction filters for the rest of the session, so a later test reading
+  `caplog` got records without `.message`, and passed or failed by what had run before it. The
+  root logger and its handlers, uvicorn's loggers and the process hooks are now one per-app
+  runtime seam (`reset_logging_runtime`), snapshotted before each test and restored after it;
+  the reset gives a handler the framework did not create its own formatter back. The JSON
+  formatter also leaves `record.message` on the record, as `logging.Formatter` does.
+- **No framework text claims personal-data redaction any more.** ADR 0005, ADR 0006, the
+  logging module and the `no_adhoc_logging_config` rule's docstring and finding said "PII
+  redaction"; the filter recognises secrets only, and they now say so. The Terp Standard's
+  catalog entry for that rule makes the same claim, and its correction is a terp-spec change.
 
 ## 0.34.0 — 2026-10-09
 

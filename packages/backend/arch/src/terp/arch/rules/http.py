@@ -920,10 +920,11 @@ def check_no_adhoc_logging_config(
 ) -> list[ArchViolation]:
     """App code never configures logging globally; redaction is centralized.
 
-    Structured logging + PII redaction is installed once by ``configure_logging``
+    Structured logging + secret redaction is installed once by ``configure_logging``
     (called by ``create_app``). A module calling ``logging.basicConfig`` /
     ``dictConfig`` / ``fileConfig`` re-points logging and can silently bypass the
-    central secret-redaction filter.
+    central secret-redaction filter. The filter redacts secrets only; personal data
+    is not recognised (ADR 0188).
     """
     root = pathlib.Path(app_root)
     config_calls = frozenset({"basicConfig", "dictConfig", "fileConfig"})
@@ -938,7 +939,7 @@ def check_no_adhoc_logging_config(
                         "no_adhoc_logging_config",
                         rel,
                         node.lineno,
-                        "app code configures logging globally; structured logging + PII "
+                        "app code configures logging globally; structured logging + secret "
                         "redaction is centralized via terp.core (configure_logging)",
                     )
                 )
