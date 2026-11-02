@@ -361,6 +361,7 @@ def _stack_check():
 
     path = reference.OVERLAY / "scripts" / "check_stack.py"
     spec = importlib.util.spec_from_file_location("reference_check_stack", path)
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -386,3 +387,30 @@ def test_the_rebuild_check_waits_through_a_stack_being_recreated() -> None:
     assert check.rebuilt_stack(before, {**rebuilt, "migrate": migrated}) is not None
     partial = {name: entry for name, entry in rebuilt.items() if name != "monitor"}
     assert check.rebuilt_stack(before, {**partial, "migrate": migrated}) is None
+
+
+def test_the_rebuild_check_watches_exactly_the_services_on_the_backend_image(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--rebuilds` hands `watch` the backend's services, and all of them.
+
+    The whole project failed in CI: a rebuild converges every service `watch` was given, the
+    lane never builds the frontend image, so creating `web` failed the convergence and
+    `watch` started nothing (api, scheduler, migrate and seed recreated and never run; the
+    check gave up after 600 s). Fewer than all of them would let a service on the image go
+    unchecked, which is the defect the check exists to catch; so the list is the compose
+    file's, and a service added on the image has to join it.
+    """
+    check = _stack_check()
+    compose = yaml.safe_load((reference.OVERLAY / "docker-compose.yml").read_text(encoding="utf-8"))
+    image = compose["services"]["api"]["image"]
+    on_image = {name for name, service in compose["services"].items() if service.get("image") == image}
+
+    assert set(check.ON_BACKEND_IMAGE) == on_image
+    assert set(check.BACKEND_SERVICES) == on_image - {"migrate", "seed"}
+    assert "web" not in check.ON_BACKEND_IMAGE
+
+    started: list[list[str]] = []
+    monkeypatch.setattr(check.subprocess, "Popen", lambda argv, **kwargs: started.append(argv))
+    check._start_watch(tmp_path / "watch.log")
+    assert started == [["docker", "compose", "watch", "--no-up", *check.ON_BACKEND_IMAGE]]
