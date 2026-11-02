@@ -23,7 +23,8 @@ npm run typecheck
 `npm run visual` is the convenient command and **not** the trustworthy one on a busy
 machine: it starts all four lanes in one Playwright process, which is itself the
 contention condition described under "No retries" below. CI never runs it — the workflow
-runs the four lanes as four separate steps. Reach for the per-lane scripts when a result
+runs each lane as its own command, on runners of their own, with the accessibility lane split
+across four of them by Playwright's `--shard`. Reach for the per-lane scripts when a result
 has to mean something.
 
 `SPECIMEN_GROUPS` in `src/specimens.tsx` is the whole inventory — one group per section of the
@@ -51,8 +52,9 @@ says. `N` below is `ALL_SPECIMENS.length`.
   including every duration, easing and cursor that the screenshot lane's
   `animations: "disabled"` hides. One test per property.
 
-Each `npm run visual:*` prints its own lane's total, and CI runs the four as four steps, so
-the numbers are always one command away and never a claim in a file.
+Each `npm run visual:*` prints its own lane's total, and CI runs each lane as its own command
+(the accessibility lane as four shards, each printing its part), so the numbers are always one
+command away and never a claim in a file.
 
 One specimen earns a note, because it is the only one whose subject is a token
 rather than a component: `dataview-compact`. Comfortable density is the token sheet's
@@ -431,8 +433,8 @@ the set in the same commit.
 
 Both sets are recorded at the Playwright version `package-lock.json` pins — the `linux` set in
 `mcr.microsoft.com/playwright:v<version>-noble`, which CI also runs the screenshot lane **inside**
-rather than on the bare runner, and the `win32` set on a Windows machine with the matching
-browser installed.
+rather than on the bare runner (the other three lanes too, for the browser build the image
+carries), and the `win32` set on a Windows machine with the matching browser installed.
 
 Naming a version here was itself a drift source: this paragraph said `v1.62.0` for the length of
 a release that compared in `v1.63.0`. The number lives in `package-lock.json`, the workflow reads
