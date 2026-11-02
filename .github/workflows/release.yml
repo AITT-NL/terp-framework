@@ -109,7 +109,10 @@ jobs:
         run: uv run python tools/check_pypi_projects.py
 
       - name: Run the gate
-        # See ci.yml: coverage starts before pytest loads its entry-point plugins.
+        # See ci.yml: coverage starts before pytest loads its entry-point plugins, and a
+        # missing Docker engine fails the gate rather than skipping the test that needs one.
+        env:
+          TERP_REQUIRE_DOCKER_ENGINE: "1"
         run: |
           uv run coverage run -m pytest
           uv run coverage report
@@ -229,7 +232,7 @@ jobs:
         # 0.21.0 died in exactly that gap (hatchling wrote Metadata-Version 2.5,
         # the pinned twine called it invalid) — with 12 distributions riding on
         # one upload, this workflow had the same failure waiting for it.
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           packages-dir: dist
           skip-existing: true

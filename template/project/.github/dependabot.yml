@@ -10,10 +10,17 @@
 # Grouped weekly on purpose: one pull request per package buries the one that
 # matters, and a security update nobody reads is not an update.
 #
-# Yours to edit. Add an ecosystem when you add a surface (a second frontend, a
-# worker image); widen the schedule if weekly is too much noise for your team.
-# What you should not do is delete it while the pins stay — that combination is
-# strictly worse than never having pinned at all.
+# Yours to edit. Add an ecosystem when you add a surface (a second frontend, say);
+# widen the schedule if weekly is too much noise for your team. What you should
+# not do is delete it while the pins stay — that combination is strictly worse
+# than never having pinned at all.
+#
+# There is no `docker` entry, on purpose (ADR 0187). The production images'
+# bases are pinned by digest from terp-arch's base-image table, and a framework
+# release moves them: under "build": "generated" the generator writes them, and
+# a pull request that edited a generated file would only turn
+# `terp verify --only generated` red. Under "build": "own" the Dockerfiles are
+# yours, and so is adding the entry back.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -54,10 +61,3 @@ updates:
       conformance-deps:
         patterns: ["*"]
 
-  # The images your project ships.
-  - package-ecosystem: docker
-    directories:
-      - /
-      - /frontend
-    schedule:
-      interval: weekly

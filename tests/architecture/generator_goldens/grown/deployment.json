@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "build": "generated",
+  "compose": {
+    "file": "docker-compose.prod.yml"
+  },
+  "units": [
+    {
+      "id": "db",
+      "role": "database",
+      "kind": "postgres",
+      "version": "17",
+      "stateful": true,
+      "backup": {
+        "every": "P1D",
+        "keep": "P30D"
+      }
+    },
+    {
+      "id": "migrate",
+      "role": "one-shot",
+      "dependsOn": [
+        "db"
+      ]
+    },
+    {
+      "id": "api",
+      "role": "api",
+      "healthPath": "/health/ready",
+      "livenessPath": "/health/live",
+      "dependsOn": [
+        "db",
+        "migrate"
+      ],
+      "migrations": [
+        "notices"
+      ],
+      "size": "small"
+    },
+    {
+      "id": "web",
+      "role": "web",
+      "dependsOn": [
+        "api"
+      ]
+    },
+    {
+      "id": "worker",
+      "role": "worker",
+      "env": [
+        "MAIL_FROM",
+        "SMTP_HOST"
+      ],
+      "instances": "many",
+      "size": "small",
+      "dependsOn": [
+        "db",
+        "migrate"
+      ]
+    },
+    {
+      "id": "scheduler",
+      "role": "scheduler",
+      "instances": "one",
+      "dependsOn": [
+        "db",
+        "migrate"
+      ]
+    },
+    {
+      "id": "monitor",
+      "role": "monitor",
+      "command": [
+        "python",
+        "-m",
+        "monitor"
+      ],
+      "dependsOn": [
+        "db",
+        "migrate"
+      ]
+    }
+  ],
+  "volumes": [
+    {
+      "id": "files-data",
+      "mount": {
+        "path": "var/files",
+        "units": [
+          "api",
+          "worker"
+        ]
+      },
+      "backup": {
+        "every": "P1D",
+        "keep": "P30D"
+      }
+    }
+  ],
+  "sizes": {
+    "small": {
+      "cpu": 0.5,
+      "memoryMiB": 512
+    }
+  },
+  "rollback": {
+    "strategy": "redeploy-previous-release"
+  }
+}

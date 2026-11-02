@@ -48,6 +48,7 @@ packages/frontend/react-core    @terpjs/react-core      (first stack: React)
 packages/frontend/eslint-boundaries  @terpjs/eslint-boundaries
 packages/frontend/conformance   @terpjs/conformance     (Playwright parity suite)
 apps/example                    neutral example app consuming the packaged core
+apps/reference                  public-safe reference app: template render + overlay, run in CI
 template/                       copier skeleton (CI, AGENTS.md)
 vendor/terp-core                byte-for-byte mirror of packages/backend/core
 
@@ -71,6 +72,13 @@ python -m venv .venv
 `apps/example/` is the dogfood: a neutral secure‑CRUD app (`notes`, `tasks`,
 `journals`, and `projects` modules) that exercises every framework guarantee
 end‑to‑end and passes the architecture harness clean.
+
+`apps/reference/` is the stand-in for a real client application in every lane that needs
+one: the template rendered with pinned answers and grown the way a client app grows, with a
+worker, a scheduler, file storage, mail to a catcher, one egress call and a companion source
+root. It is rendered by `tools/render_reference_app.py`, never committed as a render, and
+`template-acceptance` runs its suite and its whole stack. See
+[apps/reference/README.md](apps/reference/README.md).
 
 ## Non‑negotiable defaults
 

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "build": "generated",
+  "compose": {
+    "file": "docker-compose.prod.yml"
+  },
+  "units": [
+    {
+      "id": "frontend",
+      "role": "web",
+      "dependsOn": [
+        "backend"
+      ]
+    },
+    {
+      "id": "pg",
+      "role": "database",
+      "kind": "postgres",
+      "version": "17",
+      "stateful": true
+    },
+    {
+      "id": "schema",
+      "role": "one-shot",
+      "dependsOn": [
+        "pg"
+      ]
+    },
+    {
+      "id": "jobs",
+      "role": "worker",
+      "command": [
+        "terp",
+        "jobs",
+        "worker",
+        "--forever",
+        "--poll-seconds",
+        "2"
+      ],
+      "dependsOn": [
+        "pg",
+        "schema"
+      ]
+    },
+    {
+      "id": "backend",
+      "role": "api",
+      "healthPath": "/ready",
+      "livenessPath": "/live",
+      "dependsOn": [
+        "pg",
+        "schema"
+      ]
+    },
+    {
+      "id": "warmup",
+      "role": "one-shot",
+      "command": [
+        "terp",
+        "jobs",
+        "run",
+        "cache.warm"
+      ],
+      "dependsOn": [
+        "schema"
+      ]
+    }
+  ]
+}
