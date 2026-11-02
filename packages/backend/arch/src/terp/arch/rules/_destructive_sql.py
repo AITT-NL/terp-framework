@@ -75,6 +75,11 @@ _SQL_SPANS = re.compile(
     re.DOTALL,
 )
 
+#: The keywords an executing call takes its statement under, when not first.
+_STATEMENT_KEYWORDS = frozenset({"sqltext", "statement"})
+#: The methods of ``text(...)`` whose result is still that statement.
+_TEXT_METHODS = frozenset({"bindparams", "columns", "execution_options"})
+
 _PLACEHOLDER = " ? "
 
 
@@ -159,3 +164,33 @@ def _classify_sql(call: ast.Call) -> list[tuple[str, str]]:
                 if kind is not None:
                     found.append((kind, statement))
     return found
+
+
+def _statement_is_read(call: ast.Call) -> bool:
+    """Whether the statement an executing *call* runs has its text in the source.
+
+    The statement is the call's first argument, or its ``sqltext=`` / ``statement=``. It
+    is read when it is a string literal, an f-string or a ``+`` of strings, or ``text()``
+    of one, ``.bindparams(...)``, ``.columns(...)`` and ``.execution_options(...)`` on it
+    included.
+    """
+    node = call.args[0] if call.args else next(
+        (k.value for k in call.keywords if k.arg in _STATEMENT_KEYWORDS), None
+    )
+    if node is None:
+        return False
+    if _static_text(node) is not None:
+        return True
+    while (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in _TEXT_METHODS
+    ):
+        node = node.func.value
+    if not isinstance(node, ast.Call):
+        return False
+    callee = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
+    text = node.args[0] if node.args else next(
+        (k.value for k in node.keywords if k.arg == "text"), None
+    )
+    return callee == "text" and text is not None and _static_text(text) is not None
