@@ -167,12 +167,20 @@ jobs:
 
       # The shard comes from the matrix's own position and size, not from the values written
       # in it, so a fifth entry is a fifth shard and no list of numbers can skip one.
+      #
+      # The unsharded list comes first because `--shard` turns off Playwright's refusal of a
+      # run that finds no tests: a renamed or emptied spec would leave every shard green with
+      # nothing run, where the single unsharded command used to fail. The list fails on an
+      # empty file, starts no server, and prints the lane's total.
       - name: Accessibility — axe over every specimen in every theme (this shard's part)
         working-directory: apps/workbench
         env:
           INDEX: ${{ strategy.job-index }}
           TOTAL: ${{ strategy.job-total }}
-        run: npx playwright test visual/a11y.spec.ts --reporter=line --shard="$((INDEX + 1))/$TOTAL"
+        run: |
+          listed=$(npx playwright test visual/a11y.spec.ts --list)
+          echo "$listed" | tail -n 1
+          npx playwright test visual/a11y.spec.ts --reporter=line --shard="$((INDEX + 1))/$TOTAL"
 
       - name: Keep the results when the lane failed
         if: failure()
