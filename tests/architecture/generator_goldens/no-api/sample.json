@@ -1,0 +1,9 @@
+{
+  "about": "A migration step and a worker, no api: the build sits on the first backend unit, and nothing serves HTTP.",
+  "project": "demo",
+  "frontendLock": true,
+  "renders": [
+    "Dockerfile.prod",
+    "docker-compose.prod.yml"
+  ]
+}

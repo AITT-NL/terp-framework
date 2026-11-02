@@ -40,11 +40,12 @@ from terp.migrations.errors import (
     PendingMigrationsError,
 )
 from terp.migrations.orchestrate import (
-    assert_no_orphaned_revisions,
     downgrade,
     migration_status,
     upgrade,
+    window_of,
 )
+from terp.migrations.window import RECORD_TABLE
 
 
 def assert_no_missing_histories(
@@ -90,7 +91,7 @@ def assert_migrations_current(
     *,
     package: str = "app",
 ) -> None:
-    """Raise if any package's history is behind head — or missing entirely.
+    """Raise if any package's history is behind head, missing, or outside the window.
 
     With no *app_root* only installed capabilities (the platform-shipped histories a
     consumer must apply on upgrade) are checked — exactly the "must run migrations
@@ -101,24 +102,35 @@ def assert_migrations_current(
     :func:`assert_no_missing_histories` — the runtime half of the
     ``tables_have_migrations`` rule, whose build-time half is the ``terp.arch``
     check), and a declared history that is behind its code head raises
-    :class:`PendingMigrationsError`. A database that ran a revision this code no
-    longer defines — an applied migration rewritten or deleted — raises
-    :class:`~terp.migrations.errors.OrphanedRevisionsError` *before* either, because
-    no amount of upgrading will fix it. The FK-scoped homeless-table check (run at
+    :class:`PendingMigrationsError`. The FK-scoped homeless-table check (run at
     ``terp migrate make``) additionally catches a mapped-but-unowned table that no
     package would ever create.
+
+    **A database ahead of the code** (ADR 0185 decision 3). A revision the code does not
+    define is admitted only inside the schema window the migration record proves: one
+    migration run ahead, every revision of it expand-only, applied on this Terp version,
+    walking back through the record to exactly this code's head. That is what lets a
+    release start again on the database the next release left, without a restore, when
+    that release only expanded the schema. Anything else, including an applied
+    migration rewritten or deleted, raises
+    :class:`~terp.migrations.errors.OrphanedRevisionsError` *before* the pending check,
+    because no amount of upgrading will fix it. A guard that admits a window logs one
+    warning naming each package and the revisions it runs behind. There is no switch
+    back to the strict refusal: this check, the ``migrate`` preflight and
+    ``terp migrate check`` read the window alike.
     """
     assert_no_missing_histories(app_root, package=package)
-    assert_no_orphaned_revisions(
+    window = window_of(
         engine.url.render_as_string(hide_password=False), app_root, package=package
     )
     behind = [
         row.label
         for row in migration_status(engine, app_root, package=package)
-        if not row.is_current
+        if not row.is_current and row.label not in window.ahead
     ]
     if behind:
         raise PendingMigrationsError(behind)
+    window.warn()
 
 
 def assert_migrations_match_models(
@@ -317,8 +329,9 @@ def assert_migrations_reverse_cleanly(
     """Assert the whole history goes down to base and comes back to the same schema.
 
     The reverse-direction counterpart to :func:`assert_migrations_match_models`, for a
-    consumer's own test suite. Every Terp app's rollback plan is
-    ``terp migrate downgrade``, and the catalogued ``alembic_downgrades_not_empty`` rule
+    consumer's own test suite. A downgrade is how a developer walks a history back, and
+    how a revision is undone before it ships; a production rollback is something else
+    (it never migrates, ADR 0185). The catalogued ``alembic_downgrades_not_empty`` rule
     proves only that the ``downgrade()`` body is not a lone ``pass`` — a source-level
     check that cannot see a downgrade which dies on its first statement, and cannot see
     one that runs green and comes back with a different schema.
@@ -374,10 +387,12 @@ def assert_migrations_reverse_cleanly(
     if still_applied:
         raise MigrationHistoryNotEmptiedError(still_applied)
 
+    # The bookkeeping outside every history stays, like the version tables: the
+    # schema window's record (ADR 0185) is the migration run's, not a package's.
     leftovers = sorted(
         key
         for key in _schema_snapshot(database_url)
-        if not key.split()[-1].startswith("alembic_version_")
+        if not key.split()[-1].startswith(("alembic_version_", RECORD_TABLE))
     )
     if leftovers:
         raise MigrationResidueError(leftovers)

@@ -577,8 +577,8 @@ def authority(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> _Autho
     """Issue test certificates and make the client trust their authority — only that."""
     issued = _issue(tmp_path, "localhost", "other.example.test")
 
-    def _trusting() -> ssl.SSLContext:
-        context = _tls_context()
+    def _trusting(ca_file: str = "") -> ssl.SSLContext:
+        context = _tls_context(ca_file)
         context.load_verify_locations(cadata=issued.ca_pem)
         return context
 
@@ -687,6 +687,140 @@ def test_a_certificate_for_another_name_is_refused_before_anything_is_said(
     (session,) = relay.sessions
     assert session.credentials is None
     assert session.data is None
+    assert "SSLCertVerificationError" in caplog.text
+
+
+# --------------------------------------------------------------------------- #
+# a relay vouched for by a declared authority (SMTP_CA_FILE)
+#
+# No `authority` fixture here: the client context is the production one, untouched, and
+# the only trust it has in the test authority is the file the settings declare. That is
+# the shape of a mail catcher a deployment runs beside a test environment, with a
+# certificate from an authority of the deployment's own.
+# --------------------------------------------------------------------------- #
+def _authority_file(tmp: pathlib.Path, *names: str) -> tuple[_Authority, pathlib.Path]:
+    tmp.mkdir(parents=True, exist_ok=True)
+    issued = _issue(tmp, *names)
+    ca_file = tmp / "authority.pem"
+    ca_file.write_text(issued.ca_pem, encoding="ascii")
+    return issued, ca_file
+
+
+def test_the_relays_authority_is_read_from_the_environment(tmp_path: pathlib.Path) -> None:
+    _, ca_file = _authority_file(tmp_path, "localhost")
+    settings = mail_settings_from_environment(
+        {"MAIL_FROM": _SENDER, "SMTP_HOST": "localhost", "SMTP_CA_FILE": f" {ca_file} "}
+    )
+    assert settings is not None
+    assert settings.ca_file == str(ca_file)
+    assert mail_settings_from_environment({"MAIL_FROM": _SENDER, "SMTP_HOST": "x"}).ca_file == ""
+
+
+def test_a_ca_file_that_could_only_fail_later_is_refused_now(tmp_path: pathlib.Path) -> None:
+    _, ca_file = _authority_file(tmp_path, "localhost")
+    with pytest.raises(ValueError, match="no certificate to check"):
+        _settings(security=MailSecurity.NONE, ca_file=str(ca_file))
+    with pytest.raises(ValueError, match="absolute path"):
+        _settings(ca_file="authority.pem")
+    with pytest.raises(ValueError, match=r"cannot be read as PEM CA certificates \(FileNotFound"):
+        _settings(ca_file=str(tmp_path / "absent.pem"))
+    holds_no_certificate = tmp_path / "key-only.pem"
+    holds_no_certificate.write_text((tmp_path / "localhost.key").read_text(), encoding="ascii")
+    with pytest.raises(ValueError, match=r"cannot be read as PEM CA certificates \(SSLError"):
+        _settings(ca_file=str(holds_no_certificate))
+
+
+def test_the_context_with_a_ca_file_verifies_exactly_as_the_default_one(
+    tmp_path: pathlib.Path,
+) -> None:
+    _, ca_file = _authority_file(tmp_path, "localhost")
+    context = _tls_context(str(ca_file))
+    assert context.verify_mode is ssl.CERT_REQUIRED
+    assert context.check_hostname is True
+    assert context.minimum_version >= ssl.TLSVersion.TLSv1_2
+    # In place of the system's store, not beside it: the declared authority is all it trusts.
+    assert [entry["subject"] for entry in context.get_ca_certs()] == [
+        ((("commonName", "terp test authority"),),)
+    ]
+
+
+def test_a_relay_the_declared_authority_vouches_for_is_verified_and_used(
+    tmp_path: pathlib.Path, relays: Callable[..., _Relay]
+) -> None:
+    issued, ca_file = _authority_file(tmp_path, "localhost")
+    relay = relays(tls=issued.server_context("localhost"))
+    settings = _relay_settings(
+        relay, ca_file=str(ca_file), username="orders", password="secret-value"
+    )
+    SmtpTransport(settings)(_rendered())
+
+    (session,) = relay.sessions
+    assert session.tls is True
+    assert session.authenticated_over_tls is True
+    assert session.recipients == ["customer@example.test"]
+
+
+def test_implicit_tls_trusts_the_declared_authority_too(
+    tmp_path: pathlib.Path, relays: Callable[..., _Relay]
+) -> None:
+    issued, ca_file = _authority_file(tmp_path, "localhost")
+    relay = relays(tls=issued.server_context("localhost"), implicit_tls=True)
+    SmtpTransport(_relay_settings(relay, security=MailSecurity.TLS, ca_file=str(ca_file)))(
+        _rendered()
+    )
+    (session,) = relay.sessions
+    assert session.tls is True and session.recipients == ["customer@example.test"]
+
+
+def test_without_the_declaration_the_same_relay_is_refused(
+    tmp_path: pathlib.Path, relays: Callable[..., _Relay], caplog: pytest.LogCaptureFixture
+) -> None:
+    # The system's store does not know a deployment's own authority, and nothing is
+    # trusted on the relay's say-so.
+    issued, _ = _authority_file(tmp_path, "localhost")
+    relay = relays(tls=issued.server_context("localhost"))
+    with caplog.at_level(logging.WARNING, logger="terp.capabilities.mail"):
+        with pytest.raises(MailDeliveryError):
+            SmtpTransport(_relay_settings(relay, username="orders", password="secret-value"))(
+                _rendered()
+            )
+    (session,) = relay.sessions
+    assert session.credentials is None and session.data is None
+    assert "SSLCertVerificationError" in caplog.text
+
+
+@pytest.mark.parametrize("security", [MailSecurity.STARTTLS, MailSecurity.TLS])
+def test_the_declared_authority_vouches_for_no_other_name(
+    tmp_path: pathlib.Path,
+    relays: Callable[..., _Relay],
+    caplog: pytest.LogCaptureFixture,
+    security: MailSecurity,
+) -> None:
+    issued, ca_file = _authority_file(tmp_path, "localhost", "other.example.test")
+    relay = relays(
+        tls=issued.server_context("other.example.test"),
+        implicit_tls=security is MailSecurity.TLS,
+    )
+    settings = _relay_settings(
+        relay, security=security, ca_file=str(ca_file), username="orders", password="x"
+    )
+    with caplog.at_level(logging.WARNING, logger="terp.capabilities.mail"):
+        with pytest.raises(MailDeliveryError):
+            SmtpTransport(settings)(_rendered())
+    (session,) = relay.sessions
+    assert session.credentials is None and session.data is None
+    assert "SSLCertVerificationError" in caplog.text
+
+
+def test_a_certificate_from_another_authority_is_refused_despite_the_ca_file(
+    tmp_path: pathlib.Path, relays: Callable[..., _Relay], caplog: pytest.LogCaptureFixture
+) -> None:
+    relay_authority, _ = _authority_file(tmp_path / "relay", "localhost")
+    _, declared = _authority_file(tmp_path / "declared", "localhost")
+    relay = relays(tls=relay_authority.server_context("localhost"))
+    with caplog.at_level(logging.WARNING, logger="terp.capabilities.mail"):
+        with pytest.raises(MailDeliveryError):
+            SmtpTransport(_relay_settings(relay, ca_file=str(declared)))(_rendered())
     assert "SSLCertVerificationError" in caplog.text
 
 
@@ -994,3 +1128,76 @@ def test_a_relay_that_is_down_is_retried_as_the_same_message_then_dead_lettered(
         row = session.exec(select(OutboxMessage)).one()
         assert row.status == STATUS_DEAD_LETTERED
         assert "MailDeliveryError" in (row.last_error or "")
+
+
+# --------------------------------------------------------------------------- #
+# the manifests the framework hands an app: the guide's, and the reference app's
+# --------------------------------------------------------------------------- #
+class _Recording(dict):
+    """An environment that records every name it is asked for."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.asked: list[str] = []
+
+    def get(self, key: str, default: object = None) -> object:
+        self.asked.append(key)
+        return super().get(key, default)
+
+
+def _relay_names() -> set[str]:
+    """Every name the capability reads, from an environment that names a relay."""
+    environ = _Recording()
+    environ.update({"MAIL_FROM": _SENDER, "SMTP_HOST": "smtp.example.test"})
+    assert mail_settings_from_environment(environ) is not None
+    assert len(environ.asked) > 2, "a configured relay reads more than its two halves"
+    return set(environ.asked)
+
+
+def _guide_declarations() -> dict[str, dict]:
+    import json
+
+    from terp.cli import _GUIDE_TOPICS
+
+    guide = _GUIDE_TOPICS["mail"]
+    start = guide.index('"MAIL_FROM":')
+    end = guide.index("}", guide.index('"SMTP_CA_FILE":')) + 1
+    return json.loads("{" + guide[start:end] + "}")
+
+
+def _held_to_the_relay(declared: dict[str, dict], where: str) -> None:
+    assert set(declared) >= _relay_names(), (
+        f"{where} leaves out {sorted(_relay_names() - set(declared))}: a deployment renders "
+        "only declared keys, so an undeclared relay variable can never reach the app"
+    )
+    for name in ("MAIL_FROM", "SMTP_HOST"):
+        assert declared[name].get("requiredIn") == ["production"], (
+            f"{where}: {name} is required where production runs and nowhere else -- "
+            "\"required\" would ask the development loop for a relay it does not have"
+        )
+    assert declared["SMTP_PASSWORD"].get("format") == "secret"
+
+
+def test_the_mail_guide_declares_the_relay_in_a_manifest_the_reader_accepts(
+    tmp_path: pathlib.Path,
+) -> None:
+    import json
+
+    from terp.cli.envschema import manifest_findings
+
+    declared = _guide_declarations()
+    _held_to_the_relay(declared, "`terp guide mail`")
+    manifest = {"type": "object", "properties": declared, "required": []}
+    (tmp_path / "environment.schema.json").write_text(json.dumps(manifest), encoding="utf-8")
+    assert manifest_findings(tmp_path) == [], "the guide's block must be copyable as it stands"
+
+
+def test_the_reference_app_declares_the_relay_the_way_the_guide_says() -> None:
+    import json
+
+    manifest = pathlib.Path(__file__).resolve().parents[2] / (
+        "apps/reference/overlay/environment.schema.json"
+    )
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    _held_to_the_relay(data["properties"], "apps/reference/overlay/environment.schema.json")
+    assert not set(data["required"]) & _relay_names()

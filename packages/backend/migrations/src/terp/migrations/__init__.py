@@ -22,8 +22,10 @@ from terp.migrations._runtime import (
     unowned_tables,
 )
 from terp.migrations.cli import migrate_main
+from terp.migrations._expand import EXPAND_MARK, assert_operation_on_expand_list
 from terp.migrations.errors import (
     DatabaseBehindForAutogenerateError,
+    ExpandRevisionError,
     MigrationDriftError,
     MigrationError,
     MigrationHistoryNotEmptiedError,
@@ -32,6 +34,7 @@ from terp.migrations.errors import (
     MissingMigrationsError,
     OrphanedRevisionsError,
     PendingMigrationsError,
+    RetiredMigrationsError,
 )
 from terp.migrations.guard import (
     assert_migrations_current,
@@ -54,10 +57,22 @@ from terp.migrations.orchestrate import (
     stamp,
     upgrade,
     upgrade_sql,
+    window_of,
+)
+from terp.migrations.window import (
+    RECORD_TABLE,
+    RETIRED_NAME,
+    Window,
+    read_record,
+    read_retired_migrations,
 )
 
 __all__ = [
+    "EXPAND_MARK",
+    "RECORD_TABLE",
+    "RETIRED_NAME",
     "DatabaseBehindForAutogenerateError",
+    "ExpandRevisionError",
     "MigrationDriftError",
     "MigrationError",
     "MigrationHistoryNotEmptiedError",
@@ -67,12 +82,15 @@ __all__ = [
     "MissingMigrationsError",
     "OrphanedRevisionsError",
     "PendingMigrationsError",
+    "RetiredMigrationsError",
+    "Window",
     "adopt_schemas",
     "assert_migrations_current",
     "assert_migrations_match_models",
     "assert_migrations_reverse_cleanly",
     "assert_no_missing_histories",
     "assert_no_orphaned_revisions",
+    "assert_operation_on_expand_list",
     "downgrade",
     "ensure_database_search_path",
     "grant_runtime_role",
@@ -83,9 +101,12 @@ __all__ = [
     "migration_status",
     "misowned_tables",
     "orphaned_revisions",
+    "read_record",
+    "read_retired_migrations",
     "stamp",
     "unmapped_tables",
     "unowned_tables",
     "upgrade",
     "upgrade_sql",
+    "window_of",
 ]

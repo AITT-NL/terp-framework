@@ -696,7 +696,10 @@ def _scan_allow_markers(root: pathlib.Path) -> dict[str, dict[int, _AllowMarker]
 
 
 def _apply_suppressions(
-    violations: list[ArchViolation], markers: dict[str, dict[int, _AllowMarker]]
+    violations: list[ArchViolation],
+    markers: dict[str, dict[int, _AllowMarker]],
+    *,
+    unwaivable: frozenset[str] = frozenset(),
 ) -> list[ArchViolation]:
     """Drop violations suppressed by a justified ``arch-allow-<rule>`` marker.
 
@@ -705,10 +708,14 @@ def _apply_suppressions(
     violated rule but carries no justification does **not** suppress
     (fail-closed); it is re-reported under ``ungoverned_escape_hatch`` — the
     catalogued fail-closed governance condition — so the only fix is to add a
-    reason, never to silently opt out.
+    reason, never to silently opt out. A rule in *unwaivable* has no marker at all: its
+    violations are never suppressed, whatever sits above them.
     """
     result: list[ArchViolation] = []
     for violation in violations:
+        if violation.rule in unwaivable:
+            result.append(violation)
+            continue
         per_line = markers.get(violation.path, {})
         marker = per_line.get(violation.line) or per_line.get(violation.line - 1)
         if marker is None or marker.token != _rule_token(violation.rule):

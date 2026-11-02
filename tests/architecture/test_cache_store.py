@@ -190,7 +190,14 @@ def test_boot_refuses_an_unmarked_store_when_a_shared_cache_is_required() -> Non
         create_app([_spec()], require_shared_cache_store=True)  # …and so does no store at all.
 
 
+class _ReachableCache(InMemoryCacheStore):
+    """A store standing in for a shared one, which says how readiness reaches it (ADR 0191)."""
+
+    def ping(self) -> None:
+        return None
+
+
 def test_boot_accepts_a_marked_shared_store() -> None:
-    shared = mark_shared_cache_store(InMemoryCacheStore())
+    shared = mark_shared_cache_store(_ReachableCache())
     create_app([_spec()], cache_store=shared, require_shared_cache_store=True)
     assert get_cache() is shared

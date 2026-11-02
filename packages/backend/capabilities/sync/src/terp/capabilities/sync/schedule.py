@@ -6,20 +6,27 @@ payload, not a frozen closure) and enqueues ``SYNC_PULL`` / ``SYNC_PUSH`` throug
 :func:`~terp.core.enqueue` chokepoint — flowing through the active job queue (in-process /
 outbox / broker) and the context-binding runner, so a scheduled reconcile runs as the system
 actor with its writes audited + stamped. The cron string is opaque here; the scheduler adapter
-parses it (ADR 0048).
+parses it (ADR 0048). A reconcile missed while no scheduler ran is still worth running late, so
+each schedule runs it once when a scheduler is back (``Misfire.RUN_ONCE``, ADR 0191); pass
+*misfire* to choose otherwise.
 """
 
 from __future__ import annotations
 
 import uuid
 
-from terp.core import ScheduleDefinition
+from terp.core import Misfire, ScheduleDefinition
 
 from terp.capabilities.sync.jobs import SYNC_PULL, SYNC_PUSH, SyncJobPayload
 
 
 def sync_pull_schedule(
-    entity_type: str, *, name: str, cron: str, tenant_id: uuid.UUID | None = None
+    entity_type: str,
+    *,
+    name: str,
+    cron: str,
+    tenant_id: uuid.UUID | None = None,
+    misfire: Misfire = Misfire.RUN_ONCE,
 ) -> ScheduleDefinition:
     """A schedule that enqueues ``SYNC_PULL`` for *entity_type* on *cron*."""
     return ScheduleDefinition(
@@ -27,11 +34,17 @@ def sync_pull_schedule(
         job=SYNC_PULL,
         cron=cron,
         payload_factory=lambda: SyncJobPayload(entity_type=entity_type, tenant_id=tenant_id),
+        misfire=misfire,
     )
 
 
 def sync_push_schedule(
-    entity_type: str, *, name: str, cron: str, tenant_id: uuid.UUID | None = None
+    entity_type: str,
+    *,
+    name: str,
+    cron: str,
+    tenant_id: uuid.UUID | None = None,
+    misfire: Misfire = Misfire.RUN_ONCE,
 ) -> ScheduleDefinition:
     """A schedule that enqueues ``SYNC_PUSH`` for *entity_type* on *cron*."""
     return ScheduleDefinition(
@@ -39,6 +52,7 @@ def sync_push_schedule(
         job=SYNC_PUSH,
         cron=cron,
         payload_factory=lambda: SyncJobPayload(entity_type=entity_type, tenant_id=tenant_id),
+        misfire=misfire,
     )
 
 
