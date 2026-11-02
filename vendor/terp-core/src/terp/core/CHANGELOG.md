@@ -57,9 +57,16 @@ split it across releases.
   (`drop`, `rename`, `type`, `not-null`, `constraint`), `ordinal` counts from 1 in source
   order, and `operation` is one line of at most 200 code points naming the call and what it
   acts on, such as `drop_column invoice.legacy_ref` or `execute: TRUNCATE invoice_run`. The
-  docstring pins its format. The rule now reports exactly that list, so the gate and a reader
-  that lists a release's destructive steps cannot disagree. Its findings are unchanged; within
-  one file they are now in source order. `revision_header(source)` returns the `revision` and
+  docstring pins its format. The rule now reports exactly the list's five kinds, so the gate
+  and a reader that lists a release's destructive steps cannot disagree. Its findings are
+  unchanged; within one file they are now in source order. The list has a sixth kind the rule
+  never reports, `opaque`, for each step it cannot read: an `execute` or `exec_driver_sql`
+  whose statement has no text in the source (`execute: ?`, a statement in a variable or a
+  SQLAlchemy construct), and a call the reading cannot follow (`call <name>`: a helper imported
+  from another module, a callable held in a name, a method of an imported module or of a class
+  the revision defines, a `getattr` whose name is computed). A reader that must not miss a
+  destructive step has a person confirm each one. The framework's own histories hold two, the
+  computed trigger statements of the audit capability's append-only revision. `revision_header(source)` returns the `revision` and
   the `down_revision` (`None`, a string or a tuple), and refuses by name a header it cannot
   read for certain. Neither function imports or runs the file.
 

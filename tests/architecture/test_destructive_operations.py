@@ -3,9 +3,14 @@
 A reader that lists a release's destructive steps, rather than gating them, needs each
 one named and told apart: its kind, its line, its place in the revision and a line of
 text an approver can read. The rule's findings carry none of that but the line, so the
-rule now reports exactly this list, one finding per operation. The tests below hold the
-list to the rule's own test set, every kind with its text written out, and hold the rule
-to the list, so the gate and such a reader can never disagree about what is destructive.
+rule now reports exactly this list's five kinds, one finding per operation. The tests
+below hold the list to the rule's own test set, every kind with its text written out,
+and hold the rule to the list, so the gate and such a reader can never disagree about
+what is destructive.
+
+The list holds one more kind the rule never reports, ``opaque``: what the reading cannot
+see into, a statement with no static text or a call it cannot follow. A reader that must
+not miss a step has a person confirm each one, so it is held here just as exactly.
 """
 
 from __future__ import annotations
@@ -127,9 +132,24 @@ def test_each_operation_is_named_exactly(case: _Case) -> None:
     ]
 
 
+#: The look-alikes that run something the reading cannot see into, and what each lists.
+_OPAQUE_LOOK_ALIKES = {
+    "a statement the rule cannot read": ["execute: ?", "execute: ?", "execute: ?"],
+    "an unrelated call": ["call helper"],
+    "an unrelated context manager": ["call open_session", "call lock"],
+}
+
+
 @pytest.mark.parametrize("name,body", _LOOK_ALIKES, ids=[name for name, _ in _LOOK_ALIKES])
-def test_a_look_alike_is_no_operation(name: str, body: str) -> None:
-    assert destructive_operations(_source(body)) == [], name
+def test_a_look_alike_is_no_destructive_operation(name: str, body: str) -> None:
+    listed = destructive_operations(_source(body))
+    assert [(o.kind, o.operation) for o in listed] == [
+        ("opaque", text) for text in _OPAQUE_LOOK_ALIKES.get(name, [])
+    ], name
+
+
+def test_the_opaque_look_alikes_are_look_alikes() -> None:
+    assert set(_OPAQUE_LOOK_ALIKES) <= {name for name, _ in _LOOK_ALIKES}
 
 
 def _revisions() -> list[tuple[str, str]]:
@@ -160,7 +180,9 @@ def test_the_rule_reports_exactly_the_operations(
     path.parent.mkdir(parents=True)
     path.write_text(source, encoding="utf-8")
     assert [(v.line, v.message) for v in check_no_destructive_migrations(app)] == [
-        (operation.line, _MESSAGES[operation.kind]) for operation in destructive_operations(source)
+        (operation.line, _MESSAGES[operation.kind])
+        for operation in destructive_operations(source)
+        if operation.kind != "opaque"
     ], name
 
 
@@ -354,4 +376,125 @@ def test_what_the_migration_runs_is_listed(name: str, source: str, found: list[t
     assert [(o.ordinal, o.line, o.kind, o.operation) for o in listed] == [
         (ordinal, line, kind, text)
         for ordinal, ((line, kind), text) in enumerate(zip(found, _FOLLOWED_TEXTS[name], strict=True), 1)
+    ], name
+
+
+# --------------------------------------------------------------------------- #
+# opaque: what the reading cannot see into
+# --------------------------------------------------------------------------- #
+_OPAQUE_HEAD = (
+    "import uuid\n"
+    "from datetime import datetime\n"
+    "\n"
+    "import sqlalchemy as sa\n"
+    "from alembic import op\n"
+    "from sqlalchemy import text\n"
+    "\n"
+    "import app_steps\n"
+    "from app.steps import contract\n"
+    "from .local_steps import tidy\n"
+    "\n"
+    "len = app_steps.length\n"
+    "\n"
+    "\n"
+    "class _Steps:\n"
+    "    pass\n"
+    "\n"
+    "\n"
+    "def upgrade():\n"
+)
+
+
+@pytest.mark.parametrize(
+    "body,listed",
+    [
+        # An executed statement whose text is not in the source.
+        ("op.execute(statement)", [("opaque", "execute: ?")]),
+        ("op.get_bind().exec_driver_sql(statement)", [("opaque", "exec_driver_sql: ?")]),
+        ("op.execute(sa.text(statement))", [("opaque", "execute: ?")]),
+        ("op.execute(invoice.delete().where(invoice.c.state == 'void'))", [("opaque", "execute: ?")]),
+        ("op.execute(sqltext=statement)", [("opaque", "execute: ?")]),
+        ("op.execute()", [("opaque", "execute: ?")]),
+        # One whose text is, however it is spelt.
+        ("op.execute(sa.text('UPDATE invoice SET state = :s').bindparams(s='open'))", []),
+        ("op.execute(text(text='UPDATE invoice SET state = 1').columns())", []),
+        ("op.execute(sqltext=f'UPDATE {table} SET state = 1')", []),
+        ("op.get_bind().execute(statement=sa.text('SELECT 1'))", []),
+        # A drop read from the text, and the rest of the call still unread.
+        ("op.execute(statement, 'TRUNCATE invoice')", [("drop", "execute: TRUNCATE invoice"), ("opaque", "execute: ?")]),
+        # A call the reading cannot follow.
+        ("contract('invoice')", [("opaque", "call contract")]),
+        ("tidy()", [("opaque", "call tidy")]),
+        ("app_steps.contract('invoice')", [("opaque", "call app_steps.contract")]),
+        ("app_steps.legacy.contract()", [("opaque", "call app_steps.legacy.contract")]),
+        ("getattr(app_steps, 'contract')()", [("opaque", "call app_steps.contract")]),
+        ("_Steps()", [("opaque", "call _Steps")]),
+        ("_Steps.run()", [("opaque", "call _Steps.run")]),
+        ("drop = op.drop_table\ndrop('invoice')", [("opaque", "call drop")]),
+        ("from alembic.op import drop_table\ndrop_table('invoice')", [("opaque", "call drop_table")]),
+        ("exec(\"op.drop_table('invoice')\")", [("opaque", "call exec")]),
+        ("len(rows)", [("opaque", "call len")]),
+        ("getattr(op, name)('invoice')", [("opaque", "call getattr")]),
+        ("steps[0]()", [("opaque", "call ?")]),
+        ("make()()", [("opaque", "call ?"), ("opaque", "call make")]),
+        # An operation is read by its name, on any receiver: never opaque as well.
+        ("app_steps.drop_table('invoice')", [("drop", "drop_table invoice")]),
+        # What runs nothing the reading needs: a library, a builtin, a function it reads.
+        (
+            "print(uuid.uuid4(), datetime.now(), text('SELECT 1'), sorted([]))\n"
+            "op.add_column('invoice', sa.Column('ref', sa.String(20)))\n"
+            "def _local():\n"
+            "    return 1\n"
+            "_local()",
+            [],
+        ),
+    ],
+)
+def test_what_the_reading_cannot_see_into_is_opaque(body: str, listed: list[tuple[str, str]]) -> None:
+    source = _OPAQUE_HEAD + textwrap.indent(body, "    ") + "\n"
+    assert [(o.kind, o.operation) for o in destructive_operations(source)] == listed
+
+
+def test_an_opaque_operation_is_never_a_finding(tmp_path: pathlib.Path) -> None:
+    source = _OPAQUE_HEAD + "    contract('invoice')\n    op.execute(statement)\n"
+    app = tmp_path / "app"
+    path = app / _REVISION
+    path.parent.mkdir(parents=True)
+    path.write_text(source, encoding="utf-8")
+    assert check_no_destructive_migrations(app) == []
+    assert [o.kind for o in destructive_operations(source)] == ["opaque", "opaque"]
+
+
+def test_a_helper_that_is_read_lists_what_it_cannot_follow_once() -> None:
+    source = (
+        "from alembic import op\n"
+        "from app.steps import contract\n\n\n"
+        "def _shared():\n"
+        "    contract('invoice')\n\n\n"
+        "def upgrade():\n"
+        "    _shared()\n"
+        "    _shared()\n"
+    )
+    assert destructive_operations(source) == [DestructiveOperation(1, "opaque", 6, "call contract")]
+
+
+#: What each whole revision the rule follows lists as opaque besides its findings.
+_NOT_FOLLOWED_OPAQUE = {
+    "a helper only downgrade() calls": [],
+    "a semicolon inside a quoted string, a quoted name, a comment or a dollar-quoted body": [],
+    "an operation named by a computed getattr": ["call getattr"],
+    "a statement held in a variable": ["execute: ?"],
+    "a helper from another module, a callable bound to a name, an attribute alias": [
+        "call contract",
+        "call remove",
+    ],
+}
+
+
+@pytest.mark.parametrize("name,source", _NOT_FOLLOWED, ids=[name for name, _ in _NOT_FOLLOWED])
+def test_what_the_rule_cannot_read_is_listed_opaque(name: str, source: str) -> None:
+    assert set(_NOT_FOLLOWED_OPAQUE) == {case for case, _ in _NOT_FOLLOWED}
+    listed = destructive_operations(textwrap.dedent(source).lstrip("\n"))
+    assert [(o.kind, o.operation) for o in listed] == [
+        ("opaque", text) for text in _NOT_FOLLOWED_OPAQUE[name]
     ], name

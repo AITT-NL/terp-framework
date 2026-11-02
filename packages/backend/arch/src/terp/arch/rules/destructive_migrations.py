@@ -49,15 +49,20 @@ form (a statement held in a variable, an operation whose name is computed) is no
 What the rule finds in one revision is also a value, :func:`destructive_operations`, for
 a reader that lists a release's destructive steps rather than gating them: each one,
 excused by its marker or not, with its kind, its line, its place in the revision and a
-line of text that names it. The rule reports exactly that list, so the gate and such a
-reader cannot disagree about what is destructive.
+line of text that names it. The rule reports exactly that list's five kinds, so the gate
+and such a reader cannot disagree about what is destructive. The list also holds what the
+rule cannot read, as a sixth kind, ``opaque``: a statement with no static text and a call
+the reading cannot follow. The rule reports none of those (they are its residuals), and
+a reader that must not miss a step has a person confirm each one.
 """
 
 from __future__ import annotations
 
 import ast
+import builtins
 import pathlib
 import re
+import sys
 from dataclasses import dataclass
 from typing import NamedTuple
 
@@ -70,6 +75,7 @@ from terp.arch.rules._destructive_sql import (
     _RENAME,
     _TYPE,
     _classify_sql,
+    _static_text,
 )
 from terp.arch.rules._support import ArchViolation, _rel
 from terp.arch.rules.migrations import (
@@ -79,6 +85,11 @@ from terp.arch.rules.migrations import (
 )
 
 _MARKER = "'# arch-allow-no-destructive-migrations: <reason>'"
+
+#: The list's word for an operation the reading cannot see into. It is not a kind of
+#: finding: the rule reports the five kinds below, and an opaque operation is one of its
+#: residuals, listed so that a reader can have a person confirm it.
+_OPAQUE = "opaque"
 
 #: One message per kind of finding, each saying what to do instead.
 _MESSAGES = {
@@ -146,6 +157,23 @@ _SUBJECTS: dict[str, tuple[int, str, int | None, str | None]] = {
     **{attr: (spec[0], spec[1], None, None) for attr, spec in _CONSTRAINT_OPS.items()},
 }
 
+#: The packages a revision may call into without the call being opaque: Alembic,
+#: SQLAlchemy, SQLModel and the standard library. They build the values an operation
+#: takes, and a statement built with them is read where it is run, at ``execute(...)``.
+_LIBRARIES = frozenset({"alembic", "sqlalchemy", "sqlmodel", *sys.stdlib_module_names})
+#: The builtins whose call is read as running nothing: every one but the two that run text.
+_INERT_BUILTINS = frozenset(
+    name for name in dir(builtins) if not name.startswith("_")
+) - {"exec", "eval"}
+#: The operations read by name on any receiver, so that a call of one is never opaque.
+_READ_OPERATIONS = frozenset(
+    {"add_column", "create_table", *_SUBJECTS, *_EXECUTING}
+)
+#: The keywords an executing call takes its statement under, when not first.
+_STATEMENT_KEYWORDS = frozenset({"sqltext", "statement"})
+#: The methods of ``text(...)`` whose result is still that statement.
+_TEXT_METHODS = frozenset({"bindparams", "columns", "execution_options"})
+
 #: How an operation's text writes a table or column that is not a string literal.
 _UNKNOWN = "?"
 #: The most code points an operation's text holds, and the mark that ends a cut one.
@@ -165,10 +193,11 @@ class DestructiveOperation:
 
     ``ordinal`` is its place among the revision's operations, counted from 1 in source
     order. ``kind`` is the rule's word for it, one of ``drop``, ``rename``, ``type``,
-    ``not-null`` and ``constraint``, and each kind has one finding message. ``line`` is
-    the line its call starts on, which is where a finding is reported and where its
-    marker is looked for. ``operation`` is one line naming the step;
-    :func:`destructive_operations` gives its exact form.
+    ``not-null`` and ``constraint``, each with one finding message, or ``opaque`` for a
+    step the reading cannot see into, which no finding reports. ``line`` is the line its
+    call starts on, which is where a finding is reported and where its marker is looked
+    for. ``operation`` is one line naming the step; :func:`destructive_operations` gives
+    its exact form.
     """
 
     ordinal: int
@@ -365,15 +394,24 @@ class _Revision:
     top-level ``name = other``, which makes *name* call what *other* calls: that is how
     ``upgrade = _up`` names the function the migration runs. ``operations`` holds each name
     imported from ``alembic.op``, by the name it is bound to and the operation it is.
+    ``imported`` holds every other top-level import, by the name it binds and the package
+    it comes from (empty for a relative import); ``classes`` the top-level classes; and
+    ``bound`` every name the top level binds at all, however.
     """
 
     def __init__(self, tree: ast.Module) -> None:
         self.functions: dict[str, list[_Function]] = {}
         self.aliases: dict[str, list[str]] = {}
         self.operations: dict[str, str] = {}
+        self.imported: dict[str, str] = {}
+        self.classes: set[str] = set()
+        self.bound: set[str] = set()
         for statement in tree.body:
+            self.bound.update(_bound_names(statement))
             if isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef):
                 self.functions.setdefault(statement.name, []).append(statement)
+            elif isinstance(statement, ast.ClassDef):
+                self.classes.add(statement.name)
             elif isinstance(statement, ast.Assign) and isinstance(statement.value, ast.Name):
                 for target in statement.targets:
                     if isinstance(target, ast.Name):
@@ -385,6 +423,29 @@ class _Revision:
             ):
                 for alias in statement.names:
                     self.operations[alias.asname or alias.name] = alias.name
+            elif isinstance(statement, ast.ImportFrom):
+                package = "" if statement.level else (statement.module or "").split(".")[0]
+                for alias in statement.names:
+                    self.imported[alias.asname or alias.name] = package
+            elif isinstance(statement, ast.Import):
+                for alias in statement.names:
+                    self.imported[alias.asname or alias.name.split(".")[0]] = (
+                        alias.name.split(".")[0]
+                    )
+
+    def inert(self, name: str) -> bool:
+        """Whether a call of the bare *name* runs nothing the reading needs to see.
+
+        A name imported from one of :data:`_LIBRARIES`, or a builtin other than ``exec``
+        and ``eval`` that the revision does not rebind.
+        """
+        if name in self.imported:
+            return self.imported[name] in _LIBRARIES
+        return name not in self.bound and name in _INERT_BUILTINS
+
+    def foreign(self, name: str) -> bool:
+        """Whether *name* is a class of the revision or imported from outside the libraries."""
+        return name in self.classes or self.imported.get(name, "alembic") not in _LIBRARIES
 
     def functions_named(self, name: str) -> list[_Function]:
         """Every top-level function a call of *name* can run, through any chain of aliases."""
@@ -417,6 +478,63 @@ class _Revision:
         return list(found.values())
 
 
+def _bound_names(statement: ast.stmt) -> set[str]:
+    """The names a top-level *statement* binds: a definition's, an import's, an assignment's."""
+    if isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+        return {statement.name}
+    if isinstance(statement, ast.Import | ast.ImportFrom):
+        return {(alias.asname or alias.name).split(".")[0] for alias in statement.names}
+    return {
+        node.id
+        for node in ast.walk(statement)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
+    }
+
+
+def _root(node: ast.expr) -> ast.Name | None:
+    """The name an attribute chain (``a.b.c``) starts from, if it starts from one."""
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    return node if isinstance(node, ast.Name) else None
+
+
+def _dotted(node: ast.expr) -> str:
+    """``a.b.c`` for an attribute chain that starts from a name (see :func:`_root`)."""
+    if isinstance(node, ast.Attribute):
+        return f"{_dotted(node.value)}.{node.attr}"
+    return node.id if isinstance(node, ast.Name) else _UNKNOWN
+
+
+def _statement_is_read(call: ast.Call) -> bool:
+    """Whether the statement an executing *call* runs has its text in the source.
+
+    The statement is the call's first argument, or its ``sqltext=`` / ``statement=``. It
+    is read when it is a string literal, an f-string or a ``+`` of strings, or ``text()``
+    of one, ``.bindparams(...)``, ``.columns(...)`` and ``.execution_options(...)`` on it
+    included.
+    """
+    node = call.args[0] if call.args else next(
+        (k.value for k in call.keywords if k.arg in _STATEMENT_KEYWORDS), None
+    )
+    if node is None:
+        return False
+    if _static_text(node) is not None:
+        return True
+    while (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in _TEXT_METHODS
+    ):
+        node = node.func.value
+    if not isinstance(node, ast.Call):
+        return False
+    callee = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
+    text = node.args[0] if node.args else next(
+        (k.value for k in node.keywords if k.arg == "text"), None
+    )
+    return callee == "text" and text is not None and _static_text(text) is not None
+
+
 def _literal_getattr(node: ast.expr) -> tuple[ast.expr, str] | None:
     """``(receiver, name)`` for ``getattr(receiver, "name")``, a lookup by a literal name."""
     if (
@@ -431,18 +549,29 @@ def _literal_getattr(node: ast.expr) -> tuple[ast.expr, str] | None:
     return None
 
 
-def _calls(upgrade: _Function, revision: _Revision) -> list[_Call]:
-    """Every operation call the upgrade makes, in *upgrade* and in each function it reaches.
+def _calls(
+    upgrade: _Function, revision: _Revision
+) -> tuple[list[_Call], list[tuple[ast.Call, str]]]:
+    """Every operation call the upgrade makes, in *upgrade* and in each function it reaches,
+    and every call the reading cannot follow, with the text that names it.
 
     A call by name to a top-level function of the revision is followed into that function,
     and from there into each function it calls, each read once however often it is called,
     so a helper that calls itself, or two that call each other, cannot loop. A batch
     block's handle is known inside its block only, so a helper that is handed one reads
-    its calls in the op form.
+    its calls in the op form. A function defined inside a function that is read is read
+    with it, so a call of it by name is followed too.
     """
     found: list[_Call] = []
+    unread: list[tuple[ast.Call, str]] = []
     reached: list[_Function] = [upgrade]
     seen = {id(upgrade)}
+    nested: set[str] = set()
+
+    def method(call: ast.Call, receiver: ast.expr, attr: str) -> None:
+        root = _root(receiver)
+        if attr not in _READ_OPERATIONS and root is not None and revision.foreign(root.id):
+            unread.append((call, f"call {_dotted(receiver)}.{attr}"))
 
     def walk(node: ast.AST, handles: dict[str, str | None]) -> None:
         if isinstance(node, ast.With | ast.AsyncWith):
@@ -467,23 +596,38 @@ def _calls(upgrade: _Function, revision: _Revision) -> list[_Call]:
             looked_up = _literal_getattr(func)
             if isinstance(func, ast.Attribute):
                 found.append(_Call(node, func.attr, func.value, handles))
+                method(node, func.value, func.attr)
             elif looked_up is not None:
                 found.append(_Call(node, looked_up[1], looked_up[0], handles))
+                method(node, looked_up[0], looked_up[1])
             elif isinstance(func, ast.Name) and func.id in revision.operations:
                 found.append(_Call(node, revision.operations[func.id], None, handles))
-            elif isinstance(func, ast.Name):
+            elif isinstance(func, ast.Name) and revision.functions_named(func.id):
                 for function in revision.functions_named(func.id):
                     if id(function) not in seen:
                         seen.add(id(function))
                         reached.append(function)
+            elif isinstance(func, ast.Name):
+                if not (revision.inert(func.id) or func.id in nested):
+                    unread.append((node, f"call {func.id}"))
+            elif isinstance(func, ast.Call) and getattr(func.func, "id", None) == "getattr":
+                unread.append((node, "call getattr"))
+            else:
+                unread.append((node, f"call {_UNKNOWN}"))
         for child in ast.iter_child_nodes(node):
             walk(child, handles)
 
     index = 0
     while index < len(reached):
-        walk(reached[index], {})
+        function = reached[index]
+        nested.update(
+            inner.name
+            for inner in ast.walk(function)
+            if isinstance(inner, ast.FunctionDef | ast.AsyncFunctionDef) and inner is not function
+        )
+        walk(function, {})
         index += 1
-    return found
+    return found, unread
 
 
 def check_no_destructive_migrations(
@@ -516,8 +660,9 @@ def check_no_destructive_migrations(
     explicit, reviewable, greppable, and ratcheted. See the module docstring for the two
     exemptions, both about rows that cannot exist yet.
 
-    The findings for a revision file are its :func:`destructive_operations`, one per
-    operation, on the operation's line, with its kind's message.
+    The findings for a revision file are its :func:`destructive_operations` of the five
+    kinds, one per operation, on the operation's line, with its kind's message. An
+    ``opaque`` operation is not a finding: it is what the rule cannot read.
     """
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
@@ -528,17 +673,21 @@ def check_no_destructive_migrations(
                 "no_destructive_migrations", rel, operation.line, _MESSAGES[operation.kind]
             )
             for operation in _operations(parse(path))
+            if operation.kind != _OPAQUE
         )
     return violations
 
 
 def destructive_operations(source: str) -> list[DestructiveOperation]:
-    """Every destructive step the ``upgrade()`` of the revision *source* takes.
+    """Every destructive step the ``upgrade()`` of the revision *source* takes, and every
+    step in it the reading cannot see into.
 
-    These are the findings :func:`check_no_destructive_migrations` reports for the
-    file, one for one and found by the same reading, the ones a
-    ``# arch-allow-no-destructive-migrations`` marker excuses included: an excused step
-    is still destructive, and a reader listing a release's steps must see it. Nothing is
+    The operations of the five kinds are the findings
+    :func:`check_no_destructive_migrations` reports for the file, one for one and found
+    by the same reading, the ones a ``# arch-allow-no-destructive-migrations`` marker
+    excuses included: an excused step is still destructive, and a reader listing a
+    release's steps must see it. An ``opaque`` operation is one the rule cannot read, and
+    is never a finding; a reader that must not miss a step has a person confirm it. Nothing is
     read from ``downgrade()``, and a revision with no ``upgrade()`` has none; what an
     upgrade runs is read as the rule reads it (see the module docstring). The list
     is in source order, by the line and then the column each call starts at, and an
@@ -570,6 +719,32 @@ def destructive_operations(source: str) -> list[DestructiveOperation]:
       ``;`` outside a quoted string or name, a dollar-quoted body and a comment, and the
       statement is the one it classified. For example ``execute: TRUNCATE invoice_run``.
 
+    An ``opaque`` operation's text names what could not be read:
+
+    * ``<call>: ?`` for an ``execute`` or ``exec_driver_sql`` whose statement (its first
+      argument, or ``sqltext=`` / ``statement=``) has no text in the source: anything but
+      a string literal, an f-string, a ``+`` of strings, or ``text()`` of one, with
+      ``.bindparams(...)``, ``.columns(...)`` or ``.execution_options(...)`` on it. A
+      statement in a variable, ``sa.text(name)`` and a SQLAlchemy construct such as
+      ``invoice.delete()`` are each ``execute: ?``. It is listed beside whatever
+      destructive statement the call's other arguments spell.
+    * ``call <name>`` for a call by a bare name that the reading cannot follow: not an
+      operation imported from ``alembic.op`` at the top level, not a top-level function
+      of the revision (which is read as part of the upgrade, as is a function defined
+      inside one that is read), not a name the top level imports from Alembic,
+      SQLAlchemy, SQLModel or the standard library, and not a builtin other than
+      ``exec`` and ``eval`` that the top level leaves unbound. A helper imported from
+      another module, a top-level class, a callable held in a local or top-level name
+      and a name nothing binds are each ``call <name>``.
+    * ``call <name>.<attr>`` (the whole chain, ``call steps.legacy.contract``) for a
+      method called on a name the top level imports from any other module, or on a
+      top-level class of the revision, unless the method is one the rule reads by name
+      (``add_column``, ``create_table``, the destructive operations, ``execute`` and
+      ``exec_driver_sql``). ``getattr(steps, "contract")(...)`` reads as
+      ``steps.contract(...)``.
+    * ``call getattr`` for ``getattr(...)(...)`` whose name is not a literal, and
+      ``call ?`` for a call of anything else: a subscript, a call's result, a lambda.
+
     Then, over the whole text, each run of characters from U+0000 to U+0020, U+007F to
     U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F and U+3000 becomes
     one space, and spaces at either end are removed. A text still longer than 200 code
@@ -584,12 +759,15 @@ def _operations(tree: ast.Module) -> list[DestructiveOperation]:
     found: list[tuple[int, int, str, str]] = []
     revision = _Revision(tree)
     for function in revision.upgrades(tree):
-        calls = _calls(function, revision)
+        calls, unread = _calls(function, revision)
         upgrade = _Upgrade(calls)
         for entry in calls:
             batch, batch_table = entry.batch()
             for kind, text in upgrade.classify(entry.call, entry.attr, batch_table, batch=batch):
                 found.append((entry.call.lineno, entry.call.col_offset, kind, text))
+            if entry.attr in _EXECUTING and not _statement_is_read(entry.call):
+                unread.append((entry.call, f"{entry.attr}: {_UNKNOWN}"))
+        found.extend((call.lineno, call.col_offset, _OPAQUE, text) for call, text in unread)
     # Stable, so two calls that start at one place (a call made on another call's
     # result) keep the order the walk met them in.
     found.sort(key=lambda entry: entry[:2])
