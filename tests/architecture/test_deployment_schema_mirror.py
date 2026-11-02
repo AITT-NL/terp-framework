@@ -5,8 +5,9 @@ the spec at run time: terp-arch ships ``deployment-declaration.schema.json`` byt
 byte, and the reader applies that copy rather than a restatement of it (ADR 0184
 decision 8). What is held here:
 
-* the mirror equals the spec's schema the moment a pinned release carries it, and until
-  then the pin is honestly one that does not (no skip that could outlive the window);
+* the mirror equals the spec's schema when the pinned release is the one it names, and
+  while the pin is older it is not the pinned release's file (:mod:`.spec_copies`; no skip
+  that could outlive the window);
 * the reader's own vocabulary agrees with the schema it reads;
 * the small validator applies every keyword the schema uses, and refuses any other;
 * the datastore table is in the corpus's format, and the production profiles pin it.
@@ -33,6 +34,7 @@ from terp.arch.deployment.datastores import (
     SOURCES,
 )
 from terp.cli.workbench import KNOWN_ROLES as WORKBENCH_ROLES
+from tests.architecture import spec_copies
 
 _REPO = pathlib.Path(__file__).resolve().parents[2]
 _MIRROR = (
@@ -40,34 +42,63 @@ _MIRROR = (
 )
 
 
-def _version(text: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in text.split("."))
-
-
 # --- the mirror ------------------------------------------------------------
 
 
-def test_the_mirror_is_the_spec_schema_once_a_pinned_release_carries_it() -> None:
-    """Byte for byte against the pinned spec, from the release this names onward.
+def test_the_mirror_is_the_spec_schema_of_the_release_it_names() -> None:
+    """Byte for byte against the pinned spec when the pin is SPEC_RELEASE.
 
-    Before that release is pinned the comparison cannot be made, and saying so is the
-    assertion: the installed spec must be older than SPEC_RELEASE AND carry no such
-    file. The day the pin moves, the first branch takes over -- and a spec release that
-    ships the schema under an older version, or a pin that moved without the mirror,
-    fails here rather than passing on a skip.
+    While the pin is older the comparison cannot be made, and saying so is the
+    assertion: the pinned spec carries no such file, or another version of it, never
+    this one. A spec release that ships this schema under an older version, a pin that
+    moved without the mirror, and a pin newer than SPEC_RELEASE fail here rather than
+    passing on a skip.
     """
-    installed = terp_spec.spec_version()
-    published = terp_spec.spec_dir() / SCHEMA_FILE
-    if _version(installed) >= _version(SPEC_RELEASE):
-        assert published.is_file(), f"terp-spec {installed} ships no {SCHEMA_FILE}"
-        assert _MIRROR.read_bytes() == published.read_bytes(), (
-            f"terp-arch's {SCHEMA_FILE} differs from terp-spec {installed}'s: copy the spec's "
-            "file over the mirror, then make the reader honour whatever changed"
-        )
+    found = spec_copies.findings(
+        {SCHEMA_FILE: _MIRROR.read_bytes()},
+        terp_spec.spec_dir(),
+        terp_spec.spec_version(),
+        SPEC_RELEASE,
+    )
+    assert found == []
+
+
+_ONE, _TWO = b'{"v": 1}\n', b'{"v": 2}\n'
+
+
+@pytest.mark.parametrize(
+    ("pinned", "release", "published", "copies", "expected"),
+    [
+        # The pin is the release the copies name: every file there, byte for byte.
+        ("0.40.0", "0.40.0", {"a": _ONE}, {"a": _ONE}, None),
+        ("0.40.0", "0.40.0", {"a": _ONE}, {"a": _TWO}, "this repository's a differs from terp-spec 0.40.0's"),
+        ("0.40.0", "0.40.0", {}, {"a": _ONE}, "terp-spec 0.40.0 ships no a"),
+        # The pin is older: the copies' release is not published yet.
+        ("0.39.0", "0.40.0", {}, {"a": _ONE}, None),
+        ("0.40.0", "0.41.0", {"a": _ONE}, {"a": _TWO}, None),  # a later change to a published file
+        ("0.40.0", "0.41.0", {"a": _ONE, "b": _ONE}, {"a": _TWO, "b": _ONE}, None),  # b unchanged
+        ("0.40.0", "0.41.0", {"a": _ONE}, {"a": _ONE}, "terp-spec 0.40.0 already carries a as they are here"),
+        ("0.40.0", "0.41.0", {"a": _ONE, "b": _ONE}, {"a": _ONE, "b": _ONE}, "move SPEC_RELEASE to 0.40.0"),
+        # The pin is newer: the pin moved and the copies' release did not.
+        ("0.41.0", "0.40.0", {"a": _ONE}, {"a": _ONE}, "terp-spec 0.41.0 is pinned, newer than SPEC_RELEASE 0.40.0"),
+        ("0.40.10", "0.40.9", {"a": _ONE}, {"a": _ONE}, "newer than SPEC_RELEASE 0.40.9"),
+    ],
+)
+def test_a_copy_is_held_to_its_release_however_the_pin_stands(
+    tmp_path, pinned, release, published, copies, expected
+) -> None:
+    """Every case of :mod:`.spec_copies`, with stand-in spec releases.
+
+    The second schema version is the case this rule was written for: once the spec
+    publishes the file, a later change to it must pass until its own release is pinned.
+    """
+    for name, data in published.items():
+        (tmp_path / name).write_bytes(data)
+    found = spec_copies.findings(copies, tmp_path, pinned, release)
+    if expected is None:
+        assert found == []
     else:
-        assert not published.is_file(), (
-            f"terp-spec {installed} already carries {SCHEMA_FILE}: move SPEC_RELEASE to it"
-        )
+        assert len(found) == 1 and expected in found[0], found
 
 
 def test_the_mirror_is_lf_on_every_checkout() -> None:
