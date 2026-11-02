@@ -61,12 +61,11 @@ _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 #: Under certification (the pin deleted, a candidate corpus installed) nothing is
 #: excused: the candidate is what is being certified.
 #:
-#: Open: ``no_destructive_migrations/compliant-01`` (terp-spec 0.40.0). The published
-#: sample tightens an existing column with ``alter_column(nullable=False)``, which the
-#: rule now reports as a NOT NULL tightening.
-VERDICTS_AWAITING_SPEC_RELEASE: frozenset[tuple[str, str]] = frozenset(
-    {("no_destructive_migrations", "compliant-01")}
-)
+#: Open: nothing. The last window to close — ``no_destructive_migrations/compliant-01``,
+#: whose 0.39.0 sample tightened an existing column with ``alter_column(nullable=False)``
+#: while the rule here already reported that as a NOT NULL tightening — was shut by
+#: terp-spec 0.40.0, whose corpus carries the rule's cases.
+VERDICTS_AWAITING_SPEC_RELEASE: frozenset[tuple[str, str]] = frozenset()
 
 
 def installed_corpus_is_the_pinned_one() -> bool:
