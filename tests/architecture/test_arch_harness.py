@@ -4362,6 +4362,24 @@ def test_tables_have_migrations(tmp_path: pathlib.Path) -> None:
     assert check_tables_have_migrations(app) == []
 
 
+@pytest.mark.parametrize(
+    ("name", "migrated"),
+    [("_0001_init.py", True), ("__init__.py", False), (".#0001_init.py", False)],
+)
+def test_tables_have_migrations_counts_the_files_alembic_runs(
+    tmp_path: pathlib.Path, name: str, migrated: bool
+) -> None:
+    # Alembic loads every versions/*.py but __init__.py and an editor's .# lock file.
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/widgets/models.py",
+        "class Widget(BaseTable, table=True):\n    name: str = Field(max_length=50)\n",
+    )
+    _write(app, f"modules/widgets/migrations/versions/{name}", "revision = '0001'\n")
+    assert (check_tables_have_migrations(app) == []) is migrated
+
+
 def test_no_destructive_migrations(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     destructive_sources = (
