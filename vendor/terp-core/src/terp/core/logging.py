@@ -50,6 +50,7 @@ from typing import Any, Final
 from terp.core._redaction import REDACTED as _REDACTED
 from terp.core._redaction import looks_sensitive as _looks_sensitive
 from terp.core._redaction import scrub as _scrub
+from terp.core._redaction import scrub_argument as _scrub_argument
 from terp.core._redaction import scrub_text as _scrub_text
 
 #: The id of the record shape, carried by every line in its ``schema`` key.
@@ -150,9 +151,9 @@ class RedactingFilter(logging.Filter):
             record.msg = str(record.msg)
         record.msg = _scrub_text(record.msg)
         if isinstance(record.args, dict):
-            record.args = _scrub(record.args)
+            record.args = _scrub_argument(record.args)
         elif isinstance(record.args, tuple):
-            record.args = tuple(_scrub(arg) for arg in record.args)
+            record.args = tuple(_scrub_argument(arg) for arg in record.args)
         if record.exc_info and not record.exc_text:
             # Render the traceback once, here, so every formatter downstream reads the
             # scrubbed copy (``logging.Formatter`` caches ``exc_text`` and prefers it).
@@ -172,7 +173,9 @@ class RedactingFilter(logging.Filter):
                     setattr(record, key, {**value, "context": _scrub(value["context"])})
             elif _looks_sensitive(key):
                 setattr(record, key, _REDACTED)
-            elif isinstance(value, (str, dict, list, tuple)):
+            else:
+                # Every value, not only text and containers: an exception or an object with
+                # its own __str__ is written as its text, so its text is what gets scrubbed.
                 setattr(record, key, _scrub(value))
 
 
@@ -208,9 +211,10 @@ class StructuredFormatter(logging.Formatter):
     structured context a caller attached actually reaches the log line -- e.g. the
     audit log-only sink's ``audit_action`` / ``audit_target_*``. Those fields have
     already passed through :class:`RedactingFilter` on the handler, so secrets are
-    masked before they ever reach this formatter. The rendered message, and a
-    traceback this formatter has to render itself, are scrubbed here as well: an
-    argument's own text (an exception, an object) only exists once it is rendered.
+    masked before they ever reach this formatter. The rendered message, a traceback
+    this formatter has to render itself, and any value it can only write through
+    ``str()`` are scrubbed here as well: an argument's own text (an exception, an
+    object) only exists once it is rendered.
 
     Formatting never raises: a record that cannot be rendered is written as a
     ``log.failure`` line instead.
@@ -252,7 +256,12 @@ class StructuredFormatter(logging.Formatter):
             payload["exc_info"] = _scrub_text(self.formatException(record.exc_info))
         if record.stack_info:
             payload["stack_info"] = _scrub_text(record.stack_info)
-        return json.dumps(payload, default=str)
+        return json.dumps(payload, default=_render_text)
+
+
+def _render_text(value: object) -> str:
+    """A value JSON has no form for, written as its scrubbed text (``json.dumps`` default)."""
+    return _scrub_text(str(value))
 
 
 def _failure_line(record: logging.LogRecord, exc: BaseException) -> str:

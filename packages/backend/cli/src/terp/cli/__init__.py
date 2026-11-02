@@ -1105,7 +1105,8 @@ Logging (one JSON record per line, the terp-log/1 schema, ADR 0188)
 - Redaction covers SECRETS ONLY: a credential-like key (password, token, secret,
   api_key, cookie, authorization) anywhere in extra or log_context, and
   credential-shaped text (an Authorization, Bearer or cookie value, a URL's password, a
-  password=... pair) in the message and in tracebacks. Personal data is NOT recognised:
+  password=... pair) in the message, in tracebacks, and in the text of any object you
+  put in extra or log_context (an exception, a set). Personal data is NOT recognised:
   an email or a name you log is written as you logged it. Log ids, not people.
 - Levels: a client's AppError (4xx) is INFO beside its access line; a 5xx is ERROR.
   Production runs at INFO. A guard decision with no access line to ride (a WebSocket)

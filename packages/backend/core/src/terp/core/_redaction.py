@@ -87,12 +87,7 @@ def scrub_text(value: str) -> str:
 _INERT: Final[frozenset[type]] = frozenset({int, float, bool, type(None)})
 
 
-def scrub(value: Any) -> Any:
-    """Recursively redact secrets from *value* (dicts, sequences, and strings).
-
-    Runs on every field of every record, so the common shapes are tested first and by
-    exact type; a subclass of one of them takes the slower ``isinstance`` path below.
-    """
+def _scrub(value: Any, render: bool) -> Any:
     kind = type(value)
     if kind is str:
         return scrub_text(value)
@@ -100,16 +95,55 @@ def scrub(value: Any) -> Any:
         return value
     if isinstance(value, dict):
         return {
-            key: (REDACTED if looks_sensitive(key if type(key) is str else str(key)) else scrub(item))
+            key: (
+                REDACTED
+                if looks_sensitive(key if type(key) is str else str(key))
+                else _scrub(item, render)
+            )
             for key, item in value.items()
         }
     if isinstance(value, list):
-        return [scrub(item) for item in value]
+        return [_scrub(item, render) for item in value]
     if isinstance(value, tuple):
-        return tuple(scrub(item) for item in value)
+        return tuple(_scrub(item, render) for item in value)
     if isinstance(value, str):
         return scrub_text(value)
-    return value
+    if not render or isinstance(value, (int, float)):
+        # A number of any subclass is written as a number, never as its text.
+        return value
+    return scrub_text(str(value))
 
 
-__all__ = ["REDACTED", "SENSITIVE_KEY_PATTERNS", "looks_sensitive", "scrub", "scrub_text"]
+def scrub(value: Any) -> Any:
+    """Recursively redact secrets from *value* as the line will render it.
+
+    A str is scrubbed, a dict loses the value under a credential-like key and is scrubbed
+    item by item, as is a list or a tuple; a number, a bool and ``None`` come back as they
+    are. Anything else (an exception, a set, a model, an object with its own ``__str__``)
+    reaches the line through ``str()``, so its text is what is scrubbed and its text is
+    what comes back: an object that kept its own form would be rendered after redaction.
+
+    Runs on every field of every record, so the common shapes are tested first and by
+    exact type; a subclass of one of them takes the slower ``isinstance`` path.
+    """
+    return _scrub(value, render=True)
+
+
+def scrub_argument(value: Any) -> Any:
+    """:func:`scrub` for a message's ``%`` arguments: an object keeps its own form.
+
+    A conversion such as ``%d`` or ``%.2f`` needs the object itself, not its text, and the
+    formatter scrubs the message once the arguments are rendered into it, which is where an
+    object's text first exists. A credential-like key in a mapping argument still goes here.
+    """
+    return _scrub(value, render=False)
+
+
+__all__ = [
+    "REDACTED",
+    "SENSITIVE_KEY_PATTERNS",
+    "looks_sensitive",
+    "scrub",
+    "scrub_argument",
+    "scrub_text",
+]

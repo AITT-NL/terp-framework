@@ -145,7 +145,9 @@ credential-like key (`password`, `token`, `secret`, `api_key`, `cookie`, `author
 word kept, the credential gone), a bare `Bearer` value, a cookie header's value, a URL's
 password, a `password=` / `client_secret:` / `api_key=` pair. It reads the message, its
 arguments once rendered (an exception passed as an argument has text only then), the traceback
-and the stack. Personal data is not recognised, and no Terp text says otherwise; a field-level
+and the stack. A value in `extra=` or `context` that JSON has no form for (an exception, a set,
+an object with its own `__str__`) is written as its text, so that text is what is redacted.
+Personal data is not recognised, and no Terp text says otherwise; a field-level
 marker that would let it be is a separate, later decision. The framework's own typed fields
 (`http`, `guard`, `actor`, `tenant`, `error`) are built from declarations and typed values and
 are not re-scanned; `context`, which carries what an app handed over, is.

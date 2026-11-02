@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import enum
 import io
 import json
 import logging
@@ -38,6 +39,7 @@ import threading
 import uuid
 import warnings
 from collections.abc import Iterator
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
@@ -201,6 +203,11 @@ def _app(principal: Any = _principal, security: SecurityConfig | None = None) ->
     @router.get("/bare")
     def bare() -> dict[str, str]:
         raise NotFoundError()
+
+    @router.get("/unreachable")
+    def unreachable() -> dict[str, str]:
+        cause = ConnectionError(f"postgresql://app:{_PASSWORD}@db/app refused")
+        raise NotFoundError(log_context={"cause": cause, "tried": {f"password={_PASSWORD}"}})
 
     @router.get("/unavailable")
     def unavailable() -> dict[str, str]:
@@ -462,6 +469,75 @@ def test_a_placeholder_in_a_template_survives_and_its_value_does_not() -> None:
     line = _render(_record("password=%s for %s", (_PASSWORD, "ada")))
     assert line["message"] == "password=[REDACTED] for ada"
     assert "event" not in line
+
+
+def test_an_argument_keeps_its_own_form_for_its_conversion() -> None:
+    # Arguments are scrubbed once they are rendered, so "%.2f" still gets a number.
+    line = _render(_record("total %.2f for %s", (Decimal("3.5"), {"password": _PASSWORD})))
+    assert line["message"] == "total 3.50 for {'password': '[REDACTED]'}"
+
+
+class _Connection:
+    """An object whose own text holds a credential, as a client or a pool's repr can."""
+
+    def __str__(self) -> str:
+        return f"Connection(dsn=postgresql://app:{_PASSWORD}@db/app)"
+
+
+class _Level(enum.IntEnum):
+    HIGH = 2
+
+
+@pytest.mark.parametrize(
+    ("value", "written"),
+    [
+        (ConnectionError(f"password={_PASSWORD}"), "password=[REDACTED]"),
+        (_Connection(), "Connection(dsn=postgresql://app:[REDACTED]@db/app)"),
+        ({f"Bearer {_TOKEN}"}, "{'Bearer [REDACTED]'}"),
+        (frozenset({f"token={_TOKEN}"}), "frozenset({'token=[REDACTED]'})"),
+        ([ValueError(f"api_key={_TOKEN}")], ["api_key=[REDACTED]"]),
+        ({"nested": _Connection()}, {"nested": "Connection(dsn=postgresql://app:[REDACTED]@db/app)"}),
+    ],
+)
+def test_an_object_in_extra_is_redacted_as_the_text_it_is_written_as(
+    value: Any, written: Any
+) -> None:
+    # JSON has no form for these, so the line prints their str(); that text is what is
+    # scrubbed. Left as objects, they were rendered after the redaction had run.
+    line = _render(_record("retrying", error=value))
+    assert line["extra"] == {"error": written}
+    assert _PASSWORD not in json.dumps(line) and _TOKEN not in json.dumps(line)
+
+
+def test_a_number_in_extra_is_written_as_a_number() -> None:
+    line = _render(_record("m", level=_Level.HIGH, ratio=0.5, count=3, amount=Decimal("1.50")))
+    assert line["extra"] == {"level": 2, "ratio": 0.5, "count": 3, "amount": "1.50"}
+
+
+def test_an_object_in_log_context_is_redacted() -> None:
+    cause = ConnectionError(f"postgresql://app:{_PASSWORD}@db/app refused")
+    line = _render(_record("m", **log_fields(event="error.app", context={"cause": cause})))
+    assert line["context"] == {"cause": "postgresql://app:[REDACTED]@db/app refused"}
+
+
+def test_an_app_errors_log_context_object_never_reaches_the_line() -> None:
+    with captured() as lines:
+        response = TestClient(_app()).get("/api/v1/probe/unreachable", headers=_AUTH)
+    assert response.status_code == 404
+    (error,) = _ours(lines, "terp.errors")
+    assert error["context"] == {
+        "cause": "postgresql://app:[REDACTED]@db/app refused",
+        "tried": "{'password=[REDACTED]'}",
+    }
+    assert _PASSWORD not in json.dumps(lines)
+    assert_record(error)
+
+
+def test_the_formatter_alone_writes_an_object_as_its_redacted_text() -> None:
+    # A handler without the filter: what JSON can only write through str() is scrubbed.
+    record = _record("m", conn=_Connection())
+    line = json.loads(StructuredFormatter().format(record))
+    assert line["extra"] == {"conn": "Connection(dsn=postgresql://app:[REDACTED]@db/app)"}
 
 
 def test_an_exception_logged_as_an_argument_is_redacted() -> None:
