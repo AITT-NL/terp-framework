@@ -113,7 +113,11 @@ read the declaration.
   the scheme word for the value, so `Bearer` was redacted and the credential after it was
   written. The scheme word now stays and the credential goes. Redaction also covers a cookie
   header's value, a URL's password and a `password=` / `client_secret:` / `api_key=` pair, and
-  it now reads exception text: the traceback, and an exception logged as an argument.
+  it now reads exception text: the traceback, and an exception logged as an argument. An
+  object in `extra=` or `log_context` that the line writes through its text (an exception, a
+  set, an object with its own `__str__`) is redacted as that text; a value that starts with `%`
+  (`%40...`) is no longer taken for a message placeholder, which only a template still waiting
+  for its arguments has; and a URL password holding an unencoded `/` is caught.
 - **A refused production configuration printed part of the configuration.** The settings'
   validation error repeated its input, truncated in the middle, so the tail of `DATABASE_URL`,
   password included, could reach the boot log. `Settings` hides its input in errors, and the

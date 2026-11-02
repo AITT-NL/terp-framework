@@ -1105,7 +1105,8 @@ Logging (one JSON record per line, the terp-log/1 schema, ADR 0188)
 - Redaction covers SECRETS by name and shape: a credential-like key (password, token,
   secret, api_key, cookie, authorization) anywhere in extra or log_context, and
   credential-shaped text (an Authorization, Bearer or cookie value, a URL's password, a
-  password=... pair) in the message and in tracebacks.
+  password=... pair) in the message, in tracebacks, and in the text of any object you
+  put in extra or log_context (an exception, a set).
 - PERSONAL DATA is redacted where it is DECLARED (Personal(...), `terp guide
   personal-data`): a model you log -- as an argument, inside extra or log_context, in an
   f-string or an exception's text -- renders [PERSONAL] in place of each declared field,

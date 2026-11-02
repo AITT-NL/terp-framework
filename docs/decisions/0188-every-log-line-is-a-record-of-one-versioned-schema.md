@@ -146,9 +146,13 @@ credential-like key (`password`, `token`, `secret`, `api_key`, `cookie`, `author
 word kept, the credential gone), a bare `Bearer` value, a cookie header's value, a URL's
 password, a `password=` / `client_secret:` / `api_key=` pair. It reads the message, its
 arguments once rendered (an exception passed as an argument has text only then), the traceback
-and the stack. Personal data has no shape to recognise, so it is withheld only where a field
-declares it: that is [ADR 0190](0190-a-field-declares-itself-personal.md)'s decision, made
-after this one. The framework's own typed fields
+and the stack. A value in `extra=` or `context` that JSON has no form for (an exception, a set,
+an object with its own `__str__`) is written as its text, so that text is what is redacted. A
+value that starts with `%` is a value like any other: only a message template's own
+placeholders are spared, and only while its arguments are still out of it. Personal data has
+no shape to recognise, so it is withheld only where a field declares it: that is
+[ADR 0190](0190-a-field-declares-itself-personal.md)'s decision, made after this one. The
+framework's own typed fields
 (`http`, `guard`, `actor`, `tenant`, `error`) are built from declarations and typed values and
 are not re-scanned; `context`, which carries what an app handed over, is.
 
