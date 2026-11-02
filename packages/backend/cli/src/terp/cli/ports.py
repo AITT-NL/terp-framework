@@ -371,15 +371,28 @@ def read_seams(root: pathlib.Path) -> Seams:
         return Seams(web=web, api=api, problems=problems)
     if declared.unmanaged:
         return Seams(web=web, api=api, unmanaged=True, reason=declared.reason)
-    for entry in declared.services:
-        name = entry.get("hostPortEnv")
-        if not isinstance(name, str) or not name:
-            continue
-        if entry.get("role") == "web":
-            web = name
-        elif entry.get("role") == "api":
-            api = name
-    return Seams(web=web, api=api)
+    return Seams(
+        web=_first_port_env(declared.services, "web", web),
+        api=_first_port_env(declared.services, "api", api),
+    )
+
+
+def _first_port_env(services: tuple[dict[str, object], ...], role: str, default: str) -> str:
+    """The first ``hostPortEnv`` an entry of *role* carries, else *default*.
+
+    The first, as the vocabulary says a reader resolves a field by role (ADR 0186):
+    a workbench sets the first entry's variable, so publishing the last one's put
+    the port under a name the workbench never set, for any app with two services
+    in one role.
+    """
+    return next(
+        (
+            str(entry["hostPortEnv"])
+            for entry in services
+            if entry.get("role") == role and entry.get("hostPortEnv")
+        ),
+        default,
+    )
 
 
 def declared_names(root: pathlib.Path) -> tuple[str, str]:

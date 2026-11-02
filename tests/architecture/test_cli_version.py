@@ -504,6 +504,78 @@ def test_the_app_owned_scaffold_list_matches_copier() -> None:
     )
 
 
+def _generated(root: pathlib.Path) -> pathlib.Path:
+    """Mark *root* an app whose deployment.json says "build": "generated" (ADR 0187)."""
+    (root / "deployment.json").write_text(json.dumps({"build": "generated"}), encoding="utf-8")
+    return root
+
+
+def _numbered(report: str) -> list[str]:
+    return [line.strip() for line in report.splitlines() if re.match(r"\s+\d+\. ", line)]
+
+
+def test_a_generated_app_s_upgrade_renders_between_the_sync_and_the_gate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """ADR 0187 decision 4: copier update, the install, then the render, in that order.
+
+    The template no longer writes a generated app's three build files, and the release just
+    installed carries the generator, so the render comes after the sync and before the gate,
+    where a missed render is red. An own app's recipe has no such step.
+    """
+    report = _offered(monkeypatch, _generated(_answers(tmp_path / "app", "v0.5.7")))
+    steps = _numbered(report)
+    assert [step.split(".")[0] for step in steps] == [str(n) for n in range(1, 9)]
+    assert steps[5].startswith("6. uv run terp deployment render")
+    assert report.index("copier update") < report.index("uv sync --refresh") < report.index(
+        "uv run terp deployment render"
+    ) < report.index("uv run terp --version")
+    assert "a missed render is red under `terp verify --only generated`" in report
+    assert steps[-1] == "8. uv run terp verify --profile full"
+    own = _offered(monkeypatch, _answers(tmp_path / "own", "v0.5.7"))
+    assert "terp deployment render" not in own
+    assert _numbered(own)[-1] == "7. uv run terp verify --profile full"
+
+
+def test_a_generated_app_that_pins_by_hand_renders_after_its_sync_too(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    steps = _numbered(_offered(monkeypatch, _generated(bare)))
+    assert steps[3].startswith("4. uv sync --refresh")
+    assert steps[4].startswith("5. uv run terp deployment render")
+    assert steps[-1] == "7. uv run terp verify --profile full"
+
+
+def test_the_scaffolding_report_names_the_generator_s_files_for_a_generated_app(
+    tmp_path: pathlib.Path,
+) -> None:
+    root = _answers(tmp_path / "app", "v0.5.7")
+    own = "\n".join(version_mod._scaffold_lines(root, "0.6.1"))
+    assert "framework\ngenerator's" not in own and "Dockerfile.prod" not in own
+    report = "\n".join(version_mod._scaffold_lines(_generated(root), "0.6.1"))
+    assert 'And deployment.json says "build": "generated"' in report
+    for name in version_mod._GENERATOR_OWNED_FILES:
+        assert f"  {name}" in report
+
+
+def test_the_generator_s_files_are_the_generator_s_own_list() -> None:
+    """Duplicated for the reason the scaffold list is: the report stays dependency-light."""
+    from terp.arch.deployment.generator import OWNED_PATHS
+
+    assert version_mod._GENERATOR_OWNED_FILES == OWNED_PATHS
+
+
+@pytest.mark.parametrize("text", [None, "{ nope", "[]", '{"build": "own"}'])
+def test_only_a_declaration_that_says_generated_is_read_as_generated(
+    tmp_path: pathlib.Path, text: str | None
+) -> None:
+    if text is not None:
+        (tmp_path / "deployment.json").write_text(text, encoding="utf-8")
+    assert version_mod._is_generated(tmp_path) is False
+
+
 def test_scaffolding_level_with_the_packages_says_so_and_stops(
     tmp_path: pathlib.Path,
 ) -> None:

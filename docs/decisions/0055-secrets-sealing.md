@@ -82,3 +82,10 @@ matrix in `tests/architecture/test_secrets.py`; docs = the generated rules surfa
 - The vendored mirror (`vendor/terp-core/`, ADR 0034) is refreshed byte-exact;
   `terp.core` stays at 100% coverage; the example app and its budget (`{}`) are
   untouched.
+
+## Amendment (2026-10-22): the re-seal step exists
+
+[ADR 0189](0189-sealing-and-signing-retire-a-key-on-their-own-clocks.md) supplies the step named above. A sealed value opens under `SECRET_KEY` and then each
+`SECRET_KEY_DECRYPT_FALLBACKS` entry, is sealed under `SECRET_KEY` alone, and `terp secrets reseal`
+rewrites every value still under an earlier key. The prefix stays `enc:v1:`: a changed key is a
+rotation, not a new format.

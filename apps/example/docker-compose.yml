@@ -9,17 +9,20 @@
 # dependency/manifest changes rebuild via compose watch.
 name: terp-example
 
-# Shared backend definition — migrate / seed / api run the same image. Only the `api`
-# service declares the build: one builder produces the tag (concurrent builds of a shared
-# tag race in the exporter: "already exists"), the one-shots reuse it.
+# Shared backend definition — migrate / seed / api run the same image. Only `migrate`
+# declares the build: one builder produces the tag (concurrent builds of a shared tag race
+# in the exporter: "already exists"), the other two reuse it. It is `migrate` because a
+# `watch` rebuild starts only the rebuilt service and its dependents, and every backend
+# service depends on `migrate`; built from `api`, a rebuild left the one-shots created and
+# never run (the template's compose file has the whole story).
 #
-# The cost of that choice: `migrate` and `seed` name a tag they cannot produce, and
+# The cost of that choice: `seed` and `api` name a tag they cannot produce, and
 # compose's default for a missing image is to pull it. On a first `docker compose watch`
-# that sends the one-shots to a registry for a tag no registry has: "pull access denied
+# that sends them to a registry for a tag no registry has: "pull access denied
 # for terp-example-backend". Some compose versions carry on and build it anyway, some
 # stop there. `pull_policy: never` says what is true of this tag — it is only ever
-# built here — so the pull is never attempted, and the build `api` declares is the one
-# way the tag comes to exist. It does not govern building, so `api` still builds.
+# built here — so the pull is never attempted, and the build `migrate` declares is the
+# one way the tag comes to exist. It does not govern building, so `migrate` still builds.
 x-backend: &backend
   image: terp-example-backend
   pull_policy: never
@@ -72,12 +75,20 @@ services:
     logging: *container-logging
 
   # One-shot: bring every package's schema up to head before the API serves.
+  # Also the backend image's one builder: see the note on the shared definition above.
   migrate:
     <<: *backend
+    build:
+      context: ../..
+      dockerfile: apps/example/Dockerfile
     command: ["terp", "migrate", "upgrade", "--app-root", "/workspace/app"]
     depends_on:
       db:
         condition: service_healthy
+    develop:
+      watch:
+        - action: rebuild
+          path: Dockerfile
     logging: *container-logging
 
   # One-shot: seed a usable admin (admin@acme.test) + demo content. Idempotent, dev-only.
@@ -91,9 +102,6 @@ services:
 
   api:
     <<: *backend
-    build:
-      context: ../..
-      dockerfile: apps/example/Dockerfile
     # --timeout-graceful-shutdown: a realtime stream ends when its client goes away and not
     # otherwise, and uvicorn waits for in-flight tasks forever by default, so one open tab
     # would hold every reload. Three seconds, because the reload loop pays it per edit.
@@ -120,10 +128,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    develop:
-      watch:
-        - action: rebuild
-          path: Dockerfile
     logging: *container-logging
 
   web:

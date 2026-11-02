@@ -40,6 +40,7 @@ from terp.core import (
     JobError,
     JobQueue,
     JobVisibility,
+    Misfire,
     ModuleSpec,
     OwnedMixin,
     Policy,
@@ -561,7 +562,7 @@ def test_create_app_wires_the_catalog_and_system_actor() -> None:
 
 def test_create_app_refuses_background_job_that_drops_row_ownership() -> None:
     job = _doc_job()
-    schedule = ScheduleDefinition(name="docs.nightly", job=job, cron="0 3 * * *")
+    schedule = ScheduleDefinition(name="docs.nightly", job=job, cron="0 3 * * *", misfire=Misfire.SKIP)
     plane = ControlPlane(
         jobs=JobCatalog([job]), schedules=ScheduleCatalog([schedule])
     )
@@ -769,7 +770,7 @@ def test_production_problems_names_the_missing_system_actor() -> None:
     user is the exact shape that produced this control.
     """
     job = _doc_job()
-    schedule = ScheduleDefinition(name="docs.nightly", job=job, cron="0 3 * * *")
+    schedule = ScheduleDefinition(name="docs.nightly", job=job, cron="0 3 * * *", misfire=Misfire.SKIP)
 
     only_job = ControlPlane(jobs=JobCatalog([job])).production_problems()
     assert len(only_job) == 1

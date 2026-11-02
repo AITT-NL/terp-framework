@@ -1,0 +1,42 @@
+{
+  "about": "A shared store from an injected table and recipe: its own data volume, its own healthcheck, and the variable the backend units reach it through.",
+  "project": "demo",
+  "frontendLock": true,
+  "tables": {
+    "datastores": {
+      "kinds": {
+        "postgres": {
+          "role": "database",
+          "versions": {
+            "17": "postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24"
+          }
+        },
+        "redis": {
+          "role": "store",
+          "versions": {
+            "7": "redis@sha256:7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d"
+          }
+        }
+      }
+    },
+    "recipes": [
+      {
+        "kind": "redis",
+        "title": "Redis",
+        "dataPath": "/data",
+        "healthcheck": [
+          "CMD",
+          "redis-cli",
+          "ping"
+        ],
+        "environment": [],
+        "variable": "REDIS_URL",
+        "url": "redis://{host}:6379/0"
+      }
+    ]
+  },
+  "renders": [
+    "Dockerfile.prod",
+    "docker-compose.prod.yml"
+  ]
+}

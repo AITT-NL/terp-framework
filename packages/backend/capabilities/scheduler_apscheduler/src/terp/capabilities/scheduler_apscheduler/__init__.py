@@ -9,11 +9,15 @@ change. Wiring is composition-root / scheduler-process only::
     scheduler.register_all(active_schedule_catalog())   # after create_app configured it
     scheduler.start()                                   # then block the process
 
-Each tick opens a session and fires the schedule through
-:func:`~terp.core.trigger_schedule` — i.e. it **enqueues** the schedule's job through the
-typed chokepoint, so the job flows through the active :class:`~terp.core.JobQueue` (in-process
-/ outbox / broker) and the context-binding runner: a scheduled job has no originating user, so
-it runs as the configured system actor and its writes stay audited + stamped.
+Each tick opens a session and settles the schedule through
+:func:`~terp.core.settle_schedule` — it **enqueues** the schedule's job through the typed
+chokepoint, so the job flows through the active :class:`~terp.core.JobQueue` (in-process /
+outbox / broker) and the context-binding runner, and records the slot in the active
+:class:`~terp.core.ScheduleLedger`. A scheduled job has no originating user, so it runs as the
+configured system actor and its writes stay audited + stamped. ``start`` settles every
+schedule first, so a scheduler restarted across a cron time applies the schedule's declared
+misfire policy to the tick it missed (ADR 0191); wire the outbox's ``DatabaseScheduleLedger``
+so that knowledge survives the restart.
 
 **Configure that actor.** ``ControlPlane.job_system_actor_id`` is what the sentence above
 depends on, it defaults to unset, and a production boot that declares a schedule without

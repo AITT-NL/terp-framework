@@ -16,6 +16,7 @@ import pathlib
 from terp.arch._ast import base_name, iter_python_files, parse
 from terp.arch.rules._support import (
     ArchViolation,
+    _FIELD_FACTORIES,
     _is_table_model_class,
     _module_under,
     _rel,
@@ -141,7 +142,8 @@ def _site_for(call: ast.Call) -> tuple[ast.Call, bool, str | None, str | None] |
 
     * ``Ref(target, on_delete=...)`` -- the declared form.
     * ``Field(foreign_key=..., [ondelete=...])`` -- SQLModel's own shorthand, which
-      declares the behaviour when (and only when) it passes ``ondelete``.
+      declares the behaviour when (and only when) it passes ``ondelete``; ``Personal``
+      forwards the same keywords to it, so it is read the same way.
     * ``ForeignKey(target, [ondelete=...])`` / ``ForeignKeyConstraint(cols, targets,
       [ondelete=...])`` -- a hand-built column or a table-level constraint, which
       appear inside a ``sa_column=`` or ``__table_args__``.
@@ -163,7 +165,7 @@ def _site_for(call: ast.Call) -> tuple[ast.Call, bool, str | None, str | None] |
             _declared_action(call, "on_delete"),
             target,
         )
-    if name == "Field" and _has_keyword(call, "foreign_key"):
+    if name in _FIELD_FACTORIES and _has_keyword(call, "foreign_key"):
         return (
             call,
             _has_keyword(call, "ondelete"),

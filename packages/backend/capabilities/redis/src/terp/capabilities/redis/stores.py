@@ -5,6 +5,11 @@ as well: one namespaced key per logical entry, explicit TTLs on every value, and
 where a multi-command transition must be indivisible. That gives horizontally scaled Terp
 apps honest global behaviour without teaching the kernel about Redis or weakening the
 single-process defaults.
+
+Each store answers ``ping()`` with a Redis ``PING`` on its own client, so a deployment that
+requires the store (``require_shared_*_store=True``) has it in readiness (ADR 0191): the
+kernel asks it with a bound of its own, so a Redis that stops answering turns readiness
+503 rather than holding the probe.
 """
 
 from __future__ import annotations
@@ -132,6 +137,10 @@ class RedisIdempotencyStore(IdempotencyStore):
         """Create the store from a Redis URL using redis-py's ``Redis.from_url``."""
         return cls(_client_from_url(url), namespace=namespace)
 
+    def ping(self) -> None:
+        """Readiness (ADR 0191): a Redis ``PING``, raising when the server cannot answer."""
+        self._client.ping()
+
     def begin(self, key: str, fingerprint: str, *, ttl_seconds: int) -> BeginOutcome:
         if ttl_seconds <= 0:
             raise ValueError(
@@ -205,6 +214,10 @@ class RedisThrottleStore(ThrottleStore):
         """Create the store from a Redis URL using redis-py's ``Redis.from_url``."""
         return cls(_client_from_url(url), namespace=namespace)
 
+    def ping(self) -> None:
+        """Readiness (ADR 0191): a Redis ``PING``, raising when the server cannot answer."""
+        self._client.ping()
+
     def hit(self, key: str, window_seconds: int) -> tuple[int, int]:
         result = self._client.eval(_HIT_SCRIPT, 1, self._hit_key(key), int(window_seconds))
         count, reset = list(result)
@@ -241,6 +254,10 @@ class RedisCacheStore(CacheStore):
     def from_url(cls, url: str, *, namespace: str = "terp") -> RedisCacheStore:
         """Create the store from a Redis URL using redis-py's ``Redis.from_url``."""
         return cls(_client_from_url(url), namespace=namespace)
+
+    def ping(self) -> None:
+        """Readiness (ADR 0191): a Redis ``PING``, raising when the server cannot answer."""
+        self._client.ping()
 
     def get(self, key: str) -> str | None:
         value = self._client.get(self._key(key))

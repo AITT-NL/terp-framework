@@ -25,6 +25,7 @@ from terp.capabilities.auth import (
     tenant_from_bearer,
 )
 from terp.capabilities.auth.deps import _bearer_token
+from terp.capabilities.auth.tokens import _signing_key as _derived_signing_key
 from terp.capabilities.tenancy import TenantMiddleware
 
 # Generated, not written: the tests hand-craft tokens with it, so it must be known here,
@@ -75,7 +76,7 @@ def test_tokens_sign_and_require_the_registered_audience_and_issuer() -> None:
     # even one signed with the very same shared secret.
     raw = jwt.decode(
         create_access_token(subject=uuid.uuid4(), role=Roles.EDITOR),
-        _KEY,
+        _derived_signing_key(_KEY),  # ADR 0189: the key derived from SECRET_KEY, not SECRET_KEY
         algorithms=["HS256"],
         audience=TOKEN_AUDIENCE,
         issuer=TOKEN_ISSUER,
@@ -124,11 +125,17 @@ def test_rotation_fallback_verifies_old_tokens_but_never_signs_new_ones(
     fresh = create_access_token(subject=uuid.uuid4(), role=Roles.EDITOR)
     jwt.decode(
         fresh,
-        new_key,
+        _derived_signing_key(new_key),
         algorithms=["HS256"],
         audience=TOKEN_AUDIENCE,
         issuer=TOKEN_ISSUER,
     )
+    # ...and with neither form of the fallback (ADR 0189).
+    for retired in (_derived_signing_key(old_key), old_key):
+        with pytest.raises(jwt.InvalidSignatureError):
+            jwt.decode(
+                fresh, retired, algorithms=["HS256"], audience=TOKEN_AUDIENCE, issuer=TOKEN_ISSUER
+            )
     # An expired / tampered token is final — never retried against a fallback.
     expired = create_access_token(
         subject=uuid.uuid4(),

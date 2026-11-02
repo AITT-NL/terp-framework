@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "build": "generated",
+  "compose": {
+    "file": "docker-compose.prod.yml"
+  },
+  "units": [
+    {
+      "id": "db",
+      "role": "database",
+      "kind": "postgres",
+      "version": "17",
+      "stateful": true
+    }
+  ]
+}

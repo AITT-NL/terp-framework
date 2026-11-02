@@ -22,6 +22,13 @@ dependencies = [
     "terp-cap-groups==0.34.0",
     "terp-cap-access==0.34.0",
     "terp-cap-audit==0.34.0",
+    # The ASGI server and the PostgreSQL driver are RUNTIME dependencies, so uv.lock pins
+    # them with everything else and the production image installs exactly that version
+    # (`uv sync --locked --no-dev`, Dockerfile.prod): what ships is what the gate audited.
+    # The [standard] extra is what serves a WebSocket. psycopg is also what the second
+    # verified dialect's tests connect with (ADR 0069; see the dev group below).
+    "uvicorn[standard]>=0.30",
+    "psycopg[binary]>=3.2",
 {%- if use_files %}
     # File uploads: streamed storage + admin surface (auto-discovered, ADR 0056).
     "terp-cap-files==0.34.0",
@@ -41,20 +48,19 @@ dependencies = [
 ]
 
 [dependency-groups]
-# uvicorn serves the local dev loop (`terp dev` / `uvicorn app.main:app`);
-# the Docker images install their own pinned server.
-#
-# psycopg is the driver for the second verified dialect (ADR 0069). Terp supports SQLite
-# for development and test and PostgreSQL for production, so a test that takes the
-# shipped `terp_db_url` fixture runs on both -- and without the driver the PostgreSQL
-# half could only ever skip, which would leave the schema that actually ships as the one
-# nothing exercised. It is harmless locally: the lane skips when TERP_TEST_POSTGRES_URL
-# names no server.
+# The development tools: none of them reaches the production image, which installs the
+# lock without this group. The server and the database driver are not here: they are
+# runtime dependencies above, so the dev loop (`terp dev`) and the image run the one
+# version uv.lock pins. psycopg there also serves the second verified dialect (ADR 0069):
+# Terp supports SQLite for development and test and PostgreSQL for production, so a test
+# that takes the shipped `terp_db_url` fixture runs on both -- and without the driver the
+# PostgreSQL half could only ever skip, which would leave the schema that actually ships
+# as the one nothing exercised. The lane skips when TERP_TEST_POSTGRES_URL names no server.
 #
 # httpx2 is what FastAPI's TestClient drives requests with. Starlette imports it first and
 # falls back to plain httpx with a deprecation warning on every run. The fallback is
 # deprecated; once it is gone, a suite that only has httpx cannot import TestClient.
-dev = ["pytest>=8.0", "httpx2>=2.0", "pytest-cov>=5.0", "terp-arch==0.34.0", "uvicorn[standard]>=0.30", "ruff>=0.6", "deptry>=0.20", "psycopg[binary]>=3.2"]
+dev = ["pytest>=8.0", "httpx2>=2.0", "pytest-cov>=5.0", "terp-arch==0.34.0", "ruff>=0.6", "deptry>=0.20"]
 
 # deptry: is every distribution this project imports one it declares? The
 # question no Terp rule can answer -- mapping an import name to a distribution
@@ -98,6 +104,11 @@ known_first_party = ["app", "control_plane"]
 # exemption covers DEP003 alone: if the platform stopped installing one of them, an
 # import of it would be DEP001 and still fail.
 DEP003 = ["terp", "pydantic", "fastapi", "sqlmodel", "sqlalchemy", "alembic"]
+# uvicorn and psycopg are declared and never imported: the image runs the server as a
+# command, and SQLAlchemy loads the driver named by DATABASE_URL. Both are runtime
+# dependencies so the lock pins what the image installs (see [project] above), and
+# deptry's "declared, never imported" (DEP002) is exactly what they are on purpose.
+DEP002 = ["uvicorn", "psycopg"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app", "control_plane"]

@@ -171,6 +171,10 @@ class RedisRealtimeBroker(RealtimeBroker):
             namespace=namespace,
         )
 
+    def ping(self) -> None:
+        """Readiness (ADR 0191): a ``PING`` on the publish client, bounded like a publish."""
+        self._client.ping()
+
     async def publish(self, channel: str, payload: str) -> None:
         try:
             await asyncio.to_thread(self._client.publish, self._key(channel), payload)
