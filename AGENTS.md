@@ -122,6 +122,14 @@ a guard to make a change pass:
    from the owning service. Detail:
    `terp guide references`.
 
+8. **Declare personal data** — a field that holds a person's data (an email address,
+   a phone number, a date of birth, a name) is declared with `Personal(...)` instead
+   of `Field(...)`, on the table and on every schema that redeclares it. The log, the
+   audit trail and events withhold its value; nothing else can tell it from any other
+   string. The `personal_fields_are_declared` rule refuses a field named like personal
+   data that is not declared, and one that only looks personal (an organisation's
+   support address) says why with its opt-out marker. Detail: `terp guide personal-data`.
+
 ## Frontend conventions
 
 Frontend UI composes the **`@terpjs/react-core` component surface** — the catalog lives

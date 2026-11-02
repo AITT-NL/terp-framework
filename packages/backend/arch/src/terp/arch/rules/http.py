@@ -923,8 +923,8 @@ def check_no_adhoc_logging_config(
     Structured logging + secret redaction is installed once by ``configure_logging``
     (called by ``create_app``). A module calling ``logging.basicConfig`` /
     ``dictConfig`` / ``fileConfig`` re-points logging and can silently bypass the
-    central secret-redaction filter. The filter redacts secrets only; personal data
-    is not recognised (ADR 0188).
+    central secret-redaction filter. The filter redacts secrets, and the fields a model
+    declares personal (ADR 0190).
     """
     root = pathlib.Path(app_root)
     config_calls = frozenset({"basicConfig", "dictConfig", "fileConfig"})

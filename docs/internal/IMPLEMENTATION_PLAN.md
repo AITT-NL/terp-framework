@@ -340,7 +340,7 @@ coverage**. See
 ### Phase C — Security middleware + structured logging
 - `SecurityConfig`: headers, CORS deny‑by‑default (boot‑fails in prod if unset),
   rate‑limit, body‑size, request‑id. Structured logging + request‑id context +
-  PII redaction. Extend production fail‑fast.
+  secret redaction (personal data: declared fields, ADR 0190). Extend production fail‑fast.
 - terp‑arch: `security_config_present`, `prod_guardrails`.
 - **Gate:** prod boot refuses on permissive CORS / missing limits.
 
@@ -612,7 +612,7 @@ concerns without removing their ability to *configure* them.
 | Security headers · CORS · rate‑limit · body‑size · request‑id | A | ✅ built | `SecurityConfig` (Phase C, ADR 0005); rate‑limit counter behind the pluggable `ThrottleStore` (default in‑memory; shared seam ADR 0036, Redis‑backed adapter shipped in `terp-cap-redis`, ADR 0078) |
 | **Idempotency keys for unsafe methods** | B | ✅ built | `terp.core.idempotency` `IdempotencyStore` + innermost `IdempotencyMiddleware` (credential‑scoped, fail‑closed 503, replay 422/409, ADR 0077); Redis adapter in `terp-cap-redis` |
 | **Shared stores for multi‑instance** (throttle / idempotency / cache) | B | ✅ built | `terp-cap-redis` Redis‑backed `ThrottleStore` / `IdempotencyStore` / `CacheStore` adapters (atomic Lua; ADR 0078) |
-| Structured logging + secret redaction | A | ✅ built | `terp.core.logging` (handler‑level redaction + `extra=` in the hardening; one versioned record shape, `terp-log/1`, ADR 0188). Secrets only: personal-data redaction waits on a field-level marker |
+| Structured logging + secret redaction | A | ✅ built | `terp.core.logging` (handler‑level redaction + `extra=` in the hardening; one versioned record shape, `terp-log/1`, ADR 0188). Secrets by name and shape; personal data where a field declares it (`Personal`, the `personal_fields_are_declared` rule, ADR 0190) |
 | **Audit log of mutations (auto‑emit)** | A | ✅ built | `AuditPolicy` registry on `ControlPlane.audit`; fail‑closed emit from the single `BaseService.create/update/delete` chokepoint; central redaction; core seam + `terp-cap-audit` durable sink; the `mutations_emit_audit` rule **and a runtime write‑guarded `SessionDep`** (a write outside the chokepoint raises `UnauditedWriteError`, ADR 0015); budgeted opt‑out (ADR 0007) |
 | **Password policy** (length/complexity/breach) | B | ✅ built | `PasswordPolicy` registry on `ControlPlane.passwords` (safe default: 12+ chars, 2+ classes, common-password denylist); fail-closed at the `UsersService` credential boundary (typed `WeakPasswordError`, uniform 422); `create_app` production fail-fast on a relaxed policy; `PasswordPolicy.relaxed(reason=…)` opt-out (ADR 0032). Runtime/boot-only — no AST rule. HIBP breach-corpus check deferred. |
 | Account lockout / brute‑force throttle | B | ✅ built | `terp-cap-auth` `LoginThrottle` (on by default; per‑account; explicit `LoginThrottle.disabled(reason=…)`); typed 429 `AccountLockedError` (ADR 0031). Multi‑instance correct via the shared `ThrottleStore` seam (ADR 0036). |

@@ -137,6 +137,7 @@ from terp.arch.rules.persistence import (
     check_table_models_use_base_table,
     check_tables_have_migrations,
 )
+from terp.arch.rules.personal import check_personal_fields_are_declared
 from terp.arch.rules.references import (
     check_references_declare_delete_behaviour,
 )
@@ -236,6 +237,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "no_raw_file_references": "files",
     "permission_gated_reads_disclose": "access",
     "references_declare_delete_behaviour": "references",
+    "personal_fields_are_declared": "personal-data",
     "table_models_use_base_table": "module",
     "tables_have_migrations": "migrations",
     "no_manual_table_schema": "migrations",
@@ -408,6 +410,7 @@ RULE_ROOT_KINDS: dict[str, frozenset[RootKind]] = {
     "no_raw_file_references": APP_ROOT_ONLY,
     "permission_gated_reads_disclose": APP_ROOT_ONLY,
     "references_declare_delete_behaviour": APP_ROOT_ONLY,
+    "personal_fields_are_declared": APP_ROOT_ONLY,
     "table_models_use_base_table": APP_ROOT_ONLY,
     "tables_have_migrations": APP_ROOT_ONLY,
     "no_destructive_migrations": APP_ROOT_ONLY,
@@ -541,6 +544,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_expand_revisions_only_expand,
     check_no_unique_columns_on_soft_delete_models,
     check_references_declare_delete_behaviour,
+    check_personal_fields_are_declared,
     check_canonical_module_shape,
     check_modules_ship_tests,
     check_session_imported_from_sqlmodel,
@@ -765,6 +769,7 @@ __all__ = [
     "check_no_raw_app_routes",
     "check_no_raw_file_references",
     "check_permission_gated_reads_disclose",
+    "check_personal_fields_are_declared",
     "check_no_manual_scope_filtering",
     "check_no_raw_connection_access",
     "check_no_raw_outbound_http",

@@ -14,6 +14,7 @@ import pathlib
 from terp.arch._ast import _SECURITY_SKIP_DIRS, base_name, iter_python_files, parse
 from terp.arch.rules._support import (
     ArchViolation,
+    _FIELD_FACTORIES,
     _MANAGED_INPUT_COLUMNS,
     _SESSION_CONSTRUCTORS,
     _SESSION_EXECUTORS,
@@ -695,7 +696,7 @@ def check_no_unique_columns_on_soft_delete_models(
                 }
                 covers_verified = _VERIFIED_DIALECT_WHERE_KEYWORDS <= where_keywords
                 flagged = (
-                    (name == "Field" and unique_kw)
+                    (name in _FIELD_FACTORIES and unique_kw)
                     or name == "UniqueConstraint"
                     or (name == "Index" and unique_kw and not covers_verified)
                 )
