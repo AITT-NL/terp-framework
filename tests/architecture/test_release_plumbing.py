@@ -182,6 +182,15 @@ def test_a_checkout_another_user_owns_is_read_all_the_same(tmp_path: pathlib.Pat
     operator named the repository and the jobs read it as data, so their git calls say so."""
     root = tmp_path / "repo"
     sha = committed_app(root)
+    # The host's own git configuration must not decide the case: a machine that trusts every
+    # directory in its system or global file (a CI runner image may) would let the plain call
+    # below through, and the test would prove nothing about the jobs' own setting.
+    empty = tmp_path / "gitconfig"
+    empty.write_text("")
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty))
+    for name in ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"):  # configuration given in the environment
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")  # git's own switch for the check
     refused = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, check=False)  # noqa: S603, S607
     assert refused.returncode != 0 and b"dubious ownership" in refused.stderr
