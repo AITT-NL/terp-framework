@@ -494,6 +494,22 @@ _FOLLOWED: tuple[tuple[str, str, list[tuple[int, str]]], ...] = (
         [(5, "drop")],
     ),
     (
+        "an alias chain that comes back on itself ends",
+        """
+        from alembic import op
+
+
+        def _up():
+            op.drop_table('invoice_legacy')
+
+
+        _step = _up
+        _step = upgrade
+        upgrade = _step
+        """,
+        [(5, "drop")],
+    ),
+    (
         "two statements in one call",
         """
         from alembic import op

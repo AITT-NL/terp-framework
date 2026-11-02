@@ -358,6 +358,7 @@ _FOLLOWED_TEXTS = {
         "alter_column invoice.total",
     ],
     "upgrade named by an alias": ["drop_table invoice_legacy"],
+    "an alias chain that comes back on itself ends": ["drop_table invoice_legacy"],
     "two statements in one call": [
         "execute: DROP TABLE invoice_legacy",
         "execute: ALTER TABLE invoice RENAME TO bill",
