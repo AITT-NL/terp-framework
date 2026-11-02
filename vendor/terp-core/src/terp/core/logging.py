@@ -51,6 +51,7 @@ from terp.core._redaction import REDACTED as _REDACTED
 from terp.core._redaction import looks_sensitive as _looks_sensitive
 from terp.core._redaction import scrub as _scrub
 from terp.core._redaction import scrub_argument as _scrub_argument
+from terp.core._redaction import scrub_template as _scrub_template
 from terp.core._redaction import scrub_text as _scrub_text
 
 #: The id of the record shape, carried by every line in its ``schema`` key.
@@ -149,7 +150,8 @@ class RedactingFilter(logging.Filter):
             # An exception or an object logged as the message renders through str();
             # rendering it here is what lets its text be scrubbed.
             record.msg = str(record.msg)
-        record.msg = _scrub_text(record.msg)
+        # A template whose arguments are still out keeps its placeholders for them.
+        record.msg = _scrub_template(record.msg) if record.args else _scrub_text(record.msg)
         if isinstance(record.args, dict):
             record.args = _scrub_argument(record.args)
         elif isinstance(record.args, tuple):

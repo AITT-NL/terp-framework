@@ -30,29 +30,50 @@ SENSITIVE_KEY_PATTERNS: Final[tuple[str, ...]] = (
     "cookie",
 )
 
-# Credential values inside free text. Group 1 is the label that stays, so the line still
-# says what was there; group 2 is the secret. ``(?!%)`` leaves a ``%s`` placeholder in a
-# message template alone: the formatter scrubs the message again once its arguments are
-# in, which is where the value actually appears.
-_TEXT_SECRETS: Final[tuple[re.Pattern[str], ...]] = (
+# Credential values inside free text, as (label, value) pairs. The label is group 1 and
+# stays, so the line still says what was there; the value is group 2, one or more
+# characters of the class given, and is the secret.
+_SECRET_SHAPES: Final[tuple[tuple[str, str, str], ...]] = (
     # "Authorization: Bearer <credential>": the scheme word is not the secret. Until this
     # pattern consumed it, the scheme word was what got redacted and the credential stayed.
-    re.compile(
+    (
         r"(authorization[\"']?\s*[:=]\s*[\"']?"
-        r"(?:(?:bearer|basic|digest|negotiate|token|apikey)\s+)?)((?!%)[^\s\"',;]+)",
-        re.IGNORECASE,
+        r"(?:(?:bearer|basic|digest|negotiate|token|apikey)\s+)?)",
+        r"[^\s\"',;]",
+        "",
     ),
-    re.compile(r"(bearer\s+)((?!%)[^\s\"',;]+)", re.IGNORECASE),
+    (r"(bearer\s+)", r"[^\s\"',;]", ""),
     # A cookie header's whole value: every pair in it is a session credential.
-    re.compile(r"((?:set-)?cookie[\"']?\s*[:=]\s*[\"']?)((?!%)[^\r\n\"']+)", re.IGNORECASE),
-    # "scheme://user:password@host": the password, never the host.
-    re.compile(r"([a-z][a-z0-9+.\-]*://[^\s/:@]*:)((?!%)[^\s/@]+)(?=@)", re.IGNORECASE),
+    (r"((?:set-)?cookie[\"']?\s*[:=]\s*[\"']?)", r"[^\r\n\"']", ""),
+    # "scheme://user:password@host": the password, never the host. A password may hold an
+    # unencoded "/" where a driver prints it raw, so only whitespace and "@" end it.
+    (r"([a-z][a-z0-9+.\-]*://[^\s/:@]*:)", r"[^\s@]", "(?=@)"),
     # "password=...", "client_secret: ...", "api_key='...'".
-    re.compile(
-        r"((?:password|passwd|secret|token|api[_-]?key)[\w.\-]*[\"']?\s*[:=]\s*[\"']?)"
-        r"((?!%)[^\s\"',;&]+)",
-        re.IGNORECASE,
+    (
+        r"((?:password|passwd|secret|token|api[_-]?key)[\w.\-]*[\"']?\s*[:=]\s*[\"']?)",
+        r"[^\s\"',;&]",
+        "",
     ),
+)
+
+# A printf-style placeholder as ``%`` formatting reads one: "%s", "%d", "%(name)s",
+# "%-8.2f", "%%". Only a message *template* still holds placeholders, and only while its
+# arguments are out of it; once rendered, a "%" is just a character of the value.
+_PLACEHOLDER: Final[str] = (
+    r"%(?:\([^)]*\))?[#0+\- ]*(?:\*|\d+)?(?:\.(?:\*|\d*))?[hlL]?[diouxXeEfFgGcrsa%]"
+)
+
+# Rendered text: every value goes, a "%-encoded" one included ("%40bc", "%2F...").
+_TEXT_SECRETS: Final[tuple[re.Pattern[str], ...]] = tuple(
+    re.compile(f"{label}({value}+){after}", re.IGNORECASE)
+    for label, value, after in _SECRET_SHAPES
+)
+# A template whose arguments are still to come: a value that starts with a placeholder is
+# where an argument goes, and redacting it would break the format string. The formatter
+# scrubs the message again once the arguments are in, which is where that value appears.
+_TEMPLATE_SECRETS: Final[tuple[re.Pattern[str], ...]] = tuple(
+    re.compile(f"{label}((?!{_PLACEHOLDER}){value}+){after}", re.IGNORECASE)
+    for label, value, after in _SECRET_SHAPES
 )
 _REDACT_VALUE: Final[str] = r"\g<1>" + REDACTED
 
@@ -74,13 +95,27 @@ def looks_sensitive(key: str) -> bool:
     return _SENSITIVE_KEY.search(key) is not None
 
 
-def scrub_text(value: str) -> str:
-    """*value* with every credential-shaped substring replaced by ``[REDACTED]``."""
+def _substitute(value: str, patterns: tuple[re.Pattern[str], ...]) -> str:
     if _TRIGGER.search(value) is None:
         return value
-    for pattern in _TEXT_SECRETS:
+    for pattern in patterns:
         value = pattern.sub(_REDACT_VALUE, value)
     return value
+
+
+def scrub_text(value: str) -> str:
+    """*value* with every credential-shaped substring replaced by ``[REDACTED]``."""
+    return _substitute(value, _TEXT_SECRETS)
+
+
+def scrub_template(template: str) -> str:
+    """A ``%``-format *template* scrubbed as :func:`scrub_text`, its placeholders spared.
+
+    Only for a message whose arguments have not been rendered into it yet: a value that
+    starts with an actual placeholder (``password=%s``) is where an argument goes, so it
+    stays for the arguments to fill. A value that merely starts with ``%`` is redacted.
+    """
+    return _substitute(template, _TEMPLATE_SECRETS)
 
 
 #: Values that cannot hold text, returned as they are without a closer look.
@@ -145,5 +180,6 @@ __all__ = [
     "looks_sensitive",
     "scrub",
     "scrub_argument",
+    "scrub_template",
     "scrub_text",
 ]

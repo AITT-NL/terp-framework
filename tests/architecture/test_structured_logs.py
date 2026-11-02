@@ -455,6 +455,12 @@ def test_the_formatter_alone_still_redacts_what_it_renders() -> None:
         (f"connect(password={_PASSWORD})", "password=[REDACTED]"),
         (f"client_secret: '{_PASSWORD}'", "client_secret: '[REDACTED]"),
         (f"?api_key={_TOKEN}&page=2", "api_key=[REDACTED]&page=2"),
+        # A value that starts with "%" is a value: only a template's placeholder is spared.
+        (f"postgresql://app:%40{_PASSWORD}@db/app", "postgresql://app:[REDACTED]@db/app"),
+        (f"client_secret=%2F{_PASSWORD}", "client_secret=[REDACTED]"),
+        (f"Bearer %2B{_TOKEN}", "Bearer [REDACTED]"),
+        # A driver that prints the password raw: an unencoded "/" does not end it.
+        (f"postgresql://app:a/{_PASSWORD}@db/app", "postgresql://app:[REDACTED]@db/app"),
     ],
 )
 def test_free_text_secrets_are_redacted(text: str, kept: str) -> None:
@@ -469,6 +475,37 @@ def test_a_placeholder_in_a_template_survives_and_its_value_does_not() -> None:
     line = _render(_record("password=%s for %s", (_PASSWORD, "ada")))
     assert line["message"] == "password=[REDACTED] for ada"
     assert "event" not in line
+
+
+@pytest.mark.parametrize(
+    ("template", "args", "message"),
+    [
+        ("password=%s for %s", (_PASSWORD, "ada"), "password=[REDACTED] for ada"),
+        ("password=%(pw)s", ({"pw": _PASSWORD},), "password=[REDACTED]"),
+        ("api_key=%.40s, page %-3d|", (_TOKEN, 2), "api_key=[REDACTED], page 2  |"),
+        ("tokens=%d", (7,), "tokens=[REDACTED]"),
+        ("postgresql://%s:%s@%s/app", ("app", _PASSWORD, "db"), "postgresql://app:[REDACTED]@db/app"),
+    ],
+)
+def test_every_kind_of_placeholder_survives_the_template(
+    template: str, args: Any, message: str
+) -> None:
+    # Any printf placeholder, not only "%s": redacting one breaks the format string and
+    # the record becomes a log.failure line.
+    line = _render(_record(template, args))
+    assert line["message"] == message
+    assert "event" not in line
+
+
+def test_a_percent_encoded_secret_in_a_template_with_arguments_is_redacted() -> None:
+    # "%%" is spared in the template, as a placeholder; the "%40..." it renders to is not.
+    line = _render(_record(f"connect postgresql://app:%%40{_PASSWORD}@db as %s", ("ada",)))
+    assert line["message"] == "connect postgresql://app:[REDACTED]@db as ada"
+
+
+def test_a_percent_encoded_secret_in_extra_is_redacted() -> None:
+    line = _render(_record("m", dsn=f"postgresql://app:%40{_PASSWORD}@db/app"))
+    assert line["extra"] == {"dsn": "postgresql://app:[REDACTED]@db/app"}
 
 
 def test_an_argument_keeps_its_own_form_for_its_conversion() -> None:

@@ -146,8 +146,9 @@ word kept, the credential gone), a bare `Bearer` value, a cookie header's value,
 password, a `password=` / `client_secret:` / `api_key=` pair. It reads the message, its
 arguments once rendered (an exception passed as an argument has text only then), the traceback
 and the stack. A value in `extra=` or `context` that JSON has no form for (an exception, a set,
-an object with its own `__str__`) is written as its text, so that text is what is redacted.
-Personal data is not recognised, and no Terp text says otherwise; a field-level
+an object with its own `__str__`) is written as its text, so that text is what is redacted. A
+value that starts with `%` is a value like any other: only a message template's own
+placeholders are spared, and only while its arguments are still out of it. Personal data is not recognised, and no Terp text says otherwise; a field-level
 marker that would let it be is a separate, later decision. The framework's own typed fields
 (`http`, `guard`, `actor`, `tenant`, `error`) are built from declarations and typed values and
 are not re-scanned; `context`, which carries what an app handed over, is.
