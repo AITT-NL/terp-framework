@@ -4365,6 +4365,24 @@ def test_tables_have_migrations(tmp_path: pathlib.Path) -> None:
     assert check_tables_have_migrations(app) == []
 
 
+@pytest.mark.parametrize(
+    ("name", "migrated"),
+    [("_0001_init.py", True), ("__init__.py", False), (".#0001_init.py", False)],
+)
+def test_tables_have_migrations_counts_the_files_alembic_runs(
+    tmp_path: pathlib.Path, name: str, migrated: bool
+) -> None:
+    # Alembic loads every versions/*.py but __init__.py and an editor's .# lock file.
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/widgets/models.py",
+        "class Widget(BaseTable, table=True):\n    name: str = Field(max_length=50)\n",
+    )
+    _write(app, f"modules/widgets/migrations/versions/{name}", "revision = '0001'\n")
+    assert (check_tables_have_migrations(app) == []) is migrated
+
+
 def test_no_destructive_migrations(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     destructive_sources = (
@@ -4384,11 +4402,13 @@ def test_no_destructive_migrations(tmp_path: pathlib.Path) -> None:
         _write(app, "modules/notes/migrations/versions/0001_change.py", f"def upgrade():\n    {source}\n")
         assert _rule_names(check_no_destructive_migrations(app)) == {"no_destructive_migrations"}, source
 
-    # Non-destructive operations and alter_column calls without type changes are clean.
+    # Non-destructive operations, and an alter_column that only relaxes, are clean. The
+    # full test set of destructive steps and their look-alikes is
+    # test_destructive_migrations.py.
     _write(
         app,
         "modules/notes/migrations/versions/0001_change.py",
-        "def upgrade():\n    helper()\n    op.add_column('notes', column)\n    op.alter_column('notes', 'title', nullable=False)\n",
+        "def upgrade():\n    helper()\n    op.add_column('notes', column)\n    op.alter_column('notes', 'title', nullable=True)\n",
     )
     assert check_no_destructive_migrations(app) == []
 

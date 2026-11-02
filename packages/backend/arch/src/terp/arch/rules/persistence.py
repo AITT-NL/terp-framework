@@ -33,6 +33,7 @@ from terp.arch.rules._support import (
     _soft_delete_capable_class_names,
     _tuple_annotation_name,
 )
+from terp.arch.rules.migrations import _is_revision_file
 
 
 def _is_plain_string_literal(node: ast.expr) -> bool:
@@ -562,9 +563,9 @@ def check_tables_have_migrations(
             continue
         index = path.parts.index("modules")
         versions = pathlib.Path(*path.parts[: index + 2]) / "migrations" / "versions"
+        # A revision is any file Alembic loads, an underscore-led name included.
         has_revision = versions.is_dir() and any(
-            entry.is_file() and not entry.name.startswith("_")
-            for entry in versions.glob("*.py")
+            entry.is_file() and _is_revision_file(entry) for entry in versions.glob("*.py")
         )
         if not has_revision:
             flagged_modules.add(module_name)

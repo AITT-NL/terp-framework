@@ -228,6 +228,14 @@ def test_no_rule_awaits_a_spec_release() -> None:
         "before cutting a framework release"
     )
 
+    from tests.architecture.test_spec_corpus import _VERDICTS_AWAITING_SPEC_RELEASE
+
+    assert _VERDICTS_AWAITING_SPEC_RELEASE == frozenset(), (
+        "these corpus cases carry a verdict this repository has moved past and no "
+        f"published corpus has: {sorted(_VERDICTS_AWAITING_SPEC_RELEASE)} — adopt the "
+        "spec release that carries them before cutting a framework release"
+    )
+
 
 def test_changelog_records_the_release_version() -> None:
     changelog = (_REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
