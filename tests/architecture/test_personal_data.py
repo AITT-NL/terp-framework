@@ -20,11 +20,13 @@ real-looking address in the history.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import datetime
 import io
 import json
 import logging
+import pathlib
 import secrets
 import uuid
 from collections.abc import Iterator
@@ -65,7 +67,9 @@ from terp.core import (
     personal_field_names,
     personal_fields,
     redact_personal,
+    settings,
 )
+from terp.core._internal.engine import get_engine, maintenance_engine, reset_engine
 from terp.core._redaction import LoggedModel
 from terp.core.logging import RedactingFilter, StructuredFormatter, _protect_handler
 from terp.core.audit import emit_audit
@@ -508,6 +512,84 @@ def test_a_refused_duplicate_does_not_log_the_address(session: Session) -> None:
     detail = refused.value.log_context["integrity_error"]
     assert "UNIQUE" in detail and PERSONAL in detail
     _no_personal_value_in(detail)
+
+
+@pytest.fixture
+def framework_engine(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+    """The engine the framework builds for the app, on a database of this test's own."""
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{(tmp_path / 'pii.db').as_posix()}")
+    reset_engine()
+    engine = get_engine()
+    SQLModel.metadata.create_all(engine, tables=[_Customer.__table__])  # type: ignore[attr-defined]
+    try:
+        yield engine
+    finally:
+        reset_engine()
+
+
+def test_a_database_error_no_service_handles_writes_no_parameter(framework_engine: Any) -> None:
+    # Outside BaseService there is no row in hand to withhold, and SQLAlchemy's message
+    # repeats the statement's parameters: the framework's engine is what keeps them out.
+    router = APIRouter()
+
+    @router.post("/import")
+    def import_customers() -> dict[str, str]:
+        for _ in range(2):
+            with Session(framework_engine) as own:
+                own.add(_Customer(email=_EMAIL, phone=_PHONE))
+                own.commit()
+        return {}
+
+    client = TestClient(_compose(router), raise_server_exceptions=False)
+    with captured() as everything:
+        assert client.post("/api/v1/pii/import", headers=_AUTH).status_code == 500
+    lines = _served(everything)
+    (error,) = [line for line in lines if line.get("event") == "error.unhandled"]
+    assert "IntegrityError" in error["exc_info"]
+    assert "parameters hidden" in error["exc_info"]
+    _no_personal_value_in(json.dumps(lines))
+
+
+def test_every_engine_the_framework_builds_hides_its_parameters(framework_engine: Any) -> None:
+    assert framework_engine.hide_parameters is True
+    built = maintenance_engine("sqlite://")
+    try:
+        assert built.hide_parameters is True
+    finally:
+        built.dispose()
+
+
+def _engine_calls_without_hidden_parameters(root: pathlib.Path) -> list[str]:
+    found: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        if "tests" in path.relative_to(root).parts:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
+            if name not in {"create_engine", "create_async_engine"}:
+                continue
+            hidden = any(
+                keyword.arg == "hide_parameters"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value is True
+                for keyword in node.keywords
+            )
+            if not hidden:
+                found.append(f"{path.relative_to(root)}:{node.lineno}")
+    return found
+
+
+def test_every_create_engine_call_in_the_framework_hides_parameters(tmp_path: pathlib.Path) -> None:
+    # The migration tooling builds engines of its own, outside the core factory: a data
+    # migration's failing statement is the same row's values.
+    backend = pathlib.Path(__file__).resolve().parents[2] / "packages" / "backend"
+    assert _engine_calls_without_hidden_parameters(backend) == []
+    probe = tmp_path / "src" / "probe.py"
+    probe.parent.mkdir()
+    probe.write_text("e = create_engine(url)\nf = sa.create_engine(url, hide_parameters=True)\n")
+    assert _engine_calls_without_hidden_parameters(tmp_path) == ["src/probe.py:1"]
 
 
 def test_every_row_in_flight_loses_its_values(session: Session) -> None:

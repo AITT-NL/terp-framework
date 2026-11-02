@@ -617,11 +617,12 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
 def _integrity_detail(exc: IntegrityError, session: Session, entity: object) -> str:
     """The database's refusal as text, without the personal values of the rows it was about.
 
-    SQLAlchemy's message repeats the statement's parameters and the database's own detail
-    repeats the conflicting key (``Key (email)=(...) already exists``), so a refused signup
-    would write the address into the log. The rows in flight are in hand, so their declared
-    personal values are what is removed (ADR 0190); read before the rollback, which empties
-    the session of them.
+    The framework's engines keep SQLAlchemy from repeating the statement's parameters, but
+    the database's own detail repeats the conflicting key (``Key (email)=(...) already
+    exists``), and a session on another engine still carries the parameters, so a refused
+    signup would write the address into the log. The rows in flight are in hand, so their
+    declared personal values are what is removed (ADR 0190); read before the rollback, which
+    empties the session of them.
     """
     text = str(exc)
     in_flight = [entity]

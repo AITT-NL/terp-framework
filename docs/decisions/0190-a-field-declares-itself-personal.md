@@ -116,6 +116,12 @@ replaced in the text, longest first, so a value inside another goes with it. By 
 because the text has no structure a name could key on; precise, because the values are
 those rows' own.
 
+Outside the service there is no row in hand, so the parameters are kept out at the source:
+every engine the framework builds, the core factory's and the migration tooling's, sets
+SQLAlchemy's `hide_parameters`, and an error no service handles (a job's own session, a
+migration's data step) carries `[SQL parameters hidden due to hide_parameters=True]` where
+the row's values were. No framework code read the parameters back from an error.
+
 **5. A model that declares a personal field hides its input in a validation error's text.**
 It is configured with `hide_input_in_errors` when the class is created. The structured form
 of the error keeps the input, and that is what FastAPI builds a 422 from, so the client
@@ -203,3 +209,9 @@ column's DDL is unchanged.
   customer reads the address.
 - **Anonymising a database copy, and a relay that forwards events off the host.** Both
   read this declaration and are separate work.
+- **A database's own text outside the service.** `hide_parameters` removes SQLAlchemy's copy
+  of the parameters, not the driver's message, which is the database's own: PostgreSQL's
+  `Key (email)=(...) already exists` repeats a conflicting key. Outside `BaseService` no row
+  is in hand to withhold, so an unhandled duplicate writes that detail with its traceback.
+  An engine an app builds for itself, which the persistence rules refuse in module code,
+  hides nothing either.

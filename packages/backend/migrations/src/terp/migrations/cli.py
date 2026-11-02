@@ -378,7 +378,7 @@ def _migrate(argv: Sequence[str] | None) -> None:
 def _print_status(
     database_url: str, app_root: pathlib.Path | None, package: str
 ) -> None:
-    engine = create_engine(database_url)
+    engine = create_engine(database_url, hide_parameters=True)
     try:
         rows = migration_status(engine, app_root, package=package)
     finally:
@@ -397,7 +397,7 @@ def _print_heads(
 
 
 def _check(database_url: str, app_root: pathlib.Path | None, package: str) -> None:
-    engine = create_engine(database_url)
+    engine = create_engine(database_url, hide_parameters=True)
     try:
         assert_migrations_current(engine, app_root, package=package)
     except PendingMigrationsError as exc:

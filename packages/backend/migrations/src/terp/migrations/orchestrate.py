@@ -84,7 +84,9 @@ def ensure_database_search_path(
     labels = [
         tree.label for tree in resolve_all_migration_trees(app_root, package=package)
     ]
-    engine = create_engine(database_url, poolclass=NullPool, isolation_level="AUTOCOMMIT")
+    engine = create_engine(
+        database_url, hide_parameters=True, poolclass=NullPool, isolation_level="AUTOCOMMIT"
+    )
     try:
         with engine.connect() as connection:
             if connection.dialect.name != "postgresql":
@@ -121,7 +123,7 @@ def adopt_schemas(
     trees = resolve_all_migration_trees(app_root, package=package)
     for tree in trees:
         _import_model_module(tree.models_module, required=False)
-    engine = create_engine(database_url, poolclass=NullPool)
+    engine = create_engine(database_url, hide_parameters=True, poolclass=NullPool)
     moved: dict[str, list[str]] = {}
     try:
         with engine.begin() as connection:
@@ -248,7 +250,7 @@ def grant_runtime_role(
         write_schemas, read_schemas = labels, ["public"]
     else:
         write_schemas, read_schemas = ["public"], []
-    engine = create_engine(database_url, poolclass=NullPool)
+    engine = create_engine(database_url, hide_parameters=True, poolclass=NullPool)
     try:
         with engine.begin() as connection:
             if connection.dialect.name != "postgresql":
@@ -597,7 +599,7 @@ def orphaned_revisions(
     and one merely behind head (the applied revision is still in the history — that
     is :class:`PendingMigrationsError` territory, not this).
     """
-    engine = create_engine(database_url, poolclass=NullPool)
+    engine = create_engine(database_url, hide_parameters=True, poolclass=NullPool)
     orphaned: dict[str, tuple[str, ...]] = {}
     try:
         for tree in resolve_migration_trees(app_root, package=package):

@@ -474,7 +474,7 @@ def run_migrations(context: Any) -> None:
             context.run_migrations()
         return
 
-    connectable = create_engine(database_url, poolclass=pool.NullPool)
+    connectable = create_engine(database_url, hide_parameters=True, poolclass=pool.NullPool)
     try:
         with connectable.connect() as connection:
             configure_opts: dict[str, Any] = {}

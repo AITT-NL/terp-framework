@@ -139,7 +139,9 @@ read the declaration.
 - **A refused duplicate wrote the personal values of the row into the log.** A unique
   constraint's 409 carried SQLAlchemy's message in `log_context`, which repeats the statement's
   parameters and the database's `Key (email)=(...) already exists`. The declared personal values
-  of every row in flight are now withheld from it.
+  of every row in flight are now withheld from it. And every engine the framework builds, the
+  migration tooling's included, sets `hide_parameters`, so an error no service handles no longer
+  writes the statement's parameters into its traceback.
 
 ### Upgrade notes
 
