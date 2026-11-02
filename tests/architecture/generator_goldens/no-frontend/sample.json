@@ -1,0 +1,9 @@
+{
+  "about": "No web unit: no frontend Dockerfile, and nothing waits on a web tier.",
+  "project": "demo",
+  "frontendLock": false,
+  "renders": [
+    "Dockerfile.prod",
+    "docker-compose.prod.yml"
+  ]
+}

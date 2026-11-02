@@ -235,7 +235,12 @@ def test_declaring_the_requirement_also_silences_the_warning(
     line has nothing left to say.
     """
     monkeypatch.setattr(settings, "ENVIRONMENT", "production")
-    shared = mark_shared_throttle_store(InMemoryThrottleStore())
+
+    class _Reachable(InMemoryThrottleStore):
+        def ping(self) -> None:  # readiness asks a required store (ADR 0191)
+            return None
+
+    shared = mark_shared_throttle_store(_Reachable())
     with caplog.at_level("WARNING", logger="terp.core"):
         create_app(
             [_warning_spec()],

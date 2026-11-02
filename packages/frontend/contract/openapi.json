@@ -2792,7 +2792,7 @@
     },
     "/health/ready": {
       "get": {
-        "description": "Readiness: 200 when the database answers ``SELECT 1``, else 503.",
+        "description": "Readiness: 200 when the database and every mandatory shared store answer, else 503.",
         "operationId": "ready_health_ready_get",
         "responses": {
           "200": {

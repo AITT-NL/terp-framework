@@ -41,16 +41,24 @@ def alembic_config_for(
     package's DDL into its own PostgreSQL schema.
     """
     config = Config()
-    config.set_main_option("script_location", str(_ALEMBIC_DIR))
-    config.set_main_option("version_locations", str(tree.versions_path))
-    config.set_main_option("path_separator", "newline")
-    config.set_main_option("sqlalchemy.url", database_url)
-    config.set_main_option("terp_import_path", tree.import_path)
-    config.set_main_option("terp_version_table", tree.version_table)
-    config.set_main_option("terp_label", tree.label)
-    config.set_main_option("terp_app_root", "" if app_root is None else str(app_root))
-    config.set_main_option("terp_package", package)
-    config.set_main_option(
+
+    def option(name: str, value: str) -> None:
+        # Alembic keeps its options in a ConfigParser, which reads a bare ``%`` as the
+        # start of an interpolation and refuses the value. A URL is rendered with its
+        # special characters percent-encoded (a password's ``@`` as ``%40``, a Windows
+        # drive colon as ``%3A``), so it is escaped here and reads back unchanged.
+        config.set_main_option(name, value.replace("%", "%%"))
+
+    option("script_location", str(_ALEMBIC_DIR))
+    option("version_locations", str(tree.versions_path))
+    option("path_separator", "newline")
+    option("sqlalchemy.url", database_url)
+    option("terp_import_path", tree.import_path)
+    option("terp_version_table", tree.version_table)
+    option("terp_label", tree.label)
+    option("terp_app_root", "" if app_root is None else str(app_root))
+    option("terp_package", package)
+    option(
         "terp_schema_layout",
         schema_layout if schema_layout is not None else get_settings().DB_SCHEMA_LAYOUT,
     )

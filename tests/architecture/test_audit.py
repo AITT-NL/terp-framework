@@ -69,7 +69,7 @@ def test_policy_redacts_sensitive_payload_keys() -> None:
     policy = AuditPolicy.default()
     redacted = policy.redact(
         {
-            "email": "a@b.c",
+            "title": "kept",
             "password": "hunter2",
             "api_key": "k",
             "nested": {"access_token": "t", "ok": "kept"},
@@ -77,7 +77,7 @@ def test_policy_redacts_sensitive_payload_keys() -> None:
             "tupled": ({"secret": "s"},),
         }
     )
-    assert redacted["email"] == "a@b.c"
+    assert redacted["title"] == "kept"
     assert redacted["password"] == "***redacted***"
     assert redacted["api_key"] == "***redacted***"
     assert redacted["nested"] == {"access_token": "***redacted***", "ok": "kept"}

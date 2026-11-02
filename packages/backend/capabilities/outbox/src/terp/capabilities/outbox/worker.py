@@ -16,6 +16,13 @@ SQLite (where a held read transaction blocks a writer on another connection), th
 worker **claims a batch and detaches it**, then executes and finalizes each row in its
 own short transaction — so a long-running job never keeps the bookkeeping connection's
 lock open, and each job runs in its **own** audited unit opened by ``run_job``.
+
+**Stopping** (ADR 0191). A worker asked to stop (``terp jobs worker --forever`` sets the
+*stop* event on SIGTERM or SIGINT) claims nothing more, finishes the job it is running, and
+**releases** the rest of its batch: their lease is cleared, so another worker takes them at
+once instead of after ``lease_seconds``. A worker killed before it could do that (the stop
+grace ran out, the host died) is the at-least-once case above: its rows are reclaimed and
+redelivered once their lease lapses.
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from threading import Event
 from typing import Any
 
 from sqlmodel import Session
@@ -47,7 +55,7 @@ from terp.capabilities.outbox.models import (
     STATUS_PENDING,
     OutboxMessage,
 )
-from terp.capabilities.outbox.store import claim_due, finalize
+from terp.capabilities.outbox.store import claim_due, finalize, release
 
 _ERROR_MAX = 2000
 
@@ -116,6 +124,8 @@ class DrainResult:
     retried: int = 0
     dead_lettered: int = 0
     lost: int = 0
+    #: Claimed by a worker that was asked to stop, and given back unstarted.
+    released: int = 0
 
 
 class OutboxWorker:
@@ -151,12 +161,24 @@ class OutboxWorker:
         self._retry = retry or RetryPolicy()
         self._skip_locked = skip_locked
 
-    def drain_once(self) -> DrainResult:
-        """Claim one batch of due rows, process each, and return the tally."""
+    def drain_once(
+        self, *, stop: Event | None = None, beat: Callable[[], None] | None = None
+    ) -> DrainResult:
+        """Claim one batch of due rows, process each, and return the tally.
+
+        Once *stop* is set, the rows of the batch not yet started are released (their
+        lease cleared) instead of run; the one already running finishes. *beat* is
+        called after each row, the progress a heartbeat measures.
+        """
         claimed = self._claim_batch()
-        dispatched = retried = dead_lettered = lost = 0
-        for message in claimed:
+        dispatched = retried = dead_lettered = lost = released = 0
+        for index, message in enumerate(claimed):
+            if stop is not None and stop.is_set():
+                released = self._release(claimed[index:])
+                break
             outcome = self._process(message)
+            if beat is not None:
+                beat()
             if outcome == STATUS_DISPATCHED:
                 dispatched += 1
             elif outcome == STATUS_DEAD_LETTERED:
@@ -171,26 +193,40 @@ class OutboxWorker:
             retried=retried,
             dead_lettered=dead_lettered,
             lost=lost,
+            released=released,
         )
 
-    def run(self, *, max_cycles: int | None = None) -> DrainResult:
+    def run(
+        self,
+        *,
+        max_cycles: int | None = None,
+        stop: Event | None = None,
+        beat: Callable[[], None] | None = None,
+    ) -> DrainResult:
         """Drain repeatedly until no rows remain (or *max_cycles* is reached); return totals.
 
         The worker-container entrypoint runs with ``max_cycles=None``, draining batches
         until the outbox holds no *due* row, then returns — a scheduler / supervisor
         re-invokes it (the design's external-trigger model; a rescheduled row waits out
-        its backoff). Tests pass a finite *max_cycles*.
+        its backoff). Tests pass a finite *max_cycles*. Once *stop* is set no further
+        batch is claimed, and the batch in hand is finished as :meth:`drain_once` says;
+        *beat* is called before each claim and after each row.
         """
         totals = DrainResult()
         cycles = 0
         while max_cycles is None or cycles < max_cycles:
-            result = self.drain_once()
+            if stop is not None and stop.is_set():
+                break
+            if beat is not None:
+                beat()
+            result = self.drain_once(stop=stop, beat=beat)
             totals = DrainResult(
                 claimed=totals.claimed + result.claimed,
                 dispatched=totals.dispatched + result.dispatched,
                 retried=totals.retried + result.retried,
                 dead_lettered=totals.dead_lettered + result.dead_lettered,
                 lost=totals.lost + result.lost,
+                released=totals.released + result.released,
             )
             cycles += 1
             if result.claimed == 0:
@@ -222,6 +258,15 @@ class OutboxWorker:
                 )
                 for row in rows
             ]
+
+    def _release(self, messages: list[_Claimed]) -> int:
+        """Give back claimed rows this worker will not start; return how many it gave back."""
+        with self._session_factory() as session:
+            return release(
+                session,
+                claim_id=messages[0].claim_id,
+                ids=[message.id for message in messages],
+            )
 
     def _process(self, message: _Claimed) -> str:
         """Execute one claimed *message*, then finalize its status; return that status."""

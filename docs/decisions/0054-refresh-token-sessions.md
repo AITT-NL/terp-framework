@@ -254,3 +254,9 @@ rotating the secret.
   that belongs with `identity_user` (same boundary, same migration tree, same
   `revoke_sessions` chokepoint); a separate capability adds a package and wiring for no
   boundary benefit today. It can be extracted later without changing the seams.
+
+## Amendment (2026-10-22): a rotation no longer ends every session
+
+The corollary above is withdrawn by [ADR 0189](0189-sealing-and-signing-retire-a-key-on-their-own-clocks.md). A refresh token is looked up under the current key's
+digest and then under each `SECRET_KEY_FALLBACKS` entry's, and its successor is stored under the
+current key, so a session survives a key rotation for as long as its own idle lifetime.

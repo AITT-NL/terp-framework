@@ -28,13 +28,13 @@ from datetime import datetime
 from sqlalchemy import DateTime, UniqueConstraint
 from sqlmodel import Field
 
-from terp.core import BaseTable, Roles
+from terp.core import BaseTable, Personal, Roles
 
 
 class User(BaseTable, table=True):
     __tablename__ = "identity_user"
 
-    email: str = Field(max_length=320, index=True, unique=True)
+    email: str = Personal(max_length=320, index=True, unique=True)
     hashed_password: str | None = Field(default=None, max_length=256, nullable=True)
     role: int = Field(default=int(Roles.VIEWER))
     is_active: bool = Field(default=True)

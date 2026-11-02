@@ -8,6 +8,8 @@ helper is exercised with a trivial process — so the command is verified withou
 from __future__ import annotations
 
 import pathlib
+import signal
+import subprocess
 import sys
 
 import pytest
@@ -18,13 +20,20 @@ sys.path.insert(0, str(_CLI_SRC))
 
 from terp.cli import main, run_docker_dev_command  # noqa: E402
 from terp.cli.docker import (  # noqa: E402
+    _KILL,
     _capture,
+    _fingerprint,
+    _Finished,
     _run,
+    _spawn,
+    _stop,
+    _watch_session,
     compose_logs_argv,
     compose_ps_argv,
     docker_dev_argv,
     diagnose_failure,
     failed_services,
+    model_inputs,
 )
 
 
@@ -37,6 +46,11 @@ def _no_docker_unless_injected(monkeypatch: pytest.MonkeyPatch) -> None:
     The real helper stays imported above for the test that exercises it directly.
     """
     monkeypatch.setattr("terp.cli.docker._capture", lambda argv: (1, "no docker in a unit test"))
+
+    def _no_real_watch(argv):
+        raise AssertionError(f"a unit test reached the real spawn: {list(argv)}")
+
+    monkeypatch.setattr("terp.cli.docker._spawn", _no_real_watch)
 
 
 def test_docker_dev_argv_is_a_compose_watch() -> None:
@@ -278,7 +292,7 @@ def test_cli_docker_dev_dispatch(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
-    monkeypatch.setattr("terp.cli.docker._run", lambda argv: 0)
+    monkeypatch.setattr("terp.cli.docker._spawn", lambda argv: _Finished(0))
     main(["docker", "dev", "--root", str(tmp_path)])
     assert "exited with status 0" in capsys.readouterr().out
 
@@ -331,3 +345,291 @@ def test_capture_returns_a_non_zero_status_with_its_output() -> None:
     status, output = _capture((sys.executable, "-c", "import sys; sys.exit(3)"))
     assert status == 3
     assert output == ""
+
+
+# --------------------------------------------------------------------------- #
+# Keep `watch` on the configuration the containers run
+# --------------------------------------------------------------------------- #
+# `watch` loads the project once. A rebuild after a settings change converged the whole
+# project against that stale copy: measured on the reference app (Compose v2.40.3), a
+# frontend dependency change after `.app.env` had been changed and applied with
+# `docker compose up -d` recreated every backend service with the OLD settings and left
+# all of them stopped. So the command restarts `watch` when a file it loaded changes.
+
+_ANCHORED = """\
+x-backend: &backend
+  image: app-backend
+  env_file:
+    - path: .app.env
+      required: false
+services:
+  migrate:
+    <<: *backend
+  worker:
+    <<: *backend
+    env_file:
+      - path: .app.env
+        required: false
+      - .app.worker.env
+  web:
+    image: app-frontend
+    env_file: frontend/.env.dev
+  proxy:
+    image: proxy
+    env_file: ${CONFIG_DIR}/proxy.env
+  odd: just-a-string
+"""
+
+
+class _Watch:
+    """A `watch` that runs until the test says it has exited."""
+
+    def __init__(self, argv) -> None:
+        self.argv = tuple(argv)
+        self.pid = 4242
+        self.status: int | None = None
+
+    def poll(self) -> int | None:
+        return self.status
+
+    def wait(self, timeout: float | None = None) -> int:
+        return self.status or 0
+
+    def kill(self) -> None:
+        self.status = -9
+
+
+def _session(tmp_path: pathlib.Path, steps: list):
+    """Run a session in which every poll interval is one step of *steps*.
+
+    A step receives the running watch and may edit files or end it. Returns the
+    session's status and what it did, in order.
+    """
+    compose = tmp_path / "docker-compose.yml"
+    if not compose.exists():
+        compose.write_text(_ANCHORED, encoding="utf-8")
+    events: list[tuple] = []
+    running: list[_Watch] = []
+
+    def spawn(argv):
+        process = _Watch(argv)
+        running.append(process)
+        events.append(("spawn", process.argv[4:]))
+        return process
+
+    def stop(process):
+        events.append(("stop", process.argv[4:]))
+        if process.status is None:
+            process.status = 0
+
+    def sleep(seconds):
+        assert seconds == 1.0
+        steps.pop(0)(running[-1])
+
+    status = _watch_session(compose, project_name=None, spawn=spawn, stop=stop, sleep=sleep)
+    return status, events
+
+
+def test_model_inputs_are_the_compose_file_its_dotenv_and_every_forwarded_env_file(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The anchor every backend service merges is resolved; a service's own list replaces
+    it; an interpolated path is compose's to resolve, not this command's."""
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text(_ANCHORED, encoding="utf-8")
+
+    assert model_inputs(compose) == tuple(
+        sorted(
+            {
+                compose,
+                tmp_path / ".env",
+                tmp_path / ".app.env",
+                tmp_path / ".app.worker.env",
+                tmp_path / "frontend" / ".env.dev",
+            }
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "content",
+    [b"services: [unclosed\n", b"just a string\n", b"services: [1, 2]\n", b"\xff\xfe\x00"],
+)
+def test_a_compose_file_that_cannot_be_read_still_has_its_dotenv_watched(
+    tmp_path: pathlib.Path, content: bytes
+) -> None:
+    """`watch` says what is wrong with the file in its own words; meanwhile the file itself
+    and the `.env` it interpolates from are still what a fix would change."""
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_bytes(content)
+    assert model_inputs(compose) == tuple(sorted({compose, tmp_path / ".env"}))
+
+
+def test_a_fingerprint_is_by_content_and_knows_a_missing_file(tmp_path: pathlib.Path) -> None:
+    present = tmp_path / ".app.env"
+    present.write_text("A=1\n", encoding="utf-8")
+    before = _fingerprint([present, tmp_path / ".env"])
+    present.write_text("A=1\n", encoding="utf-8")  # saved again, unchanged
+
+    assert before[tmp_path / ".env"] is None
+    assert _fingerprint([present, tmp_path / ".env"]) == before
+
+
+def test_a_settings_change_starts_watch_again(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The one sequence that keeps the stack and `watch` on the same configuration: stop
+    the stale watch and start the whole of it again, so its own `up` applies the change.
+
+    Never `up -d` and then `watch --no-up`: Compose v2's `watch` hashes a service with an
+    `env_file` differently from `up` (measured, v2.40.3), so a `watch` that did not bring
+    the stack up itself treats every such service as diverged, and its next frontend
+    rebuild stops all of them.
+    """
+    (tmp_path / ".app.env").write_text("MAIL_FROM=old@example.test\n", encoding="utf-8")
+
+    def change(watch):
+        (tmp_path / ".app.env").write_text("MAIL_FROM=new@example.test\n", encoding="utf-8")
+
+    def exit_watch(watch):
+        watch.status = 3
+
+    status, events = _session(tmp_path, [change, exit_watch])
+
+    assert status == 3
+    assert events == [
+        ("spawn", ("watch",)),
+        ("stop", ("watch",)),
+        ("spawn", ("watch",)),
+        ("stop", ("watch",)),
+    ]
+    assert ".app.env changed" in capsys.readouterr().out
+
+
+def test_a_save_that_changes_nothing_restarts_nothing(tmp_path: pathlib.Path) -> None:
+    (tmp_path / ".app.env").write_text("A=1\n", encoding="utf-8")
+
+    def save_unchanged(watch):
+        (tmp_path / ".app.env").write_text("A=1\n", encoding="utf-8")
+
+    def exit_watch(watch):
+        watch.status = 0
+
+    status, events = _session(tmp_path, [save_unchanged, exit_watch])
+
+    assert status == 0
+    assert events == [("spawn", ("watch",)), ("stop", ("watch",))]
+
+
+def test_a_file_the_changed_compose_file_names_is_watched_from_then_on(
+    tmp_path: pathlib.Path,
+) -> None:
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text("services:\n  api:\n    image: a\n", encoding="utf-8")
+
+    def name_an_env_file(watch):
+        compose.write_text(
+            "services:\n  api:\n    image: a\n    env_file: .app.api.env\n", encoding="utf-8"
+        )
+
+    def change_it(watch):
+        (tmp_path / ".app.api.env").write_text("A=1\n", encoding="utf-8")
+
+    def exit_watch(watch):
+        watch.status = 0
+
+    _, events = _session(tmp_path, [name_an_env_file, change_it, exit_watch])
+
+    assert [event for event in events if event[0] == "spawn"] == [("spawn", ("watch",))] * 3
+
+
+def test_ctrl_c_stops_watch_and_goes_on(tmp_path: pathlib.Path) -> None:
+    def interrupt(watch):
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        _session(tmp_path, [interrupt])
+
+
+def test_the_command_supervises_watch_when_a_spawn_is_given(tmp_path: pathlib.Path) -> None:
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    started: list = []
+
+    def spawn(argv):
+        started.append(tuple(argv))
+        process = _Watch(argv)
+        process.status = 0
+        return process
+
+    message = run_docker_dev_command(
+        root=tmp_path, spawn=spawn, stop=lambda process: None, sleep=lambda seconds: None
+    )
+
+    assert message == "docker compose watch exited with status 0"
+    assert started[0][-1] == "watch"
+
+
+def test_spawn_gives_watch_its_own_process_group_outside_windows() -> None:
+    """The docker CLI does not pass a signal on to the compose plugin while a terminal is
+    attached, so `_stop` signals the group, and the group has to exist first."""
+    seen: list = []
+
+    def popen(argv, **options):
+        seen.append((argv, options))
+        return _Watch(argv)
+
+    _spawn(["docker", "compose", "watch"], platform="linux", popen=popen)
+    _spawn(["docker", "compose", "watch"], platform="win32", popen=popen)
+
+    assert seen[0][1] == {"process_group": 0}
+    assert seen[1][1] == {}
+    assert seen[0][0][1:] == ["compose", "watch"]
+
+
+def test_stop_leaves_an_exited_watch_alone() -> None:
+    process = _Watch(["watch"])
+    process.status = 0
+    sent: list = []
+    _stop(process, platform="linux", signal_group=lambda pid, sig: sent.append(sig))
+    assert sent == []
+
+
+def test_stop_interrupts_the_whole_group_outside_windows() -> None:
+    process = _Watch(["watch"])
+    sent: list = []
+    _stop(process, platform="linux", signal_group=lambda pid, sig: sent.append((pid, sig)))
+    assert sent == [(4242, signal.SIGINT)]
+
+
+def test_stop_ends_the_tree_on_windows() -> None:
+    process = _Watch(["watch"])
+    ran: list = []
+    _stop(process, platform="win32", run=lambda argv, **kwargs: ran.append(argv))
+    assert ran[0][0].lower().endswith("taskkill.exe")
+    assert ran[0][1:] == ["/PID", "4242", "/T", "/F"]
+
+
+class _Stubborn(_Watch):
+    """A watch that outlives the signal it was sent."""
+
+    def wait(self, timeout: float | None = None) -> int:
+        if timeout is not None:
+            raise subprocess.TimeoutExpired("watch", timeout)
+        return 0
+
+
+def test_stop_kills_a_watch_that_outlives_the_interrupt() -> None:
+    process = _Stubborn(["watch"])
+    sent: list = []
+    _stop(process, platform="linux", signal_group=lambda pid, sig: sent.append(sig), wait_seconds=0)
+    assert sent == [signal.SIGINT, _KILL]
+
+    windows = _Stubborn(["watch"])
+    _stop(windows, platform="win32", run=lambda argv, **kwargs: None, wait_seconds=0)
+    assert windows.status == -9
+
+
+def test_a_runner_alone_runs_watch_to_completion() -> None:
+    """What an injected blocking runner becomes: a watch that has already exited."""
+    finished = _Finished(5)
+    assert (finished.poll(), finished.wait(), finished.kill()) == (5, 5, None)

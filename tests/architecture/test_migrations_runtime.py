@@ -7,6 +7,7 @@ revision — without writing into any real package tree.
 
 from __future__ import annotations
 
+import contextlib
 import pathlib
 from types import SimpleNamespace
 
@@ -685,6 +686,11 @@ class _FakeDialect:
         self.default_schema_name = "public"
 
 
+class _FakeResult(list):
+    def first(self) -> tuple[str, ...] | None:
+        return self[0] if self else None
+
+
 class _FakeConnection:
     def __init__(self, dialect: str, rows: list[tuple[str, ...]] | None = None) -> None:
         self.dialect = _FakeDialect(dialect)
@@ -692,9 +698,14 @@ class _FakeConnection:
         self.commits = 0
         self._rows = rows or []
 
-    def exec_driver_sql(self, statement: str) -> list[tuple[str, ...]]:
+    def exec_driver_sql(self, statement: str) -> _FakeResult:
         self.statements.append(statement)
-        return self._rows
+        return _FakeResult(self._rows)
+
+    def execute(self, statement: object, params: object = None) -> _FakeResult:
+        # The one bound-parameter read: does a schema exist? The fake answers "no".
+        self.statements.append(str(statement))
+        return _FakeResult()
 
     def commit(self) -> None:
         self.commits += 1
@@ -732,8 +743,11 @@ def test_search_path_statement_puts_the_owner_first_and_public_last() -> None:
 def test_enter_per_module_schema_routes_the_run() -> None:
     connection = _FakeConnection("postgresql")
     _runtime._enter_per_module_schema(connection, "notes", ["audit", "notes"])
-    assert connection.statements[0] == 'CREATE SCHEMA IF NOT EXISTS "notes"'
-    assert connection.statements[1].startswith('SET search_path TO "notes"')
+    # The schema is created only when the catalogue says it is missing: a run over an
+    # existing schema sends no DDL at all.
+    assert connection.statements[0].startswith("SELECT 1 FROM pg_namespace")
+    assert connection.statements[1] == 'CREATE SCHEMA IF NOT EXISTS "notes"'
+    assert connection.statements[2].startswith('SET search_path TO "notes"')
     # The setup transaction is committed so Alembic owns (and commits) the DDL txn.
     assert connection.commits == 1
     # Reflection is pinned to the package schema (the documented Alembic recipe).
@@ -753,6 +767,10 @@ def test_run_migrations_applies_the_per_module_layout(
     connection = _FakeConnection("postgresql")
     monkeypatch.setattr(
         _runtime, "create_engine", lambda url, **kw: _FakeEngine(connection)
+    )
+    # The expand judge listens on a real connection's statements; a fake one has none.
+    monkeypatch.setattr(
+        _runtime.ExpandJudge, "active", lambda self, **kw: contextlib.nullcontext(self)
     )
     recorded: dict[str, object] = {}
 
@@ -785,8 +803,8 @@ def test_run_migrations_applies_the_per_module_layout(
 
     assert recorded["ran"] is True
     assert recorded["version_table_schema"] == "public"
-    assert connection.statements[0] == 'CREATE SCHEMA IF NOT EXISTS "audit"'
-    assert connection.statements[1].startswith('SET search_path TO "audit"')
+    assert connection.statements[1] == 'CREATE SCHEMA IF NOT EXISTS "audit"'
+    assert connection.statements[2].startswith('SET search_path TO "audit"')
 
 
 def _offline_context(recorded: dict[str, object], layout: str) -> object:
@@ -1018,11 +1036,15 @@ def test_upgrade_routes_the_database_before_migrating_per_module(
         "ensure_database_search_path",
         lambda url, app_root=None, *, package="app": order.append("route"),
     )
+    monkeypatch.setattr(orchestrate, "_code_histories", lambda *a: [])
     monkeypatch.setattr(
         orchestrate,
-        "assert_no_orphaned_revisions",
-        lambda url, app_root=None, *, package="app": order.append("preflight"),
+        "window_of",
+        lambda url, app_root=None, *, package="app", histories=None: (
+            order.append("preflight") or orchestrate.Window()
+        ),
     )
+    monkeypatch.setattr(orchestrate, "_ensure_record", lambda url: order.append("record"))
     monkeypatch.setattr(
         orchestrate.command, "upgrade", lambda config, revision: order.append("migrate")
     )
@@ -1030,7 +1052,7 @@ def test_upgrade_routes_the_database_before_migrating_per_module(
         "postgresql://u:p@h/appdb", schema_layout="per-module"
     )
     assert applied  # the installed capabilities' labels
-    assert order[:2] == ["route", "preflight"]
+    assert order[:3] == ["route", "preflight", "record"]
     assert order.count("migrate") == len(applied)
 
 

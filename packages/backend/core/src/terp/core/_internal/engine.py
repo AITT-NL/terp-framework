@@ -63,8 +63,13 @@ def _build(url: str, **options: Any) -> Engine:
     Both engine shapes below go through it. Two call sites would be two places to change
     when an option has to hold for every engine the platform opens, and two findings for
     the rule that says engine construction belongs in exactly one module.
+
+    ``hide_parameters`` is one such option. Without it, every error SQLAlchemy raises
+    repeats the statement's parameters (``[parameters: (..., 'person@example.test')]``),
+    and an error no service handles is written to the log with its traceback; the
+    parameters are the row's values, a declared personal field's among them (ADR 0190).
     """
-    return create_engine(url, **options)
+    return create_engine(url, hide_parameters=True, **options)
 
 
 def get_engine() -> Engine:
