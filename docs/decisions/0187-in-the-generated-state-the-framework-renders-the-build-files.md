@@ -640,7 +640,8 @@ is a table digest; plain scalars read back as strings under YAML 1.1 and 1.2. A 
   and the backend image is one but for uv's record of when it found the app wheel (*How it was
   built*, the sixth pull request).
 - **Signing keys, the environment policy, and which key an environment trusts** are the deploy
-  tool's.
+  tool's. `terp promote` deploys any release a key it is given verifies, whichever app it was cut
+  from, so an environment takes only one app's releases by trusting only that app's key.
 - **The deploy-safety audit over a resolved plan** is a separate request.
 
 ## Consequences
