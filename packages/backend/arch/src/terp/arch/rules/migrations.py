@@ -29,13 +29,27 @@ from terp.arch._ast import parse
 from terp.arch.rules._support import ArchViolation, _rel
 
 
+#: The names Alembic never loads from ``versions/``: a package marker and an editor's lock
+#: file. Its own pattern is ``(?!\.\#|__init__)(.*\.py)$`` (``_only_source_rev_file``).
+_NOT_REVISIONS = ("__init__", ".#")
+
+
+def _is_revision_file(path: pathlib.Path) -> bool:
+    """Whether Alembic loads *path* as a revision: a ``.py`` file it does not skip by name.
+
+    The set is Alembic's, not a convention about names: ``_b2_hotfix.py`` is loaded and run
+    like any other revision, so a rule that skipped it would never read a step that runs.
+    """
+    return path.name.endswith(".py") and not path.name.startswith(_NOT_REVISIONS)
+
+
 def _migration_files(root: pathlib.Path) -> Iterator[pathlib.Path]:
-    """Yield app/capability Alembic revision files under ``migrations/versions``."""
+    """Yield every Alembic revision file directly under an app's or capability's ``migrations/versions``."""
     for versions_dir in sorted(root.rglob("migrations/versions")):
         if not versions_dir.is_dir():  # pragma: no cover - rglob can match an unexpected file
             continue
         for path in sorted(versions_dir.glob("*.py")):
-            if path.is_file() and not path.name.startswith("_"):
+            if path.is_file() and _is_revision_file(path):
                 yield path
 
 

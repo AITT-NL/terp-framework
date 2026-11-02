@@ -17,9 +17,12 @@ import textwrap
 from typing import NamedTuple
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from terp.arch import check_app, check_no_destructive_migrations
 from terp.arch.rules.destructive_migrations import _MESSAGES
+from terp.arch.rules.migrations import _migration_files
 
 _REVISION = "modules/notes/migrations/versions/0001_change.py"
 
@@ -355,4 +358,48 @@ def test_two_destructive_steps_are_two_findings(tmp_path: pathlib.Path) -> None:
     assert [(v.line, v.message) for v in found] == [
         (6, _MESSAGES["rename"]),
         (7, _MESSAGES["not-null"]),
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# which files are revisions: exactly the ones Alembic runs
+# --------------------------------------------------------------------------- #
+def _versions(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A ``versions/`` holding a base, a hotfix whose name begins with ``_``, and two files
+    Alembic skips by name, each of which would be a second head if it were loaded."""
+    versions = tmp_path / "app" / "modules" / "notes" / "migrations" / "versions"
+    versions.mkdir(parents=True)
+    head = "from alembic import op\n\nrevision = {rev!r}\ndown_revision = {down!r}\n\n\n"
+    (versions / "a1_base.py").write_text(
+        head.format(rev="a1", down=None) + "def upgrade():\n    op.create_table('invoice')\n",
+        encoding="utf-8",
+    )
+    (versions / "_b2_hotfix.py").write_text(
+        head.format(rev="b2", down="a1") + "def upgrade():\n    op.drop_table('invoice_legacy')\n",
+        encoding="utf-8",
+    )
+    for skipped in ("__init__.py", ".#a1_base.py"):
+        (versions / skipped).write_text(
+            head.format(rev="zz", down=None) + "def upgrade():\n    op.drop_table('invoice')\n",
+            encoding="utf-8",
+        )
+    return versions
+
+
+def test_the_rule_reads_every_file_alembic_runs_and_no_other(tmp_path: pathlib.Path) -> None:
+    versions = _versions(tmp_path)
+    config = Config()
+    config.set_main_option("script_location", str(versions.parent))
+    (versions.parent / "script.py.mako").write_text("", encoding="utf-8")
+    runs = sorted(script.path for script in ScriptDirectory.from_config(config).walk_revisions())
+    assert [pathlib.Path(path).name for path in runs] == ["_b2_hotfix.py", "a1_base.py"]
+    read = sorted(str(path) for path in _migration_files(tmp_path / "app"))
+    assert read == sorted(str(pathlib.Path(path)) for path in runs)
+
+
+def test_a_revision_whose_name_begins_with_an_underscore_is_read(tmp_path: pathlib.Path) -> None:
+    _versions(tmp_path)
+    found = check_no_destructive_migrations(tmp_path / "app")
+    assert [(pathlib.PurePath(v.path).name, v.line, v.message) for v in found] == [
+        ("_b2_hotfix.py", 8, _MESSAGES["drop"])
     ]

@@ -89,6 +89,12 @@ split it across releases.
   DROP NOT NULL` relaxes a column. It is the direction `alter_column(nullable=True)` spells,
   and that call always passed. The `ALTER TABLE ... DROP` pattern matched the word `DROP`
   anyway.
+- **A revision whose file name begins with `_` was never read.** Alembic loads every `.py`
+  file in `versions/` except `__init__.py` and an editor's `.#` lock file, so `_b2_hotfix.py`
+  ran while every migration rule skipped it, and a drop in it passed the gate. The rules now
+  read exactly the files Alembic loads, and `MigrationTree.has_revision_files` counts the same
+  set: a tree whose one revision is `_b2_hotfix.py` is runnable, and a lock file no longer makes
+  an empty tree look runnable. An app with such a revision can see findings it did not before.
 
 ### Upgrade notes
 
