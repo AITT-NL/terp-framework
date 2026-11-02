@@ -294,7 +294,10 @@ whether it is restore-free (ADR 0185).
   OCI distribution API, reads the backend image's layers as data in a sandbox process and holds
   them to the commit (every file under `/srv/app` and `/srv/control_plane`, every bytecode file
   as the checked-hash compile of its source by the image's own base interpreter, every file of
-  the app wheel, and the installed set to the lock's runtime set), computes an SBOM per image,
+  the app wheel, the installed set to the lock's runtime set, every other file of the
+  environment to the `RECORD` that lists it, so an unlisted `.pth` file or `sitecustomize`
+  module is refused, and the image's entrypoint, command, environment and user to what its
+  Dockerfile makes of the pinned base's configuration), computes an SBOM per image,
   asks OSV about it, scans the history reachable from the commit with gitleaks, and signs the
   manifest as a DSSE envelope (`application/vnd.terp.release-manifest.v1+json`, Ed25519 or ECDSA
   P-256). The sandbox reads each layer under a layer's size limit (a client made for the first

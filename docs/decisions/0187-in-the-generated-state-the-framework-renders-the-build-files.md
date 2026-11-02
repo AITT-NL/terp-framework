@@ -483,10 +483,22 @@ images from the registry as data, and runs nothing of the app.
    header carries, and the sandbox compiles that file with the image's own interpreter and
    compares the bytes. A wheel that maps files to other paths (`force-include`) is refused as a
    shape `sign` cannot compare, not read as tampering. The installed distributions must equal the
-   lock's runtime set plus the app. It computes the SBOM (the backend's from its filesystem, the
-   web image's from `frontend/package-lock.json`, which `npm ci` installs exactly), scans it for
-   known vulnerabilities, and runs the secret scan over the history reachable from the SHA, all
-   data. The web bundle cannot be compared with the tree; it rests on `build`'s isolation.
+   lock's runtime set plus the app. Every other file under `/srv/.venv` must be one an installed
+   distribution's `RECORD` lists, with the SHA-256 recorded there; bytecode compiled from such a
+   file for the image's interpreter; or one the environment is made with (`pyvenv.cfg`, which
+   must not add the base's own site-packages, its marker files, `lib64`, the interpreter links in
+   `bin` and the activation scripts). So a `.pth` file, or a `sitecustomize` or `usercustomize`
+   module, that no `RECORD` lists is refused, and so is any file in `/srv` outside the two roots
+   and the environment. The image's entrypoint, command, environment, user, working directory,
+   healthcheck, volumes, stop signal and shell must be what the Dockerfile makes of the
+   configuration of the base it pins, replayed from its text. Not compared: a dependency's files
+   beyond its own `RECORD`, which the build writes too (holding them to the lock takes each wheel
+   the lock pins); the content of the bytecode compiled from them; the activation scripts' text,
+   which runs only when sourced; files outside `/srv`, which a layer above the base's could still
+   change; and the web bundle. Those rest on the lock's hashes and on `build`'s isolation. It
+   computes the SBOM (the backend's from its filesystem, the web image's from
+   `frontend/package-lock.json`, which `npm ci` installs exactly), scans it for known
+   vulnerabilities, and runs the secret scan over the history reachable from the SHA, all data.
 6. It signs.
 
 **The manifest** is one JSON object, `"schemaVersion": 1`, serialised with sorted keys, no
@@ -628,7 +640,8 @@ is a table digest; plain scalars read back as strings under YAML 1.1 and 1.2. A 
   and the backend image is one but for uv's record of when it found the app wheel (*How it was
   built*, the sixth pull request).
 - **Signing keys, the environment policy, and which key an environment trusts** are the deploy
-  tool's.
+  tool's. `terp promote` deploys any release a key it is given verifies, whichever app it was cut
+  from, so an environment takes only one app's releases by trusting only that app's key.
 - **The deploy-safety audit over a resolved plan** is a separate request.
 
 ## Consequences
@@ -851,8 +864,8 @@ Decision 8's second, third and fourth pull requests, in 0.35.0.
     `compileall`'s file names), on an image whose first layers are that base's: so no byte the
     build produced runs. A bytecode file anywhere else under the two roots, or in the app
     wheel's installed packages, is a finding.
-  - *What sign refuses to sign over*: any difference from the tree or the lock, a wheel that
-    maps files elsewhere (`force-include`, `sources`, a nested `packages` entry), and a secret
+  - *What sign refuses to sign over*: any difference from the tree, the lock, a `RECORD` or the
+    Dockerfile, a wheel that maps files elsewhere (`force-include`, `sources`, a nested `packages` entry), and a secret
     in the history. Known vulnerabilities are recorded per image, not refused: blocking on them
     is the gate's `dependency-audit` lane and the environment's policy.
   - *Which image is the web tier* comes from the commit's plan, never from the build document,

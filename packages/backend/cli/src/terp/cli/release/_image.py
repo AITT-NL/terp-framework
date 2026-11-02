@@ -4,8 +4,8 @@ The layers are tar archives applied in order, the way an engine unpacks them: a 
 entry removes ``<name>`` from the layers below, a ``.wh..wh..opq`` entry empties its directory
 of what the layers below put there, and a hard link takes the bytes of the file it names. No
 entry is ever written to disk: each kept path becomes a :class:`Node` with the SHA-256 of its
-bytes, and only the few files ``sign`` reads (a distribution's ``METADATA`` and ``RECORD``) keep
-their text. Nothing here runs anything; the archives are attacker-built data, read through
+bytes, and only the few files ``sign`` reads (a distribution's ``METADATA`` and ``RECORD``, and
+the environment's ``pyvenv.cfg``) keep their text. Nothing here runs anything; the archives are attacker-built data, read through
 :mod:`tarfile` in memory and held to their digests by :mod:`terp.cli.release._registry`.
 """
 
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import csv
 import gzip
 import hashlib
 import io
@@ -35,8 +36,9 @@ _TAR = frozenset({"application/vnd.oci.image.layer.v1.tar"})
 _WHITEOUT = ".wh."
 _OPAQUE = ".wh..wh..opq"
 
-#: The files whose text a comparison reads: a distribution's name, version and file list.
-_TEXT = re.compile(r".*/site-packages/[^/]+\.dist-info/(?:METADATA|RECORD)")
+#: The files whose text a comparison reads: a distribution's name, version and file list, and
+#: the environment's own configuration.
+_TEXT = re.compile(r".*/site-packages/[^/]+\.dist-info/(?:METADATA|RECORD)|srv/\.venv/pyvenv\.cfg")
 
 
 @dataclass(frozen=True)
@@ -140,15 +142,16 @@ def metadata(text: str) -> tuple[str, str]:
 def record(text: str) -> list[tuple[str, str]]:
     """``(path, sha256 hex)`` of every row of a ``RECORD``; a row without a readable hash gives ``""``.
 
-    A ``RECORD`` is data the build wrote, so a hash it cannot decode is no hash, never a crash;
-    nothing is accepted on a ``RECORD``'s word anyway, as each file is held to the tree.
+    A ``RECORD`` is a CSV file the build wrote, so a hash it cannot decode is no hash, never a
+    crash. A row without a hash holds its file to nothing, and the comparison accepts one only
+    for the ``RECORD`` itself and for bytecode.
     """
     rows: list[tuple[str, str]] = []
-    for line in text.splitlines():
-        if not line.strip():
+    for row in csv.reader(text.splitlines()):
+        if not row or not row[0].strip():
             continue
-        path, _, rest = line.partition(",")
-        algorithm, _, digest = rest.partition(",")[0].partition("=")
+        path = row[0]
+        algorithm, _, digest = (row[1] if len(row) > 1 else "").partition("=")
         try:
             raw = base64.urlsafe_b64decode(digest + "=" * (-len(digest) % 4)) if algorithm == "sha256" else b""
         except binascii.Error:
