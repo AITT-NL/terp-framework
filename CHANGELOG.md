@@ -50,6 +50,18 @@ split it across releases.
   the reference app's seed and the template's to both properties, on SQLite and in CI's
   PostgreSQL lane. Both already met them, so neither seed changed. Their docstrings now state
   the two properties, and `terp guide testing` shows the test an app writes for its own seed.
+- **`destructive_operations` and `revision_header`, in `terp.arch`: a revision read as data.**
+  `destructive_operations(source)` lists every destructive step `no_destructive_migrations`
+  finds in a revision's `upgrade()`, excused by its marker or not, as
+  `DestructiveOperation(ordinal, kind, line, operation)`. `kind` is one of the rule's five
+  (`drop`, `rename`, `type`, `not-null`, `constraint`), `ordinal` counts from 1 in source
+  order, and `operation` is one line of at most 200 code points naming the call and what it
+  acts on, such as `drop_column invoice.legacy_ref` or `execute: TRUNCATE invoice_run`. The
+  docstring pins its format. The rule now reports exactly that list, so the gate and a reader
+  that lists a release's destructive steps cannot disagree. Its findings are unchanged; within
+  one file they are now in source order. `revision_header(source)` returns the `revision` and
+  the `down_revision` (`None`, a string or a tuple), and refuses by name a header it cannot
+  read for certain. Neither function imports or runs the file.
 
 ### Changed
 
