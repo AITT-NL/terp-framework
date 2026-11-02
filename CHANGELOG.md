@@ -129,8 +129,8 @@ split it across releases.
 - **A refused setting no longer prints its value.** When the settings object refused a value,
   Pydantic printed a shortened copy of the input beside the error, and for a production boot
   refused over another field that copy ended in the tail of `DATABASE_URL`, which is where its
-  password is. Every settings error now names the field and the rule and nothing of the value.
-  ADR 0189.
+  password is. Every settings error now names the field and the rule and nothing of the value,
+  and a refused production boot is written as one log record. ADRs 0188 and 0189.
 
 ### Added
 
@@ -1107,10 +1107,6 @@ split it across releases.
   set, an object with its own `__str__`) is redacted as that text; a value that starts with `%`
   (`%40...`) is no longer taken for a message placeholder, which only a template still waiting
   for its arguments has; and a URL password holding an unencoded `/` is caught.
-- **A refused production configuration printed part of the configuration.** The settings'
-  validation error repeated its input, truncated in the middle, so the tail of `DATABASE_URL`,
-  password included, could reach the boot log. `Settings` hides its input in errors, and the
-  refusal is written as a record.
 - **A test no longer sees the logging an earlier test's app configured.** `create_app`
   configures logging for the whole process, and terp-core's pytest plugin did not put it back:
   the first test to compose an app re-dressed pytest's own capture handlers with the JSON
