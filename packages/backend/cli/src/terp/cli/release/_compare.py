@@ -1,4 +1,4 @@
-"""What ``sign`` holds the backend image to: the tree's own files, and the lock's own set.
+"""What ``sign`` holds the backend image to: the tree, the lock, the RECORDs and the Dockerfile.
 
 ADR 0187 decision 6, step 5. From the data the sandbox returned (:mod:`._sandbox`), never from
 anything the image would say about itself when run:
@@ -15,10 +15,24 @@ anything the image would say about itself when run:
   (hatch's ``force-include``, ``sources``, a nested ``packages`` entry) is a shape this cannot
   compare, refused as such, never read as tampering;
 * the installed distributions are exactly the lock's runtime set, with its markers evaluated
-  for the image's interpreter and machine, plus the app itself.
+  for the image's interpreter and machine, plus the app itself, each installed once;
+* every other file under ``/srv/.venv`` is one an installed distribution's ``RECORD`` lists,
+  with the SHA-256 it records there; bytecode of such a file, for the image's interpreter; or
+  one the environment is made with: ``pyvenv.cfg`` (which must not add the base's own
+  site-packages), its marker files, ``lib64``, the interpreter links in ``bin`` (to an
+  interpreter outside ``/srv``) and the activation scripts. A ``.pth`` file and a
+  ``sitecustomize`` or ``usercustomize`` module are held the same way, so one no ``RECORD``
+  lists is refused, and so is any file in ``/srv`` outside the two roots and the environment;
+* the configuration that decides what the image runs (entrypoint, command, environment, user,
+  working directory, healthcheck, volumes, stop signal, shell) is what its Dockerfile makes of
+  the configuration of the base it pins (:mod:`._dockerfile`).
 
-The dependencies' own files and the web bundle are not compared: they rest on the lock's
-hashes and on ``build``'s isolation, and the manifest says so by what it does not claim.
+Not compared, and the manifest says so by what it does not claim: a dependency's files beyond
+its own ``RECORD``, which the build writes too, so a build that rewrites a ``RECORD`` with the
+file it lists is not caught here (holding each to the lock takes the wheel the lock pins); the
+content of the bytecode compiled from a dependency; the text of the activation scripts, which
+run only when sourced; files outside ``/srv``, which a layer above the base's could still
+change; and the web bundle. Those rest on the lock's hashes and on ``build``'s isolation.
 """
 
 from __future__ import annotations
@@ -31,6 +45,7 @@ from typing import Any
 
 from terp.arch.deployment import dockerignore
 from terp.cli.release._common import ReleaseError
+from terp.cli.release._dockerfile import differences, runtime_config
 from terp.cli.release._git import Tree
 from terp.cli.release._image import Node, metadata, record
 from terp.cli.release._locks import marker_environment, normalise, runtime_set
@@ -39,6 +54,14 @@ from terp.cli.release._sandbox import pyc_source
 
 _SITE = re.compile(r"(?P<site>srv/\.venv/lib/python[0-9.]+/site-packages)/[^/]+\.dist-info/METADATA")
 _MACHINES = {"amd64": "x86_64", "arm64": "aarch64", "386": "i686", "arm": "armv7l"}
+
+#: The environment ``/srv/.venv`` and what it is made with beside what it installs: the files
+#: at its root, the activation scripts in ``bin`` (run only when sourced) and the interpreter
+#: links there.
+_VENV = "srv/.venv/"
+_MADE_WITH = frozenset({"pyvenv.cfg", ".gitignore", ".lock", "CACHEDIR.TAG"})
+_ACTIVATION = re.compile(r"activate(?:\.[a-z0-9]+)?|activate_this\.py|deactivate\.bat|pydoc\.bat")
+_INTERPRETER = re.compile(r"python(?:3(?:\.[0-9]+)?)?")
 
 
 def wheel_shape(tree: Tree) -> None:
@@ -91,6 +114,10 @@ def _roots(tree: Tree, nodes: dict[str, Node], findings: list[str]) -> None:
         for path in tree.paths(f"{root}/"):
             if not dockerignore.excluded(path, patterns) and f"srv/{path}" not in nodes:
                 findings.append(f"{path} is in the tree and the build context, and not in the image")
+    compared = tuple(f"srv/{root}/" for root in ROOTS) + (_VENV,)
+    for path, node in sorted(nodes.items()):
+        if node.kind != "dir" and not path.startswith(compared):
+            findings.append(f"/{path} is in /srv outside {', '.join(ROOTS)} and .venv, where sign holds it to nothing")
 
 
 def _bytecode(tree: Tree, nodes: dict[str, Node], compiled: dict[str, Any], findings: list[str]) -> None:
@@ -117,16 +144,27 @@ def _site(nodes: dict[str, Node]) -> str:
     return sites.pop()
 
 
-def _installed(nodes: dict[str, Node], texts: dict[str, str], site: str) -> dict[str, str]:
-    found: dict[str, str] = {}
+def _distributions(texts: dict[str, str], site: str) -> dict[str, tuple[str, str]]:
+    """Each installed distribution's ``.dist-info`` directory: its normalised name and version."""
+    found: dict[str, tuple[str, str]] = {}
     for path, body in texts.items():
         if path.startswith(f"{site}/") and path.endswith(".dist-info/METADATA") and path.count("/") == site.count("/") + 2:
             name, version = metadata(body)
-            found[normalise(name)] = version
+            found[posixpath.dirname(path)] = (normalise(name), version)
     return found
 
 
-def _wheel(tree: Tree, nodes: dict[str, Node], texts: dict[str, str], site: str, project: str, findings: list[str]) -> None:
+def _installed(distributions: dict[str, tuple[str, str]], findings: list[str]) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for _directory, (name, version) in sorted(distributions.items()):
+        if name in found:
+            findings.append(f"the image installs {name} more than once ({found[name]} and {version})")
+        found[name] = version
+    return found
+
+
+def _wheel(tree: Tree, nodes: dict[str, Node], texts: dict[str, str], site: str, project: str, findings: list[str]) -> set[str]:
+    """Hold the app wheel's files to the tree; the paths so held."""
     records = [
         path for path in texts
         if path.startswith(f"{site}/") and path.endswith(".dist-info/RECORD")
@@ -134,7 +172,7 @@ def _wheel(tree: Tree, nodes: dict[str, Node], texts: dict[str, str], site: str,
     ]
     if len(records) != 1:
         findings.append(f"the image holds {len(records)} installed copies of the app {project}, not one")
-        return
+        return set()
     listed: set[str] = set()
     tops: set[str] = set()
     for path, _digest in record(texts[records[0]]):
@@ -151,12 +189,105 @@ def _wheel(tree: Tree, nodes: dict[str, Node], texts: dict[str, str], site: str,
         inside = path[len(site) + 1 :] if path.startswith(f"{site}/") else ""
         if inside.split("/", 1)[0] in tops and node.kind != "dir" and inside not in listed and "/" in inside:
             findings.append(f"/{path} lies in the app's installed packages and is no file of its wheel")
+    return {f"{site}/{path}" for path in listed}
+
+
+def _compiled_from(path: str, tag: str) -> tuple[str, str] | None:
+    """``(source, cache tag)`` of bytecode ``compileall`` writes beside a module: ``<dir>/__pycache__/<name>.<tag>.pyc``."""
+    directory, _, name = path.rpartition("/__pycache__/")
+    if not directory or "/" in name or not name.endswith(".pyc"):
+        return None
+    stem = name[: -len(".pyc")]
+    if tag and stem.endswith(f".{tag}"):
+        return f"{directory}/{stem[: -len(tag) - 1]}.py", tag
+    module, dot, other = stem.partition(".")
+    return (f"{directory}/{module}.py", other) if dot else None
+
+
+def _listed(texts: dict[str, str], site: str, distributions: dict[str, tuple[str, str]], findings: list[str]) -> dict[str, set[str]]:
+    """Every path an installed distribution's ``RECORD`` lists, with the SHA-256 it records ("" none)."""
+    listed: dict[str, set[str]] = {}
+    for directory in sorted(distributions):
+        own = f"{directory}/RECORD"
+        if own not in texts:
+            findings.append(f"/{directory} has no RECORD, so none of its files can be held to one")
+            continue
+        for row, digest in record(texts[own]):
+            path = posixpath.normpath(posixpath.join(site, row))
+            if posixpath.isabs(row) or not path.startswith(_VENV):
+                findings.append(f"the RECORD of /{directory} lists {row}, outside the environment")
+                continue
+            if not digest and path != own and _compiled_from(path, "") is None:
+                findings.append(f"the RECORD of /{directory} lists {row} without its SHA-256")
+            listed.setdefault(path, set()).add(digest)
+    return listed
+
+
+def _made_with(inside: str, node: Node) -> bool:
+    """Whether *inside* (a path in the environment) is one the environment itself is made with."""
+    if inside in _MADE_WITH:
+        return node.kind == "file"
+    if inside == "lib64":
+        return node.kind == "link" and node.target == "lib"
+    directory, _, name = inside.partition("/")
+    if directory != "bin" or "/" in name:
+        return False
+    if _ACTIVATION.fullmatch(name):
+        return node.kind == "file"
+    if _INTERPRETER.fullmatch(name) is None or node.kind != "link":
+        return False
+    if name != "python":
+        return node.target == "python"
+    target = posixpath.normpath(node.target)
+    return target.startswith("/") and not (target == "/srv" or target.startswith("/srv/"))
+
+
+def _environment(
+    nodes: dict[str, Node], texts: dict[str, str], site: str, distributions: dict[str, tuple[str, str]],
+    tag: str, compared: set[str], findings: list[str],
+) -> None:
+    """Hold every file under ``/srv/.venv`` but the app's own (*compared*, held to the tree) to a
+    ``RECORD``, the build's bytecode, or how the environment is made."""
+    listed = _listed(texts, site, distributions, findings)
+    for path, node in sorted(nodes.items()):
+        if not path.startswith(_VENV) or node.kind == "dir" or path in compared:
+            continue
+        compiled = _compiled_from(path, tag)
+        if compiled and node.kind == "file" and compiled[0] in listed:
+            if compiled[1] != tag:
+                findings.append(f"/{path} is bytecode for {compiled[1]}, and the image's interpreter is {tag or 'unknown'}")
+            continue
+        if path in listed:
+            digests = listed[path] - {""}
+            if node.kind != "file" or (digests and node.sha256 not in digests):
+                findings.append(f"/{path} is not the file its distribution's RECORD lists")
+            continue
+        if not _made_with(path[len(_VENV) :], node):
+            findings.append(f"/{path} is in the environment, and no installed distribution's RECORD lists it")
+    configuration = texts.get(f"{_VENV}pyvenv.cfg")
+    if configuration is None:
+        findings.append("/srv/.venv holds no pyvenv.cfg sign can read, so it is no environment sign compares")
+        return
+    keys = {key.strip().lower(): value.strip().lower() for key, _, value in (line.partition("=") for line in configuration.splitlines())}
+    if keys.get("include-system-site-packages") == "true":
+        findings.append("/srv/.venv/pyvenv.cfg adds the base image's own site-packages, which the lock does not install")
+
+
+def _configuration(tree: Tree, dockerfile: str, config: dict[str, Any], compiled: dict[str, Any], findings: list[str]) -> None:
+    """Hold the image's runtime configuration to its Dockerfile, replayed over its base's."""
+    base = compiled.get("baseConfig")
+    if not isinstance(base, dict):
+        findings.append("the configuration of the base the Dockerfile pins was not read, so the image's own cannot be held to it")
+        return
+    platform = "/".join(str(config[key]) for key in ("os", "architecture", "variant") if config.get(key))
+    expected = runtime_config(tree.read_text(dockerfile), dockerfile, base, {"SOURCE_DATE_EPOCH": str(tree.time)}, platform)
+    findings.extend(differences(expected, config.get("config") or {}))
 
 
 def compare_backend(
-    tree: Tree, answer: dict[str, Any], project: str, version: str, lock: dict[str, Any]
+    tree: Tree, answer: dict[str, Any], project: str, version: str, lock: dict[str, Any], *, dockerfile: str
 ) -> tuple[list[str], list[tuple[str, str]]]:
-    """Every way the backend image differs from the tree and the lock, and what it installs."""
+    """Every way the backend image differs from the tree, the lock and *dockerfile*, and what it installs."""
     nodes = {path: Node.from_data(data) for path, data in answer["nodes"].items()}
     texts: dict[str, str] = dict(answer["texts"])
     config = answer["config"]
@@ -167,11 +298,14 @@ def compare_backend(
         layers = list(config.get("rootfs", {}).get("diff_ids", []))
         if not base_layers or layers[: len(base_layers)] != base_layers:
             findings.append("the image is not built on the base its Dockerfile names, so its bytecode cannot be checked")
+    _configuration(tree, dockerfile, config, compiled, findings)
     _roots(tree, nodes, findings)
     _bytecode(tree, nodes, compiled, findings)
     site = _site(nodes)
-    _wheel(tree, nodes, texts, site, project, findings)
-    installed = _installed(nodes, texts, site)
+    compared = _wheel(tree, nodes, texts, site, project, findings)
+    distributions = _distributions(texts, site)
+    installed = _installed(distributions, findings)
+    _environment(nodes, texts, site, distributions, str(compiled.get("cacheTag") or ""), compared, findings)
     environment = {key: value for key, _, value in (item.partition("=") for item in config.get("config", {}).get("Env", []))}
     python = environment.get("PYTHON_VERSION") or site.rsplit("python", 1)[1].split("/", 1)[0]
     machine = _MACHINES.get(str(config.get("architecture", "")), str(config.get("architecture", "")))

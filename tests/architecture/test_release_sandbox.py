@@ -34,11 +34,14 @@ def test_the_compile_runs_in_the_base_image_sealed(monkeypatch) -> None:
     runs = (
         Runs()
         .on("docker", "run", out=json.dumps({"files": {"app/x.py": "ab"}, "cacheTag": "cpython-314", "magic": "2b0e0d0a"}).encode())
-        .on("docker", "image", "inspect", out=b'["sha256:l1"]')
+        .on("docker", "image", "inspect", out=b'{"layers":["sha256:l1"],"config":{"Env":["PATH=/usr/bin"],"Cmd":["python3"]}}')
     )
     monkeypatch.setattr(_sandbox, "run", runs)
     answer = _sandbox.compile_in_base(BASE, "linux/amd64", {"app/x.py": b"x = 1\n"})
-    assert answer == {"files": {"app/x.py": "ab"}, "cacheTag": "cpython-314", "magic": "2b0e0d0a", "diffIds": ["sha256:l1"]}
+    assert answer == {"files": {"app/x.py": "ab"}, "cacheTag": "cpython-314", "magic": "2b0e0d0a", "diffIds": ["sha256:l1"],
+                      "baseConfig": {"Env": ["PATH=/usr/bin"], "Cmd": ["python3"]}}
+    [inspect] = runs.ran("docker", "image", "inspect")
+    assert inspect[-1] == BASE and "{{json .Config}}" in inspect[inspect.index("--format") + 1]
     [run] = runs.ran("docker", "run")
     assert run[run.index("--network") + 1] == "none" and "--read-only" in run
     assert run[run.index("--user") + 1] == "65534:65534" and "no-new-privileges" in run
@@ -98,6 +101,10 @@ def test_the_image_task_reads_the_image_and_compiles_its_bytecode_sources(tmp_pa
     assert answer["compiled"] == {"files": {"app/x.py": "h"}}
     no_base = _sandbox.image_task({**payload, "base": None, "credentials": None})
     assert no_base["compiled"] == {"files": {}, "cacheTag": "", "magic": "", "diffIds": []}
+    no_bytecode = fake.push_image([layer(("srv/.venv/pyvenv.cfg", b"home = /usr/local/bin\n"))])
+    answer = _sandbox.image_task({**payload, "digest": no_bytecode})
+    assert compiled[-1] == {}, "the base is read for its configuration even with nothing to compile"
+    assert answer["texts"] == {"srv/.venv/pyvenv.cfg": "home = /usr/local/bin\n"}
 
 
 class _Client:

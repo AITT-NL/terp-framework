@@ -299,6 +299,13 @@ def test_layers_apply_as_an_engine_unpacks_them() -> None:
     ], "a hash a RECORD cannot decode is no hash, never a crash"
 
 
+def test_a_record_is_read_as_the_csv_file_it_is() -> None:
+    digest = base64.urlsafe_b64encode(hashlib.sha256(b"x").digest()).rstrip(b"=").decode()
+    assert _image.record(f'"pkg/a,b.py",sha256={digest},1\npkg/c.py\n') == [
+        ("pkg/a,b.py", hashlib.sha256(b"x").hexdigest()), ("pkg/c.py", "")
+    ], "a path with a comma is quoted, and a row may carry no hash at all"
+
+
 def test_an_opaque_root_empties_everything_below_and_a_dangling_hard_link_is_refused() -> None:
     state = {"a": _image.Node("file", "1", 1)}
     texts = {"a": "x"}

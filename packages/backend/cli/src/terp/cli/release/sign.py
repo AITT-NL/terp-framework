@@ -13,8 +13,8 @@ git and the images from the registry as data, and it judges what a sandbox compu
    process of its own, and refuses a committed file that differs.
 4. It checks each digest from ``build``'s document in the registry, and that the release tag
    names it there.
-5. It reads the backend image in the sandbox and holds it to the tree and the lock
-   (:mod:`._compare`); it computes each image's SBOM (the backend's from its filesystem, the web
+5. It reads the backend image in the sandbox and holds it to the tree, the lock, its installed
+   distributions' ``RECORD`` files and its Dockerfile (:mod:`._compare`); it computes each image's SBOM (the backend's from its filesystem, the web
    image's from the frontend lock), asks the vulnerability database about them, and scans the
    history reachable from the SHA for secrets, which it refuses to sign over.
 6. It signs the manifest as a DSSE envelope, with ``--signer <argv>`` (the production path, whose
@@ -234,7 +234,7 @@ def sign(
                 })
                 if answer.get("configDigest") != entry["configDigest"]:
                     raise ReleaseError(f"the sandbox read another image than {entry['repository']}@{entry['digest']}")
-                findings, packages = compare_backend(tree, answer, name, version, lock)
+                findings, packages = compare_backend(tree, answer, name, version, lock, dockerfile=entry["image"].dockerfile)
                 if findings:
                     raise ReleaseError(
                         f"the image {entry['repository']}@{entry['digest']} is not this commit's build:\n"

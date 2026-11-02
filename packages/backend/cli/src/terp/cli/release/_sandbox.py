@@ -14,7 +14,8 @@ The tasks:
   (:mod:`._registry`, :mod:`._image`), and the bytecode check: each ``__pycache__`` file under
   ``/srv`` is answered with the SHA-256 of the checked-hash compile of the tree's source, made
   by the interpreter of the image's own base, run from that base image by digest with no
-  network, a read-only filesystem and no privilege. The app image is never started;
+  network, a read-only filesystem and no privilege. The base's layers and configuration come
+  back with it, read from the engine that pulled it by digest. The app image is never started;
 * ``scan``: the SBOM's packages asked of the vulnerability database (OSV's batch API);
 * ``secrets``: gitleaks over the history reachable from the SHA, with gitleaks' own rules and
   the acknowledgements the SHA's tree commits in ``.gitleaksignore``.
@@ -86,6 +87,10 @@ print(json.dumps({"files": out, "cacheTag": sys.implementation.cache_tag,
 """
 
 
+#: The base image's layers and configuration, as one JSON object from ``docker image inspect``.
+_INSPECT = '{"layers":{{json .RootFS.Layers}},"config":{{json .Config}}}'
+
+
 def pyc_source(path: str) -> tuple[str, str] | None:
     """``(source relative to /srv, cache tag)`` of a bytecode path under ``/srv``."""
     found = _PYC.fullmatch(path)
@@ -99,7 +104,8 @@ def _docker(argv: list[str], stdin: bytes | None = None) -> subprocess.Completed
 
 
 def compile_in_base(base: str, platform: str, sources: dict[str, bytes]) -> dict[str, Any]:
-    """The checked-hash compile of each of *sources*, by the interpreter of the image *base*."""
+    """The checked-hash compile of each of *sources* by the interpreter of the image *base*, and
+    that base's layers and configuration."""
     payload = json.dumps({name: base64.b64encode(data).decode() for name, data in sources.items()})
     out = require(
         _docker(
@@ -109,11 +115,12 @@ def compile_in_base(base: str, platform: str, sources: dict[str, bytes]) -> dict
         ),
         f"compiling the tree's sources with the interpreter of {base}",
     )
-    layers = require(
-        _docker(["docker", "image", "inspect", "--format", "{{json .RootFS.Layers}}", base]),
-        f"reading the layers of {base}",
+    inspected = require(
+        _docker(["docker", "image", "inspect", "--format", _INSPECT, base]),
+        f"reading the layers and the configuration of {base}",
     )
-    return {**json.loads(out), "diffIds": json.loads(layers)}
+    found = json.loads(inspected)
+    return {**json.loads(out), "diffIds": found["layers"], "baseConfig": found["config"] or {}}
 
 
 def image_task(payload: dict[str, Any]) -> dict[str, Any]:
@@ -134,7 +141,7 @@ def image_task(payload: dict[str, Any]) -> dict[str, Any]:
         and (tree / source).is_file()
     }
     compiled: dict[str, Any] = {"files": {}, "cacheTag": "", "magic": "", "diffIds": []}
-    if sources and payload.get("base"):
+    if payload.get("base"):
         compiled = compile_in_base(payload["base"], payload["platform"], sources)
     return {
         "digest": digest,

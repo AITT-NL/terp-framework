@@ -238,7 +238,8 @@ meant to run on a fresh host that is discarded after it, because the second one 
 `build` reads the commit from git's object store and builds from that pristine tree in a
 BuildKit builder of its own, with fresh bases and no cache; `sign` reads the same commit and the
 pushed images as data, holds the backend image's app files, bytecode, installed set and wheel
-to the commit and its lock, scans the SBOMs and the history, and signs. Where one machine runs
+to the commit and its lock, every other file of its environment to the `RECORD` that lists it,
+and its configuration to its Dockerfile, scans the SBOMs and the history, and signs. Where one machine runs
 all three, say so: `--hosts shared` is recorded in the manifest, and the guarantee becomes "the
 host is trusted".
 
