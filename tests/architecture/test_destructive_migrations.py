@@ -17,9 +17,13 @@ import textwrap
 from typing import NamedTuple
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from terp.arch import check_app, check_no_destructive_migrations
+from terp.arch.rules._destructive_sql import _statements
 from terp.arch.rules.destructive_migrations import _MESSAGES
+from terp.arch.rules.migrations import _migration_files
 
 _REVISION = "modules/notes/migrations/versions/0001_change.py"
 
@@ -108,6 +112,13 @@ _MORE: tuple[_Case, ...] = (
     _Case("raw set data type", "op.execute('ALTER TABLE note ALTER COLUMN rank SET DATA TYPE smallint')", "type"),
     _Case("raw unique index", "op.execute('CREATE UNIQUE INDEX ix_note_slug ON note (slug)')", "constraint"),
     _Case("raw validate", "op.execute('ALTER TABLE note VALIDATE CONSTRAINT ck_note_rank')", "constraint"),
+    _Case("raw drop schema", "op.execute('DROP SCHEMA billing CASCADE')", "drop"),
+    _Case("drop by a literal getattr", "getattr(op, 'drop_table')('note')", "drop"),
+    _Case(
+        "a literal getattr on a batch handle",
+        _BATCH + "getattr(batch_op, 'alter_column')('title', nullable=False)",
+        "not-null",
+    ),
     _Case(
         "raw unique is never NOT VALID",
         "op.execute('ALTER TABLE note ADD CONSTRAINT uq UNIQUE (slug) NOT VALID')",
@@ -356,3 +367,271 @@ def test_two_destructive_steps_are_two_findings(tmp_path: pathlib.Path) -> None:
         (6, _MESSAGES["rename"]),
         (7, _MESSAGES["not-null"]),
     ]
+
+
+# --------------------------------------------------------------------------- #
+# which files are revisions: exactly the ones Alembic runs
+# --------------------------------------------------------------------------- #
+def _versions(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A ``versions/`` holding a base, a hotfix whose name begins with ``_``, and two files
+    Alembic skips by name, each of which would be a second head if it were loaded."""
+    versions = tmp_path / "app" / "modules" / "notes" / "migrations" / "versions"
+    versions.mkdir(parents=True)
+    head = "from alembic import op\n\nrevision = {rev!r}\ndown_revision = {down!r}\n\n\n"
+    (versions / "a1_base.py").write_text(
+        head.format(rev="a1", down=None) + "def upgrade():\n    op.create_table('invoice')\n",
+        encoding="utf-8",
+    )
+    (versions / "_b2_hotfix.py").write_text(
+        head.format(rev="b2", down="a1") + "def upgrade():\n    op.drop_table('invoice_legacy')\n",
+        encoding="utf-8",
+    )
+    for skipped in ("__init__.py", ".#a1_base.py"):
+        (versions / skipped).write_text(
+            head.format(rev="zz", down=None) + "def upgrade():\n    op.drop_table('invoice')\n",
+            encoding="utf-8",
+        )
+    return versions
+
+
+def test_the_rule_reads_every_file_alembic_runs_and_no_other(tmp_path: pathlib.Path) -> None:
+    versions = _versions(tmp_path)
+    config = Config()
+    config.set_main_option("script_location", str(versions.parent))
+    (versions.parent / "script.py.mako").write_text("", encoding="utf-8")
+    runs = sorted(script.path for script in ScriptDirectory.from_config(config).walk_revisions())
+    assert [pathlib.Path(path).name for path in runs] == ["_b2_hotfix.py", "a1_base.py"]
+    read = sorted(str(path) for path in _migration_files(tmp_path / "app"))
+    assert read == sorted(str(pathlib.Path(path)) for path in runs)
+
+
+def test_a_revision_whose_name_begins_with_an_underscore_is_read(tmp_path: pathlib.Path) -> None:
+    _versions(tmp_path)
+    found = check_no_destructive_migrations(tmp_path / "app")
+    assert [(pathlib.PurePath(v.path).name, v.line, v.message) for v in found] == [
+        ("_b2_hotfix.py", 8, _MESSAGES["drop"])
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# what the migration runs, beyond what upgrade() spells itself
+# --------------------------------------------------------------------------- #
+def _module(tmp_path: pathlib.Path, source: str) -> pathlib.Path:
+    """An app whose one revision is *source*, whole; returns the app root."""
+    app = tmp_path / "app"
+    path = app / _REVISION
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(textwrap.dedent(source).lstrip("\n"), encoding="utf-8")
+    return app
+
+
+#: Whole revisions, and the ``(line, kind)`` of each step the rule must find in them.
+_FOLLOWED: tuple[tuple[str, str, list[tuple[int, str]]], ...] = (
+    (
+        "a helper upgrade() calls",
+        """
+        from alembic import op
+
+
+        def _contract():
+            op.drop_column('invoice', 'legacy_ref')
+
+
+        def upgrade():
+            _contract()
+        """,
+        [(5, "drop")],
+    ),
+    (
+        "helpers that call each other, each read once",
+        """
+        from alembic import op
+
+
+        def _first():
+            _second()
+            op.drop_table('invoice_legacy')
+
+
+        def _second():
+            _first()
+            op.alter_column('invoice', 'ref', new_column_name='reference')
+
+
+        def upgrade():
+            _first()
+            _first()
+        """,
+        [(6, "drop"), (11, "rename")],
+    ),
+    (
+        "an operation imported by name",
+        """
+        from alembic.op import alter_column, drop_column
+        from alembic.op import rename_table as move
+
+
+        def upgrade():
+            drop_column('invoice', 'legacy_ref')
+            move('invoice', 'bill')
+            alter_column('invoice', 'total', nullable=False)
+        """,
+        [(6, "drop"), (7, "rename"), (8, "not-null")],
+    ),
+    (
+        "upgrade named by an alias",
+        """
+        from alembic import op
+
+
+        def _up():
+            op.drop_table('invoice_legacy')
+
+
+        _step = _up
+        upgrade = _step
+        """,
+        [(5, "drop")],
+    ),
+    (
+        "two statements in one call",
+        """
+        from alembic import op
+
+
+        def upgrade():
+            op.execute('DROP TABLE invoice_legacy; ALTER TABLE invoice RENAME TO bill')
+        """,
+        [(5, "drop"), (5, "rename")],
+    ),
+    (
+        "a dollar-quoted body is one statement",
+        """
+        from alembic import op
+
+
+        def upgrade():
+            op.execute('DO $$ BEGIN DROP TABLE invoice_a; DROP TABLE invoice_b; END $$')
+        """,
+        [(5, "drop")],
+    ),
+    (
+        "a table created by name is still new",
+        """
+        from alembic.op import alter_column, create_table
+
+
+        def upgrade():
+            create_table('draft')
+            alter_column('draft', 'title', nullable=False)
+            alter_column('invoice', 'title', nullable=False)
+        """,
+        [(7, "not-null")],
+    ),
+)
+
+
+@pytest.mark.parametrize(("name", "source", "found"), _FOLLOWED, ids=[n for n, _, _ in _FOLLOWED])
+def test_what_the_migration_runs_is_read(
+    tmp_path: pathlib.Path, name: str, source: str, found: list[tuple[int, str]]
+) -> None:
+    violations = check_no_destructive_migrations(_module(tmp_path, source))
+    assert [(v.line, v.message) for v in violations] == [
+        (line, _MESSAGES[kind]) for line, kind in found
+    ], name
+
+
+#: Revisions the rule must stay silent on: a function upgrade() never calls, a statement
+#: split only where it ends, and the forms it cannot read statically (its residuals).
+_NOT_FOLLOWED: tuple[tuple[str, str], ...] = (
+    (
+        "a helper only downgrade() calls",
+        """
+        from alembic import op
+
+
+        def _restore():
+            op.drop_table('invoice_v2')
+
+
+        def upgrade():
+            op.create_table('invoice_v2')
+
+
+        def downgrade():
+            _restore()
+        """,
+    ),
+    (
+        "a semicolon inside a quoted string, a quoted name, a comment or a dollar-quoted body",
+        """
+        from alembic import op
+
+
+        def upgrade():
+            op.execute("UPDATE invoice SET note = 'a; b' WHERE \\"ref;\\" IS NULL -- x; y")
+            op.execute("CREATE FUNCTION f() RETURNS void AS $body$ BEGIN; END; $body$ LANGUAGE plpgsql")
+        """,
+    ),
+    (
+        "an operation named by a computed getattr",
+        """
+        from alembic import op
+
+
+        def upgrade():
+            getattr(op, 'drop_' + 'table')('invoice')
+        """,
+    ),
+    (
+        "a statement held in a variable",
+        """
+        from alembic import op
+
+        STATEMENT = 'DROP TABLE invoice'
+
+
+        def upgrade():
+            op.execute(STATEMENT)
+        """,
+    ),
+    (
+        "a helper from another module, a callable bound to a name, an attribute alias",
+        """
+        from alembic import op
+        from app.migration_steps import contract
+
+        remove = op.drop_table
+        self_alias = upgrade_steps.first
+
+
+        def upgrade():
+            contract('invoice')
+            remove('invoice')
+        """,
+    ),
+)
+
+
+@pytest.mark.parametrize(("name", "source"), _NOT_FOLLOWED, ids=[n for n, _ in _NOT_FOLLOWED])
+def test_what_the_migration_never_runs_or_cannot_be_read_passes(
+    tmp_path: pathlib.Path, name: str, source: str
+) -> None:
+    assert check_no_destructive_migrations(_module(tmp_path, source)) == [], name
+
+
+@pytest.mark.parametrize(
+    ("text", "statements"),
+    [
+        ("DROP TABLE a; ALTER TABLE b RENAME TO c", ["DROP TABLE a", " ALTER TABLE b RENAME TO c"]),
+        ("SELECT 'it''s; fine'; SELECT 2", ["SELECT 'it''s; fine'", " SELECT 2"]),
+        ('SELECT "a;b", `c;d` FROM t;', ['SELECT "a;b", `c;d` FROM t', ""]),
+        ("SELECT 1 /* a; b */; SELECT 2 -- c; d", ["SELECT 1 /* a; b */", " SELECT 2 -- c; d"]),
+        ("DO $$ BEGIN x; END $$; DO $f$ y; $f$", ["DO $$ BEGIN x; END $$", " DO $f$ y; $f$"]),
+        ("SELECT $1; SELECT 'open; ended", ["SELECT $1", " SELECT 'open; ended"]),
+    ],
+)
+def test_a_statement_ends_only_at_a_semicolon_outside_every_quote_and_comment(
+    text: str, statements: list[str]
+) -> None:
+    assert _statements(text) == statements

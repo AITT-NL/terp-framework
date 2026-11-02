@@ -1778,27 +1778,29 @@ Database migrations (terp migrate)
   serves, and a rollback runs that release on the migrated schema, so a revision has two
   audiences your scratch database never shows: the rows production holds, and the
   release still running. Five kinds of step fail one of them:
-      drop         drop_table / drop_column / TRUNCATE / DELETE FROM
+      drop         drop_table / drop_column / TRUNCATE / DELETE FROM / DROP SCHEMA
       rename       rename_table / alter_column(new_column_name=...) / ALTER TABLE .. RENAME
       type change  alter_column(type_=...) / ALTER COLUMN .. TYPE
       NOT NULL     alter_column(nullable=False) on an existing table / SET NOT NULL
       constraint   create_unique_constraint / create_check_constraint /
                    create_foreign_key / create_primary_key / create_index(unique=True) /
                    ADD CONSTRAINT / CREATE UNIQUE INDEX / VALIDATE CONSTRAINT
-  on `op`, a batch block or any alias, and through execute(...) whenever the statement
-  is readable in the source. Do this instead, and every finding says which: EXPAND (add
-  the new column, nullable, or the new table beside the old one), BACKFILL (copy or clean
-  the rows with a job, not a statement in the revision, and write both), then CONTRACT in
-  a LATER release (drop the old name, tighten, add the constraint). The contract step is
-  the destructive one, so it carries `# arch-allow-no-destructive-migrations: <reason>` on
-  (or immediately above) its line, after review, budgeted by the escape-hatch ratchet.
-  Not refused: anything on a table this upgrade() creates (it holds no rows yet), and a
-  unique, foreign-key or unique-index constraint on columns this upgrade() adds nullable
-  with no server_default (every existing row holds NULL, which those accept) - the shape
-  autogenerate writes for a new reference column. Not refused is not the same as an
-  expand step: a constraint on an existing table, or any execute(), is never one. A type
-  WIDENING is still reported, because nothing in the revision says what the old type was:
-  justify it with the marker.
+  on `op`, a batch block or any alias, imported by name (from alembic.op import
+  drop_column) or looked up by a literal getattr, in upgrade() and in every function of
+  the revision it calls, and through execute(...) whenever the statement is readable in
+  the source, one statement at a time. Do this instead, and every finding says which:
+  EXPAND (add the new column, nullable, or the new table beside the old one), BACKFILL
+  (copy or clean the rows with a job, not a statement in the revision, and write both),
+  then CONTRACT in a LATER release (drop the old name, tighten, add the constraint). The
+  contract step is the destructive one, so it carries
+  `# arch-allow-no-destructive-migrations: <reason>` on (or immediately above) its line,
+  after review, budgeted by the escape-hatch ratchet. Not refused: anything on a table
+  this upgrade() creates (it holds no rows yet), and a unique, foreign-key or
+  unique-index constraint on columns this upgrade() adds nullable with no server_default
+  (every existing row holds NULL, which those accept) - the shape autogenerate writes for
+  a new reference column. Not refused is not the same as an expand step: a constraint on
+  an existing table, or any execute(), is never one. A type WIDENING is still reported,
+  because nothing in the revision says what the old type was: justify it with the marker.
 - ADDING A NOT NULL COLUMN is the revision that passes everything you can run and then
   fails in production. For a new non-nullable field autogenerate writes
   `add_column(sa.Column('rank', sa.Integer(), nullable=False))`, and that statement
@@ -2463,7 +2465,8 @@ Compliant decision path for a new NOT NULL column
 Compliant decision path for a step that is safe only against an empty database
 
 1. Do not delete the revision's intent, and do not move the statement somewhere the
-    rule cannot read it (a variable, a helper outside upgrade()). The finding is about
+    rule cannot read it (a variable, a helper in another module, a name computed at run
+    time). A helper in the same revision is read as part of upgrade(). The finding is about
     rows production holds and the release still running while you migrate; neither is
     in your scratch database, which is why every local test passed.
 2. Split the change across releases - expand, backfill, contract:

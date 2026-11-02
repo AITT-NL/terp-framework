@@ -320,6 +320,17 @@ def test_a_short_unreadable_revision_is_refused_without_blaming_the_path_length(
 
 
 def test_a_package_marker_in_versions_is_not_a_revision(tmp_path: pathlib.Path) -> None:
-    """``__init__.py`` beside no revision leaves the history empty: underscores are not revisions."""
+    """``__init__.py`` beside no revision leaves the history empty: Alembic never loads it."""
     tree = _tree_with_one_revision(tmp_path, "__init__.py")
     assert tree.has_revision_files is False
+
+
+def test_an_editor_lock_file_is_not_a_revision(tmp_path: pathlib.Path) -> None:
+    tree = _tree_with_one_revision(tmp_path, ".#a1b2c3_create_probe.py")
+    assert tree.has_revision_files is False
+
+
+def test_a_revision_whose_name_begins_with_an_underscore_is_one(tmp_path: pathlib.Path) -> None:
+    """Alembic loads and runs ``_b2_hotfix.py`` like any other revision, so the tree is runnable."""
+    tree = _tree_with_one_revision(tmp_path, "_b2_hotfix.py")
+    assert tree.has_revision_files is True

@@ -24,8 +24,10 @@ from terp.arch import (
 )
 from terp.arch.rules.destructive_migrations import _MESSAGES
 from tests.architecture.test_destructive_migrations import (
+    _FOLLOWED,
     _LOOK_ALIKES,
     _MORE,
+    _NOT_FOLLOWED,
     _REVISION,
     _TWENTY,
     _Case,
@@ -78,10 +80,12 @@ _TEXTS = {
     "raw set data type": "execute: ALTER TABLE note ALTER COLUMN rank SET DATA TYPE smallint",
     "raw unique index": "execute: CREATE UNIQUE INDEX ix_note_slug ON note (slug)",
     "raw validate": "execute: ALTER TABLE note VALIDATE CONSTRAINT ck_note_rank",
+    "raw drop schema": "execute: DROP SCHEMA billing CASCADE",
+    "drop by a literal getattr": "drop_table note",
+    "a literal getattr on a batch handle": "alter_column note.title",
     "raw unique is never NOT VALID": "execute: ALTER TABLE note ADD CONSTRAINT uq UNIQUE (slug) NOT VALID",
-    "second statement adds the constraint": (
-        "execute: ALTER TABLE note ADD COLUMN slug text; ALTER TABLE note ADD UNIQUE (slug)"
-    ),
+    # The statement that is destructive, not the text it was split from.
+    "second statement adds the constraint": "execute: ALTER TABLE note ADD UNIQUE (slug)",
     "primary key on an existing table": "create_primary_key note",
     "exclude constraint": "create_exclude_constraint note",
     "batch type change": "alter_column note.title",
@@ -132,6 +136,8 @@ def _revisions() -> list[tuple[str, str]]:
     """Every revision the rule is held to: its test set, the spec corpus, the framework's own."""
     found = [(case.name, _source(case.body)) for case in _CASES]
     found += [(name, _source(body)) for name, body in _LOOK_ALIKES]
+    found += [(name, textwrap.dedent(source).lstrip("\n")) for name, source, _ in _FOLLOWED]
+    found += [(name, textwrap.dedent(source).lstrip("\n")) for name, source in _NOT_FOLLOWED]
     corpus = spec_dir() / "corpus" / "backend" / "no_destructive_migrations"
     found += [
         (f"corpus {path.relative_to(corpus).as_posix()}", path.read_text(encoding="utf-8"))
@@ -315,3 +321,37 @@ def test_a_long_statement_is_cut_at_two_hundred_code_points() -> None:
     wide = "DELETE FROM note WHERE " + "\U0001f600" * 300
     assert text_of(wide) == (prefix + wide)[:199] + "\u2026"
     assert len(text_of(wide)) == 200
+
+
+#: The text of each operation the rule finds beyond what ``upgrade()`` spells itself.
+_FOLLOWED_TEXTS = {
+    "a helper upgrade() calls": ["drop_column invoice.legacy_ref"],
+    "helpers that call each other, each read once": [
+        "drop_table invoice_legacy",
+        "alter_column invoice.ref",
+    ],
+    "an operation imported by name": [
+        "drop_column invoice.legacy_ref",
+        "rename_table invoice",
+        "alter_column invoice.total",
+    ],
+    "upgrade named by an alias": ["drop_table invoice_legacy"],
+    "two statements in one call": [
+        "execute: DROP TABLE invoice_legacy",
+        "execute: ALTER TABLE invoice RENAME TO bill",
+    ],
+    "a dollar-quoted body is one statement": [
+        "execute: DO $$ BEGIN DROP TABLE invoice_a; DROP TABLE invoice_b; END $$"
+    ],
+    "a table created by name is still new": ["alter_column invoice.title"],
+}
+
+
+@pytest.mark.parametrize(("name", "source", "found"), _FOLLOWED, ids=[n for n, _, _ in _FOLLOWED])
+def test_what_the_migration_runs_is_listed(name: str, source: str, found: list[tuple[int, str]]) -> None:
+    assert set(_FOLLOWED_TEXTS) == {case for case, _, _ in _FOLLOWED}
+    listed = destructive_operations(textwrap.dedent(source).lstrip("\n"))
+    assert [(o.ordinal, o.line, o.kind, o.operation) for o in listed] == [
+        (ordinal, line, kind, text)
+        for ordinal, ((line, kind), text) in enumerate(zip(found, _FOLLOWED_TEXTS[name], strict=True), 1)
+    ], name

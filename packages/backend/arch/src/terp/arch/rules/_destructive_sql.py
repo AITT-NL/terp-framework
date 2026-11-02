@@ -25,7 +25,7 @@ _CONSTRAINT = "constraint"
 # DROP FUNCTION / DROP INDEX are excluded — they destroy no row data — and so is
 # ``DROP NOT NULL``, the relaxing direction ``alter_column(nullable=True)`` spells.
 _DESTRUCTIVE_SQL_RE = re.compile(
-    r"\b(DROP\s+TABLE|DROP\s+COLUMN|TRUNCATE(\s+TABLE)?|DELETE\s+FROM"
+    r"\b(DROP\s+TABLE|DROP\s+COLUMN|DROP\s+SCHEMA|TRUNCATE(\s+TABLE)?|DELETE\s+FROM"
     r"|ALTER\s+TABLE\s+.+\bDROP\b(?!\s+NOT\s+NULL\b))\b",
     re.IGNORECASE | re.DOTALL,
 )
@@ -59,6 +59,21 @@ _NOT_VALID_KINDS = ("CHECK", "FOREIGN")
 
 #: Calls whose arguments are a statement the database runs as written.
 _EXECUTING = frozenset({"execute", "exec_driver_sql"})
+
+#: What a ``;`` inside does not end a statement in: a quoted string, a quoted identifier
+#: (in double quotes or backticks), a dollar-quoted body and a comment. Each is matched
+#: whole, so the only ``;`` left for the last alternative is one between statements. An
+#: unterminated span runs to the end of the text.
+_SQL_SPANS = re.compile(
+    r"'(?:[^']|'')*'?"
+    r'|"(?:[^"]|"")*"?'
+    r"|`[^`]*`?"
+    r"|--[^\n]*"
+    r"|/\*.*?(?:\*/|\Z)"
+    r"|(?P<tag>\$(?:[A-Za-z_][A-Za-z_0-9]*)?\$).*?(?:(?P=tag)|\Z)"
+    r"|;",
+    re.DOTALL,
+)
 
 _PLACEHOLDER = " ? "
 
@@ -97,8 +112,22 @@ def _sql_texts(node: ast.AST) -> Iterator[str]:
         yield from _sql_texts(child)
 
 
+def _statements(text: str) -> list[str]:
+    """*text* split into statements at each ``;`` that ends one (see ``_SQL_SPANS``)."""
+    statements: list[str] = []
+    start = 0
+    for span in _SQL_SPANS.finditer(text):
+        if span.group() == ";":
+            statements.append(text[start : span.start()])
+            start = span.end()
+    statements.append(text[start:])
+    return statements
+
+
 def _classify_statement(statement: str) -> str | None:
     """The kind of destructive step one SQL statement takes, if any."""
+    if _DESTRUCTIVE_SQL_RE.search(statement):
+        return _DROP
     if _RENAME_SQL_RE.search(statement):
         return _RENAME
     if _TYPE_SQL_RE.search(statement):
@@ -116,18 +145,17 @@ def _classify_statement(statement: str) -> str | None:
     return None
 
 
-def _classify_sql(call: ast.Call) -> tuple[str, str] | None:
-    """The kind of destructive step the statement an ``execute(...)`` runs takes.
+def _classify_sql(call: ast.Call) -> list[tuple[str, str]]:
+    """Each destructive statement an ``execute(...)`` runs, as its kind and its text, in order.
 
-    Returned with the text it was read from: the first statement in the call's
-    arguments that is destructive, whole, before it is split at ``;``.
+    Every statement is its own step, so a text that drops one table and renames another
+    is a drop and a rename, never just the first of them.
     """
+    found: list[tuple[str, str]] = []
     for argument in [*call.args, *(keyword.value for keyword in call.keywords)]:
         for text in _sql_texts(argument):
-            if _DESTRUCTIVE_SQL_RE.search(text):
-                return _DROP, text
-            for statement in text.split(";"):
+            for statement in _statements(text):
                 kind = _classify_statement(statement)
                 if kind is not None:
-                    return kind, text
-    return None
+                    found.append((kind, statement))
+    return found
