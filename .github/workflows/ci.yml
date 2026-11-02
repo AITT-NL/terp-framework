@@ -319,7 +319,11 @@ jobs:
           # and the merge ref carries the base -- so a secret still cannot reach the
           # default branch unscanned. What stops happening is one branch's fixtures
           # failing another branch's build.
-          ./gitleaks detect --source . --redact --no-banner --log-opts HEAD
+          #
+          # --verbose names each finding (commit, file, line and rule, the value
+          # redacted), so a red scan says where to look and what to list in
+          # .gitleaksignore if it is a fixture.
+          ./gitleaks detect --source . --redact --verbose --no-banner --log-opts HEAD
 
       - name: trivy — the Dockerfiles a generated app inherits
         # The template's four images are what every project ships, so a
