@@ -105,14 +105,15 @@ def _pinned_spec_version() -> str | None:
 #: ``not_null_columns_are_backfilled``, by terp-spec 0.35.0, and the one before that,
 #: ``references_declare_delete_behaviour`` (ADR 0133), by terp-spec 0.34.0.
 #:
-#: Open: the two deployment-declaration rules (ADR 0184) and the generated state's render
-#: check (ADR 0187), catalogued in terp-spec 0.40.0 and implemented here before that
-#: release is published.
+#: Open: the two deployment-declaration rules (ADR 0184), the generated state's render
+#: check (ADR 0187) and the expand list (ADR 0185), catalogued in terp-spec 0.40.0 and
+#: implemented here before that release is published.
 _AWAITING_SPEC_RELEASE: frozenset[str] = frozenset(
     {
         "deployment_declaration_is_readable",
         "deployment_declaration_tells_the_truth",
         "deployment_generated_files_match_their_render",
+        "expand_revisions_only_expand",
     }
 )
 
@@ -205,7 +206,7 @@ def test_backend_opt_outs_are_the_live_suppression_tokens() -> None:
     violations are produced outside the suppression pass, so no marker can waive
     them — spec >= 0.6.0 omits exactly those).
     """
-    from terp.arch import RULES_ESCAPED_BY_THEIR_DECLARATION
+    from terp.arch import RULES_ESCAPED_BY_THEIR_DECLARATION, RULES_WITHOUT_AN_OPT_OUT
     from terp.arch.rules._support import _rule_token
 
     governance = {"escape_hatch_budget", "ungoverned_escape_hatch"}
@@ -222,6 +223,13 @@ def test_backend_opt_outs_are_the_live_suppression_tokens() -> None:
         assert "escape" not in entry, (
             f"backend/{name}: only a rule escaped by its declaration may declare `escape`"
         )
+        if name in RULES_WITHOUT_AN_OPT_OUT:
+            # The way out is the rule's own subject (a contract revision), so no marker
+            # suppresses it and the catalog declares none (ADR 0185).
+            assert opt_out is None, (
+                f"backend/{name}: a rule without an opt-out declares no opt_out marker"
+            )
+            continue
         if opt_out is None:
             assert name in governance, (
                 f"backend/{name}: only the escape-hatch governance rules may omit "

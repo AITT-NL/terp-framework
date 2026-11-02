@@ -47,6 +47,7 @@ from terp.arch import (
     check_table_ownership_is_not_split,
     check_no_destructive_migrations,
     check_not_null_columns_are_backfilled,
+    check_expand_revisions_only_expand,
     check_no_dynamic_sql,
     check_no_cross_module_imports,
     check_cross_module_imports_use_public_surface,
@@ -4439,6 +4440,25 @@ def test_no_destructive_migrations(tmp_path: pathlib.Path) -> None:
         "def upgrade():\n    op.add_column('notes', column)\ndef downgrade():\n    op.drop_table('notes')\n",
     )
     assert check_no_destructive_migrations(app) == []
+
+
+def test_expand_revisions_only_expand(tmp_path: pathlib.Path) -> None:
+    """The registry's own case; the expand list itself is pinned in test_expand_revisions_rule."""
+    app = tmp_path / "app"
+    revision = "modules/notes/migrations/versions/0001_change.py"
+    _write(app, revision, "expand_only = True\ndef upgrade():\n    op.drop_column('notes', 'x')\n")
+    assert _rule_names(check_expand_revisions_only_expand(app)) == {"expand_revisions_only_expand"}
+    # Through the harness as well, and with no marker that could excuse it.
+    _write(
+        app,
+        revision,
+        "expand_only = True\ndef upgrade():\n"
+        "    # arch-allow-expand-revisions-only-expand: reviewed\n"
+        "    op.drop_column('notes', 'x')\n",
+    )
+    assert "expand_revisions_only_expand" in _rule_names(check_app(app))
+    _write(app, revision, "expand_only = False\ndef upgrade():\n    op.drop_column('notes', 'x')\n")
+    assert check_expand_revisions_only_expand(app) == []
 
 
 def test_not_null_columns_are_backfilled(tmp_path: pathlib.Path) -> None:

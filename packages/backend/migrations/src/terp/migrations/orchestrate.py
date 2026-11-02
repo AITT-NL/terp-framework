@@ -18,6 +18,7 @@ import io
 import pathlib
 import re
 from dataclasses import dataclass
+from typing import Any
 
 from alembic import command
 from alembic.runtime.migration import MigrationContext
@@ -44,7 +45,17 @@ from terp.migrations._runtime import (
 from terp.migrations.errors import (
     DatabaseBehindForAutogenerateError,
     MigrationError,
-    OrphanedRevisionsError,
+    RetiredMigrationsError,
+)
+from terp.migrations.window import (
+    CodeHistory,
+    Window,
+    delete_record_rows,
+    ensure_record_table,
+    heads_digest,
+    histories_of,
+    judge_window,
+    read_retired_migrations,
 )
 
 
@@ -53,8 +64,14 @@ def _effective_layout(schema_layout: str | None) -> str:
     return schema_layout if schema_layout is not None else get_settings().DB_SCHEMA_LAYOUT
 
 
-def database_search_path_statements(database: str, labels: list[str]) -> list[str]:
-    """The one-time DDL routing an app's *connections* under the per-module layout.
+def database_search_path_statements(
+    database: str,
+    labels: list[str],
+    *,
+    current: list[str] | None = None,
+    schemas: set[str] | None = None,
+) -> list[str]:
+    """The DDL routing an app's *connections* under the per-module layout (ADR 0070).
 
     ``CREATE SCHEMA`` per package, then ``ALTER DATABASE … SET search_path`` — the
     database itself serves every future connection (the app engine, ``psql``, a BI
@@ -62,12 +79,39 @@ def database_search_path_statements(database: str, labels: list[str]) -> list[st
     ``terp.core`` needs no knowledge of the layout at all (layer-0 stays clean;
     ADR 0070). ``public`` stays last for shared objects and the pinned
     ``alembic_version_*`` tables.
+
+    The path only grows (ADR 0185 decision 4): given the database's *current* setting
+    and the *schemas* that exist, it is the union of that setting and *labels*, ``public``
+    last, and nothing is emitted when no label is missing. A rollback to a release whose
+    labels the newer release's path already holds writes nothing and drops no schema,
+    and a restore into a clean database, which carries no database-level setting, is
+    routed again by the next ``migrate``, pending or not.
     """
-    joined = ", ".join(f'"{label}"' for label in labels)
-    return [
-        *[f'CREATE SCHEMA IF NOT EXISTS "{label}"' for label in labels],
-        f'ALTER DATABASE "{database}" SET search_path TO {joined}, "public"',
+    present = schemas if schemas is not None else set()
+    statements = [
+        f'CREATE SCHEMA IF NOT EXISTS "{label}"' for label in labels if label not in present
     ]
+    kept = [entry for entry in (current or []) if entry != "public"]
+    missing = [label for label in labels if label not in kept]
+    if current is not None and not missing and "public" in current:
+        return statements
+    joined = ", ".join(f'"{entry}"' for entry in [*kept, *missing, "public"])
+    statements.append(f'ALTER DATABASE "{database}" SET search_path TO {joined}')
+    return statements
+
+
+def _database_search_path(connection: Any) -> list[str] | None:
+    """The database-level ``search_path`` setting, entry by entry, or ``None`` unset."""
+    row = connection.exec_driver_sql(
+        "SELECT s.setconfig FROM pg_db_role_setting s"
+        " JOIN pg_database d ON d.oid = s.setdatabase"
+        " WHERE d.datname = current_database() AND s.setrole = 0"
+    ).first()
+    for entry in (row[0] or []) if row is not None else []:
+        name, _, value = str(entry).partition("=")
+        if name == "search_path":
+            return [part.strip().strip('"') for part in value.split(",") if part.strip()]
+    return None
 
 
 def ensure_database_search_path(
@@ -76,10 +120,11 @@ def ensure_database_search_path(
     *,
     package: str = "app",
 ) -> list[str]:
-    """Create every package schema and pin the database-level search_path (ADR 0070).
+    """Create every missing package schema and grow the database search_path (ADR 0070).
 
     Runs on the per-module layout path of :func:`upgrade` / :func:`adopt_schemas`;
-    idempotent, so re-running an upgrade is safe. Returns the labels routed.
+    idempotent, and silent when nothing is missing, so re-running an upgrade (or a
+    rollback's ``migrate``) writes nothing. Returns the labels routed.
     """
     labels = [
         tree.label for tree in resolve_all_migration_trees(app_root, package=package)
@@ -93,7 +138,16 @@ def ensure_database_search_path(
                     f"{connection.dialect.name!r} (ADR 0070)"
                 )
             database = engine.url.database or ""
-            for statement in database_search_path_statements(database, labels):
+            schemas = {
+                row[0]
+                for row in connection.exec_driver_sql("SELECT nspname FROM pg_namespace")
+            }
+            for statement in database_search_path_statements(
+                database,
+                labels,
+                current=_database_search_path(connection),
+                schemas=schemas,
+            ):
                 connection.exec_driver_sql(statement)
     finally:
         engine.dispose()
@@ -270,6 +324,71 @@ def grant_runtime_role(
     return [*write_schemas, *read_schemas]
 
 
+def _code_histories(
+    database_url: str, app_root: str | pathlib.Path | None, package: str
+) -> list[CodeHistory]:
+    """Each runnable package history as the code defines it: heads and revisions."""
+    return histories_of(
+        resolve_migration_trees(app_root, package=package),
+        database_url,
+        lambda tree, url: alembic_config_for(tree, url, app_root=app_root, package=package),
+    )
+
+
+def run_digest(histories: list[CodeHistory]) -> str:
+    """The heads digest a run of this code writes as ``applied_by`` (ADR 0185 decision 2)."""
+    return heads_digest({history.label: history.heads for history in histories})
+
+
+def _refuse_retired_labels_still_defined(
+    retired: tuple[str, ...], app_root: str | pathlib.Path | None, package: str
+) -> None:
+    defined = {tree.label for tree in resolve_all_migration_trees(app_root, package=package)}
+    still = sorted(defined & set(retired))
+    if still:
+        raise RetiredMigrationsError(
+            f"RETIRED_MIGRATIONS retires {still}, which this code still defines: a package "
+            "that is removed is retired in the same release, and one that comes back takes "
+            "a new label, so its old rows can never be read as its new history"
+        )
+
+
+def window_of(
+    database_url: str,
+    app_root: str | pathlib.Path | None = None,
+    *,
+    package: str = "app",
+    histories: list[CodeHistory] | None = None,
+) -> Window:
+    """Judge the database against this code's schema window (ADR 0185 decision 3).
+
+    The one judgment the boot guard, the ``migrate`` preflight and ``terp migrate
+    check`` share, so the three cannot disagree. Raises :class:`OrphanedRevisionsError`
+    for a database outside the window and :class:`RetiredMigrationsError` for a retired
+    list that cannot be read or retires a package the code still defines.
+    """
+    retired = read_retired_migrations(app_root)
+    _refuse_retired_labels_still_defined(retired, app_root, package)
+    if histories is None:
+        histories = _code_histories(database_url, app_root, package)
+    engine = create_engine(database_url, poolclass=NullPool)
+    try:
+        with engine.connect() as connection:
+            return judge_window(connection, histories, run_digest(histories), retired=retired)
+    finally:
+        engine.dispose()
+
+
+def _ensure_record(database_url: str) -> None:
+    """Create the window record before the run, when it is missing (and only then)."""
+    engine = create_engine(database_url, poolclass=NullPool)
+    try:
+        with engine.begin() as connection:
+            ensure_record_table(connection)
+    finally:
+        engine.dispose()
+
+
 def upgrade(
     database_url: str,
     app_root: str | pathlib.Path | None = None,
@@ -278,25 +397,41 @@ def upgrade(
     revision: str = "head",
     schema_layout: str | None = None,
 ) -> list[str]:
-    """Upgrade every discovered package to *revision* (default its head). Returns labels."""
+    """Upgrade every discovered package to *revision* (default its head). Returns labels.
+
+    The preflight is the boot guard's own window check (ADR 0185): a database outside
+    the window is refused before any DDL, and a package ahead inside it is left alone,
+    so a rollback's ``migrate`` finds nothing to apply and runs no DDL. A package
+    already at its head is not run at all. Every revision applied is recorded in the
+    window record, in the same transaction as its version-table update.
+    """
     layout = _effective_layout(schema_layout)
     if layout == "per-module":
         ensure_database_search_path(database_url, app_root, package=package)
-    assert_no_orphaned_revisions(database_url, app_root, package=package)
+    histories = _code_histories(database_url, app_root, package)
+    window = window_of(database_url, app_root, package=package, histories=histories)
+    _ensure_record(database_url)
+    digest = run_digest(histories)
+    heads = {history.label: set(history.heads) for history in histories}
     applied: list[str] = []
     for tree in order_trees_by_dependencies(
         resolve_migration_trees(app_root, package=package)
     ):
-        command.upgrade(
-            alembic_config_for(
-                tree,
-                database_url,
-                app_root=app_root,
-                package=package,
-                schema_layout=layout,
-            ),
-            revision,
+        if tree.label in window.ahead:
+            continue
+        at = window.current.get(tree.label)
+        if revision == "head" and at and set(at) == heads.get(tree.label):
+            applied.append(tree.label)
+            continue
+        config = alembic_config_for(
+            tree,
+            database_url,
+            app_root=app_root,
+            package=package,
+            schema_layout=layout,
         )
+        config.set_main_option("terp_applied_by", digest)
+        command.upgrade(config, revision)
         applied.append(tree.label)
     return applied
 
@@ -483,18 +618,38 @@ def stamp(
     layout = _effective_layout(schema_layout)
     stamped: list[str] = []
     for tree in resolve_migration_trees(app_root, package=package):
-        command.stamp(
-            alembic_config_for(
-                tree,
-                database_url,
-                app_root=app_root,
-                package=package,
-                schema_layout=layout,
-            ),
-            revision,
+        config = alembic_config_for(
+            tree,
+            database_url,
+            app_root=app_root,
+            package=package,
+            schema_layout=layout,
         )
+        command.stamp(config, revision)
+        _clear_record_above(database_url, tree, ScriptDirectory.from_config(config))
         stamped.append(tree.label)
     return stamped
+
+
+def _clear_record_above(database_url: str, tree: MigrationTree, script: ScriptDirectory) -> None:
+    """Delete *tree*'s record rows above what its version table now holds (ADR 0185).
+
+    A stamp writes no row, so a stamped database never opens a window; and clearing the
+    rows above the stamped revision means a revision applied again after a recovery
+    stamp meets no stale row.
+    """
+    engine = create_engine(database_url, poolclass=NullPool)
+    try:
+        with engine.begin() as connection:
+            context = MigrationContext.configure(
+                connection, opts={"version_table": tree.version_table}
+            )
+            keep: set[str] = set()
+            for head in context.get_current_heads():
+                keep.update(rev.revision for rev in script.iterate_revisions(head, "base"))
+            delete_record_rows(connection, tree.label, keep=keep)
+    finally:
+        engine.dispose()
 
 
 def heads(
@@ -623,16 +778,15 @@ def assert_no_orphaned_revisions(
     *,
     package: str = "app",
 ) -> None:
-    """Raise :class:`OrphanedRevisionsError` if the database ran history the code lost.
+    """Raise :class:`OrphanedRevisionsError` if the database is outside the schema window.
 
-    The preflight on every ``upgrade``: without it, a rewritten-after-applied
-    migration surfaces as a bare Alembic ``Can't locate revision identified by
-    '…'`` from deep inside a container log, with no statement of what happened or
-    how to recover.
+    The preflight on every ``upgrade`` and the first refusal of the boot guard. A
+    revision the code does not define is admitted only inside the window the record
+    proves (ADR 0185 decision 3); anything else is history the code lost, which without
+    this surfaces as a bare Alembic ``Can't locate revision identified by '…'`` from
+    deep inside a container log, with no statement of what happened or how to recover.
     """
-    orphaned = orphaned_revisions(database_url, app_root, package=package)
-    if orphaned:
-        raise OrphanedRevisionsError(orphaned)
+    window_of(database_url, app_root, package=package)
 
 
 __all__ = [
@@ -648,8 +802,10 @@ __all__ = [
     "merge_heads",
     "migration_status",
     "orphaned_revisions",
+    "run_digest",
     "runtime_grant_statements",
     "stamp",
     "upgrade",
     "upgrade_sql",
+    "window_of",
 ]

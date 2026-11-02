@@ -149,20 +149,19 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   whose lock is missing or stale before a build finds out. The images are layered (manifests and locks, then the dependencies, then
   the app), carry no BuildKit cache mount, and need BuildKit, the builder of every `docker
   compose` build.
-- **Migrations on upgrade:** pull/build the new images, re-run the `migrate` one-shot,
-  then restart `api`. With a new `TERP_RELEASE_TAG`,
-  `docker compose -f docker-compose.prod.yml up -d --wait --build` does all three in order,
-  and leaves the previous release's images under their own tag.
-- **Starting the previous release again:** set its `TERP_RELEASE_TAG` and run
-  `docker compose -f docker-compose.prod.yml up -d --wait --no-build`. `--no-build` is the
-  point: the profile builds the images it names, so with `--build`, or with an image of that
-  tag pruned, compose would build this checkout and run it under the old tag. Across a
-  migration the previous release's `migrate` refuses a database it does not know; restore
-  the backup taken before the upgrade first.
+- **Migrations on upgrade:** back up the database, then pull/build the new images, re-run
+  the `migrate` one-shot, and restart `api`. With a new `TERP_RELEASE_TAG`,
+  `docker compose -f docker-compose.prod.yml up -d --wait --build` does the last three in
+  order, and leaves the previous release's images under their own tag. The backup comes
+  first, before every `migrate`: a rollback that is not restore-free (below) restores it.
+- **Starting the previous release again:** see *Rolling back a release* below.
 - **DBA-gated releases:** where the migration runner may not touch production, render
   the upgrade as reviewable SQL instead — `terp migrate upgrade --sql > release.sql`
   connects to nothing and includes the version-table bookkeeping, so a script-applied
-  database still reports current to the boot guard (flat layout; ADR 0072).
+  database still reports current to the boot guard (flat layout; ADR 0072). A script
+  writes no migration record, so a release applied from one rolls back by restore, and the
+  script refuses to render an expand-only revision that holds an operation off the expand
+  list.
 - **Transaction-pooling proxies (PgBouncer):** the per-connection `statement_timeout`
   rides a startup parameter such poolers may not pass through. Production refuses
   `DB_STATEMENT_TIMEOUT_MS=0` (a statement timeout is required — fail closed), so
@@ -211,6 +210,50 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   and a companion service, on the backend image in both of its compose profiles.
 - **Observability:** structured JSON logs with request-ids ship by default (ADR 0005);
   collect container stdout. OpenTelemetry wiring is on the roadmap.
+
+## Rolling back a release
+
+A rollback starts the previous release's images again. It never runs a downgrade and never
+applies a revision (ADR 0185). Whether it needs a restore is decided before it is offered,
+by the previous release's own check, run from its image against the live database:
+
+    TERP_RELEASE_TAG=<previous tag> docker compose -f docker-compose.prod.yml \
+        run --rm --no-deps migrate terp migrate check --app-root /srv/app
+
+That is the migration step's own command with `upgrade` as `check` (with no `migrate`
+service, `terp migrate check` in the `api` image). It exits 0 when the database is at that
+release's heads, or inside its schema window: one migration run ahead, every revision of
+that run expand-only, on the same Terp version. Then the rollback is **restore-free**: set
+the previous tag and run nothing else but
+
+    TERP_RELEASE_TAG=<previous tag> docker compose -f docker-compose.prod.yml \
+        up -d --wait --no-build --pull never
+
+`--no-build` and `--pull never` are the point: the profile builds the images it names, so
+with `--build`, or with an image of that tag pruned, compose would build this checkout and
+run it under the old tag, and a bare name would be looked for in a public registry. A tag
+reused for two releases names the newer one's images, and "rolling back" to it starts the
+current release again, whose check passes; give every release a new tag. The previous
+release's `migrate` one-shot, which the profile still runs before `api`, finds nothing to
+apply and exits 0 without DDL; its boot logs one warning naming the revisions it runs behind.
+
+Anything else exits 1, and the rollback is **restore-based**: restore the backup taken
+before the upgrade that followed the target, then start its images as above. Every write
+made since that backup is lost. That is the case when the newer release applied a contract
+revision, applied revisions in two runs, ran on another Terp version, or was applied from an
+offline script. A rollback across no migration at all is always restore-free.
+
+A target that predates Terp 0.35.0 cannot see a history a newer release installed, so its
+check passes there too. Roll back to one without a restore only when the version tables are
+also as they were before the newer release's migration step: `terp promote` keeps that
+reading for an undo in the same invocation, and a rollback without it is restore-based.
+
+**After a rollback, every release keeps the rolled-back release's revision files and the
+model fields and tables they create**, and reverts behaviour only. Removing them is a later
+contract release. A release cut from the rolled-back-to commit that adds a revision of its
+own hangs it off the wrong parent, and its `migrate` refuses before any DDL: cut it from the
+newer release instead. `uv run terp guide migrations` has how to write a revision that keeps
+the previous release running (`expand_only = True`).
 
 ## The deploy declaration
 

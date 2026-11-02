@@ -109,6 +109,7 @@ from terp.arch.rules.migrations import (
     check_table_ownership_is_not_split,
     check_no_destructive_migrations,
 )
+from terp.arch.rules.expand import check_expand_revisions_only_expand
 from terp.arch.rules.jobs import check_jobs_reference_catalog
 from terp.arch.rules.operations import (
     check_operations_reference_catalog,
@@ -243,6 +244,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "alembic_downgrades_not_empty": "migrations",
     "migration_history_is_intact": "migrations",
     "table_ownership_is_not_split": "migrations",
+    "expand_revisions_only_expand": "migrations",
     "no_unique_columns_on_soft_delete_models": "module",
     "canonical_module_shape": "module",
     "modules_ship_tests": "testing",
@@ -413,6 +415,7 @@ RULE_ROOT_KINDS: dict[str, frozenset[RootKind]] = {
     "alembic_downgrades_not_empty": APP_ROOT_ONLY,
     "migration_history_is_intact": APP_ROOT_ONLY,
     "table_ownership_is_not_split": APP_ROOT_ONLY,
+    "expand_revisions_only_expand": APP_ROOT_ONLY,
     "no_unique_columns_on_soft_delete_models": APP_ROOT_ONLY,
     "canonical_module_shape": APP_ROOT_ONLY,
     "modules_ship_tests": APP_ROOT_ONLY,
@@ -535,6 +538,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_alembic_downgrades_not_empty,
     check_migration_history_is_intact,
     check_table_ownership_is_not_split,
+    check_expand_revisions_only_expand,
     check_no_unique_columns_on_soft_delete_models,
     check_references_declare_delete_behaviour,
     check_canonical_module_shape,
@@ -566,6 +570,14 @@ PROJECT_ROOT_RULES: frozenset[str] = frozenset(
 #: itself, so no ``# arch-allow-*`` token names them and none may be budgeted. Mirrors
 #: the Terp Standard's own list (its catalog field ``escape`` replaces ``opt_out``).
 RULES_ESCAPED_BY_THEIR_DECLARATION: frozenset[str] = PROJECT_ROOT_RULES
+
+#: Rules with no way out at all, because the way out is the rule's own subject. A revision
+#: marked ``expand_only = True`` that needs an operation off the expand list is a contract
+#: revision, and saying so (``expand_only = False``) costs only restore-free rollback for
+#: its release (ADR 0185). So no ``# arch-allow-*`` marker suppresses one of these, and
+#: the budget refuses a token naming one. Mirrors the Terp Standard's own list (the
+#: catalog entry declares neither ``opt_out`` nor ``escape``).
+RULES_WITHOUT_AN_OPT_OUT: frozenset[str] = frozenset({"expand_revisions_only_expand"})
 
 
 def check_app(
@@ -612,7 +624,11 @@ def check_app(
                     continue
                 target = root.path.parent if name in PROJECT_ROOT_RULES else root.path
                 raw.extend(rule(target, package=root.package))
-            violations.extend(_apply_suppressions(raw, _scan_allow_markers(root.path)))
+            violations.extend(
+                _apply_suppressions(
+                    raw, _scan_allow_markers(root.path), unwaivable=RULES_WITHOUT_AN_OPT_OUT
+                )
+            )
     if budget_path is not None:
         violations.extend(check_escape_hatch_budget(*roots, budget_path=budget_path, package=package))
     return sorted(violations, key=lambda violation: (violation.path, violation.line, violation.rule))
@@ -689,6 +705,7 @@ __all__ = [
     "EVERY_ROOT",
     "PROJECT_ROOT_RULES",
     "RULES_ESCAPED_BY_THEIR_DECLARATION",
+    "RULES_WITHOUT_AN_OPT_OUT",
     "ArchViolation",
     "GUIDE_TOPIC_BY_RULE",
     "RULE_ROOT_KINDS",
@@ -697,6 +714,7 @@ __all__ = [
     "assert_app_clean",
     "check_alembic_downgrades_not_empty",
     "check_migration_history_is_intact",
+    "check_expand_revisions_only_expand",
     "check_table_ownership_is_not_split",
     "check_app",
     "check_canonical_module_shape",

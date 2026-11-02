@@ -17,7 +17,7 @@ from sqlalchemy.engine import make_url
 
 from terp.core import get_settings
 from terp.core.migrations import MigrationDiscoveryError
-from terp.migrations.errors import MigrationError, PendingMigrationsError
+from terp.migrations.errors import MigrationError
 from terp.migrations.guard import assert_migrations_current
 from terp.migrations.orchestrate import (
     adopt_schemas,
@@ -194,7 +194,10 @@ def _build_parser() -> argparse.ArgumentParser:
     status_parser = sub.add_parser("status", help="Show current-vs-head per package")
     _add_common(status_parser)
 
-    check_parser = sub.add_parser("check", help="Fail if any package is behind head")
+    check_parser = sub.add_parser(
+        "check",
+        help="Exit 0 only at this code's heads or inside its schema window (the rollback check)",
+    )
     _add_common(check_parser)
 
     stamp_parser = sub.add_parser(
@@ -286,13 +289,19 @@ def _migrate(argv: Sequence[str] | None) -> None:
                 raise SystemExit(1) from exc
             print(script, end="")
             return
-        applied = upgrade(
-            database_url,
-            app_root,
-            package=args.package,
-            revision=args.revision,
-            schema_layout=args.schema_layout,
-        )
+        try:
+            applied = upgrade(
+                database_url,
+                app_root,
+                package=args.package,
+                revision=args.revision,
+                schema_layout=args.schema_layout,
+            )
+        except MigrationError as exc:
+            # The migration step's refusal is the deploy's answer: a database outside
+            # the window, an expand-only revision off the list. Printed, exit 1.
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(1) from exc
         print(f"upgraded: {applied}")
         return
     if args.migrate_command == "downgrade":
@@ -397,10 +406,17 @@ def _print_heads(
 
 
 def _check(database_url: str, app_root: pathlib.Path | None, package: str) -> None:
+    """The boot guard, read-only: the rollback check of ADR 0185 decision 6.
+
+    It exits 0 only when the database is at this code's heads or inside its schema
+    window, so run from a rollback target's own image against the live database, exit 0
+    classifies the rollback restore-free and anything else restore-based. It opens an
+    engine and calls the guard; it writes nothing.
+    """
     engine = create_engine(database_url)
     try:
         assert_migrations_current(engine, app_root, package=package)
-    except PendingMigrationsError as exc:
+    except MigrationError as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from exc
     finally:

@@ -882,8 +882,14 @@ def test_runtime_role_gets_dml_and_is_refused_ddl_and_tampering(pg_url: str) -> 
                 "CREATE TABLE notes.evil (id int)",
                 "DROP TABLE notes.note",
                 "ALTER TABLE notes.note ADD COLUMN evil int",
-                # …and refuses tampering with migration state (public is read-only).
+                # …and refuses tampering with migration state (public is read-only),
+                # the schema window's record included (ADR 0185): it takes exactly the
+                # version tables' grants.
                 "DELETE FROM public.alembic_version_notes WHERE 1=0",
+                "INSERT INTO public.terp_migration_window"
+                " SELECT * FROM public.terp_migration_window WHERE 1=0",
+                "UPDATE public.terp_migration_window SET kind = 'expand' WHERE 1=0",
+                "DELETE FROM public.terp_migration_window WHERE 1=0",
             ):
                 with runtime.connect() as conn, pytest.raises(ProgrammingError):
                     conn.exec_driver_sql(refused)
