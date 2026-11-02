@@ -5,8 +5,12 @@ here changes the *process*: it re-points loggers a server configured, and replac
 hooks the interpreter prints a traceback or a warning with. ``configure_logging`` calls
 it for the root logger only, and the hooks only outside local development.
 
-The hooks are a per-app runtime seam (``reset_logging_runtime``), so the test plugin puts
-back whatever a composed production app installed.
+All of it is one per-app runtime seam (``reset_logging_runtime``): the root logger and
+its handlers, uvicorn's loggers and the process hooks. ``create_app`` configures them for
+the process, and a test process composes many apps, so the test plugin snapshots them
+before each test and puts them back after it. Without that, the first test to compose an
+app re-dressed the test runner's own capture handlers for the rest of the session, and a
+later test reading ``caplog`` saw a different record depending on what ran before it.
 """
 
 from __future__ import annotations
@@ -18,7 +22,13 @@ import warnings
 from types import TracebackType
 from typing import Any, Final
 
-from terp.core.logging import log_fields
+from terp.core.logging import (
+    RedactingFilter,
+    RequestContextFilter,
+    _original_formatters,
+    _StructuredStreamHandler,
+    log_fields,
+)
 from terp.core.runtime import register_runtime_seam
 
 # What ``warnings.showwarning`` is before anything replaces it, and what capture_process
@@ -161,36 +171,94 @@ def _show_warning(
     logging.getLogger("py.warnings").warning("%s", text)
 
 
-def _process_state() -> tuple[Any, ...]:
+def _logger_state(logger: logging.Logger) -> tuple[Any, ...]:
+    """What ``configure_logging`` may change on *logger*: itself and each of its handlers."""
     return (
-        sys.excepthook,
-        threading.excepthook,
-        sys.unraisablehook,
-        warnings.showwarning,
-        _replaced_showwarning,
+        logger.level,
+        logger.propagate,
+        tuple(logger.filters),
+        tuple(
+            (handler, handler.formatter, tuple(handler.filters), handler.level)
+            for handler in logger.handlers
+        ),
     )
 
 
-def _restore_process_state(state: tuple[Any, ...]) -> None:
+def _restore_logger(logger: logging.Logger, state: tuple[Any, ...]) -> None:
+    level, propagate, filters, handlers = state
+    logger.setLevel(level)
+    logger.propagate = propagate
+    logger.filters[:] = list(filters)
+    logger.handlers[:] = [handler for handler, *_ in handlers]
+    for handler, formatter, handler_filters, handler_level in handlers:
+        handler.setFormatter(formatter)
+        handler.filters[:] = list(handler_filters)
+        handler.setLevel(handler_level)
+
+
+def _logging_state() -> tuple[Any, ...]:
+    return (
+        _logger_state(logging.getLogger()),
+        tuple(_logger_state(logging.getLogger(name)) for name in _SERVER_LOGGERS),
+        (
+            sys.excepthook,
+            threading.excepthook,
+            sys.unraisablehook,
+            warnings.showwarning,
+            _replaced_showwarning,
+        ),
+    )
+
+
+def _restore_logging_state(state: tuple[Any, ...]) -> None:
     global _replaced_showwarning
+    root, server, process = state
+    _restore_logger(logging.getLogger(), root)
+    for name, logger_state in zip(_SERVER_LOGGERS, server, strict=True):
+        _restore_logger(logging.getLogger(name), logger_state)
     (
         sys.excepthook,
         threading.excepthook,
         sys.unraisablehook,
         warnings.showwarning,
         _replaced_showwarning,
-    ) = state
+    ) = process
+
+
+_FRAMEWORK_FILTERS: Final[tuple[type[logging.Filter], ...]] = (
+    RedactingFilter,
+    RequestContextFilter,
+    _AlreadyLoggedFilter,
+)
+
+
+def _strip(filterer: logging.Filterer) -> None:
+    filterer.filters[:] = [
+        existing for existing in filterer.filters if not isinstance(existing, _FRAMEWORK_FILTERS)
+    ]
 
 
 def reset_logging_runtime() -> None:
-    """Undo what :func:`capture_process` installed, and nothing else.
+    """Undo what ``configure_logging`` and :func:`capture_process` installed, and nothing else.
 
-    Each hook that is this module's goes back to the interpreter's default; one somebody
-    else installed stays. A runtime seam (``terp.core.runtime``), because ``create_app``
-    installs these per app: a test that composes a production app must not leave a
-    process that logs the next test's warnings instead of reporting them.
+    The handler the framework added to the root logger goes; a handler somebody else
+    attached gets its own formatter back and loses the framework's filters; each process
+    hook that is this module's goes back to the interpreter's default, and one somebody
+    else installed stays. uvicorn's own handlers, once removed, are not known here: the
+    test plugin's snapshot (:func:`_logging_state`) is what puts those back.
     """
     global _replaced_showwarning
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        if isinstance(handler, _StructuredStreamHandler):
+            root.removeHandler(handler)
+            continue
+        if handler in _original_formatters:
+            handler.setFormatter(_original_formatters.pop(handler))
+        _strip(handler)
+    _strip(root)
+    for name in _SERVER_LOGGERS:
+        _strip(logging.getLogger(name))
     if sys.excepthook is _log_uncaught:
         sys.excepthook = sys.__excepthook__
     if threading.excepthook is _log_uncaught_in_thread:
@@ -204,8 +272,8 @@ def reset_logging_runtime() -> None:
 
 register_runtime_seam(
     "logging",
-    capture=_process_state,
-    restore=_restore_process_state,
+    capture=_logging_state,
+    restore=_restore_logging_state,
     reset=reset_logging_runtime,
 )
 
