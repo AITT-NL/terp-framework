@@ -39,6 +39,10 @@ jobs:
       # pytest loads its entry-point plugins, or the kernel imported by terp-core's
       # own pytest plugin executes untraced and its import-time lines read as missed.
       - name: Run the gate (tests + arch rules + 100% coverage)
+        env:
+          # This runner has a Docker engine, and one test holds the .dockerignore matcher to
+          # the engine's own builder: here a missing engine fails it instead of skipping it.
+          TERP_REQUIRE_DOCKER_ENGINE: "1"
         run: |
           uv run coverage run -m pytest
           uv run coverage report
@@ -76,6 +80,8 @@ jobs:
         run: uv python install 3.13
 
       - name: Run the suite on the oldest supported interpreter
+        env:
+          TERP_REQUIRE_DOCKER_ENGINE: "1"  # as in the gate
         run: uv run --python 3.13 pytest
 
   # The PostgreSQL conformance lane (ADR 0069): the migration subsystem must hold on
