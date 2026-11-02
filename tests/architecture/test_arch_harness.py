@@ -5844,3 +5844,73 @@ def test_references_declare_delete_behaviour(tmp_path: pathlib.Path) -> None:
         '    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.CASCADE)\n',
     )
     assert check_references_declare_delete_behaviour(app) == []
+
+
+# --------------------------------------------------------------------------- #
+# the deployment declaration (ADR 0184): two rules over the PROJECT root
+# --------------------------------------------------------------------------- #
+# The cases live in test_deployment_declaration.py and test_deployment_truth.py; these
+# hold what is particular to the harness: check_app hands both rules the project root
+# beside the app root, a companion root never runs them, and neither has a marker.
+
+
+def _declared_project(tmp_path: pathlib.Path, declaration: dict) -> pathlib.Path:
+    from tests.architecture.deployment_fixtures import profile
+
+    import yaml
+
+    project = tmp_path / "project"
+    (project / ".git").mkdir(parents=True)
+    _write(project / "app", "__init__.py", "")
+    (project / "deployment.json").write_text(json.dumps(declaration), encoding="utf-8")
+    (project / "docker-compose.prod.yml").write_text(yaml.safe_dump(profile()), encoding="utf-8")
+    return project
+
+
+def test_deployment_declaration_is_readable(tmp_path: pathlib.Path) -> None:
+    from terp.arch import check_deployment_declaration_is_readable
+    from tests.architecture.deployment_fixtures import seed
+
+    broken = seed()
+    broken["units"][0]["image"] = "postgres:latest"
+    project = _declared_project(tmp_path, broken)
+    [violation] = check_deployment_declaration_is_readable(project)
+    assert violation.rule == "deployment_declaration_is_readable"
+    assert violation.path == "deployment.json" and violation.line == 0
+    assert "units[0].image" in violation.message
+    # check_app reaches it through the app root it scans, at the project root beside it.
+    assert [v.rule for v in check_app(project / "app")] == ["deployment_declaration_is_readable"]
+    # A companion root is never held to it: a project has one declaration, beside its app.
+    from terp.arch import RootKind
+
+    companion = ScanRoot(project / "app", package="app", kind=RootKind.COMPANION)
+    assert "deployment_declaration_is_readable" not in {v.rule for v in check_app(companion)}
+
+
+def test_deployment_declaration_tells_the_truth(tmp_path: pathlib.Path) -> None:
+    from terp.arch import check_deployment_declaration_tells_the_truth
+    from tests.architecture.deployment_fixtures import seed, unit
+
+    lying = seed()
+    unit(lying, "migrate")["command"] = ["terp", "migrate", "upgrade"]
+    project = _declared_project(tmp_path, lying)
+    [violation] = check_deployment_declaration_tells_the_truth(project)
+    assert violation.rule == "deployment_declaration_tells_the_truth"
+    assert "units[1].command restates" in violation.message
+    assert [v.rule for v in check_app(project / "app")] == ["deployment_declaration_tells_the_truth"]
+    assert check_deployment_declaration_tells_the_truth(_declared_project(tmp_path / "true", seed())) == []
+
+
+def test_the_declaration_rules_have_no_marker_and_no_budget_key(tmp_path: pathlib.Path) -> None:
+    """A JSON file cannot carry `# arch-allow-*`; the way out is the declaration's own."""
+    from terp.arch import PROJECT_ROOT_RULES, RULES_ESCAPED_BY_THEIR_DECLARATION
+    from terp.arch.rules.budget import _governed_tokens
+
+    assert RULES_ESCAPED_BY_THEIR_DECLARATION == PROJECT_ROOT_RULES
+    assert not {f"arch-allow-{rule.replace('_', '-')}" for rule in PROJECT_ROOT_RULES} & _governed_tokens()
+    app = tmp_path / "app"
+    _write(app, "__init__.py", "")
+    budget = tmp_path / "budget.json"
+    budget.write_text(json.dumps({"arch-allow-deployment-declaration-is-readable": 1}), encoding="utf-8")
+    violations = check_escape_hatch_budget(app, budget_path=budget)
+    assert violations and all("names no rule with a governed opt-out" in v.message for v in violations)

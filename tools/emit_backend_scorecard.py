@@ -45,6 +45,12 @@ def _run_rule(rule: str, app_root: pathlib.Path) -> list:
         )
     if rule == "ungoverned_escape_hatch":
         return arch.ungoverned_marker_violations(app_root)
+    if rule in arch.PROJECT_ROOT_RULES:
+        # A case of a deployment-declaration rule is a project root, and carries the
+        # datastore table its kinds resolve against (absent: the published one).
+        return getattr(arch, f"check_{rule}")(
+            app_root, datastore_table=app_root / "datastore-table.json"
+        )
     return getattr(arch, f"check_{rule}")(app_root)
 
 

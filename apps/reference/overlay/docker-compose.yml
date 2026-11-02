@@ -1,0 +1,347 @@
+# Terp Reference — the full-stack dev workbench.
+#
+#   cp .env.example .env         # optional: set a strong SECRET_KEY
+#   terp docker dev              # (or: docker compose watch) build, migrate, seed, then run
+#
+# Topology: Postgres (prod-parity DB) -> one-shot migrate -> one-shot seed -> the API
+# (uvicorn) and the frontend (Vite). App and frontend source are bind-mounted straight
+# from the checkout (uvicorn --reload + Vite HMR, both polling — reliable on every
+# filesystem); dependency/manifest changes rebuild via compose watch.
+#
+# A dependency change (`uv add`, `npm install <pkg>`) rebuilds an image and every service
+# that runs it comes back up on the new one; a settings change (`.app.env`, `.env`) is
+# applied by `terp docker dev` itself (`terp guide environment`).
+#
+# The reference app adds the services a client app grows (apps/reference/README.md):
+# the outbox `worker`, the `scheduler`, the `monitor` companion from its own source root,
+# and a `mailcatcher` the development relay points at. `terp env init` writes the
+# .app.env that sends mail there; without it, mail is logged instead of delivered.
+name: reference-app
+
+# Shared backend definition — migrate / seed / api / worker / scheduler / monitor run
+# the same image. Only `migrate` declares the build: one builder produces the tag
+# (concurrent builds of a shared tag race in the exporter: "already exists"), every other
+# backend service reuses it.
+#
+# The builder is `migrate`, not `api`, because of what `watch` does after a rebuild. It
+# recreates every container whose image changed, and then STARTS only the rebuilt service
+# and the services that depend on it. Built from `api`, the rebuild left migrate, seed and
+# every other service on this image created and never started -- a worker beside the API
+# stopped after each `uv add`, with no error anywhere. Every backend service already waits
+# for `migrate`, so built from here the rebuild starts all of them, in order: the schema
+# goes to head first (a new capability's tables included), then the rest. That costs one
+# migrate and one seed per dependency change. A service you add on this image must keep
+# `depends_on: migrate` for the same reason; the template's tests hold the shipped ones.
+#
+# `pull_policy: never` because the services that do not build name a tag they cannot
+# produce, and compose's default for a missing image is to pull it: a first `docker
+# compose watch` sends them to a registry for a tag no registry has ("pull access denied
+# for reference-app-backend"), which some compose versions survive and some do not.
+# The tag is only ever built here, so the pull is never attempted. It does not govern
+# building — `migrate` still builds it.
+x-backend: &backend
+  image: reference-app-backend
+  pull_policy: never
+  # App-declared environment variables (environment.schema.json): same seam as
+  # the production profile, so a declared variable behaves identically in the
+  # inner loop. `cp .app.env.example .app.env` to exercise it locally — that is
+  # the file Studio renders per environment, so meeting it here rather than
+  # first in a deployed environment is the point. Optional either way.
+  env_file:
+    - path: .app.env
+      required: false
+  # SCOPING A VARIABLE TO ONE SERVICE (a declaration's "services" field, ADR 0124)
+  # is rendered into `.app.<service>.env`, and only the services that forward that
+  # file see it — so a worker's credentials for a foreign system stop shipping to
+  # api, migrate and seed as well. There is no such service in this template, so
+  # there is nothing to scope yet; the trap is recorded here because this anchor is
+  # where an app adds one.
+  #
+  # YAML merge does NOT concatenate sequences. A service that writes its own
+  # `env_file:` REPLACES this list rather than adding to it, so the shared
+  # `.app.env` silently stops arriving at that service. Both files have to be
+  # listed explicitly:
+  #
+  #   worker:
+  #     <<: *backend
+  #     env_file:
+  #       - path: .app.env          # re-listed on purpose: the merge dropped it
+  #         required: false
+  #       - path: .app.worker.env
+  #         required: false
+  #
+  # `terp verify --only env-seams` reports exactly that omission (`unforwarded`),
+  # so this is a check away rather than a run-time mystery.
+  #
+  # One more difference for a scoped app: `cp .app.env.example .app.env` above only
+  # produces the shared file, so use `terp env init`, which writes every file the
+  # declarations imply. The example stays ONE committed file listing every declared
+  # name — it is a template a human maintains, not a render target.
+  # PRECEDENCE: compose resolves `environment:` OVER `env_file:`. A name that
+  # appears below is therefore supplied by .env (or by the default written here)
+  # and NEVER by .app.env — in every environment, including one with no .env at
+  # all, where `${VAR:-}` still wins with an empty string. So: never list a
+  # variable here that environment.schema.json declares. `terp verify --only
+  # env-seams` fails the gate on exactly that overlap. What belongs here is the
+  # platform's own wiring, plus values only the host can resolve.
+  environment: &backend-env
+    DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+    SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me-please-0123456789ab}
+    ENVIRONMENT: local
+  volumes:
+    # The API and one-shot migrate/seed processes execute the same live checkout.
+    # TERP_DEV_HOST_ROOT is the checkout as the Docker daemon sees it.
+    - ${TERP_DEV_HOST_ROOT:-.}/app:/app/app
+    - ${TERP_DEV_HOST_ROOT:-.}/control_plane:/app/control_plane
+    # Uploaded blobs survive container rebuilds.
+    - files-data:/app/var/files
+
+# Every service logs through this. Docker's default driver on a Synology NAS
+# is `db`: one SQLite database per container, with no size cap anywhere in the
+# default configuration. Appending a log line to a database that has grown to
+# tens of megabytes scatters small synchronous writes across the whole file,
+# which is enough to saturate a spindle on its own. A flat file that rotates
+# by size costs a fraction of that, and holds the same logs.
+x-logging: &container-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    # Not published to the host: the API reaches it over the Compose network (db:5432), so the
+    # workbench never collides with a Postgres already running on the host. To connect a
+    # database client from the host, add `ports: ["${DB_PORT:-21400}:5432"]` and declare
+    # DB_PORT in workbench.json in the same change -- a literal host port is what stops two
+    # projects running at once, and 21400 keeps it inside the range Terp owns rather than on
+    # top of a Postgres the developer already has.
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
+
+  # One-shot: bring every package's schema up to head before the API serves.
+  # Also the backend image's one builder: see the note on the shared definition above.
+  migrate:
+    <<: *backend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["terp", "migrate", "upgrade", "--app-root", "/app/app"]
+    depends_on:
+      db:
+        condition: service_healthy
+    develop:
+      watch:
+        # The lock, not pyproject.toml. `uv add` writes pyproject.toml twice, before and
+        # after it resolves -- up to 1.3 s apart, measured -- and watch batches only what
+        # lands within half a second: the second write arrived during the first rebuild
+        # and fired a second rebuild and a second recreate of every backend service. uv
+        # writes the lock once it has resolved (twice, under 0.1 s apart), so one change is
+        # one rebuild -- and an edit to pyproject.toml that changes no dependency (a tool's
+        # settings) no longer rebuilds anything.
+        - action: rebuild
+          path: uv.lock
+    logging: *container-logging
+
+  # One-shot: seed a usable admin (admin@example.test) + demo content. Idempotent, dev-only.
+  seed:
+    <<: *backend
+    command: ["terp", "seed"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *container-logging
+
+  api:
+    <<: *backend
+    # --timeout-graceful-shutdown: a realtime stream ends when its client goes away and not
+    # otherwise, and uvicorn waits for in-flight tasks forever by default, so one open tab
+    # would hold every reload. Three seconds, because the reload loop pays it per edit.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--timeout-graceful-shutdown", "3"]
+    environment:
+      <<: *backend-env
+      # Bind-mounted source can live on a filesystem without inotify (Docker
+      # Desktop mounts, the Studio's checkout volume) — poll instead of miss.
+      WATCHFILES_FORCE_POLLING: "true"
+    ports:
+      # 22100, not 8000. The host side of every published port in this file sits
+      # in a range Terp owns (web 21100+, api 22100+, deploy 23100+); the
+      # container side stays conventional because it is on the Compose network
+      # and cannot collide with anything. 8000 and 5173 are where OTHER
+      # applications on a developer's machine live, so a default there is a
+      # collision with something the app has never heard of -- and the workbench
+      # that assigns these ports has always allocated out of the Terp range,
+      # which made the old defaults a contradiction rather than a preference.
+      #
+      # REQUIRED, not defaulted. A default is right when any value will do, and
+      # a host port is exactly the case where it will not: the value a default
+      # would carry is the first pair an assigner hands out, so an app started
+      # without an assignment landed on the ports of whichever checkout holds
+      # that pair -- and because the project name is pinned below, that is the
+      # same containers rather than a second stack. Compose refusing here is the
+      # loud version of a failure that used to be silent. `terp docker dev`
+      # assigns on demand, so this is only ever reached by a bare
+      # `docker compose` (ADR 0134).
+      - "${API_PORT:?unset - run 'terp ports assign' to claim a host port pair for this checkout}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    image: reference-app-frontend
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+    environment:
+      TERP_API_PROXY: http://api:8000
+      # Poll the bind-mounted source (no inotify across Desktop/volume mounts).
+      TERP_DEV_FORCE_POLLING: "true"
+      # Who may embed this dev server in an iframe (frontend/vite.config.ts).
+      # Empty — the default, and what a hand-run `terp docker dev` gets — means
+      # `frame-ancestors 'none'`. A workbench that shows this app in a preview
+      # pane exports its OWN browser origin here before starting the stack;
+      # nothing inside the app can grant it, and nothing else needs to.
+      TERP_DEV_FRAME_ANCESTORS: ${TERP_DEV_FRAME_ANCESTORS:-}
+    ports:
+      # 21100, not 5173 -- see the api service's note on the port range, and on
+      # why this is required rather than defaulted.
+      - "${WEB_PORT:?unset - run 'terp ports assign' to claim a host port pair for this checkout}:5173"
+    healthcheck:
+      # Vite answers its root as soon as the port binds — which is BEFORE
+      # dependency pre-bundling settles, and a request during that window can
+      # still 504. This is therefore the LIVENESS question ("is a dev server
+      # there?"), not a readiness one; a workbench that has to know the page
+      # will actually render asks the app, which answers only once it has
+      # mounted. What this buys is what compose itself needs: `up --wait` and
+      # `depends_on: service_healthy` get a signal for the frontend, exactly as
+      # they already have for `db` and `api`.
+      #
+      # Node, not wget or curl: this image is `node:24-slim`, which ships
+      # neither. Using the runtime that is guaranteed present is the same
+      # reasoning that has the `api` healthcheck reach for `python`.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:5173/').then(() => process.exit(0), () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    volumes:
+      # The WHOLE frontend, not just src/. `main.tsx` imports `../layout-contract.json`
+      # and `../i18n.json`, which sit one level ABOVE src/ -- so with only src/ mounted
+      # Vite resolved both to the copies baked into the image at build time, and editing
+      # nav groups, shell density, the default theme or the locale set changed nothing in
+      # the running stack, with no error anywhere. `vite.config.ts` and `tsconfig.json`
+      # were frozen the same way.
+      #
+      # Worse than invisible: the boundary lint reads the declaration from the CHECKOUT,
+      # so the file a check passes on and the file the app runs on could differ while the
+      # toolchain stayed green.
+      #
+      # The mask over node_modules is not optional. Without it a `node_modules` in the
+      # checkout (a host `npm install`) shadows the image's, and a dependency built for
+      # the developer's own platform is handed to a Linux container -- Vite then fails on
+      # a native binding with an error that names neither the mount nor the cause.
+      #
+      # A `tmpfs`, and never a volume. The image installs its dependencies one level up
+      # (`/app/node_modules`, see frontend/Dockerfile), so this directory holds nothing
+      # the app needs and the mask only has to hide. An anonymous volume here was seeded
+      # from the image once and then REUSED by every recreate, so after a dependency bump
+      # the rebuilt image had the new tree and the container kept running the old one --
+      # silently, and `watch`'s rebuild below could not reach it. A tmpfs is empty on
+      # every start, so there is nothing for a recreate to carry forward.
+      - ${TERP_DEV_HOST_ROOT:-.}/frontend:/app/frontend
+      - type: tmpfs
+        target: /app/frontend/node_modules
+    depends_on:
+      - api
+    develop:
+      watch:
+        # A rebuild here recreates `web` and nothing else -- as long as every container
+        # was created by this same `watch`. A watch converges the whole stack against the
+        # configuration it loaded at its start and recreates, without starting, every
+        # service that disagrees: one that outlived a settings change, or -- on Compose
+        # v2, which hashes an `env_file` service differently under `up` -- one that an
+        # `up -d` beside it created. Either way the frontend rebuild took the backend
+        # down. `terp docker dev` starts watch again when a file it loaded changes and
+        # never runs `up` beside it; driving compose by hand, do the same.
+        - action: rebuild
+          path: frontend/package.json
+    logging: *container-logging
+
+  # Drains the durable outbox: the mail a notice sends, the snapshot the schedule takes.
+  # `terp jobs worker` delivers what is due and returns (the external-trigger model,
+  # ADR 0045), so this loop is the supervisor that runs it again. The trap ends the loop
+  # on `docker compose stop`; a batch in flight finishes first. `init` puts a real init
+  # in front of the shell, so the stop signal reaches it at all.
+  worker:
+    <<: *backend
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while :; do terp jobs worker; sleep 5 & wait $$!; done"]
+    init: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *container-logging
+
+  # Fires the declared schedules on their cron (`terp jobs scheduler`, APScheduler). Each
+  # tick only enqueues, so the worker runs what it fires. No healthcheck and nothing
+  # depends on it: a scheduler that stops delays the next snapshot and turns no service
+  # that answers a request red. `init` because a Python process as PID 1 ignores the stop
+  # signal it has no handler for, and this one installs none.
+  scheduler:
+    <<: *backend
+    command: ["terp", "jobs", "scheduler"]
+    init: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *container-logging
+
+  # The companion (`monitor/`): a second deployable that create_app never mounts, on the
+  # backend image, with ITS OWN source root mounted live. It reads only the database, so
+  # it mounts only itself -- and the list is spelled out because a service's own
+  # `volumes:` replaces the anchor's rather than adding to it.
+  monitor:
+    <<: *backend
+    command: ["python", "-m", "monitor"]
+    volumes:
+      - ${TERP_DEV_HOST_ROOT:-.}/monitor:/app/monitor
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *container-logging
+
+  # Catches every mail the development relay sends (SMTP on 1025, inbox on 8025). The
+  # inbox is published on an ephemeral loopback port, so two checkouts never collide:
+  # `docker compose port mailcatcher 8025` names it. Development only -- the production
+  # profile sends through a real, encrypted relay, and a production boot refuses
+  # SMTP_SECURITY=none.
+  mailcatcher:
+    image: axllent/mailpit:v1.31
+    ports:
+      - "127.0.0.1::8025"
+    logging: *container-logging
+
+volumes:
+  db-data:
+  files-data:

@@ -82,6 +82,14 @@ dockerignored — it may hold secrets and must never be committed or baked into
 an image. Frontend (`VITE_*`) values are build-time, not run-time, and do not
 belong in this manifest.
 
+A value only a deployment needs is declared `"requiredIn": ["production"]` rather than
+`required`, so the development loop is not asked for it. An outgoing mail relay is the common
+case: `MAIL_FROM` and `SMTP_HOST` are required where production runs, the relay is external,
+and every environment that is not production gets a mail catcher offering TLS instead, its
+authority named in `SMTP_CA_FILE`. A real relay outside production is an operator's choice for
+that one environment, kept with the deploying tool's environment policy and never in the
+app's files. `uv run terp guide mail` has the declaration block.
+
 ## Least-privilege database (optional hardening)
 
 Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
@@ -122,6 +130,14 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
 - **Health:** `GET /health/live` (process up) and `GET /health/ready` (DB reachable) on
   the API (ADR 0024); both containers ship `HEALTHCHECK`s and the profile uses
   `--wait`-able healthchecks + `restart: unless-stopped`.
+- **Builds install the committed locks:** the template's backend image runs `uv sync
+  --locked --no-dev` and its web image `npm ci`, so an image holds exactly what `uv.lock` and
+  `frontend/package-lock.json` record, and a lock that disagrees with its manifest stops the
+  build. Commit both locks; `uv lock` and `npm --prefix frontend install` bring them along with
+  a dependency change, and `terp verify --only locks` refuses an app with a `deployment.json`
+  whose lock is missing or stale before a build finds out. The images are layered (manifests and locks, then the dependencies, then
+  the app), carry no BuildKit cache mount, and need BuildKit, the builder of every `docker
+  compose` build.
 - **Migrations on upgrade:** pull/build the new images, re-run the `migrate` one-shot,
   then restart `api`. `docker compose -f docker-compose.prod.yml up -d --wait --build`
   does all three in order.
@@ -161,9 +177,21 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   `ThrottleStore` / `IdempotencyStore` / `CacheStore` adapters (ADR 0078). Background
   delivery (outbox / webhooks / scheduler) runs via
   `terp jobs worker` / `terp jobs scheduler` — add those as extra services when you
-  enable the corresponding capabilities.
+  enable the corresponding capabilities. The reference app (`apps/reference`) runs both,
+  and a companion service, on the backend image in both of its compose profiles.
 - **Observability:** structured JSON logs with request-ids ship by default (ADR 0005);
   collect container stdout. OpenTelemetry wiring is on the roadmap.
+
+## The deploy declaration
+
+`deployment.json` at the project root tells a tool that deploys the app which units the
+profile runs, how each answers whether it is ready, which migration histories each owns and
+what holds state (ADR 0184). The template writes one describing `db`, `migrate`, `api` and
+`web`; keep it true when the profile grows, and `terp verify --only deployment` (also run by
+`terp check`) says where it is not. It never asks whether a topology is approved, and deploy
+policy (who may publish, approvals, gate policy) never belongs in it. The bundled database is
+pinned by digest to the datastore table the framework release publishes, so a `docker compose
+pull` cannot move it under a running deployment. `uv run terp guide deployment` has the rules.
 
 ## CI guard
 
@@ -173,4 +201,6 @@ through the nginx `/api` proxy, exercises an authenticated round-trip, and asser
 `terp seed` refuses production. The structure tests in
 `tests/architecture/test_prod_profile.py` hold the profile's hardening invariants (no
 seed service, no dev secret fallback, no `--reload`, multi-stage wheel images, non-root,
-template parity) at every gate run.
+template parity) at every gate run, and `tests/architecture/test_template_build_inputs.py`
+holds the template's images to their locks, their layer order and a build context with no
+secret in it.

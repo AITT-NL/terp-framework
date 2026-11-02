@@ -33,11 +33,13 @@ _CORPUS = _SPEC / "corpus" / "backend"
 def _run_rule(rule: str, app_root: pathlib.Path) -> list:
     """Run the reference check for *rule* over *app_root*.
 
-    Two rules have bespoke entry points (their catalog entries name the same
+    Four rules have bespoke entry points (their catalog entries name the same
     refs): ``escape_hatch_budget`` takes the checked-in budget as an explicit
     input (the corpus case ships it as ``escape-hatch-budget.json`` at the case
-    root), and ``ungoverned_escape_hatch`` is projected by
-    ``ungoverned_marker_violations`` (the budget-less condition).
+    root), ``ungoverned_escape_hatch`` is projected by
+    ``ungoverned_marker_violations`` (the budget-less condition), and the two
+    deployment-declaration rules take the project root and the case's
+    ``datastore-table.json``.
     """
     if rule == "escape_hatch_budget":
         return arch.check_escape_hatch_budget(
@@ -45,6 +47,13 @@ def _run_rule(rule: str, app_root: pathlib.Path) -> list:
         )
     if rule == "ungoverned_escape_hatch":
         return arch.ungoverned_marker_violations(app_root)
+    if rule in arch.PROJECT_ROOT_RULES:
+        # The deployment-declaration rules read a PROJECT root, which is what such a
+        # case is, and resolve a datastore kind against the table the case ships as
+        # `datastore-table.json` (the stack's own when the case names no kind).
+        return getattr(arch, f"check_{rule}")(
+            app_root, datastore_table=app_root / "datastore-table.json"
+        )
     return getattr(arch, f"check_{rule}")(app_root)
 
 

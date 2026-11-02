@@ -50,6 +50,10 @@ from terp.arch.rules.authz import (
     check_public_modules_are_read_only,
 )
 from terp.arch.rules.budget import check_escape_hatch_budget
+from terp.arch.rules.deployment import (
+    check_deployment_declaration_is_readable,
+    check_deployment_declaration_tells_the_truth,
+)
 from terp.arch.rules.datetimes import (
     check_datetime_columns_are_timezone_aware,
     check_no_naive_datetime,
@@ -164,6 +168,8 @@ from terp.arch.rules.traits import (
 # :data:`_ALL_RULES` has a topic, and every topic is a real ``terp guide`` topic)
 # is locked by ``test_arch_harness`` / ``test_docs_parity`` meta-tests.
 GUIDE_TOPIC_BY_RULE: dict[str, str] = {
+    "deployment_declaration_is_readable": "deployment",
+    "deployment_declaration_tells_the_truth": "deployment",
     "no_internal_imports": "module",
     "no_cross_module_imports": "dependencies",
     "cross_module_imports_use_public_surface": "dependencies",
@@ -414,6 +420,10 @@ RULE_ROOT_KINDS: dict[str, frozenset[RootKind]] = {
     "no_dependency_overrides": APP_ROOT_ONLY,
     "no_adhoc_middleware": APP_ROOT_ONLY,
     "no_adhoc_logging_config": APP_ROOT_ONLY,
+    # A project has one deployment declaration, beside its app root, so the two rules that
+    # read it run once per app root and never for a companion.
+    "deployment_declaration_is_readable": APP_ROOT_ONLY,
+    "deployment_declaration_tells_the_truth": APP_ROOT_ONLY,
     # The escape-hatch governance half is about the markers rather than the code, so
     # it is evaluated over every root the call scans.
     "escape_hatch_budget": EVERY_ROOT,
@@ -532,7 +542,22 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_no_dependency_overrides,
     check_no_adhoc_middleware,
     check_no_adhoc_logging_config,
+    check_deployment_declaration_is_readable,
+    check_deployment_declaration_tells_the_truth,
 )
+
+#: Rules that read the PROJECT root -- the directory holding the app root, where
+#: ``deployment.json`` and its profile live -- rather than the app package itself.
+#: :func:`check_app` hands each of them the parent of the root it scans.
+PROJECT_ROOT_RULES: frozenset[str] = frozenset(
+    {"deployment_declaration_is_readable", "deployment_declaration_tells_the_truth"}
+)
+
+#: Rules whose subject is a checked-in declaration that cannot carry an inline marker
+#: (a JSON file has no comments). Their one way out is a state of the declaration
+#: itself, so no ``# arch-allow-*`` token names them and none may be budgeted. Mirrors
+#: the Terp Standard's own list (its catalog field ``escape`` replaces ``opt_out``).
+RULES_ESCAPED_BY_THEIR_DECLARATION: frozenset[str] = PROJECT_ROOT_RULES
 
 
 def check_app(
@@ -574,9 +599,11 @@ def check_app(
         for root in roots:
             raw: list[ArchViolation] = []
             for rule in _ALL_RULES:
-                if root.kind not in root_kinds_for(rule.__name__.removeprefix("check_")):
+                name = rule.__name__.removeprefix("check_")
+                if root.kind not in root_kinds_for(name):
                     continue
-                raw.extend(rule(root.path, package=root.package))
+                target = root.path.parent if name in PROJECT_ROOT_RULES else root.path
+                raw.extend(rule(target, package=root.package))
             violations.extend(_apply_suppressions(raw, _scan_allow_markers(root.path)))
     if budget_path is not None:
         violations.extend(check_escape_hatch_budget(*roots, budget_path=budget_path, package=package))
@@ -652,6 +679,8 @@ def ungoverned_marker_violations(
 __all__ = [
     "APP_ROOT_ONLY",
     "EVERY_ROOT",
+    "PROJECT_ROOT_RULES",
+    "RULES_ESCAPED_BY_THEIR_DECLARATION",
     "ArchViolation",
     "GUIDE_TOPIC_BY_RULE",
     "RULE_ROOT_KINDS",
@@ -695,6 +724,8 @@ __all__ = [
     "check_errors_use_the_typed_envelope",
     "check_no_exception_text_in_responses",
     "check_datetime_columns_are_timezone_aware",
+    "check_deployment_declaration_is_readable",
+    "check_deployment_declaration_tells_the_truth",
     "check_no_oversized_python_files",
     "check_no_blocking_sleep",
     "check_no_empty_tests",

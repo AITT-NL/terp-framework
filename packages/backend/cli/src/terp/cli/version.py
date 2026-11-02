@@ -234,6 +234,7 @@ def scaffold_ref(root: pathlib.Path) -> str | None:
 #: bootstrap's three duplicated facts get, so this list cannot rot into a wrong answer.
 _APP_OWNED_SCAFFOLD_FILES = (
     "control_plane/app_operations.py",
+    "deployment.json",
     "environment.schema.json",
     "escape-hatch-budget.json",
     "frontend/escape-hatch-budget.json",

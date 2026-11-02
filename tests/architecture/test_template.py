@@ -382,10 +382,12 @@ def test_project_ships_frontend_ci() -> None:
     # of the gate: the boundary lint, the typecheck and the build all live in the `full`
     # profile, and all of them shell out to npm. What CI owes them is node and an
     # installed frontend/node_modules — naming the checks is the profile's job
-    # (test_cli_verify.py::test_the_full_profile_is_the_template_ci_surface).
+    # (test_cli_verify.py::test_the_full_profile_is_the_template_ci_surface). Installed
+    # from the committed lock, as the production image installs it
+    # (test_template_build_inputs.py).
     ci = (_PROJECT / ".github" / "workflows" / "ci.yml.jinja").read_text()
     assert "actions/setup-node" in ci
-    assert "npm --prefix frontend install" in ci
+    assert "npm --prefix frontend ci" in ci
     assert "terp verify --profile full" in ci
 
 
@@ -461,6 +463,23 @@ def test_project_ships_a_docker_workbench() -> None:
     assert "process.env.TERP_API_PROXY" in vite_config
     # The README teaches the one-command workbench.
     assert "terp docker dev" in (_PROJECT / "README.md.jinja").read_text()
+
+
+def test_both_images_hand_the_file_storage_root_to_the_user_they_run_as() -> None:
+    """A volume mounted on the files capability's storage root has to be writable.
+
+    Both images run as `appuser`, and `var/files` (the default profile's root, relative to
+    the working directory) did not exist in either. Docker creates a named volume's mount
+    point owned by root when the image has no directory there, so with `use_files` on, the
+    first upload in the development stack failed with a permission error; the reference
+    app's worker, which stores every snapshot there, is what found it.
+    """
+    dev = (_PROJECT / "Dockerfile").read_text(encoding="utf-8")
+    # Created before the recursive chown that hands /app to the user, so it is included.
+    assert "mkdir -p /app/var/files && chown -R appuser /app" in dev
+    prod = (_PROJECT / "Dockerfile.prod").read_text(encoding="utf-8")
+    assert "mkdir -p /srv/var/files && chown appuser /srv/var/files" in prod
+    assert "WORKDIR /srv" in prod, "the storage root is relative to the working directory"
 
 
 def test_the_app_declares_its_own_operations_outside_the_template_owned_catalog() -> None:
@@ -1443,3 +1462,36 @@ def test_the_acceptance_lane_audits_the_rendered_workflow() -> None:
         "rendered — add the zizmor step, so the artifact a client receives meets the "
         "same bar as the one this repository runs"
     )
+
+
+def test_the_deploy_declaration_is_seeded_by_copy_and_never_by_update() -> None:
+    """ADR 0184 decision 1: a fresh render is declared; an existing app stays as it was.
+
+    `_skip_if_exists` keeps copier from overwriting the app's own file, and does not stop
+    an update from CREATING one in an app that never had it -- the route by which a seed
+    reaches existing apps (ADR 0130). So the template also excludes the file whenever the
+    operation is an update. Both halves are structural here; template acceptance renders
+    an update of a pre-seed app and finds no declaration afterwards.
+    """
+    import yaml
+
+    config = yaml.safe_load((_TEMPLATE / "copier.yml").read_text(encoding="utf-8"))
+    assert "deployment.json" in config["_skip_if_exists"]
+    assert config["_exclude"] == ["{% if _copier_operation == 'update' %}deployment.json{% endif %}"]
+    seeded = json.loads((_PROJECT / "deployment.json").read_text(encoding="utf-8"))
+    assert seeded["build"] == "own" and [unit["id"] for unit in seeded["units"]] == [
+        "db",
+        "migrate",
+        "api",
+        "web",
+    ]
+    workflow = yaml.safe_load(
+        (_TEMPLATE.parent / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    )
+    [step] = [
+        step
+        for step in workflow["jobs"]["template-acceptance"]["steps"]
+        if step.get("name", "").startswith("An update never creates the deploy declaration")
+    ]
+    assert "copier update" in step["run"] and "test ! -e app/deployment.json" in step["run"]
+    assert "test -f fresh/deployment.json" in step["run"]

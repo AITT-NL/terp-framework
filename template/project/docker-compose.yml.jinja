@@ -7,18 +7,32 @@
 # (uvicorn) and the frontend (Vite). App and frontend source are bind-mounted straight
 # from the checkout (uvicorn --reload + Vite HMR, both polling — reliable on every
 # filesystem); dependency/manifest changes rebuild via compose watch.
+#
+# A dependency change (`uv add`, `npm install <pkg>`) rebuilds an image and every service
+# that runs it comes back up on the new one; a settings change (`.app.env`, `.env`) is
+# applied by `terp docker dev` itself (`terp guide environment`).
 name: {{ project_slug }}
 
-# Shared backend definition — migrate / seed / api run the same image. Only the `api`
-# service declares the build: one builder produces the tag (concurrent builds of a shared
-# tag race in the exporter: "already exists"), the one-shots reuse it.
+# Shared backend definition — migrate / seed / api run the same image. Only `migrate`
+# declares the build: one builder produces the tag (concurrent builds of a shared tag race
+# in the exporter: "already exists"), every other backend service reuses it.
 #
-# `pull_policy: never` because the one-shots name a tag they cannot produce, and
-# compose's default for a missing image is to pull it: a first `docker compose watch`
-# sends them to a registry for a tag no registry has ("pull access denied for
-# {{ project_slug }}-backend"), which some compose versions survive and some do not.
+# The builder is `migrate`, not `api`, because of what `watch` does after a rebuild. It
+# recreates every container whose image changed, and then STARTS only the rebuilt service
+# and the services that depend on it. Built from `api`, the rebuild left migrate, seed and
+# every other service on this image created and never started -- a worker beside the API
+# stopped after each `uv add`, with no error anywhere. Every backend service already waits
+# for `migrate`, so built from here the rebuild starts all of them, in order: the schema
+# goes to head first (a new capability's tables included), then the rest. That costs one
+# migrate and one seed per dependency change. A service you add on this image must keep
+# `depends_on: migrate` for the same reason; the template's tests hold the shipped ones.
+#
+# `pull_policy: never` because the services that do not build name a tag they cannot
+# produce, and compose's default for a missing image is to pull it: a first `docker
+# compose watch` sends them to a registry for a tag no registry has ("pull access denied
+# for {{ project_slug }}-backend"), which some compose versions survive and some do not.
 # The tag is only ever built here, so the pull is never attempted. It does not govern
-# building — `api` still builds it.
+# building — `migrate` still builds it.
 x-backend: &backend
   image: {{ project_slug }}-backend
   pull_policy: never
@@ -131,12 +145,27 @@ services:
     logging: *container-logging
 
   # One-shot: bring every package's schema up to head before the API serves.
+  # Also the backend image's one builder: see the note on the shared definition above.
   migrate:
     <<: *backend
+    build:
+      context: .
+      dockerfile: Dockerfile
     command: ["terp", "migrate", "upgrade", "--app-root", "/app/app"]
     depends_on:
       db:
         condition: service_healthy
+    develop:
+      watch:
+        # The lock, not pyproject.toml. `uv add` writes pyproject.toml twice, before and
+        # after it resolves -- up to 1.3 s apart, measured -- and watch batches only what
+        # lands within half a second: the second write arrived during the first rebuild
+        # and fired a second rebuild and a second recreate of every backend service. uv
+        # writes the lock once it has resolved (twice, under 0.1 s apart), so one change is
+        # one rebuild -- and an edit to pyproject.toml that changes no dependency (a tool's
+        # settings) no longer rebuilds anything.
+        - action: rebuild
+          path: uv.lock
     logging: *container-logging
 
   # One-shot: seed a usable admin (admin@example.test) + demo content. Idempotent, dev-only.
@@ -150,9 +179,6 @@ services:
 
   api:
     <<: *backend
-    build:
-      context: .
-      dockerfile: Dockerfile
     # --timeout-graceful-shutdown: a realtime stream ends when its client goes away and not
     # otherwise, and uvicorn waits for in-flight tasks forever by default, so one open tab
     # would hold every reload. Three seconds, because the reload loop pays it per edit.
@@ -193,10 +219,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    develop:
-      watch:
-        - action: rebuild
-          path: pyproject.toml
     logging: *container-logging
 
   web:
@@ -268,6 +290,14 @@ services:
       - api
     develop:
       watch:
+        # A rebuild here recreates `web` and nothing else -- as long as every container
+        # was created by this same `watch`. A watch converges the whole stack against the
+        # configuration it loaded at its start and recreates, without starting, every
+        # service that disagrees: one that outlived a settings change, or -- on Compose
+        # v2, which hashes an `env_file` service differently under `up` -- one that an
+        # `up -d` beside it created. Either way the frontend rebuild took the backend
+        # down. `terp docker dev` starts watch again when a file it loaded changes and
+        # never runs `up` beside it; driving compose by hand, do the same.
         - action: rebuild
           path: frontend/package.json
     logging: *container-logging

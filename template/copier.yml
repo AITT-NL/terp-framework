@@ -49,9 +49,23 @@ _skip_if_exists:
   # would make the declaration a description of the template rather than of
   # the app, which is the opposite of its purpose.
   - workbench.json
+  # The deploy declaration (ADR 0184), seeded describing the template's own production
+  # profile. The app's from the first render, for the reason workbench.json is: a
+  # topology the app grows has to stay described across upgrades.
+  - deployment.json
   - frontend/src/theme.css
   - frontend/src/house-style.css
   - frontend/layout-contract.json
+
+# Files a re-render must never CREATE. `_skip_if_exists` alone does not hold that: it only
+# stops copier overwriting a file that exists, and an update still creates one that is
+# absent -- which is how a seed reaches an app that never had it. The deploy declaration
+# is a statement about the app's own deployment, so it is written by `copier copy` into a
+# fresh render and by nothing else: an app rendered before it existed stays undeclared
+# (its check a no-op) until it declares itself on purpose (ADR 0184 decision 1). Held by
+# the `copier update` step of template acceptance.
+_exclude:
+  - "{% if _copier_operation == 'update' %}deployment.json{% endif %}"
 
 project_name:
   type: str
