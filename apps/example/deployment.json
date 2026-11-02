@@ -1,0 +1,51 @@
+{
+  "$comment": "The example app's deploy declaration (ADR 0184): the template's seed, with the api unit claiming the four migration histories the example's modules ship, so the label rule has an app-module label to check. `terp verify --only deployment` holds it to docker-compose.prod.yml and to the app; `terp guide deployment` has the rules.",
+  "schemaVersion": 1,
+  "build": "own",
+  "compose": {
+    "file": "docker-compose.prod.yml"
+  },
+  "units": [
+    {
+      "id": "db",
+      "role": "database",
+      "kind": "postgres",
+      "version": "17",
+      "stateful": true,
+      "backup": {
+        "every": "P1D",
+        "keep": "P30D"
+      }
+    },
+    {
+      "id": "migrate",
+      "role": "one-shot",
+      "dependsOn": [
+        "db"
+      ]
+    },
+    {
+      "id": "api",
+      "role": "api",
+      "healthPath": "/health/ready",
+      "livenessPath": "/health/live",
+      "dependsOn": [
+        "db",
+        "migrate"
+      ],
+      "migrations": [
+        "journals",
+        "notes",
+        "projects",
+        "tasks"
+      ]
+    },
+    {
+      "id": "web",
+      "role": "web",
+      "dependsOn": [
+        "api"
+      ]
+    }
+  ]
+}

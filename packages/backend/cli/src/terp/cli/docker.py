@@ -15,6 +15,26 @@ This command owns the topology, so it knows which services exited non-zero and c
 their last lines before it returns. Reporting an exit code for a failure whose cause you
 are holding is the platform knowing the answer and not saying it.
 
+It also keeps ``watch`` on the configuration the containers run. ``watch`` loads the
+project once, when it starts, and every rebuild after that converges the WHOLE project
+against that copy: a service whose configuration differs from it is recreated from the
+copy, and only the rebuilt service and its dependents are started again. Two things made
+them differ, both measured on Compose v2.40.3 with the reference app:
+
+- a settings change. ``watch`` never sees it, so after ``.app.env`` changed and
+  ``docker compose up -d`` applied it, a frontend dependency change put every backend
+  service back on the OLD settings and left all of them stopped, with no error;
+- ``up`` itself. v2's ``watch`` keeps a service's ``env_file`` list in the project it
+  hashes and ``up`` drops it after reading the files, so the two disagree about every
+  service with an ``env_file`` even when nothing changed: an ``up -d`` beside a running
+  ``watch``, or a ``watch --no-up`` after an ``up``, and the next frontend rebuild stopped
+  the whole backend.
+
+So this command watches the files the project is loaded from (:func:`model_inputs`), and
+when one changes it stops ``watch`` and starts it again: its own ``up`` applies the change
+(recreating what it touched) with the same hashes its rebuilds will use. A settings change
+needs no command of its own, and there is never an ``up`` beside the ``watch``.
+
 A pure planner (:func:`docker_dev_argv`, :func:`compose_ps_argv`, :func:`compose_logs_argv`)
 plus pure parsing (:func:`failed_services`) and a thin executor with the process runners
 injected, so the orchestration is testable without Docker.
@@ -22,11 +42,17 @@ injected, so the orchestration is testable without Docker.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import pathlib
 import shutil
+import signal
 import subprocess
+import sys
+import time
 from collections.abc import Callable, Sequence
+from typing import Protocol
 
 from terp.cli import ports
 from terp.cli._output import emit
@@ -38,10 +64,40 @@ _DEFAULT_COMPOSE = "docker-compose.yml"
 #: bounded, because this prints after a failure the reader is already parsing.
 _LOG_TAIL_LINES = 50
 
+#: Seconds between two looks at the files the compose project is loaded from. Hashing a
+#: handful of small files costs nothing, and a settings change is applied within a second.
+_POLL_SECONDS = 1.0
+
+#: Seconds a stopped ``watch`` gets to exit before it is killed. It holds no state of its
+#: own (the containers keep running without it), so there is nothing to wait out.
+_STOP_SECONDS = 10
+
+#: The signal that ends a process group outright, where the platform has one. Only the
+#: POSIX branch of :func:`_stop` sends it; Windows ends the tree with ``taskkill /F``.
+_KILL = getattr(signal, "SIGKILL", signal.SIGTERM)
+
 #: Runs argv, returning its exit status (output goes to the terminal).
 Runner = Callable[[Sequence[str]], int]
 #: Runs argv, returning ``(exit status, combined output)`` — the diagnostic seam.
 Capture = Callable[[Sequence[str]], tuple[int, str]]
+
+
+class Process(Protocol):
+    """The part of a running ``watch`` this module drives (a :class:`subprocess.Popen`)."""
+
+    pid: int
+
+    def poll(self) -> int | None: ...
+
+    def wait(self, timeout: float | None = None) -> int: ...
+
+    def kill(self) -> None: ...
+
+
+#: Starts argv without waiting for it.
+Spawn = Callable[[Sequence[str]], Process]
+#: Stops a running process and everything it started, and waits until it has.
+Stop = Callable[[Process], None]
 
 
 def _compose_argv(
@@ -188,6 +244,184 @@ def diagnose_failure(
     )
 
 
+def _declared_env_files(compose_path: pathlib.Path) -> tuple[str, ...]:
+    """Every ``env_file`` a service of *compose_path* names, as written (short or long form).
+
+    Read as data with PyYAML, so the anchor every backend service merges is resolved. A
+    file that cannot be read declares nothing here: ``watch`` is about to say why in its
+    own words, and an interpolated path (``${X}/.app.env``) names nothing this command
+    could watch without resolving it the way compose does.
+    """
+    import yaml  # Lazily: only this command reads a compose file this way.
+
+    try:
+        data = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return ()
+    services = data.get("services") if isinstance(data, dict) else None
+    found: list[str] = []
+    for service in services.values() if isinstance(services, dict) else ():
+        declared = service.get("env_file") if isinstance(service, dict) else None
+        for entry in declared if isinstance(declared, list) else [declared]:
+            path = entry.get("path") if isinstance(entry, dict) else entry
+            if isinstance(path, str) and "$" not in path and path not in found:
+                found.append(path)
+    return tuple(found)
+
+
+def model_inputs(compose_path: pathlib.Path) -> tuple[pathlib.Path, ...]:
+    """The files compose builds this project from: what a running ``watch`` has a copy of.
+
+    The compose file, the ``.env`` beside it that its ``${...}`` interpolations read, and
+    every ``env_file`` its services forward (``.app.env``, and a scoped app's
+    ``.app.<service>.env``). A change to any of them changes a container's configuration,
+    and a ``watch`` started before it would recreate that container from the old copy.
+    """
+    directory = compose_path.parent
+    found = {compose_path, directory / ".env"}
+    found.update(directory / name for name in _declared_env_files(compose_path))
+    return tuple(sorted(found))
+
+
+def _fingerprint(paths: Sequence[pathlib.Path]) -> dict[pathlib.Path, str | None]:
+    """Each path's content digest, ``None`` for one that does not exist (yet).
+
+    By content, not by modification time: an editor that saves an unchanged file, or a
+    ``terp env set`` that writes the value already there, changes nothing a container
+    sees, and restarting ``watch`` for it would be a recreate nobody asked for.
+    """
+    digests: dict[pathlib.Path, str | None] = {}
+    for path in paths:
+        try:
+            digests[path] = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            digests[path] = None
+    return digests
+
+
+def _spawn(
+    argv: Sequence[str],
+    *,
+    platform: str = sys.platform,
+    popen: Callable[..., Process] = subprocess.Popen,
+) -> Process:
+    """Start *argv* (resolving the executable on PATH) without waiting for it.
+
+    Outside Windows the child gets a process group of its own, because ``docker compose``
+    is two processes: the ``docker`` CLI and the compose plugin it starts. With a terminal
+    attached, the CLI does not pass a signal on to the plugin -- it leaves that to the
+    terminal, which signals the whole foreground group -- so a signal sent to the CLI
+    alone would leave the plugin watching. Signalling the group (:func:`_stop`) reaches
+    both. Ctrl+C now reaches this process only, and stopping the group on the way out is
+    how it reaches ``watch``. On Windows ``taskkill /T`` ends the tree instead, and the
+    console's Ctrl+C still reaches every process attached to it.
+    """
+    executable = shutil.which(argv[0]) or argv[0]
+    options: dict[str, object] = {} if platform == "win32" else {"process_group": 0}
+    return popen([executable, *argv[1:]], **options)
+
+
+def _stop(
+    process: Process,
+    *,
+    platform: str = sys.platform,
+    run: Callable[..., object] = subprocess.run,
+    signal_group: Callable[[int, int], None] | None = None,
+    wait_seconds: float = _STOP_SECONDS,
+) -> None:
+    """Stop a ``watch`` and the compose plugin beneath it, and wait until both have.
+
+    Windows: ``taskkill /T /F``, the tree, as ``terp dev`` stops its servers. Elsewhere:
+    SIGINT to the process group :func:`_spawn` gave it, which ``watch`` treats as Ctrl+C.
+    Neither stops a container: ``watch`` leaves the stack running when it exits, and the
+    restart converges it.
+    """
+    if process.poll() is not None:
+        return
+    windows = platform == "win32"
+    if windows:
+        system_root = pathlib.Path(os.environ.get("SystemRoot", "C:\\Windows"))
+        taskkill = system_root / "System32" / "taskkill.exe"
+        run([str(taskkill), "/PID", str(process.pid), "/T", "/F"], capture_output=True, check=False)
+    else:
+        group = signal_group or os.killpg  # POSIX only; Windows took the branch above
+        group(process.pid, signal.SIGINT)
+    try:
+        process.wait(timeout=wait_seconds)
+    except subprocess.TimeoutExpired:
+        if windows:
+            process.kill()
+        else:
+            group(process.pid, _KILL)
+        process.wait()
+
+
+class _Finished:
+    """A process that has already run to completion: what an injected *runner* produces.
+
+    Lets a caller (and every test written before ``watch`` was supervised) keep injecting
+    a blocking runner: the session sees a ``watch`` that has exited with its status.
+    """
+
+    pid = 0
+
+    def __init__(self, status: int) -> None:
+        self._status = status
+
+    def poll(self) -> int:
+        return self._status
+
+    def wait(self, timeout: float | None = None) -> int:
+        return self._status
+
+    def kill(self) -> None:
+        return None
+
+
+def _watch_session(
+    compose_path: pathlib.Path,
+    *,
+    project_name: str | None,
+    spawn: Spawn,
+    stop: Stop,
+    inputs: Callable[[pathlib.Path], Sequence[pathlib.Path]] = model_inputs,
+    sleep: Callable[[float], None] = time.sleep,
+) -> int:
+    """Run ``watch`` until it exits, starting it again whenever its configuration changes.
+
+    Again means the whole ``watch``, its own ``up`` included -- never an ``up -d`` and a
+    ``watch --no-up``, which leave Compose v2's two hashes of every ``env_file`` service
+    disagreeing (see the module docstring). What that costs is the image check the first
+    start makes too: both images are built from the layer cache, which is quick unless the
+    build context changed since the last build.
+
+    Returns ``watch``'s own exit status. On Ctrl+C the running ``watch`` is stopped and the
+    interrupt goes on, as it did before this command supervised anything.
+    """
+    argv = docker_dev_argv(compose_path, project_name=project_name)
+    paths = inputs(compose_path)
+    seen = _fingerprint(paths)
+    process = spawn(argv)
+    try:
+        while (status := process.poll()) is None:
+            sleep(_POLL_SECONDS)
+            current = _fingerprint(paths)
+            if current == seen:
+                continue
+            changed = ", ".join(path.name for path in paths if current[path] != seen[path])
+            emit(
+                f"terp docker dev: {changed} changed -- starting docker compose watch again, "
+                "so the stack and every rebuild after this run on the new configuration"
+            )
+            stop(process)
+            paths = inputs(compose_path)
+            seen = _fingerprint(paths)
+            process = spawn(argv)
+        return status
+    finally:
+        stop(process)
+
+
 def run_docker_dev_command(
     *,
     compose_file: str = _DEFAULT_COMPOSE,
@@ -195,13 +429,20 @@ def run_docker_dev_command(
     project_name: str | None = None,
     runner: Runner | None = None,
     capture: Capture | None = None,
+    spawn: Spawn | None = None,
+    stop: Stop = _stop,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> str:
     """Resolve the compose file under *root* and run ``docker compose watch``.
 
     A missing compose file fails closed with a clean CLI error. On a non-zero exit the
     failing services' logs are appended to the returned message, so the cause travels
-    with the verdict. *runner* / *capture* are injected in tests so the orchestration is
-    verified without Docker.
+    with the verdict. While it runs, a change to a file the project is loaded from is
+    applied and ``watch`` started again on it (:func:`_watch_session`).
+
+    *runner* / *capture* / *spawn* / *stop* / *sleep* are injected in tests so the
+    orchestration is verified without Docker. A *runner* alone also runs ``watch``, to
+    completion, the way this command ran it before it supervised anything.
     """
     candidate = pathlib.Path(compose_file)
     path = (
@@ -243,7 +484,11 @@ def run_docker_dev_command(
     if cleared:
         # Through the CLI's one output seam, and flushed: `watch` holds the terminal next.
         emit(cleared)
-    status = (runner or _run)(docker_dev_argv(path, project_name=project_name))
+    if spawn is None:
+        spawn = _spawn if runner is None else (lambda argv: _Finished(runner(argv)))
+    status = _watch_session(
+        path, project_name=project_name, spawn=spawn, stop=stop, sleep=sleep
+    )
     message = f"docker compose watch exited with status {status}"
     if status == 0:
         return message

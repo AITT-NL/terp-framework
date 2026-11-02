@@ -738,7 +738,7 @@ export interface paths {
         };
         /**
          * Ready
-         * @description Readiness: 200 when the database answers ``SELECT 1``, else 503.
+         * @description Readiness: 200 when the database and every mandatory shared store answer, else 503.
          */
         get: operations["ready_health_ready_get"];
         put?: never;

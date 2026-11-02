@@ -470,3 +470,13 @@ def test_serde_round_trips_the_envelope() -> None:
     bare = JobEnvelope(name="celery.docs.create", payload={"label": "y"})
     rebuilt_bare = kwargs_to_job_envelope(job_envelope_to_kwargs(bare))
     assert rebuilt_bare.actor_id is None and rebuilt_bare.tenant_id is None
+
+
+def test_a_job_is_acknowledged_only_after_it_ran(eager_app: Celery) -> None:
+    """ADR 0191: Celery acknowledges a message when a worker takes it unless told otherwise,
+    so a worker killed mid-job took the job with it. The Terp task acknowledges only once it
+    returned or raised, and a pool process lost under it gives the message back, so the
+    broker redelivers a killed worker's job."""
+    task = register_terp_worker(eager_app, task_name="terp.jobs.acks-late-probe")
+    assert task.acks_late is True
+    assert task.reject_on_worker_lost is True

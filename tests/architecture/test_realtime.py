@@ -395,7 +395,7 @@ def test_a_promised_shared_broker_refuses_the_per_process_default_at_first_use()
         get_broker()
     with pytest.raises(SharedBrokerRequiredError):
         asyncio.run(publish(channel, Notice(sequence=1, text="x"), audience="user-a"))
-    shared = mark_shared_broker(InMemoryRealtimeBroker())
+    shared = mark_shared_broker(_ProbedBroker())
     configure_broker(shared)
     assert get_broker() is shared
     asyncio.run(publish(channel, Notice(sequence=2, text="y"), audience="user-a"))
@@ -418,10 +418,64 @@ def test_a_promised_shared_broker_refuses_an_installed_per_process_one_at_once()
     assert isinstance(get_broker(), InMemoryRealtimeBroker)
 
 
+class _ProbedBroker(InMemoryRealtimeBroker):
+    """A per-process broker that says how to reach it, standing in for a shared one."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.pings = 0
+        self.down = False
+
+    def ping(self) -> None:
+        self.pings += 1
+        if self.down:
+            raise ConnectionError("the broker's backend is gone")
+
+
+def test_a_promised_shared_broker_must_say_how_readiness_reaches_it() -> None:
+    # ADR 0191: a promised shared broker is part of readiness, so one with no ping() of its
+    # own is refused under the promise, in either order of wiring, as a per-process one is.
+    unprobed = mark_shared_broker(_FiniteBroker())
+    configure_broker(unprobed)
+    with pytest.raises(SharedBrokerRequiredError, match="ping"):
+        configure_realtime(require_shared_broker=True)
+    configure_broker(None)
+    configure_realtime(require_shared_broker=True)
+    with pytest.raises(SharedBrokerRequiredError, match="_FiniteBroker has no ping"):
+        configure_broker(unprobed)
+    configure_broker(mark_shared_broker(_ProbedBroker()))
+
+
+def test_readiness_asks_the_broker_exactly_while_a_shared_one_is_promised() -> None:
+    from fastapi.testclient import TestClient
+
+    from terp.core import create_app
+
+    broker = mark_shared_broker(_ProbedBroker())
+    configure_broker(broker)
+    client = TestClient(create_app([]))
+    assert client.get("/health/ready").json()["checks"] == {"database": "ok"}
+    assert broker.pings == 0, "not promised, so not asked"
+
+    configure_realtime(require_shared_broker=True)
+    ready = client.get("/health/ready")
+    assert ready.status_code == 200
+    assert ready.json()["checks"] == {"database": "ok", "realtime_broker": "ok"}
+    broker.down = True
+    gone = client.get("/health/ready")
+    assert gone.status_code == 503
+    assert gone.json()["checks"] == {"database": "ok", "realtime_broker": "error"}
+
+    configure_broker(None)
+    nothing = client.get("/health/ready")
+    assert nothing.status_code == 503, "a promise with no broker installed is not ready"
+    assert nothing.json()["checks"]["realtime_broker"] == "error"
+
+
 def test_a_refused_lazy_default_is_never_installed() -> None:
     # A use that came before the wiring is refused, and leaves nothing behind: the
     # promise can be made again, and the shared broker installed after it either way.
-    shared = mark_shared_broker(InMemoryRealtimeBroker())
+    shared = mark_shared_broker(_ProbedBroker())
 
     configure_realtime(require_shared_broker=True)
     with pytest.raises(SharedBrokerRequiredError):

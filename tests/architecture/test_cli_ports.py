@@ -392,6 +392,32 @@ def test_a_renamed_host_port_env_is_honoured(tmp_path, capsys):
     assert "WEB_PORT=" not in _dotenv(root)
 
 
+def test_two_services_in_one_role_publish_the_first_one_s_variable(tmp_path):
+    """The vocabulary's rule (ADR 0186): a field resolved by role is the first entry's.
+
+    A workbench sets the first entry's variable. Publishing the last one's put the
+    port under a name nothing set, for any app with two services in one role.
+    """
+    root = _checkout(tmp_path / "app")
+    (root / "workbench.json").write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "services": [
+                    {"role": "web", "service": "web"},
+                    {"role": "web", "service": "web", "hostPortEnv": "UI_PORT"},
+                    {"role": "web", "service": "admin", "hostPortEnv": "ADMIN_PORT"},
+                    {"role": "api", "service": "api", "hostPortEnv": "BACKEND_PORT"},
+                    {"role": "api", "service": "api2", "hostPortEnv": "SECOND_PORT"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert declared_names(root) == ("UI_PORT", "BACKEND_PORT")
+
+
 def test_an_unmanaged_app_is_left_alone(tmp_path, capsys):
     """Opting out means the tool goes quiet, and the app keeps working.
 

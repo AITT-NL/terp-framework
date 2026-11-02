@@ -50,6 +50,11 @@ from terp.arch.rules.authz import (
     check_public_modules_are_read_only,
 )
 from terp.arch.rules.budget import check_escape_hatch_budget
+from terp.arch.rules.deployment import (
+    check_deployment_declaration_is_readable,
+    check_deployment_declaration_tells_the_truth,
+    check_deployment_generated_files_match_their_render,
+)
 from terp.arch.rules.datetimes import (
     check_datetime_columns_are_timezone_aware,
     check_no_naive_datetime,
@@ -104,6 +109,7 @@ from terp.arch.rules.migrations import (
     check_table_ownership_is_not_split,
     check_no_destructive_migrations,
 )
+from terp.arch.rules.expand import check_expand_revisions_only_expand
 from terp.arch.rules.jobs import check_jobs_reference_catalog
 from terp.arch.rules.operations import (
     check_operations_reference_catalog,
@@ -164,6 +170,9 @@ from terp.arch.rules.traits import (
 # :data:`_ALL_RULES` has a topic, and every topic is a real ``terp guide`` topic)
 # is locked by ``test_arch_harness`` / ``test_docs_parity`` meta-tests.
 GUIDE_TOPIC_BY_RULE: dict[str, str] = {
+    "deployment_declaration_is_readable": "deployment",
+    "deployment_declaration_tells_the_truth": "deployment",
+    "deployment_generated_files_match_their_render": "deployment",
     "no_internal_imports": "module",
     "no_cross_module_imports": "dependencies",
     "cross_module_imports_use_public_surface": "dependencies",
@@ -235,6 +244,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "alembic_downgrades_not_empty": "migrations",
     "migration_history_is_intact": "migrations",
     "table_ownership_is_not_split": "migrations",
+    "expand_revisions_only_expand": "migrations",
     "no_unique_columns_on_soft_delete_models": "module",
     "canonical_module_shape": "module",
     "modules_ship_tests": "testing",
@@ -405,6 +415,7 @@ RULE_ROOT_KINDS: dict[str, frozenset[RootKind]] = {
     "alembic_downgrades_not_empty": APP_ROOT_ONLY,
     "migration_history_is_intact": APP_ROOT_ONLY,
     "table_ownership_is_not_split": APP_ROOT_ONLY,
+    "expand_revisions_only_expand": APP_ROOT_ONLY,
     "no_unique_columns_on_soft_delete_models": APP_ROOT_ONLY,
     "canonical_module_shape": APP_ROOT_ONLY,
     "modules_ship_tests": APP_ROOT_ONLY,
@@ -414,6 +425,11 @@ RULE_ROOT_KINDS: dict[str, frozenset[RootKind]] = {
     "no_dependency_overrides": APP_ROOT_ONLY,
     "no_adhoc_middleware": APP_ROOT_ONLY,
     "no_adhoc_logging_config": APP_ROOT_ONLY,
+    # A project has one deployment declaration, beside its app root, so the two rules that
+    # read it run once per app root and never for a companion.
+    "deployment_declaration_is_readable": APP_ROOT_ONLY,
+    "deployment_declaration_tells_the_truth": APP_ROOT_ONLY,
+    "deployment_generated_files_match_their_render": APP_ROOT_ONLY,
     # The escape-hatch governance half is about the markers rather than the code, so
     # it is evaluated over every root the call scans.
     "escape_hatch_budget": EVERY_ROOT,
@@ -522,6 +538,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_alembic_downgrades_not_empty,
     check_migration_history_is_intact,
     check_table_ownership_is_not_split,
+    check_expand_revisions_only_expand,
     check_no_unique_columns_on_soft_delete_models,
     check_references_declare_delete_behaviour,
     check_canonical_module_shape,
@@ -532,7 +549,35 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_no_dependency_overrides,
     check_no_adhoc_middleware,
     check_no_adhoc_logging_config,
+    check_deployment_declaration_is_readable,
+    check_deployment_declaration_tells_the_truth,
+    check_deployment_generated_files_match_their_render,
 )
+
+#: Rules that read the PROJECT root -- the directory holding the app root, where
+#: ``deployment.json`` and its profile live -- rather than the app package itself.
+#: :func:`check_app` hands each of them the parent of the root it scans.
+PROJECT_ROOT_RULES: frozenset[str] = frozenset(
+    {
+        "deployment_declaration_is_readable",
+        "deployment_declaration_tells_the_truth",
+        "deployment_generated_files_match_their_render",
+    }
+)
+
+#: Rules whose subject is a checked-in declaration that cannot carry an inline marker
+#: (a JSON file has no comments). Their one way out is a state of the declaration
+#: itself, so no ``# arch-allow-*`` token names them and none may be budgeted. Mirrors
+#: the Terp Standard's own list (its catalog field ``escape`` replaces ``opt_out``).
+RULES_ESCAPED_BY_THEIR_DECLARATION: frozenset[str] = PROJECT_ROOT_RULES
+
+#: Rules with no way out at all, because the way out is the rule's own subject. A revision
+#: marked ``expand_only = True`` that needs an operation off the expand list is a contract
+#: revision, and saying so (``expand_only = False``) costs only restore-free rollback for
+#: its release (ADR 0185). So no ``# arch-allow-*`` marker suppresses one of these, and
+#: the budget refuses a token naming one. Mirrors the Terp Standard's own list (the
+#: catalog entry declares neither ``opt_out`` nor ``escape``).
+RULES_WITHOUT_AN_OPT_OUT: frozenset[str] = frozenset({"expand_revisions_only_expand"})
 
 
 def check_app(
@@ -574,10 +619,16 @@ def check_app(
         for root in roots:
             raw: list[ArchViolation] = []
             for rule in _ALL_RULES:
-                if root.kind not in root_kinds_for(rule.__name__.removeprefix("check_")):
+                name = rule.__name__.removeprefix("check_")
+                if root.kind not in root_kinds_for(name):
                     continue
-                raw.extend(rule(root.path, package=root.package))
-            violations.extend(_apply_suppressions(raw, _scan_allow_markers(root.path)))
+                target = root.path.parent if name in PROJECT_ROOT_RULES else root.path
+                raw.extend(rule(target, package=root.package))
+            violations.extend(
+                _apply_suppressions(
+                    raw, _scan_allow_markers(root.path), unwaivable=RULES_WITHOUT_AN_OPT_OUT
+                )
+            )
     if budget_path is not None:
         violations.extend(check_escape_hatch_budget(*roots, budget_path=budget_path, package=package))
     return sorted(violations, key=lambda violation: (violation.path, violation.line, violation.rule))
@@ -652,6 +703,9 @@ def ungoverned_marker_violations(
 __all__ = [
     "APP_ROOT_ONLY",
     "EVERY_ROOT",
+    "PROJECT_ROOT_RULES",
+    "RULES_ESCAPED_BY_THEIR_DECLARATION",
+    "RULES_WITHOUT_AN_OPT_OUT",
     "ArchViolation",
     "GUIDE_TOPIC_BY_RULE",
     "RULE_ROOT_KINDS",
@@ -660,6 +714,7 @@ __all__ = [
     "assert_app_clean",
     "check_alembic_downgrades_not_empty",
     "check_migration_history_is_intact",
+    "check_expand_revisions_only_expand",
     "check_table_ownership_is_not_split",
     "check_app",
     "check_canonical_module_shape",
@@ -695,6 +750,9 @@ __all__ = [
     "check_errors_use_the_typed_envelope",
     "check_no_exception_text_in_responses",
     "check_datetime_columns_are_timezone_aware",
+    "check_deployment_declaration_is_readable",
+    "check_deployment_declaration_tells_the_truth",
+    "check_deployment_generated_files_match_their_render",
     "check_no_oversized_python_files",
     "check_no_blocking_sleep",
     "check_no_empty_tests",

@@ -1,0 +1,9 @@
+{
+  "about": "Backend units and no database unit at all: DATABASE_URL is the environment's to set, and required.",
+  "project": "demo",
+  "frontendLock": false,
+  "renders": [
+    "Dockerfile.prod",
+    "docker-compose.prod.yml"
+  ]
+}

@@ -250,7 +250,7 @@ def check_not_null_columns_are_backfilled(
     A ``server_default`` settles it: the database fills existing rows as it adds the
     column, and new rows still take the model-side default. Where a literal default is
     wrong, the expand/contract shape applies instead — add the column nullable, back-fill
-    it, and tighten it in a later revision — and the deliberate case is justified through
+    it, and tighten it in a later release — and the deliberate case is justified through
     the standard governed escape hatch, a
     ``# arch-allow-not-null-columns-are-backfilled: <reason>`` marker counted against the
     app's budget.
@@ -285,7 +285,7 @@ def check_not_null_columns_are_backfilled(
                         "statement succeeds on an empty database and fails on the first "
                         "one that holds rows. Give it a server_default to back-fill the "
                         "existing rows, or add the column nullable and tighten it in a "
-                        "later revision",
+                        "later release",
                     )
                 )
     return violations

@@ -228,6 +228,11 @@ class ClientIpMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+#: Where ``create_app`` mounts the health router (ADR 0024), which a throttle-store error
+#: never refuses (ADR 0191).
+_HEALTH_PREFIX = "/health"
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Reject a caller exceeding the configured request rate (HTTP 429).
 
@@ -236,6 +241,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     multi-instance deployment supplies a shared store so the limit is one global cap, not
     N× the instance count. A store error fails **closed**: the caller is rate-limited
     rather than silently waved through.
+
+    With one exception, the health router (ADR 0191): while the store itself cannot
+    answer, a request to ``/health`` is let through instead of refused as rate-limited.
+    Refusing it would make liveness fail on a store outage (and an orchestrator restart a
+    process that is fine), and would make readiness answer 429 where it exists to answer
+    503 and name the store. While the store answers, ``/health`` is counted like any path.
     """
 
     def __init__(
@@ -251,16 +262,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._limits = _RateLimits(limit, window, overrides)
         self._store = store if store is not None else InMemoryThrottleStore()
 
-    def _check(self, bucket: str, limit: int, window: int, key: str) -> tuple[bool, int, int]:
+    def _check(
+        self, bucket: str, limit: int, window: int, key: str, *, health: bool = False
+    ) -> tuple[bool, int, int]:
         """Register a hit; return ``(allowed, remaining, reset)``, fail-closed on error.
 
         The counter key carries the bucket, so a path family with its own declared
-        limit gets its own tally rather than a second ceiling on a shared one.
+        limit gets its own tally rather than a second ceiling on a shared one. *health*
+        marks a request to the health router, which a store error lets through.
         """
         try:
             count, reset = self._store.hit(f"rl:{bucket}:{key}", window)
         except Exception:
-            return False, 0, window
+            return health, limit if health else 0, window
         if count > limit:
             return False, 0, reset
         return True, limit - count, reset
@@ -271,7 +285,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # An override may declare a path family unlimited. The production guardrail
             # refuses that config; a development app is allowed to mean it.
             return await call_next(request)
-        allowed, remaining, reset = self._check(bucket, limit, window, _rate_limit_key(request))
+        path = request.url.path
+        allowed, remaining, reset = self._check(
+            bucket,
+            limit,
+            window,
+            _rate_limit_key(request),
+            health=path == _HEALTH_PREFIX or path.startswith(_HEALTH_PREFIX + "/"),
+        )
         if not allowed:
             return JSONResponse(
                 status_code=429,
