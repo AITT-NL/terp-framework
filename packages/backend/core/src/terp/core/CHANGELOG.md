@@ -15,7 +15,7 @@ decision, 0001 onwards.
 ### Changed
 
 - **A generated app's production images build on newer bases.** terp-arch's base-image table
-  moves uv from 0.13.4 to 0.13.6, `node:26-slim` from Node.js 26.12.0 to 26.13.0 and
+  moves uv from 0.13.4 to 0.13.7, `node:26-slim` from Node.js 26.12.0 to 26.13.0 and
   `python:3.14-slim` from Python 3.14.8 to 3.14.10, each by digest; the digest the nginx base's
   tag names has not moved. The template's two production Dockerfiles are written from the
   table again, and the signer image moves with the Python base. An app on
