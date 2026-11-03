@@ -164,7 +164,10 @@ write takes the lease with `acquire_lease`, which answers `None` rather than rai
 lease is held: free, the run starts; held, the run stays queued behind the one executing, its
 message pending. It returns 202 either way. The holder takes the next queued run as its own
 before it lets go, and releases only in a write that finds none queued, so the queue drains
-under the lease one run at a time. The run is an asyncio task that heartbeats the lease, so a
+under the lease one run at a time. Both writes lock the conversation row first
+(`SELECT ... FOR UPDATE`), so a run queued while the holder lets go is either seen by
+the holder's last write or finds the lease free: none is left queued with nobody to start
+it. The run is an asyncio task that heartbeats the lease, so a
 paused process is fenced out, and a reaper registered for the kind closes an abandoned run
 failed with a sentence.
 
