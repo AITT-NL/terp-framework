@@ -45,9 +45,9 @@ BASE_IMAGE_SOURCES: dict[str, str] = {
         "linux/386, amd64, arm/v6, arm/v7, arm64, ppc64le, riscv64 and s390x"
     ),
     "node": (
-        "docker buildx imagetools inspect node:26-slim, read 2026-10-21: the OCI image index "
-        "for Node.js 26.12.0 on Debian slim, built 2026-10-21, for linux/amd64, arm64/v8, "
-        "ppc64le and s390x"
+        "the registry's OCI image index for node:26-slim (what docker buildx imagetools "
+        "inspect reads), read 2026-11-03: Node.js 26.13.0 on Debian slim, built 2026-10-28, "
+        "for linux/amd64, arm64/v8, ppc64le and s390x"
     ),
     "python": (
         "docker buildx imagetools inspect python:3.14-slim, read 2026-10-21: the OCI image "
@@ -55,9 +55,9 @@ BASE_IMAGE_SOURCES: dict[str, str] = {
         "arm/v5, arm/v7, arm64/v8, ppc64le, riscv64 and s390x"
     ),
     "uv": (
-        "docker buildx imagetools inspect ghcr.io/astral-sh/uv:0.13.4, read 2026-10-21: the "
-        "OCI image index for uv 0.13.4 (the digest :latest named that day), built 2026-10-20, "
-        "for linux/amd64 and arm64"
+        "the registry's OCI image index for ghcr.io/astral-sh/uv:0.13.6 (what docker buildx "
+        "imagetools inspect reads), read 2026-11-03: uv 0.13.6, built 2026-10-27, for "
+        "linux/amd64 and arm64"
     ),
 }
 
