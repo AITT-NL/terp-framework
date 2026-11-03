@@ -1106,6 +1106,14 @@ The security declaration (SecurityConfig, refused at production boot)
 - headers ships a safe SecurityHeaders set; max_request_bytes (1 MiB) is the body cap and
   is per-mount overridable (ADR 0067); request_id_header names the correlation header
   ("X-Request-ID") echoed on every response.
+- A NATIVE MOBILE CLIENT stays signed in through its own routes, opt-in with a reason
+  (ADR 0195): build_login_module(..., native_clients=NativeClients(reason="...")) mounts
+  POST /api/v1/auth/native/login and /native/refresh, which answer the refresh token in
+  the JSON body and run the same rotation, reuse detection and revocation as the cookie.
+  The client keeps that token in the OS keychain or keystore and nowhere else, and treats
+  a 401 from /native/refresh as signed out. Both routes refuse any request with browser
+  provenance (Origin, Sec-Fetch-*, the refresh cookie) with 403 native_client_only, so a
+  browser, a web view included, stays on /login and /refresh.
 - No terp.arch check applies - there is no module code shape to police. Enforcement is
   the create_app production fail-fast plus the production-readiness verify lane.
 """,

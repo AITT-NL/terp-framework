@@ -33,6 +33,26 @@ decision, 0001 onwards.
   `inputs`, so a release names the exact contract it serves. The template no longer ignores
   `openapi.json`: after `copier update`, the next gate run writes the file, and an app commits
   it to adopt the check, or lists it in `.gitignore` again to stay out.
+- **A native mobile client can stay signed in with its refresh token in the body (ADR 0195).**
+  The refresh token rode only an `HttpOnly; SameSite=Strict` cookie, and every one of those
+  properties is a browser's: to an app on a phone a `Set-Cookie` is just a header, and where
+  its HTTP stack keeps a cookie store at all, that store is ordinary application data rather
+  than the keychain or keystore a credential that lives for weeks belongs in. So such a client
+  logged in again every 15 minutes or kept the cookie somewhere it should not.
+  `build_login_module(..., native_clients=NativeClients(reason=...))` now mounts
+  `POST /api/v1/auth/native/login` and `POST /api/v1/auth/native/refresh`, which answer
+  `{access_token, refresh_token, token_type}` and set no cookie. They run the same family,
+  single-use rotation, reuse detection (a replayed rotated token revokes the whole family) and
+  revocation on logout, deactivation and password reset, through the same seams, and
+  `/native/login` takes the credential rate limit `/login` takes. Both refuse a request with
+  browser provenance, an `Origin` header, any `Sec-Fetch-*` header or the refresh cookie, with
+  403 `native_client_only` before any credential is read, so a page can never be handed a
+  token its script could read. Off by default: an app that does not declare it mounts nothing
+  new and its contract is unchanged. A blank reason, or native clients without the refresh
+  seams, is refused at construction. The minted refresh-token field carries the same governed
+  marker the access token does, so the auth capability's `schemas_exclude_sensitive_fields`
+  budget moves from 1 to 2. The reference app opts in; its committed contract and authority
+  baseline record the two routes.
 
 ### Changed
 

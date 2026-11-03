@@ -37,6 +37,28 @@ class AccessToken(BaseSchema):
     token_type: str = "bearer"  # arch-allow-no-hardcoded-credentials: OAuth 2.0's own response field naming the token's SCHEME, not a secret — the value is the literal the RFC fixes
 
 
+class NativeSession(AccessToken):
+    """What ``/native/login`` and ``/native/refresh`` answer (ADR 0195).
+
+    The access token as ``/login`` returns it, plus the refresh token in the body, because a
+    native client has no browser to hold an ``HttpOnly`` cookie for it. The client keeps the
+    refresh token in the operating system's keychain or keystore and presents it once: every
+    refresh rotates it, and replaying a rotated one revokes the whole session family.
+    """
+
+    refresh_token: str  # arch-allow-schemas-exclude-sensitive-fields: the refresh token a native client stores in its keychain; these routes exist to hand it over, once per rotation
+
+
+class NativeRefreshRequest(BaseSchema):
+    """The ``/native/refresh`` body: the refresh token the client holds (ADR 0195).
+
+    A token is 43 URL-safe characters (256 bits); the cap bounds the input with room to
+    spare and refuses nothing a real token can be.
+    """
+
+    refresh_token: str = Field(min_length=1, max_length=128)
+
+
 class CurrentUser(BaseSchema):
     """The authenticated caller's own identity — the ``/me`` (who-am-I) response.
 
@@ -84,4 +106,11 @@ class CurrentUser(BaseSchema):
     """
 
 
-__all__ = ["AccessToken", "ClientCredentialsRequest", "CurrentUser", "LoginRequest"]
+__all__ = [
+    "AccessToken",
+    "ClientCredentialsRequest",
+    "CurrentUser",
+    "LoginRequest",
+    "NativeRefreshRequest",
+    "NativeSession",
+]

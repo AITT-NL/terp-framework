@@ -21,9 +21,6 @@ the store:
 
 from __future__ import annotations
 
-import uuid
-from collections.abc import Callable
-
 from fastapi import APIRouter, Depends, Request, Response
 from sqlmodel import Session
 
@@ -41,6 +38,7 @@ from terp.core import (
     settings,
 )
 
+from terp.capabilities.auth.native import NativeClients, add_native_routes
 from terp.capabilities.auth.operations import (
     AUTH_LOGIN,
     AUTH_LOGOUT,
@@ -49,7 +47,6 @@ from terp.capabilities.auth.operations import (
     AUTH_TOKEN,
 )
 from terp.capabilities.auth.refresh import (
-    RefreshRotation,
     clear_refresh_cookie,
     set_refresh_cookie,
 )
@@ -60,32 +57,21 @@ from terp.capabilities.auth.schemas import (
     LoginRequest,
 )
 from terp.capabilities.auth.second_factor import MfaRequiredError, SecondFactor
+from terp.capabilities.auth.seams import (
+    Authenticator,
+    ClientAuthenticator,
+    CurrentUserResolver,
+    LoginTenantResolver,
+    PrincipalResolver,
+    RefreshIssuer,
+    RefreshRotator,
+    ServiceTokenVersionResolver,
+    TokenRevoker,
+    TokenVersionResolver,
+)
 from terp.capabilities.auth.throttle import LoginThrottle
 from terp.capabilities.auth.tokens import SubjectKind, create_access_token
 
-Authenticator = Callable[[Session, str, str], Principal | None]
-LoginTenantResolver = Callable[[Session, Principal], uuid.UUID | None]
-# Resolve the subject's current token epoch so login signs it (see module docstring).
-TokenVersionResolver = Callable[[Session, Principal], int]
-# Revoke (invalidate) a subject's outstanding tokens — the logout write-back, app-wired
-# to the store (e.g. ``UsersService.revoke_sessions``) since auth does not own it.
-TokenRevoker = Callable[[Session, uuid.UUID], None]
-# Refresh-token seams (ADR 0054), app-wired to the identity refresh store so auth never
-# imports it. Issue the first token at login; rotate (single-use + reuse-detect) a presented
-# token; resolve an ACTIVE subject's principal by id (the /refresh analog of authenticate,
-# which needs a password). All three are wired together or not at all.
-RefreshIssuer = Callable[[Session, uuid.UUID], str]
-RefreshRotator = Callable[[Session, str], RefreshRotation | None]
-PrincipalResolver = Callable[[Session, uuid.UUID], Principal | None]
-# Resolve the authenticated caller's own identity for ``GET /me`` — app-wired to the
-# store (e.g. ``IdentityService.current_user``) so auth never imports where users live
-# (symmetric with the authenticate / tenant_resolver / revoke_sessions seams).
-CurrentUserResolver = Callable[[Session, Principal], CurrentUser]
-# Client-credentials seams (ADR 0088), app-wired to the service-account store. The
-# machine analog of ``authenticate`` / ``token_version_resolver``: verify a client id +
-# secret, and resolve that account's current token epoch. Wired together or not at all.
-ClientAuthenticator = Callable[[Session, str, str], Principal | None]
-ServiceTokenVersionResolver = Callable[[Session, Principal], int]
 
 
 def build_login_router(
@@ -102,6 +88,7 @@ def build_login_router(
     service_token_version_resolver: ServiceTokenVersionResolver | None = None,
     second_factor: SecondFactor | None = None,
     require_refresh: bool = False,
+    native_clients: NativeClients | None = None,
 ) -> APIRouter:
     """Build a ``/login`` (+ optional ``/logout`` / ``/refresh`` / ``/token``) router.
 
@@ -132,6 +119,12 @@ def build_login_router(
     login. Supplying only one raises here — a machine token minted without the account's
     current epoch would be signed stale and rejected by the very next request, which is
     a failure mode nobody diagnoses correctly under time pressure.
+
+    Native clients (ADR 0195) are opt-in with a reason: *native_clients* mounts
+    ``POST /native/login`` and ``POST /native/refresh``, which carry the refresh token in the
+    JSON body for an app with no browser to hold a cookie, run the same family, rotation and
+    reuse detection through the same seams, and refuse any request with browser provenance.
+    They need the refresh seams, and declaring them without the seams raises here.
     """
     router = APIRouter(tags=["auth"])
     active_throttle = throttle if throttle is not None else LoginThrottle()
@@ -165,6 +158,12 @@ def build_login_router(
         raise ValueError(
             "require_refresh=True but the refresh seams are not wired (ADR 0054)."
         )
+    if native_clients is not None and not refresh_enabled:
+        raise ValueError(
+            "native clients need the refresh seams: /native/refresh rotates a token in the "
+            "same refresh store /refresh does, so declaring NativeClients without "
+            "refresh_issuer, refresh_rotator and principal_resolver is refused (ADR 0195)."
+        )
     if (authenticate_client is None) != (service_token_version_resolver is None):
         raise ValueError(
             "client credentials are half-wired: authenticate_client and "
@@ -192,15 +191,15 @@ def build_login_router(
             amr=amr,
         )
 
-    @router.post("/login", response_model=AccessToken)
-    @route_policy(Policy.public_write(reason="a caller has no token yet; this route is how they get one"))
-    @operation(AUTH_LOGIN)
-    def login(
-        request: Request,
-        credentials: LoginRequest,
-        session: SessionDep,
-        response: Response,
-    ) -> AccessToken:
+    def _sign_in(
+        request: Request, credentials: LoginRequest, session: Session
+    ) -> tuple[Principal, tuple[str, ...]]:
+        """The steps every password sign-in takes, browser or native, in one place.
+
+        ``/login`` and ``/native/login`` differ only in how the session leaves the server,
+        so the throttle, the credential check and the second factor are this one function
+        and cannot drift apart. Returns the principal and the methods it proved.
+        """
         # The caller's address is half the throttle key. Without it the backoff is a
         # property of the account, which is what let one caller spend it on another.
         source = client_ip(request)
@@ -222,6 +221,18 @@ def build_login_router(
                 raise AuthenticationError()
             methods = ("pwd", "otp")
         active_throttle.record_success(credentials.email, source=source)
+        return principal, methods
+
+    @router.post("/login", response_model=AccessToken)
+    @route_policy(Policy.public_write(reason="a caller has no token yet; this route is how they get one"))
+    @operation(AUTH_LOGIN)
+    def login(
+        request: Request,
+        credentials: LoginRequest,
+        session: SessionDep,
+        response: Response,
+    ) -> AccessToken:
+        principal, methods = _sign_in(request, credentials, session)
         token = _mint_access_token(session, principal, amr=methods)
         if refresh_issuer is not None:
             # Open a fresh refresh-token family and set its httpOnly cookie beside the
@@ -299,6 +310,21 @@ def build_login_router(
             set_refresh_cookie(response, rotation.token)
             return AccessToken(access_token=token)
 
+    if (
+        native_clients is not None
+        and refresh_issuer is not None
+        and refresh_rotator is not None
+        and principal_resolver is not None
+    ):
+        add_native_routes(
+            router,
+            sign_in=_sign_in,
+            mint=_mint_access_token,
+            issue=refresh_issuer,
+            rotate=refresh_rotator,
+            resolve=principal_resolver,
+        )
+
     if revoke_sessions is not None or refresh_enabled:
 
         @router.post("/logout", status_code=204)
@@ -341,6 +367,7 @@ def build_login_module(
     service_token_version_resolver: ServiceTokenVersionResolver | None = None,
     second_factor: SecondFactor | None = None,
     require_refresh: bool = False,
+    native_clients: NativeClients | None = None,
 ) -> ModuleSpec:
     """Build the auth ``ModuleSpec`` (public login + optional logout / refresh / token).
 
@@ -376,6 +403,7 @@ def build_login_module(
             service_token_version_resolver=service_token_version_resolver,
             second_factor=second_factor,
             require_refresh=require_refresh,
+            native_clients=native_clients,
         ),
         policy=Policy.public_write(
             reason="authentication endpoints must be reachable without a token"
@@ -400,9 +428,13 @@ def build_login_module(
         #
         # A deployment that has measured its own login traffic overrides the absolute
         # prefix in SecurityConfig.rate_limit_overrides.
+        # `/native/login`, where it is mounted, checks a password exactly as `/login` does, so
+        # it is the same cost class and takes the same cap; `/native/refresh` is `/refresh`'s
+        # twin and keeps the general limit, for the reason given above.
         rate_limit={
             "/login": RateLimit.credentials(),
             "/token": RateLimit.credentials(),
+            **({"/native/login": RateLimit.credentials()} if native_clients is not None else {}),
         },
     )
 

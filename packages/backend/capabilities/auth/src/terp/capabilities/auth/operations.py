@@ -19,6 +19,12 @@ AUTH_REFRESH = OperationDefinition(
     id="auth.refresh", label="Stay signed in without entering a password again"
 )
 AUTH_LOGOUT = OperationDefinition(id="auth.logout", label="Sign out of the current session")
+AUTH_NATIVE_LOGIN = OperationDefinition(
+    id="auth.native_login", label="Sign in from a mobile app with an email and password"
+)
+AUTH_NATIVE_REFRESH = OperationDefinition(
+    id="auth.native_refresh", label="Keep a mobile app signed in without entering a password again"
+)
 AUTH_ME = OperationDefinition(id="auth.me", label="View your own profile")
 
 #: Every operation this capability's routes declare, in declaration order.
@@ -34,12 +40,16 @@ AUTH_OPERATIONS: tuple[OperationDefinition, ...] = (
     AUTH_REFRESH,
     AUTH_LOGOUT,
     AUTH_ME,
+    AUTH_NATIVE_LOGIN,
+    AUTH_NATIVE_REFRESH,
 )
 
 __all__ = [
     "AUTH_LOGIN",
     "AUTH_LOGOUT",
     "AUTH_ME",
+    "AUTH_NATIVE_LOGIN",
+    "AUTH_NATIVE_REFRESH",
     "AUTH_OPERATIONS",
     "AUTH_REFRESH",
     "AUTH_TOKEN",
