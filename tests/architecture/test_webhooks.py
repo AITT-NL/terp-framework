@@ -515,6 +515,67 @@ def test_failed_job_journals_delivery_without_committing_its_business_write(engi
         assert attempt.response_code == 503
 
 
+def test_standalone_delivery_journal_is_visible_on_an_independent_connection(engine: Engine) -> None:
+    from terp.capabilities.webhooks.store import record_delivery
+
+    sub_id = _add_subscription(engine, event=_DOC_CREATED.name)
+    with WriteGuardedSession(engine) as session:
+        attempt = record_delivery(
+            session,
+            subscription_id=sub_id,
+            event=_DOC_CREATED.name,
+            outcome=OUTCOME_FAILED,
+            attempt=2,
+            response_code=503,
+            last_error="remote\x00 unavailable",
+        )
+        # Keeping the caller's session open proves that record_delivery itself
+        # committed its standalone unit, rather than relying on caller cleanup.
+        with Session(engine) as reader:
+            persisted = reader.exec(select(WebhookDelivery)).one()
+            assert persisted.id == attempt.id
+            assert persisted.subscription_id == sub_id
+            assert persisted.event == _DOC_CREATED.name
+            assert persisted.outcome == OUTCOME_FAILED
+            assert persisted.attempt == 2
+            assert persisted.response_code == 503
+            assert persisted.last_error == "remote unavailable"
+
+
+@pytest.mark.parametrize("commit", [False, True])
+def test_delivery_journal_joins_an_existing_write_unit(engine: Engine, commit: bool) -> None:
+    from terp.core import BaseService
+    from terp.core._internal.session_guard import enter_write_unit
+    from terp.capabilities.webhooks.store import record_delivery
+
+    class Documents(BaseService[_Doc, _DocCreate, _DocUpdate]):
+        model = _Doc
+
+    sub_id = _add_subscription(engine, event=_DOC_CREATED.name)
+    with WriteGuardedSession(engine) as session, enter_write_unit():
+        Documents().create(session, _DocCreate(label="same transaction"))
+        record_delivery(
+            session,
+            subscription_id=sub_id,
+            event=_DOC_CREATED.name,
+            outcome=OUTCOME_DELIVERED,
+            attempt=1,
+            response_code=204,
+        )
+        session.flush()
+        with Session(engine) as reader:
+            assert reader.exec(select(_Doc)).all() == []
+            assert reader.exec(select(WebhookDelivery)).all() == []
+        if commit:
+            session.commit()
+        else:
+            session.rollback()
+
+    with Session(engine) as reader:
+        assert len(reader.exec(select(_Doc)).all()) == int(commit)
+        assert len(reader.exec(select(WebhookDelivery)).all()) == int(commit)
+
+
 # --------------------------------------------------------------------------- #
 # (4) Failure path: record + propagate -> retry with backoff -> dead-letter
 # --------------------------------------------------------------------------- #
