@@ -43,6 +43,15 @@ decision, 0001 onwards.
   `aria-describedby`, which `Field` passes and they used to drop: in a `Field` the trigger is
   named by the label text rather than by the whole label with its hint and error, and is
   described by the hint and the error.
+- **A `TerpProvider` unmounted while its boot check is out no longer acts on the answer.** The
+  boot carried on after the provider was gone: a late answer still set state, a restored token
+  still asked for `/me`, an SSO landing still finished, and a backend that never answered still
+  printed the "did not answer" warning for an app no longer on the screen. In a test suite that
+  is a failure, not noise: React reads `window.event` to schedule the update, so an answer that
+  lands after the test environment is torn down fails the run with "window is not defined",
+  attributed to whichever file last rendered the provider. A provider now sets nothing and asks
+  for nothing once it has unmounted, and a boot that a re-run effect replaced reports nothing
+  either, so under StrictMode that warning prints once rather than twice.
 
 ## 0.35.0 — 2026-11-02
 

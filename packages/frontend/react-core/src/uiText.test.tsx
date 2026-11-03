@@ -17,7 +17,17 @@ import {
 } from "./uiText";
 import type { PluralText } from "./uiText";
 
-afterEach(cleanup);
+function json(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("usePlural", () => {
   // Polish, because its categories differ from English for the same counts: 3 is "few" and 5
@@ -157,7 +167,19 @@ describe("UiTextProvider", () => {
     expect(screen.getByText("Laden...")).toBeInTheDocument();
   });
 
-  it("localises ResourceList's empty message and create button", () => {
+  it("localises ResourceList's empty message and create button", async () => {
+    // The create button is write-gated, so the boot check restores an editor's session.
+    // Waiting for the button is waiting for that boot to finish: no request is still out
+    // when the test ends and the environment is torn down.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input) => {
+        if ((input as Request).url.endsWith("/api/v1/auth/refresh")) {
+          return json({ access_token: "t", token_type: "bearer" });
+        }
+        return json({ id: "1", email: "editor@example.com", role_rank: 20, role_name: "editor" });
+      }),
+    );
     render(
       <TerpProvider baseUrl="http://api.test">
         <UiTextProvider strings={{ emptyList: "Nog niets.", add: "Toevoegen" }}>
@@ -180,6 +202,7 @@ describe("UiTextProvider", () => {
       </TerpProvider>,
     );
     expect(screen.getByText("Nog niets.")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Toevoegen" })).toBeInTheDocument();
   });
 });
 

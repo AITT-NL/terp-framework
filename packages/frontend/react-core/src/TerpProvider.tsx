@@ -142,9 +142,23 @@ export function TerpProvider({
           };
   }
 
+  // True from mount to unmount. A boot check can still be out when the tree unmounts, and
+  // its answer must then restore nothing: a state update on an unmounted provider does
+  // nothing useful, and React still reads `window.event` to schedule it, which throws once
+  // the environment that defined `window` is torn down. A ref rather than the boot effect's
+  // `cancelled` flag, because `refresh` is also the app's own (`auth.refresh()`), and
+  // because a StrictMode remount must not drop an SSO completion its first effect started.
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const clearSession = useCallback(() => {
     tokenRef.current = null;
-    setUser(null);
+    if (mountedRef.current) setUser(null);
   }, []);
 
   const refreshClient = useMemo(
@@ -221,11 +235,15 @@ export function TerpProvider({
   const refresh = useCallback(async (): Promise<CurrentUser | null> => {
     const startingToken = tokenRef.current;
     const token = await refreshAccessToken();
+    // Unmounted while the request was out: there is no session left to restore, so ask
+    // for no user and set nothing.
+    if (!mountedRef.current) return null;
     if (!token) {
       if (tokenRef.current === startingToken) clearSession();
       return null;
     }
     const me = await loadCurrentUser(client).catch(() => null);
+    if (!mountedRef.current) return null;
     if (!me) {
       if (tokenRef.current === token) clearSession();
       return null;
@@ -240,12 +258,13 @@ export function TerpProvider({
     async (pending: SsoCallbackParams): Promise<void> => {
       try {
         const token = await completeSsoCallback(client, pending.provider, pending);
+        if (!mountedRef.current) return;
         tokenRef.current = token;
         const me = await loadCurrentUser(client);
-        setUser(me);
+        if (mountedRef.current) setUser(me);
       } catch (error) {
         tokenRef.current = null;
-        setSsoError(error);
+        if (mountedRef.current) setSsoError(error);
       }
     },
     [client],
@@ -271,6 +290,9 @@ export function TerpProvider({
         return;
       }
       await refresh();
+      // Unmounted, or replaced by a newer boot, while the check was out: what it found is
+      // no longer this boot's to report.
+      if (cancelled) return;
       if (noAnswerRef.current) {
         // The console half of the same message. The screen tells whoever is looking at
         // the app; this tells whoever has devtools open, which for this failure is the
