@@ -513,7 +513,7 @@ describe("DataView embedded variant", () => {
     expect(screen.getByRole("searchbox")).toBeInTheDocument();
     expect(screen.queryByText(/of 4 results/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Card view" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Rows per page" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Rows per page\b/ })).not.toBeInTheDocument();
     // All rows rendered — the parent owns paging.
     expect(screen.getAllByRole("row")).toHaveLength(5);
   });
@@ -622,7 +622,7 @@ describe("DataView localisation", () => {
       "placeholder",
       "Zoeken…",
     );
-    expect(screen.getByRole("button", { name: "Rijen per pagina" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rijen per pagina 10" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Weergaveopties" })).toBeInTheDocument();
     expect(screen.queryByText(/results/)).not.toBeInTheDocument();
   });
@@ -951,7 +951,7 @@ describe("DataView page size", () => {
     await screen.findByText("Broken printer");
     // Four rows against a smallest page of ten: the control changed nothing. Mutation:
     // offering it at any size.
-    expect(screen.queryByRole("button", { name: "Rows per page" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Rows per page\b/ })).not.toBeInTheDocument();
     // The controls that work at any size stay.
     expect(screen.getByRole("button", { name: "View options" })).toBeInTheDocument();
   });
@@ -961,7 +961,7 @@ describe("DataView page size", () => {
     await screen.findByText("Broken printer");
     // Mutation: comparing with the largest option. (The page in force is 3 here too, so the
     // test below is the one that tells it apart from the smallest option.)
-    expect(screen.getByRole("button", { name: "Rows per page" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rows per page 3" })).toBeInTheDocument();
   });
 
   it("offers it while the page in force is smaller than every option, and the view pages", async () => {
@@ -970,7 +970,7 @@ describe("DataView page size", () => {
     // view paging with no way to show the rows at once.
     render(<DataView repository={inMemoryRepo()} columns={COLUMNS} initialPageSize={3} />);
     await screen.findByText("Broken printer");
-    expect(screen.getByRole("button", { name: "Rows per page" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rows per page 3" })).toBeInTheDocument();
   });
 
   it("keeps it while the total is not known yet", () => {
@@ -982,6 +982,22 @@ describe("DataView page size", () => {
     render(<DataView repository={repository} columns={COLUMNS} />);
     // Mutation: reading an unknown total as none, which takes the control away during every
     // first load and puts it back when a large collection arrives.
-    expect(screen.getByRole("button", { name: "Rows per page" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rows per page 10" })).toBeInTheDocument();
+  });
+
+  it("names the trigger by its label and then the count it shows (WCAG 2.5.3)", async () => {
+    // `aria-label` replaces a button's content in its name, so the label alone hid the count
+    // the button shows: a screen reader never heard it, and a voice-control user saying "25"
+    // named nothing. axe 4.14 reports it as label-content-name-mismatch. Mutation: the label
+    // alone, or the count alone, as the name.
+    render(<DataView repository={inMemoryRepo()} columns={COLUMNS} pageSizeOptions={[2, 25]} initialPageSize={25} />);
+    await screen.findByText("Broken printer");
+    const trigger = screen.getByRole("button", { name: "Rows per page 25" });
+    expect(trigger).toHaveTextContent(/^25$/);
+    expect(trigger).toHaveAccessibleName(expect.stringContaining(trigger.textContent!));
+
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "2" }));
+    expect(await screen.findByRole("button", { name: "Rows per page 2" })).toHaveTextContent(/^2$/);
   });
 });

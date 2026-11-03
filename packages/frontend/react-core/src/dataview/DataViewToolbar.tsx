@@ -189,7 +189,11 @@ export function DataViewToolbar<T>(props: DataViewToolbarProps<T>) {
       <span data-terp="dataview-toolbar-spacer" />
       {props.onPageSizeChange !== undefined && props.pageSize !== undefined && (
         <DataViewMenu
-          triggerLabel={resolve(strings.pageSize)}
+          // The label, then the count the trigger shows. `aria-label` replaces the content in
+          // a button's name, so "Rows per page" alone hid the "25" on the button from a screen
+          // reader and gave a voice-control user nothing that matched it (WCAG 2.5.3, Label in
+          // Name). Joined by a space, as an `aria-labelledby` over the two would be.
+          triggerLabel={`${resolve(strings.pageSize)} ${props.pageSize}`}
           // A fragment, not a wrapper span: [data-terp="menu-trigger"] already declares
           // display: inline-flex, align-items: center, justify-content: center and
           // gap: var(--space-1) — the deleted span's three declarations verbatim, with the
