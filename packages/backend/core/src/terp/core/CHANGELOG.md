@@ -14,6 +14,17 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **A public website has a defined way to connect to a Terp app, and is still not a kind of
+  Terp app (ADR 0193).** ADR 0123 refused websites as an application kind and recorded that
+  nothing here would change for them. Its reasoning stands; that consequence is amended. A
+  site is a separate client that reads published content from one app's API at build time, as
+  a service principal, and never connects to the app's database. ADR 0193 names the five
+  things such a site declares about itself (where its content comes from, how its build
+  authenticates, what rebuilds it, which rules it is held to, and the unit it deploys as), and
+  moves the design tokens from a copy to an exact pin of `@terpjs/contract`, so a site keeps
+  the provenance of the contrast gate and the pairs it measures. This release builds none of
+  it: the contract baseline, the site rules profile, the starter and the deploy recipe follow
+  as changes of their own.
 - **A generated app's production images build on newer bases.** terp-arch's base-image table
   moves uv from 0.13.4 to 0.13.7, `node:26-slim` from Node.js 26.12.0 to 26.13.0 and
   `python:3.14-slim` from Python 3.14.8 to 3.14.10, each by digest; the digest the nginx base's

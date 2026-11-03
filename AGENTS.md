@@ -223,6 +223,10 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   governed opt-out is a justified `// terp-allow-<rule>: <reason>` marker whose counts must
   exactly match the app's checked-in `escape-hatch-budget.json` (a ratchet, run by
   `npm run lint`).
+- **A public website is not a Terp app** (ADRs 0123 and 0193) — never put public pages in an
+  app's SPA, ask for a relaxed zone for them, or connect a site to the database; a site is a
+  separate client that reads published content through the app's API at build time, and ADR
+  0193 defines the socket it plugs into.
 
 ## The Terp Standard (terp-spec)
 
