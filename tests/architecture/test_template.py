@@ -1481,6 +1481,30 @@ def test_the_generated_app_ships_an_updater_for_those_pins() -> None:
     assert "There is no `docker` entry, on purpose (ADR 0187)" in text
 
 
+def test_the_generated_app_s_updater_holds_back_the_typescript_major_the_framework_does() -> None:
+    """A TypeScript major the framework cannot take is one the generated app cannot take.
+
+    The app's frontend updates arrive as one grouped pull request, and a group is
+    all-or-nothing: a TypeScript major outside typescript-eslint's peer range fails the
+    whole install, so every routine update in the group fails with it, every week. This
+    repository ignores that major for exactly that reason; the app it generates runs the
+    same linter on the same TypeScript, so it carries the same ignore.
+    """
+    root = pathlib.Path(__file__).resolve().parents[2]
+    ignore = (
+        "      - dependency-name: typescript\n"
+        '        update-types: ["version-update:semver-major"]\n'
+    )
+    assert ignore in (root / ".github" / "dependabot.yml").read_text(encoding="utf-8"), (
+        "this test mirrors the framework's own TypeScript ignore; if that was lifted, "
+        "lift the template's with it and retire this test"
+    )
+    assert ignore in (_PROJECT / ".github" / "dependabot.yml").read_text(encoding="utf-8"), (
+        "a generated app's grouped frontend update would carry a TypeScript major its "
+        "boundary linter cannot install, and fail every week with everything in it"
+    )
+
+
 def test_the_generated_workflow_verifies_the_binary_it_downloads() -> None:
     """It fetches a binary over the network and runs it against a full-depth checkout.
     An unverified fetch is the supply-chain hole the tool it installs exists to find,

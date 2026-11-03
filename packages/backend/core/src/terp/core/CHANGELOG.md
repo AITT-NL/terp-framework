@@ -48,6 +48,11 @@ decision, 0001 onwards.
   compiler from the build. A test holds the override to the peer range that made it necessary:
   when a release declares another range, it fails and names what to delete. An existing app
   receives the bump and the override together with its next template update.
+- **A generated app's Dependabot holds back the TypeScript major the framework does.** Its
+  frontend updates arrive as one grouped pull request, and a TypeScript major outside
+  typescript-eslint's peer range fails the whole install, so the group failed every week with
+  every routine update in it. The template's `.github/dependabot.yml` now ignores TypeScript
+  majors the way this repository's own does, and a test keeps the two together.
 
 ### Fixed
 
