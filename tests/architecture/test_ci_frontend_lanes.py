@@ -49,6 +49,10 @@ def test_every_accessibility_shard_refuses_an_empty_lane_before_it_runs_its_part
     listed, sharded = commands[0], commands[-1]
 
     assert "--list" in listed and "--shard" not in listed
+    # A bare command substitution: its status is the listing's, so the step's `bash -e` stops
+    # on an empty lane. Piped (`... --list | tail -n 1`) the pipeline would answer for the
+    # last command instead, and the refusal would be lost without pipefail.
+    assert listed.startswith("listed=$(") and "|" not in listed
     assert "--shard" in sharded and "--list" not in sharded
     spec = re.search(r"visual/\S+\.spec\.ts", sharded)
     assert spec is not None and spec.group(0) in listed, "the list must be of the file the shards run"

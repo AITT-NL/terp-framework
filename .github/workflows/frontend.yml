@@ -29,6 +29,7 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -146,6 +147,7 @@ jobs:
   # remembered for it, and none can be forgotten.
   workbench-a11y:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     container:
       image: mcr.microsoft.com/playwright:v1.64.1-noble
       options: --ipc=host
@@ -186,7 +188,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: a11y-results-${{ matrix.shard }}
+          name: a11y-results-${{ strategy.job-index }}
           path: apps/workbench/test-results/
           if-no-files-found: ignore
 
@@ -204,6 +206,7 @@ jobs:
   # with a recorded baseline.
   workbench-visual:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     container:
       image: mcr.microsoft.com/playwright:v1.64.1-noble
       options: --ipc=host
@@ -255,6 +258,7 @@ jobs:
     needs: [build-and-test, workbench-a11y, workbench-visual]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Every job above passed
         env:
