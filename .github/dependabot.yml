@@ -36,14 +36,36 @@ updates:
       # release whose peer range admits 7, not a TypeScript release.
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
+  # The template's bases are a signal, never a merge. Its production Dockerfiles
+  # are the render of terp-arch's base-image table (ADR 0187), held to it byte for
+  # byte, so a pull request here always fails; it stays because it is the only
+  # word that a patched base exists. One grouped pull request a week: read the
+  # current digest of the tag the table names (`docker buildx imagetools inspect
+  # <tag>`; Dependabot cannot see the tag on a FROM pinned by digest alone, and
+  # has proposed another tag's image), put it and where it was read in
+  # packages/backend/arch/src/terp/arch/deployment/base-images.json and
+  # tables.py's BASE_IMAGE_SOURCES, render the template with
+  #   TERP_WRITE_GOLDENS=1 uv run pytest tests/architecture/test_deployment_generator.py
+  # and close the pull request.
   - package-ecosystem: docker
     directories:
       - /template/project
       - /template/project/frontend
+    schedule:
+      interval: weekly
+    groups:
+      template-base-images:
+        patterns: ["*"]
+  # The example app's Dockerfiles name tags rather than digests; grouped the same way.
+  - package-ecosystem: docker
+    directories:
       - /apps/example
       - /apps/example/frontend
     schedule:
       interval: weekly
+    groups:
+      example-images:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
