@@ -1113,7 +1113,10 @@ The security declaration (SecurityConfig, refused at production boot)
   The client keeps that token in the OS keychain or keystore and nowhere else, and treats
   a 401 from /native/refresh as signed out. Both routes refuse any request with browser
   provenance (Origin, Sec-Fetch-*, the refresh cookie) with 403 native_client_only, so a
-  browser, a web view included, stays on /login and /refresh.
+  browser stays on /login and /refresh. A HYBRID app (a page inside a native shell) calls
+  them from its native layer and hands its page only access tokens: a page that holds the
+  refresh token has given up what the cookie protects. No credential route (/login, /token,
+  /refresh, /native/*) accepts an Idempotency-Key; retry without one.
 - No terp.arch check applies - there is no module code shape to police. Enforcement is
   the create_app production fail-fast plus the production-readiness verify lane.
 """,

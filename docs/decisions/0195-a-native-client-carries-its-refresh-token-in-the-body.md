@@ -2,7 +2,7 @@
 
 - **Status:** Proposed (awaiting review). Built in 0.35.1: `NativeClients`, the two routes,
   the browser-provenance refusal and the reference app's opt-in, with its committed contract
-  and authority baseline. The one governed escape-hatch marker decision 5 spends was agreed
+  and authority baseline. The one governed escape-hatch marker decision 7 spends was agreed
   by the owner before it was added. Held by `apps/example/tests/test_native_refresh.py`,
   `test_login_wiring.py` and the authority-baseline and contract tests.
 - **Date:** 2026-11-03. 0182 and 0183 are reserved for other records; 0184 to 0191 are taken,
@@ -93,19 +93,53 @@ over HTTPS, and page script can neither remove nor forge either, because they ar
 header names. So script running
 in the app's own page, an injected payload included, cannot reach a route that hands out a
 body token, and cannot turn a cookie session into one. A native client sends none of these
-headers. An embedded web view is a browser, and it uses the cookie routes, which work there.
+headers.
+
+A hybrid app, a page inside a native shell, is the case to name. Its page usually runs at a
+custom-scheme origin, cross-site to the API, so the `SameSite=Strict` cookie is never sent,
+and its native HTTP bridge sends no browser headers. Such an app calls the native routes from
+its native layer, keeps the refresh token in native secure storage, and hands its page only
+short-lived access tokens. A page that holds the refresh token has given up exactly what the
+cookie protects, and the guide says so.
 
 The browser routes are untouched: `/refresh` reads only the cookie, as ADR 0054 has it, and
 never a body.
 
-### 5. The token is minted to be returned once, and the client keeps it in secure storage
+### 5. A credential route accepts no `Idempotency-Key`
+
+The idempotency middleware stores a completed response and replays it to a retry of the same
+key before the route runs. On a route that mints a credential that is two defects: the stored
+response is a live credential in the replay store for a day, and a replay hands it out again
+without running the route, so the rotation that detects a stolen refresh token never sees the
+reuse. The store key folds in `Authorization` and `Cookie`, and a native refresh carries
+neither, so a captured request, key and body token included, would have kept yielding its
+successor. The cookie routes had the same shape.
+
+So `/login`, `/token`, `/refresh` and both native routes refuse the header with a typed 400
+(`idempotency_key_not_accepted`). The middleware then stores the refusal, harmless to replay,
+and never a token. A client retries one of these routes by sending it again without a key.
+
+### 6. The grace window and logout are ADR 0054's, deliberately
+
+The rotation grace window applies to a native session as it does to a cookie. A mobile network
+loses responses, and a retry after a lost response is the benign race ADR 0054 allows for;
+removing the window for native clients would sign people out on every dropped reply. The fork a
+thief could make inside the window is the bound ADR 0054 already accepted, and an app that wants
+none sets `REFRESH_ROTATION_GRACE_SECONDS` to 0 for every session.
+
+A native client whose access token has expired refreshes first and then calls `/logout` with
+the new bearer. A lost device is revoked through deactivation or a password reset, the
+chokepoint every session shares. A `/native/logout` that takes the body token is a later
+addition if a client needs one.
+
+### 7. The token is minted to be returned once, and the client keeps it in secure storage
 
 The `refresh_token` response field is the credential the route exists to mint, exactly as
 `AccessToken.access_token` is. The `schemas_exclude_sensitive_fields` rule rightly flags a
 credential-shaped field on a response, and the access token already carries the governed
 marker for this case. The native response needs the same marker once more, which moves the
 auth capability's `arch-allow-schemas-exclude-sensitive-fields` budget from 1 to 2. That is
-the one escape this decision spends, and the reason it is not built yet.
+the one escape this decision spends, and the owner agreed to it before it was added.
 
 The guide tells a native client to keep the token in the operating system's keychain or
 keystore and nowhere else, and to treat a 401 from `/native/refresh` as signed out.
@@ -113,14 +147,16 @@ keystore and nowhere else, and to treat a 401 from `/native/refresh` as signed o
 ## Two-layer enforcement
 
 - **Runtime, fail-closed:** a browser-provenance header or the refresh cookie on a native
-  route is a 403; an invalid, expired, revoked or reused body token is a 401, and a reuse
-  revokes the family, as for the cookie.
+  route is a 403; an `Idempotency-Key` on any credential route is a 400; an invalid, expired,
+  revoked or reused body token is a 401, and a reuse revokes the family, as for the cookie.
 - **Construction:** a blank reason, or native clients without the refresh seams, is refused
   when the module is built.
 - **Tests:** a rotated body token replayed revokes its whole family; a request carrying both
   the cookie and a body token is refused; a request with browser provenance is refused on
-  both native routes; an app that does not opt in has neither route; the reference app opts
-  in, and its committed authority baseline and contract record the two routes.
+  both native routes; a captured refresh request resent with its key yields no successor and
+  the reuse is still seen; every credential route refuses the key; an app that does not opt in
+  has neither route; the reference app opts in, and its committed authority baseline and
+  contract record the two routes.
 
 No `terp.arch` rule is added: like ADR 0054, this is framework mechanics with no authored
 pattern to police.

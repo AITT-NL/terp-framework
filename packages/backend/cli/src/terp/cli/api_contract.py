@@ -35,8 +35,11 @@ from terp.cli.api_contract_schemas import (
     changed_refs,
     diff_schema,
     mapping,
+    refs_in,
     resolve,
     schemas_of,
+    shape,
+    unclassified,
 )
 
 #: The committed contract, at the project root where ``terp openapi`` writes it by default.
@@ -49,10 +52,10 @@ ADOPT_HINT = "uv run terp openapi, then commit openapi.json"
 #: The HTTP methods an OpenAPI path item may carry an operation under.
 _METHODS = ("get", "put", "post", "delete", "patch", "head", "options", "trace")
 
-#: Keys that describe a document without changing any shape a client depends on.
-_EDITORIAL = frozenset(
-    {"description", "summary", "title", "tags", "operationId", "examples", "example", "externalDocs"}
-)
+#: Parts of a document outside its operations and schemas that a client depends on: a
+#: change to how it authenticates, or to the reusable pieces operations refer to.
+_BREAKING_PARTS = ("security", "securitySchemes")
+
 
 def read_contract(root: pathlib.Path) -> dict[str, Any]:
     """The committed contract as a document; raises ``ValueError`` when it is not one."""
@@ -89,6 +92,7 @@ def diff_contract(before: Mapping[str, Any], after: Mapping[str, Any]) -> list[C
                     _diff_operation(where, was[method], now[method], docs)
                 )
     changes.extend(_diff_schema_names(before, after))
+    changes.extend(_diff_document_parts(before, after))
     if not changes:
         changes.append(_unclassified(before, after))
     return sorted(set(changes), key=lambda change: (not change.breaking, change.where, change.what))
@@ -112,6 +116,12 @@ def _operations(path_item: Any) -> dict[str, dict[str, Any]]:
 def _diff_operation(
     where: str, was: Mapping[str, Any], now: Mapping[str, Any], docs: Docs
 ) -> Iterator[Change]:
+    modelled = ("parameters", "requestBody", "responses")
+    rest_before = shape({key: value for key, value in was.items() if key not in modelled})
+    rest_after = shape({key: value for key, value in now.items() if key not in modelled})
+    if rest_before != rest_after:
+        # Its security requirement, a callback, a deprecation: nothing below reads them.
+        yield unclassified(where, "the operation, outside its parameters, body and responses,")
     yield from _diff_parameters(where, was, now, docs)
     yield from _diff_request_body(where, was.get("requestBody"), now.get("requestBody"), docs)
     yield from _diff_responses(where, mapping(was.get("responses")), mapping(now.get("responses")), docs)
@@ -183,6 +193,7 @@ def _diff_responses(
 ) -> Iterator[Change]:
     for status in sorted(was.keys() | now.keys()):
         if not _is_success(status):
+            yield from _diff_error_response(where, status, was.get(status), now.get(status), docs)
             continue
         if status not in now:
             yield Change(True, where, f"success response {status} removed")
@@ -193,6 +204,22 @@ def _diff_responses(
         before = resolve(was[status], docs.before)
         after = resolve(now[status], docs.after)
         yield from _diff_content(where, f"response {status}", before, after, RESPONSE, docs)
+
+
+def _diff_error_response(where: str, status: str, was: Any, now: Any, docs: Docs) -> Iterator[Change]:
+    """An error response is not classified, but a change to one is never silent.
+
+    Terp answers every error with one envelope, so a change here is rarely a break; it is
+    still a line, because a client that decodes an error body strictly reads it.
+    """
+    if now is None:
+        yield Change(False, where, f"error response {status} removed")
+    elif was is None:
+        yield Change(False, where, f"new error response {status}")
+    else:
+        before, after = resolve(was, docs.before), resolve(now, docs.after)
+        if shape(before) != shape(after) or (refs_in(before) | refs_in(after)) & docs.changed:
+            yield Change(False, where, f"error response {status} changed")
 
 
 def _diff_content(
@@ -236,27 +263,33 @@ def _diff_schema_names(before: Mapping[str, Any], after: Mapping[str, Any]) -> I
         yield Change(False, f"schema {name}", "new")
 
 
-def _strip(node: Any) -> Any:
-    if isinstance(node, Mapping):
-        return {key: _strip(value) for key, value in node.items() if key not in _EDITORIAL}
-    if isinstance(node, list):
-        return [_strip(item) for item in node]
-    return node
+def _diff_document_parts(before: Mapping[str, Any], after: Mapping[str, Any]) -> Iterator[Change]:
+    """Everything outside the operations and the schema list, compared on every run.
+
+    A change to how the API authenticates is breaking until reviewed; any other part a
+    client may read (servers, reusable parameters or responses) is named without the label.
+    """
+    old_parts = {key: value for key, value in before.items() if key not in ("paths", "components", "info", "openapi")}
+    new_parts = {key: value for key, value in after.items() if key not in ("paths", "components", "info", "openapi")}
+    old_parts.update({key: value for key, value in mapping(before.get("components")).items() if key != "schemas"})
+    new_parts.update({key: value for key, value in mapping(after.get("components")).items() if key != "schemas"})
+    for key in sorted(old_parts.keys() | new_parts.keys()):
+        if shape(old_parts.get(key)) != shape(new_parts.get(key)):
+            if key in _BREAKING_PARTS:
+                yield unclassified("contract", f"'{key}'")
+            else:
+                yield Change(False, "contract", f"'{key}' changed")
 
 
 def _unclassified(before: Mapping[str, Any], after: Mapping[str, Any]) -> Change:
-    if _strip(before) == _strip(after):
+    """The one line for a difference nothing above named."""
+    if shape(before) == shape(after):
         return Change(
             False,
             "contract",
             "text changed (a description, summary, title, tag or operation id) and no shape did",
         )
-    return Change(
-        False,
-        "contract",
-        "changed in a way this check does not classify (an error response, a union, a "
-        "security scheme, a server or another field outside the operations' shapes)",
-    )
+    return unclassified("contract", "the document")
 
 
 __all__ = [

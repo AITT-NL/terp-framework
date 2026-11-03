@@ -53,8 +53,15 @@ The file is what `terp openapi` already writes: the live app's document with sor
 spaces of indentation and LF line endings, so a regenerated contract diffs cleanly. Tracking it
 in git is adoption. The template stops ignoring it. A fresh render has no contract until the
 first gate run writes one, because the template cannot know an app's surface before the app
-exists, and the first commit then carries it. An app that does not want the check lists the
-file in its own `.gitignore` again, and the check says it is skipped.
+exists, and the first commit then carries it, so for a generated app adoption is the default
+rather than a step: the check's states are ADR 0139's, and only the starting state differs. An
+app that does not want the check lists the file in its own `.gitignore` again, and the check
+says it is skipped.
+
+The contract is the API as `terp openapi` composes it, in the environment it runs in, which is
+the development one by default. A route an app mounts only in some environments appears as
+that composition has it, so a client must not take a route's presence in the file as a promise
+that production serves it; exporting the production composition is an open item.
 
 ### 2. `terp verify --only api-contract` holds the committed file to the live app
 
@@ -76,7 +83,8 @@ The pin is exact. An additive change is red too until the file records it, becau
 committed file is the artifact other repositories pin (decision 5), and a contract that lags
 what the app serves is a contract that lies. The classification is advice to the reviewer:
 the control is the exact pin, so a line the check labels wrongly can mislabel a change but
-never let one through.
+never let one through. And because an agent decides whether to regenerate from these lines, a
+difference the check cannot read is counted as breaking rather than left out (decision 3).
 
 ### 3. Breaking means a client built against the committed contract fails against the new one
 
@@ -98,9 +106,18 @@ breaking when the new schema may produce something the old one never did, which 
 response when it meets a value it was not built with.
 
 `$ref`s are resolved within each document, and a recursive schema is compared once per pair of
-references. Everything else that differs is reported without the breaking label: an error
-response, a schema renamed with its shape unchanged, a union with more than one object member,
-or text that changes no shape at all (a description, a summary, a tag, an operation id).
+references. Shapes are compared without their editorial keys (a description, a summary, a
+title, a tag, an operation id) and without the order of lists whose order nothing reads, and a
+property named like one of those keys is still a property.
+
+A difference the list does not model is never silent and never counted as safe. A schema node
+that differs where no rule explains it (a map's value schema, a default, `additionalProperties`,
+a union of object shapes), an operation that changed outside its parameters, body and
+responses (its security requirement, a callback), and a change to `security` or
+`securitySchemes` are each a line that says to review it as breaking, and count as breaking.
+An error response that changed, a schema renamed with its shape unchanged, and a change to
+`servers` or another reusable part are named without the label. Text that changes no shape is
+one line, and only when nothing else changed.
 
 ### 4. The writer is `terp openapi`, never a `--fix`
 
@@ -116,10 +133,11 @@ as before.
 ### 5. The signed release carries the contract
 
 `terp release` records the committed `openapi.json` in the manifest's `inputs` as a carried file
-(path, SHA-256 and content) when the app has one, so every release names the exact contract it
-serves, under the same signature as its images. A client in another repository pins a release
-and reads its contract from there, and a workbench that publishes releases publishes the
-contract with them. `terp promote` reads nothing new; it checks the carried file's SHA-256 when
+(path, SHA-256 and content) when the app has one, so every release carries the committed
+contract under the same signature as its images. The manifest is a deploy tool's document,
+with base images, scans and profiles beside the contract; a client in another repository is
+given the contract file of the release it pins, never the manifest, and a workbench that
+publishes releases publishes that one file with them. `terp promote` reads nothing new; it checks the carried file's SHA-256 when
 one is present, as it does for every other carried file.
 
 ## Consequences
@@ -138,6 +156,10 @@ one is present, as it does for every other carried file.
 
 ## Open
 
+- **The production composition.** The file is exported from the development composition; a
+  route mounted only in some environments appears as that composition has it. Exporting the
+  production composition needs a build of the app under production settings, which today
+  refuses to boot without them.
 - **A classified diff between two committed contracts.** Once the regenerated file is
   committed, the gate is green and a reviewer sees a JSON diff. Printing the classified lines
   between the contract on the target branch and the one in the change would need the target's

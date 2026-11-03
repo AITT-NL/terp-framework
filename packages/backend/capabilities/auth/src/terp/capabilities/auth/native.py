@@ -34,6 +34,7 @@ from terp.core import (
     settings,
 )
 
+from terp.capabilities.auth.credentials import refuse_replay_key
 from terp.capabilities.auth.operations import AUTH_NATIVE_LOGIN, AUTH_NATIVE_REFRESH
 from terp.capabilities.auth.refresh import RefreshRotation
 from terp.capabilities.auth.schemas import LoginRequest, NativeRefreshRequest, NativeSession
@@ -141,6 +142,7 @@ def add_native_routes(
         # The same rotation /refresh runs: single use, reuse detection that revokes the whole
         # family, and the subject re-checked as active before anything is minted.
         refuse_browser(request)
+        refuse_replay_key(request)
         rotation = rotate(session, presented.refresh_token)
         if rotation is None:
             raise AuthenticationError()

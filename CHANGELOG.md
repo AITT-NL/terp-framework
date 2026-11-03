@@ -12,6 +12,18 @@ decision, 0001 onwards.
 
 ## 0.35.1 — unreleased
 
+### Security
+
+- **A route that mints a credential no longer accepts an `Idempotency-Key` (ADR 0195).** The
+  idempotency middleware stores a completed response and replays it to a retry of the same key
+  before the route runs. On `/login`, `/token` and `/refresh` that put a live credential in the
+  replay store for a day, and let a captured refresh request, cookie and key included, be
+  replayed for the session it had already rotated into, without the reuse detection that
+  catches a stolen refresh token ever seeing it. These routes, and the new native ones, now
+  refuse the header with a typed 400, `idempotency_key_not_accepted`, so only that refusal is
+  ever stored. The framework's own client never sends the header on these routes; a client
+  that does retries without it.
+
 ### Added
 
 - **An app's API contract is a committed file, and a change that breaks a client is named
@@ -27,6 +39,11 @@ decision, 0001 onwards.
   decided from the client's side: a request that refuses what it accepted, a response that may
   produce what it never did, including a new `enum` value, which a strict decoder in a native
   client refuses. The pin is exact, because the file is what other repositories pin.
+  A difference the check cannot read, such as a map's value schema, a default, a union of object
+  shapes or a change to how the API authenticates, is a line that says to review it as
+  breaking, and counts as breaking, so a run never reports "0 breaking" over it. The contract is
+  the API as `terp openapi` composes it, in the development environment by default, so a route
+  mounted only in some environments appears as that composition has it.
   `terp openapi` is the writer, and when it overwrites a contract that differs it prints the
   same lines first. `api-client` generates the typed client from a tracked contract instead of
   exporting over it, and `terp release` carries the contract in the signed manifest's
@@ -47,7 +64,9 @@ decision, 0001 onwards.
   `/native/login` takes the credential rate limit `/login` takes. Both refuse a request with
   browser provenance, an `Origin` header, any `Sec-Fetch-*` header or the refresh cookie, with
   403 `native_client_only` before any credential is read, so a page can never be handed a
-  token its script could read. Off by default: an app that does not declare it mounts nothing
+  token its script could read. A hybrid app, whose page runs at a custom-scheme origin the
+  cookie never reaches, calls the native routes from its native layer and gives its page only
+  access tokens. Off by default: an app that does not declare it mounts nothing
   new and its contract is unchanged. A blank reason, or native clients without the refresh
   seams, is refused at construction. The minted refresh-token field carries the same governed
   marker the access token does, so the auth capability's `schemas_exclude_sensitive_fields`
@@ -59,8 +78,9 @@ decision, 0001 onwards.
 - **A public website has a defined way to connect to a Terp app, and is still not a kind of
   Terp app (ADR 0193).** ADR 0123 refused websites as an application kind and recorded that
   nothing here would change for them. Its reasoning stands; that consequence is amended. A
-  site is a separate client that reads published content from one app's API at build time, as
-  a service principal, and never connects to the app's database. ADR 0193 names the five
+  site is a separate client that reads published content from one app's API at build time,
+  from a public read route with no credential in its build, and never connects to the app's
+  database. ADR 0193 names the five
   things such a site declares about itself (where its content comes from, how its build
   authenticates, what rebuilds it, which rules it is held to, and the unit it deploys as), and
   moves the design tokens from a copy to an exact pin of `@terpjs/contract`, so a site keeps

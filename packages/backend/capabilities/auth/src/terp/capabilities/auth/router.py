@@ -38,6 +38,7 @@ from terp.core import (
     settings,
 )
 
+from terp.capabilities.auth.credentials import refuse_replay_key
 from terp.capabilities.auth.native import NativeClients, add_native_routes
 from terp.capabilities.auth.operations import (
     AUTH_LOGIN,
@@ -200,6 +201,7 @@ def build_login_router(
         so the throttle, the credential check and the second factor are this one function
         and cannot drift apart. Returns the principal and the methods it proved.
         """
+        refuse_replay_key(request)
         # The caller's address is half the throttle key. Without it the backoff is a
         # property of the account, which is what let one caller spend it on another.
         source = client_ip(request)
@@ -269,6 +271,7 @@ def build_login_router(
             # No refresh cookie either — a machine holds a durable secret and simply
             # re-authenticates, so there is nothing a refresh token would buy except
             # another long-lived credential to leak.
+            refuse_replay_key(request)
             source = client_ip(request)
             active_throttle.check(credentials.client_id, source=source)
             principal = verify_client(
@@ -297,6 +300,7 @@ def build_login_router(
             # The refresh cookie is the credential here (no bearer): rotate it (single-use +
             # reuse-detection), re-check the subject is still active, then mint a fresh
             # access token and set the rotated cookie. Any failure is a clean 401.
+            refuse_replay_key(request)
             raw = request.cookies.get(settings.REFRESH_COOKIE_NAME)
             if raw is None:
                 raise AuthenticationError()

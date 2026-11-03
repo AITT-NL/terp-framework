@@ -206,13 +206,16 @@ def test_a_success_status_removed_is_breaking_and_error_responses_are_not_classi
     after = doc({"/things": {"get": {"responses": {"2XX": ok({}), "422": ok({"type": "string"})}}}})
     assert lines(before, after) == [
         "BREAKING GET /things: success response 200 removed",
+        "GET /things: error response 422 changed",
         "GET /things: new success response 2XX",
     ]
     only_errors = doc({"/things": {"get": {"responses": {"422": ok({"type": "string"})}}}})
     assert lines(doc({"/things": {"get": {"responses": {"422": ok({"type": "object"})}}}}), only_errors) == [
-        "contract: changed in a way this check does not classify (an error response, a union, a "
-        "security scheme, a server or another field outside the operations' shapes)"
+        "GET /things: error response 422 changed"
     ]
+    gone = doc({"/things": {"get": {"responses": {}}}})
+    assert lines(only_errors, gone) == ["GET /things: error response 422 removed"]
+    assert lines(gone, only_errors) == ["GET /things: new error response 422"]
 
 
 @pytest.mark.parametrize(
@@ -332,14 +335,15 @@ def test_a_request_bound_breaks_when_it_tightens(before, after, expected: str) -
 
 def test_bounds_on_a_response_and_on_a_null_member_are_not_a_sender_s_problem() -> None:
     assert lines(get({"type": "string", "maxLength": 10}), get({"type": "string", "maxLength": 5})) == [
-        "contract: changed in a way this check does not classify (an error response, a union, a "
-        "security scheme, a server or another field outside the operations' shapes)"
+        "GET /things: response 200 maxLength 10 -> 5"
+    ]
+    assert lines(get({"type": "string"}), get({"type": "string", "minLength": 1})) == [
+        "GET /things: response 200 minLength none -> 1"
     ]
     before = {"anyOf": [{"type": "string", "maxLength": 5}, {"type": "null", "maxLength": 1}]}
     after = {"anyOf": [{"type": "string", "maxLength": 5}, {"type": "null", "maxLength": 2}]}
     assert lines(post(before), post(after)) == [
-        "contract: changed in a way this check does not classify (an error response, a union, a "
-        "security scheme, a server or another field outside the operations' shapes)"
+        "BREAKING POST /things: request body changed in a way this check does not classify - review it as breaking"
     ]
 
 
@@ -419,8 +423,7 @@ def test_a_union_of_two_object_shapes_is_left_to_the_fallback() -> None:
         return get({"oneOf": [obj({"a": _TEXT}), b]})
 
     assert lines(document(obj({"b": _TEXT})), document(obj({"c": _TEXT}))) == [
-        "contract: changed in a way this check does not classify (an error response, a union, a "
-        "security scheme, a server or another field outside the operations' shapes)"
+        "BREAKING GET /things: response 200 changed in a way this check does not classify - review it as breaking"
     ]
 
 
@@ -746,3 +749,75 @@ def test_the_template_commits_its_contract_and_generates_the_client_from_it() ->
     assert not ignored & {"/openapi.json", "openapi.json"}, "the contract is the app's, so it is tracked"
     package = (project / "frontend" / "package.json.jinja").read_text(encoding="utf-8")
     assert "openapi-typescript ../openapi.json" in package
+
+
+# --------------------------------------------------------------------------- #
+# a difference no rule reads is never silent, and never counted as safe
+# --------------------------------------------------------------------------- #
+
+_NEW_OPERATION = {"/added": {"post": {"responses": {}}}}
+
+
+def _with_new_operation(document: dict[str, Any]) -> dict[str, Any]:
+    return {**document, "paths": {**document["paths"], **_NEW_OPERATION}}
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        # A map's value schema: the shape behind CurrentUser.module_ranks.
+        (
+            obj({"ranks": {"type": "object", "additionalProperties": {"type": "integer"}}}),
+            obj({"ranks": {"type": "object", "additionalProperties": {"type": "string"}}}),
+        ),
+        (obj({"a": {"type": "string", "default": "x"}}), obj({"a": {"type": "string", "default": "y"}})),
+        (obj({"a": _TEXT}), {**obj({"a": _TEXT}), "additionalProperties": False}),
+    ],
+)
+def test_an_unread_difference_beside_other_changes_is_counted_as_breaking(before, after) -> None:
+    changes = diff_contract(get(before), _with_new_operation(get(after)))
+    breaking = [change.render() for change in changes if change.breaking]
+    assert len(breaking) == 1, changes
+    assert breaking[0].endswith("changed in a way this check does not classify - review it as breaking")
+    assert "POST /added: new operation" in [change.render() for change in changes]
+
+
+def test_a_property_named_like_an_editorial_keyword_is_still_compared() -> None:
+    before = get(obj({"title": {"type": "string", "default": "a"}}))
+    after = get(obj({"title": {"type": "string", "default": "b"}}))
+    assert lines(before, after) == [
+        "BREAKING GET /things: response 200 field 'title' changed in a way this check does not "
+        "classify - review it as breaking"
+    ]
+
+
+def test_an_order_nothing_reads_is_not_a_difference() -> None:
+    before = get(obj({"a": _TEXT, "b": _TEXT}, ("a", "b")))
+    after = get(obj({"a": _TEXT, "b": _TEXT}, ("b", "a")))
+    assert lines(before, after) == [
+        "contract: text changed (a description, summary, title, tag or operation id) and no shape did"
+    ]
+
+
+def test_how_the_api_authenticates_is_compared_on_every_run() -> None:
+    def document(scheme: str, security: list[Any]) -> dict[str, Any]:
+        base = doc({"/things": {"get": {"responses": {}, "security": security}}}, servers=[{"url": "/"}])
+        base["components"]["securitySchemes"] = {"bearer": {"type": "http", "scheme": scheme}}
+        return base
+
+    assert lines(document("bearer", [{"bearer": []}]), document("basic", [{"bearer": []}])) == [
+        "BREAKING contract: 'securitySchemes' changed in a way this check does not classify - review it as breaking"
+    ]
+    assert lines(document("bearer", [{"bearer": []}]), document("bearer", [])) == [
+        "BREAKING GET /things: the operation, outside its parameters, body and responses, changed in "
+        "a way this check does not classify - review it as breaking"
+    ]
+    moved = document("bearer", [{"bearer": []}])
+    moved["servers"] = [{"url": "/v2"}]
+    assert lines(document("bearer", [{"bearer": []}]), moved) == ["contract: 'servers' changed"]
+
+
+def test_a_document_changed_only_outside_what_is_compared_is_named_as_a_whole() -> None:
+    assert lines(doc(info={"x-owner": "a"}), doc(info={"x-owner": "b"})) == [
+        "BREAKING contract: the document changed in a way this check does not classify - review it as breaking"
+    ]

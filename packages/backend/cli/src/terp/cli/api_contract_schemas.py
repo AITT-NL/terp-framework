@@ -26,6 +26,21 @@ _MAX_DEPTH = 64
 REQUEST = "request"
 RESPONSE = "response"
 
+#: Keys that describe a document without changing any shape a client depends on.
+EDITORIAL = frozenset(
+    {"description", "summary", "title", "tags", "operationId", "examples", "example", "externalDocs"}
+)
+
+#: Keys whose value maps names to definitions. The names are data, so a property called
+#: ``title`` is never mistaken for the editorial keyword of the same spelling.
+_NAMED_MAPS = frozenset(
+    {"properties", "patternProperties", "$defs", "definitions", "schemas", "paths", "responses",
+     "content", "securitySchemes", "headers", "parameters", "requestBodies"}
+)
+
+#: Lists whose order carries no meaning for a client.
+_ORDER_FREE = frozenset({"required", "enum", "type"})
+
 
 @dataclass(frozen=True, order=True)
 class Change:
@@ -53,6 +68,36 @@ class Docs:
     changed: frozenset[str]
 
 
+def shape(node: Any, *, names: bool = False) -> Any:
+    """*node* as a client depends on it: no editorial keys, order-free lists sorted.
+
+    Two nodes with equal shapes differ only in text or in an order nothing reads, so a
+    difference that survives this is one a reviewer has to look at.
+    """
+    if isinstance(node, Mapping):
+        if names:
+            return {key: shape(value) for key, value in node.items()}
+        found: dict[str, Any] = {}
+        for key, value in node.items():
+            if key in EDITORIAL:
+                continue
+            if key in _ORDER_FREE and isinstance(value, list):
+                found[key] = sorted(json.dumps(item, sort_keys=True) for item in value)
+            else:
+                found[key] = shape(value, names=key in _NAMED_MAPS)
+        return found
+    if isinstance(node, list):
+        return [shape(item) for item in node]
+    return node
+
+
+def unclassified(where: str, subject: str) -> Change:
+    """The line for a difference no rule classifies: counted as breaking until reviewed."""
+    return Change(
+        True, where, f"{subject} changed in a way this check does not classify - review it as breaking"
+    )
+
+
 def schemas_of(document: Mapping[str, Any]) -> dict[str, Any]:
     return mapping(mapping(document.get("components")).get("schemas"))
 
@@ -73,7 +118,7 @@ def changed_refs(before: Mapping[str, Any], after: Mapping[str, Any]) -> frozens
     old, new = schemas_of(before), schemas_of(after)
     names = old.keys() | new.keys()
     reference = {name: f"#/components/schemas/{name}" for name in names}
-    changed = {reference[name] for name in names if old.get(name) != new.get(name)}
+    changed = {reference[name] for name in names if shape(old.get(name)) != shape(new.get(name))}
     depends = {reference[name]: refs_in(old.get(name)) | refs_in(new.get(name)) for name in names}
     grew = True
     while grew:
@@ -219,7 +264,7 @@ def diff_schema(
     if before == after and pair[0] == pair[1] and not refs_in(before) & docs.changed:
         return
     subject = f"{label} field '{field}'" if field else label
-    yield from _diff_value_set(where, subject, before, after, direction, docs)
+    found = list(_diff_value_set(where, subject, before, after, direction, docs))
     old_object = _single(before, docs.before, "object")
     new_object = _single(after, docs.after, "object")
     if old_object is not None and new_object is not None:
@@ -227,29 +272,39 @@ def diff_schema(
         # recursive shape behind a nullable `anyOf` is compared once, not to the floor.
         member = (old_object[0], new_object[0])
         if not _seen(member, stack):
-            yield from _diff_properties(
-                where,
-                label,
-                old_object[1],
-                new_object[1],
-                direction,
-                docs,
-                field=field,
-                stack=(*stack, member),
+            found.extend(
+                _diff_properties(
+                    where,
+                    label,
+                    old_object[1],
+                    new_object[1],
+                    direction,
+                    docs,
+                    field=field,
+                    stack=(*stack, member),
+                )
             )
     old_array = _single(before, docs.before, "array")
     new_array = _single(after, docs.after, "array")
     if old_array is not None and new_array is not None:
-        yield from diff_schema(
-            where,
-            label,
-            old_array[1].get("items"),
-            new_array[1].get("items"),
-            direction,
-            docs,
-            field=f"{field}[]" if field else "[]",
-            stack=stack,
+        found.extend(
+            diff_schema(
+                where,
+                label,
+                old_array[1].get("items"),
+                new_array[1].get("items"),
+                direction,
+                docs,
+                field=f"{field}[]" if field else "[]",
+                stack=stack,
+            )
         )
+    # Nothing above explained a difference that is really there (a map's value schema, a
+    # default, a union of object shapes, `additionalProperties`): say so, as breaking, so a
+    # run never reports "0 breaking" over a change this check cannot read.
+    if not found and shape(before) != shape(after):
+        found.append(unclassified(where, subject))
+    yield from found
 
 
 def _seen(pair: tuple[str | None, str | None], stack: tuple[tuple[str | None, str | None], ...]) -> bool:
@@ -308,8 +363,15 @@ def _diff_value_set(
         else:
             yield Change(False, where, f"{subject} format {old_format or 'none'} -> {new_format or 'none'}")
 
+    old_bounds, new_bounds = _bounds(before, docs.before), _bounds(after, docs.after)
     if direction == REQUEST:
-        yield from _diff_bounds(where, subject, _bounds(before, docs.before), _bounds(after, docs.after))
+        yield from _diff_bounds(where, subject, old_bounds, new_bounds)
+    else:
+        # A response bound constrains what the server sends, so moving it never fails a
+        # reader that was built on the old one; it is named, and never breaking.
+        for key in sorted(old_bounds.keys() | new_bounds.keys()):
+            if old_bounds.get(key) != new_bounds.get(key):
+                yield Change(False, where, f"{subject} {key} {old_bounds.get(key, 'none')} -> {new_bounds.get(key, 'none')}")
 
 
 def _spell(types: frozenset[str]) -> str:
@@ -411,6 +473,7 @@ def _diff_properties(
 
 
 __all__ = [
+    "EDITORIAL",
     "REQUEST",
     "RESPONSE",
     "Change",
@@ -421,4 +484,6 @@ __all__ = [
     "refs_in",
     "resolve",
     "schemas_of",
+    "shape",
+    "unclassified",
 ]

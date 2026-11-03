@@ -1,7 +1,10 @@
 # 0193 — A public site is a client of an app, and the framework defines the socket it plugs into
 
 - **Status:** Proposed (awaiting review). Amends [ADR 0123](0123-marketing-websites-are-not-a-terp-application-kind.md)
-  §4 and the first of its consequences, and keeps its §1–3 and §5. Nothing is built by this
+  §4, the closing paragraph of §1 and the first of its consequences, and keeps the reasoning
+  of its §1–3 and all of §5. Revised 2026-11-03 after review: a site reads published content
+  from a public route with no credential in its build, it claims no conformance level, and
+  §1's closing paragraph is amended openly rather than said to stand. Nothing is built by this
   record: the contract baseline, the rules profile, the lint preset, the starter and the deploy
   recipe are each a later change of their own, listed under "How it will be held".
 - **Date:** 2026-11-03. 0182 and 0183 are reserved for other records; 0184 to 0191 are taken, and
@@ -15,10 +18,11 @@
   [ADR 0090](0090-a-table-has-one-owning-history.md) (a table has one owning history) and
   [ADR 0060](0060-projects-is-example-code-base-profile-closure.md) (a business noun is an app
   module, not a capability); uses
-  [ADR 0088](0088-service-principal-credentials.md) (a program authenticates as a service
-  principal), [ADR 0184](0184-a-deployment-declares-its-units.md) (the deployment declaration and
+  [ADR 0088](0088-service-principal-credentials.md) (why a build is handed no service principal:
+  one is authorized exactly as a person with its role), [ADR 0184](0184-a-deployment-declares-its-units.md) (the deployment declaration and
   the owner of each fact in it), [ADR 0124](0124-a-declared-variable-may-name-the-services-that-see-it.md)
-  (a variable names the services that see it), [ADR 0084](0084-runtime-applicability-classification.md)
+  (a variable names the services that see it, so the API's base URL reaches only the
+  build unit), [ADR 0084](0084-runtime-applicability-classification.md)
   (the runtime-applicability vocabulary), [ADR 0093](0093-semantic-token-layer-and-named-themes.md)
   (the token layer that travels) and [ADR 0104](0104-the-spa-document-carries-its-own-security-headers.md)
   (the security-header posture a static host can carry); reaffirms
@@ -74,7 +78,15 @@ it, without a site ever becoming a kind of Terp application.
 
 ## Decision
 
-### 1. ADR 0123 §1–3 stand, and so does every consequence but the first
+### 1. ADR 0123's reasoning stands; §1's closing paragraph is amended openly
+
+§1's reasoning holds: a site has no authority seam, so it would inherit only the build-time
+half of two-layer enforcement, and that is why it is not a kind of Terp application. Its
+closing paragraph said that what would transfer (a token system, a lint rule set, a
+scaffolder) is "none of it this framework". That paragraph is amended: the Terp family now
+ships those three things, from this repository and the spec, as build-time tooling for a
+site. They carry no Terp guarantee to it, and nothing here says otherwise. §2 and §3 stand
+unchanged.
 
 A site is not a Terp application kind. No `site` value joins the layout manifest's `contract`
 vocabulary, no page archetype is added for a public page, and the frontend primitives are not
@@ -101,28 +113,36 @@ or a publish workflow are that app's modules, not capabilities.
 | Part | What the site declares | Where the fact lives | What it may never be |
 |---|---|---|---|
 | Content source | `repo` (content in the site's own tree) or `api` (published content from one Terp app) | the site manifest; for `api`, the base URL is a declared variable per environment, because it is an environment fact (ADR 0184 decision 2) | a database connection, or members-only content, which stays behind the app's API and is never built into static output |
-| Authentication | for `api`, the name of the service principal the build authenticates as, through client-credentials `/token` (ADR 0088), granted read on published content and nothing else | the site manifest names the principal; its secret is a declared secret variable that only the build unit receives (ADR 0124) | a person's token, a shared administrator account, or a secret in an image or in the built output |
+| Authentication | none: what a public site shows is public, so the app serves its published content from a public, rate-limited read route (ADR 0148), and the build reads it anonymously | the app's own route declaration | any credential handed to a build: a person's token, a shared account, or a service principal, which is authorized exactly as a person with its role (ADR 0088 §4) and so cannot be held to published content |
 | Rebuild trigger | `none` (rebuilt when it is deployed) or `webhook` (the app's publish event asks the deploy tool for a rebuild) | the site manifest | a rebuild that needs a new image |
 | Rules profile | `site`: the subset of the Terp Standard's frontend rules a site is held to (decision 5) | the site manifest names it; the profile's words live in the spec | the application profile's uniformity rules |
-| Deployment unit | a `web` unit built from the checkout; for an `api` source, also a `one-shot` build unit that runs inside the environment, where the API and the principal's secret already are, and writes the site to a volume the `web` unit serves | `deployment.json` (ADR 0184) | a free image, an image build that fetches content or holds a secret, an `/api` proxy it did not declare, or a hostname in the API's CORS when its pages make no browser call |
+| Deployment unit | a `web` unit built from the checkout; for an `api` source, also a `one-shot` build unit that runs inside the environment, where the API is reachable, and writes the site to a volume the `web` unit serves | `deployment.json` (ADR 0184) | a free image, an image build that fetches content or holds a secret, a build unit that receives the app's own environment, an `/api` proxy it did not declare, or a hostname in the API's CORS when its pages make no browser call |
 
 Facts keep the owners ADR 0184 gave them. Units, volumes and the variable names a unit needs are
 in `deployment.json`. Variables, whether each is secret and where each is required are in
 `environment.schema.json`. Hostnames, TLS and CORS are environment facts, held by whatever records
 environments. The **site manifest** is one file that holds only what no existing declaration can:
-the content source, the principal's name, the rebuild trigger and the rules profile. Once a deploy
+the content source, the rebuild trigger and the rules profile. Once a deploy
 tool reads it as well as the site's own build, which wiring the rebuild trigger makes the case, it
 is a declaration two programs read. Its schema then goes to the spec under ADR 0111 decision 5,
 versioned and fixture-checked as ADR 0186 describes.
 
-Two more facts belong to the socket, because a site cannot be safe without them:
+Three more facts belong to the socket, because a site cannot be safe without them:
+
+- **No credential is ever handed to a build.** A site build runs the site's own third-party
+  dependencies, so it must hold nothing worth stealing. Published content is public by
+  definition, which is what lets the build read it anonymously; anything that is not public
+  stays behind the app's API and is never built into a site.
 
 - **Content arrives as data, never as markup.** Editor content is rendered from Markdown or a
   structured form. HTML from the API is never inserted into a page.
 - **The contract is a pinned file.** A site that reads an app generates its client from that app's
   committed `openapi.json`, so a change to the shape the app serves is a diff the app's own gate
   can refuse before the site's next build discovers it. Pinning and checking that file is its own
-  record, the API contract baseline; the socket depends on it existing.
+  record, the API contract baseline (ADR 0194); the socket depends on it existing.
+- **A site and the app's frontend share no source.** The app's frontend rules cover its own
+  tree, so an import from `site/` into `frontend/` would bring unchecked code into the app; no
+  import crosses between the two, and the site preset refuses one when it lands.
 
 How a deploy tool picks the recipe that builds a site's `web` unit, whether by a field in
 `deployment.json` or by inference from the profile, is not decided here. A field would be a change
@@ -141,24 +161,27 @@ first-class to the family's tooling as one made from the starter, which is what 
 socket rather than a second framework. The starter's build tool is chosen with the starter; the
 socket does not depend on it.
 
-### 5. A site is held to the `site` profile and certifies at Level 2
+### 5. A site is held to the `site` profile, and claims no application level
 
 The `site` profile names the frontend catalog's security rules that mean the same thing on a
 static page: no DOM HTML injection, no `eval` or `new Function`, no `javascript:` URL, no
-`target="_blank"` without `rel="noopener"`, and a site form of the generated-client rule, in which
-the build-time client is the only egress and pages make no browser call by default. It names none
+`target="_blank"` without `rel="noopener"`, and the generated-client rule exactly as it stands,
+applied to the site's page code, so a page makes no browser call of its own. The build script
+that fetches published content is not page code and is outside that rule. It names none
 of the rules whose purpose is an app's uniformity: inline styling, stylesheet imports, token-styled
 elements, the layout contract, router links and framework markers. The escape-hatch ratchet is the
 site's own choice. The exact partition of the catalog's frontend entries is recorded in the spec,
 with the profile.
 
-The profile adds no rule; it names a subset of existing ones, so ADR 0122's breadth freeze is
-untouched. Each rule in it classifies `runtime.applicability` as `not-applicable` for this surface,
-with §1's rationale: there is no runtime to observe. That is why a site certifies at **Level 2**,
-where a checker validated against the corpus enforces the profile's rules over the site's source.
-A site claims no capability, so Level 1's probes ask nothing of it, and Level 3's paired runtime
-controls have nothing to run on. The profile's words, its per-surface classification and corpus
-cases in the site's own source formats belong in the spec. The reference checker is a named preset
+The profile adds no rule and varies none; it names a subset of existing ones, so ADR 0122's
+breadth freeze is untouched. Each rule in it classifies `runtime.applicability` as
+`not-applicable` for this surface, with §1's rationale: there is no runtime to observe.
+
+A site does **not** claim the spec's Level 2. That level builds on Level 1 and requires every
+`static-portable` rule, and the profile deliberately leaves out several of them. A site's claim
+is its own: its source is checked by the site preset against the `site` profile. What that
+claim is called, and what it requires, is recorded in the spec with the profile, together with
+the per-surface classification and corpus cases in the site's own source formats. The reference checker is a named preset
 of `@terpjs/eslint-boundaries` that parses those formats and attributes its findings to the same
 catalog ids.
 
@@ -182,7 +205,9 @@ own diff moves the pin. And it keeps three things a copy loses:
 - **An upgrade path.** Taking a contrast fix is a one-line diff. A copy is a fork with no upstream,
   and it drifts the first time someone edits it to pass locally.
 
-A site takes `tokens.css` and `tokens.manifest.json` from the package and nothing else. The
+A site takes `tokens.css` and `tokens.manifest.json` from the package and nothing else, and its
+lockfile pins the package's own dependencies with it; if that footprint matters to a site,
+publishing the tokens as a package of their own is the starter's decision, taken on evidence. The
 package's typed client is generated from the framework's own reference app, not from the app a
 site reads, so a site never uses it (decision 3). The theme is one of the five named ones, set on
 the document exactly as an app sets it. §4's second paragraph stands: the frontend primitives do
@@ -194,7 +219,8 @@ not travel.
   this record keeps is read where it was written.
 - The framework gains a site starter template, a site preset in `@terpjs/eslint-boundaries` and a
   guide topic, and the spec gains the `site` profile and its corpus. Capabilities gain nothing for
-  sites: the content backend is an ordinary app.
+  sites: the content backend is an ordinary app, and its published read is one of its own routes,
+  declared public with a reason and a rate limit.
 - An agent asked for public pages in a Terp app has an answer before it improvises one: not in the
   single-page app, not in a relaxed zone, and not against the database, but a site reading the API
   through the socket. `AGENTS.md` says so in one sentence.

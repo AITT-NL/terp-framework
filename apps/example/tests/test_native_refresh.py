@@ -173,3 +173,49 @@ def test_native_clients_without_the_refresh_seams_are_refused_at_construction() 
             lambda _session, _email, _password: None,
             native_clients=NativeClients(reason="a mobile app"),
         )
+
+
+# --- no credential is ever stored for replay --------------------------------- #
+@pytest.mark.parametrize("path", ["/api/v1/auth/login", _LOGIN])
+def test_a_sign_in_route_refuses_an_idempotency_key(app_db: FastAPI, make_user, path: str) -> None:
+    make_user("keyed@example.com", _PASSWORD, Roles.EDITOR)
+    response = TestClient(app_db).post(
+        path,
+        json={"email": "keyed@example.com", "password": _PASSWORD},
+        headers={"Idempotency-Key": "sign-in-1"},
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "idempotency_key_not_accepted"
+    assert "set-cookie" not in response.headers and "token" not in response.json()
+
+
+def test_the_cookie_refresh_refuses_an_idempotency_key(app_db: FastAPI, make_user) -> None:
+    make_user("cookie-keyed@example.com", _PASSWORD, Roles.EDITOR)
+    browser = TestClient(app_db)
+    assert browser.post(
+        "/api/v1/auth/login", json={"email": "cookie-keyed@example.com", "password": _PASSWORD}
+    ).status_code == 200
+    keyed = browser.post("/api/v1/auth/refresh", headers={"Idempotency-Key": "refresh-1"})
+    assert keyed.status_code == 400 and keyed.json()["code"] == "idempotency_key_not_accepted"
+    assert browser.post("/api/v1/auth/refresh").status_code == 200, "the cookie still works without one"
+
+
+def test_a_captured_refresh_request_cannot_be_replayed_past_its_rotation(
+    app_db: FastAPI, make_user, monkeypatch
+) -> None:
+    """The replay the idempotency store would otherwise serve: a spent token resent with its
+    original key. Refused at the route, nothing is stored, so the stolen request yields no
+    successor and the reuse detection still sees the replay."""
+    from terp.core import settings
+
+    monkeypatch.setattr(settings, "REFRESH_ROTATION_GRACE_SECONDS", 0)
+    make_user("captured@example.com", _PASSWORD, Roles.EDITOR)
+    spent = _native_login(app_db, "captured@example.com")["refresh_token"]
+    captured = {"Idempotency-Key": "refresh-captured"}
+    first = _refresh(app_db, spent, **captured)
+    assert first.status_code == 400 and "refresh_token" not in first.text
+    successor = _refresh(app_db, spent).json()["refresh_token"]
+    replayed = _refresh(app_db, spent, **captured)
+    assert replayed.status_code == 400 and successor not in replayed.text
+    assert _refresh(app_db, spent).status_code == 401, "the replay of the spent token is seen"
+    assert _refresh(app_db, successor).status_code == 401, "and the family it belonged to is dead"

@@ -9,6 +9,10 @@ live.
 
 from __future__ import annotations
 
+from terp.capabilities.auth.credentials import (
+    ReplayKeyOnCredentialRouteError,
+    refuse_replay_key,
+)
 from terp.capabilities.auth.deps import (
     TokenValidator,
     build_get_principal,
@@ -115,6 +119,7 @@ __all__ = [
     "RefreshIssuer",
     "RefreshRotation",
     "RefreshRotator",
+    "ReplayKeyOnCredentialRouteError",
     "ServiceTokenVersionResolver",
     "SubjectKind",
     "TooManyAttemptsError",
@@ -138,6 +143,7 @@ __all__ = [
     "refresh_token_digest",
     "refresh_token_digests",
     "refuse_browser",
+    "refuse_replay_key",
     "set_refresh_cookie",
     "tenant_from_bearer",
     "verify_password",
