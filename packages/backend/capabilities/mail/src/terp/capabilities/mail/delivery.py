@@ -147,6 +147,16 @@ def reset_mail() -> None:
     _runtime = None
 
 
+def mail_is_configured() -> bool:
+    """Whether the composition root has declared this process's relay with ``configure_mail``.
+
+    For a capability whose every route sends mail (self-service accounts, ADR 0196): it
+    refuses to be built without one, so the missing declaration is a boot failure rather
+    than an error at the first send.
+    """
+    return _runtime is not None
+
+
 def _configured() -> _MailRuntime:
     if _runtime is None:
         raise MailConfigurationError(
@@ -232,6 +242,7 @@ __all__ = [
     "MailTransport",
     "configure_mail",
     "deliver_mail",
+    "mail_is_configured",
     "reset_mail",
     "send_mail",
 ]

@@ -72,6 +72,25 @@ decision, 0001 onwards.
   marker the access token does, so the auth capability's `schemas_exclude_sensitive_fields`
   budget moves from 1 to 2. The reference app opts in; its committed contract and authority
   baseline record the two routes.
+- **A person can open, prove, recover and close their own account (ADR 0196).** The users
+  capability had only operator operations, so an app with consumer accounts wrote the public
+  half itself, which is where an address gets enumerated, a reset token works twice or ends up
+  in a server log, and a stolen access token closes an account. `build_accounts_module` over
+  a `SelfService` declaration mounts `POST /api/v1/accounts/sign-up`, `/verify`,
+  `/password-reset`, `/password-reset/confirm` and `/me/close`. An account exists only once
+  its address redeems the token mailed to it, at the viewer rank, and inactive when the app
+  approves accounts (ADR 0142). A request about an address answers `202` the same way whether
+  or not it has an account, doing the same hashing, sealing and write either way. Tokens are
+  sealed, expire (24 hours for a sign-up and 1 hour for a reset by default), work once through
+  a new `identity_account_token` row that stores only their digest, and travel in the URL
+  fragment. Every route backs off and never locks out (ADR 0147). Closing needs the password
+  again, refuses the last administrator, ends every session, and scrubs or removes the account
+  as declared. Off by default, and refused when it is built without a reason, before
+  `configure_mail`, or in production with a link that is not https, which outside production
+  is logged as a refused state. A throttle store each worker keeps is accepted and said out
+  loud, as the platform's own is (ADR 0036). The module declares `MAIL_SEND`, so a boot whose
+  job catalog lacks it is refused. The mail capability gains `mail_is_configured()`, and
+  `terp-cap-users` now depends on `terp-cap-mail` and `cryptography`.
 
 ### Changed
 
@@ -103,6 +122,13 @@ decision, 0001 onwards.
   and close the pull request. Its own digest is not to be copied: Dependabot cannot see the tag
   on a `FROM` line pinned by digest alone, and two of the last three it proposed were another
   tag's image.
+
+### Upgrade notes
+
+- **`terp-cap-users` depends on `terp-cap-mail` and `cryptography` (ADR 0196),** and the
+  identity capability gains the `identity_account_token` table, created by
+  `terp migrate upgrade`. An image that installs the capabilities one by one installs
+  `terp-cap-mail` beside `terp-cap-users`, as the reference app's Dockerfiles now do.
 
 ### Fixed
 

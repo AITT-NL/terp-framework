@@ -62,6 +62,26 @@ class RefreshToken(BaseTable, table=True):
     revoked_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True), nullable=True)  # type: ignore[call-overload]
 
 
+class AccountToken(BaseTable, table=True):
+    """One self-service account request's token (ADR 0196): its digest, never the token.
+
+    The token itself is sealed and travels only in the mail it was sent in, carrying what
+    redeeming it needs; this row is what makes it single-use (``used_at``) and expiring
+    (``expires_at``), and writing it is the audited write that queues the mail. It holds no
+    address: a sign-up row has no ``user_id`` until the account it asked for exists, and a
+    request for an address with no account writes an identical row, so the table does not
+    tell the two apart either.
+    """
+
+    __tablename__ = "identity_account_token"
+
+    purpose: str = Field(max_length=16, nullable=False)
+    token_hash: str = Field(max_length=128, index=True, unique=True, nullable=False)
+    user_id: uuid.UUID | None = Field(default=None, index=True, nullable=True)
+    expires_at: datetime = Field(sa_type=DateTime(timezone=True), nullable=False)  # type: ignore[call-overload]
+    used_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True), nullable=True)  # type: ignore[call-overload]
+
+
 class ServiceAccount(BaseTable, table=True):
     """A non-human principal: an integration that calls the API in its own name (ADR 0088).
 

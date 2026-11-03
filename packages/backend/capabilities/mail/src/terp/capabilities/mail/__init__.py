@@ -39,6 +39,7 @@ from terp.capabilities.mail.delivery import (
     CapturingMailTransport,
     MailTransport,
     configure_mail,
+    mail_is_configured,
     reset_mail,
     send_mail,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "MailSettings",
     "MailTransport",
     "configure_mail",
+    "mail_is_configured",
     "mail_settings_from_environment",
     "reset_mail",
     "send_mail",

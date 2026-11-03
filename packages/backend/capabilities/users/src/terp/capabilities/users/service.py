@@ -196,6 +196,47 @@ class UsersService(BaseService[User, UserProvision, UserAdminUpdate]):
         self._bump_token_version(user)
         return self._save(session, user, AuditAction.UPDATED)
 
+    def create_verified(
+        self, session: Session, *, email: str, hashed_password: str, active: bool
+    ) -> User:
+        """Create the account a proven address asked for (ADR 0196), at the viewer rank.
+
+        The address was proven by redeeming a token mailed to it, and the password was held
+        to the policy and hashed when the request was made, so the hash is stored as it
+        arrived and the plaintext never existed after that request. *active* is ``False``
+        for an app that admits new accounts by approval: ADR 0142's inactive state, which
+        an administrator's activation lifts.
+        """
+        user = User(
+            email=email,
+            hashed_password=hashed_password,
+            role=int(Roles.VIEWER),
+            is_active=active,
+        )
+        return self._save(session, user, AuditAction.CREATED)
+
+    def close_account(self, session: Session, user_id: uuid.UUID, *, remove: bool) -> None:
+        """Close an account at its holder's request (ADR 0196); every session ends with it.
+
+        The last active administrator is refused, as a deactivation is. The account is
+        deactivated, its password cleared and its token epoch moved in one audited write,
+        which also revokes its refresh families. With ``remove=False`` its address is
+        replaced too, so the row stays for references and the trail while the person's
+        data goes; with ``remove=True`` the row is then deleted.
+        """
+        with self._admin_invariant_lock:
+            user = self.get(session, user_id)
+            if self._is_last_active_admin(session, user):
+                raise LastAdminError()
+            user.is_active = False
+            user.hashed_password = None
+            if not remove:
+                user.email = f"closed-{user.id.hex}@closed.invalid"
+            self._bump_token_version(user)
+            self._save(session, user, AuditAction.UPDATED)
+            if remove:
+                self.delete(session, user_id)
+
     def revoke_sessions(self, session: Session, user_id: uuid.UUID) -> None:
         """Invalidate a user's outstanding tokens — the logout / forced-logout write.
 

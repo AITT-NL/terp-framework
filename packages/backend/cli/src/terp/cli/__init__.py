@@ -1227,6 +1227,17 @@ Password strength (PasswordPolicy, Tier-B)
   The reason is the opt-out: it is stored as `relaxed_reason` and named back to you in the
   BootError, so "why is this off" always has an answer that travels with the declaration.
       PasswordPolicy.relaxed(reason="legacy bulk import")
+- SELF-SERVICE accounts (ADR 0196) hold sign-up and reset to the same policy. They are
+  opt-in and never discovered: after configure_mail(...), build the module and mount it
+      build_accounts_module(SelfService(reason="members open their own accounts",
+          users=users_service, throttle_store=shared_store,
+          link_base="https://app.example.com"))
+  for POST /api/v1/accounts/sign-up, /verify, /password-reset, /password-reset/confirm
+  and /me/close. An account exists only once its address redeems the mailed token; a
+  request about an address answers 202 the same way whether or not it has an account;
+  tokens are sealed, expire, work once, and ride the URL fragment, so your account pages
+  read them from location.hash and post them. Closing needs the password again and ends
+  every session (AccountDeletion.SCRUB by default, or REMOVE).
 - No terp.arch check applies (no module code shape to police) — enforcement is the
   service chokepoint plus the create_app production fail-fast.
 """,

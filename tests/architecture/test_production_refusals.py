@@ -93,6 +93,15 @@ _PRODUCTION_REFUSALS: dict[str, tuple[tuple[str, str], ...]] = {
             "`production_problems()` and a warning on every non-production boot.",
         ),
     ),
+    "terp/capabilities/users/self_service.py::SelfService.__post_init__": (
+        (
+            "plaintext self-service account links",
+            "a CAPABILITY OBJECT the app constructs itself; ControlPlane has no field "
+            "that reaches it, so the lane cannot ask. Mitigated the same way as the OIDC "
+            "refusal above: an environment-independent `production_problems()` and a "
+            "warning on every non-production boot.",
+        ),
+    ),
 }
 
 
