@@ -61,6 +61,10 @@ uv run coverage run -m pytest      # syncs the workspace and runs the suite
 uv run coverage report             # the 100% coverage bar the gate also enforces
 ```
 
+For the full coverage gate, set `TERP_TEST_POSTGRES_URL` to a disposable PostgreSQL
+server with permission to create and drop scratch databases. PostgreSQL-specific
+sync custody tests must run to reach 100%; CI supplies PostgreSQL 17.
+
 Without `uv`, use a venv with the kernel installed editable:
 
 ```bash

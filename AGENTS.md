@@ -245,6 +245,11 @@ the build if the framework re-couples to `spec/` or `studio/` by path.
 
 ## Run the gate
 
+Set `TERP_TEST_POSTGRES_URL` to a disposable PostgreSQL server first. The suite
+creates scratch databases; the user must be able to create and drop them. The full
+coverage gate includes PostgreSQL-specific custody paths and cannot reach 100%
+when those tests skip. CI supplies PostgreSQL 17 to both coverage jobs.
+
 ```bash
 uv run coverage run -m pytest   # the gate: the suite ...
 uv run coverage report          # ... and the 100% bar it is held to

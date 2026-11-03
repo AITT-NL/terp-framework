@@ -22,6 +22,22 @@ concurrency:
 jobs:
   gate:
     runs-on: ubuntu-latest
+    # Sync custody uses independent PostgreSQL transactions. These paths must run
+    # under coverage here as well as in the dedicated dialect lane below.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: terp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TERP_TEST_POSTGRES_URL: postgresql+psycopg://postgres:terp@localhost:5432/postgres
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -225,8 +241,9 @@ jobs:
           # purpose, so here a skip is a failure.
           TERP_REQUIRE_POSTGRES_LANE: "1"
         # Every module that takes the `terp_db_url` fixture runs here, because this is
-        # the only job with a server: anywhere else its PostgreSQL half skips, and a skip
-        # is green. The audit activity's per-day counts were claimed for both dialects
+        # the dedicated job with a matching restore client and strict no-skip policy.
+        # The coverage and minimum-runtime jobs also have servers. The audit activity's
+        # per-day counts were claimed for both dialects
         # while only SQLite ever ran them. So does readiness following the database away
         # and back (ADR 0191), which only a server can show.
         run: >-

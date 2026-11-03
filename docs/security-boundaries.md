@@ -26,6 +26,11 @@ transport servers where the transport itself is the boundary.
 | Authority to bind a file reference | `tests/architecture/test_file_binding.py` |
 
 Run the framework gate with `uv run coverage run -m pytest` and `uv run coverage report`.
+Set `TERP_TEST_POSTGRES_URL` to a disposable PostgreSQL server when running the full
+coverage gate locally. PostgreSQL-specific sync custody paths need a real server;
+skipping them leaves the 100% coverage gate incomplete. CI supplies PostgreSQL 17 to
+the coverage job, while the dedicated PostgreSQL lane also installs the matching
+restore client and refuses skipped restore drills.
 The minimum-runtime-security CI lane independently resolves the lowest allowed direct
 dependencies, audits its external runtime tree, and exercises the relevant boundaries.
 The normal gate and dependency audit cover the current resolution. These checks complement
