@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { Field } from "../Field";
 import { LOCALE_EN, LOCALE_NL, LocaleProvider } from "../locale";
 import { DatePicker, DateRangePicker } from "./DatePicker";
 
@@ -19,7 +20,7 @@ describe("DatePicker", () => {
         <DatePicker aria-label="Due date" defaultValue={new Date(2026, 6, 7)} onChange={onChange} />
       </LocaleProvider>,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Due date" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Due date / }));
     expect(screen.getByRole("grid", { name: /July 2026/ })).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole("grid"), { key: "ArrowRight" });
     fireEvent.keyDown(screen.getByRole("grid"), { key: "Enter" });
@@ -36,7 +37,7 @@ describe("DatePicker", () => {
         <DatePicker aria-label="Due date" defaultValue={new Date(2026, 6, 7)} />
       </LocaleProvider>,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Due date" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Due date / }));
     const grid = screen.getByRole("grid");
     const rows = screen.getAllByRole("row");
     expect(rows).toHaveLength(6);
@@ -57,7 +58,7 @@ describe("DatePicker", () => {
         <DatePicker aria-label="Due date" defaultValue={new Date(2026, 6, 7)} />
       </LocaleProvider>,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Due date" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Due date / }));
     const grid = screen.getByRole("grid");
     const cursor = () => grid.querySelector<HTMLElement>('[tabindex="0"]');
 
@@ -82,7 +83,7 @@ describe("DatePicker", () => {
         <DatePicker aria-label="Due date" defaultValue={new Date(2026, 6, 7)} />
       </LocaleProvider>,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Due date" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Due date / }));
     await waitFor(() =>
       expect(document.activeElement).toBe(
         screen.getByRole("grid").querySelector('[tabindex="0"]'),
@@ -106,7 +107,7 @@ describe("DatePicker", () => {
       </LocaleProvider>,
     );
     expect(screen.getByRole("grid", { name: /July 2026/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Due date" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: /^Due date / })).toHaveAttribute(
       "aria-expanded",
       "true",
     );
@@ -131,19 +132,74 @@ describe("DatePicker", () => {
     ).toBeInTheDocument();
   });
 
+  // WCAG 2.5.3, Label in Name: `aria-label` replaces a button's content in its name, so the
+  // label alone named a trigger that shows a date after the label and nothing of the date. A
+  // screen reader never heard the value, and a voice-control user saying the date they could
+  // see named nothing; axe 4.14 reports it as label-content-name-mismatch.
+  it("names the trigger by its label and then the date it shows", () => {
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN }}>
+        <DatePicker aria-label="Due date" value={new Date(2026, 0, 15)} />
+      </LocaleProvider>,
+    );
+    const trigger = screen.getByRole("button", { name: "Due date Jan 15, 2026" });
+    // The name contains exactly the text the trigger shows (the glyph beside it is hidden).
+    expect(trigger.querySelector("span:not([aria-hidden])")?.textContent).toBe("Jan 15, 2026");
+    // Mutation: the label alone, as before.
+    expect(screen.queryByRole("button", { name: "Due date" })).not.toBeInTheDocument();
+  });
+
+  it("names an empty trigger by its label and then the placeholder it shows", () => {
+    render(<DatePicker aria-label="Due date" value={null} />);
+    expect(screen.getByRole("button", { name: "Due date Select date" })).toBeInTheDocument();
+  });
+
+  it("is named by a Field's label text and then its date, and described by the hint", () => {
+    // In a `Field` the label arrives as `aria-labelledby` (pointed at the label's text span),
+    // which the picker used to drop, so the trigger took the whole <label>'s text as its name,
+    // hint and error included. It now points at the label text and at its own shown text.
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN }}>
+        <Field label="Due date" hint="A weekday">
+          <DatePicker value={new Date(2026, 0, 15)} />
+        </Field>
+      </LocaleProvider>,
+    );
+    const trigger = screen.getByRole("button", { name: "Due date Jan 15, 2026" });
+    const [label, value] = trigger.getAttribute("aria-labelledby")!.split(" ");
+    expect(document.getElementById(label!)?.textContent).toBe("Due date");
+    expect(document.getElementById(value!)?.textContent).toBe("Jan 15, 2026");
+    expect(trigger).toHaveAccessibleDescription("A weekday");
+    expect(trigger).not.toHaveAttribute("aria-label");
+  });
+
   it("uses the active locale for month and weekday names", () => {
     render(
       <LocaleProvider locales={{ nl: LOCALE_NL }}>
         <DatePicker aria-label="Datum" defaultValue={new Date(2026, 6, 7)} />
       </LocaleProvider>,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Datum" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Datum / }));
     expect(screen.getByRole("grid", { name: /juli 2026/i })).toBeInTheDocument();
     expect(screen.getByText(/zo/i)).toBeInTheDocument();
   });
 });
 
 describe("DateRangePicker", () => {
+  it("names the trigger by its label and then the range it shows", () => {
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN }}>
+        <DateRangePicker
+          aria-label="Reporting period"
+          value={{ start: new Date(2026, 0, 15), end: new Date(2026, 0, 22) }}
+        />
+      </LocaleProvider>,
+    );
+    expect(
+      screen.getByRole("button", { name: "Reporting period Jan 15, 2026 – Jan 22, 2026" }),
+    ).toBeInTheDocument();
+  });
+
   it("opens the calendar on mount when asked", () => {
     render(
       <DateRangePicker
@@ -170,7 +226,7 @@ describe("DateRangePicker", () => {
   it("selects a start/end range and closes after the end", () => {
     const onChange = vi.fn();
     render(<DateRangePicker aria-label="Window" defaultValue={{ start: new Date(2026, 6, 10), end: null }} onChange={onChange} />);
-    fireEvent.click(screen.getByRole("button", { name: "Window" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Window / }));
     fireEvent.click(dayCells("12")[0]!);
     expect(onChange).toHaveBeenCalledWith({ start: new Date(2026, 6, 10), end: new Date(2026, 6, 12) });
     expect(screen.queryByRole("grid")).not.toBeInTheDocument();
@@ -187,7 +243,7 @@ describe("DateRangePicker", () => {
         onChange={onChange}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Window" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Window / }));
     expect(dayCells("4")[0]).toBeDisabled();
     fireEvent.click(dayCells("8")[0]!);
     expect(onChange).toHaveBeenCalledWith({ start: new Date(2026, 6, 8), end: null });
