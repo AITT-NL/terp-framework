@@ -50,9 +50,9 @@ BASE_IMAGE_SOURCES: dict[str, str] = {
         "for linux/amd64, arm64/v8, ppc64le and s390x"
     ),
     "python": (
-        "docker buildx imagetools inspect python:3.14-slim, read 2026-10-21: the OCI image "
-        "index for Python 3.14.8 on Debian slim, built 2026-10-21, for linux/386, amd64, "
-        "arm/v5, arm/v7, arm64/v8, ppc64le, riscv64 and s390x"
+        "the registry's OCI image index for python:3.14-slim (what docker buildx imagetools "
+        "inspect reads), read 2026-11-03: Python 3.14.10 on Debian slim, built 2026-10-28, "
+        "for linux/386, amd64, arm/v5, arm/v7, arm64/v8, ppc64le, riscv64 and s390x"
     ),
     "uv": (
         "the registry's OCI image index for ghcr.io/astral-sh/uv:0.13.6 (what docker buildx "

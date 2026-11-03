@@ -40,7 +40,7 @@ FROM ghcr.io/astral-sh/uv@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0
 
 # --- Stage 1: the locked dependencies -------------------------------------------------
 # python:3.14-slim
-FROM python@sha256:fbecd461fc72d21b2143c6eaba25143738079154a6d0ea3da3aec724f50eed4a AS deps
+FROM python@sha256:930e1abba7c4e8f96ed93e8012c35d174d7732752731bbd5e8e757d7ec6f3966 AS deps
 
 COPY --from=uv /uv /bin/uv
 
@@ -75,7 +75,7 @@ RUN uv build --wheel --out-dir /dist .
 
 # --- Stage 3: minimal runtime ---------------------------------------------------------
 # python:3.14-slim
-FROM python@sha256:fbecd461fc72d21b2143c6eaba25143738079154a6d0ea3da3aec724f50eed4a
+FROM python@sha256:930e1abba7c4e8f96ed93e8012c35d174d7732752731bbd5e8e757d7ec6f3966
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
