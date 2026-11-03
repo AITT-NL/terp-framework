@@ -4,7 +4,7 @@
   vocabulary ships in terp-spec 0.41.0 (`conversation-events.schema.json` with
   `conversation-events.fixtures.json`), which is not published yet; until it is pinned here,
   this record is the design the capability is built to.
-- **Date:** 2026-11-02. 0182 and 0183 are reserved for other records.
+- **Date:** 2026-11-02. 0182 and 0183 are reserved for other records; 0184 to 0191 are taken.
 - **Relates:** reads [ADR 0111](0111-flexibility-is-bounded-by-legibility-not-by-capability.md)
   §4 (the framework owns the socket, not the plug) and decision 5 (a contract two programs
   read lives in the spec), and [ADR 0117](0117-the-egress-capability-the-rule-was-already-naming.md)
@@ -15,7 +15,7 @@
   (a cross-cutting mechanism is a capability, a business noun is a module); composes
   [ADR 0027](0027-packaged-migrations-per-package-histories.md) (packaged migrations),
   [ADR 0056](0056-files-capability.md) (files), [ADR 0095](0095-expiring-fenced-custody-of-work.md)
-  (leases), [ADR 0126](0126-a-capability-publishes-its-operation-set.md) (the operation set)
+  (leases), [ADR 0126](0126-a-capability-publishes-its-operation-set.md) (the operation set),
   [ADR 0176](0176-a-realtime-publish-reaches-every-process-that-serves-the-channel.md)
   (the shared realtime broker) and [ADR 0190](0190-a-field-declares-itself-personal.md)
   (what a person wrote is declared personal); amends the R9 sketch in
@@ -28,9 +28,9 @@
 
 Several applications built on Terp carry a chat of their own, a person talking to an
 assistant, and each one wrote it from nothing. The most complete is the workbench's (Terp
-Studio), which fronts coding agents and has been through some ninety of its own decisions on
-what a conversation is: text that arrives at its own pace, a tool call as a row on a timeline,
-a question the agent asks and ends its turn on, a message sent while a turn runs that either
+Studio), which fronts coding agents and has recorded, decision by decision, what a
+conversation is: text that arrives at its own pace, a tool call as a row on a timeline, a
+question the agent asks and ends its turn on, a message sent while a turn runs that either
 redirects it or waits behind it, how full the agent's memory is. None of that is specific to
 coding agents, and none of it reached another application, because there was nothing to reach
 it through.
@@ -87,14 +87,16 @@ reads the stream unchanged; an AG-UI agent can sit behind the capability.
 
 ```python
 class Assistant(Protocol):
-    async def run(self, input: RunAgentInput, *, checkpoint: Checkpoint) -> AsyncIterator[Event]: ...
+    def run(self, input: RunAgentInput) -> AsyncIterator[Event]: ...
 ```
 
 `RunAgentInput` and `Event` are AG-UI's: the stored messages, the app's tools in AG-UI's own
 `Tool {name, description, parameters}` shape, context, per-run options in `forwardedProps`,
 and `resume` entries answering an interrupt. The Assistant yields events and never touches the
 database, the stream or a secret; the capability validates every event against the vocabulary,
-persists it, and publishes it. An Assistant that needs the person yields `RUN_FINISHED` with an
+persists it, and publishes it. There is no checkpoint argument: a steer or a cancel takes
+effect at the next event the Assistant yields, and an Assistant that wants a safe boundary
+simply yields nothing until it reaches one. An Assistant that needs the person yields `RUN_FINISHED` with an
 interrupt outcome. Two reference Assistants ship as **extras**, so the core distribution has no
 model dependency: `[claude]` (the Claude Messages API through egress, streaming, with
 server-side compaction, refusal fallback and a token budget) and `[agui]` (a remote AG-UI agent
@@ -154,8 +156,9 @@ settled/tail split so a streaming message re-parses only its tail. No new archet
 **9. The workbench conforms; it does not import.** The workbench takes no dependency on any
 framework frontend package, for reasons its own records give (the split boundary, version skew,
 and the trap where a broken framework release breaks the tool used to fix it). It keeps its
-panel and is held to the vocabulary by a parity test that reads the schema and fixtures from
-the `terp-spec` package, as its stylesheet is held to the token manifest.
+panel and is held to the vocabulary by a parity test that vendors the schema and fixtures byte
+for byte from the spec release, as it does for the deployment and development-loop
+declarations, and reads its own turns through them.
 
 **10. The questions left open by the design are settled here.**
 
