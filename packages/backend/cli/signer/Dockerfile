@@ -26,7 +26,7 @@
 # (tests/release_lane/).
 
 # python:3.14-slim, the base-image table's interpreter (terp-arch's base-images.json).
-FROM python@sha256:fbecd461fc72d21b2143c6eaba25143738079154a6d0ea3da3aec724f50eed4a AS install
+FROM python@sha256:930e1abba7c4e8f96ed93e8012c35d174d7732752731bbd5e8e757d7ec6f3966 AS install
 COPY wheels/ /wheels/
 COPY requirements.txt /requirements.txt
 # Every distribution by its hash: the third-party ones as uv.lock pins them, the framework's as
@@ -41,7 +41,7 @@ FROM zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9a
 # The docker client 29.9.2, by digest (docker:29.9.2-cli, read 2026-10-22).
 FROM docker@sha256:5e6baf67325a79f64ed3bed6863954d5e05d0f3d4e57cbdb14809346814bbfdb AS docker
 
-FROM python@sha256:fbecd461fc72d21b2143c6eaba25143738079154a6d0ea3da3aec724f50eed4a
+FROM python@sha256:930e1abba7c4e8f96ed93e8012c35d174d7732752731bbd5e8e757d7ec6f3966
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/* \

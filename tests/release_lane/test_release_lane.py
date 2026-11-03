@@ -14,7 +14,8 @@ job-local ``registry:2`` pinned by digest, both on the loopback:
   and its bytecode held to the tree, the installed set to the lock, and an image whose app
   layer was changed after the build refused;
 * ``terp promote`` of exactly the signed digests: the app moved up one minor (two framework
-  releases built from this tree, 0.35.0 and 0.36.0, because none is published yet) and rolled
+  releases built from this tree as the two minors after its version, because none is
+  published yet) and rolled
   back by promoting the previous release; a deploy whose migration fails on unchanged version
   tables undone without a restore; an envelope changed under its signature and an image changed
   under a valid one refused.
@@ -45,8 +46,10 @@ from tests.release_lane import lane as rl
 
 pytestmark = pytest.mark.release_lane
 
-#: Two framework releases one minor apart, from the first ``sign`` reads.
-FIRST, SECOND = "0.35.0", "0.36.0"
+#: Two framework releases one minor apart, the minors after this tree's lockstep version:
+#: the lane rebuilds the tree as each, so neither may be the version it already carries,
+#: and both sit above the floor ``sign`` reads (0.35.0).
+FIRST, SECOND = rl.minor_after(rl.lockstep_version(), 1), rl.minor_after(rl.lockstep_version(), 2)
 
 #: Where the lane keeps the release a promotion deploys from, and where it measures the second
 #: cold build of the first commit.
@@ -143,8 +146,8 @@ def _sign(lane_: Lane, release: Release, *, build_file: pathlib.Path | None = No
 def lane(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Lane]:
     """Four releases of the generated reference app, built cold, gated and signed.
 
-    ``a`` and ``a2``: the first commit on framework 0.35.0, built twice cold under one tag into
-    two registry paths. ``b``: the same app moved up to 0.36.0. ``c``: ``b`` with a migration
+    ``a`` and ``a2``: the first commit on framework ``FIRST``, built twice cold under one tag into
+    two registry paths. ``b``: the same app moved up to ``SECOND``. ``c``: ``b`` with a migration
     that fails part-way. Everything named under the lane's prefix and removed after.
     """
     missing = rl.missing_tools()

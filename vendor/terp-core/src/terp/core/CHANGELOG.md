@@ -10,7 +10,41 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.35.0 — unreleased
+## 0.35.1 — unreleased
+
+### Changed
+
+- **A generated app's production images build on newer bases.** terp-arch's base-image table
+  moves uv from 0.13.4 to 0.13.6, `node:26-slim` from Node.js 26.12.0 to 26.13.0 and
+  `python:3.14-slim` from Python 3.14.8 to 3.14.10, each by digest; the digest the nginx base's
+  tag names has not moved. The template's two production Dockerfiles are written from the
+  table again, and the signer image moves with the Python base. An app on
+  `"build": "generated"` takes the new digests with `terp deployment render`.
+- **A Dependabot pull request against the template's Dockerfiles explains itself.** Those
+  Dockerfiles are rendered from the base-image table (ADR 0187), so a pull request that moves a
+  digest in them always fails the gate, and it is still the only sign that a patched base
+  exists. It now arrives as one grouped pull request a week, and the comment beside it in
+  `.github/dependabot.yml` and the gate's failure message both say what to do with it: read the
+  current digest of the tag the table names, move it in the table, write the template from the
+  render with `TERP_WRITE_GOLDENS=1 uv run pytest tests/architecture/test_deployment_generator.py`,
+  and close the pull request. Its own digest is not to be copied: Dependabot cannot see the tag
+  on a `FROM` line pinned by digest alone, and two of the last three it proposed were another
+  tag's image.
+
+### Fixed
+
+- **A date picker and the DataView page-size trigger name the value they show (WCAG 2.5.3).**
+  Each trigger was named by its label alone, and `aria-label` replaces a button's content in
+  its accessible name, so a picker showing "Jan 15, 2026" was announced as "Due date" and the
+  page-size trigger showing "25" as "Rows per page": a screen reader never heard the value, and
+  a voice-control user saying what they could see named nothing. Each is now named by its label
+  and then the text it shows. No framework string is added, so every locale catalog stays
+  complete. `DatePicker` and `DateRangePicker` also take `aria-labelledby` and
+  `aria-describedby`, which `Field` passes and they used to drop: in a `Field` the trigger is
+  named by the label text rather than by the whole label with its hint and error, and is
+  described by the hint and the error.
+
+## 0.35.0 — 2026-11-02
 
 A value only a deployment needs had to be required everywhere. `environment.schema.json` could
 say that a variable must be set, but not where, so `JOB_SYSTEM_ACTOR_ID` — which a production
@@ -565,6 +599,14 @@ split it across releases.
 
 ### Changed
 
+- **Certified against terp-spec 0.40.0.** The five rules this release implemented ahead of
+  their catalog entries — `personal_fields_are_declared`, `deployment_declaration_is_readable`,
+  `deployment_declaration_tells_the_truth`, `deployment_generated_files_match_their_render`
+  and `expand_revisions_only_expand` — and the destructive-migrations sample it reported
+  ahead of the published corpus are in that release; the four pins (`pyproject.toml`,
+  `terp.arch.SPEC_VERSION`, `@terpjs/eslint-boundaries`'s dependency and its `SPEC_VERSION`)
+  move to it, and the three allowances (`_AWAITING_SPEC_RELEASE` for rules and for lanes,
+  `VERDICTS_AWAITING_SPEC_RELEASE` for corpus verdicts) are empty again.
 - **The boot guard admits a database one migration run ahead, inside its schema window**
   (ADR 0185 decision 3). A package at a revision the code does not define is walked back
   through the record to exactly the code's head. Every row the newest run wrote for a revision

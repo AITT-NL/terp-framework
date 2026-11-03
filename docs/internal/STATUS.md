@@ -921,7 +921,14 @@ frontend design-system track below.
       0178) and a chart's hidden table that made a fitting page scroll.
 - [x] Released as 0.34.0 (2026-10-09): two fixes, no screen changes. A refused federated login
       names its reason in the log, and `terp verify` names a missing tool instead of crashing.
-- [ ] Owed: the Studio's pin to 0.34.0. It brings the Studio's theme catalog along: its parity
+- [x] Released as 0.35.0 (2026-11-02), on terp-spec 0.40.0: a value required where the app
+      runs that way (ADR 0180), the deployment declaration and its vocabulary in the spec
+      (ADRs 0181, 0184, 0186), the schema window (ADR 0185), rendered build files in the
+      generated state (ADR 0187), versioned log records (ADR 0188), key retirement (ADR
+      0189), the personal-data marker (ADR 0190), store-aware readiness (ADR 0191) and the
+      stricter destructive-migrations rule. Every allowance is empty again: both
+      `_AWAITING_SPEC_RELEASE` lists and `VERDICTS_AWAITING_SPEC_RELEASE`.
+- [ ] Owed: the Studio's pin to 0.35.0. It brings the Studio's theme catalog along: its parity
       gates read the framework's palettes, and three of them failed against this main on
       2026-10-05 (none against its 0.30.0 pin).
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
