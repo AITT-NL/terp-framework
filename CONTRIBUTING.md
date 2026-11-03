@@ -77,4 +77,4 @@ A few expectations that save a review round:
 
 Do not open a public issue for a security problem. Report it privately through
 GitHub's security advisories for this repository, so a fix can ship before the
-detail does.
+detail does. [SECURITY.md](SECURITY.md) says how, and how soon you hear back.
