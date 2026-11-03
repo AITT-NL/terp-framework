@@ -14,6 +14,19 @@ it reschedules with the policy's exponential backoff until ``max_attempts`` is r
 lets the exception propagate (Celery routes it to its dead-letter / error handling). So a
 job's retry budget travels with its :class:`~terp.core.JobDefinition` across the engine
 boundary rather than being re-specified per broker.
+
+**Acknowledged only once it ran** (ADR 0191). Celery acknowledges a message when a worker
+*takes* it unless told otherwise, so a worker killed mid-job (a deploy's stop grace running
+out, an out-of-memory kill, a host that died) took the job with it: acknowledged, never
+finished, never redelivered. The task is registered with ``acks_late=True``, so the
+broker forgets a message only after the task returned or raised, and
+``reject_on_worker_lost=True``, so a pool process that dies under it hands the message back
+instead of acknowledging it. A killed worker's job is redelivered, which is the
+at-least-once delivery every Terp job handler is written for. Pair it with
+``worker_prefetch_multiplier=1`` on the Celery app, so a stopping worker holds no more
+unstarted messages than the one it runs, and on Redis set the transport's
+``visibility_timeout`` above the longest job: that is how long a dead worker's message waits
+before it is redelivered.
 """
 
 from __future__ import annotations
@@ -107,11 +120,13 @@ def register_terp_worker(
     :class:`~terp.core.RetryPolicy` backoff until its ``max_attempts``, then propagates.
     *job_session_factory* is passed to :func:`run_job` for each job's own audited unit
     (tests inject a synthetic engine); *retry* is the fallback budget for a job missing
-    from the catalog.
+    from the catalog. The task acknowledges its message only after it ran
+    (``acks_late``), and a worker lost under it gives the message back
+    (``reject_on_worker_lost``), so a killed worker's job is redelivered.
     """
     default_retry = retry or RetryPolicy()
 
-    @celery_app.task(name=task_name, bind=True)
+    @celery_app.task(name=task_name, bind=True, acks_late=True, reject_on_worker_lost=True)
     def _run_terp_job(self: Any, envelope: dict[str, Any]) -> None:
         directive = _execute_envelope(
             envelope,

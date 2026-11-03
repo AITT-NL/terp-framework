@@ -12,7 +12,7 @@ import uuid
 
 from sqlmodel import Field
 
-from terp.core import BaseSchema, BaseUpdateSchema
+from terp.core import BaseSchema, BaseUpdateSchema, Personal
 
 
 class GroupCreate(BaseSchema):
@@ -45,5 +45,5 @@ class GroupMemberRead(BaseSchema):
     user_id: uuid.UUID
     # Resolved from the identity store when the member listing is served (one query
     # per page); None when the account no longer exists (user_id is FK-less).
-    email: str | None = None
+    email: str | None = Personal(default=None)
     created_at: datetime.datetime

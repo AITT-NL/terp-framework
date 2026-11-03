@@ -50,6 +50,7 @@ from sqlmodel import Session
 
 from terp.core.audit import audit_actor_ctx
 from terp.core.logging import get_request_id
+from terp.core.personal import refuse_public_personal_payload
 from terp.core.runtime import register_runtime_seam
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import of the type
@@ -78,7 +79,8 @@ class JobVisibility(str, Enum):
     check before surfacing a payload. It is **advisory metadata, not yet an enforced
     gate** — a future broker / dashboard adapter is responsible for honoring it
     (failing closed on a non-``PUBLIC`` payload); the in-process runner never relays a
-    payload outward.
+    payload outward. One half is enforced where the job is declared: a ``PUBLIC`` job's
+    payload schema may not declare a personal field (ADR 0190).
     """
 
     PUBLIC = "public"  # safe to surface outward
@@ -139,6 +141,8 @@ class JobDefinition:
                 f"JobDefinition.payload_schema must be a model type with "
                 f"model_validate (e.g. a BaseSchema), got {self.payload_schema!r}"
             )
+        if self.visibility is JobVisibility.PUBLIC:
+            refuse_public_personal_payload("job", self.name, self.payload_schema)
         if not callable(self.handler):
             raise TypeError(
                 f"JobDefinition.handler must be callable, got {self.handler!r}"

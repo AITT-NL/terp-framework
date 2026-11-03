@@ -14,6 +14,7 @@ import pathlib
 from terp.arch._ast import _SECURITY_SKIP_DIRS, base_name, iter_python_files, parse
 from terp.arch.rules._support import (
     ArchViolation,
+    _FIELD_FACTORIES,
     _MANAGED_INPUT_COLUMNS,
     _SESSION_CONSTRUCTORS,
     _SESSION_EXECUTORS,
@@ -32,6 +33,7 @@ from terp.arch.rules._support import (
     _soft_delete_capable_class_names,
     _tuple_annotation_name,
 )
+from terp.arch.rules.migrations import _is_revision_file
 
 
 def _is_plain_string_literal(node: ast.expr) -> bool:
@@ -561,9 +563,9 @@ def check_tables_have_migrations(
             continue
         index = path.parts.index("modules")
         versions = pathlib.Path(*path.parts[: index + 2]) / "migrations" / "versions"
+        # A revision is any file Alembic loads, an underscore-led name included.
         has_revision = versions.is_dir() and any(
-            entry.is_file() and not entry.name.startswith("_")
-            for entry in versions.glob("*.py")
+            entry.is_file() and _is_revision_file(entry) for entry in versions.glob("*.py")
         )
         if not has_revision:
             flagged_modules.add(module_name)
@@ -695,7 +697,7 @@ def check_no_unique_columns_on_soft_delete_models(
                 }
                 covers_verified = _VERIFIED_DIALECT_WHERE_KEYWORDS <= where_keywords
                 flagged = (
-                    (name == "Field" and unique_kw)
+                    (name in _FIELD_FACTORIES and unique_kw)
                     or name == "UniqueConstraint"
                     or (name == "Index" and unique_kw and not covers_verified)
                 )

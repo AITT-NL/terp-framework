@@ -59,7 +59,9 @@ _PRODUCTION_REFUSALS: dict[str, tuple[tuple[str, str], ...]] = {
             "that reaches it, so the lane cannot ask. Mitigated rather than closed: "
             "`production_problems()` makes the verdict answerable off the production "
             "host, and the state warns on every non-production boot instead of being "
-            "silent until the deploy.",
+            "silent until the deploy. The template renders the allowlist from "
+            "OIDC_ALLOWED_EMAIL_DOMAINS, and template acceptance boots its SSO render in "
+            "production with and without it (tools/production_boot.py).",
         ),
     ),
     "terp/capabilities/oidc/config.py::OIDCProviderConfig.__post_init__": (

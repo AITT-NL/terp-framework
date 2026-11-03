@@ -921,7 +921,14 @@ frontend design-system track below.
       0178) and a chart's hidden table that made a fitting page scroll.
 - [x] Released as 0.34.0 (2026-10-09): two fixes, no screen changes. A refused federated login
       names its reason in the log, and `terp verify` names a missing tool instead of crashing.
-- [ ] Owed: the Studio's pin to 0.34.0. It brings the Studio's theme catalog along: its parity
+- [x] Released as 0.35.0 (2026-11-02), on terp-spec 0.40.0: a value required where the app
+      runs that way (ADR 0180), the deployment declaration and its vocabulary in the spec
+      (ADRs 0181, 0184, 0186), the schema window (ADR 0185), rendered build files in the
+      generated state (ADR 0187), versioned log records (ADR 0188), key retirement (ADR
+      0189), the personal-data marker (ADR 0190), store-aware readiness (ADR 0191) and the
+      stricter destructive-migrations rule. Every allowance is empty again: both
+      `_AWAITING_SPEC_RELEASE` lists and `VERDICTS_AWAITING_SPEC_RELEASE`.
+- [ ] Owed: the Studio's pin to 0.35.0. It brings the Studio's theme catalog along: its parity
       gates read the framework's palettes, and three of them failed against this main on
       2026-10-05 (none against its 0.30.0 pin).
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
@@ -1258,7 +1265,7 @@ removed `projects`: business nouns are client modules, never capabilities).
 Core substrate not yet carved into `terp.core`:
 
 - [x] **Middleware** — security headers, rate-limit, request-id, request-size-limit, deny-by-default CORS (ADR 0005, `SecurityConfig` + `create_app` install). CSRF is intentionally out of scope (Terp authenticates via Bearer tokens, not cookies).
-- [x] **Logging / telemetry** — structured logging + request-id context var + PII redaction (`terp.core.logging`, ADR 0005). OTel wiring remains deferred.
+- [x] **Logging / telemetry** — structured logging + request-id context var + secret redaction (`terp.core.logging`, ADR 0005); every line a `terp-log/1` record with one access line per request (ADR 0188). Personal data is withheld where a field declares it (`Personal`, ADR 0190). OTel wiring remains deferred.
 - [x] **Secrets sealing** — `encrypt_config` / `mask_config` / `decrypt_config` (single
   decrypt call-site, §5.4) — shipped (ADR 0055): `terp.core.secrets` + the
   `no_adhoc_config_decrypt` rule; the cipher is the optional `terp-core[secrets]` extra

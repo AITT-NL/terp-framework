@@ -1,17 +1,52 @@
-# Build-context excludes for the workbench images (the build context is the repo root).
-# Keeps the context small and avoids copying host-only or generated trees into the build.
+# Build-context excludes for every image (the build context is the project root, and a
+# `COPY . .` copies whatever is left). Two jobs: keep secrets and local data out of every
+# layer, and keep host-only trees out so an edit to them never invalidates a build.
+#
+# Every pattern in .gitignore but its generated files is here too, matching the same
+# paths: an unanchored git pattern matches at any depth, so it is written `**/` here, and
+# its exceptions come after it, because the last match wins. The framework's template
+# tests hold the two files together, so a secret-bearing pattern added to one and not the
+# other fails there rather than in an image.
+#
+# Never excluded: .terp-dist/, the pre-release packages a checkout vendors. The images
+# install from it.
+
+# Secrets: compose's own variable file and its variants, and the rendered app-declared
+# variables, per service too (`.app.worker.env`). The tracked examples stay.
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.example.jinja
+**/.app.env
+**/.app.*.env
+
+# Local data: development databases and SQLite's sidecar files, and the files
+# capability's storage root outside Docker.
+**/*.db
+**/*.db-*
+**/*.sqlite3
+**/*.sqlite3-*
+var
+
+# Dependency trees and caches: every image installs its own, from the lock.
 **/node_modules
 **/.venv
-.git
 **/__pycache__
-**/*.pyc
-**/*.pyo
-**/dist
-**/*.db
+**/*.py[cod]
 **/.pytest_cache
 **/.mypy_cache
 **/.ruff_cache
-**/.coverage
-# Rendered env files — may hold secrets; images must never bake them in.
-.env
-.app.env
+**/.eslintcache
+
+# Build and test output.
+**/dist
+conformance/test-results
+conformance/playwright-report
+frontend/coverage
+.coverage
+.coverage.*
+htmlcov
+
+# Version control and the CI definitions: no image reads them.
+.git
+.github

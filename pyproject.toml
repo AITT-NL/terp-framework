@@ -66,12 +66,12 @@ terp-cap-webhooks = { workspace = true }
 
 [dependency-groups]
 dev = [
-    "pytest>=9.1.1",
+    "pytest>=9.2.0",
     # tools/check_pypi_projects.py and several tests call httpx directly.
     "httpx>=0.28.1",
     # FastAPI's TestClient: starlette imports httpx2 first, and on plain httpx it warns
     # on every run and will stop importing once that fallback is removed.
-    "httpx2>=2.13.1",
+    "httpx2>=2.16.0",
     "pytest-cov>=7.1.0",
     # `terp dev` launches uvicorn; the standard extra supplies WebSocket + reload support.
     "uvicorn[standard]>=0.54.0",
@@ -82,28 +82,38 @@ dev = [
     "pyyaml>=6.0.3",
     # Exercises the terp-core[secrets] sealing cipher (terp.core.secrets, design §5.4).
     "cryptography>=50.0.2",
+    # Validates every log line a production app writes against the terp-log/1 schema
+    # (terp.core's log-record.schema.json, ADR 0188) with a full draft 2020-12 validator.
+    "jsonschema>=4.26.0",
     # The Terp Standard (ADR 0082): the certification tests locate the
     # catalog/corpus through terp_spec.spec_dir(), never a repo path. Pinned to
     # one exact release (ADR 0086) so the Python and npm pins can be compared.
-    "terp-spec==0.39.0",
+    "terp-spec==0.40.0",
 ]
 # CI-only generic backstops (NOT part of the `pytest --cov=terp` gate; they
 # complement terp-arch, never replace it). Installed in CI; optional locally.
 lint = [
-    "ruff>=0.16.10",
+    "ruff>=0.17.3",
     "pip-audit>=2.10.1",
     "deptry>=0.25.1",
     "import-linter>=2.15",
     # Pinned exactly, unlike the others: this one blocks, so a new audit must
     # arrive by a deliberate bump (Dependabot opens it) rather than by surprise
     # on an unrelated pull request.
-    "zizmor==1.30.1",
+    "zizmor==1.31.1",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "apps/example/tests"]
 pythonpath = ["apps/example"]
-addopts = "-q"
+# The release lane (tests/release_lane, ADR 0187) builds four releases cold from the package
+# indexes and deploys them on a Docker engine: about fifteen minutes and a network, so the gate
+# deselects it and CI runs it in a job of its own, `pytest -m release_lane tests/release_lane`,
+# where a later `-m` replaces this one.
+addopts = "-q -m 'not release_lane'"
+markers = [
+    "release_lane: the release lane on a real Docker engine (tests/release_lane); deselected unless selected with -m release_lane",
+]
 # The framework runs its own suites the way it tells a generated project to run theirs
 # (`template/project/pyproject.toml.jinja`): every test starts from the platform
 # baseline, so nothing here can pass on a runtime a stray collection-time import

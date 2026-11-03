@@ -1,7 +1,19 @@
-"""Signed JWT access tokens, keyed on the kernel ``SECRET_KEY``."""
+"""Signed JWT access tokens, keyed on a key derived from the kernel ``SECRET_KEY``.
+
+**Key rotation (ADR 0076 §2, amended by ADR 0189).** A token is signed with one key
+only: the HS256 key derived from the current ``SECRET_KEY`` under this module's own
+HKDF label, so the signing key is never ``SECRET_KEY`` itself and is unrelated to the
+keys the sealing domains derive from it. Every other key only *verifies*, and only for
+:data:`FALLBACK_VERIFY_WINDOW` after the token's ``iat``: the same derivation of each
+``SECRET_KEY_FALLBACKS`` entry, and the form tokens were signed with before the label
+existed — the raw secret, current or fallback — so a token issued before an upgrade or
+a rotation lives out its normal life and no longer. A retired key cannot be made to
+honour a token for longer by the ``exp`` the token claims.
+"""
 
 from __future__ import annotations
 
+import base64
 import datetime
 import enum
 import uuid
@@ -10,10 +22,22 @@ from typing import Final
 
 import jwt
 
-from terp.core import AuthenticationError, Role, Roles, as_role, settings
+from terp.core import AuthenticationError, Role, Roles, as_role, derive_key, settings
 
 _ALGORITHM = "HS256"
 DEFAULT_ACCESS_TOKEN_TTL = datetime.timedelta(minutes=15)
+
+#: The HKDF label the access-token signing key is derived under (ADR 0189). Versioned:
+#: a new derivation is a new label, and this one then verifies only, as a retired key does.
+_SIGNING_INFO: Final[bytes] = b"terp.capabilities.auth.access-token.v1"
+
+#: How long after its ``iat`` a token signed under any key but the current one still
+#: verifies — the lifetime the framework's own logins give an access token. It is what
+#: makes "drop ``SECRET_KEY_FALLBACKS`` after the longest token lifetime" a number the
+#: framework enforces rather than one an operator has to know: a fallback stops
+#: honouring access tokens this long after the deploy that introduced it, whatever
+#: lifetime an app gave a token when it minted one itself.
+FALLBACK_VERIFY_WINDOW: Final[datetime.timedelta] = DEFAULT_ACCESS_TOKEN_TTL
 
 
 class SubjectKind(enum.StrEnum):
@@ -100,7 +124,7 @@ def create_access_token(
     Every token also signs the fixed :data:`TOKEN_ISSUER` / :data:`TOKEN_AUDIENCE`
     pair (ADR 0076), which :func:`decode_access_token` requires — scoping the
     credential to this framework's API even under a shared signing key. Signing
-    always uses the **current** ``SECRET_KEY`` (never a fallback).
+    always uses the key derived from the **current** ``SECRET_KEY`` (never a fallback).
     """
     typed = as_role(role)
     now = datetime.datetime.now(datetime.UTC)
@@ -122,23 +146,57 @@ def create_access_token(
         # by nothing is a claim, and an absent claim is the truthful shape for a
         # mint that was never told. `AccessTokenClaims.amr` reads the absence as ().
         payload["amr"] = list(amr)
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm=_ALGORITHM)
+    return jwt.encode(payload, _signing_key(settings.SECRET_KEY), algorithm=_ALGORITHM)
+
+
+def _signing_key(secret: str) -> str:
+    """The HS256 key for access tokens derived from *secret*, as base64 text.
+
+    Text rather than the raw 32 bytes so the HMAC key is plain ASCII to every JWT
+    library that might read it, at the same 256 bits of strength.
+    """
+    return base64.urlsafe_b64encode(derive_key(secret, _SIGNING_INFO)).decode("ascii")
+
+
+def _verification_keys() -> list[tuple[str, bool]]:
+    """Every key a token may verify under, in order, each marked *retired* or not.
+
+    The current derivation first and alone unretired. Then the raw ``SECRET_KEY``,
+    which signed every token before the label existed, and each ``SECRET_KEY_FALLBACKS``
+    entry in both forms: this release's derivation, then the raw secret an older
+    release signed with.
+    """
+    keys = [(_signing_key(settings.SECRET_KEY), False), (settings.SECRET_KEY, True)]
+    for fallback in settings.SECRET_KEY_FALLBACKS:
+        keys += [(_signing_key(fallback), True), (fallback, True)]
+    return keys
+
+
+def _within_fallback_window(payload: dict) -> bool:
+    """Whether a token verified under a retired key was issued recently enough to honour.
+
+    Counted from ``iat``, which every token is refused without, and bounded by
+    :data:`FALLBACK_VERIFY_WINDOW` rather than by ``exp``: the window is the lifetime a
+    login gives a token, so a token minted for longer stops at the window like the rest.
+    """
+    issued = datetime.datetime.fromtimestamp(int(payload["iat"]), datetime.UTC)
+    return datetime.datetime.now(datetime.UTC) - issued <= FALLBACK_VERIFY_WINDOW
 
 
 def _verify(token: str) -> dict:
-    """Verify *token* against the current key, then each rotation fallback.
+    """Verify *token* against the current key, then each retired one.
 
-    ``SECRET_KEY`` verifies first; a **signature** mismatch (and only that) moves
-    on to the next ``SECRET_KEY_FALLBACKS`` entry, so an access token issued just
-    before a key rotation stays valid through the configured window (ADR 0076).
+    The current derivation verifies first; a **signature** mismatch (and only that)
+    moves on to the next key, so an access token issued just before an upgrade or a
+    key rotation stays valid (ADR 0076, ADR 0189). A token that verifies under a
+    retired key is honoured only inside :data:`FALLBACK_VERIFY_WINDOW` of its ``iat``.
     Any other verification failure — expired, wrong ``aud``/``iss``, a missing
     required claim — is final and never retried against another key.
     """
-    keys = (settings.SECRET_KEY, *settings.SECRET_KEY_FALLBACKS)
     rejected: jwt.InvalidSignatureError | None = None
-    for key in keys:
+    for key, retired in _verification_keys():
         try:
-            return jwt.decode(
+            payload = jwt.decode(
                 token,
                 key,
                 algorithms=[_ALGORITHM],
@@ -148,8 +206,12 @@ def _verify(token: str) -> dict:
             )
         except jwt.InvalidSignatureError as exc:
             rejected = exc
+            continue
         except jwt.PyJWTError as exc:
             raise AuthenticationError() from exc
+        if retired and not _within_fallback_window(payload):
+            raise AuthenticationError()
+        return payload
     raise AuthenticationError() from rejected
 
 
@@ -187,6 +249,7 @@ def decode_access_token(token: str) -> AccessTokenClaims:
 __all__ = [
     "AccessTokenClaims",
     "DEFAULT_ACCESS_TOKEN_TTL",
+    "FALLBACK_VERIFY_WINDOW",
     "TOKEN_AUDIENCE",
     "TOKEN_ISSUER",
     "SubjectKind",

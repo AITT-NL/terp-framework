@@ -47,6 +47,7 @@ from terp.arch import (
     check_table_ownership_is_not_split,
     check_no_destructive_migrations,
     check_not_null_columns_are_backfilled,
+    check_expand_revisions_only_expand,
     check_no_dynamic_sql,
     check_no_cross_module_imports,
     check_cross_module_imports_use_public_surface,
@@ -89,6 +90,7 @@ from terp.arch import (
     check_routes_declare_response_model,
     check_declared_read_only_routes_do_not_write,
     check_references_declare_delete_behaviour,
+    check_personal_fields_are_declared,
     check_safe_methods_are_read_only,
     check_schemas_exclude_sensitive_fields,
     check_session_imported_from_sqlmodel,
@@ -99,6 +101,7 @@ from terp.arch import (
     check_tenant_scoped_models_use_scoped_service,
     check_update_schemas_inherit_base_update_schema,
 )
+from terp.arch.rules.personal import is_personal_field_name
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _EXAMPLE_APP = _REPO_ROOT / "apps" / "example" / "app"
@@ -4362,6 +4365,24 @@ def test_tables_have_migrations(tmp_path: pathlib.Path) -> None:
     assert check_tables_have_migrations(app) == []
 
 
+@pytest.mark.parametrize(
+    ("name", "migrated"),
+    [("_0001_init.py", True), ("__init__.py", False), (".#0001_init.py", False)],
+)
+def test_tables_have_migrations_counts_the_files_alembic_runs(
+    tmp_path: pathlib.Path, name: str, migrated: bool
+) -> None:
+    # Alembic loads every versions/*.py but __init__.py and an editor's .# lock file.
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/widgets/models.py",
+        "class Widget(BaseTable, table=True):\n    name: str = Field(max_length=50)\n",
+    )
+    _write(app, f"modules/widgets/migrations/versions/{name}", "revision = '0001'\n")
+    assert (check_tables_have_migrations(app) == []) is migrated
+
+
 def test_no_destructive_migrations(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
     destructive_sources = (
@@ -4381,11 +4402,13 @@ def test_no_destructive_migrations(tmp_path: pathlib.Path) -> None:
         _write(app, "modules/notes/migrations/versions/0001_change.py", f"def upgrade():\n    {source}\n")
         assert _rule_names(check_no_destructive_migrations(app)) == {"no_destructive_migrations"}, source
 
-    # Non-destructive operations and alter_column calls without type changes are clean.
+    # Non-destructive operations, and an alter_column that only relaxes, are clean. The
+    # full test set of destructive steps and their look-alikes is
+    # test_destructive_migrations.py.
     _write(
         app,
         "modules/notes/migrations/versions/0001_change.py",
-        "def upgrade():\n    helper()\n    op.add_column('notes', column)\n    op.alter_column('notes', 'title', nullable=False)\n",
+        "def upgrade():\n    helper()\n    op.add_column('notes', column)\n    op.alter_column('notes', 'title', nullable=True)\n",
     )
     assert check_no_destructive_migrations(app) == []
 
@@ -4439,6 +4462,25 @@ def test_no_destructive_migrations(tmp_path: pathlib.Path) -> None:
         "def upgrade():\n    op.add_column('notes', column)\ndef downgrade():\n    op.drop_table('notes')\n",
     )
     assert check_no_destructive_migrations(app) == []
+
+
+def test_expand_revisions_only_expand(tmp_path: pathlib.Path) -> None:
+    """The registry's own case; the expand list itself is pinned in test_expand_revisions_rule."""
+    app = tmp_path / "app"
+    revision = "modules/notes/migrations/versions/0001_change.py"
+    _write(app, revision, "expand_only = True\ndef upgrade():\n    op.drop_column('notes', 'x')\n")
+    assert _rule_names(check_expand_revisions_only_expand(app)) == {"expand_revisions_only_expand"}
+    # Through the harness as well, and with no marker that could excuse it.
+    _write(
+        app,
+        revision,
+        "expand_only = True\ndef upgrade():\n"
+        "    # arch-allow-expand-revisions-only-expand: reviewed\n"
+        "    op.drop_column('notes', 'x')\n",
+    )
+    assert "expand_revisions_only_expand" in _rule_names(check_app(app))
+    _write(app, revision, "expand_only = False\ndef upgrade():\n    op.drop_column('notes', 'x')\n")
+    assert check_expand_revisions_only_expand(app) == []
 
 
 def test_not_null_columns_are_backfilled(tmp_path: pathlib.Path) -> None:
@@ -5844,3 +5886,256 @@ def test_references_declare_delete_behaviour(tmp_path: pathlib.Path) -> None:
         '    invoice_id: uuid.UUID = Ref("invoice.id", on_delete=OnDelete.CASCADE)\n',
     )
     assert check_references_declare_delete_behaviour(app) == []
+
+
+# --------------------------------------------------------------------------- #
+# personal_fields_are_declared (ADR 0190)
+# --------------------------------------------------------------------------- #
+_PERSONAL_HEADER = (
+    "import datetime\n\n"
+    "from sqlmodel import Field, SQLModel\n"
+    "from terp.core import BaseSchema, BaseTable, BaseUpdateSchema, Personal\n\n\n"
+)
+
+
+def test_personal_fields_are_declared(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # Each model shape the rule reads: a table, each schema base, a plain SQLModel, and a
+    # field declared on a model's own base defined in the tree.
+    undeclared = {
+        "table": "class Customer(BaseTable, table=True):\n    email: str = Field(max_length=320)\n",
+        "schema": "class CustomerRead(BaseSchema):\n    phone_number: str\n",
+        "update": "class CustomerUpdate(BaseUpdateSchema):\n    date_of_birth: datetime.date | None = None\n",
+        "plain": "class Contact(SQLModel):\n    last_name: str = ''\n",
+        "inherited": (
+            "class PersonBase(SQLModel):\n    pass\n\n\n"
+            "class Person(PersonBase):\n    national_id: str = ''\n"
+        ),
+    }
+    for shape, body in undeclared.items():
+        _write(app, "modules/crm/models.py", _PERSONAL_HEADER + body)
+        found = check_personal_fields_are_declared(app)
+        assert _rule_names(found) == {"personal_fields_are_declared"}, shape
+        assert len(found) == 1, shape
+        assert "Personal(...)" in found[0].message and "arch-allow" in found[0].message
+
+    # Declared, on the value or inside Annotated, the rule is satisfied.
+    _write(
+        app,
+        "modules/crm/models.py",
+        "from typing import Annotated\n" + _PERSONAL_HEADER
+        + "class Customer(BaseTable, table=True):\n"
+        "    email: str = Personal(max_length=320, unique=True)\n"
+        "    contact_email: Annotated[str, Personal(max_length=320)] = ''\n"
+        "    note: str = Field(default='', max_length=200)\n",
+    )
+    assert check_personal_fields_are_declared(app) == []
+
+
+def test_personal_fields_are_declared_reads_the_name_not_a_substring(
+    tmp_path: pathlib.Path,
+) -> None:
+    app = tmp_path / "app"
+    # The personal noun has to be the field's LAST word: an email's verification flag, a
+    # count of phones or a domain an address belongs to is not the address.
+    _write(
+        app,
+        "modules/crm/models.py",
+        _PERSONAL_HEADER
+        + "class Customer(BaseTable, table=True):\n"
+        "    email_verified: bool = False\n"
+        "    phone_count: int = 0\n"
+        "    email_domain: str = Field(default='', max_length=255)\n"
+        "    postcode: str = Field(default='', max_length=12)\n"
+        "    company_name: str = Field(default='', max_length=200)\n",
+    )
+    assert check_personal_fields_are_declared(app) == []
+    for name in ("email", "contact_email", "Email_Address", "e_mail", "emails", "phone",
+                 "mobile_number", "telephone", "birth_date", "birthdate", "dob", "ssn", "bsn",
+                 "passport_number", "national_identity_number", "first_name", "surname",
+                 "home_address"):
+        assert is_personal_field_name(name), name
+
+
+def test_personal_fields_are_declared_leaves_non_models_alone(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+    # A dataclass, a settings class and a plain class cannot carry the declaration, and a
+    # model field is an annotated class attribute -- a function argument is not one.
+    _write(
+        app,
+        "modules/crm/service.py",
+        "from dataclasses import dataclass\n"
+        "from pydantic_settings import BaseSettings\n\n\n"
+        "@dataclass\nclass Claims:\n    email: str\n\n\n"
+        "class MailSettings(BaseSettings):\n    reply_email: str = ''\n\n\n"
+        "class Holder:\n    email: str = ''\n\n\n"
+        "def invite(email: str) -> None:\n    return None\n",
+    )
+    assert check_personal_fields_are_declared(app) == []
+
+
+def test_personal_fields_are_declared_is_suppressed_by_a_justified_marker(
+    tmp_path: pathlib.Path,
+) -> None:
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/crm/models.py",
+        _PERSONAL_HEADER
+        + "class Settings(BaseTable, table=True):\n"
+        "    # arch-allow-personal-fields-are-declared: the organisation's shared mailbox\n"
+        "    support_email: str = Field(max_length=320)\n",
+    )
+    assert "personal_fields_are_declared" not in _rule_names(check_app(app))
+    # The marker is the not-personal declaration, so it needs its reason like any other.
+    _write(
+        app,
+        "modules/crm/models.py",
+        _PERSONAL_HEADER
+        + "class Settings(BaseTable, table=True):\n"
+        "    support_email: str = Field(max_length=320)  # arch-allow-personal-fields-are-declared\n",
+    )
+    assert "ungoverned_escape_hatch" in _rule_names(check_app(app))
+
+
+def test_field_rules_read_personal_like_field(tmp_path: pathlib.Path) -> None:
+    """``Personal`` forwards every keyword to ``Field``, so it is no way around a rule.
+
+    Three rules read a field's keywords: the length cap, a unique column on a
+    soft-deletable table, and an undeclared foreign key. Each reads ``Personal`` exactly
+    as it reads ``Field``.
+    """
+    app = tmp_path / "app"
+    _write(
+        app,
+        "modules/crm/schemas.py",
+        "from terp.core import BaseSchema, Personal\n\n\n"
+        "class CustomerCreate(BaseSchema):\n    email: str = Personal()\n",
+    )
+    assert _rule_names(check_input_str_fields_have_max_length(app)) == {
+        "input_str_fields_have_max_length"
+    }
+    _write(
+        app,
+        "modules/crm/schemas.py",
+        "from terp.core import BaseSchema, Personal\n\n\n"
+        "class CustomerCreate(BaseSchema):\n    email: str = Personal(max_length=320)\n",
+    )
+    assert check_input_str_fields_have_max_length(app) == []
+
+    _write(
+        app,
+        "modules/crm/models.py",
+        "from terp.core import BaseTable, Personal, SoftDeleteMixin\n\n\n"
+        "class Customer(BaseTable, SoftDeleteMixin, table=True):\n"
+        "    email: str = Personal(max_length=320, unique=True)\n",
+    )
+    assert _rule_names(check_no_unique_columns_on_soft_delete_models(app)) == {
+        "no_unique_columns_on_soft_delete_models"
+    }
+
+    _write(
+        app,
+        "modules/crm/models.py",
+        "import uuid\n\nfrom terp.core import BaseTable, Personal\n\n\n"
+        "class Customer(BaseTable, table=True):\n"
+        "    referrer_id: uuid.UUID = Personal(foreign_key='customer.id')\n",
+    )
+    assert _rule_names(check_references_declare_delete_behaviour(app)) == {
+        "references_declare_delete_behaviour"
+    }
+
+
+# --------------------------------------------------------------------------- #
+# the deployment declaration (ADR 0184, 0187): three rules over the PROJECT root
+# --------------------------------------------------------------------------- #
+# The cases live in test_deployment_declaration.py and test_deployment_truth.py; these
+# hold what is particular to the harness: check_app hands both rules the project root
+# beside the app root, a companion root never runs them, and neither has a marker.
+
+
+def _declared_project(tmp_path: pathlib.Path, declaration: dict) -> pathlib.Path:
+    from tests.architecture.deployment_fixtures import profile
+
+    import yaml
+
+    project = tmp_path / "project"
+    (project / ".git").mkdir(parents=True)
+    _write(project / "app", "__init__.py", "")
+    (project / "deployment.json").write_text(json.dumps(declaration), encoding="utf-8")
+    (project / "docker-compose.prod.yml").write_text(yaml.safe_dump(profile()), encoding="utf-8")
+    return project
+
+
+def test_deployment_declaration_is_readable(tmp_path: pathlib.Path) -> None:
+    from terp.arch import check_deployment_declaration_is_readable
+    from tests.architecture.deployment_fixtures import seed
+
+    broken = seed()
+    broken["units"][0]["image"] = "postgres:latest"
+    project = _declared_project(tmp_path, broken)
+    [violation] = check_deployment_declaration_is_readable(project)
+    assert violation.rule == "deployment_declaration_is_readable"
+    assert violation.path == "deployment.json" and violation.line == 0
+    assert "units[0].image" in violation.message
+    # check_app reaches it through the app root it scans, at the project root beside it.
+    assert [v.rule for v in check_app(project / "app")] == ["deployment_declaration_is_readable"]
+    # A companion root is never held to it: a project has one declaration, beside its app.
+    from terp.arch import RootKind
+
+    companion = ScanRoot(project / "app", package="app", kind=RootKind.COMPANION)
+    assert "deployment_declaration_is_readable" not in {v.rule for v in check_app(companion)}
+
+
+def test_deployment_declaration_tells_the_truth(tmp_path: pathlib.Path) -> None:
+    from terp.arch import check_deployment_declaration_tells_the_truth
+    from tests.architecture.deployment_fixtures import seed, unit
+
+    lying = seed()
+    unit(lying, "migrate")["command"] = ["terp", "migrate", "upgrade"]
+    project = _declared_project(tmp_path, lying)
+    [violation] = check_deployment_declaration_tells_the_truth(project)
+    assert violation.rule == "deployment_declaration_tells_the_truth"
+    assert "units[1].command restates" in violation.message
+    assert [v.rule for v in check_app(project / "app")] == ["deployment_declaration_tells_the_truth"]
+    assert check_deployment_declaration_tells_the_truth(_declared_project(tmp_path / "true", seed())) == []
+
+
+def test_deployment_generated_files_match_their_render(tmp_path: pathlib.Path) -> None:
+    from terp.arch import check_deployment_generated_files_match_their_render
+    from tests.architecture.deployment_fixtures import seed
+
+    generated = seed()
+    generated["build"] = "generated"
+    project = _declared_project(tmp_path, generated)
+    (project / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+    (project / "frontend").mkdir()
+    (project / "frontend" / "package-lock.json").write_text("{}\n", encoding="utf-8")
+    violations = check_deployment_generated_files_match_their_render(project)
+    assert {v.rule for v in violations} == {"deployment_generated_files_match_their_render"}
+    assert "docker-compose.prod.yml is not the render of deployment.json" in "\n".join(
+        v.message for v in violations
+    )
+    # check_app reaches it through the app root, at the project root beside it; the profile
+    # fixture is not a render, so the truth rule is silent and this one is not.
+    assert "deployment_generated_files_match_their_render" in {
+        v.rule for v in check_app(project / "app")
+    }
+    assert check_deployment_generated_files_match_their_render(
+        _declared_project(tmp_path / "own", seed())
+    ) == []
+
+
+def test_the_declaration_rules_have_no_marker_and_no_budget_key(tmp_path: pathlib.Path) -> None:
+    """A JSON file cannot carry `# arch-allow-*`; the way out is the declaration's own."""
+    from terp.arch import PROJECT_ROOT_RULES, RULES_ESCAPED_BY_THEIR_DECLARATION
+    from terp.arch.rules.budget import _governed_tokens
+
+    assert RULES_ESCAPED_BY_THEIR_DECLARATION == PROJECT_ROOT_RULES
+    assert not {f"arch-allow-{rule.replace('_', '-')}" for rule in PROJECT_ROOT_RULES} & _governed_tokens()
+    app = tmp_path / "app"
+    _write(app, "__init__.py", "")
+    budget = tmp_path / "budget.json"
+    budget.write_text(json.dumps({"arch-allow-deployment-declaration-is-readable": 1}), encoding="utf-8")
+    violations = check_escape_hatch_budget(app, budget_path=budget)
+    assert violations and all("names no rule with a governed opt-out" in v.message for v in violations)

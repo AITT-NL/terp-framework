@@ -37,7 +37,7 @@ _TEMPLATE_FRONTEND_MANIFESTS = sorted(
     (_REPO_ROOT / "template" / "project").rglob("package.json.jinja")
 )
 
-_RELEASE_VERSION = "0.34.0"
+_RELEASE_VERSION = "0.35.0"
 
 
 def _pyproject_version(path: pathlib.Path) -> str:
@@ -226,6 +226,14 @@ def test_no_rule_awaits_a_spec_release() -> None:
         "these rules are implemented but their catalog entries are unreleased: "
         f"{sorted(_AWAITING_SPEC_RELEASE)} — adopt the spec release that carries them "
         "before cutting a framework release"
+    )
+
+    from tests.architecture.test_spec_corpus import _VERDICTS_AWAITING_SPEC_RELEASE
+
+    assert _VERDICTS_AWAITING_SPEC_RELEASE == frozenset(), (
+        "these corpus cases carry a verdict this repository has moved past and no "
+        f"published corpus has: {sorted(_VERDICTS_AWAITING_SPEC_RELEASE)} — adopt the "
+        "spec release that carries them before cutting a framework release"
     )
 
 

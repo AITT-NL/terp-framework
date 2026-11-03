@@ -34,6 +34,7 @@ from terp.cli.dev import (
 from terp.cli.docker import run_docker_dev_command
 from terp.cli.fmt import changed_python_files, run_fmt_command
 from terp.cli.leases import reap_leases_command, render_leases
+from terp.cli.reseal import reseal_command
 from terp.cli.jobs import (
     render_jobs,
     run_job_command,
@@ -238,6 +239,10 @@ Adopt it by declaring the table (a project from the template already has it):
     # which the template's code, `terp new module` and `terp migrate make` all
     # import directly: constrained by that release, not by a second pin here.
     DEP003 = ["terp", "pydantic", "fastapi", "sqlmodel", "sqlalchemy", "alembic"]
+    # The server and the database driver are runtime dependencies, so uv.lock
+    # pins what the production image installs, and nothing imports them: the
+    # image runs uvicorn as a command, and SQLAlchemy loads psycopg by URL.
+    DEP002 = ["uvicorn", "psycopg"]
 
 and installing the tool: `uv add --dev deptry`.
 
@@ -252,6 +257,11 @@ What it catches, and why each one is a real outage:
   DEP004  a dev dependency in app code  \— absent from the production image
 
 Run it directly while fixing: `uv run deptry .`
+
+A dependency you declare reaches the production image only through uv.lock: the image
+installs exactly the lock (`uv sync --locked --no-dev`), so `uv add` (or an edit and `uv
+lock`) and a commit of uv.lock go together. `terp verify --only locks` names a lock that
+was left behind.
 
 This is a delegated generic check (ADR 0033, the ADR 0085 precedent) and it composes
 into NO assurance lane: the spec's `dependency-audit` lane means both trees against
@@ -316,6 +326,31 @@ log line cannot quietly become an exfiltration path.
 
 You do not manage a second key: the seal key derives from `SECRET_KEY` through an
 HKDF with a Terp-specific label, so it is domain-separated from every other use of it.
+
+ROTATING `SECRET_KEY` (ADR 0189). Nothing is ever signed or sealed with an old key. Old
+keys only verify or only decrypt, from two lists that run on two different clocks:
+
+  SECRET_KEY_FALLBACKS          verifies signatures only: an access token for 15 minutes
+                                after it was issued, a refresh session until it expires
+  SECRET_KEY_DECRYPT_FALLBACKS  decrypts sealed values only, until they are re-sealed
+
+Both are comma-separated. The procedure, in this order:
+
+  1. Put the old key in BOTH lists and the new one in SECRET_KEY. Deploy.
+  2. Run `terp secrets reseal` where the app runs (its own container, its own
+     environment). It rewrites every value sealed under a fallback under SECRET_KEY,
+     one transaction per table, refuses while a migration is pending, is safe to run
+     twice, and exits 0 only when nothing is left. `--check` counts and writes nothing.
+  3. Drop SECRET_KEY_DECRYPT_FALLBACKS once reseal reports nothing left. Keep the old
+     key itself while a backup sealed under it may still be restored: restoring one
+     means listing it again and running reseal.
+  4. Drop SECRET_KEY_FALLBACKS once the longest signature lifetime has passed since
+     step 1: REFRESH_TOKEN_TTL_SECONDS if the app issues refresh sessions, 15 minutes
+     if not. Dropping it sooner loses nothing; it signs out sessions still on the old key.
+
+A key you believe has leaked goes in SECRET_KEY_DECRYPT_FALLBACKS only, never in
+SECRET_KEY_FALLBACKS: whoever holds it could sign a token the fallback would honour,
+so every session it signed should end at the deploy.
 
 What DOES still belong in the environment: `SECRET_KEY` itself, and deploy-time
 infrastructure names (a database URL, an SMTP host). Those are per-environment, not
@@ -1071,6 +1106,99 @@ The security declaration (SecurityConfig, refused at production boot)
 - No terp.arch check applies - there is no module code shape to police. Enforcement is
   the create_app production fail-fast plus the production-readiness verify lane.
 """,
+    "logging": """\
+Logging (one JSON record per line, the terp-log/1 schema, ADR 0188)
+
+- Log with the standard library and nothing else:
+      import logging
+      _log = logging.getLogger(__name__)
+      _log.info("invoice %s sent", invoice.id, extra={"invoice_total": total})
+  create_app configures logging once: the root logger, uvicorn's own loggers and,
+  outside local development, uncaught exceptions and warnings. Never call
+  logging.basicConfig / dictConfig / fileConfig yourself (the no_adhoc_logging_config
+  rule refuses it): that is how a line escapes the redaction.
+- Every line is ONE JSON object in the terp-log/1 schema, which ships in terp-core
+  (terp.core.log_record_schema(); its id is terp.core.LOG_SCHEMA):
+      {"time": "2026-10-21T08:15:02.317Z", "schema": "terp-log/1", "level": "INFO",
+       "logger": "app.modules.invoices", "request_id": "6cd94d79...",
+       "message": "invoice 42 sent", "extra": {"invoice_total": 120}}
+  time is UTC with milliseconds; request_id joins every line of one request and is the
+  X-Request-ID response header. Your extra= fields land under "extra". A key is only
+  ever ADDED in a later release, so a reader takes what it knows and ignores the rest.
+- The framework writes these records itself. Do not write your own copy of them:
+    http.access      one per request: method, the route TEMPLATE (never the path, which
+                     holds ids), status, duration_ms, and actor / tenant when the
+                     request was authenticated (absent otherwise, never a token)
+    guard (on it)    the rule that allowed or denied the request -- role:editor,
+                     permission:invoices.send, authenticated, public -- its reason slug,
+                     whose policy it was (module or route) and the read/write tier
+    error.app        each AppError, ONCE: its code, its status and its log_context
+    error.unhandled  each unexpected exception, ONCE, with its traceback
+  So never log an AppError before raising it, and never log a request yourself. The
+  reason the client must not see goes in log_context, which is written and never sent:
+      raise ConflictError("The invoice was already sent.", log_context={"state": row.state})
+- Redaction covers SECRETS by name and shape: a credential-like key (password, token,
+  secret, api_key, cookie, authorization) anywhere in extra or log_context, and
+  credential-shaped text (an Authorization, Bearer or cookie value, a URL's password, a
+  password=... pair) in the message, in tracebacks, and in the text of any object you
+  put in extra or log_context (an exception, a set).
+- PERSONAL DATA is redacted where it is DECLARED (Personal(...), `terp guide
+  personal-data`): a model you log -- as an argument, inside extra or log_context, in an
+  f-string or an exception's text -- renders [PERSONAL] in place of each declared field,
+  and so does a value under a declared field's name ({"email": ...}). A bare string is
+  not a field: log.info("invited %s", customer.email) writes the address. Log the model
+  or its id, never the value on its own.
+- Levels: a client's AppError (4xx) is INFO beside its access line; a 5xx is ERROR.
+  Production runs at INFO. A guard decision with no access line to ride (a WebSocket)
+  is its own guard.decision record: a deny at INFO, an allow at DEBUG.
+- Serve the app the template's way (uvicorn app.main:app ...): uvicorn's own lines
+  become records when create_app runs, and its access line is retired in favour of
+  http.access. A supervisor process (--reload, --workers) never imports the app, so
+  its own few lines stay uvicorn's; production runs one process per container.
+- No terp.arch check covers the format: the runtime is the control, and the suite
+  validates every line a production process writes against the schema.
+""",
+    "personal-data": """\
+Personal data (Personal, ADR 0190)
+
+- Declare every field that holds a person's data with Personal(...) instead of Field(...).
+  It takes exactly Field's keywords, on the table AND on every schema that redeclares the
+  field (a schema that writes `email: str` plainly has said it is not personal):
+      from terp.core import BaseSchema, BaseTable, Personal
+      class Customer(BaseTable, table=True):
+          email: str = Personal(max_length=320, index=True, unique=True)
+          date_of_birth: datetime.date | None = Personal(default=None)
+      class CustomerRead(BaseSchema):
+          id: uuid.UUID
+          email: str = Personal()
+  It changes no DDL and no API contract: no migration, no OpenAPI change.
+- What reads the declaration:
+    the log          a model renders [PERSONAL] in place of each declared field wherever
+                     it is rendered (an argument, extra=, log_context, an f-string, an
+                     exception, a traceback), and a value under a declared field's name
+                     ({"email": ...}) is replaced; a database refusal (a duplicate email)
+                     loses the row's personal values before it reaches log_context
+    the audit trail  a payload keeps each declared field's key and loses its value: the
+                     trail says the field was there, the row holds the value
+    events and jobs  a PUBLIC event or job may not declare a personal field in its payload
+                     (refused where it is declared); redact_personal(payload) is the copy
+                     of a payload that may leave the process
+    errors           a model with a personal field hides its input in a ValidationError's
+                     text; the 422 a client gets still shows what that client sent
+  personal_fields(Model), personal_field_names() and personal_columns() read it back,
+  the last from database metadata alone.
+- What it cannot see: a value that has stopped being a field. f"{customer.email}" is a
+  string, and so is customer.email logged on its own. Log the model or its id.
+- The personal_fields_are_declared rule refuses a model field NAMED like personal data
+  that is not declared: email, phone (and phone_number, telephone, mobile_number),
+  date_of_birth (birth_date, birthday, dob), national_id (ssn, bsn, passport_number),
+  first_name / last_name / full_name / given_name / family_name / middle_name /
+  surname, home_address / residential_address -- the name's LAST words, so contact_email
+  counts and email_verified does not. A field that only looks personal says why it is not:
+      # arch-allow-personal-fields-are-declared: the organisation's shared mailbox
+      support_email: str = Field(max_length=320)
+  The vocabulary is short on purpose; declare every other personal field by hand.
+""",
     "passwords": """\
 Password strength (PasswordPolicy, Tier-B)
 
@@ -1209,6 +1337,40 @@ code looks wrong, every test passes -- until the table has real data in it.
   fixture must not change it -- so write the test with several rows in the fixture, or
   it cannot tell the two apart.
 
+PROVE THE SEED IS DETERMINISTIC. `terp seed` may run on every boot and a fresh
+environment is seeded from nothing, so a seed owes two things: a second run on the same
+database writes NOTHING, and two fresh databases it seeds hold the SAME data. Comparing
+rows as stored cannot show the second, because a fresh run does not repeat what a write
+generates: every id is a new uuid4, every timestamp is now, a password hash has a new
+salt, and every owner, actor stamp and audit target carries some row's new id.
+`seed_checksum` compares the BUSINESS columns instead, by one rule:
+      left out   a table's own single-column primary key, and every DateTime column
+      reduced    a PHC hash ($argon2id$v=19$m=..$<salt>$<digest>) to scheme and params
+      resolved   a value that is some row's UUID key (a foreign key, a text reference,
+                 a JSON payload) to that row's table and business columns
+      kept       everything else, a Date included; rows are compared as a set
+and `generated=True` keeps every column as stored, which is how "nothing was written"
+is asked:
+
+      from terp.core.testing import seed_checksum
+
+      def test_the_seed_is_deterministic(terp_db_url):
+          engine = create_engine(terp_db_url)
+          SQLModel.metadata.create_all(engine)
+          run_the_seed(engine)
+          first, stored = seed_checksum(engine), seed_checksum(engine, generated=True)
+          run_the_seed(engine)                       # the second run is a no-op
+          assert seed_checksum(engine, generated=True) == stored
+          SQLModel.metadata.drop_all(engine)
+          SQLModel.metadata.create_all(engine)
+          run_the_seed(engine)                       # and a fresh database agrees
+          assert seed_checksum(engine) == first
+
+  A seed that fails it reads the clock, a random value or whichever row comes back first.
+  Write through the real services, look each row up by its natural key before creating
+  it (UsersService.ensure_user does), and derive any id the seed must choose with uuid5.
+  `terp_db_url` runs it on PostgreSQL too.
+
 WHAT YOU MUST STILL DO YOURSELF. The platform UNDOES a runtime; it never INSTALLS the
 one your test needs. That distinction is the whole of testing on Terp:
       * whole runtime -> compose the app in a fixture (see apps/example/tests/conftest.py,
@@ -1328,11 +1490,39 @@ Background jobs (terp.core.enqueue + JobCatalog)
 - Trigger a scheduled job from any cron / k8s CronJob / systemd or cloud timer:
       terp jobs run sync.customers.pull --payload '{"source": "crm"}'
   Inspect the declared jobs:  terp jobs list   /   terp inspect jobs.
-- Declare a schedule (ScheduleDefinition: a cron + a catalog JobDefinition) on the control
-  plane (ControlPlane(schedules=ScheduleCatalog([...]))); boot validates each schedule's job
-  against the JobCatalog. Run schedules in-process with `terp jobs scheduler` (APScheduler;
-  needs terp-cap-scheduler-apscheduler) or via Celery beat — each cron tick enqueues through
-  the same typed seam, so a scheduled job stays audited + system-actor stamped.
+- Declare a schedule (ScheduleDefinition: a cron + a catalog JobDefinition + a misfire
+  policy) on the control plane (ControlPlane(schedules=ScheduleCatalog([...]))); boot
+  validates each schedule's job against the JobCatalog. Run schedules in-process with
+  `terp jobs scheduler` (APScheduler; needs terp-cap-scheduler-apscheduler) or via Celery
+  beat — each cron tick enqueues through the same typed seam, so a scheduled job stays
+  audited + system-actor stamped.
+- DECLARE WHAT A MISSED TICK BECOMES (ADR 0191). A deploy stops the scheduler, and a cron
+  time that passes meanwhile is a misfire. misfire= is a required keyword:
+      ScheduleDefinition(name="reports.hourly", job=REPORT, cron="0 * * * *",
+                         misfire=Misfire.RUN_ONCE)   # run it once, late, when back
+      ScheduleDefinition(name="reminders.morning", job=REMIND, cron="0 8 * * *",
+                         misfire=Misfire.SKIP)       # pointless late: record it skipped
+  RUN_ONCE folds every tick of one gap into one run; a slot settled within a minute of its
+  cron time is on time either way. The scheduler can only apply the policy to a tick it
+  knows it missed, so keep each schedule's last settled slot in the database:
+      create_app(..., job_queue=OutboxJobQueue(),
+                 schedule_ledger=DatabaseScheduleLedger(),        # terp-cap-outbox
+                 require_durable_schedules=settings.is_production)
+  The record commits in the same transaction as the outbox row the tick enqueued, so a
+  crash leaves both or neither. `terp jobs scheduler` settles every schedule when it
+  starts. On Celery beat, call scheduler.catch_up() from beat's `beat_init` signal.
+- THE TWO LONG-RUNNING PROCESSES STOP CLEANLY AND BEAT. On SIGTERM or SIGINT, `terp jobs
+  worker --forever` finishes the job it is running and gives the rest of its batch back
+  (another worker takes it at once), and `terp jobs scheduler` lets its ticks in flight
+  finish. A worker killed before that (the stop grace ran out) loses nothing: its job is
+  redelivered once its lease lapses, so a handler must tolerate running twice. Each
+  process writes a heartbeat from its own loop, <tmp>/terp-worker.heartbeat or
+  terp-scheduler.heartbeat in its container, with the bound it may not outgrow
+  (worker: max(--lease-seconds, --poll-seconds) + 30s; scheduler: 60s). The generated
+  production profile checks it with a probe that reads the file; `terp guide deployment`.
+- On Celery, the Terp task acknowledges a message only after the job ran (acks_late,
+  reject_on_worker_lost), so a killed worker's job is redelivered. Set
+  worker_prefetch_multiplier=1, and on Redis a visibility_timeout above your longest job.
 """,
     "outbox": """\
 Durable post-commit delivery (outbox capability)
@@ -1355,7 +1545,10 @@ Durable post-commit delivery (outbox capability)
       def _after_write(self, session, entity, *, action):
           enqueue(session, job=RUN_START, payload=RunStartPayload(run_id=entity.id))
 - Run the relay as its own process (not inside the API container):
-      terp jobs worker
+      terp jobs worker --forever
+  (without --forever it drains what is due once and returns, for an external trigger).
+  A stop finishes the job in flight and releases the rest of the batch; the process writes
+  a heartbeat its container's healthcheck reads (`terp guide jobs`).
   It leases rows (claim_id + locked_until, SKIP LOCKED), delivers AT LEAST ONCE, retries
   with exponential backoff, and dead-letters once max_attempts is exhausted. Every
   handler must therefore be safe to run twice - see `terp guide idempotency`.
@@ -1432,7 +1625,9 @@ Idempotency (the Idempotency-Key header, terp.core.idempotency)
       create_app(..., idempotency_store=RedisIdempotencyStore(...),
                  require_shared_idempotency_store=get_settings().is_production)
   Only a store that marks itself shared (mark_shared_idempotency_store) satisfies the
-  guard, so a load-balanced deployment cannot silently lose the guarantee.
+  guard, so a load-balanced deployment cannot silently lose the guarantee. A required
+  store is part of readiness too (ADR 0191): /health/ready asks its ping() and answers 503
+  while it cannot be reached, and a shared store with no ping() of its own refuses the boot.
   Until you opt in, a production boot logs a WARNING saying idempotency is deduplicated
   per worker - the property is stated where you can read it before scaling, because
   after scaling the only symptom is duplicate rows with nothing to connect them to.
@@ -1473,6 +1668,9 @@ Realtime push (realtime capability)
       configure_broker(RedisRealtimeBroker.from_url(settings.REDIS_URL))
       configure_ticket_store(RedisConnectionTicketStore.from_url(settings.REDIS_URL))
       configure_realtime(..., require_shared_broker=settings.is_production)
+  While that promise stands the broker is part of readiness (ADR 0191): /health/ready
+  asks its ping() and answers 503 while Redis cannot be reached, and a shared broker with
+  no ping() of its own is refused under the promise.
   The worker runs the same composition root, so it wires the same broker. Pub/sub is
   server-wide: the database index is in the channel names, but two deployments sharing
   one Redis server AND database need distinct namespace=... values. Delivery is
@@ -1548,6 +1746,12 @@ File objects (files capability, ADR 0056/0057)
   invoice via your own service (its policy + row scope decide visibility), then
       row, data = FileService().load_for(session, invoice, "attachment_file_id")
   load_for fail-closes on an undeclared reference; /api/v1/files itself stays ADMIN-only.
+- The local profile's bytes need a volume in production, or they live in the container and
+  go with it. The template's production profile (use_files) mounts the files-data volume at
+  var/files on api, and deployment.json declares it with its backup policy, so a deploy tool
+  backs it up. A unit of your own that reads stored bytes (a worker) mounts the same volume:
+  add it to the profile and to the volume's "mount": {"units": [...]}. A store behind
+  another adapter needs no volume. `terp guide deployment` has the rest.
 """,
     "capability": """\
 Using capabilities
@@ -1648,14 +1852,44 @@ Sending e-mail (terp-cap-mail)
     SMTP_PORT       optional: 587 for starttls, 465 for tls
     SMTP_SECURITY   starttls (the default) | tls | none
     SMTP_USERNAME / SMTP_PASSWORD   set together, or neither
+    SMTP_CA_FILE    optional: the absolute path of a PEM file of the CA certificates the
+                    relay's certificate must chain to, IN PLACE OF the system's store
+                    (a catcher or an on-premises relay with a private authority)
   The session is encrypted and the certificate verified; there is no setting that turns
-  verification off. `none` exists for a local mail catcher: a production boot refuses
-  it, and signing in over it is refused everywhere. With neither MAIL_FROM nor SMTP_HOST set,
-  development LOGS each message instead of delivering it and a production boot is
-  REFUSED. Declare the variables in environment.schema.json so a deployment renders them
-  per environment: SMTP_PASSWORD with "format": "secret", SMTP_HOST "format":
-  "hostname", SMTP_PORT "format": "port", and MAIL_FROM + SMTP_HOST in "required" so a
-  deploy without a relay is refused before it boots.
+  verification off. SMTP_CA_FILE changes which authority may vouch for the relay, never
+  whether one must: the name is still checked, and a missing or unreadable file refuses
+  the boot. `none` exists for the development stack's own catcher: a production boot
+  refuses it, signing in over it is refused everywhere, and so is a CA file beside it.
+  With neither MAIL_FROM nor SMTP_HOST set, development LOGS each message instead of
+  delivering it and a production boot is REFUSED.
+- The relay is EXTERNAL, never a service of the production profile, and it is a value
+  per environment. Declare the variables in environment.schema.json so a deployment
+  renders them, with MAIL_FROM and SMTP_HOST "requiredIn": ["production"]. Not
+  "required": that means every environment, and would ask the development loop for a
+  relay it does not have (ADR 0180):
+      "MAIL_FROM":     {"type": "string", "group": "Mail", "requiredIn": ["production"]},
+      "SMTP_HOST":     {"type": "string", "group": "Mail", "format": "hostname",
+                        "resolvedBy": "container", "requiredIn": ["production"]},
+      "SMTP_PORT":     {"type": "string", "group": "Mail", "format": "port"},
+      "SMTP_SECURITY": {"type": "string", "group": "Mail",
+                        "enum": ["starttls", "tls", "none"]},
+      "SMTP_USERNAME": {"type": "string", "group": "Mail"},
+      "SMTP_PASSWORD": {"type": "string", "group": "Mail", "format": "secret"},
+      "SMTP_CA_FILE":  {"type": "string", "group": "Mail"}
+  A production deploy without a relay is then refused before it boots, and the
+  development loop runs on the defaults you give them (a catcher on the compose network,
+  SMTP_SECURITY=none). Declare SMTP_CA_FILE even if you never set it: a deployment renders
+  only the declared keys, so it is how one hands the app a catcher's authority.
+- Outside production, mail goes to a CATCHER, never a real relay. Every non-production
+  environment, a test environment and a preview included, defaults to a mail catcher that
+  offers TLS with a certificate the app verifies: a test environment runs the production
+  profile, which refuses SMTP_SECURITY=none, and verification has no off switch, so the
+  deployment gives SMTP_CA_FILE the authority that issued the catcher's certificate, for
+  the name it gives in SMTP_HOST. A real relay outside production is an operator's opt-in
+  for that one environment, held in the deploying tool's environment policy, outside the
+  app's files, and never in deployment.json, which carries no mail field: an opt-in kept
+  in a file any commit can change could switch an environment holding copied data to
+  mailing real people.
 - Register the job the capability enqueues (control_plane/jobs.py):
       from terp.capabilities.mail import MAIL_SEND
       job_catalog = JobCatalog([MAIL_SEND])
@@ -1727,21 +1961,94 @@ Database migrations (terp migrate)
   before the table that references it - regardless of label ordering. (A cross-package
   FK *cycle* cannot be ordered and fails closed; break it with a nullable FK populated
   in a later migration.)
-- Apply / inspect / roll back across every package:
+- Apply / inspect / walk back across every package:
       terp migrate upgrade                 # each package to head (run on deploy)
       terp migrate upgrade --sql > release.sql   # render DBA-reviewable offline SQL
                                            # instead (nothing connects; flat layout)
       terp migrate status                  # current-vs-head per package
+      terp migrate check                   # exit 0 only at head or inside the window
       terp migrate downgrade               # every package back to base (or -N)
       terp migrate downgrade --label notes --revision <rev>   # one package only
   A concrete revision is package-specific, so the all-package downgrade takes only
   base or a relative -N; pass --label to roll one package to any of its own revisions.
+  A downgrade is for walking a history back while developing. A production rollback
+  never migrates (next point).
+- ROLLING BACK A RELEASE (ADR 0185). Each revision says whether it is expand-only:
+      expand_only = True    # the previous release still runs on the schema this leaves
+  `terp migrate make` always writes `expand_only = False` (a contract revision), and adds
+  a comment where every operation it generated is on the expand list. Raise the mark
+  yourself, once the previous release may run without what the revision adds: a NOT NULL
+  scan state with a default, or a token epoch, is on the list and still carries a
+  restriction a rollback would drop. The expand list is closed: create_table (a key from
+  it only with CASCADE or SET NULL, never onto a soft-deleted table) and bulk_insert into
+  it; add_column that is nullable, has a server_default or is Computed, with no unique, no
+  check and at most a SET NULL key on a nullable column; create_index that is not unique;
+  a batch block of those, never recreate="always". Anything else (a drop, a rename,
+  tightening, execute(), a statement through op.get_bind(), a back-fill of an existing
+  table) is refused by `terp check` (expand_revisions_only_expand, no opt-out) and again
+  by the migration run, before its DDL. A back-fill runs as a job: the expand release
+  already handles rows it has not filled.
+  When every revision release N applied is expand-only, release N-1 starts again on N's
+  database: its boot guard admits a database one migration run ahead (it logs which
+  revisions it runs behind), and its `migrate` finds nothing to apply and runs no DDL. The
+  rollback check is the target's own `terp migrate check`, run from the target's image
+  against the live database: exit 0 is restore-free, anything else is a restore. Two
+  expanding releases in a row are one too many, a contract revision or another Terp
+  version is never crossed, and a migration applied from an offline script is not in
+  the record, so each of those rolls back by restore.
+  Until the contract release, N keeps writing the old shape N-1 reads, treats it as the
+  truth for what N-1 writes (compute a derived value on read, or make it a generated
+  column), and handles NULL in its new columns.
+  Every release after a rollback keeps N's revision files and the model fields and tables
+  they create, and reverts behaviour only; removing them is a later contract release. A
+  release cut from N-1 that adds a revision of its own is refused by `migrate`.
+- CONTRACT STEPS GO INTO A LATER RELEASE than the one that expanded: drop, rename or
+  tighten once nothing in the release before still needs the old shape. A release that
+  mixes expand and contract revisions is legal and rolls back by restore.
+- Removing a module or capability from the app RETIRES it, in the same release: list its
+  label in <app root>/modules/__init__.py, read without importing the app,
+      RETIRED_MIGRATIONS = ("invoices",)
+  a literal tuple of strings (anything else refuses). Its tables stay yours. A package
+  that comes back takes a new label.
 - Two developers branched the same package? Resolve the within-package divergence:
       terp migrate heads                   # more than one head = diverged
       terp migrate merge <label> -m "merge"
-- Destructive DDL (drop table/column or alter-column type changes) is refused by
-  `terp check` unless the operation carries `# arch-allow-no-destructive-migrations:
-  <reason>` on (or immediately above) its line, budgeted by the escape-hatch ratchet.
+  Before a release, re-parent one unreleased revision onto the other instead: a merge
+  revision is a contract revision.
+- Locks: `migrate` runs before `api` is recreated, so the previous release still serves
+  while it runs. A create_index without postgresql_concurrently (inside
+  op.get_context().autocommit_block()), a volatile default and a generated column (stored,
+  so the table is rewritten) hold a lock that long; on a large table compute a derived
+  value on read. A new child table of a soft-deleted parent is a contract revision:
+  neither CASCADE nor SET NULL can fire onto it.
+- A STEP THAT IS SAFE ONLY AGAINST AN EMPTY DATABASE is refused by `terp check`
+  (`no_destructive_migrations`). A deploy migrates while the previous release still
+  serves, and a rollback runs that release on the migrated schema, so a revision has two
+  audiences your scratch database never shows: the rows production holds, and the
+  release still running. Five kinds of step fail one of them:
+      drop         drop_table / drop_column / TRUNCATE / DELETE FROM / DROP SCHEMA
+      rename       rename_table / alter_column(new_column_name=...) / ALTER TABLE .. RENAME
+      type change  alter_column(type_=...) / ALTER COLUMN .. TYPE
+      NOT NULL     alter_column(nullable=False) on an existing table / SET NOT NULL
+      constraint   create_unique_constraint / create_check_constraint /
+                   create_foreign_key / create_primary_key / create_index(unique=True) /
+                   ADD CONSTRAINT / CREATE UNIQUE INDEX / VALIDATE CONSTRAINT
+  on `op`, a batch block or any alias, imported by name (from alembic.op import
+  drop_column) or looked up by a literal getattr, in upgrade() and in every function of
+  the revision it calls, and through execute(...) whenever the statement is readable in
+  the source, one statement at a time. Do this instead, and every finding says which:
+  EXPAND (add the new column, nullable, or the new table beside the old one), BACKFILL
+  (copy or clean the rows with a job, not a statement in the revision, and write both),
+  then CONTRACT in a LATER release (drop the old name, tighten, add the constraint). The
+  contract step is the destructive one, so it carries
+  `# arch-allow-no-destructive-migrations: <reason>` on (or immediately above) its line,
+  after review, budgeted by the escape-hatch ratchet. Not refused: anything on a table
+  this upgrade() creates (it holds no rows yet), and a unique, foreign-key or
+  unique-index constraint on columns this upgrade() adds nullable with no server_default
+  (every existing row holds NULL, which those accept) - the shape autogenerate writes for
+  a new reference column. Not refused is not the same as an expand step: a constraint on
+  an existing table, or any execute(), is never one. A type WIDENING is still reported,
+  because nothing in the revision says what the old type was: justify it with the marker.
 - ADDING A NOT NULL COLUMN is the revision that passes everything you can run and then
   fails in production. For a new non-nullable field autogenerate writes
   `add_column(sa.Column('rank', sa.Integer(), nullable=False))`, and that statement
@@ -1753,7 +2060,8 @@ Database migrations (terp migrate)
       op.add_column('note', sa.Column('rank', sa.Integer(), nullable=False,
                                       server_default='0'))
   Where no literal default is right, expand/contract instead - add the column nullable,
-  back-fill it in the same release, tighten it in a LATER revision. `terp check`
+  back-fill it with a job in the same release, tighten it in a LATER release (that
+  tightening is a contract step: it takes the destructive-migration marker above). `terp check`
   refuses the unbackfilled form (`not_null_columns_are_backfilled`); a table that
   genuinely holds no rows yet opts out with
   `# arch-allow-not-null-columns-are-backfilled: <reason>`.
@@ -2286,7 +2594,10 @@ configuration, so `env-seams` checks the shape first and reports every defect at
     production): where the value must be set. `required` means every environment, so a
     name is in one or the other, never both. The development loop runs local and every
     Studio deployment runs production; JOB_SYSTEM_ACTOR_ID is the canonical case --
-    production refuses to boot without it, the development loop only warns.
+    production refuses to boot without it, the development loop only warns. A mail
+    relay's MAIL_FROM and SMTP_HOST are another: production refuses to boot without a
+    relay, and the development loop logs each message or hands it to its own catcher
+    (`terp guide mail`).
 
 A FIELD OUTSIDE THAT SET IS REFUSED HERE, because the deploy side DROPS what it does not
 recognise rather than refusing it -- so a misspelled field silently does nothing, and the
@@ -2336,6 +2647,34 @@ file is generated rather than hand-maintained. The command is deliberately in no
 verify profile: env-seams gates the seam, and a gate that edits your files is not
 a gate.
 
+A CHANGED VALUE REACHES THE RUNNING WORKBENCH BY ITSELF
+
+`terp docker dev` watches the files the stack is configured from: .app.env (and any
+.app.<service>.env), .env and docker-compose.yml. Save one -- by hand or with
+`terp env set` -- and it stops `docker compose watch` and starts it again: watch's own
+start recreates every service that reads the changed file. Nothing to run.
+
+The restart is the point. `watch` reads the configuration once, when it starts, and
+every rebuild converges the whole stack against that copy: a service whose
+configuration differs is recreated from the copy, and only the rebuilt service and
+what depends on it are started. So never run `docker compose up -d` beside a running
+watch: the next frontend rebuild recreates the backend from the old values and leaves
+it stopped. On Compose v2 that happens even when nothing changed, because v2's watch
+hashes a service with an `env_file` differently from `up`. Driving compose by hand,
+do what the command does: stop watch, start watch.
+
+What a change costs, on purpose:
+  - Both images are checked against the build cache, as on every start: quick when
+    nothing in the build context moved, a rebuild when something did. Where the
+    builder attaches a provenance attestation to every build (Docker Desktop's
+    default), even a cached build is a new image, so every container is recreated,
+    not only the ones that read the changed file.
+  - `migrate` and `seed` run again. Both read .app.env, and every start runs every
+    one-shot, so the schema is at head before the API serves and the (idempotent) seed
+    has run. The API answers one migrate later than a bare restart would.
+  - Nobody is signed out. Tokens are signed with SECRET_KEY, and a recreate does not
+    change it; changing SECRET_KEY in .env does, and that signs every session out.
+
 WHEN A FEATURE ADDS A VARIABLE
 
 1. Declare it in environment.schema.json (UPPER_SNAKE; `"format": "secret"` for tokens,
@@ -2372,7 +2711,336 @@ it lands: .app.env.example stays ONE committed file listing every declared name,
 scoped app uses `terp env init` rather than `cp`; and a service that adds its own
 `env_file:` REPLACES the shared anchor's list rather than adding to it (YAML merge does
 not concatenate sequences), so both files have to be listed.
-""",}
+""",
+    "deployment": """\
+The deploy declaration: deployment.json, and what `terp verify --only deployment` holds
+
+WHAT IT IS (ADR 0184)
+
+deployment.json at the project root tells a tool that deploys the app which units exist,
+which one serves the API, how to tell each is healthy, which migration histories each
+owns, what holds state and how it is backed up, and what a rollback is -- instead of the
+tool assuming the template's four service names. It describes the PRODUCTION profile
+(docker-compose.prod.yml, or whatever file it names) and never the development loop,
+which workbench.json describes. Nothing in it is read by the running app.
+
+The words are the Terp Standard's (deployment-declaration.schema.json in terp-spec,
+mirrored byte for byte in terp-arch). The template writes the file once, at `copier
+copy`, describing its own profile; `copier update` never creates or rewrites it. An app
+rendered before it existed stays undeclared until it writes one itself, or has `uv run
+terp deployment adopt --build own` write it from its production profile (MOVING
+BETWEEN STATES, below).
+
+    {
+      "schemaVersion": 1,
+      "build": "own",
+      "compose": { "file": "docker-compose.prod.yml" },
+      "units": [
+        { "id": "db", "role": "database", "kind": "postgres", "version": "17",
+          "stateful": true, "backup": { "every": "P1D", "keep": "P30D" } },
+        { "id": "migrate", "role": "one-shot", "dependsOn": ["db"] },
+        { "id": "api", "role": "api", "healthPath": "/health/ready",
+          "livenessPath": "/health/live", "migrations": ["notes"],
+          "dependsOn": ["db", "migrate"] },
+        { "id": "worker", "role": "worker", "command": ["terp", "jobs", "worker", "--forever"],
+          "env": ["SOME_API_BASE_URL"], "dependsOn": ["db"] },
+        { "id": "web", "role": "web", "dependsOn": ["api"] }
+      ],
+      "volumes": [ { "id": "files-data", "backup": { "every": "P1D", "keep": "P30D" } } ],
+      "rollback": { "strategy": "redeploy-previous-release" }
+    }
+
+FOUR STATES, EXACTLY ONE AT A TIME
+
+  absent                          undeclared: every check passes, as before
+  "build": "own"                  units built from the build files the app commits
+  "build": "generated"            the framework renders Dockerfile.prod,
+                                  frontend/Dockerfile.prod and docker-compose.prod.yml
+                                  from this file (`terp deployment render`), and a
+                                  committed copy that is not the render is refused
+  {"unmanaged": true, "reason"}   no tool can drive this deploy; the checks are off and
+                                  a tool shows the reason. Nothing may stand beside it.
+
+Units without "build", or "unmanaged" beside "build", is refused -- never guessed.
+
+IT IS PARTIAL, AND IT MUST BE TRUE
+
+A service no unit names is not this file's business: add a worker, a cache, a scanner
+or a second API to the profile and nothing here objects. A role nobody has heard of is
+information. What the file DOES say must be true of the resolved profile -- the file
+plus compose.overrides, merged the way `docker compose -f ... -f ...` merges them:
+
+  - a unit is a service of the profile; a volume is a named volume a service mounts, and
+    a restated "mount" names exactly the declared units whose services mount it there
+    (its path relative to /srv, where the images run the app);
+  - a restated "command" (an argument list, never a shell string) or "dependsOn" is the
+    profile's own, the order restricted to declared units;
+  - an "env" name reaches the unit's service: in its environment: block, or through the
+    file environment.schema.json routes it to (.app.env; .app.<service>.env when the
+    declaration names services) and the service loads with env_file:;
+  - a unit with "kind" runs EXACTLY the image the datastore table publishes for that
+    kind and version (postgres 17 today, by digest); every other unit runs an image the
+    profile builds from the checkout. There is no "image" key: the file cannot name a
+    registry;
+  - "externalDatabase": {"backup": "client"} never stands beside a profile that still
+    runs a database (name the override that removes `db` in compose.overrides);
+  - "healthPath" and "livenessPath" are read BY ROLE, so they belong under a role the
+    vocabulary knows (api, database, one-shot, scheduler, store, web, worker).
+
+From the app (`terp verify --only deployment` only, because it needs the composed
+app): a "migrations" label is one an installed package or app module owns, and an api
+unit's health paths are routes the app serves. Where app.main:build cannot be imported
+that part is skipped with a named note.
+
+NEVER RED: no frontend, three APIs, a stateful unit with no backup, a schedule with no
+scheduler unit, "instances": "many", an installed history no unit claims, a profile of
+any file name other than the development one. A missing backup is a safety property for
+the deploy boundary, not for this check.
+
+REFUSED AS UNREADABLE: a key the vocabulary lacks at any level (a $-prefixed key is a
+comment), a control character, a string over its cap, a version this toolchain does not
+read, a size that is not a key of "sizes", "client" anywhere but externalDatabase, a
+backup on a unit not declared stateful, two units or volumes with one id, a profile
+path or build context that resolves outside the checkout (links followed), and the
+development compose file named as the profile.
+
+DEPLOY POLICY NEVER BELONGS HERE. Who may publish, how many approvals a deploy needs,
+who may reach a deployed app and which gate policy applies are set per environment by
+the deploying tool, where a commit cannot lower them. Such a key is refused with:
+"<key> is deploy policy: it belongs to the deploying tool's environment policy, not to
+this file". Domains, TLS, CORS, the backup destination, sizes per environment and the
+digest allowlist are environment facts and stay out too.
+
+WHERE IT IS CHECKED
+
+  terp check                       the three terp.arch rules, from files alone:
+                                   deployment_declaration_is_readable,
+                                   deployment_declaration_tells_the_truth and
+                                   deployment_generated_files_match_their_render
+  terp verify --only deployment    the first two, plus the app part and notes on what
+                                   the app uses that the file does not state (a files
+                                   volume with no backup policy, a companion root no
+                                   unit runs, a datastore kind no unit declares)
+  terp verify --only generated     the third, with notes: what it did not judge, and a
+                                   profile `terp release` will refuse
+
+None of them has an `# arch-allow-*` marker -- a JSON file cannot carry one, and a marker
+in a file the generator rewrites would be erased by the next render. The way out is the
+declaration's own: {"unmanaged": true, "reason": "..."}, or, for the third, "build": "own".
+
+THE GENERATED STATE (ADR 0187)
+
+Under "build": "generated" the three production build files are the framework's. Change
+deployment.json (or pyproject.toml's name, or the framework version), then:
+
+  uv run terp deployment render          writes the render, every file or none, and
+                                         removes a generator-owned file the declaration
+                                         no longer renders; refuses, in the generator's
+                                         own words, what it cannot render faithfully
+  uv run terp deployment render --check  writes nothing; exit 1 when a committed file is
+                                         not the render (the same rule as the gate's)
+
+and commit the files with the declaration. The gate never writes. `terp verify --only
+generated` is red when a committed file differs from the render (a short diff and the
+fix), when a generator-owned path the render does not produce exists, when the generator
+refuses the declaration, when [project].name is one compose or Docker refuses, when .env,
+.app.env or a backend unit's .app.<id>.env would be committed (asked of git check-ignore)
+or baked into an image (asked of a matcher with Docker's own .dockerignore semantics), and
+when deploy_build in .copier-answers.yml disagrees. In a tree git finds no work tree in,
+the git half is noted, not judged.
+
+What the generator refuses, each with the field and what is allowed: another profile name
+or an override; externalDatabase beside a database unit; a database or store without kind,
+or two of a kind; a one-shot that declares `terp migrate upgrade` (drop the command: the
+one-shot without one is the migration step) or a second step; a role with no command of
+its own and none declared; a web unit with a command, with no single api to proxy to, or
+without frontend/package-lock.json; an api without both health paths; a start-order cycle
+or a unit it names that is not declared; a volume without its mount, mounted anywhere but
+var/files, on a unit not on the backend image, or on a unit that already mounts another
+volume there (Compose would mount only the last of them, without a word); any system
+package (the table is empty in this release); a unit id that is not a lower-case compose
+name. Any of them: declare "build": "own" and keep the files yourself.
+
+The generator's two words: "generator": {"systemPackages": [...]}, valid only beside
+"build": "generated", and "mount": {"path": "var/files", "units": [...]} on a volume,
+required under generated and a restatement the truth rule holds to the profile under own.
+
+MOVING BETWEEN STATES: terp deployment adopt (ADR 0187)
+
+The state is two recorded facts that must agree: "build" in deployment.json, which the
+gate reads, and deploy_build in .copier-answers.yml, the template question `copier
+update` reads. Copier renders an update's OLD template version with the RECORDED
+answers, so adoption writes the answer itself; never `copier update --data
+deploy_build=...`, whose old render still has the files it would then delete. Each form
+writes all its files or none and prints the diff; --dry-run only prints.
+
+  uv run terp deployment adopt --build generated
+      needs a readable, true, renderable deployment.json and scaffolding from a template
+      version that asks deploy_build. Sets both facts, renders, removes a generator path
+      the declaration does not produce. A template-shaped app at the template version it
+      was rendered from changes NO build file: the template's are the seed's render.
+      Refused, writing nothing: a declaration the generator cannot render (each refusal
+      above), a project name compose or Docker refuses, an environment file git or the
+      build context would carry, and an answers file that records no deploy_build --
+      its template version's every update renders the build files over the generator's,
+      so `copier update` first, which records deploy_build: own, then adopt.
+  uv run terp deployment adopt --build own
+      on a generated app: both facts back to own, and no file changes; the last render is
+      the app's, and the next update merges into it as into any own app's. On an
+      undeclared app: deployment.json written from docker-compose.prod.yml as it runs --
+      a datastore by the table's kind (its image pinned to the table's digest in the same
+      change), a service built from the checkout by what it does (web from frontend/,
+      one-shot when it does not restart, worker and scheduler by `terp jobs`, api when it
+      runs the image's own command, with the framework's health routes; otherwise its own
+      name as the role), dependsOn restricted to declared units, and a volume a declared
+      unit mounts with its mount where it is one path inside var/. A service on an image
+      neither built here nor in the table is refused by name. A backup policy, env names,
+      sizes and a rollback strategy are not in a profile: the notes name them.
+  uv run terp deployment adopt --unmanaged "<reason>"
+      ADR 0184's opt-out, and deploy_build: own, since the build files are the app's.
+
+A copier answers file is optional: an app without one changes deployment.json only.
+
+A FRAMEWORK UPDATE OF A GENERATED APP
+
+`copier update`, then the install (`uv sync`, `npm --prefix frontend install`), then
+`uv run terp deployment render`, committed together, in the copy the update is made in.
+The template leaves the three files to the generator of the release just installed, so a
+missed render is red there under `terp verify --only generated`. `uv run terp upgrade
+--check` prints the render as its own step for an app whose deployment.json says
+generated. A fresh `copier copy --data deploy_build=generated` has none of the three until
+the first render, which needs frontend/package-lock.json (`npm --prefix frontend install`).
+
+THE LOCKS A DECLARED APP IS BUILT FROM
+
+A tool that drives the units builds the committed Dockerfiles, and the template's install
+exactly the committed locks (`uv sync --locked --no-dev`, `npm ci`). So `terp verify --only
+locks`, its own check and not part of this one, refuses an app with units declared whose
+uv.lock or frontend/package-lock.json is missing or stale against its manifest, and names
+the fix: `uv lock`, `npm --prefix frontend install`, then commit the lock. uv and npm answer
+for their own locks, offline (`uv lock --check`, `npm ci --dry-run`). An undeclared or
+unmanaged app is told the same as a note.
+
+THE PRODUCTION PROFILE THE TEMPLATE SHIPS (ADR 0187)
+
+The template's Dockerfile.prod, frontend/Dockerfile.prod and docker-compose.prod.yml are
+the framework generator's render of the seed declaration (terp.arch.deployment.generate),
+held byte for byte by a test, so a hardening change reaches them once. Each says so in
+its header. Under "build": "own" they are the app's to change; under "build": "generated"
+they are the render (THE GENERATED STATE, above). With the files capability on (use_files),
+the seed also declares the files-data volume, mounted at var/files on api with a daily
+backup policy, and the profile mounts it: the render of that seed, held the same way. The
+backend image makes /srv/var/files owned by the user it runs as, and Docker gives an empty
+named volume the owner of the directory it is mounted over, so that user can write it.
+
+  start it, with its required secrets and a new per-release image tag set (compose
+  stops on an unset one; the tag keeps the previous release's images beside this
+  one's, so it can be started again):
+    SECRET_KEY=... POSTGRES_PASSWORD=... TERP_RELEASE_TAG=$(git rev-parse --short=12 HEAD) \\
+      docker compose -f docker-compose.prod.yml up -d --wait --build
+  bootstrap the first administrator (`terp seed` refuses ENVIRONMENT=production), with
+  the same variables set:
+    docker compose -f docker-compose.prod.yml run --rm -e TERP_USER_PASSWORD api \\
+      terp user create admin@your-domain.example --role admin
+  start an earlier release again: set its TERP_RELEASE_TAG and run `up -d --wait
+    --no-build`, so an image that is gone fails instead of being rebuilt from this
+    checkout under the old tag
+  a database this deployment does not run: set DATABASE_URL, which every backend unit
+    reads before its default; to drop the bundled `db` service too, add an override
+    that removes it, name it in compose.overrides and declare
+    "externalDatabase": {"backup": "client"}
+
+What each unit becomes: a datastore runs its table digest and its own healthcheck; an
+api is probed on its livenessPath, passed to a fixed probe as an argument; a worker runs
+`terp jobs worker --forever` (drain, wait --poll-seconds, drain again, until stopped)
+and a scheduler `terp jobs scheduler`, each with init and a healthcheck on the heartbeat
+its own loop writes (ADR 0191); the one-shot without a command is the migration step; the
+web tier proxies to its api. The backend image carries no HEALTHCHECK. A unit that serves
+no request and writes no heartbeat (a companion, a drain without --forever) has no check,
+so `docker compose up --wait` (what a deploy runs) waits for it to run, where an inherited
+HTTP probe turned it unhealthy and a disabled one made Compose refuse to wait.
+The image ships its bytecode compiled (checked-hash, so the same lock compiles to the same
+bytes). Every backend unit loads .app.env, then its own .app.<id>.env. Every value a
+declaration gives (a command, a health path) is written double-quoted with each $
+doubled, so compose passes it on as written.
+
+THE HEARTBEAT CHECK (ADR 0191)
+
+A unit whose command is `terp jobs worker ... --forever` or `terp jobs scheduler ...`,
+declared or the role's default, is checked every 10 seconds with a fixed probe: python -c
+<standard library only> worker|scheduler. It reads <tmp>/terp-<role>.heartbeat in the
+container, prints {"heartbeat", "age_seconds", "stale_after_seconds"} as one JSON line, and
+fails when the heartbeat is older than the bound the process wrote into it, or missing. So
+a worker stuck in one job turns unhealthy once its bound has passed (60s with the default
+lease), while a container that merely runs is not called healthy. A deploy tool reads the
+same answer per unit, with no HTTP and no database: the container's health status, and the
+last probe's output for the age (docker inspect, .State.Health.Log), or the probe run in
+the container. Dependants of such a unit wait for service_healthy. Do not set TMPDIR
+differently for the process and its healthcheck: both find the file through it.
+
+READINESS (ADR 0191)
+
+/health/ready answers 200 when the database answers SELECT 1 and every shared store a
+require_shared_* made mandatory answers its ping(); 503 otherwise, naming each check. A
+store is asked on a thread of its own within 2 seconds, never twice at once, so one that
+stops answering turns readiness 503 instead of holding the probe. Workers, schedulers and
+the outbox backlog are never part of it. Bound the Redis client's own commands too, or a
+Redis that stops answering holds every request the rate limiter counts:
+REDIS_URL=redis://host:6379/0?socket_timeout=2&socket_connect_timeout=2.
+
+CUTTING A RELEASE AND PROMOTING IT (ADR 0187)
+
+`terp release` is three jobs, each on a fresh host, so that no job that runs the app outside a
+build container holds a credential or writes into what is built. Each takes the exact commit
+(its full object name) and reads it from git's object store, never from a working copy:
+
+  uv run terp release build --sha <sha> --tag <tag> --registry registry.example/team
+    builds every image the profile builds from the commit's pristine tree, in a BuildKit
+    builder made for the job and removed after it, with --pull and no cache, and pushes
+    <registry>/<image>:<tag> with the credential your docker configuration holds for this
+    release. It writes terp-release-build.json: BuildKit's own digests.
+  uv run terp release gate --sha <sha> --build terp-release-build.json
+    runs in a clean checkout of the commit: `terp verify --profile release --format
+    assurance` with npm's scripts off, then the schedule catalog, read by running the pushed
+    image sealed (no network, read-only, its own non-root user). It holds no push credential
+    and no key. It writes terp-release-gate.json.
+  terp release sign --sha <sha> --tag <tag> --registry ... --build ... --gate ... \\
+      --hosts separated --signer '["your-kms-signer", "--key", "release"]' --public-key k.pub
+    runs from the signer image, never the commit's own toolchain, and runs nothing of the
+    app: it repeats the refusals, renders a generated app's files with the terp-arch the
+    commit pins (fetched by hash, run in a process of its own), reads the backend image from
+    the registry as data and holds it to the tree and the lock, scans for known
+    vulnerabilities and for secrets in the history, and signs the manifest as a DSSE envelope
+    (release.dsse.json). --sign-key <file> is refused without --test-key. Run the image with
+    the checkout mounted read-only (/repo) and the engine's socket and its group
+    (-v /var/run/docker.sock:/var/run/docker.sock --group-add <the socket's group>): the
+    bytecode check starts the base image's interpreter, and the image runs as its own user.
+
+Refused, by name, before anything is built or signed: an undeclared or unmanaged app, a
+declaration that cannot be read or is untrue, a committed .terp-dist/ or submodule, a lock
+naming a path, an image neither built here nor a datastore table digest, a datastore with no
+healthcheck, more than one migration step or one with --revision/--sql, no step and other than
+one api unit, a built image that does not read TERP_RELEASE_TAG, and a build with more than a
+context and a Dockerfile.
+
+  terp promote release.dsse.json --public-key k.pub --project-dir /srv/deploy/app
+    verifies the envelope before reading it, checks the manifest (a newer Terp Standard than
+    its own is refused; --require-generated refuses an own release; a generated profile is
+    audited for every $), pulls each image by its signed digest and tags it
+    <project>-backend-prod:<tag>, writes the carried profile, and runs compose with an
+    allowlisted environment and TERP_RELEASE_TAG set: the datastores, a reading of every
+    alembic_version_* table, the migration step exactly once, then the rest, every `up` with
+    --no-build --pull never. If the deploy fails and the version tables are as they were,
+    going back is restore-free: --undo-to <the running release's envelope> starts it again
+    after its own `terp migrate check`. Otherwise going back is a restore. A rollback in an
+    invocation of its own has no such reading, so it is refused unless --rollback --restored
+    says the database was restored to the backup taken before the release that followed it.
+    Over a release that applied no revision, going back is promoting the previous envelope
+    again: its step finds every history at its own heads and applies nothing.
+`terp release` and `terp promote` need terp-cli[release] (cryptography, packaging, the egress
+capability); without it they refuse, and nothing is signed or verified halfway.
+""",
+}
 
 # Topics whose body is generated from a live registry (not a static recipe above).
 _GENERATED_TOPICS: tuple[str, ...] = ("changelog", "rules")
@@ -2389,9 +3057,10 @@ Compliant decision path for a new NOT NULL column
         op.add_column('note', sa.Column('rank', sa.Integer(), nullable=False,
                                         server_default='0'))
 3. When no literal is right - the value has to be computed, or looked up - use
-    expand/contract across two releases: add the column NULLABLE, back-fill it (a data
-    migration or a backfill job), and tighten it to NOT NULL in a LATER revision, once
-    nothing writes a NULL.
+    expand/contract across two releases: add the column NULLABLE, back-fill it (a
+    backfill job: an expand-only revision writes no existing row), and tighten it to NOT
+    NULL in a LATER release, once nothing writes a NULL. That tightening is a contract step
+    `no_destructive_migrations` reports, and it takes that rule's marker after review.
 4. Do not make the column nullable in the model merely to silence this. The model is
     the contract; if the field is genuinely optional, say so there and the finding goes
     away on its own.
@@ -2399,6 +3068,35 @@ Compliant decision path for a new NOT NULL column
     this release introduces, or one seeded from empty - with
     `# arch-allow-not-null-columns-are-backfilled: <reason>` naming which. A table
     created in the same upgrade() needs no marker; it is already exempt.
+""",
+     "no_destructive_migrations": """\
+Compliant decision path for a step that is safe only against an empty database
+
+1. Do not delete the revision's intent, and do not move the statement somewhere the
+    rule cannot read it (a variable, a helper in another module, a name computed at run
+    time). A helper in the same revision is read as part of upgrade(). The finding is about
+    rows production holds and the release still running while you migrate; neither is
+    in your scratch database, which is why every local test passed.
+2. Split the change across releases - expand, backfill, contract:
+    - rename: add the new column or table beside the old one, write both, backfill the
+      new one, move the readers; drop the old name in a LATER release.
+    - type change: add a column of the new type, backfill it, move the readers; drop
+      the old column in a LATER release.
+    - NOT NULL: backfill every NULL and make every writer set a value now; tighten it in
+      a LATER release, once nothing writes a NULL.
+    - constraint: clean or backfill the rows now; add the constraint in a LATER release.
+    - drop: stop reading and writing it in one release; drop it in a LATER one.
+    Every backfill is a job, not a statement in the revision: a data write holds a lock
+    while the previous release still serves, and the expand release already copes with
+    the rows it has not filled.
+3. The contract step is genuinely destructive, so it is the one that carries
+    `# arch-allow-no-destructive-migrations: <reason>`, on or immediately above the
+    operation, after a human review, naming the release that expanded it. Each marker
+    spends the app's escape-hatch budget.
+4. A step on a table this same upgrade() creates is already exempt, and so is a unique,
+    foreign-key or unique-index constraint on columns this upgrade() adds nullable with
+    no server_default. A type WIDENING is reported because the revision cannot say it
+    is one: justify it with the marker rather than splitting it.
 """,
      "no_raw_outbound_http": """\
 Compliant decision path for outbound HTTP
@@ -3073,7 +3771,12 @@ def _render_json(plane: ControlPlane, specs: Sequence[ModuleSpec]) -> str:
             "request_id_header": plane.security.request_id_header,
         },
         "schedules": [
-            {"name": schedule.name, "cron": schedule.cron, "job": schedule.job.name}
+            {
+                "name": schedule.name,
+                "cron": schedule.cron,
+                "job": schedule.job.name,
+                "misfire": schedule.misfire.value,
+            }
             for schedule in sorted(
                 plane.schedules.schedules, key=lambda item: item.name
             )
@@ -3180,7 +3883,10 @@ def _render_text(plane: ControlPlane, specs: Sequence[ModuleSpec]) -> str:
     if not plane.schedules.schedules:
         lines.append("  <none declared>")
     for schedule in sorted(plane.schedules.schedules, key=lambda item: item.name):
-        lines.append(f"  {schedule.name}  {schedule.cron}  -> {schedule.job.name}")
+        lines.append(
+            f"  {schedule.name}  {schedule.cron}  -> {schedule.job.name}  "
+            f"misfire={schedule.misfire.value}"
+        )
     return "\n".join(lines)
 
 
@@ -3495,6 +4201,18 @@ def _build_parser() -> argparse.ArgumentParser:
         default=30.0,
         help="Lease duration before a stalled row may be reclaimed (default: 30)",
     )
+    jobs_worker_parser.add_argument(
+        "--forever",
+        action="store_true",
+        help="Keep draining until stopped: drain, wait --poll-seconds, drain again; SIGTERM or "
+        "SIGINT ends it after the batch in flight (the worker container's command)",
+    )
+    jobs_worker_parser.add_argument(
+        "--poll-seconds",
+        type=float,
+        default=5.0,
+        help="With --forever, the pause between two drains (default: 5)",
+    )
 
     jobs_scheduler_parser = jobs_subcommands.add_parser(
         "scheduler",
@@ -3570,6 +4288,98 @@ def _build_parser() -> argparse.ArgumentParser:
         "--reassign",
         action="store_true",
         help="Pick a new pair even if one is already claimed or published",
+    )
+
+    workbench_parser = subcommands.add_parser(
+        "workbench",
+        help="The app's development-loop declaration, workbench.json",
+    )
+    workbench_subcommands = workbench_parser.add_subparsers(
+        dest="workbench_command", required=True
+    )
+    workbench_adopt_parser = workbench_subcommands.add_parser(
+        "adopt",
+        help=(
+            "Bring workbench.json to a schema version: shows the diff, and writes it "
+            "only with --write"
+        ),
+    )
+    workbench_adopt_parser.add_argument(
+        "--root", default=".", help="Project root (default: .)"
+    )
+    workbench_adopt_parser.add_argument(
+        "--schema",
+        type=int,
+        default=None,
+        help="The schema version to adopt (default: the newest this toolchain defines)",
+    )
+    workbench_adopt_mode = workbench_adopt_parser.add_mutually_exclusive_group()
+    workbench_adopt_mode.add_argument(
+        "--write", action="store_true", help="Write workbench.json as the diff shows"
+    )
+    workbench_adopt_mode.add_argument(
+        "--check",
+        action="store_true",
+        help="Write nothing, and exit 1 if adoption has something to write (for CI)",
+    )
+
+    from terp.cli.release.cli import add_parsers as add_release_parsers
+
+    add_release_parsers(subcommands)
+
+    deployment_parser = subcommands.add_parser(
+        "deployment",
+        help="The app's deployment declaration, deployment.json, and what it renders",
+    )
+    deployment_subcommands = deployment_parser.add_subparsers(
+        dest="deployment_command", required=True
+    )
+    deployment_render_parser = deployment_subcommands.add_parser(
+        "render",
+        help=(
+            'Write the build files deployment.json renders, where it says "build": '
+            '"generated" (ADR 0187); --check compares instead of writing'
+        ),
+    )
+    deployment_render_parser.add_argument(
+        "--root", default=".", help="Project root (default: .)"
+    )
+    deployment_render_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Write nothing; exit 1 when a committed file is not the render (for CI)",
+    )
+    deployment_adopt_parser = deployment_subcommands.add_parser(
+        "adopt",
+        help=(
+            "Move the app between deployment.json's states, writing its build and the "
+            "template answer together, and show the diff (ADR 0187)"
+        ),
+    )
+    deployment_adopt_state = deployment_adopt_parser.add_mutually_exclusive_group(
+        required=True
+    )
+    deployment_adopt_state.add_argument(
+        "--build",
+        choices=("own", "generated"),
+        help=(
+            "generated: the framework renders the build files from deployment.json; own: "
+            "they are the app's (on an undeclared app, deployment.json is written from the "
+            "production profile)"
+        ),
+    )
+    deployment_adopt_state.add_argument(
+        "--unmanaged",
+        metavar="REASON",
+        help="Declare that no tool can drive this deploy, and why",
+    )
+    deployment_adopt_parser.add_argument(
+        "--root", default=".", help="Project root (default: .)"
+    )
+    deployment_adopt_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the diff and write nothing",
     )
 
     outbox_parser = subcommands.add_parser(
@@ -3687,6 +4497,43 @@ def _build_parser() -> argparse.ArgumentParser:
             "Also delete free lease records idle this long (set it well above your longest "
             "lease TTL; a row-shaped resource leaves one record per row ever processed)"
         ),
+    )
+
+    secrets_parser = subcommands.add_parser(
+        "secrets",
+        help="Key rotation for values sealed at rest: re-seal under SECRET_KEY (ADR 0189)",
+    )
+    secrets_subcommands = secrets_parser.add_subparsers(
+        dest="secrets_command", required=True
+    )
+    reseal_parser = secrets_subcommands.add_parser(
+        "reseal",
+        help=(
+            "Re-seal every value still under a SECRET_KEY_DECRYPT_FALLBACKS key under "
+            "SECRET_KEY, and report what remains (exit 0 only when nothing does)"
+        ),
+    )
+    reseal_parser.add_argument(
+        "--app",
+        default="app.main:app",
+        help="Dotted module:attribute of the FastAPI app or factory (default: app.main:app)",
+    )
+    reseal_parser.add_argument(
+        "--app-root", default=".", help="App root placed first on sys.path (default: .)"
+    )
+    reseal_parser.add_argument(
+        "--package", default="app", help="App import package (default: app)"
+    )
+    reseal_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Only count: say what still needs a fallback key, and write nothing",
+    )
+    reseal_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format: text for a person, json for a deploy tool (default: text)",
     )
 
     new_parser = subcommands.add_parser("new", help="Scaffold a canonical module")
@@ -4215,6 +5062,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 max_cycles=args.max_cycles,
                 batch_size=args.batch_size,
                 lease_seconds=args.lease_seconds,
+                forever=args.forever,
+                poll_seconds=args.poll_seconds,
             )
         )
         return
@@ -4236,6 +5085,33 @@ def main(argv: Sequence[str] | None = None) -> None:
                 action=args.ports_command,
                 root=args.root,
                 reassign=getattr(args, "reassign", False),
+            )
+        )
+    if args.command in ("release", "promote"):
+        from terp.cli.release.cli import run_release
+
+        raise SystemExit(run_release(args))
+    if args.command == "deployment" and args.deployment_command == "adopt":
+        from terp.cli.deployment_adopt import run_adopt_command
+
+        raise SystemExit(
+            run_adopt_command(
+                root=args.root,
+                build=args.build,
+                unmanaged=args.unmanaged,
+                dry_run=args.dry_run,
+            )
+        )
+    if args.command == "deployment":
+        from terp.cli.deployment_render import run_render_command
+
+        raise SystemExit(run_render_command(root=args.root, check=args.check))
+    if args.command == "workbench":
+        from terp.cli.workbench_adopt import run_workbench_adopt
+
+        raise SystemExit(
+            run_workbench_adopt(
+                root=args.root, schema=args.schema, write=args.write, check=args.check
             )
         )
     if args.command == "outbox" and args.outbox_command == "backlog":
@@ -4278,6 +5154,18 @@ def main(argv: Sequence[str] | None = None) -> None:
                 purge_idle_seconds=args.purge_idle_seconds,
             )
         )
+        return
+    if args.command == "secrets" and args.secrets_command == "reseal":
+        status, report = reseal_command(
+            app_ref=args.app,
+            app_root=args.app_root,
+            package=args.package,
+            check=args.check,
+            fmt=args.format,
+        )
+        emit(report)
+        if status:
+            raise SystemExit(status)
         return
     if args.command == "new" and args.new_command == "module":
         paths = new_module(
@@ -4504,6 +5392,7 @@ __all__ = [
     "new_module",
     "profile_ids",
     "render_jobs",
+    "reseal_command",
     "run_dev_command",
     "run_docker_dev_command",
     "run_fmt_command",
