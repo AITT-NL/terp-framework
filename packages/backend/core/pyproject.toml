@@ -4,14 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-core"
-version = "0.34.0"
+version = "0.35.0"
 description = "Terp platform kernel — base classes, ModuleSpec, errors, pagination, DB session seam, secure-by-default config."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
     "fastapi>=0.115",
     "sqlmodel>=0.0.22",
-    "pydantic-settings>=2.4",
+    # 2.7 is the first with `NoDecode`, which the comma-separated key lists rely on.
+    "pydantic-settings>=2.7",
 ]
 
 # Config sealing (design §5.4, terp.core.secrets) loads its cipher lazily from the

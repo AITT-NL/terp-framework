@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "build": "generated",
+  "compose": {
+    "file": "docker-compose.prod.yml"
+  },
+  "units": [
+    {
+      "id": "worker",
+      "role": "worker"
+    }
+  ]
+}

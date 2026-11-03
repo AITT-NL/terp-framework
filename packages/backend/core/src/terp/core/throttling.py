@@ -19,10 +19,10 @@ per-instance behaviour are deliberately **unchanged**; a shared store is opt-in.
 from __future__ import annotations
 
 import math
-import threading
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from threading import Lock
 
 
 class ThrottleStore(ABC):
@@ -58,6 +58,15 @@ class ThrottleStore(ABC):
     def clear(self, key: str) -> None:
         """Drop the counter and any lock for *key* (e.g. on a success)."""
 
+    def ping(self) -> None:
+        """Raise when the backend cannot be reached; readiness asks (ADR 0191).
+
+        A shared store this deployment requires (``require_shared_throttle_store=True``)
+        is part of readiness, so it must say how to reach it: a shared adapter overrides
+        this, and ``create_app`` refuses one that does not. The per-process default lives
+        in the process that asks, so there is nothing for it to reach.
+        """
+
 
 class InMemoryThrottleStore(ThrottleStore):
     """The default, per-process store — a dict guarded by a lock.
@@ -69,7 +78,7 @@ class InMemoryThrottleStore(ThrottleStore):
 
     def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
-        self._lock = threading.Lock()
+        self._lock = Lock()
         self._hits: dict[str, tuple[float, int]] = {}
         self._locks: dict[str, float] = {}
 

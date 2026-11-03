@@ -69,7 +69,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # A release restores no cache. ci.yml and frontend.yml run on a
           # pull request and write these same scopes, so a restored cache is an
@@ -109,11 +109,14 @@ jobs:
         run: uv run python tools/check_pypi_projects.py
 
       - name: Run the gate
-        # See ci.yml: coverage starts before pytest loads its entry-point plugins.
+        # See ci.yml: coverage starts before pytest loads its entry-point plugins, and a
+        # missing Docker engine fails the gate rather than skipping the test that needs one.
+        env:
+          TERP_REQUIRE_DOCKER_ENGINE: "1"
         run: |
           uv run coverage run -m pytest
           uv run coverage report
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         # zizmor: ignore[cache-poisoning] this SHA is v4.4.0, which caches only
         # when a `cache:` input asks for it — removed just above.
         with:
@@ -160,7 +163,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # Explicit, because the action's own default caches on a hosted
           # runner — and this job builds the distributions that are uploaded to
@@ -229,7 +232,7 @@ jobs:
         # 0.21.0 died in exactly that gap (hatchling wrote Metadata-Version 2.5,
         # the pinned twine called it invalid) — with 12 distributions riding on
         # one upload, this workflow had the same failure waiting for it.
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           packages-dir: dist
           skip-existing: true
@@ -255,7 +258,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         # zizmor: ignore[cache-poisoning] this SHA is v4.4.0, which caches only
         # when a `cache:` input asks for it — and this step does not.
         with:

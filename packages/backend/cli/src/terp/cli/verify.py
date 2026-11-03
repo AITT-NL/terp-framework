@@ -189,7 +189,8 @@ class VerifyCheck:
     #: subprocess — same verdict surface, no interpreter round-trip.
     # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift"
     # | "platform-install" | "env-seams" | "api-client" | "package-boundaries"
-    # | "dependency-hygiene" | "workbench" | "deploy-safety"
+    # | "dependency-hygiene" | "workbench" | "deployment" | "locks" | "generated"
+    # | "deploy-safety"
     # | "production-readiness" | "conformance"
     runner: str = "subprocess"
 
@@ -319,6 +320,87 @@ _WORKBENCH = VerifyCheck(
     # errs toward triggering. Do not "tidy" this to `docker-compose.yml`.
     scope=("workbench.json", "docker-compose*.yml"),
     runner="workbench",
+)
+
+# The deploy declaration (ADR 0184), checked for truth and never as a gate: the rule
+# `workbench` applies to the development loop, pointed at the deployment profile. An app
+# without `deployment.json` passes as a no-op, and `unmanaged` turns it off. Red only when
+# the file cannot be read, or when it states something the profile or the app contradicts
+# (a unit that is not a service, a restated command that differs, an image off the
+# datastore table, a migration label nobody owns, a health path the API does not serve).
+# The two file rules are terp.arch rules as well; this check adds the app part.
+#
+# The scope is every input a rule reads, and like `workbench`'s it errs toward triggering:
+# the profile and its overrides may sit anywhere and bear any name, the manifest routes the
+# variables a unit claims, `workbench.json` names the development file this refuses, the
+# lock decides the installed migration labels and the source decides the routes served.
+_DEPLOYMENT = VerifyCheck(
+    id="deployment",
+    category="architecture",
+    command="terp verify --only deployment",
+    scope=(
+        "deployment.json",
+        "environment.schema.json",
+        "workbench.json",
+        "pyproject.toml",
+        "uv.lock",
+        "**/*.py",
+        "**/*.yml",
+        "**/*.yaml",
+    ),
+    runner="deployment",
+)
+
+# Can the production images be built from what is committed? They install exactly the
+# committed locks (`uv sync --locked --no-dev`, `npm ci`; ADR 0062 as amended), so a
+# dependency added to a manifest without re-locking is an image that cannot be built --
+# found on deploy day by whoever runs the build. Red only for a managed app, one whose
+# deployment.json declares units a deploy tool builds (ADR 0184); any other app is told the
+# same as a note. Its own check rather than part of `deployment`, whose red list ADR 0184
+# closes on truth: a stale lock contradicts nothing the declaration says. Each package
+# manager answers for its own lock (`uv lock --check`, `npm ci --dry-run`), offline.
+_LOCKS = VerifyCheck(
+    id="locks",
+    category="build",
+    command="terp verify --only locks",
+    scope=(
+        "deployment.json",
+        "pyproject.toml",
+        "uv.lock",
+        "uv.toml",
+        "frontend/package.json",
+        "frontend/package-lock.json",
+        ".terp-dist/**",
+    ),
+    runner="locks",
+)
+
+# Are the build files of a generated app the generator's render (ADR 0187)? Where
+# deployment.json says "build": "generated", Dockerfile.prod, frontend/Dockerfile.prod and
+# docker-compose.prod.yml are the framework's, rendered by `terp deployment render`, and a
+# committed copy that is not the render is a build nobody declared. Red also when an
+# environment file a unit loads is not ignored by git and the build context, and when the
+# template's recorded build disagrees. Silent for every other state. Its own check rather than
+# part of `deployment`, for the reason `locks` is: a stale render contradicts nothing the
+# declaration says. Category `build`, like `routes-drift`, the other generate-commit-gate
+# artifact. The scope is every input of the render and of the ignore and answers questions;
+# `pyproject.toml` also pins the terp-arch whose generator renders.
+_GENERATED = VerifyCheck(
+    id="generated",
+    category="build",
+    command="terp verify --only generated",
+    scope=(
+        "Dockerfile.prod",
+        "frontend/Dockerfile.prod",
+        "docker-compose.prod.yml",
+        "deployment.json",
+        "pyproject.toml",
+        "frontend/package-lock.json",
+        ".gitignore",
+        ".dockerignore",
+        ".copier-answers.yml",
+    ),
+    runner="generated",
 )
 
 # The deployment safety envelope. Separate from `workbench` because the two
@@ -575,6 +657,9 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _PLATFORM_INSTALL,
         _ENV_SEAMS,
         _WORKBENCH,
+        _DEPLOYMENT,
+        _LOCKS,
+        _GENERATED,
         _DEPLOY_SAFETY,
         _PRODUCTION_READINESS,
         _ARCHITECTURE,
@@ -588,6 +673,9 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _PLATFORM_INSTALL,
         _ENV_SEAMS,
         _WORKBENCH,
+        _DEPLOYMENT,
+        _LOCKS,
+        _GENERATED,
         _DEPLOY_SAFETY,
         _PRODUCTION_READINESS,
         _ARCHITECTURE,
@@ -609,6 +697,9 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _PLATFORM_INSTALL,
         _ENV_SEAMS,
         _WORKBENCH,
+        _DEPLOYMENT,
+        _LOCKS,
+        _GENERATED,
         _DEPLOY_SAFETY,
         _PRODUCTION_READINESS,
         _ARCHITECTURE,
@@ -2185,6 +2276,18 @@ def run_verify_command(
             from terp.cli.workbench import run_workbench_check
 
             exit_code, output = run_workbench_check(project_root)
+        elif check.runner == "deployment":
+            from terp.cli.deployment_check import run_deployment_check
+
+            exit_code, output = run_deployment_check(project_root)
+        elif check.runner == "locks":
+            from terp.cli.locks import run_locks_check
+
+            exit_code, output = run_locks_check(project_root)
+        elif check.runner == "generated":
+            from terp.cli.deployment_render import run_generated_check
+
+            exit_code, output = run_generated_check(project_root)
         elif check.runner == "deploy-safety":
             from terp.cli.deploy_safety import run_deploy_safety_check
 

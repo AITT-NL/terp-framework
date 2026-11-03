@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://terp.dev/spec/workbench-declaration.schema.json",
+  "title": "Terp Standard - the app's development-loop declaration",
+  "description": "The normative, stack-neutral vocabulary of the document an app checks in at its project root as workbench.json, to say which parts of its development loop are load-bearing for a tool that drives it: which compose file describes the loop, which service plays which role, through which variable each host port arrives, where the API answers whether it is ready, through which variables the source root and the framing grant reach the containers, and, for an app whose loop is not the compose shape a tool assumes, the commands that start, stop, observe and repair it. It describes the development loop only and never a deployment profile, and nothing in it is read by the running app: its readers are a checker in the app's own gate and the development tools that drive the loop, which read it as data and never import the app. A file sits in exactly one of three states. Absent: nothing is declared, which passes, and a tool assumes the conventions of the template the app came from. Declared: a schemaVersion and a services list. Opted out: {\"unmanaged\": true, \"reason\": \"...\"}, a tool does not interpret the app's loop and shows the reason. The description is partial, never a whitelist: a service it does not name is not its business, a role nobody has heard of is information, and a key the vocabulary does not have is never refused - an app's own note, a key another tool invented. What is refused is a value a reader would act on wrongly: a field a reader resolves by role, under a role no reader looks up (named in $defs.roleResolvedFields); a variable name a reader would set that the container toolchain or the process environment reads for itself (named in $defs.reservedEnvironmentPrefixes and $defs.reservedEnvironmentNames), because a reader puts the declared name into the environment of the commands it runs; a compose file whose name marks it as a deployment profile (named in $defs.deploymentProfileMarkers); and a commands block that names any command but no start. Those four cannot be stated in this schema's keyword subset and are each reader's own refusal, from the lists named here. A reader that meets a schemaVersion it does not know refuses the file rather than reading a later vocabulary with an earlier one, and never falls back to the conventions it would assume for an absent file: an unreadable declaration is not an absent one. Every pattern ends in (?![\\s\\S]) rather than $, because in some regular-expression engines $ also matches before a final newline, which would let a newline through the very patterns that exist to refuse control characters.",
+  "type": "object",
+  "if": {
+    "properties": {
+      "unmanaged": {
+        "const": true
+      }
+    },
+    "required": ["unmanaged"]
+  },
+  "then": {
+    "description": "The opted-out state: a tool does not interpret this app's development loop, falls back to what its operator configured, and says plainly that it cannot determine the app's status, with the reason given here. Other keys beside these are not read.",
+    "type": "object",
+    "required": ["unmanaged", "reason"],
+    "properties": {
+      "unmanaged": {
+        "type": "boolean",
+        "const": true,
+        "description": "True: this app's development loop does not fit the shape this vocabulary describes."
+      },
+      "reason": {
+        "type": "string",
+        "maxLength": 500,
+        "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*[^\\s\\u0000-\\u001F\\u007F-\\u009F][^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+        "description": "Why this app's development loop does not fit, in a sentence a person reviews and a tool shows. Required and never blank: an escape without a reason is a hole, not an escape."
+      },
+      "schemaVersion": {
+        "type": "integer",
+        "const": 1,
+        "description": "Optional here. When present it is held to the same rule as in the declared state: a version the reader does not know is refused."
+      }
+    }
+  },
+  "else": {
+    "description": "The declared state: the load-bearing parts of the app's development loop.",
+    "type": "object",
+    "required": ["schemaVersion", "services"],
+    "properties": {
+      "schemaVersion": {
+        "type": "integer",
+        "const": 1,
+        "description": "The version of this vocabulary the file is written in. A reader refuses a version it does not know rather than reading a later file with an earlier vocabulary."
+      },
+      "unmanaged": {
+        "type": "boolean",
+        "const": false,
+        "default": false,
+        "description": "False, or absent: the app is declared. Leave the key out rather than writing false."
+      },
+      "compose": {
+        "type": "object",
+        "description": "The compose file that describes the development loop. A file named here is a claim that it exists; one not named is the reader's own default, which is not.",
+        "properties": {
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "default": "docker-compose.yml",
+            "pattern": "^[A-Za-z0-9._-][A-Za-z0-9._/-]*(?![\\s\\S])",
+            "description": "The development compose file, relative to the project root with forward slashes. Never a deployment profile: a name carrying one of $defs.deploymentProfileMarkers is refused, because how an app deploys is not what this file describes."
+          }
+        }
+      },
+      "services": {
+        "type": "array",
+        "maxItems": 64,
+        "description": "The services of the compose file this declaration says something about: a partial description, never a whitelist. Several entries may share a role; a reader that needs one answer for a role takes, field by field, the first entry of that role that carries the field.",
+        "items": {
+          "type": "object",
+          "required": ["service"],
+          "description": "One service of the development compose file, and what a tool may look it up as. Keys other than these carry nothing a reader acts on and are never refused.",
+          "properties": {
+            "service": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*(?![\\s\\S])",
+              "description": "The compose service this entry describes, which the compose file must define."
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32,
+              "pattern": "^[a-z][a-z0-9-]*(?![\\s\\S])",
+              "description": "What a tool may look the service up as. An open vocabulary, not an approved list: the words a reader resolves are listed in $defs.knownRoles, and a role outside it is information, never refused by itself - unless the entry also carries a field listed in $defs.roleResolvedFields, which only a reader of a known role ever reads."
+            },
+            "hostPortEnv": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Z][A-Z0-9_]{0,63}(?![\\s\\S])",
+              "description": "The variable the service's published host port arrives through, which the compose file must read where it publishes the port. A tool that assigns host ports sets it, so two projects can run at once. Resolved by role, and never a name in $defs.reservedEnvironmentPrefixes or $defs.reservedEnvironmentNames."
+            },
+            "readinessPath": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*(?![\\s\\S])",
+              "description": "The path where the service answers whether it is ready. A path, never an address: where it is reached is the role's to say, so it is resolved by role."
+            }
+          }
+        }
+      },
+      "env": {
+        "type": "object",
+        "additionalProperties": false,
+        "default": {},
+        "description": "The variables through which a development tool's own values reach the containers, each of which the compose file must read somewhere. The seams a reader sets a value for are this object's properties; a label outside them is information a reader does not act on, and its variable is still checked as read. No variable named here may be one in $defs.reservedEnvironmentPrefixes or $defs.reservedEnvironmentNames, because a reader sets it in the environment of the commands it runs.",
+        "properties": {
+          "frameAncestors": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}(?![\\s\\S])",
+            "description": "The variable through which the origin allowed to frame the development server arrives. A tool that embeds the app's preview sets it to its own origin."
+          },
+          "sourceRoot": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}(?![\\s\\S])",
+            "description": "The variable through which the checkout's path, as the container engine sees it, reaches the bind mounts that carry live source. A tool that runs the loop on another engine than the checkout's own sets it."
+          }
+        },
+        "patternProperties": {
+          "^[A-Za-z][A-Za-z0-9_-]{0,63}(?![\\s\\S])": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}(?![\\s\\S])",
+            "description": "A seam no reader sets a value for: the variable is still checked as read by the compose file."
+          }
+        }
+      },
+      "commands": {
+        "type": "object",
+        "default": {},
+        "description": "How a tool drives this app's development loop when it is not the compose shape the tool assumes - another orchestrator, a dev container, a make target, bare processes. Present, the block is authoritative: a slot it leaves out is an offer the app does not have, and a reader never fills it in from its own defaults, because an app that has said it is not the default shape must never have a destructive default run against it. Any command declared means a start is declared. Whether a command is the right one is never judged: a file read cannot know. A slot outside these properties is information a reader does not act on.",
+        "dependentRequired": {
+          "containerLogs": ["start"],
+          "destroy": ["start"],
+          "migrate": ["start"],
+          "rebuild": ["start"],
+          "recreate": ["start"],
+          "resetData": ["start"],
+          "status": ["start"],
+          "stop": ["start"]
+        },
+        "properties": {
+          "containerLogs": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*[^\\s\\u0000-\\u001F\\u007F-\\u009F][^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+            "description": "Print what the running services said, bounded and recent. Run on every look at a failing stack, so it must only read."
+          },
+          "destroy": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*[^\\s\\u0000-\\u001F\\u007F-\\u009F][^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+            "description": "Remove everything the loop created, its data included: run when the project itself is removed."
+          },
+          "migrate": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*[^\\s\\u0000-\\u001F\\u007F-\\u009F][^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+            "description": "Apply the app's pending schema migrations to the development database."
+          },
+          "rebuild": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*[^\\s\\u0000-\\u001F\\u007F-\\u009F][^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+            "description": "Rebuild the loop's images: the repair for an image that no longer matches its build files."
+          },
+          "recreate": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*[^\\s\\u0000-\\u001F\\u007F-\\u009F][^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+            "description": "Re-create the running services so they read their environment files again: the repair for a saved setting that has not arrived. A restart is not this: it re-executes a process without reading its environment again."
+          },
+          "resetData": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*[^\\s\\u0000-\\u001F\\u007F-\\u009F][^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+            "description": "Delete the loop's development data, its database included: the repair for data that no longer matches the code. Destructive, so a tool asks a person first."
+          },
+          "start": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*[^\\s\\u0000-\\u001F\\u007F-\\u009F][^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+            "description": "Start the development loop. The one slot that makes the block meaningful."
+          },
+          "status": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*[^\\s\\u0000-\\u001F\\u007F-\\u009F][^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+            "description": "Report the state of the loop's services. Run on every look, so it must only read; absent, a tool observes the start process alone."
+          },
+          "stop": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*[^\\s\\u0000-\\u001F\\u007F-\\u009F][^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+            "description": "Stop the development loop, keeping its data."
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "deploymentProfileMarkers": {
+      "description": "A compose file whose name contains one of these is a deployment profile, and this declaration never describes one: how an app deploys is described by its own declaration, and a check of the development loop aimed at a deployment profile would become a gate on how people deploy.",
+      "enum": [".prod."]
+    },
+    "knownRoles": {
+      "description": "The role words a reader resolves by name, shared with the deployment declaration where a word means the same thing there: 'one-shot' is a service that runs to completion. A role outside this list is information, never an error by itself.",
+      "enum": ["api", "database", "one-shot", "web", "worker"]
+    },
+    "reservedEnvironmentNames": {
+      "description": "Variable names a declaration may never name for a reader to set, beside the prefixes in reservedEnvironmentPrefixes: each steers how the commands a reader runs find their programs, their configuration, their certificates or their network. A reader puts every declared name into the environment of the commands it runs, so naming one of these would hand the declaration's author a say over those commands.",
+      "enum": ["ALL_PROXY", "GODEBUG", "HOME", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "PATH", "SSL_CERT_DIR", "SSL_CERT_FILE", "TMPDIR"]
+    },
+    "reservedEnvironmentPrefixes": {
+      "description": "Name prefixes a declared variable may never start with: the container toolchain's own namespaces, the dynamic loader's, and the per-user directory conventions the toolchain reads its configuration from. A reader also never lets a declared name replace a variable its own process environment already passes to the commands it runs.",
+      "enum": ["BUILDKIT_", "BUILDX_", "COMPOSE_", "DOCKER_", "DYLD_", "LD_", "XDG_"]
+    },
+    "roleResolvedFields": {
+      "description": "The service fields a reader resolves by role: it asks which entry has role 'web' and reads the variable that entry names. Under a role no reader looks up, such a field has no reader at all, and it agrees with the reader's own default only for as long as the two happen to be equal; declaring one there is refused.",
+      "enum": ["hostPortEnv", "readinessPath"]
+    }
+  }
+}

@@ -28,6 +28,10 @@ from dataclasses import dataclass
 
 from terp.core._internal.discovery import iter_domain_packages
 
+#: The names Alembic never loads from ``versions/``: a package marker and an editor's lock
+#: file (``(?!\.\#|__init__)(.*\.py)$``, its ``_only_source_rev_file``).
+_NOT_REVISIONS = ("__init__", ".#")
+
 _MIGRATION_ENTRY_POINT_GROUP = "terp.migrations"
 
 
@@ -91,9 +95,10 @@ class MigrationTree:
         A bare ``versions/`` directory with no revision is **not** runnable: a package
         whose ``make`` created the directory but authored no revision (or failed
         mid-author) must not be treated as migrated, or its empty history would report
-        as *current* while its tables were never created (ADR 0027). Alembic revision
-        files are hash-named (never underscore-prefixed), so ``__init__`` / ``__pycache__``
-        artefacts are ignored.
+        as *current* while its tables were never created (ADR 0027). A revision file is
+        any ``.py`` file Alembic loads: every name except ``__init__.py`` and an editor's
+        ``.#`` lock file (Alembic's ``_only_source_rev_file``). A name that begins with
+        ``_`` is loaded and run like any other, so it counts here too.
 
         **A revision the directory lists but that cannot be read is an error, not an
         absence.** ``Path.is_file()`` answers ``False`` for a file it cannot stat, and on
@@ -107,7 +112,7 @@ class MigrationTree:
         if not versions.is_dir():
             return False
         for entry in versions.glob("*.py"):
-            if entry.name.startswith("_"):
+            if entry.name.startswith(_NOT_REVISIONS):
                 continue
             try:
                 mode = entry.stat().st_mode

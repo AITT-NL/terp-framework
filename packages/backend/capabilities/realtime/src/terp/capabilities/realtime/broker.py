@@ -13,16 +13,22 @@ nobody. Such a deployment installs a shared broker through ``configure_broker``
 (``RedisRealtimeBroker`` from ``terp-cap-redis[realtime]``, or its own adapter
 marked with :func:`mark_shared_broker`) and can promise it with
 ``configure_realtime(require_shared_broker=True)``.
+
+A promised shared broker is one this deployment cannot serve without, so it is part of
+readiness (ADR 0191): ``GET /health/ready`` asks its :meth:`RealtimeBroker.ping` while the
+promise stands, and a shared broker must implement one to be accepted under it.
 """
 
 from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from threading import RLock
 from typing import TypeVar
+
+from terp.core import register_mandatory_store
 
 
 class SubscriptionEnded(RuntimeError):
@@ -80,6 +86,14 @@ class RealtimeBroker(ABC):
         which subscribes at its first read.
         """
         return self.stream(channel)
+
+    def ping(self) -> None:
+        """Raise when the backend cannot be reached; readiness asks (ADR 0191).
+
+        Asked only while ``require_shared_broker`` stands, so a shared adapter overrides
+        it and the promise refuses one that does not. A per-process broker lives in the
+        process that asks, so there is nothing for it to reach.
+        """
 
 
 @dataclass(eq=False)
@@ -181,6 +195,23 @@ class SharedBrokerRequiredError(RuntimeError):
     """A shared broker was promised, and the broker in force is per process."""
 
 
+def _refuse_unprobed(broker_type: type[RealtimeBroker]) -> None:
+    raise SharedBrokerRequiredError(
+        "configure_realtime(require_shared_broker=True) makes the realtime broker part of "
+        f"readiness (ADR 0191), and {broker_type.__name__} has no ping() of its own to ask "
+        "it with: override ping() so it raises when the backend cannot be reached "
+        "(RedisRealtimeBroker does)."
+    )
+
+
+def _refuse_unfit(broker: RealtimeBroker) -> None:
+    """Refuse *broker* under a shared-broker promise: per process, or unable to be asked."""
+    if not is_shared_broker(broker):
+        _refuse_unshared(type(broker))
+    if type(broker).ping is RealtimeBroker.ping:
+        _refuse_unprobed(type(broker))
+
+
 def _refuse_unshared(broker_type: type[RealtimeBroker]) -> None:
     raise SharedBrokerRequiredError(
         "configure_realtime(require_shared_broker=True) promises that a publish in any "
@@ -204,8 +235,8 @@ def configure_broker(broker: RealtimeBroker | None) -> None:
     """
     global _configured_broker
     with _configuration_lock:
-        if broker is not None and _shared_broker_required and not is_shared_broker(broker):
-            _refuse_unshared(type(broker))
+        if broker is not None and _shared_broker_required:
+            _refuse_unfit(broker)
         _configured_broker = broker
 
 
@@ -217,8 +248,8 @@ def require_shared_broker(required: bool) -> None:
     """
     global _shared_broker_required
     with _configuration_lock:
-        if required and _configured_broker is not None and not is_shared_broker(_configured_broker):
-            _refuse_unshared(type(_configured_broker))
+        if required and _configured_broker is not None:
+            _refuse_unfit(_configured_broker)
         _shared_broker_required = required
 
 
@@ -239,6 +270,26 @@ def get_broker() -> RealtimeBroker:
                 _refuse_unshared(InMemoryRealtimeBroker)
             _configured_broker = InMemoryRealtimeBroker()
         return _configured_broker
+
+
+def _readiness_probe() -> Callable[[], object] | None:
+    """The broker readiness asks while a shared one is promised, and ``None`` otherwise.
+
+    Registered with the kernel at import (``register_mandatory_store``), so the promise and
+    the check are one fact: readiness asks the broker exactly while
+    ``require_shared_broker`` stands. A promise with no broker installed yet is the
+    refusal :func:`get_broker` would raise, so readiness reports it.
+    """
+    with _configuration_lock:
+        if not _shared_broker_required:
+            return None
+        broker = _configured_broker
+    if broker is None:
+        return get_broker
+    return broker.ping
+
+
+register_mandatory_store("realtime_broker", _readiness_probe)
 
 
 __all__ = [

@@ -745,3 +745,12 @@ def test_a_commands_block_that_is_not_an_object_is_refused(tmp_path) -> None:
 
     assert code == 1
     assert "must be an object" in output
+
+
+def test_audit_still_names_an_entry_it_was_handed_without_a_service() -> None:
+    """``read`` refuses such an entry first; ``audit`` takes a Declaration from anyone."""
+    findings = audit(Declaration(services=({"role": "web"},)), {"services": {"web": {}}})
+
+    assert [finding.message for finding in findings] == [
+        f'{WORKBENCH_FILE} has an entry with no "service" name.'
+    ]

@@ -1,6 +1,6 @@
 # 0062 - Production deployment profile (Phase G completion)
 
-- **Status:** Accepted
+- **Status:** Accepted; amended 2026-10-21 (the template's images install the committed locks, in layers)
 - **Date:** 2026-07-03
 - **Context phase:** Phase G (deployment to containers) — the prod-profile half left
   open by [ADR 0053](0053-dev-workbench-and-seed-seam.md) (the dev-workbench slice)
@@ -72,3 +72,34 @@ two-layer enforcement.**
   published terp packages in client Dockerfiles) is ADR 0063's release pipeline.
 - TLS termination stays outside the profile (load balancer / reverse proxy), and the
   refresh cookie is `Secure` in production — deployments must front HTTPS.
+
+## Amendment (2026-10-21): the template's images install the committed locks, in layers
+
+Decision 1 said the runtime installs "only the wheels", and for the template that was true of
+what the image held and not of where its versions came from. The template's backend image
+installed the app wheel with `uv pip install`, which ignores `uv.lock` and resolves every terp-*
+and third-party package from the index during the build; the ASGI server and the database
+driver were named on that command line unpinned. Its frontend image ran `npm install`, which
+rewrites a lock that disagrees with `package.json`. Both copied the whole checkout before
+installing anything, so every edit re-ran every install. An image could therefore ship versions
+the gate had never run and the dependency audit had never read.
+
+1. **The locks are the install.** The backend image runs `uv sync --locked --no-dev` and the
+   frontend image `npm ci`, and both refuse a lock that disagrees with its manifest. `uv sync`
+   and not a hashed `uv export`: a lock that names pre-release wheels vendored under
+   `.terp-dist/wheels` records them by path and without a hash, which a `--require-hashes`
+   install refuses, and `--locked` is uv's own answer to whether the lock still matches the
+   manifest. The server and the driver are runtime dependencies of the app, so the lock pins
+   them. The template's CI installs the same way (`uv sync --locked`, `npm ci`).
+2. **Layers follow their inputs.** The manifest and the lock first, the dependencies installed
+   from them in their own layer, the app last; the runtime image is the base, the locked
+   environment and the app. The web image copies nothing from outside `frontend/` but the
+   vendored tarballs. Neither production Dockerfile carries a BuildKit cache mount, so a
+   release build cannot read a cache a development build wrote; the images do need BuildKit,
+   for bind mounts between stages and an optional COPY pattern.
+3. **The build context holds no secret.** `.dockerignore` carries every pattern `.gitignore`
+   keeps out of a commit, matching the same paths, held to it by
+   `tests/architecture/test_template_build_inputs.py`.
+
+`apps/example` keeps decision 1 as written: it builds from the monorepo with every terp
+distribution as a local wheel, and has no lock of its own to install.

@@ -1,3 +1,7 @@
+# What may not be committed may not be baked into an image either: every pattern here
+# but the generated files at the end is in .dockerignore too, matching the same paths,
+# and the framework's template tests hold the two files together.
+
 # Local environment overrides — never commit (a real .env may hold SECRET_KEY).
 # The tracked template is `.env.example`.
 .env
@@ -14,16 +18,31 @@
 # claims it.
 .app.*.env
 
+# Local data: a development database is often a copy of a real one, and SQLite keeps
+# part of it beside the file (-journal, -wal, -shm). var/ is where the files
+# capability stores uploads when the app runs outside Docker (var/files).
+*.db
+*.db-*
+*.sqlite3
+*.sqlite3-*
+/var/
+
 # Python
 __pycache__/
 *.py[cod]
 .venv/
-*.db
-*.sqlite3
 
 # Node / frontend build output
 node_modules/
 frontend/dist/
+
+# Test output: the conformance suite's traces and report, and coverage data.
+/conformance/test-results/
+/conformance/playwright-report/
+/frontend/coverage/
+/.coverage
+/.coverage.*
+/htmlcov/
 
 # Generated: the app's OpenAPI document and the typed client generated from it
 # (`uv run terp openapi` + `npm --prefix frontend run generate`). Regenerated, never hand-edited.

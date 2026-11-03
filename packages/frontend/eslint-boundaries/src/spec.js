@@ -20,7 +20,7 @@
  * NOT by this package's own suite, which certification runs against candidate spec releases
  * whose version is allowed to be newer).
  */
-export const SPEC_VERSION = "0.39.0";
+export const SPEC_VERSION = "0.40.0";
 
 /** Every script extension the bundler loads as app source (see `appFiles`). */
 const SOURCE_EXTENSIONS = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];

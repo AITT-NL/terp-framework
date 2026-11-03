@@ -3,8 +3,11 @@
 Provisions a first administrator (plus an editor) and a handful of representative rows
 *through the real audited services*, so seeding itself exercises the guarantees it
 demonstrates: every write lands an audit record, notes and tasks are actor-stamped, the
-journal is owner-stamped, and the projects are tenant-scoped. It is idempotent — re-running
-creates no duplicates — so a container may safely seed on every boot.
+journal is owner-stamped, and the projects are tenant-scoped. It is deterministic in both
+senses ``tests/architecture/test_seed_checksum.py`` holds it to, on SQLite and PostgreSQL: a
+second run on the same database writes nothing, so a container may safely seed on every boot,
+and two fresh databases it seeds hold the same business data — only the ids, timestamps and
+password salts a write generates differ (``terp.core.testing.seed_checksum`` states the rule).
 
 Dev / demo only: ``terp seed`` refuses to run when ``ENVIRONMENT=production`` (a real
 deployment bootstraps its first admin with ``terp user create`` instead), so the demo
