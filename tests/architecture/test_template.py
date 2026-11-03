@@ -1218,6 +1218,73 @@ def test_the_workspace_and_the_template_pin_one_typescript() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# the openapi-typescript override lasts exactly as long as its reason
+# --------------------------------------------------------------------------- #
+#: The TypeScript peer range openapi-typescript declared when the override went in.
+#: It does not admit 6, so without the override a generated app's ``npm install``
+#: fails with ERESOLVE before anything runs.
+_OPENAPI_TYPESCRIPT_PEER_WITHOUT_6 = "^5.x"
+
+
+def test_the_openapi_typescript_override_lasts_only_as_long_as_its_reason() -> None:
+    """The override is held to the peer range that made it necessary, in both directions.
+
+    Every generated app runs ``openapi-typescript`` as its ``generate`` script, and the
+    release the workspace locks declares ``typescript: ^5.x``. Its output does not
+    depend on the compiler being 5: on 6.0 it writes the same ``schema.d.ts`` byte for
+    byte. So both manifests tell npm to give it the project's own TypeScript, scoped to
+    that one package rather than ``legacy-peer-deps`` for the whole tree.
+
+    Without the override the two manifests fail differently, and only one of them
+    loudly. The generated app's install refuses outright. The workspace installs, but
+    it hoists a second TypeScript at the root for openapi-typescript, and
+    typescript-eslint resolves that one instead of the workspace's own: the boundary
+    linter then parses a different TypeScript from the one the build compiles, and
+    nothing says so. That is why the lockfile has to resolve exactly one.
+
+    The override is a debt with a known end. When the locked openapi-typescript
+    declares anything other than the recorded range, this fails and says what to delete,
+    so the override cannot outlive its reason unnoticed.
+    """
+    root = pathlib.Path(__file__).resolve().parents[2]
+    lock = json.loads((root / "package-lock.json").read_text(encoding="utf-8"))["packages"]
+    peer = lock["node_modules/openapi-typescript"]["peerDependencies"]["typescript"]
+    assert peer == _OPENAPI_TYPESCRIPT_PEER_WITHOUT_6, (
+        f"openapi-typescript now declares `typescript: {peer}`. If that admits the "
+        "workspace's TypeScript, the override has outlived its reason: delete the "
+        "`openapi-typescript` entry from `overrides` in package.json and in "
+        "template/project/frontend/package.json.jinja, and this test with it. If it does "
+        "not, record the new range in _OPENAPI_TYPESCRIPT_PEER_WITHOUT_6."
+    )
+
+    (typescript,) = set(_typescript_ranges().values())
+    workspace = json.loads((root / "package.json").read_text(encoding="utf-8"))
+    template = json.loads(
+        (_PROJECT / "frontend" / "package.json.jinja").read_text(encoding="utf-8")
+    )
+    # The workspace root declares no TypeScript of its own, so `$typescript` has nothing
+    # to resolve there; it names the range the workspaces share instead.
+    assert workspace["overrides"].get("openapi-typescript") == {"typescript": typescript}, (
+        "the workspace root must give openapi-typescript the workspaces' own TypeScript "
+        f"({typescript}), or npm hoists a second one that typescript-eslint picks up"
+    )
+    assert template["overrides"].get("openapi-typescript") == {"typescript": "$typescript"}, (
+        "a generated app must give openapi-typescript its own TypeScript, or its "
+        "`npm install` fails with ERESOLVE"
+    )
+
+    resolved = {
+        entry["version"]
+        for path, entry in lock.items()
+        if path == "node_modules/typescript" or path.endswith("/node_modules/typescript")
+    }
+    assert len(resolved) == 1, (
+        f"the workspace lockfile resolves more than one TypeScript ({sorted(resolved)}), "
+        "so the linter and the build are not reading the same compiler"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # a default that is right for production is not automatically right for the dev
 # stack the template also ships (ADR 0143)
 # --------------------------------------------------------------------------- #
@@ -1412,6 +1479,30 @@ def test_the_generated_app_ships_an_updater_for_those_pins() -> None:
     # conditionally: an adoption does not re-render this file until the next update.
     assert "package-ecosystem: docker" not in text
     assert "There is no `docker` entry, on purpose (ADR 0187)" in text
+
+
+def test_the_generated_app_s_updater_holds_back_the_typescript_major_the_framework_does() -> None:
+    """A TypeScript major the framework cannot take is one the generated app cannot take.
+
+    The app's frontend updates arrive as one grouped pull request, and a group is
+    all-or-nothing: a TypeScript major outside typescript-eslint's peer range fails the
+    whole install, so every routine update in the group fails with it, every week. This
+    repository ignores that major for exactly that reason; the app it generates runs the
+    same linter on the same TypeScript, so it carries the same ignore.
+    """
+    root = pathlib.Path(__file__).resolve().parents[2]
+    ignore = (
+        "      - dependency-name: typescript\n"
+        '        update-types: ["version-update:semver-major"]\n'
+    )
+    assert ignore in (root / ".github" / "dependabot.yml").read_text(encoding="utf-8"), (
+        "this test mirrors the framework's own TypeScript ignore; if that was lifted, "
+        "lift the template's with it and retire this test"
+    )
+    assert ignore in (_PROJECT / ".github" / "dependabot.yml").read_text(encoding="utf-8"), (
+        "a generated app's grouped frontend update would carry a TypeScript major its "
+        "boundary linter cannot install, and fail every week with everything in it"
+    )
 
 
 def test_the_generated_workflow_verifies_the_binary_it_downloads() -> None:
