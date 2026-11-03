@@ -633,6 +633,36 @@ test("a password field is named by its label alone, not by the toggle inside it"
   await expect(page.getByRole("button", { name: "Show password" })).toBeVisible();
 });
 
+test("a trigger that shows a value is named by its label and then that value", async ({
+  page,
+}) => {
+  // WCAG 2.5.3, Label in Name, in a real accname. `aria-label` replaces a button's content in
+  // its name, so a date picker named "Due date" while it showed "Jan 15, 2026", and the page-size
+  // trigger "Rows per page" while it showed "10": the value was never spoken, and a voice-control
+  // user saying what they could see named nothing. axe reports it from 4.14 on, as
+  // label-content-name-mismatch; this holds the composed name whichever axe the lane runs.
+  const cases = [
+    { specimen: "date-picker-states", label: "Date, invalid" },
+    { specimen: "date-range-picker", label: "Reporting period" },
+    { specimen: "dataview-loading", label: "Rows per page" },
+  ];
+  for (const { specimen, label } of cases) {
+    await page.goto(`/?theme=midday&only=${specimen}`);
+    // Found by the label alone, so a trigger named by the label alone fails the assertion below
+    // with both names in its message rather than timing out here.
+    const trigger = page.getByRole("button", { name: new RegExp(`^${label}\\b`) });
+    await trigger.waitFor({ state: "visible" });
+    // The text the trigger shows, without the glyph beside it, which is hidden from the tree.
+    const shown = await trigger.evaluate((element) => {
+      const copy = element.cloneNode(true) as HTMLElement;
+      copy.querySelectorAll('[aria-hidden="true"]').forEach((node) => node.remove());
+      return (copy.textContent ?? "").trim();
+    });
+    expect(shown, `${specimen}: the trigger shows a value`).not.toBe("");
+    await expect(trigger).toHaveAccessibleName(`${label} ${shown}`);
+  }
+});
+
 /**
  * The resolved height of one chrome row, beside the height the shell's own token declares.
  *
