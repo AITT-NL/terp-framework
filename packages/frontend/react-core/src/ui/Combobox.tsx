@@ -401,9 +401,8 @@ function ComboboxShell({
             onFocus?.(event);
             if (!disabled) {
               setOpen(true);
-              setActiveValue(
-                (multiple ? null : selectedValues[0] ?? null) ?? enabledOptions[0]?.value ?? null,
-              );
+              const firstSelected = multiple ? null : (selectedValues[0] ?? null);
+              setActiveValue(firstSelected ?? enabledOptions[0]?.value ?? null);
             }
           }}
           onBlur={onBlur}

@@ -15,7 +15,7 @@ decision, 0001 onwards.
 ### Changed
 
 - **A generated app's production images build on newer bases.** terp-arch's base-image table
-  moves uv from 0.13.4 to 0.13.6, `node:26-slim` from Node.js 26.12.0 to 26.13.0 and
+  moves uv from 0.13.4 to 0.13.7, `node:26-slim` from Node.js 26.12.0 to 26.13.0 and
   `python:3.14-slim` from Python 3.14.8 to 3.14.10, each by digest; the digest the nginx base's
   tag names has not moved. The template's two production Dockerfiles are written from the
   table again, and the signer image moves with the Python base. An app on
@@ -30,8 +30,37 @@ decision, 0001 onwards.
   and close the pull request. Its own digest is not to be copied: Dependabot cannot see the tag
   on a `FROM` line pinned by digest alone, and two of the last three it proposed were another
   tag's image.
+- **TypeScript 6.0, in the workspace and in the generated app.** Every frontend package, the
+  example app, the workbench and the template move from `^5.9.3` to `^6.0.3`, and so does
+  `@terpjs/contract`'s runtime dependency, which `terp-routes` reads module manifests through.
+  6.0 is the last release on the JavaScript compiler and sits inside typescript-eslint's peer
+  range, so the boundary linter runs unchanged. Its deprecations are exactly what TypeScript 7
+  removes, and no tsconfig here or in the template uses one. TypeScript 7 stays out:
+  typescript-eslint refuses to start on it, and the compiler API `terp-routes` reads moved
+  behind `typescript/unstable/*` in 7.0.
+- **The template gives openapi-typescript the app's own TypeScript.** The latest
+  openapi-typescript declares `typescript: ^5.x`, so on 6.0 a generated app's `npm install`
+  fails with ERESOLVE before anything runs. The template's `overrides` now carries
+  `"openapi-typescript": { "typescript": "$typescript" }`, scoped to that one package rather
+  than `legacy-peer-deps` for the whole tree; on 6.0 it writes the same `schema.d.ts` byte for
+  byte. The workspace root carries the same entry, because without it npm installs but hoists a
+  second TypeScript that typescript-eslint picks up, and the linter then reads a different
+  compiler from the build. A test holds the override to the peer range that made it necessary:
+  when a release declares another range, it fails and names what to delete. An existing app
+  receives the bump and the override together with its next template update.
+- **A generated app's Dependabot holds back the TypeScript major the framework does.** Its
+  frontend updates arrive as one grouped pull request, and a TypeScript major outside
+  typescript-eslint's peer range fails the whole install, so the group failed every week with
+  every routine update in it. The template's `.github/dependabot.yml` now ignores TypeScript
+  majors the way this repository's own does, and a test keeps the two together.
 
 ### Fixed
+
+- **`@terpjs/react-core` type-checks under TypeScript 6.** `Combobox` chose its first active
+  option with an expression TypeScript 6 rejects as always nullish (TS2871). react-core ships
+  its source and an app compiles it with its own compiler, so an app on 6 failed its typecheck
+  inside the package, not in its own code. The expression is split in two; behaviour is
+  unchanged.
 
 - **A date picker and the DataView page-size trigger name the value they show (WCAG 2.5.3).**
   Each trigger was named by its label alone, and `aria-label` replaces a button's content in
@@ -43,6 +72,15 @@ decision, 0001 onwards.
   `aria-describedby`, which `Field` passes and they used to drop: in a `Field` the trigger is
   named by the label text rather than by the whole label with its hint and error, and is
   described by the hint and the error.
+- **A `TerpProvider` unmounted while its boot check is out no longer acts on the answer.** The
+  boot carried on after the provider was gone: a late answer still set state, a restored token
+  still asked for `/me`, an SSO landing still finished, and a backend that never answered still
+  printed the "did not answer" warning for an app no longer on the screen. In a test suite that
+  is a failure, not noise: React reads `window.event` to schedule the update, so an answer that
+  lands after the test environment is torn down fails the run with "window is not defined",
+  attributed to whichever file last rendered the provider. A provider now sets nothing and asks
+  for nothing once it has unmounted, and a boot that a re-run effect replaced reports nothing
+  either, so under StrictMode that warning prints once rather than twice.
 
 ## 0.35.0 — 2026-11-02
 

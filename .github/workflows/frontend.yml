@@ -21,9 +21,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Three jobs in parallel and one that waits for them. Until they were split this was one job of
+# about fifteen minutes, eleven of them the workbench's browser lanes run back to back after
+# everything else, so the workflow took the sum of its parts; it now takes about as long as its
+# longest job. `checks`, the name this workflow has always reported, is green only when every
+# job is.
 jobs:
-  checks:
+  build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -104,47 +110,117 @@ jobs:
       - name: Build the example frontend
         run: npm run -w @terpjs-example/frontend build
 
-      # The component workbench is the migration's replacement gate (ADR 0094): base styles
-      # moved out of `style={}` and into the injected sheet, so the unit tests no longer
-      # assert paint and the rendered result is what has to be checked. It ran nowhere in CI.
-      #
-      # All four lanes run here, as four steps — never one command, because a single
-      # `playwright test` starts them in one worker pool and that contention is what makes a
-      # red color-contrast result meaningless. The accessibility lane runs in full — axe over
-      # every specimen in all five themes — and is what holds both contrast ratchets at empty.
-      # The keyboard lane asserts where focus goes after a keystroke, which is a behaviour
-      # rather than a picture, so there is nothing platform-specific to record. It also covers
-      # the one repair in this area that a unit test cannot gate, since the failure depends on
-      # the browser moving focus to <body> when the focused node is removed and jsdom does not.
-      # The computed lane reads values the other three cannot see at all: screenshots run with
-      # `animations: "disabled"`, so every duration and easing in the sheet is invisible to
-      # them, and a `var()` that fails to substitute inside a shorthand falls back to the
-      # property's initial value — which paints identically at rest and kills the transition.
-      #
-      # The screenshot lane is the one with a recorded baseline, and it runs in a container
-      # rather than on the runner directly. Baselines are split by platform because font
-      # rasterisation differs by more than any useful tolerance is worth; the `linux` set was
-      # recorded in `mcr.microsoft.com/playwright:v1.64.1-noble`, and this runner shares
-      # Ubuntu's kernel with that image but not its font packages. Comparing outside the image
-      # that recorded would reduce the lane to noise on its first run. `node_modules` comes
-      # from the `npm ci` above and is already linux-native, so the mount needs no second
-      # install.
-      #
-      # The image tag must track the Playwright version in package-lock.json, and that is
-      # gated rather than remembered: `records and compares against the same browser build`
-      # in specimens.spec.ts reads this file and the lockfile and refuses a mismatch. It runs
-      # inside the container below, so the tag it checks is the tag that just ran. Without it
-      # a mismatch presents as every baseline failing at once, and the instinct that provokes
-      # is to re-record — which would bury it.
       - name: Type-check the component workbench
         run: npm run -w terp-workbench typecheck
 
-      - name: Install Chromium for the workbench browser lanes
-        run: npx playwright install --with-deps chromium
+  # The component workbench is the migration's replacement gate (ADR 0094): base styles moved
+  # out of `style={}` and into the injected sheet, so the unit tests no longer assert paint and
+  # the rendered result is what has to be checked. It has four browser lanes, and they run as
+  # separate commands — never one, because a single `playwright test` starts them in one worker
+  # pool and that contention is what makes a red color-contrast result meaningless. Separate
+  # runners, which is what the two jobs below are, take that contention away rather than add it.
+  #
+  # Every lane runs inside the Playwright image rather than on the runner. The screenshot lane
+  # needs that: baselines are split by platform because font rasterisation differs by more than
+  # any useful tolerance is worth, the `linux` set was recorded in
+  # `mcr.microsoft.com/playwright:v1.64.1-noble`, and the runner shares Ubuntu's kernel with that
+  # image but not its font packages, so comparing outside it would reduce the lane to noise on
+  # its first run. The other three compare no pixels; what they gain is the browser. The image
+  # carries the exact Chromium build for its tag, so no job runs `playwright install
+  # --with-deps`, whose apt step usually took twenty seconds and once took eleven minutes.
+  # `npm ci` runs inside the container, so `node_modules` is native to the image it runs in, and
+  # `--ipc=host` gives Chromium the shared memory the container default of 64 MB does not.
+  #
+  # The image tag must track the Playwright version in package-lock.json, and that is gated
+  # rather than remembered: `records and compares against the same browser build` in
+  # specimens.spec.ts reads this file and the lockfile and refuses a mismatch in ANY tag here,
+  # so the two jobs cannot drift from the lockfile or from each other. It runs inside the visual
+  # job's container, so a tag it checks is a tag that just ran. Without it a mismatch presents as
+  # every baseline failing at once, and the instinct that provokes is to re-record — which would
+  # bury it.
 
-      - name: Accessibility — axe over every specimen in every theme
+  # The accessibility lane runs in full — axe over every specimen in all five themes — and is
+  # what holds both contrast ratchets at empty. It is also most of this workflow's time (about
+  # nine and a half of its fifteen minutes in one job), so it is split across runners with
+  # Playwright's own `--shard`, which places every test of the file in exactly one shard. A
+  # theme or a specimen added later is shared out with the rest; no matrix entry has to be
+  # remembered for it, and none can be forgotten.
+  workbench-a11y:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --ipc=host
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # The shard comes from the matrix's own position and size, not from the values written
+      # in it, so a fifth entry is a fifth shard and no list of numbers can skip one.
+      #
+      # The unsharded list comes first because `--shard` turns off Playwright's refusal of a
+      # run that finds no tests: a renamed or emptied spec would leave every shard green with
+      # nothing run, where the single unsharded command used to fail. The list fails on an
+      # empty file, starts no server, and prints the lane's total.
+      - name: Accessibility — axe over every specimen in every theme (this shard's part)
         working-directory: apps/workbench
-        run: npx playwright test visual/a11y.spec.ts --reporter=line
+        env:
+          INDEX: ${{ strategy.job-index }}
+          TOTAL: ${{ strategy.job-total }}
+        run: |
+          listed=$(npx playwright test visual/a11y.spec.ts --list)
+          echo "$listed" | tail -n 1
+          npx playwright test visual/a11y.spec.ts --reporter=line --shard="$((INDEX + 1))/$TOTAL"
+
+      - name: Keep the results when the lane failed
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: a11y-results-${{ strategy.job-index }}
+          path: apps/workbench/test-results/
+          if-no-files-found: ignore
+
+  # The other three lanes, in one job because together they take about as long as one
+  # accessibility shard.
+  #
+  # The keyboard lane asserts where focus goes after a keystroke, which is a behaviour rather
+  # than a picture, so there is nothing platform-specific to record. It also covers the one
+  # repair in this area that a unit test cannot gate, since the failure depends on the browser
+  # moving focus to <body> when the focused node is removed and jsdom does not. The computed
+  # lane reads values the other three cannot see at all: screenshots run with `animations:
+  # "disabled"`, so every duration and easing in the sheet is invisible to them, and a `var()`
+  # that fails to substitute inside a shorthand falls back to the property's initial value —
+  # which paints identically at rest and kills the transition. The screenshot lane is the one
+  # with a recorded baseline.
+  workbench-visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
 
       - name: Keyboard — where focus goes, which no baseline and no static tree can say
         working-directory: apps/workbench
@@ -155,12 +231,8 @@ jobs:
         run: npx playwright test visual/computed.spec.ts --reporter=line
 
       - name: Screenshots — every specimen against the committed linux baselines
-        run: |
-          docker run --rm --ipc=host \
-            -v "$PWD":/work \
-            -w /work/apps/workbench \
-            mcr.microsoft.com/playwright:v1.64.1-noble \
-            npx playwright test visual/specimens.spec.ts --reporter=line
+        working-directory: apps/workbench
+        run: npx playwright test visual/specimens.spec.ts --reporter=line
 
       # A baseline mismatch is the one failure in this workflow whose evidence is an
       # image, and until now the run discarded it: the log said which specimen moved
@@ -177,3 +249,24 @@ jobs:
           name: specimen-renders
           path: apps/workbench/test-results/
           if-no-files-found: ignore
+
+  # The check this workflow has always reported, and the one a branch rule names: green only
+  # when every job above is. `always()` is what makes that true. Without it this job would be
+  # skipped whenever one it needs failed or was cancelled, and GitHub reports a skipped job as
+  # a success — so a red lane would leave `checks` green.
+  checks:
+    needs: [build-and-test, workbench-a11y, workbench-visual]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job above passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            if [ "$result" != "success" ]; then
+              echo "::error::a job this check stands for ended '$result' (all: $RESULTS)"
+              exit 1
+            fi
+          done
