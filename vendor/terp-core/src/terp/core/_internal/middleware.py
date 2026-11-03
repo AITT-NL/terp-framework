@@ -33,6 +33,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from terp.core._request_log import AccessLogMiddleware
 from terp.core.idempotency import IdempotencyStore, StoredResponse
+from terp.core._internal.idempotency_replay import replay_response  # arch-allow-no-internal-imports: kernel middleware alone binds a stored response for guarded replay; exposing this context writer would let app modules forge replay state
+from terp.core._internal.session_guard import read_only_request  # arch-allow-no-internal-imports: kernel middleware must prohibit persistence throughout replay authentication and dependencies before the route binder runs
 from terp.core.logging import request_id_ctx
 from terp.core.routing import MUTATING_METHODS
 from terp.core.security import SecurityConfig, SecurityHeaders, client_ip
@@ -590,6 +592,8 @@ class IdempotencyMiddleware:
     - The request **fingerprint** (method + path + body digest) rides the entry; a key
       reused for a different request is refused with a typed 422 rather than answering
       with a response to a request that was never made.
+    - Completed responses require the composed route authorization boundary and an
+      explicit replay authorizer. A denied replay retains its completed record.
     - A concurrent duplicate (the key is still executing) gets a typed 409 with
       ``Retry-After``, never a second execution.
     - Only completed non-5xx responses are stored; a crash or a 5xx releases the key so
@@ -626,6 +630,7 @@ class IdempotencyMiddleware:
         max_body_bytes: int = 1 * 1024 * 1024,
         overrides: Mapping[str, int] | None = None,
         max_stored_response_bytes: int = 256 * 1024,
+        authorized_replay_routes: bool = False,
     ) -> None:
         self.app = app
         self._store = store
@@ -633,6 +638,7 @@ class IdempotencyMiddleware:
         self._execution_ttl = execution_ttl_seconds
         self._caps = _RequestSizeCaps(max_body_bytes, overrides)
         self._max_stored_response_bytes = max_stored_response_bytes
+        self._authorized_replay_routes = authorized_replay_routes
 
     @staticmethod
     def _header(scope: Scope, name: bytes) -> bytes | None:
@@ -671,16 +677,31 @@ class IdempotencyMiddleware:
 
     @staticmethod
     def _fingerprint(scope: Scope, body: bytes) -> str:
-        """The request digest a reused key must match: method + path + payload."""
-        digest = hashlib.sha256()
-        digest.update(scope["method"].upper().encode("ascii"))
-        digest.update(b"\n")
-        digest.update(scope.get("path", "").encode("utf-8"))
-        digest.update(b"\n")
-        digest.update(scope.get("query_string", b""))
-        digest.update(b"\n")
-        digest.update(hashlib.sha256(body).digest())
-        return digest.hexdigest()
+        """Bind every header/target selector without losing duplicate value order.
+
+        A custom authorizer may select its resource by ANY header. Checking today's
+        resource B and replaying yesterday's result for A would bypass it, so tracing
+        headers cannot be exempted because they usually carry no authority.
+        """
+        headers: dict[str, list[str]] = {}
+        for name, value in scope.get("headers", []):
+            headers.setdefault(name.decode("latin-1").lower(), []).append(value.decode("latin-1"))
+        client = scope.get("client")
+        selectors = {
+            "method": scope["method"].upper(),
+            "path": scope.get("path", ""),
+            "query": scope.get("query_string", b"").hex(),
+            "body": hashlib.sha256(body).hexdigest(),
+            "headers": sorted(headers.items()),
+            "scheme": scope.get("scheme"),
+            "server": scope.get("server"),
+            "root_path": scope.get("root_path", ""),
+            "raw_path": scope.get("raw_path", b"").hex(),
+            "client_host": client[0] if client else None,
+        }
+        return hashlib.sha256(
+            json.dumps(selectors, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         # Only mutating methods are deduplicated; the rest are naturally idempotent.
@@ -716,9 +737,9 @@ class IdempotencyMiddleware:
             message = await receive()
             buffered.append(message)
             if message["type"] != "http.request":
-                # The client disconnected mid-request: hand everything to the app
-                # unprocessed — there is no response to store for a dead request.
-                await self.app(scope, _replay_receive(buffered, receive), send)
+                # No complete fingerprint or dedup claim exists. In particular, a
+                # body-less endpoint must not execute merely because the client
+                # disconnected before we could recognize its completed key.
                 return
             body.extend(message.get("body", b"") or b"")
             if len(body) > cap:
@@ -758,7 +779,7 @@ class IdempotencyMiddleware:
                 422,
                 "idempotency_key_mismatch",
                 "This Idempotency-Key was already used for a different request "
-                "(method, path, or body); use a fresh key per distinct request.",
+                "(method, target, headers, or body); use a fresh key per distinct request.",
             )
             return
         if outcome.state == "in_flight":
@@ -773,15 +794,21 @@ class IdempotencyMiddleware:
         if outcome.state == "replay":
             stored = outcome.response
             assert stored is not None  # the port contract for "replay"
-            headers = [
-                (name.encode("latin-1"), value.encode("latin-1"))
-                for name, value in stored.headers
-            ]
-            headers.append((b"idempotency-replayed", b"true"))
-            await send(
-                {"type": "http.response.start", "status": stored.status_code, "headers": headers}
-            )
-            await send({"type": "http.response.body", "body": stored.body})
+            if not self._authorized_replay_routes:
+                await _send_json_error(
+                    send, 409, "idempotency_replay_not_authorized",
+                    "Replay requires the composed route authorization boundary.",
+                )
+                return
+            token = replay_response.set(stored)
+            try:
+                # Authentication, policy and resource dependencies run again, under
+                # a write prohibition. Only the prepared endpoint wrapper can return
+                # the stored response; a denial never removes the completed key.
+                with read_only_request(True):
+                    await self.app(scope, _replay_receive(buffered, receive), send)
+            finally:
+                replay_response.reset(token)
             return
 
         lease = outcome.lease
@@ -887,6 +914,7 @@ def install_security_middleware(
         Middleware(
             IdempotencyMiddleware,
             store=idempotency_store,
+            authorized_replay_routes=True,
             max_body_bytes=config.max_request_bytes,
             overrides=request_size_overrides,
         ),

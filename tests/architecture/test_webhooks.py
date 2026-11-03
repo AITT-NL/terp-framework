@@ -367,9 +367,12 @@ def test_worker_unseals_a_sealed_secret_to_sign_the_delivery(engine: Engine) -> 
 
     assert _worker(engine).drain_once().dispatched == 1
     _target, body, headers = sender.calls[0]
-    expected_sig = "sha256=" + hmac.new(
+    expected_sig = "v2=" + hmac.new(
         _SECRET.encode("utf-8"),  # signed with the *plaintext*, unsealed only at signing time
-        headers["X-Terp-Webhook-Timestamp"].encode("utf-8") + b"." + body,
+        b"terp-webhook-v2\n" + json.dumps(
+            [headers["X-Terp-Webhook-Timestamp"], headers["X-Terp-Delivery-Id"],
+             headers["X-Terp-Event"]], separators=(",", ":"), ensure_ascii=True,
+        ).encode("utf-8") + b"\n" + body,
         hashlib.sha256,
     ).hexdigest()
     assert headers["X-Terp-Signature"] == expected_sig
@@ -428,9 +431,12 @@ def test_worker_posts_a_signed_payload_and_records_a_delivery(engine: Engine) ->
     assert body == expected_body
     timestamp = headers["X-Terp-Webhook-Timestamp"]
     assert timestamp.isdigit()  # a unix-seconds stamp bound into the signature
-    expected_sig = "sha256=" + hmac.new(
+    expected_sig = "v2=" + hmac.new(
         _SECRET.encode("utf-8"),
-        timestamp.encode("utf-8") + b"." + expected_body,
+        b"terp-webhook-v2\n" + json.dumps(
+            [timestamp, str(payload.delivery_id), payload.event],
+            separators=(",", ":"), ensure_ascii=True,
+        ).encode("utf-8") + b"\n" + expected_body,
         hashlib.sha256,
     ).hexdigest()
     assert headers["X-Terp-Signature"] == expected_sig
@@ -442,6 +448,71 @@ def test_worker_posts_a_signed_payload_and_records_a_delivery(engine: Engine) ->
     assert delivery.outcome == OUTCOME_DELIVERED
     assert delivery.response_code == 200
     assert delivery.subscription_id == sub_id
+
+
+@pytest.mark.parametrize("header", [
+    "X-Terp-Webhook-Timestamp", "X-Terp-Delivery-Id", "X-Terp-Event",
+])
+def test_signed_delivery_metadata_cannot_be_relabelled(engine: Engine, header: str) -> None:
+    configure_jobs(JobCatalog([WEBHOOK_DELIVER]), queue=OutboxJobQueue())
+    sender = _FakeSender(status_code=200)
+    set_webhook_sender(sender)
+    sub_id = _add_subscription(engine, event=_DOC_CREATED.name, secret=_SECRET)
+    _job_row(engine, subscription_id=sub_id, data={"id": "synthetic"})
+    assert _worker(engine).drain_once().dispatched == 1
+    _target, body, headers = sender.calls[0]
+
+    def receiver_signature(values: dict[str, str], content: bytes) -> str:
+        # Independent receiver reconstruction, including the version domain.
+        metadata = json.dumps([
+            values["X-Terp-Webhook-Timestamp"], values["X-Terp-Delivery-Id"],
+            values["X-Terp-Event"],
+        ], separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        return "v2=" + hmac.new(
+            _SECRET.encode("utf-8"), b"terp-webhook-v2\n" + metadata + b"\n" + content,
+            hashlib.sha256,
+        ).hexdigest()
+
+    signature = headers["X-Terp-Signature"]
+    assert hmac.compare_digest(signature, receiver_signature(headers, body))
+    altered = {**headers, header: headers[header] + "changed"}
+    assert not hmac.compare_digest(signature, receiver_signature(altered, body))
+    assert not hmac.compare_digest(signature, receiver_signature(headers, body + b" "))
+
+
+def test_failed_job_journals_delivery_without_committing_its_business_write(engine: Engine) -> None:
+    from terp.core import BaseService
+    from terp.core._internal.job_runtime import run_job
+    from terp.capabilities.webhooks import deliver_webhook, WebhookDeliveryError
+
+    class Documents(BaseService[_Doc, _DocCreate, _DocUpdate]):
+        model = _Doc
+
+    def handler(ctx, payload):
+        # A real service flush holds SQLite's writer lock until run_job rolls it
+        # back. The journal must not try to commit a second writer before then.
+        Documents().create(ctx.session, _DocCreate(label="must roll back"))
+        deliver_webhook(ctx, payload)
+
+    job = JobDefinition(
+        name="webhooks.test.partial", payload_schema=WebhookDeliveryPayload, handler=handler,
+    )
+    configure_jobs(JobCatalog([job]))
+    set_webhook_sender(_FakeSender(status_code=503))
+    sub_id = _add_subscription(engine, event=_DOC_CREATED.name)
+    payload = WebhookDeliveryPayload(
+        subscription_id=sub_id, delivery_id=uuid.uuid4(), event=_DOC_CREATED.name,
+    )
+    with pytest.raises(WebhookDeliveryError):
+        run_job(
+            JobEnvelope(name=job.name, payload=payload.model_dump(mode="json")),
+            session_factory=lambda: WriteGuardedSession(engine),
+        )
+    with Session(engine) as session:
+        assert session.exec(select(_Doc)).all() == []
+        attempt = session.exec(select(WebhookDelivery)).one()
+        assert attempt.outcome == OUTCOME_FAILED
+        assert attempt.response_code == 503
 
 
 # --------------------------------------------------------------------------- #

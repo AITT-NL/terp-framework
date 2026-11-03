@@ -337,10 +337,21 @@ class OutboxWorker:
             row = session.get(OutboxMessage, message.id)
             if row is None or row.locked_by != message.claim_id:
                 return _LOST
+            # Mutate a detached snapshot: the Session must never autoflush an
+            # unconditional ORM UPDATE before the conditional finalization below.
+            session.expunge(row)
             outcome = mutate(row)
-            row.locked_by = None
-            row.locked_until = None
-            finalize(session)
+            values = {
+                name: getattr(row, name)
+                for name in (
+                    "status", "attempts", "last_error", "available_at",
+                    "dispatched_at", "dead_lettered_at",
+                )
+            }
+            if not finalize(
+                session, message_id=message.id, claim_id=message.claim_id, values=values
+            ):
+                return _LOST
         return outcome
 
     def _retry_for(self, message: _Claimed) -> RetryPolicy:

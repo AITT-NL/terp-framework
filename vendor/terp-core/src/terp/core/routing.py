@@ -65,6 +65,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from fastapi.routing import APIRoute, APIWebSocketRoute
 
 from terp.core.operations import OperationDefinition
+from terp.core.permissions import Permission
 
 if TYPE_CHECKING:  # a runtime import would be circular: module_spec imports this file
     from terp.core.module_spec import Policy
@@ -145,8 +146,10 @@ def is_read_only(endpoint: object | None) -> bool:
 REQUIRED_PERMISSION_ATTRIBUTE = "__terp_required_permission__"
 
 
-def mark_required_permission(dependency: _Endpoint, permission_name: str) -> _Endpoint:
-    """Mark *dependency* as gating a route on *permission_name*.
+def mark_required_permission(
+    dependency: _Endpoint, permission_name: Permission | str
+) -> _Endpoint:
+    """Mark *dependency* as gating a route on a permission, preserving its floor.
 
     An **introspection marker, never a control**: the dependency the access
     capability builds does the enforcing, and this only makes the requirement
@@ -164,8 +167,15 @@ def mark_required_permission(dependency: _Endpoint, permission_name: str) -> _En
 def required_permission(dependency: object | None) -> str | None:
     """The permission *dependency* gates on, or ``None`` if it gates on none."""
 
-    name = getattr(dependency, REQUIRED_PERMISSION_ATTRIBUTE, None)
-    return name if isinstance(name, str) else None
+    permission = required_permission_ref(dependency)
+    return permission.name if isinstance(permission, Permission) else permission
+
+
+def required_permission_ref(dependency: object | None) -> Permission | str | None:
+    """The declared permission object, or its legacy name when only that is known."""
+
+    permission = getattr(dependency, REQUIRED_PERMISSION_ATTRIBUTE, None)
+    return permission if isinstance(permission, Permission | str) else None
 
 
 #: The attribute :func:`operation` stamps on an endpoint. Read through
@@ -305,6 +315,8 @@ __all__ = [
     "read_only",
     "request_method",
     "required_permission",
+    "required_permission_ref",
+    "route_permission_refs",
     "route_policy",
 ]
 
@@ -357,6 +369,17 @@ def iter_every_route(routes: Sequence[object]) -> Iterator[object]:
 def route_permission_names(route: object) -> list[str]:
     """Every ``require_permission`` name this route enforces, in declaration order.
 
+    The string-only compatibility view of :func:`route_permission_refs`.
+    """
+    return [
+        permission.name if isinstance(permission, Permission) else permission
+        for permission in route_permission_refs(route)
+    ]
+
+
+def route_permission_refs(route: object) -> list[Permission | str]:
+    """Every declared route permission, retaining typed minimum-role requirements.
+
     Reads the route's **resolved dependency tree** (``route.dependant``), not its
     ``dependencies`` list, and that is the whole point. FastAPI accepts a dependency in two
     places — ``@router.post(..., dependencies=[Depends(require_permission(X))])`` and a
@@ -373,13 +396,13 @@ def route_permission_names(route: object) -> list[str]:
     Recurses, because a dependency may itself declare dependencies, and a marker two levels down
     is enforced just as surely as one at the top.
     """
-    found: list[str] = []
+    found: list[Permission | str] = []
 
     def walk(dependant: object) -> None:
         for child in getattr(dependant, "dependencies", ()) or ():
-            name = required_permission(getattr(child, "call", None))
-            if name is not None:
-                found.append(name)
+            permission = required_permission_ref(getattr(child, "call", None))
+            if permission is not None:
+                found.append(permission)
             walk(child)
 
     walk(getattr(route, "dependant", None))

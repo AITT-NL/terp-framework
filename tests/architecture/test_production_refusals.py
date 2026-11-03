@@ -98,7 +98,9 @@ _PRODUCTION_REFUSALS: dict[str, tuple[tuple[str, str], ...]] = {
 
 def _scope_of(path: pathlib.Path, names: list[str]) -> str:
     """``<module path relative to its src root>::<dotted scope>``."""
-    parts = path.parts
+    # The checkout itself may live below a directory named ``src``. Only a
+    # package's source root determines the import path.
+    parts = path.relative_to(_BACKEND).parts
     index = parts.index("src") if "src" in parts else 0
     module = "/".join(parts[index + 1 :])
     return f"{module}::{'.'.join(names)}"

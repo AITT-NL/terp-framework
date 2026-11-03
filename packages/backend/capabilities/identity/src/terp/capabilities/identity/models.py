@@ -54,6 +54,9 @@ class RefreshToken(BaseTable, table=True):
     __tablename__ = "identity_refresh_token"
 
     user_id: uuid.UUID = Field(index=True, nullable=False)
+    # NULL retains compatibility for pre-epoch families and direct store callers.
+    # Login/SSO routers always supply the captured epoch, including successors.
+    token_version: int | None = Field(default=None, nullable=True)
     family_id: uuid.UUID = Field(index=True, nullable=False)
     token_hash: str = Field(max_length=128, index=True, unique=True, nullable=False)
     expires_at: datetime = Field(sa_type=DateTime(timezone=True), nullable=False)  # type: ignore[call-overload]

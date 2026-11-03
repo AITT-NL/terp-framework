@@ -155,6 +155,10 @@ class MailSettings:
     ca_file: str = ""
 
     def __post_init__(self) -> None:
+        # An annotation does not validate a configuration dictionary. Canonicalize
+        # before any identity comparison, including the production refusal: a raw
+        # "starttls" must never fall through to a plaintext SMTP connection.
+        object.__setattr__(self, "security", MailSecurity(self.security))
         parse_sender(self.sender)
         if not _HOSTNAME.match(self.host):
             raise ValueError(

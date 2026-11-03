@@ -36,6 +36,7 @@ class RefreshRotation:
 
     user_id: uuid.UUID
     token: str
+    token_version: int | None = None
 
 
 def generate_refresh_token() -> str:

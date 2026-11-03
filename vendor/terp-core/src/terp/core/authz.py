@@ -24,12 +24,14 @@ from collections.abc import Sequence
 from fastapi.routing import APIRoute, APIWebSocketRoute
 
 from terp.core.control_plane import ControlPlane
-from terp.core.module_spec import ModuleSpec, Policy, Role, decide
+from terp.core.module_spec import ModuleSpec, Policy, Role, decide, decide_requirement
+from terp.core.permissions import AuthorizationRequirement, Permission
 from terp.core.routing import (
     MUTATING_METHODS,
     declared_operation,
     effective_policy,
     route_permission_names,
+    route_permission_refs,
 )
 
 # A role below every rank a real ladder can hold, used only to read *which* requirement a
@@ -74,7 +76,7 @@ def _by_role_json(
     role: Role,
     policy: Policy | None,
     probe: str,
-    extra_permissions: Sequence[str],
+    extra_permissions: Sequence[AuthorizationRequirement | None],
 ) -> dict[str, object]:
     """One rung's outcome on one route — the module guard *and* the route's own dependency.
 
@@ -99,13 +101,49 @@ def _by_role_json(
     that.
     """
     outcome = decide(policy, method=probe, role=role)
-    if outcome.allowed and extra_permissions:
-        return {"role": role.name, "allowed": False, "reason": "grant"}
+    # A missing grant cannot explain a role that fails another dependency's floor:
+    # even granting every named permission would still leave that role denied.
+    if outcome.allowed or outcome.reason == "grant":
+        requirements = [
+            decide_requirement(required, role=role)
+            for required in extra_permissions
+            if required is not None
+        ]
+        if any(required.reason == "rank" for required in requirements):
+            return {"role": role.name, "allowed": False, "reason": "rank"}
+        if any(required is None for required in extra_permissions):
+            return {"role": role.name, "allowed": False, "reason": "unknown_permission"}
+        if requirements:
+            return {"role": role.name, "allowed": False, "reason": "grant"}
     return {"role": role.name, "allowed": outcome.allowed, "reason": outcome.reason}
 
 
+def _permission_requirement(
+    permission: Permission | str, plane: ControlPlane | None
+) -> AuthorizationRequirement | None:
+    """Resolve legacy names without guessing a floor for an unknown permission."""
+    if plane is not None:
+        name = permission.name if isinstance(permission, Permission) else permission
+        canonical = next(
+            (item for item in plane.permissions.permissions if item.name == name), None
+        )
+        if canonical is None or (
+            isinstance(permission, Permission)
+            and permission.min_role != canonical.min_role
+        ):
+            return None
+        permission = canonical
+    if isinstance(permission, Permission):
+        return AuthorizationRequirement.from_permission(permission)
+    return None
+
+
 def endpoint_json(
-    spec: ModuleSpec, route: object, ladder: Sequence[Role] = ()
+    spec: ModuleSpec,
+    route: object,
+    ladder: Sequence[Role] = (),
+    *,
+    plane: ControlPlane | None = None,
 ) -> dict[str, object]:
     """The endpoint-access layer: one mounted route + its effective requirement.
 
@@ -142,6 +180,10 @@ def endpoint_json(
         requirement = "denied (no policy declared)" if applied is None else applied.label
     declared = declared_operation(getattr(route, "endpoint", None))
     extra_permissions = route_permissions(route)
+    extra_requirements = [
+        _permission_requirement(permission, plane)
+        for permission in route_permission_refs(route)
+    ]
     return {
         "path": f"/api/v1/{spec.name}{getattr(route, 'path', '')}",
         # Empty for a WebSocket, which is the honest answer: it has no HTTP method after the
@@ -164,12 +206,17 @@ def endpoint_json(
         # floor, still needs the named grant" — which is the distinction a cell has to draw
         # and the one a client-side rank comparison cannot.
         "by_role": [
-            _by_role_json(role, policy, probe, extra_permissions) for role in ladder
+            _by_role_json(role, policy, probe, extra_requirements) for role in ladder
         ],
     }
 
 
-def module_json(spec: ModuleSpec, ladder: Sequence[Role] = ()) -> dict[str, object]:
+def module_json(
+    spec: ModuleSpec,
+    ladder: Sequence[Role] = (),
+    *,
+    plane: ControlPlane | None = None,
+) -> dict[str, object]:
     """One module's declared authority: its policy, its permissions, and its routes."""
     endpoints: list[dict[str, object]] = []
     if spec.router is not None:
@@ -188,7 +235,7 @@ def module_json(spec: ModuleSpec, ladder: Sequence[Role] = ()) -> dict[str, obje
         # pins. See §4.9 of the plan for the residual gap on `GET /model`, which has no such
         # reconciliation yet.
         endpoints = [
-            endpoint_json(spec, route, ladder)
+            endpoint_json(spec, route, ladder, plane=plane)
             for route in spec.router.routes
             if isinstance(route, APIRoute | APIWebSocketRoute)
         ]
@@ -246,7 +293,8 @@ def build_access_model(
             )
         ],
         "modules": [
-            module_json(spec, ladder) for spec in sorted(specs, key=lambda s: s.name)
+            module_json(spec, ladder, plane=plane)
+            for spec in sorted(specs, key=lambda s: s.name)
         ],
     }
 

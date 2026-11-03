@@ -533,6 +533,10 @@ export interface TerpStrings {
   errorCodeInternalError: string;
   /** Error code `idempotency_in_flight`: the same request is still being carried out. */
   errorCodeStillProcessing: string;
+  /** Error code `idempotency_not_supported`: this action refuses retry keys. */
+  errorCodeIdempotencyNotSupported: string;
+  /** A completed request's result is withheld; never suggest blindly resubmitting it. */
+  errorCodeIdempotencyReplayNotAuthorized: string;
 }
 
 export const DEFAULT_STRINGS: TerpStrings = {
@@ -745,6 +749,8 @@ export const DEFAULT_STRINGS: TerpStrings = {
   errorCodeRequestTooLarge: "This is too large to send. Make it smaller and try again.",
   errorCodeInternalError: "Something went wrong on the server. Try again in a moment.",
   errorCodeStillProcessing: "This is still being processed. Wait a moment, then check again.",
+  errorCodeIdempotencyNotSupported: "This action does not support automatic retries. Contact support to continue.",
+  errorCodeIdempotencyReplayNotAuthorized: "The earlier result cannot be shown. Check the current status before submitting this action again.",
 };
 
 interface UiTextContextValue {

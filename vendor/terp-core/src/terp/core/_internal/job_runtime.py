@@ -27,6 +27,7 @@ graph.
 from __future__ import annotations
 
 import contextlib
+import logging
 from collections.abc import Callable, Iterator
 
 from sqlmodel import Session
@@ -42,7 +43,45 @@ from terp.core.jobs import (
 )
 from terp.core.logging import request_id_ctx
 from terp.core._internal.engine import get_engine
-from terp.core._internal.session_guard import WriteGuardedSession, fresh_write_scope
+from terp.core._internal.session_guard import (
+    WriteGuardedSession,
+    enter_write_unit,
+    forbid_session_writes,
+    fresh_write_scope,
+)
+
+_logger = logging.getLogger(__name__)
+_AFTER_JOB_TRANSACTION = "terp_after_job_transaction"
+
+
+def defer_after_job_transaction(session: Session, callback: Callable[[], None]) -> bool:
+    """Queue an infrastructure journal callback, or return False outside a job.
+
+    Delivery-attempt journals must survive failed business work. Running their
+    independent transaction after rollback also avoids SQLite's writer lock. This
+    is internal infrastructure, not a public escape from audited service writes.
+    """
+    callbacks = session.info.get(_AFTER_JOB_TRANSACTION)
+    if callbacks is None:
+        return False
+    callbacks.append(callback)
+    return True
+
+
+def _finish_job_journals(session: Session, *, failed: bool) -> None:
+    callbacks = session.info.pop(_AFTER_JOB_TRANSACTION)
+    callback_error: BaseException | None = None
+    for callback in callbacks:
+        try:
+            with forbid_session_writes():
+                callback()
+        except BaseException as exc:
+            if failed:
+                _logger.exception("Job journal failed after the handler failed")
+            elif callback_error is None:
+                callback_error = exc
+    if callback_error is not None:
+        raise callback_error
 
 
 @contextlib.contextmanager
@@ -107,7 +146,24 @@ def run_job(
                 request_id=envelope.request_id,
                 attempt=envelope.attempt,
             )
-            job.handler(context, payload)
+            # Every service write joins this unit rather than committing midway
+            # through the handler. The handler itself still cannot write directly.
+            session.info[_AFTER_JOB_TRANSACTION] = []
+            failed = False
+            try:
+                with enter_write_unit():
+                    try:
+                        with forbid_session_writes():
+                            job.handler(context, payload)
+                        session.commit()  # arch-allow-mutations-emit-audit: the kernel commits the job's outer unit; each business mutation already emitted its audit through BaseService
+                    except BaseException:
+                        session.rollback()
+                        raise
+            except BaseException:
+                failed = True
+                raise
+            finally:
+                _finish_job_journals(session, failed=failed)
 
 
 __all__ = ["run_job"]

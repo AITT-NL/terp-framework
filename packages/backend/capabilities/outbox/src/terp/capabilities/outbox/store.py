@@ -39,7 +39,7 @@ mutation, but the guard cannot tell that from an ``# arch-allow-*`` comment alon
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -168,10 +168,27 @@ def claim_due(
     )
 
 
-def finalize(session: Session) -> None:
-    """Commit a worker's in-place status transition on the outbox's own table."""
-    with enter_write_unit():
-        session.commit()  # arch-allow-mutations-emit-audit: persist the worker's status transition (dispatched / rescheduled / dead-lettered)
+def finalize(
+    session: Session, *, message_id: uuid.UUID, claim_id: str, values: Mapping[str, object]
+) -> bool:
+    """Persist a transition only if the same claim still owns this pending row.
+
+    The lease comparison belongs in the UPDATE, not in an earlier Python read:
+    another worker may reclaim and finish between that read and this write.
+    """
+    with enter_write_unit() as outermost:
+        result = session.execute(  # arch-allow-mutations-emit-audit: compare-and-swap delivery bookkeeping on the outbox's own table
+            update(OutboxMessage)
+            .where(
+                col(OutboxMessage.id) == message_id,
+                col(OutboxMessage.locked_by) == claim_id,
+                col(OutboxMessage.status) == STATUS_PENDING,
+            )
+            .values(**values, locked_by=None, locked_until=None)
+        )
+        if outermost:
+            session.commit()  # arch-allow-mutations-emit-audit: commit only the conditional infrastructure transition
+    return bool(result.rowcount)
 
 
 def release(session: Session, *, claim_id: str, ids: Sequence[uuid.UUID]) -> int:

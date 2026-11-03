@@ -400,6 +400,8 @@ export const LOCALE_NL: LocaleCatalog = {
     errorCodeRequestTooLarge: "Dit is te groot om te versturen. Maak het kleiner en probeer het opnieuw.",
     errorCodeInternalError: "Er ging iets mis op de server. Probeer het zo opnieuw.",
     errorCodeStillProcessing: "Dit wordt nog verwerkt. Wacht even en kijk dan opnieuw.",
+    errorCodeIdempotencyNotSupported: "Deze actie ondersteunt geen automatische herhalingen. Neem contact op met ondersteuning om verder te gaan.",
+    errorCodeIdempotencyReplayNotAuthorized: "Het eerdere resultaat kan niet worden getoond. Controleer de huidige status voordat je deze actie opnieuw verstuurt.",
   },
 };
 

@@ -84,6 +84,70 @@ jobs:
           TERP_REQUIRE_DOCKER_ENGINE: "1"  # as in the gate
         run: uv run --python 3.13 pytest
 
+  # A clean newest resolution does not make the oldest versions we allow safe.
+  # Exercise the security boundaries and audit that exact minimum runtime tree.
+  minimum-runtime-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: terp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TERP_TEST_POSTGRES_URL: postgresql+psycopg://postgres:terp@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - run: uv python install 3.13
+      - name: Resolve the minimum supported runtime
+        run: uv sync --python 3.13 --all-packages --all-extras --group lint --resolution lowest-direct
+      - name: Audit the exact external runtime resolution
+        run: |
+          uv export --frozen --all-packages --all-extras --no-dev --no-group lint --no-emit-workspace --no-hashes --output-file /tmp/runtime-minimum.txt
+          uv run --no-sync pip-audit --disable-pip --no-deps -r /tmp/runtime-minimum.txt --progress-spinner off
+      - name: Exercise security boundaries at the dependency floors
+        run: >-
+          uv run --no-sync pytest
+          tests/architecture/test_persistence_isolation.py
+          tests/architecture/test_worker_transactions.py
+          tests/architecture/test_sync.py
+          tests/architecture/test_sync_transactions.py
+          tests/architecture/test_sync_custody.py
+          tests/architecture/test_refresh_concurrency_postgres.py
+          tests/architecture/test_object_authz.py
+          tests/architecture/test_session_write_guard.py
+          tests/architecture/test_reference_scope.py
+          tests/architecture/test_egress.py
+          tests/architecture/test_egress_limits.py
+          tests/architecture/test_file_binding.py
+          tests/architecture/test_files.py
+          tests/architecture/test_mail.py
+          tests/architecture/test_webhooks.py
+          tests/architecture/test_oidc.py
+          tests/architecture/test_service_principals.py
+          tests/architecture/test_structured_logs.py
+          tests/architecture/test_permission_floors.py
+          tests/architecture/test_permission_projection.py
+          tests/architecture/test_request_authorization.py
+          tests/architecture/test_realtime_revocation.py
+          tests/architecture/test_idempotency.py
+          apps/example/tests/test_idempotency_authorization.py
+          apps/example/tests/test_authentication_snapshots.py
+          apps/example/tests/test_refresh_tokens.py
+          apps/example/tests/test_session_revocation_api.py
+
   # The PostgreSQL conformance lane (ADR 0069): the migration subsystem must hold on
   # the verified production dialect, not only the SQLite dev/test engine — SQLite
   # masks real differences (VARCHAR length enforcement, timezone-aware datetimes,
@@ -172,6 +236,8 @@ jobs:
           tests/architecture/test_readiness_postgres.py
           tests/architecture/test_schema_window.py
           tests/architecture/test_seed_checksum.py
+          tests/architecture/test_refresh_concurrency_postgres.py
+          tests/architecture/test_sync_custody.py
 
   # The signer image (ADR 0187 decision 6): the operator's own toolchain `terp release sign`
   # runs from, built from this commit's wheels and the lock's hashes, and run. Nothing here
@@ -269,9 +335,8 @@ jobs:
       - name: import-linter — terp.core layer-0 contract
         run: uv run --group lint lint-imports
 
-      - name: pip-audit — dependency CVEs (advisory)
-        continue-on-error: true
-        run: uv run --group lint pip-audit
+      - name: pip-audit — dependency CVEs
+        run: uv run --group lint pip-audit --skip-editable
 
       - name: deptry — per-package dependency hygiene (advisory)
         continue-on-error: true

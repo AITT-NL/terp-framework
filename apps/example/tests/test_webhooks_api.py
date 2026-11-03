@@ -174,7 +174,7 @@ def test_creating_a_note_delivers_a_signed_webhook(client_factory, db_engine: En
     assert target.ip == "8.8.8.8"  # pinned to the validated address
     assert headers["X-Terp-Event"] == _EVENT
     assert headers["X-Terp-Webhook-Timestamp"].isdigit()
-    assert headers["X-Terp-Signature"].startswith("sha256=")
+    assert headers["X-Terp-Signature"].startswith("v2=")
 
     # The delivery is recorded and visible through the read-only log (filterable).
     deliveries = admin.get("/api/v1/webhooks/deliveries").json()

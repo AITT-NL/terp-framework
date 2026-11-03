@@ -104,3 +104,30 @@ not a transport failure: the message is dropped, the rejection is surfaced once
 on the hook's `error` with the channel named, and the transport stays open and
 keeps delivering. `status` moves to `"error"` only when the connection itself
 fails.
+
+## Authorization while connected
+
+A ticket is single use and expires after 30 seconds. It records the principal
+and audience at mint; it does not preserve a revoked named grant. Redemption,
+every outbound message, every inbound frame and each 15-second idle heartbeat
+recheck the channel's subscription requirement, its inbound requirement for a
+bidirectional channel, and its current audience. A failed or unavailable lookup
+rejects redemption or closes the established connection before delivering the
+next message. An idle connection notices revocation at its next heartbeat,
+subject to authorization-provider latency; the framework does not cancel an
+already running handler or recall a message already delivered.
+
+These checks use fresh sessions from `message_session_provider`, closing them
+after each check. Configure that provider for the application's database;
+FastAPI dependency overrides alone do not replace the background session seam.
+Audience resolvers must consult current authorization state when membership can
+change. A changed audience closes the old connection; reconnecting mints a new
+ticket for the new audience.
+
+`principal_validator` remains the identity/credential revocation seam. Configure
+it to check current expiry, account status and role/token epoch; without it the
+identity and role snapshot remains valid for the connection's lifetime. Named
+permission checks and audience rechecks still run without a principal validator.
+Channel requirements use the same role-floor AND named-grant decision as HTTP
+permissions. A channel has no assignable module context, so a module role does
+not elevate its subscription or inbound requirement.

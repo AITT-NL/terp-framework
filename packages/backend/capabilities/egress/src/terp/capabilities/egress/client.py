@@ -18,12 +18,14 @@ check and hostilely a millisecond later still cannot land on a private address.
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from terp.capabilities.egress.errors import EgressFailedError, EgressRefusedError
+from terp.capabilities.egress._transport import Deadline, DeadlineTransport
 from terp.capabilities.egress.policy import EgressAttempt, EgressPolicy, Observer
 from terp.capabilities.egress.ssrf import (
     PinnedTarget,
@@ -89,9 +91,17 @@ def send_pinned(
     followed — a followed redirect is a second, unvalidated target, which would put the
     SSRF check back at the mercy of the far end.
     """
-    import httpx  # noqa: PLC0415 - the one place the platform's HTTP client is imported  # arch-allow-no-raw-outbound-http: this IS the sanctioned egress seam the rule points every other package at; it cannot reach the network through itself
+    import httpx  # noqa: PLC0415 - load the HTTP adapter only when the transport is used  # arch-allow-no-raw-outbound-http: this IS the sanctioned egress seam the rule points every other package at; it cannot reach the network through itself
 
-    with httpx.Client(timeout=timeout_seconds, follow_redirects=False) as client:
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be finite and positive")
+    if not isinstance(max_response_bytes, int) or max_response_bytes <= 0:
+        raise ValueError("max_response_bytes must be a positive integer")
+    deadline = Deadline(timeout_seconds)
+    with httpx.Client(
+        timeout=timeout_seconds, follow_redirects=False, trust_env=False,
+        transport=DeadlineTransport(deadline),
+    ) as client:
         request = client.build_request(
             method,
             target.url,
@@ -99,6 +109,10 @@ def send_pinned(
             headers=dict(headers),
             extensions={"sni_hostname": target.host},
         )
+        # Compressed input must not reach HTTPX's unbounded content decoders.
+        # Request identity explicitly, and refuse a server that ignores it before
+        # reading any body bytes. The same cap then bounds encoded and decoded data.
+        request.headers["Accept-Encoding"] = "identity"
         request.url = request.url.copy_with(host=target.ip)
         # `send(request)`, not `stream(method, url, ...)`: the request built above is the
         # one that must go out. Re-deriving it from a method and a URL silently drops the
@@ -107,20 +121,28 @@ def send_pinned(
         # hostname, i.e. break the safe half of the pinning this function exists for.
         response = client.send(request, stream=True)
         try:
-            chunks: list[bytes] = []
+            encoding = response.headers.get("content-encoding", "identity").strip().lower()
+            if encoding != "identity":
+                raise EgressFailedError(
+                    "The upstream response used an unsupported content encoding.",
+                    log_context={"host": target.host},
+                )
+            content = bytearray()
             read = 0
-            for chunk in response.iter_bytes():
+            for chunk in response.iter_raw():
+                deadline.remaining()
                 read += len(chunk)
                 if read > max_response_bytes:
                     raise EgressFailedError(
                         "The upstream response was larger than this application accepts.",
                         log_context={"host": target.host, "limit": max_response_bytes},
                     )
-                chunks.append(chunk)
+                content.extend(chunk)
+            deadline.remaining()
             return EgressResponse(
                 status_code=response.status_code,
                 headers=dict(response.headers),
-                content=b"".join(chunks),
+                content=bytes(content),
             )
         finally:
             response.close()
@@ -225,6 +247,7 @@ class EgressClient:
     ) -> EgressResponse:
         """Perform one policy-checked, address-pinned, time-bounded request."""
         started = self._clock()
+        deadline = Deadline(self._policy.timeout_seconds)
         try:
             target = self._pin(url)
         except EgressRefusedError:
@@ -246,7 +269,7 @@ class EgressClient:
                 method.upper(),
                 body,
                 headers or {},
-                self._policy.timeout_seconds,
+                deadline.remaining(),
                 self._policy.max_response_bytes,
             )
         except EgressRefusedError:

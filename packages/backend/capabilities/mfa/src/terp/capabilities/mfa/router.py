@@ -29,6 +29,7 @@ from terp.core import (
     SessionDep,
     get_principal,
     operation,
+    no_idempotency,
 )
 
 from terp.capabilities.mfa.operations import (
@@ -128,6 +129,7 @@ def read_status(
 
 
 @router.post("/", response_model=MfaSecretIssued, status_code=201)
+@no_idempotency
 @operation(MFA_ENROL)
 def begin_enrolment(
     session: SessionDep, principal: Principal | None = Depends(get_principal)

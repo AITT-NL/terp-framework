@@ -215,15 +215,38 @@ def decide(
         return AccessDecision(allowed=False, reason="no_policy")
     if policy.is_public:
         return AccessDecision(allowed=True, reason="public")
-    if role is None:
-        return AccessDecision(allowed=False, reason="unauthenticated")
-    if not role_is_registered:
-        return AccessDecision(allowed=False, reason="unregistered_role")
     required = (
         policy.write_requirement
         if method.upper() in MUTATING_METHODS
         else policy.read_requirement
     )
+    return decide_requirement(
+        required,
+        role=role,
+        role_is_registered=role_is_registered,
+        holds_permission=holds_permission,
+        module_rank=module_rank,
+    )
+
+
+def decide_requirement(
+    required: AuthorizationRequirement,
+    *,
+    role: Role | None,
+    role_is_registered: bool = True,
+    holds_permission: Callable[[str], bool] | None = None,
+    module_rank: Callable[[], int] | None = None,
+) -> AccessDecision:
+    """Apply one requirement's role floor AND grant through the shared decision.
+
+    Policy guards, route permission dependencies and realtime channels use this
+    same order. Module elevation is supplied only by an assignable module's
+    request context; a named permission never implies an owning module.
+    """
+    if role is None:
+        return AccessDecision(allowed=False, reason="unauthenticated")
+    if not role_is_registered:
+        return AccessDecision(allowed=False, reason="unregistered_role")
     elevated_by_module = False
     if role.rank < required.min_rank:
         # Only now, and only for a caller who does not already clear the floor: a per-module
@@ -450,4 +473,5 @@ __all__ = [
     "Policy",
     "Roles",
     "decide",
+    "decide_requirement",
 ]

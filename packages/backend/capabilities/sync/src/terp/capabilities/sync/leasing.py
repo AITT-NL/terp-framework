@@ -23,11 +23,25 @@ Leasing stays **optional**, and that is deliberate rather than a hedge: an app t
 no lease store reconciles exactly as it did before this module existed, so adopting the
 capability is a decision about operational guarantees and never a migration. Where a store
 *is* wired, ``require_durable_leases`` is what turns the guarantee on for real.
+
+An atomic job needs a source mutex visible before its business transaction commits.
+On non-SQLite engines acquisition and heartbeats therefore use an independent guarded
+session. The final custody check renews on the business session itself: its row lock
+fences the commit against a successor. Release happens only after commit or rollback.
+The engine must supply distinct physical connections for these concurrent sessions.
+
+SQLite cannot write a separate heartbeat while the job holds its database-wide write
+lock. Its custody operations remain on the business session, with release deferred until
+the transaction ends. A long SQLite write transaction serializes custody too; TTL expiry
+does not let another worker take over until that transaction releases its lock. A job's
+uncommitted run is not visible to the reaper and disappears on rollback. External effects
+still require source-side idempotency; a database fence cannot retract a remote push.
 """
 
 from __future__ import annotations
 
 import uuid
+from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime
 
 from sqlmodel import Session, col
@@ -35,11 +49,15 @@ from sqlmodel import Session, col
 from terp.core import (
     Lease,
     LeaseGuard,
+    LeaseLostError,
     LeaseResource,
     active_lease_store,
     hold_lease,
     register_lease_reaper,
 )
+
+from terp.core._internal.job_runtime import defer_after_job_transaction  # arch-allow-no-internal-imports: source custody must remain held until the atomic job transaction finishes, then release even after rollback
+from terp.core._internal.session_guard import WriteGuardedSession, allow_session_writes, fresh_write_scope  # arch-allow-no-internal-imports: source custody uses a fresh guarded write scope; its narrow connection inspection must prove isolation before any independent commit
 
 from terp.capabilities.sync.models import STATUS_FAILED, STATUS_RUNNING, SyncRun
 from terp.capabilities.sync.schemas import SyncRunUpdate
@@ -69,7 +87,7 @@ def sync_source_resource(*, tenant_scope: str, entity_type: str) -> LeaseResourc
 
 def hold_source(
     session: Session, *, tenant_scope: str, entity_type: str, holder: str
-) -> LeaseGuard | None:
+) -> SourceLeaseGuard | None:
     """Take the source's lease, or ``None`` when this app wired no lease store.
 
     Raises :class:`~terp.core.LeaseHeldError` (409) when another worker is already
@@ -79,12 +97,82 @@ def hold_source(
     """
     if active_lease_store() is None:
         return None
-    return hold_lease(
-        session,
-        sync_source_resource(tenant_scope=tenant_scope, entity_type=entity_type),
+    return SourceLeaseGuard(
+        session, sync_source_resource(tenant_scope=tenant_scope, entity_type=entity_type),
         holder=holder,
-        ttl_seconds=SYNC_LEASE_TTL_SECONDS,
     )
+
+
+class SourceLeaseGuard:
+    """Source custody with an independent heartbeat and a transaction-fenced finish."""
+
+    def __init__(self, session: Session, resource: LeaseResource, *, holder: str) -> None:
+        self._business = session
+        self._guard: LeaseGuard | None = None
+        self._deferred = defer_after_job_transaction(session, self._finish)
+        engine = session.get_bind().engine  # arch-allow-no-raw-connection-access: source-mutex infrastructure needs the owning engine to isolate custody from uncommitted business data, never to execute business SQL directly
+        self._independent = self._deferred and engine.dialect.name != "sqlite"
+        self._coordination = WriteGuardedSession(engine) if self._independent else session  # arch-allow-no-raw-session-construction: only non-SQLite job custody gets an isolated guarded session; all business writes remain on the original job session
+        try:
+            with self._coordination_scope():
+                self._guard = hold_lease(
+                    self._coordination, resource, holder=holder,
+                    ttl_seconds=SYNC_LEASE_TTL_SECONDS,
+                )
+        except BaseException:
+            if self._independent:
+                self._coordination.close()
+            raise
+
+    def _coordination_scope(self) -> AbstractContextManager[None]:
+        if self._independent:
+            # A custom pool can hand two Sessions the same physical connection.
+            # Committing that connection would commit the job's business writes.
+            with allow_session_writes():
+                business = self._business.connection().connection.driver_connection  # arch-allow-no-raw-connection-access: compare physical connection identities before custody DML so an unusual pool cannot commit the business transaction through its second Session
+                coordination = self._coordination.connection().connection.driver_connection  # arch-allow-no-raw-connection-access: identity inspection only, to refuse a shared physical connection before an independent custody commit
+            if business is coordination:
+                raise RuntimeError("Sync job custody requires independent database connections")
+            return fresh_write_scope()
+        return nullcontext()
+
+    def heartbeat(self) -> Lease:
+        """Renew independently when due, refusing a superseded or expired holder."""
+        assert self._guard is not None
+        with self._coordination_scope():
+            return self._guard.heartbeat()
+
+    def check(self) -> None:
+        """Fence successful local completion on the business transaction's lease lock."""
+        assert self._guard is not None
+        store = active_lease_store()
+        assert store is not None
+        renewed = store.renew(
+            self._business, self._guard.lease, ttl_seconds=SYNC_LEASE_TTL_SECONDS,
+        )
+        if renewed is None:
+            raise LeaseLostError()
+        self._guard = LeaseGuard(
+            self._coordination, renewed, ttl_seconds=SYNC_LEASE_TTL_SECONDS,
+        )
+
+    def release(self) -> None:
+        """A job releases after its transaction; a direct service call releases now."""
+        if not self._deferred:
+            assert self._guard is not None
+            self._guard.release()
+
+    def _finish(self) -> None:
+        try:
+            if self._guard is not None:
+                # The job's commit/rollback has finished. On SQLite this also
+                # repairs a first-acquire SAVEPOINT committed by legacy drivers,
+                # whose in-handler release would otherwise roll back on failure.
+                with fresh_write_scope():
+                    self._guard.release()
+        finally:
+            if self._independent:
+                self._coordination.close()
 
 
 def worker_holder() -> str:
@@ -142,6 +230,7 @@ __all__ = [
     "STALE_RUN_ERROR",
     "SYNC_LEASE_TTL_SECONDS",
     "SYNC_SOURCE_LEASE",
+    "SourceLeaseGuard",
     "close_stale_runs",
     "hold_source",
     "register_stale_run_reaper",

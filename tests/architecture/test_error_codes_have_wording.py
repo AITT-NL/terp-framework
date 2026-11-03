@@ -100,4 +100,6 @@ def test_the_core_is_read_whole() -> None:
         "rate_limited",
         "request_too_large",
         "internal_error",
+        "idempotency_not_supported",
+        "idempotency_replay_not_authorized",
     } <= _emitted()

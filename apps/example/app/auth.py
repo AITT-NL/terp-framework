@@ -121,6 +121,7 @@ login_module = build_login_module(
     throttle=login_throttle,
     refresh_issuer=_refresh.issue,
     refresh_rotator=_refresh.rotate,
+    refresh_revoker=_refresh.revoke_presented,
     principal_resolver=_identity.principal_for_id,
     require_refresh=True,
 )

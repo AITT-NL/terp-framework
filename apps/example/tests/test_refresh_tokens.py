@@ -226,10 +226,11 @@ def test_rotate_refuses_a_token_past_the_family_absolute_cap(db_session: Session
     assert service.rotate(db_session, raw) is None
 
 
-def test_purge_expired_deletes_only_dead_families(db_session: Session) -> None:
+def test_purge_expired_deletes_only_dead_families(db_session: Session, make_user) -> None:
     service = RefreshTokenService()
     dead_raw = service.issue(db_session, uuid.uuid4())
-    live_raw = service.issue(db_session, uuid.uuid4())
+    user_id = make_user("retained-family@example.test", "correct horse battery")
+    live_raw = service.issue(db_session, user_id)
 
     dead = _row_for(db_session, dead_raw)
     dead.family_expires_at = datetime.now(UTC) - timedelta(seconds=1)
