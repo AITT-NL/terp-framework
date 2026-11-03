@@ -42,13 +42,15 @@ Arguments: $ARGUMENTS
 The arguments name a target: a PR number or URL, a branch, a commit range, or a
 path. Any other words are the user's focus. With no target, review the work not
 yet on `main` in the repository you are working in: its commits, and its staged,
-unstaged and untracked changes. When the session spans several Terp repositories,
-review every one that has such work, together: a change split across repositories
-is one change. A bare PR number is then ambiguous, so ask which repository.
+unstaged and untracked changes. When the session's working directories hold
+several Terp repositories, review every one that has such work, together: a
+change split across repositories is one change. A bare PR number is then
+ambiguous, so ask which repository.
 
 - Run `git fetch origin main` first. A local `origin/main` can be far behind, and
   then merged work reads as new. If a shallow clone has no merge base, deepen it
-  (`git fetch --deepen=200 origin main`) and retry.
+  (`git fetch --deepen=200 origin main`) and retry. If the fetch fails, say so in
+  the report and name the base you used.
 - Local work: the base is `git merge-base origin/main HEAD`. Read
   `git log --format='%h %s%n%n%b' <base>..HEAD`, `git status --short`, then
   `git diff <base>`, which holds committed and uncommitted changes together. Open
@@ -93,9 +95,9 @@ hit it. Scan the added lines:
 git diff -U0 <range> | grep -E '^\+\+\+ |^\+.*(pragma: no cover|noqa|nosec|type: ignore|eslint-disable|@ts-(ignore|expect-error)|(istanbul|c8|v8) ignore|terp-allow-|arch-allow|pytest\.mark\.(skip|xfail)|pytest\.skip\(|(it|test|describe)\.(skip|only)\(|continue-on-error)'
 ```
 
-Each hit is a suppression that needs a reason on the line or in the change; an
-unexplained one on a security, coverage or Terp-rule check is Blocking. Then look
-for:
+Each hit is a suppression that needs a reason on the line or in the change. An
+unexplained one is Blocking when it silences a check the repository runs
+(security, coverage, a Terp rule), and Should fix when it is inert. Then look for:
 - a deleted or loosened test or assertion;
 - a ratchet, budget or baseline that grew (anything AGENTS.md says only shrinks);
 - coverage settings (`fail_under`, `omit`, exclusions), or lint and scanner
@@ -117,8 +119,9 @@ claims what the code does not do is a finding.
 **Tests.** Every behavioural change is pinned by a test that fails without it,
 including the refusals (the denied, expired, replayed or tampered case). Run the
 tests that cover the change. When a test's power is doubtful and it matters, prove
-it in a scratch worktree outside the repository: revert the non-test change, run
-the test, expect red, then remove the worktree.
+it in a scratch worktree outside the repository, then remove the worktree: revert
+the non-test change and expect the test to go red; for a deleted or loosened
+test, restore the original against the change and expect red.
 
 **The repository's own rules.** Walk AGENTS.md section by section and check each
 rule the change touches. Where it couples this repository to another (a pinned
@@ -144,7 +147,7 @@ across subagents, but verify what they return yourself.
 
 **Verdict:** Ready | Not ready (<one line>)
 
-1. **Blocking: <the defect>** `path:line`
+1. **Blocking: <the defect>** `path:line` (or the commit)
    <What is wrong, and the concrete failure: input or state, then the wrong
    outcome. For a rule, quote it from AGENTS.md.>
    Evidence: <the line, or the command and its output>
