@@ -174,6 +174,11 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         "dependency-audit-npm",
         "frontend-boundaries",
         "routes-drift",
+        # Does the committed API contract still describe the API the app serves? A
+        # native client already installed, or a site built elsewhere, runs against
+        # whatever ships next, and a removed field is a one-line edit every other check
+        # passes (ADR 0194). Before api-client, which generates from that same file.
+        "api-contract",
         # The generated API client is an INPUT to the typecheck below and is
         # gitignored, so a fresh checkout has none: producing it belongs to the
         # profile, not to whatever steps a scaffolded workflow happens to list.
@@ -1971,6 +1976,10 @@ def _stub_generation(
     calls: list[dict[str, object]] = []
 
     def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[1:3] == ["ls-files", "--error-unmatch"]:
+            # The contract probe (ADR 0194) answered "not tracked", so these tests stay on
+            # the export path; a tracked contract has its own tests in test_api_contract.
+            return subprocess.CompletedProcess(argv, 1, "", "")
         calls.append({"argv": argv, **kwargs})
         return subprocess.CompletedProcess(argv, returncode, "generated 1 file\n", "")
 

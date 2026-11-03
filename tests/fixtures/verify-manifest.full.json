@@ -199,13 +199,24 @@
       ]
     },
     {
+      "id": "api-contract",
+      "category": "build",
+      "command": "terp verify --only api-contract",
+      "scope": [
+        "app/**",
+        "control_plane/**",
+        "openapi.json"
+      ]
+    },
+    {
       "id": "api-client",
       "category": "build",
       "command": "terp verify --only api-client",
       "scope": [
         "app/**",
         "control_plane/**",
-        "frontend/package.json"
+        "frontend/package.json",
+        "openapi.json"
       ]
     },
     {

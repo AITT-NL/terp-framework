@@ -12,6 +12,28 @@ decision, 0001 onwards.
 
 ## 0.35.1 — unreleased
 
+### Added
+
+- **An app's API contract is a committed file, and a change that breaks a client is named
+  before it ships (ADR 0194).** A native client already installed on a phone, or a site built
+  in another repository, runs against whatever the app serves next, and the production profile
+  rightly hides the schema endpoints, so nothing recorded the shape such a client was built
+  against: a removed response field or a new required request field passed every gate. The
+  committed `openapi.json` is now that record. `terp verify --only api-contract`, in `quick`,
+  `full` and `release`, holds it to the composed app with the shape of the authority baseline
+  (ADR 0139): an untracked file is a skip that names how to adopt it, and a tracked one that
+  differs is red, every difference on its own line, the breaking ones first, for example
+  `BREAKING GET /api/v1/notes/{item_id}: response 200 field 'title' removed`. Breaking is
+  decided from the client's side: a request that refuses what it accepted, a response that may
+  produce what it never did, including a new `enum` value, which a strict decoder in a native
+  client refuses. The pin is exact, because the file is what other repositories pin.
+  `terp openapi` is the writer, and when it overwrites a contract that differs it prints the
+  same lines first. `api-client` generates the typed client from a tracked contract instead of
+  exporting over it, and `terp release` carries the contract in the signed manifest's
+  `inputs`, so a release names the exact contract it serves. The template no longer ignores
+  `openapi.json`: after `copier update`, the next gate run writes the file, and an app commits
+  it to adopt the check, or lists it in `.gitignore` again to stay out.
+
 ### Changed
 
 - **A public website has a defined way to connect to a Terp app, and is still not a kind of

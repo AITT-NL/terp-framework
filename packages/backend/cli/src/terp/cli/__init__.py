@@ -41,7 +41,7 @@ from terp.cli.jobs import (
     run_scheduler_command,
     run_worker_command,
 )
-from terp.cli.openapi import _load_app, export_openapi
+from terp.cli.openapi import _load_app, export_openapi, run_openapi_command
 from terp.cli.routes import run_routes_command
 from terp.cli.profiles import DEFAULT_PROFILE, profile_names
 from terp.cli.scaffold import new_module, new_module_message
@@ -1100,6 +1100,9 @@ The security declaration (SecurityConfig, refused at production boot)
   /openapi.json are hidden there because a production API's full schema is not public
   information. Development always serves them, and `terp openapi` exports the document
   either way - so turning this on is a choice to publish, not a way to get the file.
+  Commit that file instead: `openapi.json` is the app's API contract, the one a mobile
+  app or a site in another repository pins, and `terp verify --only api-contract` holds
+  it to the API the app serves and names every change that breaks a client (ADR 0194).
 - headers ships a safe SecurityHeaders set; max_request_bytes (1 MiB) is the body cap and
   is per-mount overridable (ADR 0067); request_id_header names the correlation header
   ("X-Request-ID") echoed on every response.
@@ -5182,7 +5185,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             emit(f"wrote {path}")
         return
     if args.command == "openapi":
-        emit(f"wrote {export_openapi(args.app, out=args.out, app_root=args.app_root)}")
+        emit(run_openapi_command(args.app, out=args.out, app_root=args.app_root))
         return
     if args.command == "routes":
         emit(

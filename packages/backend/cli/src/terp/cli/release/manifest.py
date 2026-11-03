@@ -28,6 +28,7 @@ import tomllib
 from typing import Any
 
 from terp.arch.deployment import DEPLOYMENT_FILE
+from terp.cli.api_contract import CONTRACT_ARTIFACT
 from terp.arch.deployment.datastores import parse_image
 from terp.arch.deployment.reader import DEV_COMPOSE_FILE
 
@@ -46,6 +47,17 @@ DEFAULT_INDEX = "https://pypi.org/simple"
 def _file(tree: Tree, path: str) -> dict[str, str]:
     data = tree.bytes(path)
     return {"path": path, "sha256": sha256(data), "content": data.decode("utf-8")}
+
+
+def carried_contract(tree: Tree) -> dict[str, dict[str, str]]:
+    """``{"contract": <carried file>}`` when the commit holds an API contract, else nothing.
+
+    ADR 0194: the committed ``openapi.json`` rides in the signed manifest, so a release names
+    the exact contract it serves under the same signature as its images, and a client in
+    another repository pins a release to read it. An app that has not adopted the contract
+    carries none, and its manifest is unchanged.
+    """
+    return {"contract": _file(tree, CONTRACT_ARTIFACT)} if tree.has(CONTRACT_ARTIFACT) else {}
 
 
 def _base_images(tree: Tree, plan: Plan) -> list[dict[str, str]]:
@@ -147,6 +159,7 @@ def inputs(
             "buildBackend": _build_backend_indexes(tree),
         },
     }
+    section.update(carried_contract(tree))
     if generator is not None:
         section["generator"] = generator
     return section
@@ -206,7 +219,10 @@ def parse(payload: bytes) -> dict[str, Any]:
     if given.get("build") not in ("own", "generated"):
         raise ReleaseError("the manifest's inputs.build is neither own nor generated")
     _need(_need(given.get("spec"), dict, "inputs.spec").get("release"), str, "inputs.spec.release")
-    for item in [_need(given.get("declaration"), dict, "inputs.declaration"), *_need(given.get("profiles"), list, "inputs.profiles")]:
+    carried = [_need(given.get("declaration"), dict, "inputs.declaration"), *_need(given.get("profiles"), list, "inputs.profiles")]
+    if "contract" in given:
+        carried.append(_need(given["contract"], dict, "inputs.contract"))
+    for item in carried:
         _need(item, dict, "inputs.profiles[]")
         for key in ("path", "sha256", "content"):
             _need(item.get(key), str, f"carried file {key}")
@@ -220,4 +236,4 @@ def parse(payload: bytes) -> dict[str, Any]:
     return manifest
 
 
-__all__ = ["HOSTS", "PROJECT_ROOT", "SCHEMA_VERSION", "development_profile", "assemble", "inputs", "parse", "purls", "sbom"]
+__all__ = ["HOSTS", "PROJECT_ROOT", "SCHEMA_VERSION", "assemble", "carried_contract", "development_profile", "inputs", "parse", "purls", "sbom"]
