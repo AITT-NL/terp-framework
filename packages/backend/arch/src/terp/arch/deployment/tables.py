@@ -55,8 +55,8 @@ BASE_IMAGE_SOURCES: dict[str, str] = {
         "for linux/386, amd64, arm/v5, arm/v7, arm64/v8, ppc64le, riscv64 and s390x"
     ),
     "uv": (
-        "the registry's OCI image index for ghcr.io/astral-sh/uv:0.13.6 (what docker buildx "
-        "imagetools inspect reads), read 2026-11-03: uv 0.13.6, built 2026-10-27, for "
+        "the registry's OCI image index for ghcr.io/astral-sh/uv:0.13.7 (what docker buildx "
+        "imagetools inspect reads), read 2026-11-03: uv 0.13.7, released 2026-11-03, for "
         "linux/amd64 and arm64"
     ),
 }
