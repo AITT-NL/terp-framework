@@ -26,7 +26,8 @@ the typed model instead, because some of them are what the reader refuses first 
 table does not carry), and the generator must still refuse them on its own.
 
 Set ``TERP_WRITE_GOLDENS=1`` to write each sample's expected files from the current render,
-then review the diff: a golden that moves is a change every generated app meets.
+and the template's two Dockerfiles from the seed's, then review the diff: a golden that moves
+is a change every generated app meets.
 """
 
 from __future__ import annotations
@@ -148,6 +149,35 @@ def _profile(files: dict[str, bytes]) -> dict:
     return yaml.safe_load(files[PROFILE].decode("ascii"))
 
 
+#: The template files the goldens writer also writes: the two Dockerfiles, which are the render
+#: verbatim. The profile is not, because the template wraps its files volume in an answer.
+_WRITTEN_FROM_THE_RENDER = (BACKEND_DOCKERFILE, FRONTEND_DOCKERFILE)
+
+
+def _not_the_render(path: str, template: pathlib.Path) -> str:
+    """What a template file that is not the seed's render says, and how it is put right."""
+    where = template.relative_to(_REPO).as_posix()
+    if path not in _WRITTEN_FROM_THE_RENDER:
+        return (
+            f"{where} is not the seed's render: change the generator "
+            "(terp.arch.deployment.generator), never the template's copy, and write the "
+            "template's file from the render"
+        )
+    return (
+        f"{where} is not the seed's render. Change it where it comes from, never in the "
+        "template's copy: a base image's digest in terp-arch's base-image table "
+        "(packages/backend/arch/src/terp/arch/deployment/base-images.json, and where it was "
+        "read in tables.BASE_IMAGE_SOURCES), any other line in the generator "
+        "(terp.arch.deployment.generator). Then write the template's Dockerfiles from the "
+        "render with `TERP_WRITE_GOLDENS=1 uv run pytest "
+        "tests/architecture/test_deployment_generator.py` and review the diff. A Dependabot "
+        "pull request that moves a digest here fails this on purpose: it is the signal that a "
+        "newer base exists. Read the current digest of the tag the table names (`docker buildx "
+        "imagetools inspect <tag>`; the pull request's digest can be another tag's), move it "
+        "in the table, render, and close the pull request"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # the seed is the template                                                      #
 # --------------------------------------------------------------------------- #
@@ -168,13 +198,26 @@ def test_the_seed_renders_the_template_s_own_files_byte_for_byte(use_files: bool
     assert set(files) == set(OWNED_PATHS)
     for path, template in _TEMPLATE_FILES.items():
         rendered = files[path].replace(_SLUG.encode(), _PLACEHOLDER.encode())
+        if _WRITE and path in _WRITTEN_FROM_THE_RENDER:  # pragma: no cover - run by hand
+            template.write_bytes(rendered)
         text = answer_files(template.read_bytes().decode("ascii"), use_files)
-        assert text.encode("ascii") == rendered, (
-            f"template/project/{template.name} is not the seed's render: change the generator "
-            "(terp.arch.deployment.generator), never the template's copy, and write the "
-            "template's file from the render"
-        )
+        assert text.encode("ascii") == rendered, _not_the_render(path, template)
     assert _SLUG.encode() not in b"".join(_TEMPLATE_FILES[path].read_bytes() for path in files)
+
+
+def test_a_template_dockerfile_off_its_render_says_where_a_digest_moves_and_how_to_render() -> None:
+    """A Dependabot pull request against the template's Dockerfiles meets the assertion above,
+    so its message is what explains that pull request: where a base's digest is moved, and the
+    command that writes the template from the render. The profile keeps the generator's own."""
+    for path in _WRITTEN_FROM_THE_RENDER:
+        template = _TEMPLATE_FILES[path]
+        message = _not_the_render(path, template)
+        assert message.startswith(f"template/project/{path} is not the seed's render"), message
+        assert "packages/backend/arch/src/terp/arch/deployment/base-images.json" in message
+        assert "`TERP_WRITE_GOLDENS=1 uv run pytest " in message
+        assert "close the pull request" in message
+    profile = _not_the_render(PROFILE, _TEMPLATE_FILES[PROFILE])
+    assert "base-images.json" not in profile and "terp.arch.deployment.generator" in profile
 
 
 def test_the_files_volume_is_rendered_only_where_the_answer_is_on() -> None:

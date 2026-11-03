@@ -286,7 +286,7 @@ def _normalise_constraint_order(definition: str) -> str:
 
 def _schema_snapshot(database_url: str) -> dict[str, str]:
     """Every schema object the database itself reports, by name, as the server renders it."""
-    engine = create_engine(database_url)
+    engine = create_engine(database_url, hide_parameters=True)
     try:
         snapshot: dict[str, str] = {}
         with engine.connect() as connection:
@@ -300,7 +300,7 @@ def _schema_snapshot(database_url: str) -> dict[str, str]:
 
 def _applied_revision_labels(database_url: str, labels: Sequence[str]) -> list[str]:
     """The labels whose ``alembic_version_<label>`` table still holds a revision."""
-    engine = create_engine(database_url)
+    engine = create_engine(database_url, hide_parameters=True)
     try:
         still_applied: list[str] = []
         existing = set(inspect(engine).get_table_names())

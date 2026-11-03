@@ -10,7 +10,41 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.35.0 — unreleased
+## 0.35.1 — unreleased
+
+### Changed
+
+- **A generated app's production images build on newer bases.** terp-arch's base-image table
+  moves uv from 0.13.4 to 0.13.6, `node:26-slim` from Node.js 26.12.0 to 26.13.0 and
+  `python:3.14-slim` from Python 3.14.8 to 3.14.10, each by digest; the digest the nginx base's
+  tag names has not moved. The template's two production Dockerfiles are written from the
+  table again, and the signer image moves with the Python base. An app on
+  `"build": "generated"` takes the new digests with `terp deployment render`.
+- **A Dependabot pull request against the template's Dockerfiles explains itself.** Those
+  Dockerfiles are rendered from the base-image table (ADR 0187), so a pull request that moves a
+  digest in them always fails the gate, and it is still the only sign that a patched base
+  exists. It now arrives as one grouped pull request a week, and the comment beside it in
+  `.github/dependabot.yml` and the gate's failure message both say what to do with it: read the
+  current digest of the tag the table names, move it in the table, write the template from the
+  render with `TERP_WRITE_GOLDENS=1 uv run pytest tests/architecture/test_deployment_generator.py`,
+  and close the pull request. Its own digest is not to be copied: Dependabot cannot see the tag
+  on a `FROM` line pinned by digest alone, and two of the last three it proposed were another
+  tag's image.
+
+### Fixed
+
+- **A date picker and the DataView page-size trigger name the value they show (WCAG 2.5.3).**
+  Each trigger was named by its label alone, and `aria-label` replaces a button's content in
+  its accessible name, so a picker showing "Jan 15, 2026" was announced as "Due date" and the
+  page-size trigger showing "25" as "Rows per page": a screen reader never heard the value, and
+  a voice-control user saying what they could see named nothing. Each is now named by its label
+  and then the text it shows. No framework string is added, so every locale catalog stays
+  complete. `DatePicker` and `DateRangePicker` also take `aria-labelledby` and
+  `aria-describedby`, which `Field` passes and they used to drop: in a `Field` the trigger is
+  named by the label text rather than by the whole label with its hint and error, and is
+  described by the hint and the error.
+
+## 0.35.0 — 2026-11-02
 
 A value only a deployment needs had to be required everywhere. `environment.schema.json` could
 say that a variable must be set, but not where, so `JOB_SYSTEM_ACTOR_ID` — which a production
@@ -100,6 +134,19 @@ was a plain block. Nothing said which rule the guard decided by, no code read an
 `log_context`, and an unexpected exception was written twice. Every line is now one record in a
 versioned schema.
 
+The log redacted secrets, and nothing could tell it which fields held personal data: an email
+address is a string like any other. A model handed to the log wrote every field, and a signup with
+an address already taken wrote the address, because the 409's context repeated the database's
+refusal. A field now declares itself personal, and the log, the audit trail and event definitions
+read the declaration.
+
+And the destructive-migration rule knew drops and type changes and nothing else, so a rename
+or a NOT NULL tightening of an existing column passed the gate. Both break a deploy the same
+way a drop does: the release still running reads the old name, and the first row that holds
+`NULL` refuses the tightening. Neither shows on a scratch database, which holds no rows and
+runs no old release. The rule now reads every step of that kind, and each finding says how to
+split it across releases.
+
 ### Security
 
 - **A rendered environment file can no longer be baked into an image.** The template's
@@ -116,8 +163,8 @@ versioned schema.
 - **A refused setting no longer prints its value.** When the settings object refused a value,
   Pydantic printed a shortened copy of the input beside the error, and for a production boot
   refused over another field that copy ended in the tail of `DATABASE_URL`, which is where its
-  password is. Every settings error now names the field and the rule and nothing of the value.
-  ADR 0189.
+  password is. Every settings error now names the field and the rule and nothing of the value,
+  and a refused production boot is written as one log record. ADRs 0188 and 0189.
 
 ### Added
 
@@ -498,9 +545,68 @@ versioned schema.
   (5xx) is ERROR, with its traceback.
 - **`terp guide logging`**: the record format, what the framework writes for you, and what
   redaction covers.
+- **`Personal(...)` declares a field as personal data.** It is `Field` with one more fact,
+  recorded in the field's metadata (`personal_fields(Model)`) and in a table column's `info`
+  (`personal_columns()`, from database metadata alone); no DDL, JSON schema or OpenAPI change, so
+  no migration. Declare it on the table and on every schema that redeclares the field. What reads
+  it: the log (a model renders `[PERSONAL]` in place of each declared field wherever it is
+  rendered, and a value under a declared field's name in `extra=` or `log_context` is withheld,
+  `personal_field_names()`); the audit trail (a payload keeps the key and loses the value); a
+  validation error (a model with a personal field hides its input in the error's text, while the
+  422 its caller receives still shows what it sent); and event and job definitions (a `PUBLIC`
+  payload may not declare a personal field). `redact_personal(payload)` is the shared copy for
+  anything that may leave the process. ADR 0190.
+- **The `personal_fields_are_declared` rule**: a model field named like personal data (an email
+  address, a phone number, a date of birth, a national identifier, a person's name, a home
+  address, the name's last words) is declared `Personal`, or carries
+  `# arch-allow-personal-fields-are-declared: <why it is not personal>`. Its Terp Standard entry is
+  in terp-spec 0.40.0. **`terp guide personal-data`** documents the declaration and the rule.
+- **`seed_checksum`, in `terp.core.testing`: a seed proven deterministic.** A seed owes two
+  things: a second run on the same database writes nothing, and two fresh databases it seeds
+  hold the same data. The second could not be checked by comparing rows. Seeding the
+  reference app twice into fresh databases differs in exactly four places: every primary key
+  is a new `uuid4`, every `created_at` and `updated_at` is that run's moment, every password
+  hash has a new salt, and every owner, actor stamp and audit target carries one of those new
+  ids. Nothing else differs. The checksum covers the business columns, by one rule. It leaves
+  out a table's own single-column primary key and every `DateTime` column. It compares a PHC
+  hash by its scheme and parameters only. It replaces a value that is some row's UUID key,
+  whether in a foreign key, a text reference or a JSON payload, with that row's table and a
+  fingerprint of its business columns. It keeps everything else, a `Date` included, and
+  compares rows as a set. `generated=True` keeps every column as stored, so two equal
+  checksums of that kind mean nothing was written in between. `test_seed_checksum.py` holds
+  the reference app's seed and the template's to both properties, on SQLite and in CI's
+  PostgreSQL lane. Both already met them, so neither seed changed. Their docstrings now state
+  the two properties, and `terp guide testing` shows the test an app writes for its own seed.
+- **`destructive_operations` and `revision_header`, in `terp.arch`: a revision read as data.**
+  `destructive_operations(source)` lists every destructive step `no_destructive_migrations`
+  finds in a revision's `upgrade()`, excused by its marker or not, as
+  `DestructiveOperation(ordinal, kind, line, operation)`. `kind` is one of the rule's five
+  (`drop`, `rename`, `type`, `not-null`, `constraint`), `ordinal` counts from 1 in source
+  order, and `operation` is one line of at most 200 code points naming the call and what it
+  acts on, such as `drop_column invoice.legacy_ref` or `execute: TRUNCATE invoice_run`. The
+  docstring pins its format. The rule now reports exactly the list's five kinds, so the gate
+  and a reader that lists a release's destructive steps cannot disagree. Its findings are
+  unchanged; within one file they are now in source order. The list has a sixth kind the rule
+  never reports, `opaque`, for each step it cannot read: an `execute` or `exec_driver_sql`
+  whose statement has no text in the source (`execute: ?`, a statement in a variable or a
+  SQLAlchemy construct), and a call the reading cannot follow (`call <name>`: a helper imported
+  from another module, a callable held in a name, a method of an imported module or of a class
+  the revision defines, a `getattr` whose name is computed). A reader that must not miss a
+  destructive step has a person confirm each one. The framework's own histories hold two, the
+  computed trigger statements of the audit capability's append-only revision. `revision_header(source)` returns the `revision` and
+  the `down_revision` (`None`, a string or a tuple), and refuses by name a header it cannot
+  read for certain. Neither function imports or runs the file.
 
 ### Changed
 
+- **Certified against terp-spec 0.40.0.** The five rules this release implemented ahead of
+  their catalog entries — `personal_fields_are_declared`, `deployment_declaration_is_readable`,
+  `deployment_declaration_tells_the_truth`, `deployment_generated_files_match_their_render`
+  and `expand_revisions_only_expand` — and the destructive-migrations sample it reported
+  ahead of the published corpus are in that release; the four pins (`pyproject.toml`,
+  `terp.arch.SPEC_VERSION`, `@terpjs/eslint-boundaries`'s dependency and its `SPEC_VERSION`)
+  move to it, and the three allowances (`_AWAITING_SPEC_RELEASE` for rules and for lanes,
+  `VERDICTS_AWAITING_SPEC_RELEASE` for corpus verdicts) are empty again.
 - **The boot guard admits a database one migration run ahead, inside its schema window**
   (ADR 0185 decision 3). A package at a revision the code does not define is walked back
   through the record to exactly the code's head. Every row the newest run wrote for a revision
@@ -678,6 +784,47 @@ versioned schema.
 - `cache`, `idempotency`, `throttling` and `leases` import `Lock` by name, as the
   `no_adhoc_background_runtime` rule asks, so core's unscanned record for that rule falls from 4
   to 1.
+- **The framework's own email fields are declared personal**: identity's `User.email` and the
+  email fields of the auth, identity, users and groups schemas. The column's DDL is unchanged.
+- **The three rules that read a field's keywords read `Personal` as they read `Field`**:
+  `input_str_fields_have_max_length`, `no_unique_columns_on_soft_delete_models` and
+  `references_declare_delete_behaviour`, so the declaration is no way around any of them.
+- **`no_destructive_migrations` reports renames, NOT NULL tightening and constraints the
+  existing rows may break.** A rename (`rename_table`, `alter_column(new_column_name=...)`,
+  `ALTER TABLE ... RENAME`) breaks the release still running, which reads the old name. A NOT
+  NULL tightening of an existing column (`alter_column(nullable=False)`, `SET NOT NULL`) fails
+  on the first row holding `NULL`. A constraint added to an existing table can fail the same
+  way, on the first row that breaks it: `create_unique_constraint`, `create_check_constraint`,
+  `create_foreign_key`, `create_primary_key`, `create_exclude_constraint`,
+  `create_index(unique=True)`, `ADD CONSTRAINT`, `CREATE UNIQUE INDEX` and `VALIDATE
+  CONSTRAINT`. A raw `ALTER COLUMN ... TYPE` is now a type change like
+  `alter_column(type_=...)`, and a raw `DROP SCHEMA` a drop. A statement is also read through
+  `exec_driver_sql`, and as a whole when an f-string or a `+` builds it; a text holding several
+  statements is read one statement at a time, split at each `;` outside a quoted string or name,
+  a dollar-quoted body and a comment, so a drop and a rename in one `execute()` are two
+  findings. The rule reads what the migration runs, not only what `upgrade()` spells: every
+  function of the revision `upgrade()` calls by name, transitively and each once, an operation
+  imported by name (`from alembic.op import drop_column`) or looked up with a literal
+  `getattr(op, "drop_table")`, and the function a top-level `upgrade = _up` names. A statement
+  held in a variable and an operation whose name is computed stay unread. Each kind has its own
+  message, which says what to do instead: expand, backfill with a job, and contract in a later
+  release, where the contract step takes `# arch-allow-no-destructive-migrations: <reason>`
+  after review. Two shapes stay clean, because no existing row can break them. One is any step
+  on a table the same `upgrade()` creates. The other is a unique, foreign-key or unique-index
+  constraint on columns the same `upgrade()` adds nullable with no server default, which is how
+  autogenerate writes a new reference column. A check or a foreign key added `NOT VALID` is
+  clean too, and so is a constraint rename. Not reported is not the same as an expand step: a
+  constraint on an existing table, and any `execute()`, never is one.
+  `test_destructive_migrations.py` holds the rule to a test set of twenty destructive
+  operations, each in its op, raw-SQL or batch form, and to 27 look-alikes that must pass.
+  `terp guide no_destructive_migrations` carries the decision path, and `terp guide migrations`
+  the five kinds. The rule moved to its own module, `terp.arch.rules.destructive_migrations`. The
+  terp-spec corpus carries the same cases from 0.40.0. Until that release is pinned, the one
+  published sample the rule now reports (`compliant-01`, an `alter_column(nullable=False)`) is
+  listed in `VERDICTS_AWAITING_SPEC_RELEASE`, the corpus counterpart of ADR 0116's allowance:
+  `test_spec_corpus` asserts that case inverted, the conformance scorecard leaves the rule
+  unclaimed rather than claim a verdict the harness does not give, and a release cannot be cut
+  while the list is non-empty.
 
 ### Upgrade notes
 
@@ -891,6 +1038,22 @@ versioned schema.
 - An app started with `uvicorn.run(app)` from Python, rather than uvicorn's command line,
   composes before uvicorn configures its loggers; pass `log_config=None` to keep uvicorn's lines
   on the framework's handler.
+- **`terp check` names every model field called like personal data that is not declared**
+  (`personal_fields_are_declared`). Replace `Field(...)` with `Personal(...)` on the table and on
+  each schema that declares the field, keyword for keyword, or justify a field that holds no
+  person's data with the rule's marker and count it in `escape-hatch-budget.json`. No migration
+  follows from either.
+- `repr` and `str` of a Terp model with a declared field show `[PERSONAL]`, in a test's assertion
+  output too: compare the field, not the rendering. A validation error from such a model no
+  longer repeats its input in its text.
+- A value logged under a declared field's name is withheld whatever it holds: `extra={"email":
+  ...}` writes `[PERSONAL]` once any model declares `email` personal.
+- **A revision already in an app's history can now be reported.** The rule reads every
+  revision under `migrations/versions`, including the applied ones. A revision that renamed,
+  tightened or constrained an existing table before this release needs
+  `# arch-allow-no-destructive-migrations: <reason>` on the operation, and the app's
+  `escape-hatch-budget.json` needs the new count. The reason records what was reviewed when
+  the revision shipped. None of the framework's own histories needed one.
 
 ### Fixed
 
@@ -986,10 +1149,6 @@ versioned schema.
   set, an object with its own `__str__`) is redacted as that text; a value that starts with `%`
   (`%40...`) is no longer taken for a message placeholder, which only a template still waiting
   for its arguments has; and a URL password holding an unencoded `/` is caught.
-- **A refused production configuration printed part of the configuration.** The settings'
-  validation error repeated its input, truncated in the middle, so the tail of `DATABASE_URL`,
-  password included, could reach the boot log. `Settings` hides its input in errors, and the
-  refusal is written as a record.
 - **A test no longer sees the logging an earlier test's app configured.** `create_app`
   configures logging for the whole process, and terp-core's pytest plugin did not put it back:
   the first test to compose an app re-dressed pytest's own capture handlers with the JSON
@@ -999,10 +1158,28 @@ versioned schema.
   runtime seam (`reset_logging_runtime`), snapshotted before each test and restored after it;
   the reset gives a handler the framework did not create its own formatter back. The JSON
   formatter also leaves `record.message` on the record, as `logging.Formatter` does.
-- **No framework text claims personal-data redaction any more.** ADR 0005, ADR 0006, the
-  logging module and the `no_adhoc_logging_config` rule's docstring and finding said "PII
-  redaction"; the filter recognises secrets only, and they now say so. The Terp Standard's
-  catalog entry for that rule makes the same claim, and its correction is a terp-spec change.
+- **No framework text claims more personal-data redaction than there is.** ADR 0005, ADR 0006,
+  the logging module and the `no_adhoc_logging_config` rule's docstring and finding said "PII
+  redaction" while the filter recognised secrets only. They now say what it does: secrets by
+  name and shape, and personal data where a field is declared `Personal`. The Terp Standard's
+  catalog entry for that rule made the same claim, and terp-spec 0.40.0 corrects it.
+- **A refused duplicate wrote the personal values of the row into the log.** A unique
+  constraint's 409 carried SQLAlchemy's message in `log_context`, which repeats the statement's
+  parameters and the database's `Key (email)=(...) already exists`. The declared personal values
+  of every row in flight are now withheld from it. And every engine the framework builds, the
+  migration tooling's included, sets `hide_parameters`, so an error no service handles no longer
+  writes the statement's parameters into its traceback.
+- **A raw `DROP NOT NULL` is no longer read as a drop.** `ALTER TABLE ... ALTER COLUMN ...
+  DROP NOT NULL` relaxes a column. It is the direction `alter_column(nullable=True)` spells,
+  and that call always passed. The `ALTER TABLE ... DROP` pattern matched the word `DROP`
+  anyway.
+- **A revision whose file name begins with `_` was never read.** Alembic loads every `.py`
+  file in `versions/` except `__init__.py` and an editor's `.#` lock file, so `_b2_hotfix.py`
+  ran while every migration rule skipped it, and a drop in it passed the gate. The rules now
+  read exactly the files Alembic loads, `tables_have_migrations` counts the same files as a
+  module's migration, and `MigrationTree.has_revision_files` counts the same set: a tree whose
+  one revision is `_b2_hotfix.py` is runnable, and a lock file no longer makes an empty tree
+  look runnable. An app with such a revision can see findings it did not before.
 
 ## 0.34.0 — 2026-10-09
 

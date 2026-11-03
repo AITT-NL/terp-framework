@@ -63,7 +63,7 @@ _VERSION_TABLE = re.compile(r"alembic_version_[a-z0-9_]+")
 #: Every version table, read in the release's own image with the migration step's environment.
 _READ_VERSIONS = """\
 import json, os, re, sqlalchemy as sa
-engine = sa.create_engine(os.environ["DATABASE_URL"])
+engine = sa.create_engine(os.environ["DATABASE_URL"], hide_parameters=True)
 schema = "public" if engine.dialect.name == "postgresql" else None
 found = {}
 with engine.connect() as connection:

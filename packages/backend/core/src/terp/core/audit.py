@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Final
 
+from pydantic import BaseModel
 from sqlmodel import Session
 
 from terp.core._internal.engine import get_engine
@@ -42,6 +43,7 @@ from terp.core._internal.session_guard import (
     fresh_write_scope,
 )
 from terp.core.logging import get_request_id
+from terp.core.personal import PERSONAL, is_personal_name, redact_personal
 from terp.core.runtime import register_runtime_seam
 
 _logger = logging.getLogger("terp.core.audit")
@@ -110,7 +112,10 @@ class AuditPolicy:
 
     The default audits **every** mutation. Redaction is centralized here
     (:attr:`redact_keys`) so a careless payload cannot leak a secret into the
-    trail or the logs. Disabling audit is a conscious, greppable act
+    trail or the logs. A field a model declares personal (:func:`~terp.core.Personal`,
+    ADR 0190) keeps its key and loses its value, to ``[PERSONAL]``: the trail says that
+    the field was there, and the row it points at holds the value for as long as the
+    row exists. That is not overridable. Disabling audit is a conscious, greppable act
     (:meth:`disabled`) — a security control may not be silently absent.
     """
 
@@ -140,24 +145,28 @@ class AuditPolicy:
         return cls(enabled=False, disabled_reason=reason.strip())
 
     def redact(self, payload: Mapping[str, Any] | None) -> dict[str, Any] | None:
-        """Return a copy of *payload* with credential-bearing values masked."""
+        """Return a copy of *payload* with secrets and declared personal values masked.
+
+        A model anywhere in it is stored as its JSON dump, each declared personal field
+        ``[PERSONAL]``.
+        """
         if not payload:
             return None
-        return {
-            key: (
-                _REDACTED if self._is_sensitive(str(key)) else self._redact_value(value)
-            )
-            for key, value in payload.items()
-        }
+        return {key: self._redact_item(key, value) for key, value in payload.items()}
+
+    def _redact_item(self, key: Any, value: Any) -> Any:
+        name = str(key)
+        if self._is_sensitive(name):
+            return _REDACTED
+        if is_personal_name(name):
+            return PERSONAL
+        return self._redact_value(value)
 
     def _redact_value(self, value: Any) -> Any:
+        if isinstance(value, BaseModel):
+            return self._redact_value(redact_personal(value))
         if isinstance(value, Mapping):
-            return {
-                key: (
-                    _REDACTED if self._is_sensitive(str(key)) else self._redact_value(item)
-                )
-                for key, item in value.items()
-            }
+            return {key: self._redact_item(key, item) for key, item in value.items()}
         if isinstance(value, list):
             return [self._redact_value(item) for item in value]
         if isinstance(value, tuple):

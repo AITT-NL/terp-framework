@@ -120,6 +120,12 @@ def lockstep_version() -> str:
     return tomllib.loads((BACKEND / "core" / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
 
 
+def minor_after(version: str, steps: int = 1) -> str:
+    """*version* with its minor raised by *steps* and its patch at zero: a release this tree is not."""
+    major, minor, _patch = (int(part) for part in version.split("."))
+    return f"{major}.{minor + steps}.0"
+
+
 def backend_packages() -> list[pathlib.Path]:
     """Every backend distribution of this tree, the way template acceptance builds them."""
     fixed = [BACKEND / name for name in ("core", "arch", "migrations", "cli")]
@@ -136,10 +142,12 @@ def _copy_package(source: pathlib.Path, destination: pathlib.Path) -> None:
 def framework_wheels(version: str, out: pathlib.Path, scratch: pathlib.Path) -> dict[str, pathlib.Path]:
     """Every backend wheel of this tree, rebuilt as release *version*: ``{distribution: wheel}``.
 
-    The lane needs two framework releases from the floor ``sign`` reads up (0.35.0), one minor
+    The lane needs two framework releases above the floor ``sign`` reads (0.35.0), one minor
     apart, and they are not on an index yet: so the tree is built twice, each time with every
     lockstep pin (``version = "<v>"`` and ``==<v>``) rewritten. Nothing else differs, which is
-    what a framework minor that ships no migration looks like to a deployed app.
+    what a framework minor that ships no migration looks like to a deployed app. *version* may
+    not be the version the tree carries, or the rewrite would change nothing: the lane takes
+    the minors after it (``minor_after``), so a release bump of the tree moves them along.
     """
     current = lockstep_version()
     out.mkdir(parents=True, exist_ok=True)

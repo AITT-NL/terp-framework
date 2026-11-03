@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from sqlmodel import Field
 
-from terp.core import BaseSchema, BaseUpdateSchema, Roles
+from terp.core import BaseSchema, BaseUpdateSchema, Personal, Roles
 
 from terp.capabilities.identity import UserRead
 
@@ -34,7 +34,7 @@ class UserProvision(BaseSchema):
     user's next login. The default is the viewer rank.
     """
 
-    email: str = Field(max_length=320)
+    email: str = Personal(max_length=320)
     password: str = Field(max_length=256)
     role: int = Field(default=int(Roles.VIEWER), ge=0)
 
@@ -46,7 +46,7 @@ class UserAdminUpdate(BaseUpdateSchema):
     ``reactivate`` actions, not this generic patch.
     """
 
-    email: str | None = Field(default=None, max_length=320)
+    email: str | None = Personal(default=None, max_length=320)
     role: int | None = Field(default=None, ge=0)
 
 

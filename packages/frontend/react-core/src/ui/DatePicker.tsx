@@ -23,7 +23,15 @@ export interface DatePickerProps {
   max?: Date;
   disabled?: boolean;
   placeholder?: UiText;
+  /** The field's label. The trigger is named by it and then by the value it shows. */
   "aria-label"?: string;
+  /**
+   * The id of the element holding the field's label, as `Field` passes it. The trigger is named
+   * by that element and then by the value it shows.
+   */
+  "aria-labelledby"?: string;
+  /** What describes the field, as `Field` passes it for its hint and its error. */
+  "aria-describedby"?: string;
   "aria-invalid"?: boolean | "true" | "false";
   /** Open the calendar on mount (uncontrolled), the same shape `Popover` and `Menu` take. */
   defaultOpen?: boolean;
@@ -37,7 +45,15 @@ export interface DateRangePickerProps {
   max?: Date;
   disabled?: boolean;
   placeholder?: UiText;
+  /** The field's label. The trigger is named by it and then by the value it shows. */
   "aria-label"?: string;
+  /**
+   * The id of the element holding the field's label, as `Field` passes it. The trigger is named
+   * by that element and then by the value it shows.
+   */
+  "aria-labelledby"?: string;
+  /** What describes the field, as `Field` passes it for its hint and its error. */
+  "aria-describedby"?: string;
   "aria-invalid"?: boolean | "true" | "false";
   /** Open the calendar on mount (uncontrolled), the same shape `Popover` and `Menu` take. */
   defaultOpen?: boolean;
@@ -53,6 +69,8 @@ export function DatePicker({
   disabled = false,
   placeholder,
   "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
+  "aria-describedby": ariaDescribedBy,
   "aria-invalid": ariaInvalid,
   defaultOpen = false,
 }: DatePickerProps) {
@@ -75,6 +93,7 @@ export function DatePicker({
   // nothing, which is the whole point of having one.
   const formatted =
     selected === null ? resolve(placeholder ?? strings.selectDate) : formatDate(selected, locale);
+  const valueId = useId();
 
   function commit(next: Date) {
     if (value === undefined) {
@@ -94,12 +113,13 @@ export function DatePicker({
           type="button"
           data-terp="input"
           aria-haspopup="dialog"
-          aria-label={ariaLabel}
+          {...triggerName(ariaLabel, ariaLabelledBy, formatted, valueId)}
+          aria-describedby={ariaDescribedBy}
           aria-invalid={ariaInvalid}
           disabled={disabled}
           data-placeholder={selected === null ? "true" : undefined}
         >
-          <span>{formatted}</span>
+          <span id={valueId}>{formatted}</span>
           <span aria-hidden="true">📅</span>
         </button>
       }
@@ -130,6 +150,8 @@ export function DateRangePicker({
   disabled = false,
   placeholder,
   "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
+  "aria-describedby": ariaDescribedBy,
   "aria-invalid": ariaInvalid,
   defaultOpen = false,
 }: DateRangePickerProps) {
@@ -150,6 +172,7 @@ export function DateRangePicker({
     : selected.end === null
       ? `${formatDate(selected.start, locale)} –`
       : `${formatDate(selected.start, locale)} – ${formatDate(selected.end, locale)}`;
+  const valueId = useId();
 
   function commit(next: DateRangeValue) {
     if (value === undefined) {
@@ -171,12 +194,13 @@ export function DateRangePicker({
           type="button"
           data-terp="input"
           aria-haspopup="dialog"
-          aria-label={ariaLabel}
+          {...triggerName(ariaLabel, ariaLabelledBy, formatted, valueId)}
+          aria-describedby={ariaDescribedBy}
           aria-invalid={ariaInvalid}
           disabled={disabled}
           data-placeholder={selected.start === null ? "true" : undefined}
         >
-          <span>{formatted}</span>
+          <span id={valueId}>{formatted}</span>
           <span aria-hidden="true">📅</span>
         </button>
       }
@@ -195,6 +219,29 @@ export function DateRangePicker({
       )}
     </Popover>
   );
+}
+
+/**
+ * The trigger's accessible name: the field's label, then the value the trigger shows.
+ *
+ * The label alone used to be the whole name, and `aria-label` REPLACES a button's content in
+ * its name, so a trigger reading "Jan 15, 2026" was named "Due date": a screen reader never
+ * heard the value, and a voice-control user saying what they could see named nothing (WCAG
+ * 2.5.3, Label in Name). Both ways a label arrives give the same name, the label and the shown
+ * text joined by a space: `aria-labelledby` (from `Field`) points at the label and at the
+ * shown text, which the browser joins that way, and `aria-label` is composed to match. No
+ * label, no attribute: the name is the shown text, which already contains itself.
+ */
+function triggerName(
+  label: string | undefined,
+  labelledBy: string | undefined,
+  shown: string,
+  valueId: string,
+): { "aria-label"?: string; "aria-labelledby"?: string } {
+  if (labelledBy !== undefined) {
+    return { "aria-labelledby": `${labelledBy} ${valueId}` };
+  }
+  return label === undefined ? {} : { "aria-label": `${label} ${shown}` };
 }
 
 interface CalendarProps {

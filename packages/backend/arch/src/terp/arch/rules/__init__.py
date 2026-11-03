@@ -102,12 +102,16 @@ from terp.arch.rules.module_roles import (
     check_module_role_writes_go_through_the_capability,
     check_platform_modules_refuse_module_roles,
 )
+from terp.arch.rules.destructive_migrations import (
+    DestructiveOperation,
+    check_no_destructive_migrations,
+    destructive_operations,
+)
 from terp.arch.rules.migrations import (
     check_alembic_downgrades_not_empty,
     check_migration_history_is_intact,
     check_not_null_columns_are_backfilled,
     check_table_ownership_is_not_split,
-    check_no_destructive_migrations,
 )
 from terp.arch.rules.expand import check_expand_revisions_only_expand
 from terp.arch.rules.jobs import check_jobs_reference_catalog
@@ -137,6 +141,7 @@ from terp.arch.rules.persistence import (
     check_table_models_use_base_table,
     check_tables_have_migrations,
 )
+from terp.arch.rules.personal import check_personal_fields_are_declared
 from terp.arch.rules.references import (
     check_references_declare_delete_behaviour,
 )
@@ -236,6 +241,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "no_raw_file_references": "files",
     "permission_gated_reads_disclose": "access",
     "references_declare_delete_behaviour": "references",
+    "personal_fields_are_declared": "personal-data",
     "table_models_use_base_table": "module",
     "tables_have_migrations": "migrations",
     "no_manual_table_schema": "migrations",
@@ -408,6 +414,7 @@ RULE_ROOT_KINDS: dict[str, frozenset[RootKind]] = {
     "no_raw_file_references": APP_ROOT_ONLY,
     "permission_gated_reads_disclose": APP_ROOT_ONLY,
     "references_declare_delete_behaviour": APP_ROOT_ONLY,
+    "personal_fields_are_declared": APP_ROOT_ONLY,
     "table_models_use_base_table": APP_ROOT_ONLY,
     "tables_have_migrations": APP_ROOT_ONLY,
     "no_destructive_migrations": APP_ROOT_ONLY,
@@ -541,6 +548,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_expand_revisions_only_expand,
     check_no_unique_columns_on_soft_delete_models,
     check_references_declare_delete_behaviour,
+    check_personal_fields_are_declared,
     check_canonical_module_shape,
     check_modules_ship_tests,
     check_session_imported_from_sqlmodel,
@@ -707,6 +715,7 @@ __all__ = [
     "RULES_ESCAPED_BY_THEIR_DECLARATION",
     "RULES_WITHOUT_AN_OPT_OUT",
     "ArchViolation",
+    "DestructiveOperation",
     "GUIDE_TOPIC_BY_RULE",
     "RULE_ROOT_KINDS",
     "RootKind",
@@ -765,6 +774,7 @@ __all__ = [
     "check_no_raw_app_routes",
     "check_no_raw_file_references",
     "check_permission_gated_reads_disclose",
+    "check_personal_fields_are_declared",
     "check_no_manual_scope_filtering",
     "check_no_raw_connection_access",
     "check_no_raw_outbound_http",
@@ -790,6 +800,7 @@ __all__ = [
     "check_no_manual_table_schema",
     "check_tables_have_migrations",
     "check_tenant_scoped_models_use_scoped_service",
+    "destructive_operations",
     "guide_topic_for",
     "root_kinds_for",
     "ungoverned_marker_violations",

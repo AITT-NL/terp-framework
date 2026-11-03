@@ -27,6 +27,7 @@ from terp.arch.declaration import (
     ArchDeclarationError,
     declared_roots,
 )
+from terp.arch.revisions import RevisionHeader, revision_header
 from terp.arch.rules import (
     APP_ROOT_ONLY,
     EVERY_ROOT,
@@ -36,6 +37,7 @@ from terp.arch.rules import (
     RULES_ESCAPED_BY_THEIR_DECLARATION,
     RULES_WITHOUT_AN_OPT_OUT,
     ArchViolation,
+    DestructiveOperation,
     RootKind,
     ScanRoot,
     assert_app_clean,
@@ -122,9 +124,11 @@ from terp.arch.rules import (
     check_table_models_use_base_table,
     check_no_manual_table_schema,
     check_references_declare_delete_behaviour,
+    check_personal_fields_are_declared,
     check_tables_have_migrations,
     check_tenant_scoped_models_use_scoped_service,
     check_update_schemas_inherit_base_update_schema,
+    destructive_operations,
     guide_topic_for,
     root_kinds_for,
     ungoverned_marker_violations,
@@ -136,7 +140,7 @@ from terp.arch.rules import (
 #: the platform repo, not of a generated app, and the version is a property of the
 #: toolchain build. Held equal to the pinned ``terp-spec`` release by the framework
 #: gate (``tests/architecture/test_check_json.py``), so it cannot drift silently.
-SPEC_VERSION = "0.39.0"
+SPEC_VERSION = "0.40.0"
 
 __all__ = [
     "APP_ROOT_ONLY",
@@ -144,11 +148,13 @@ __all__ = [
     "ArchDeclarationError",
     "EVERY_ROOT",
     "ArchViolation",
+    "DestructiveOperation",
     "GUIDE_TOPIC_BY_RULE",
     "PROJECT_ROOT_RULES",
     "RULE_ROOT_KINDS",
     "RULES_ESCAPED_BY_THEIR_DECLARATION",
     "RULES_WITHOUT_AN_OPT_OUT",
+    "RevisionHeader",
     "RootKind",
     "SPEC_VERSION",
     "ScanRoot",
@@ -237,10 +243,13 @@ __all__ = [
     "check_table_models_use_base_table",
     "check_no_manual_table_schema",
     "check_references_declare_delete_behaviour",
+    "check_personal_fields_are_declared",
     "check_tables_have_migrations",
     "check_tenant_scoped_models_use_scoped_service",
     "check_update_schemas_inherit_base_update_schema",
+    "destructive_operations",
     "guide_topic_for",
+    "revision_header",
     "root_kinds_for",
     "ungoverned_marker_violations",
 ]

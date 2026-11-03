@@ -1137,12 +1137,17 @@ Logging (one JSON record per line, the terp-log/1 schema, ADR 0188)
   So never log an AppError before raising it, and never log a request yourself. The
   reason the client must not see goes in log_context, which is written and never sent:
       raise ConflictError("The invoice was already sent.", log_context={"state": row.state})
-- Redaction covers SECRETS ONLY: a credential-like key (password, token, secret,
-  api_key, cookie, authorization) anywhere in extra or log_context, and
+- Redaction covers SECRETS by name and shape: a credential-like key (password, token,
+  secret, api_key, cookie, authorization) anywhere in extra or log_context, and
   credential-shaped text (an Authorization, Bearer or cookie value, a URL's password, a
   password=... pair) in the message, in tracebacks, and in the text of any object you
-  put in extra or log_context (an exception, a set). Personal data is NOT recognised:
-  an email or a name you log is written as you logged it. Log ids, not people.
+  put in extra or log_context (an exception, a set).
+- PERSONAL DATA is redacted where it is DECLARED (Personal(...), `terp guide
+  personal-data`): a model you log -- as an argument, inside extra or log_context, in an
+  f-string or an exception's text -- renders [PERSONAL] in place of each declared field,
+  and so does a value under a declared field's name ({"email": ...}). A bare string is
+  not a field: log.info("invited %s", customer.email) writes the address. Log the model
+  or its id, never the value on its own.
 - Levels: a client's AppError (4xx) is INFO beside its access line; a 5xx is ERROR.
   Production runs at INFO. A guard decision with no access line to ride (a WebSocket)
   is its own guard.decision record: a deny at INFO, an allow at DEBUG.
@@ -1152,6 +1157,47 @@ Logging (one JSON record per line, the terp-log/1 schema, ADR 0188)
   its own few lines stay uvicorn's; production runs one process per container.
 - No terp.arch check covers the format: the runtime is the control, and the suite
   validates every line a production process writes against the schema.
+""",
+    "personal-data": """\
+Personal data (Personal, ADR 0190)
+
+- Declare every field that holds a person's data with Personal(...) instead of Field(...).
+  It takes exactly Field's keywords, on the table AND on every schema that redeclares the
+  field (a schema that writes `email: str` plainly has said it is not personal):
+      from terp.core import BaseSchema, BaseTable, Personal
+      class Customer(BaseTable, table=True):
+          email: str = Personal(max_length=320, index=True, unique=True)
+          date_of_birth: datetime.date | None = Personal(default=None)
+      class CustomerRead(BaseSchema):
+          id: uuid.UUID
+          email: str = Personal()
+  It changes no DDL and no API contract: no migration, no OpenAPI change.
+- What reads the declaration:
+    the log          a model renders [PERSONAL] in place of each declared field wherever
+                     it is rendered (an argument, extra=, log_context, an f-string, an
+                     exception, a traceback), and a value under a declared field's name
+                     ({"email": ...}) is replaced; a database refusal (a duplicate email)
+                     loses the row's personal values before it reaches log_context
+    the audit trail  a payload keeps each declared field's key and loses its value: the
+                     trail says the field was there, the row holds the value
+    events and jobs  a PUBLIC event or job may not declare a personal field in its payload
+                     (refused where it is declared); redact_personal(payload) is the copy
+                     of a payload that may leave the process
+    errors           a model with a personal field hides its input in a ValidationError's
+                     text; the 422 a client gets still shows what that client sent
+  personal_fields(Model), personal_field_names() and personal_columns() read it back,
+  the last from database metadata alone.
+- What it cannot see: a value that has stopped being a field. f"{customer.email}" is a
+  string, and so is customer.email logged on its own. Log the model or its id.
+- The personal_fields_are_declared rule refuses a model field NAMED like personal data
+  that is not declared: email, phone (and phone_number, telephone, mobile_number),
+  date_of_birth (birth_date, birthday, dob), national_id (ssn, bsn, passport_number),
+  first_name / last_name / full_name / given_name / family_name / middle_name /
+  surname, home_address / residential_address -- the name's LAST words, so contact_email
+  counts and email_verified does not. A field that only looks personal says why it is not:
+      # arch-allow-personal-fields-are-declared: the organisation's shared mailbox
+      support_email: str = Field(max_length=320)
+  The vocabulary is short on purpose; declare every other personal field by hand.
 """,
     "passwords": """\
 Password strength (PasswordPolicy, Tier-B)
@@ -1290,6 +1336,40 @@ code looks wrong, every test passes -- until the table has real data in it.
   is a claim about the SHAPE of the query, and the claim is that adding a row to the
   fixture must not change it -- so write the test with several rows in the fixture, or
   it cannot tell the two apart.
+
+PROVE THE SEED IS DETERMINISTIC. `terp seed` may run on every boot and a fresh
+environment is seeded from nothing, so a seed owes two things: a second run on the same
+database writes NOTHING, and two fresh databases it seeds hold the SAME data. Comparing
+rows as stored cannot show the second, because a fresh run does not repeat what a write
+generates: every id is a new uuid4, every timestamp is now, a password hash has a new
+salt, and every owner, actor stamp and audit target carries some row's new id.
+`seed_checksum` compares the BUSINESS columns instead, by one rule:
+      left out   a table's own single-column primary key, and every DateTime column
+      reduced    a PHC hash ($argon2id$v=19$m=..$<salt>$<digest>) to scheme and params
+      resolved   a value that is some row's UUID key (a foreign key, a text reference,
+                 a JSON payload) to that row's table and business columns
+      kept       everything else, a Date included; rows are compared as a set
+and `generated=True` keeps every column as stored, which is how "nothing was written"
+is asked:
+
+      from terp.core.testing import seed_checksum
+
+      def test_the_seed_is_deterministic(terp_db_url):
+          engine = create_engine(terp_db_url)
+          SQLModel.metadata.create_all(engine)
+          run_the_seed(engine)
+          first, stored = seed_checksum(engine), seed_checksum(engine, generated=True)
+          run_the_seed(engine)                       # the second run is a no-op
+          assert seed_checksum(engine, generated=True) == stored
+          SQLModel.metadata.drop_all(engine)
+          SQLModel.metadata.create_all(engine)
+          run_the_seed(engine)                       # and a fresh database agrees
+          assert seed_checksum(engine) == first
+
+  A seed that fails it reads the clock, a random value or whichever row comes back first.
+  Write through the real services, look each row up by its natural key before creating
+  it (UsersService.ensure_user does), and derive any id the seed must choose with uuid5.
+  `terp_db_url` runs it on PostgreSQL too.
 
 WHAT YOU MUST STILL DO YOURSELF. The platform UNDOES a runtime; it never INSTALLS the
 one your test needs. That distinction is the whole of testing on Terp:
@@ -1941,9 +2021,34 @@ Database migrations (terp migrate)
   so the table is rewritten) hold a lock that long; on a large table compute a derived
   value on read. A new child table of a soft-deleted parent is a contract revision:
   neither CASCADE nor SET NULL can fire onto it.
-- Destructive DDL (drop table/column or alter-column type changes) is refused by
-  `terp check` unless the operation carries `# arch-allow-no-destructive-migrations:
-  <reason>` on (or immediately above) its line, budgeted by the escape-hatch ratchet.
+- A STEP THAT IS SAFE ONLY AGAINST AN EMPTY DATABASE is refused by `terp check`
+  (`no_destructive_migrations`). A deploy migrates while the previous release still
+  serves, and a rollback runs that release on the migrated schema, so a revision has two
+  audiences your scratch database never shows: the rows production holds, and the
+  release still running. Five kinds of step fail one of them:
+      drop         drop_table / drop_column / TRUNCATE / DELETE FROM / DROP SCHEMA
+      rename       rename_table / alter_column(new_column_name=...) / ALTER TABLE .. RENAME
+      type change  alter_column(type_=...) / ALTER COLUMN .. TYPE
+      NOT NULL     alter_column(nullable=False) on an existing table / SET NOT NULL
+      constraint   create_unique_constraint / create_check_constraint /
+                   create_foreign_key / create_primary_key / create_index(unique=True) /
+                   ADD CONSTRAINT / CREATE UNIQUE INDEX / VALIDATE CONSTRAINT
+  on `op`, a batch block or any alias, imported by name (from alembic.op import
+  drop_column) or looked up by a literal getattr, in upgrade() and in every function of
+  the revision it calls, and through execute(...) whenever the statement is readable in
+  the source, one statement at a time. Do this instead, and every finding says which:
+  EXPAND (add the new column, nullable, or the new table beside the old one), BACKFILL
+  (copy or clean the rows with a job, not a statement in the revision, and write both),
+  then CONTRACT in a LATER release (drop the old name, tighten, add the constraint). The
+  contract step is the destructive one, so it carries
+  `# arch-allow-no-destructive-migrations: <reason>` on (or immediately above) its line,
+  after review, budgeted by the escape-hatch ratchet. Not refused: anything on a table
+  this upgrade() creates (it holds no rows yet), and a unique, foreign-key or
+  unique-index constraint on columns this upgrade() adds nullable with no server_default
+  (every existing row holds NULL, which those accept) - the shape autogenerate writes for
+  a new reference column. Not refused is not the same as an expand step: a constraint on
+  an existing table, or any execute(), is never one. A type WIDENING is still reported,
+  because nothing in the revision says what the old type was: justify it with the marker.
 - ADDING A NOT NULL COLUMN is the revision that passes everything you can run and then
   fails in production. For a new non-nullable field autogenerate writes
   `add_column(sa.Column('rank', sa.Integer(), nullable=False))`, and that statement
@@ -1955,7 +2060,8 @@ Database migrations (terp migrate)
       op.add_column('note', sa.Column('rank', sa.Integer(), nullable=False,
                                       server_default='0'))
   Where no literal default is right, expand/contract instead - add the column nullable,
-  back-fill it, tighten it in a later release. `terp check`
+  back-fill it with a job in the same release, tighten it in a LATER release (that
+  tightening is a contract step: it takes the destructive-migration marker above). `terp check`
   refuses the unbackfilled form (`not_null_columns_are_backfilled`); a table that
   genuinely holds no rows yet opts out with
   `# arch-allow-not-null-columns-are-backfilled: <reason>`.
@@ -2953,7 +3059,8 @@ Compliant decision path for a new NOT NULL column
 3. When no literal is right - the value has to be computed, or looked up - use
     expand/contract across two releases: add the column NULLABLE, back-fill it (a
     backfill job: an expand-only revision writes no existing row), and tighten it to NOT
-    NULL in a LATER release, once nothing writes a NULL.
+    NULL in a LATER release, once nothing writes a NULL. That tightening is a contract step
+    `no_destructive_migrations` reports, and it takes that rule's marker after review.
 4. Do not make the column nullable in the model merely to silence this. The model is
     the contract; if the field is genuinely optional, say so there and the finding goes
     away on its own.
@@ -2961,6 +3068,35 @@ Compliant decision path for a new NOT NULL column
     this release introduces, or one seeded from empty - with
     `# arch-allow-not-null-columns-are-backfilled: <reason>` naming which. A table
     created in the same upgrade() needs no marker; it is already exempt.
+""",
+     "no_destructive_migrations": """\
+Compliant decision path for a step that is safe only against an empty database
+
+1. Do not delete the revision's intent, and do not move the statement somewhere the
+    rule cannot read it (a variable, a helper in another module, a name computed at run
+    time). A helper in the same revision is read as part of upgrade(). The finding is about
+    rows production holds and the release still running while you migrate; neither is
+    in your scratch database, which is why every local test passed.
+2. Split the change across releases - expand, backfill, contract:
+    - rename: add the new column or table beside the old one, write both, backfill the
+      new one, move the readers; drop the old name in a LATER release.
+    - type change: add a column of the new type, backfill it, move the readers; drop
+      the old column in a LATER release.
+    - NOT NULL: backfill every NULL and make every writer set a value now; tighten it in
+      a LATER release, once nothing writes a NULL.
+    - constraint: clean or backfill the rows now; add the constraint in a LATER release.
+    - drop: stop reading and writing it in one release; drop it in a LATER one.
+    Every backfill is a job, not a statement in the revision: a data write holds a lock
+    while the previous release still serves, and the expand release already copes with
+    the rows it has not filled.
+3. The contract step is genuinely destructive, so it is the one that carries
+    `# arch-allow-no-destructive-migrations: <reason>`, on or immediately above the
+    operation, after a human review, naming the release that expanded it. Each marker
+    spends the app's escape-hatch budget.
+4. A step on a table this same upgrade() creates is already exempt, and so is a unique,
+    foreign-key or unique-index constraint on columns this upgrade() adds nullable with
+    no server_default. A type WIDENING is reported because the revision cannot say it
+    is one: justify it with the marker rather than splitting it.
 """,
      "no_raw_outbound_http": """\
 Compliant decision path for outbound HTTP

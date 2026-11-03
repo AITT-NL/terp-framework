@@ -129,7 +129,9 @@ def ensure_database_search_path(
     labels = [
         tree.label for tree in resolve_all_migration_trees(app_root, package=package)
     ]
-    engine = create_engine(database_url, poolclass=NullPool, isolation_level="AUTOCOMMIT")
+    engine = create_engine(
+        database_url, hide_parameters=True, poolclass=NullPool, isolation_level="AUTOCOMMIT"
+    )
     try:
         with engine.connect() as connection:
             if connection.dialect.name != "postgresql":
@@ -175,7 +177,7 @@ def adopt_schemas(
     trees = resolve_all_migration_trees(app_root, package=package)
     for tree in trees:
         _import_model_module(tree.models_module, required=False)
-    engine = create_engine(database_url, poolclass=NullPool)
+    engine = create_engine(database_url, hide_parameters=True, poolclass=NullPool)
     moved: dict[str, list[str]] = {}
     try:
         with engine.begin() as connection:
@@ -302,7 +304,7 @@ def grant_runtime_role(
         write_schemas, read_schemas = labels, ["public"]
     else:
         write_schemas, read_schemas = ["public"], []
-    engine = create_engine(database_url, poolclass=NullPool)
+    engine = create_engine(database_url, hide_parameters=True, poolclass=NullPool)
     try:
         with engine.begin() as connection:
             if connection.dialect.name != "postgresql":
@@ -371,7 +373,7 @@ def window_of(
     _refuse_retired_labels_still_defined(retired, app_root, package)
     if histories is None:
         histories = _code_histories(database_url, app_root, package)
-    engine = create_engine(database_url, poolclass=NullPool)
+    engine = create_engine(database_url, hide_parameters=True, poolclass=NullPool)
     try:
         with engine.connect() as connection:
             return judge_window(connection, histories, run_digest(histories), retired=retired)
@@ -381,7 +383,7 @@ def window_of(
 
 def _ensure_record(database_url: str) -> None:
     """Create the window record before the run, when it is missing (and only then)."""
-    engine = create_engine(database_url, poolclass=NullPool)
+    engine = create_engine(database_url, hide_parameters=True, poolclass=NullPool)
     try:
         with engine.begin() as connection:
             ensure_record_table(connection)
@@ -638,7 +640,7 @@ def _clear_record_above(database_url: str, tree: MigrationTree, script: ScriptDi
     rows above the stamped revision means a revision applied again after a recovery
     stamp meets no stale row.
     """
-    engine = create_engine(database_url, poolclass=NullPool)
+    engine = create_engine(database_url, hide_parameters=True, poolclass=NullPool)
     try:
         with engine.begin() as connection:
             context = MigrationContext.configure(
@@ -752,7 +754,7 @@ def orphaned_revisions(
     and one merely behind head (the applied revision is still in the history — that
     is :class:`PendingMigrationsError` territory, not this).
     """
-    engine = create_engine(database_url, poolclass=NullPool)
+    engine = create_engine(database_url, hide_parameters=True, poolclass=NullPool)
     orphaned: dict[str, tuple[str, ...]] = {}
     try:
         for tree in resolve_migration_trees(app_root, package=package):

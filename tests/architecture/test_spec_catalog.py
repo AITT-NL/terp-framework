@@ -100,22 +100,13 @@ def _pinned_spec_version() -> str | None:
 #: left open. During certification the assertion below is trivially satisfied,
 #: because the catalog under test already contains the rule.
 #:
-#: Open: nothing. The last window — ``permission_gated_reads_disclose`` (ADR 0149) —
-#: was shut by terp-spec 0.36.0, which the pin above names; the one before it,
-#: ``not_null_columns_are_backfilled``, by terp-spec 0.35.0, and the one before that,
-#: ``references_declare_delete_behaviour`` (ADR 0133), by terp-spec 0.34.0.
-#:
-#: Open: the two deployment-declaration rules (ADR 0184), the generated state's render
-#: check (ADR 0187) and the expand list (ADR 0185), catalogued in terp-spec 0.40.0 and
-#: implemented here before that release is published.
-_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset(
-    {
-        "deployment_declaration_is_readable",
-        "deployment_declaration_tells_the_truth",
-        "deployment_generated_files_match_their_render",
-        "expand_revisions_only_expand",
-    }
-)
+#: Open: nothing. The last window to close — ``personal_fields_are_declared`` (ADR 0190),
+#: the two deployment-declaration rules (ADR 0184), the generated state's render check
+#: (ADR 0187) and the expand list (ADR 0185), implemented here ahead of their catalog
+#: entries — was shut by terp-spec 0.40.0; the one before it,
+#: ``permission_gated_reads_disclose`` (ADR 0149), by terp-spec 0.36.0, and the one before
+#: that, ``not_null_columns_are_backfilled``, by terp-spec 0.35.0.
+_AWAITING_SPEC_RELEASE: frozenset[str] = frozenset()
 
 #: The same window, one level down: runtime enforcement refs whose SPELLING this
 #: repository has changed and the published catalog has not caught up with yet.

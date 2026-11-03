@@ -49,7 +49,10 @@ def test_the_scorecard_claims_the_whole_catalog_green_and_schema_shaped() -> Non
         for path in (_SPEC / "catalog" / "backend").glob("*.json")
         if json.loads(path.read_text(encoding="utf-8"))["corpus"]
     }
-    assert {claim["rule"] for claim in scorecard["rules"]} == corpus_covered
+    # Every corpus-covered rule is claimed, except one whose pinned corpus the harness has
+    # deliberately moved past (VERDICTS_AWAITING_SPEC_RELEASE), which it cannot claim.
+    awaiting = {f"backend/{rule}" for rule in emitter.rules_awaiting_a_verdict()}
+    assert {claim["rule"] for claim in scorecard["rules"]} == corpus_covered - awaiting
     item_properties = set(schema["properties"]["rules"]["items"]["properties"])
     for claim in scorecard["rules"]:
         assert claim["pass"] is True, f"{claim['rule']}: the harness must pass its corpus"
@@ -66,7 +69,9 @@ def test_the_scorecard_claims_the_whole_catalog_green_and_schema_shaped() -> Non
         if "residuals_claimed" in claim
     }
     expected = {
-        rule: entries for rule, entries in residuals.items() if rule.startswith("backend/")
+        rule: entries
+        for rule, entries in residuals.items()
+        if rule.startswith("backend/") and rule not in awaiting
     }
     assert claimed == expected
 
@@ -132,6 +137,43 @@ def test_a_source_checkout_reports_version_zero(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(emitter.importlib.metadata, "version", not_installed)
     assert build_scorecard()["checker"]["version"] == "0"
+
+
+def test_a_rule_awaiting_its_verdict_is_neither_claimed_nor_missed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rule whose pinned corpus the harness has moved past is left out, honestly.
+
+    The harness does not pass that rule's pinned corpus, so claiming it would publish a
+    false verdict; and leaving it out is not "a corpus-covered rule missing a claim",
+    because the allowance says why. Under certification nothing is excused.
+    """
+    listed = emitter.VERDICTS_AWAITING_SPEC_RELEASE
+    some_rule = next(
+        path.stem
+        for path in sorted(emitter._CATALOG.glob("*.json"))
+        if json.loads(path.read_text(encoding="utf-8"))["corpus"]
+        and path.stem not in {rule for rule, _ in listed}
+    )
+    monkeypatch.setattr(
+        emitter, "VERDICTS_AWAITING_SPEC_RELEASE", listed | {(some_rule, "compliant-01")}
+    )
+    monkeypatch.setattr(emitter, "installed_corpus_is_the_pinned_one", lambda: True)
+    assert some_rule in emitter.rules_awaiting_a_verdict()
+    card = build_scorecard()
+    assert f"backend/{some_rule}" not in {claim["rule"] for claim in card["rules"]}
+    assert validate_scorecard(card) == []
+
+    monkeypatch.setattr(emitter, "installed_corpus_is_the_pinned_one", lambda: False)
+    assert emitter.rules_awaiting_a_verdict() == set()
+    assert any("missing a claim" in problem for problem in validate_scorecard(card))
+
+
+def test_the_pinned_corpus_is_told_from_a_candidate(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The gate installs the release pyproject pins; certification installs a candidate.
+    assert emitter.installed_corpus_is_the_pinned_one() is True
+    monkeypatch.setattr(emitter.terp_spec, "spec_version", lambda: "0.0.0")
+    assert emitter.installed_corpus_is_the_pinned_one() is False
 
 
 def test_a_rule_without_corpus_is_not_claimed(
