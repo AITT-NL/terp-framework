@@ -292,7 +292,7 @@ jobs:
 
   # The release lane (ADR 0187 decision 8, the sixth pull request): `terp release` and `terp
   # promote` on this runner's Docker engine. The generated reference app on two framework
-  # releases built from this commit (0.35.0 and 0.36.0, served by a job-local index), four
+  # releases built from this commit (the next two minors, served by a job-local index), four
   # releases built cold into a job-local registry:2 pinned by digest, gated, signed from the
   # signer image built as the job above builds it, then promoted: up one minor, back by
   # promoting the previous release, a failed migration undone without a restore, a changed
