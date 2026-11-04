@@ -339,11 +339,15 @@ Both are comma-separated. The procedure, in this order:
   1. Put the old key in BOTH lists and the new one in SECRET_KEY. Deploy.
   2. Run `terp secrets reseal` where the app runs (its own container, its own
      environment). It rewrites every value sealed under a fallback under SECRET_KEY,
+     one nested in a JSON column included (a queued mail in the outbox, ADR 0199),
      one transaction per table, refuses while a migration is pending, is safe to run
      twice, and exits 0 only when nothing is left. `--check` counts and writes nothing.
   3. Drop SECRET_KEY_DECRYPT_FALLBACKS once reseal reports nothing left. Keep the old
      key itself while a backup sealed under it may still be restored: restoring one
-     means listing it again and running reseal.
+     means listing it again and running reseal. A self-service link already mailed is
+     sealed under the key it was sent under, where reseal cannot reach it, so dropping
+     the fallback sooner than its lifetime (a day for a sign-up link by default) only
+     makes such a link stop working, and its owner asks for a new one.
   4. Drop SECRET_KEY_FALLBACKS once the longest signature lifetime has passed since
      step 1: REFRESH_TOKEN_TTL_SECONDS if the app issues refresh sessions, 15 minutes
      if not. Dropping it sooner loses nothing; it signs out sessions still on the old key.
@@ -1957,6 +1961,11 @@ Sending e-mail (terp-cap-mail)
   dead-letters` lists it. With the
   in-process default queue (no worker) the mail is sent inline, and a failing relay
   fails the request that asked for it.
+- The queued message is SEALED at rest (ADR 0199): the outbox row's payload holds the
+  Message-ID and one value sealed under SECRET_KEY, never an address or the text. After a
+  key rotation keep SECRET_KEY_DECRYPT_FALLBACKS until `terp secrets reseal` reports
+  nothing left: a queued mail no configured key opens is never sent, and fails with
+  MailSealError, which names that remedy, until it dead-letters.
 - Test without a relay:
       from terp.capabilities.mail import (
           CapturingMailTransport, MailSettings, configure_mail, reset_mail)

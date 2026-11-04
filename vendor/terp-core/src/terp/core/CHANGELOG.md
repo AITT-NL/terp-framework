@@ -31,6 +31,24 @@ decision, 0001 onwards.
   green over a red check or red over none, and a claim that does not hold. The claim, its
   lanes and their requirement levels are unchanged, and the manifest's `collected` still
   carries it.
+- **A queued mail rests sealed, and a key rotation reaches it (ADR 0199).** With the durable
+  outbox wired, a mail's job payload is a row of `outbox_message`, and the outbox keeps every
+  row it has dispatched, so each mail's recipients and text stayed in the database in
+  plaintext, a self-service link's token included: a reset link works for an hour by default,
+  and a reader of the database inside that hour could take the account over. `send_mail` now
+  seals the message, its recipients, subject, text and `Reply-To`, as one value of a sealing
+  domain of its own, and the payload carries only that value and the `Message-ID`, which is the
+  job's idempotency key. The worker opens it under `SECRET_KEY` or a
+  `SECRET_KEY_DECRYPT_FALLBACKS` entry, and the in-process queue seals and opens it the same
+  way. A payload no configured key opens is never sent: it fails with `MailSealError`, whose
+  message names the remedy, listing the replaced key in `SECRET_KEY_DECRYPT_FALLBACKS` again,
+  and it retries and dead-letters like any failed delivery. `terp secrets reseal` now walks
+  JSON columns as well as string columns, every string at any depth, so `--check` counts a
+  queued mail still under a fallback, as `outbox_message.payload`, and a run re-seals it in a
+  compare-and-swap on the document's text form, with nothing else in the document moved. A row
+  that 0.36.0 or an earlier release queued in plaintext is still read and delivers; the
+  plaintext form is never written, whichever path enqueues it. `MailJobPayload` is no longer a
+  `MailMessage`: its message is `.message()`. `terp-cap-mail` now depends on `cryptography`.
 
 ### Added
 
@@ -122,9 +140,9 @@ decision, 0001 onwards.
   worker keeps is accepted and said out loud, as the platform's own is (ADR 0036). The module
   declares `MAIL_SEND`, so a boot whose job catalog lacks it is refused. The mail capability
   gains `mail_is_configured()` and exports `parse_address`, and `terp-cap-users` now depends
-  on `terp-cap-mail` and `cryptography`. ADR 0196 records the one exposure it leaves open: a
-  queued mail's text, a link's token included, rests in the outbox in plaintext until the job
-  sends it.
+  on `terp-cap-mail` and `cryptography`. Each mail is queued from inside its token row's write,
+  so with the durable outbox the two commit or roll back together, and a mail's text, a link's
+  token included, rests in the outbox sealed (ADR 0199, under Security).
 
 ### Changed
 
@@ -176,6 +194,14 @@ decision, 0001 onwards.
   the check an operator is likeliest to meet is `conformance`, which needs the development
   stack running where the gate runs. A lane that stands in for the gate's `terp verify` run
   now stands in for every check's verdict by id, and the gate composes the claim from it.
+- **Mail an earlier release queued delivers as it is, and rows it already dispatched keep their
+  plaintext (ADR 0199).** A pending row is read in its plaintext form, so the worker sends it;
+  that reader stays through the 0.36 releases. Nothing rewrites a dispatched or dead-lettered
+  row, so the recipients and text of mail sent before this release stay readable in
+  `outbox_message` until those rows are removed; the tokens in them stop working within a week.
+  After a key rotation, keep `SECRET_KEY_DECRYPT_FALLBACKS` until `terp secrets reseal` reports
+  nothing left, queued mail now included. An image that installs the capabilities one by one
+  gets `cryptography` with `terp-cap-mail`.
 - **An app that pins this release is signed by a signer image of this release or newer.** Its
   declaration is read against Terp Standard 0.42.0, and an older signer refuses it ("update the
   signer image first"), as after every move of `terp.arch.SPEC_VERSION`.
