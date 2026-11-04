@@ -26,10 +26,11 @@ and registers the one job; a feature then sends with one call::
 
 ``send_mail`` sends nothing itself: it enqueues ``MAIL_SEND`` on the caller's session, so
 with the durable outbox wired the mail commits — or rolls back — with the write, and the
-worker delivers it with retries. The session to the relay is encrypted (STARTTLS or TLS)
-with the certificate verified, credentials never cross an unencrypted connection, the
-sender is fixed, and a message is plain text with one-line headers and a bounded number
-of recipients.
+worker delivers it with retries. The queued message is sealed at rest under ``SECRET_KEY``
+(ADR 0199), so its payload holds no address and no text. The session to the relay is
+encrypted (STARTTLS or TLS) with the certificate verified, credentials never cross an
+unencrypted connection, the sender is fixed, and a message is plain text with one-line
+headers and a bounded number of recipients.
 """
 
 from __future__ import annotations
@@ -43,7 +44,11 @@ from terp.capabilities.mail.delivery import (
     reset_mail,
     send_mail,
 )
-from terp.capabilities.mail.errors import MailConfigurationError, MailDeliveryError
+from terp.capabilities.mail.errors import (
+    MailConfigurationError,
+    MailDeliveryError,
+    MailSealError,
+)
 from terp.capabilities.mail.message import MAX_RECIPIENTS, MailMessage
 from terp.capabilities.mail.settings import (
     MailSecurity,
@@ -59,6 +64,7 @@ __all__ = [
     "MailConfigurationError",
     "MailDeliveryError",
     "MailMessage",
+    "MailSealError",
     "MailSecurity",
     "MailSettings",
     "MailTransport",

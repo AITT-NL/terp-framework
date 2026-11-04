@@ -255,6 +255,7 @@ jobs:
           tests/architecture/test_seed_checksum.py
           tests/architecture/test_refresh_concurrency_postgres.py
           tests/architecture/test_sync_custody.py
+          tests/architecture/test_cli_reseal_json.py
 
   # The signer image (ADR 0187 decision 6): the operator's own toolchain `terp release sign`
   # runs from, built from this commit's wheels and the lock's hashes, and run. Nothing here

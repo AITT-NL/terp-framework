@@ -18,7 +18,10 @@ keep on rows where expiry has to be followed by a domain recovery.
 Append-only + status updates only: a row is inserted ``pending`` and then only ever
 transitions ``pending -> dispatched`` (delivered) or ``pending -> dead_lettered``
 (failed ``max_attempts`` times); its ``payload`` (the serialized envelope) never
-changes. Like :class:`~terp.capabilities.audit.AuditEvent` it therefore composes
+changes what it says. The one rewrite is ``terp secrets reseal``'s: a sealed value
+inside a payload, such as a queued mail's message (ADR 0199), is moved to the current
+``SECRET_KEY`` after a rotation, which changes the key it is sealed under and nothing it
+holds. Like :class:`~terp.capabilities.audit.AuditEvent` it therefore composes
 :class:`~terp.core.UUIDPrimaryKeyMixin` rather than ``BaseTable`` — there is no
 optimistic-concurrency ``version`` (the lease, not OCC, arbitrates concurrent
 workers) and no ``updated_at`` (the explicit ``dispatched_at`` / ``dead_lettered_at``
