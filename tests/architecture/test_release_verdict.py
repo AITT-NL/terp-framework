@@ -222,3 +222,27 @@ def test_sign_signs_an_older_commit_over_the_claim_its_gate_wrote(tmp_path: path
     _asked_nothing(release, monkeypatch)
     with pytest.raises(ReleaseError, match=re.escape(f"version 2, and the commit pins terp-cli {TOOLCHAIN}, whose gate writes version 1")):
         release.sign()
+
+
+def test_a_claim_that_its_checks_do_not_compose_contradicts_itself() -> None:
+    """ADR 0200 decision 1: the claim is composed from the very checks the document records, so a
+    claim borrowed from a green run over a shorter list of checks, or lanes that say failed under
+    a claim that holds, was not written by one run of the gate."""
+    borrowed = _strict()
+    borrowed["profile"]["checks"] = [{"id": "architecture", "ok": True}]
+    with pytest.raises(ReleaseError, match="contradicts itself: its release-assurance claim is not the one its checks compose"):
+        gate.require_passed(borrowed, STRICT)
+    failed_lanes = _strict()
+    failed_lanes["assurance"]["lanes"] = [{**lane, "status": "failed"} for lane in failed_lanes["assurance"]["lanes"]]
+    with pytest.raises(ReleaseError, match="is not the one its checks compose"):
+        gate.require_passed(failed_lanes, STRICT)
+    gate.require_passed(_strict(), STRICT)
+    gate.require_passed(_strict(app=("domain-invariants",)), STRICT), "an app's own check composes no lane"
+
+
+@pytest.mark.parametrize("pin", ["0.36.1rc1", "0.36.1.dev0", "0.36.1+local"])
+def test_a_pre_release_pin_is_refused_naming_the_lock(pin: str) -> None:
+    """The signer cannot tell which gate document a toolchain that is not a release writes, and
+    says where the pin comes from rather than only that the number does not compare."""
+    with pytest.raises(ReleaseError, match=re.escape(f"the commit's uv.lock pins terp-cli {pin}, which is not a release number")):
+        gate.require_passed(_strict(), pin)

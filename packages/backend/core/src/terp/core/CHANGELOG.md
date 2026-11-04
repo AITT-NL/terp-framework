@@ -25,8 +25,9 @@ decision, 0001 onwards.
   runs `terp verify --profile release --format json` once and writes a version 2 document:
   every check the profile ran, by id and verdict, beside the claim composed from those same
   results. Nothing a check printed is recorded, because it is the app's own text from a run
-  with its environment. The gate exits 1 unless every check passed and the claim holds, naming
-  each red check. `sign` refuses, before it reads the registry, a red check (named, with
+  with its environment; what a red check printed goes to the gate's own log instead, so the
+  job that ran the gate says why. The gate exits 1 unless every check passed and the claim
+  holds, naming each red check. `sign` refuses, before it reads the registry, a red check (named, with
   `terp verify --only <check>` as the way to read why), a document that records the profile
   green over a red check or red over none, and a claim that does not hold. The claim, its
   lanes and their requirement levels are unchanged, and the manifest's `collected` still
@@ -81,7 +82,9 @@ decision, 0001 onwards.
   serving it: the `api-contract` check holds the file to the app, and `sign` signs only a
   release whose `api-contract` passed in the gate (ADR 0200, under Security). The template no longer ignores
   `openapi.json`: after `copier update`, the next gate run writes the file, and an app commits
-  it to adopt the check, or lists it in `.gitignore` again to stay out.
+  it to adopt the check, or lists it in `.gitignore` again to stay out (untracking it first,
+  `git rm --cached openapi.json`, if it was ever committed: the check asks git, not the
+  ignore rules).
 - **A native mobile client can stay signed in with its refresh token in the body (ADR 0195).**
   The refresh token rode only an `HttpOnly; SameSite=Strict` cookie, and every one of those
   properties is a browser's: to an app on a phone a `Set-Cookie` is just a header, and where
@@ -124,8 +127,10 @@ decision, 0001 onwards.
   and inactive when the app approves accounts (ADR 0142). A request about an address answers
   `202` with the same body and headers, and sends the address exactly one message, whether or
   not it has an account: the link, or a notice that the address already has an account or has
-  no password to reset. Addresses compare without regard to case, and one that is not a single
-  mail address is a 422 that does not repeat it. Tokens are sealed, expire (24 hours for a
+  no password to reset. Addresses compare without regard to case: a self-service account is
+  stored lower-cased, and a sign-in reaches it in any spelling, because the identity lookup
+  tries the address as written and then lower-cased. One that is not a single mail address
+  is a 422 that does not repeat it. Tokens are sealed, expire (24 hours for a
   sign-up and 1 hour for a reset by default, a lifetime the mail states without rounding it
   up), work once through a new `identity_account_token` row that stores only their digest,
   and travel in the URL fragment. Every route backs off and never locks out (ADR 0147), and a

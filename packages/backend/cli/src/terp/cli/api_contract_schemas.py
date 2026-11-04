@@ -19,11 +19,13 @@ import json
 from collections.abc import Iterator, Mapping
 from typing import Any
 
+from terp.cli.api_contract_bounds import LOWER_BOUNDS, UPPER_BOUNDS, diff_bounds
 from terp.cli.api_contract_shapes import (
     EDITORIAL,
     SCHEMA_REF,
     Change,
     Docs,
+    canonical_text,
     follow,
     mapping,
     ref_of,
@@ -33,11 +35,6 @@ from terp.cli.api_contract_shapes import (
     shape,
     unclassified,
 )
-
-#: Request-side bounds, each with the direction in which a change refuses what was accepted:
-#: ``max`` bounds break when they fall (or appear), ``min`` bounds when they rise (or appear).
-_UPPER_BOUNDS = ("maxLength", "maximum", "exclusiveMaximum", "maxItems")
-_LOWER_BOUNDS = ("minLength", "minimum", "exclusiveMinimum", "minItems")
 
 #: A recursion floor no real schema reaches, so a malformed document cannot hang the check.
 _MAX_DEPTH = 64
@@ -51,7 +48,7 @@ _TYPE_KEYS = frozenset({"type", "nullable"})
 #: What they read of a schema's one alternative beside ``null``, which they compare as its
 #: own. Of a union of several values they read these as one pooled set, which loses which
 #: alternative a bound or a format belonged to, so there they are left for :func:`_unread`.
-_VALUE_KEYS = frozenset({"format", "const", "enum", "pattern", *_UPPER_BOUNDS, *_LOWER_BOUNDS})
+_VALUE_KEYS = frozenset({"format", "const", "enum", "pattern", *UPPER_BOUNDS, *LOWER_BOUNDS})
 
 
 def _raw_members(schema: Mapping[str, Any]) -> list[Any]:
@@ -172,7 +169,7 @@ def diff_schema(
     stack: tuple[tuple[str | None, str | None], ...] = (),
 ) -> Iterator[Change]:
     """Compare two schemas in *direction*; *field* is the dotted path inside the body."""
-    if shape(was) == shape(now) and _settled(refs_in(was) | refs_in(now), docs):
+    if canonical_text(shape(was)) == canonical_text(shape(now)) and _settled(refs_in(was) | refs_in(now), docs):
         return
     subject = f"{label} field '{field}'" if field else label
     pair = (ref_of(was), ref_of(now))
@@ -380,7 +377,7 @@ def _diff_value_set(
 
     old_bounds, new_bounds = _bounds(before, docs.before), _bounds(after, docs.after)
     if direction == REQUEST:
-        yield from _diff_bounds(where, subject, old_bounds, new_bounds)
+        yield from diff_bounds(where, subject, old_bounds, new_bounds)
     else:
         # A response bound constrains what the server sends, so moving it never fails a
         # reader that was built on the old one; it is named, and never breaking.
@@ -407,39 +404,10 @@ def _bounds(schema: Mapping[str, Any], document: Mapping[str, Any]) -> dict[str,
     for member in _members(schema, document):
         if member.get("type") == "null":
             continue
-        for key in (*_UPPER_BOUNDS, *_LOWER_BOUNDS, "pattern"):
+        for key in (*UPPER_BOUNDS, *LOWER_BOUNDS, "pattern"):
             if key in member:
                 found[key] = member[key]
     return found
-
-
-def _diff_bounds(where: str, subject: str, before: Mapping[str, Any], after: Mapping[str, Any]) -> Iterator[Change]:
-    for key in _UPPER_BOUNDS:
-        old, new = before.get(key), after.get(key)
-        if old == new:
-            continue
-        if new is not None and (old is None or _number(new) < _number(old)):
-            yield Change(True, where, f"{subject} {key} {old if old is not None else 'none'} -> {new}")
-        else:
-            yield Change(False, where, f"{subject} {key} {old} -> {new if new is not None else 'none'}")
-    for key in _LOWER_BOUNDS:
-        old, new = before.get(key), after.get(key)
-        if old == new:
-            continue
-        if new is not None and (old is None or _number(new) > _number(old)):
-            yield Change(True, where, f"{subject} {key} {old if old is not None else 'none'} -> {new}")
-        else:
-            yield Change(False, where, f"{subject} {key} {old} -> {new if new is not None else 'none'}")
-    old_pattern, new_pattern = before.get("pattern"), after.get("pattern")
-    if old_pattern != new_pattern:
-        if new_pattern is not None:
-            yield Change(True, where, f"{subject} must now match {new_pattern!r}")
-        else:
-            yield Change(False, where, f"{subject} no longer has to match {old_pattern!r}")
-
-
-def _number(value: Any) -> float:
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
 
 
 def _diff_properties(

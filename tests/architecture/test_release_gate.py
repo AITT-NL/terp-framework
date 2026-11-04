@@ -143,6 +143,24 @@ def test_the_gate_records_every_check_and_the_claim_of_one_run(tmp_path: pathlib
     assert gate.red(document) == ["api-contract", "domain-invariants"]
 
 
+def test_what_a_red_check_printed_goes_to_the_gate_s_own_log_and_nowhere_else(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    """ADR 0200 decision 1. The document carries no check's output, so the operator reads why a
+    check is red in the log of the job that ran the gate: the gate writes each red check's tail
+    there, and nothing of a green one."""
+    repo = tmp_path / "repo"
+    sha = committed_app(repo)
+    said = "openapi.json records a field the app no longer serves"
+    runs = _runs(printed=_printed(("api-contract",), said=said))
+    monkeypatch.setattr(gate, "run", runs)
+    document = gate.gate(repo, sha, _build(tmp_path, sha))
+    captured = capsys.readouterr()
+    assert "verify: api-contract FAILED\n" + said in captured.out
+    assert captured.out.count("FAILED") == 1, "a green check prints nothing"
+    assert said not in canonical(document).decode()
+
+
 def _verdict(**changes) -> bytes:  # type: ignore[no-untyped-def]
     printed = json.loads(_printed())
     for key, value in changes.items():
@@ -191,3 +209,18 @@ def test_a_verdict_document_and_a_schedule_catalog_are_required(tmp_path: pathli
     monkeypatch.setattr(gate, "run", _runs())
     with pytest.raises(ReleaseError, match="pushed 0 backend images"):
         gate.gate(repo, sha, _build(tmp_path, sha, images=[]))
+
+
+def test_what_a_secret_scanner_printed_is_not_relayed(tmp_path: pathlib.Path, monkeypatch, capsys) -> None:
+    """A scanner's matched line is the secret it found, so a red secret-scanning check is named
+    in the gate's log and its output is not, with the command that shows it in a checkout."""
+    repo = tmp_path / "repo"
+    sha = committed_app(repo)
+    said = "SOME_API_TOKEN=an-example-value-the-scanner-matched"
+    runs = _runs(printed=_printed(("secret-scanning",), said=said))
+    monkeypatch.setattr(gate, "run", runs)
+    gate.gate(repo, sha, _build(tmp_path, sha))
+    out = capsys.readouterr().out
+    assert "verify: secret-scanning FAILED" in out and "is not relayed" in out
+    assert "`terp verify --only secret-scanning`" in out
+    assert said not in out

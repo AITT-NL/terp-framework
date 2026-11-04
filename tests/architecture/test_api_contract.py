@@ -1249,3 +1249,77 @@ def test_a_document_changed_only_outside_what_is_compared_is_named_as_a_whole() 
     assert lines(doc(info={"x-owner": "a"}), doc(info={"x-owner": "b"})) == [
         "BREAKING contract: the document changed in a way this check does not classify - review it as breaking"
     ]
+
+
+def test_a_boolean_that_became_a_number_is_a_change_although_python_reads_them_equal() -> None:
+    """``true``, ``1`` and ``1.0`` are one value to ``==`` and three to a client's decoder and to
+    the file ``terp openapi`` writes, so equality is decided on the contract's text."""
+    for before, after in (({"const": True}, {"const": 1}), ({"enum": [True]}, {"enum": [1]})):
+        found = lines(get({"type": "integer", **before}), get({"type": "integer", **after}))
+        assert found and found[0].startswith("BREAKING"), (before, after, found)
+    assert lines(post({"type": "integer", "maximum": 1}), post({"type": "integer", "maximum": True})) == [
+        "BREAKING POST /things: request body maximum 1 -> True"
+    ]
+
+
+def test_an_openapi_3_0_exclusive_bound_turned_on_is_a_tightening() -> None:
+    """3.0 writes ``exclusiveMaximum: true`` beside ``maximum``, refusing the bound's own value."""
+    at_most = {"type": "integer", "maximum": 10}
+    assert lines(post({**at_most, "exclusiveMaximum": False}), post({**at_most, "exclusiveMaximum": True})) == [
+        "BREAKING POST /things: request body exclusiveMaximum False -> True"
+    ]
+    assert lines(post(at_most), post({**at_most, "exclusiveMaximum": True})) == [
+        "BREAKING POST /things: request body exclusiveMaximum none -> True"
+    ]
+    assert lines(post({**at_most, "exclusiveMaximum": True}), post({**at_most, "exclusiveMaximum": False})) == [
+        "POST /things: request body exclusiveMaximum True -> False"
+    ]
+    at_least = {"type": "integer", "minimum": 1}
+    assert lines(post(at_least), post({**at_least, "exclusiveMinimum": True})) == [
+        "BREAKING POST /things: request body exclusiveMinimum none -> True"
+    ]
+
+
+def test_a_document_nested_past_the_comparison_is_red_rather_than_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """A traceback ends the run and leaves every later check of the profile unreported; a red
+    line names the file and the way out."""
+    from terp.cli import api_contract_check
+    from terp.cli.api_contract_check import run_api_contract_check
+
+    _tracked(tmp_path, "[" * 100_000 + "]" * 100_000)
+    _serving(monkeypatch, tmp_path, _fixture_app(title=True))
+    code, output = run_api_contract_check(tmp_path)
+    assert code == 1 and "is tracked but is not a readable JSON document" in output
+
+    _tracked(tmp_path, json.dumps(doc()))
+
+    def too_deep(*_args: Any, **_kwargs: Any) -> Any:
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(api_contract_check, "diff_contract", too_deep)
+    code, output = run_api_contract_check(tmp_path)
+    assert code == 1 and "nested deeper than this check compares" in output
+
+
+def test_what_the_app_prints_on_import_does_not_reach_the_check_s_stdout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``terp verify --format json`` reports on stdout alone, so an app that prints when it is
+    imported must not write into the verdict document."""
+    import terp.cli._appref as appref
+    from terp.cli.api_contract_check import run_api_contract_check
+
+    app = _fixture_app(title=True)
+    _tracked(tmp_path, json.dumps(doc()))
+    _serving(monkeypatch, tmp_path, app)
+
+    def noisy(_ref: str) -> Any:
+        print("the app prints on import")
+        return app
+
+    monkeypatch.setattr(appref, "load_app", noisy)
+    run_api_contract_check(tmp_path)
+    captured = capsys.readouterr()
+    assert captured.out == "" and "the app prints on import" in captured.err

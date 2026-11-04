@@ -178,8 +178,11 @@ exactly as before, and moving its pin to 0.36.1 or later is what brings it under
 - A tool that stands in for `terp verify` in the gate, such as a lane that does not run the
   app's suite, stands in for the verdict, every check by id, and the gate composes the claim
   from it.
-- The gate document carries no output, so why a check is red is read where the gate ran, or
-  from `terp verify --only <check>` in a checkout of the commit.
+- The gate document carries no output. The gate prints what each red check said to its own
+  log, so why a check is red is read in the job that ran the gate, or from
+  `terp verify --only <check>` in a checkout of the commit. The one exception is the secret
+  scanner, whose output is the matched line itself: the log names the check and the command,
+  and nothing it printed.
 
 ## Two-layer enforcement
 

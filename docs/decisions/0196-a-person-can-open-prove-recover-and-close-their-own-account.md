@@ -94,7 +94,10 @@ So an unproven address leaves no account and no personal data, there is no "pend
 to clean up, and the token is single-use twice over: its row is stamped when it is redeemed,
 and once the account exists, a second token for the same address is refused too. Addresses
 are compared without regard to case, so two spellings of one mailbox are one address and
-never two accounts.
+never two accounts: a self-service account is stored with its address lower-cased, and a
+sign-in reaches it in any spelling, because the identity capability's lookup tries the
+address as written and then lower-cased. An account provisioned with capitals keeps signing
+in as it was written.
 
 ### 3. A request about an address answers the same way, and does the same work, whether or not an account exists
 

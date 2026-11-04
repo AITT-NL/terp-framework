@@ -38,7 +38,7 @@ from terp.core.db import get_session
 from terp.core.jobs import configure_jobs, reset_jobs_runtime
 
 from terp.capabilities.auth import hash_password, verify_password
-from terp.capabilities.identity import AccountToken, RefreshToken, RefreshTokenService, User
+from terp.capabilities.identity import AccountToken, IdentityService, RefreshToken, RefreshTokenService, User
 from terp.capabilities.mail import MAIL_SEND, CapturingMailTransport, MailMessage, MailSettings, configure_mail, reset_mail
 from terp.capabilities.users import (
     USERS_OPERATIONS,
@@ -648,3 +648,21 @@ def test_a_token_stored_before_a_key_rotation_is_still_found(monkeypatch: pytest
     monkeypatch.setattr(settings, "SECRET_KEY_FALLBACKS", [settings.SECRET_KEY])
     monkeypatch.setattr(settings, "SECRET_KEY", "a-different-and-sufficiently-long-secret-key-value")
     assert before in account_tokens.account_token_digests("t")[1:]
+
+
+def test_an_account_opened_with_capitals_signs_in_in_any_spelling(engine: Any, mail: CapturingMailTransport) -> None:
+    """ADR 0196 decision 2. The row is stored lower-cased, and the identity lookup tries the
+    address as written and then lower-cased, so the spelling at sign-in does not matter. An
+    account provisioned with capitals keeps signing in as it was written, and lower-cased too."""
+    client = _client(engine)
+    client.post(_SIGN_UP, json={"email": "Member@Example.test"})
+    assert client.post(_VERIFY, json={"token": _token(mail), "password": _PASSWORD}).status_code == 201
+    assert [u.email for u in _rows(engine, User)] == ["member@example.test"], "stored in the one spelling"
+    _user(engine, "Admin@Example.test")
+    identity = IdentityService()
+    with Session(engine) as session:
+        for spelling in ("member@example.test", "Member@Example.test", "MEMBER@EXAMPLE.TEST"):
+            assert identity.authenticate(session, spelling, _PASSWORD) is not None, spelling
+        assert identity.authenticate(session, "Admin@Example.test", _PASSWORD) is not None, "as provisioned"
+        assert identity.authenticate(session, "nobody@example.test", _PASSWORD) is None
+

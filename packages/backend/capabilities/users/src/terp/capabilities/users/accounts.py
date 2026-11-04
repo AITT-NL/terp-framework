@@ -59,6 +59,17 @@ def _lifetime(ttl: timedelta) -> str:
     return "1 hour" if hours == 1 else f"{hours} hours"
 
 
+def _folded(email: str) -> str:
+    """*email* in the one spelling self-service stores and mails to.
+
+    Two spellings of one mailbox are one address (ADR 0196), and the account is compared
+    without regard to case, so the row is written in the lower-cased form and a sign-in that
+    spells the address with capitals reaches it: the identity lookup tries the address as
+    written and then lower-cased.
+    """
+    return email.lower()
+
+
 class AccountsService:
     """The self-service account operations, over the app's own users service."""
 
@@ -80,6 +91,7 @@ class AccountsService:
         redeemed, by whoever reads this mail.
         """
         declaration = self._declaration
+        email = _folded(email)
         token = seal_account_token(SIGN_UP, {"e": email}, ttl=declaration.sign_up_ttl)
         messages = declaration.messages
         if self._users.get_by_address(session, email) is None:
@@ -124,6 +136,7 @@ class AccountsService:
         """
         declaration = self._declaration
         messages = declaration.messages
+        email = _folded(email)
         user = self._users.get_by_address(session, email)
         eligible = user is not None and user.is_active and user.hashed_password is not None
         subject_id = user.id if user is not None and eligible else uuid.uuid4()

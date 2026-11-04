@@ -51,5 +51,6 @@ frontend/dist/
 # app's API contract, the file a native client or a site in another repository pins, and
 # `terp verify` holds it to the API the app serves (ADR 0194). `uv run terp openapi`
 # regenerates it in the same change as the API it describes. To opt out of the check,
-# list /openapi.json here again.
+# untrack the file (`git rm --cached openapi.json`) and list /openapi.json here again: a
+# committed file git still tracks is held to the app whatever this file says.
 frontend/src/api/

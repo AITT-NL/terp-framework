@@ -35,6 +35,7 @@ from terp.cli.api_contract_shapes import (
     Change,
     Docs,
     beyond,
+    canonical_text,
     differing,
     mapping,
     refs_in,
@@ -88,7 +89,7 @@ def diff_contract(before: Mapping[str, Any], after: Mapping[str, Any]) -> list[C
     else changed; text that changes no shape is one unlabelled line, and only when nothing
     else changed.
     """
-    if before == after:
+    if canonical_text(before) == canonical_text(after):
         return []
     changes: list[Change] = []
     docs = Docs.of(before, after)
@@ -234,7 +235,12 @@ def _diff_request_body(where: str, was: Any, now: Any, docs: Docs) -> Iterator[C
 
 
 def _is_success(status: str) -> bool:
-    """A 2xx status, or the ``2XX`` range OpenAPI allows in its place."""
+    """A 2xx status, or the ``2XX`` range OpenAPI allows in its place.
+
+    A ``default`` response reads as an error response: Terp's composition always writes the
+    success response under its status, so a document whose only response is ``default`` is a
+    foreign one, and its change is still named, as an error response's is.
+    """
     return status.startswith("2")
 
 
@@ -360,7 +366,7 @@ def _diff_document_parts(before: Mapping[str, Any], after: Mapping[str, Any], do
 
 def _unclassified(before: Mapping[str, Any], after: Mapping[str, Any]) -> Change:
     """The one line for a difference nothing above named."""
-    if shape(before) == shape(after):
+    if canonical_text(shape(before)) == canonical_text(shape(after)):
         return Change(
             False,
             "contract",

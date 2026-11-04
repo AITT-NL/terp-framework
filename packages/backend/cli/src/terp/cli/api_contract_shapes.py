@@ -74,7 +74,11 @@ class Docs:
         depends = {
             SCHEMA_REF + name: frozenset(refs_in(old.get(name)) | refs_in(new.get(name))) for name in names
         }
-        changed = {SCHEMA_REF + name for name in names if shape(old.get(name)) != shape(new.get(name))}
+        changed = {
+            SCHEMA_REF + name
+            for name in names
+            if canonical_text(shape(old.get(name))) != canonical_text(shape(new.get(name)))
+        }
         grew = True
         while grew:
             grew = False
@@ -119,6 +123,16 @@ def shape(node: Any, *, names: bool = False) -> Any:
 
 def _order_free(values: list[Any]) -> list[str]:
     return sorted(json.dumps(item, sort_keys=True) for item in values)
+
+
+def canonical_text(node: Any) -> str:
+    """*node* as the text a contract file carries, so ``true``, ``1`` and ``1.0`` are three values.
+
+    Python reads those three as equal, and a comparison that trusts ``==`` would call a
+    boolean field that became an integer "no change" while ``terp openapi`` writes a different
+    file. The file's own text is the pin, so equality is decided on it.
+    """
+    return json.dumps(node, sort_keys=True, separators=(",", ":"))
 
 
 def unclassified(where: str, subject: str) -> Change:

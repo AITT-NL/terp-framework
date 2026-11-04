@@ -21,7 +21,9 @@ at all, the way ``production-readiness`` skips only when there is no ``control_p
 
 from __future__ import annotations
 
+import contextlib
 import pathlib
+import sys
 from dataclasses import dataclass
 
 from terp.cli.api_contract import ADOPT_HINT, CONTRACT_ARTIFACT, diff_contract, read_contract, render_changes
@@ -104,7 +106,7 @@ def run_api_contract_check(project_root: pathlib.Path) -> tuple[int, str]:
         )
     try:
         committed = read_contract(project_root)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         return 1, (
             f"{CONTRACT_ARTIFACT} is tracked but is not a readable JSON document ({exc}), "
             f"so there is no contract to hold the app to; regenerate it with: {ADOPT_HINT}"
@@ -116,7 +118,10 @@ def run_api_contract_check(project_root: pathlib.Path) -> tuple[int, str]:
         )
     push_app_root(project_root)
     try:
-        live = openapi_document(load_app(APP_REF))
+        # Composing imports the app, and an app that prints on import would write into the
+        # one channel `terp verify --format json` reports on: its stdout goes to stderr here.
+        with contextlib.redirect_stdout(sys.stderr):
+            live = openapi_document(load_app(APP_REF))
     except (SystemExit, Exception) as exc:  # noqa: BLE001 - any failure to compose is the app's answer
         return 1, (
             f"{APP_REF} could not be composed, so whether {CONTRACT_ARTIFACT} still describes "
@@ -124,7 +129,16 @@ def run_api_contract_check(project_root: pathlib.Path) -> tuple[int, str]:
             "Fix what stops the app from composing: `uv run terp openapi` composes it the same "
             "way and shows the same error."
         )
-    changes = diff_contract(committed, live)
+    try:
+        changes = diff_contract(committed, live)
+    except RecursionError:
+        # A document nested past what the comparison walks is red, with its name, rather than
+        # a traceback that ends the run and leaves every later check of the profile unreported.
+        return 1, (
+            f"{CONTRACT_ARTIFACT} or the API the composed app serves is nested deeper than this "
+            f"check compares, so whether the file still describes the API cannot be established. "
+            f"Regenerate the contract with: {ADOPT_HINT}, and review the change by hand"
+        )
     if not changes:
         return 0, f"{CONTRACT_ARTIFACT} matches the API the composed app serves"
     breaking = sum(1 for change in changes if change.breaking)

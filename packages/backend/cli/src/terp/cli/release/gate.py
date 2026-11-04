@@ -10,6 +10,7 @@ What it produces is its word:
   the SHA, with npm's lifecycle scripts off: every check it ran, by id with whether it passed,
   and the release-assurance claim those same results compose (ADR 0200). Nothing a check
   printed is recorded, because that is the app's own text from a run with the app's environment;
+  what a red check printed goes to the gate's own log instead, where the operator reads it;
 * the schedule catalog, each schedule's name, cron and job, read by running the pushed backend
   image, pulled by digest, as its own non-root user with no network and a read-only filesystem,
   so a deploy tool that never imports the app can trigger every schedule.
@@ -33,6 +34,7 @@ import sys
 import tempfile
 from typing import Any
 
+from terp.cli._output import emit
 from terp.cli.release._common import (
     ReleaseError,
     commit_id,
@@ -59,6 +61,10 @@ STRICT_SINCE = "0.36.1"
 
 #: The command the gate runs, once: the whole release profile, with every check's verdict.
 VERIFY = ("verify", "--profile", "release", "--format", "json")
+
+#: Checks whose output is never relayed to the gate's log, because what they print is the
+#: thing they found: a secret scanner names the matched line.
+_UNRELAYED = frozenset({"secret-scanning"})
 
 #: How the pushed image is run to read it: its own user, no network, nothing writable.
 _SEALED = (
@@ -94,7 +100,30 @@ def _verify(checkout: pathlib.Path) -> list[dict[str, Any]]:
         or document.get("ok") is not all(check["ok"] for check in checks)
     ):
         raise ReleaseError("terp verify --profile release wrote no verdict of each check it ran")
+    for check in checks:
+        if not check["ok"]:
+            _relay_red(check)
     return [{"id": check["id"], "ok": check["ok"]} for check in checks]
+
+
+def _relay_red(check: dict[str, Any]) -> None:
+    """Write what a red *check* said to the gate's own output, where the operator is reading.
+
+    The document records a check by its id and verdict and never by what it printed (ADR 0200
+    decision 1): that is the app's own text, from a run with the app's environment. The log of
+    the job that ran the gate is where that text belongs, so a red check is read there, in the
+    run that failed, and not from a second run of ``terp verify`` the operator has to make.
+    """
+    emit(f"verify: {check['id']} FAILED")
+    if check["id"] in _UNRELAYED:
+        emit(
+            f"  what {check['id']} printed is not relayed: a scanner's matched line can hold the "
+            f"secret it found. `terp verify --only {check['id']}` in a checkout of the commit says why"
+        )
+        return
+    tail = check.get("output_tail")
+    if isinstance(tail, str) and tail.strip():
+        emit(tail.rstrip())
 
 
 def _backend(build: dict[str, Any]) -> dict[str, Any]:
@@ -216,7 +245,14 @@ def require_passed(document: dict[str, Any], terp_cli: str) -> None:
     release-assurance claim alone, as it always was; version 2 from it up, held to every check
     the release profile ran, to itself, and to the claim.
     """
-    strict = version_key(terp_cli) >= version_key(STRICT_SINCE)
+    try:
+        strict = version_key(terp_cli) >= version_key(STRICT_SINCE)
+    except ReleaseError as exc:
+        raise ReleaseError(
+            f"the commit's uv.lock pins terp-cli {terp_cli}, which is not a release number this "
+            "signer compares, so it cannot tell which gate document that toolchain writes: "
+            "sign a commit that pins a released terp-cli"
+        ) from exc
     expected = VERSION if strict else 1
     if document[DOCUMENT] != expected:
         raise ReleaseError(
@@ -233,6 +269,24 @@ def require_passed(document: dict[str, Any], terp_cli: str) -> None:
             "the gate's release-assurance claim does not hold: sign signs only a release the gate "
             "passed, and `terp verify --profile release --format assurance` in a checkout of the "
             "commit names the lane that failed"
+        )
+    if strict:
+        _composed(document, claim)
+
+
+def _composed(document: dict[str, Any], claim: dict[str, Any]) -> None:
+    """Refused unless a version 2 document's *claim* is the one its own checks compose.
+
+    The gate composes the claim from the very checks it records (decision 1), so a claim that
+    holds over checks that do not compose it was not written by one run: a claim borrowed from
+    a green run over a shorter list of checks, or lanes that say failed under a claim that holds.
+    """
+    composed = assurance_document(document["profile"]["checks"])
+    if claim.get("ok") is not composed["ok"] or claim.get("lanes") != composed["lanes"]:
+        raise ReleaseError(
+            "the gate document contradicts itself: its release-assurance claim is not the one its "
+            "checks compose. sign signs only what one run of `terp release gate` wrote, so run it "
+            "again, with the signer image of the commit's own release"
         )
 
 

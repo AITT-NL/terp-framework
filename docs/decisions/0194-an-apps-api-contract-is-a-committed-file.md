@@ -58,8 +58,10 @@ in git is adoption. The template stops ignoring it. A fresh render has no contra
 first gate run writes one, because the template cannot know an app's surface before the app
 exists, and the first commit then carries it, so for a generated app adoption is the default
 rather than a step: the check's states are ADR 0139's, and only the starting state differs. An
-app that does not want the check lists the file in its own `.gitignore` again, and the check
-says it is skipped.
+app that does not want the check untracks the file (`git rm --cached openapi.json`) and lists
+it in its own `.gitignore` again, and the check says it is skipped. The ignore entry alone
+does not opt out: git goes on tracking a committed file whatever `.gitignore` says, and the
+check asks git, not the ignore rules.
 
 The contract is the API as `terp openapi` composes it, in the environment it runs in, which is
 the development one by default. A route an app mounts only in some environments appears as
@@ -195,8 +197,8 @@ one is present, as it does for every other carried file.
 - The production posture is unchanged: the schema endpoints stay hidden, and the contract
   travels as a file, never as an endpoint.
 - An app rendered before this release keeps its gate green. `copier update` drops the ignore
-  entry; its next gate run writes the file, and the app commits it to adopt or ignores it again
-  to opt out.
+  entry; its next gate run writes the file, and the app commits it to adopt, or ignores it again
+  to opt out (and untracks it first, if it was ever committed).
 - A breaking change is accepted by regenerating, as a widening of authority is in ADR 0139.
   Keeping an old shape beside a new one until every client has moved is the app's choice, and
   nothing here versions an API for it.
