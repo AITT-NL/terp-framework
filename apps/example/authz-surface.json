@@ -202,6 +202,19 @@
           "methods": [
             "POST"
           ],
+          "path": "/api/v1/auth/native/logout",
+          "requirement": "public"
+        },
+        {
+          "by_role": {
+            "admin": "public",
+            "editor": "public",
+            "viewer": "public"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "POST"
+          ],
           "path": "/api/v1/auth/native/refresh",
           "requirement": "public"
         },

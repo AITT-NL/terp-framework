@@ -6,9 +6,9 @@ of those properties is a browser property. To a native client (an app on a phone
 store is ordinary application data rather than the operating system's keychain or keystore,
 which is where a credential that lives for weeks belongs.
 
-So an app that declares :class:`NativeClients` gets two routes of its own,
-``/native/login`` and ``/native/refresh``, that answer with the refresh token in the JSON
-body. They run the same family, rotation and reuse detection as the cookie routes, through
+So an app that declares :class:`NativeClients` gets three routes of its own:
+``/native/login`` and ``/native/refresh``, which answer with the refresh token in the JSON
+body, and ``/native/logout``, which takes it there. They run the same family, rotation and reuse detection as the cookie routes, through
 the same seams, and they refuse a browser outright: :func:`refuse_browser` turns away any
 request carrying ``Origin``, a ``Sec-Fetch-*`` header or the refresh cookie, so script in a
 page can never be handed a token it could read.
@@ -20,7 +20,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from sqlmodel import Session
 
 from terp.core import (
@@ -35,10 +35,10 @@ from terp.core import (
     settings,
 )
 
-from terp.capabilities.auth.operations import AUTH_NATIVE_LOGIN, AUTH_NATIVE_REFRESH
+from terp.capabilities.auth.operations import AUTH_NATIVE_LOGIN, AUTH_NATIVE_LOGOUT, AUTH_NATIVE_REFRESH
 from terp.capabilities.auth.refresh import RefreshRotation
 from terp.capabilities.auth.schemas import LoginRequest, NativeRefreshRequest, NativeSession
-from terp.capabilities.auth.seams import RefreshIssuer
+from terp.capabilities.auth.seams import RefreshIssuer, RefreshRevoker
 
 #: The sign-in steps ``/login`` takes, handed over so the native route takes exactly them.
 SignIn = Callable[[Request, LoginRequest, Session], tuple[Principal, tuple[str, ...]]]
@@ -105,13 +105,14 @@ def add_native_routes(
     issue: RefreshIssuer,
     rotate: Callable[[Session, str], RefreshRotation | None],
     resolve: Callable[[Session, uuid.UUID], Principal | None],
+    revoke: RefreshRevoker,
 ) -> None:
-    """Mount ``POST /native/login`` and ``POST /native/refresh`` on the login *router*.
+    """Mount ``POST /native/login``, ``/native/refresh`` and ``/native/logout`` on *router*.
 
     The steps are the cookie routes' own, handed in: *sign_in* is ``/login``'s credential
-    check, *mint* its access-token minting, and *issue* / *rotate* / *resolve* the same
-    refresh seams ``/login`` and ``/refresh`` call. Only the carrier differs, and the browser
-    refusal comes first on both routes.
+    check, *mint* its access-token minting, and *issue* / *rotate* / *resolve* / *revoke* the
+    same refresh seams ``/login``, ``/refresh`` and ``/logout`` call. Only the carrier
+    differs, and the browser refusal comes first on every route.
     """
 
     @router.post("/native/login", response_model=NativeSession)
@@ -158,6 +159,22 @@ def add_native_routes(
         if rotation.token_version is None or rotation.token_version != token_version:
             raise AuthenticationError()
         return NativeSession(access_token=access_token, refresh_token=rotation.token)
+
+    @router.post("/native/logout", status_code=204)
+    @route_policy(
+        Policy.public_write(
+            reason="a native client signs out with its refresh token, which outlives its access token"
+        )
+    )
+    @operation(AUTH_NATIVE_LOGOUT)
+    def native_logout(request: Request, presented: NativeRefreshRequest, session: SessionDep) -> Response:
+        # The body counterpart of cookie-only logout (ADR 0193): revoke the presented family
+        # without rotating it, so signing out never mints a successor, and an unknown or
+        # already-revoked token is a no-op. Ending the access token a client also holds is
+        # /logout's bearer path, as it is for a browser.
+        refuse_browser(request)
+        revoke(session, presented.refresh_token)
+        return Response(status_code=204)
 
 
 __all__ = ["BrowserOnNativeRouteError", "NativeClients", "SignIn", "add_native_routes", "refuse_browser"]

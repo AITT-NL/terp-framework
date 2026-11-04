@@ -153,12 +153,13 @@ def test_a_request_presenting_the_cookie_and_a_body_token_is_refused(app_db: Fas
 
 
 # --- the declaration --------------------------------------------------------- #
-def test_an_app_that_does_not_opt_in_has_neither_route() -> None:
+def test_an_app_that_does_not_opt_in_has_none_of_the_routes() -> None:
     from app.main import build_base_profile
 
     base = TestClient(build_base_profile())
     assert base.post(_LOGIN, json={"email": "a@example.com", "password": "x"}).status_code == 404
     assert base.post(_REFRESH, json={"refresh_token": "x"}).status_code == 404
+    assert base.post("/api/v1/auth/native/logout", json={"refresh_token": "x"}).status_code == 404
 
 
 @pytest.mark.parametrize("reason", ["", "   "])

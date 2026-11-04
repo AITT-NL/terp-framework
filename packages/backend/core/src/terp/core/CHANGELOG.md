@@ -46,23 +46,26 @@ decision, 0001 onwards.
   logged in again every 15 minutes or kept the cookie somewhere it should not.
   `build_login_module(..., native_clients=NativeClients(reason=...))` now mounts
   `POST /api/v1/auth/native/login` and `POST /api/v1/auth/native/refresh`, which answer
-  `{access_token, refresh_token, token_type}` and set no cookie. They run the same family,
+  `{access_token, refresh_token, token_type}` and set no cookie, and
+  `POST /api/v1/auth/native/logout`, which takes `{refresh_token}` and revokes its whole family
+  without rotating it: the body counterpart of 0.36.0's cookie-only logout, so a client whose
+  access token has expired signs out without minting a successor. They run the same family,
   single-use rotation, reuse detection (a replayed rotated token revokes the whole family) and
   revocation on logout, deactivation and password reset, through the same seams, and
-  `/native/login` takes the credential rate limit `/login` takes. Both refuse a request with
+  `/native/login` takes the credential rate limit `/login` takes. All three refuse a request with
   browser provenance, an `Origin` header, any `Sec-Fetch-*` header or the refresh cookie, with
   403 `native_client_only` before any credential is read, so a page can never be handed a
   token its script could read. A hybrid app, whose page runs at a custom-scheme origin the
   cookie never reaches, calls the native routes from its native layer and gives its page only
   access tokens. Off by default: an app that does not declare it mounts nothing
   new and its contract is unchanged. A blank reason, or native clients without the refresh
-  seams, is refused at construction. Like every credential route they refuse an
-  `Idempotency-Key`, and they take the same authenticated snapshot `/login` and `/refresh` do
-  (ADR 0193): a family is issued at the epoch the sign-in captured, and a refresh whose family
-  epoch no longer matches is refused. The minted refresh-token field carries the same governed
+  seams, is refused at construction. The two that mint a credential refuse an
+  `Idempotency-Key`, as every credential route does, and take the same authenticated snapshot
+  `/login` and `/refresh` take (ADR 0193): a family is issued at the epoch the sign-in
+  captured, and a refresh whose family epoch no longer matches is refused. The minted refresh-token field carries the same governed
   marker the access token does, so the auth capability's `schemas_exclude_sensitive_fields`
   budget moves from 1 to 2. The reference app opts in; its committed contract and authority
-  baseline record the two routes.
+  baseline record the three routes.
 - **A person can open, prove, recover and close their own account (ADR 0196).** The users
   capability had only operator operations, so an app with consumer accounts wrote the public
   half itself, which is where an address gets enumerated, a reset token works twice or ends up

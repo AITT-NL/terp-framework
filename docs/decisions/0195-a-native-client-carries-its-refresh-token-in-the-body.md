@@ -1,10 +1,10 @@
 # 0195 — A native client carries its refresh token in the body, on routes that refuse a browser
 
-- **Status:** Proposed (awaiting review). Built in 0.36.1: `NativeClients`, the two routes,
+- **Status:** Proposed (awaiting review). Built in 0.36.1: `NativeClients`, the three routes,
   the browser-provenance refusal and the reference app's opt-in, with its committed contract
   and authority baseline. The one governed escape-hatch marker decision 7 spends was agreed
   by the owner before it was added. Held by `apps/example/tests/test_native_refresh.py`,
-  `test_login_wiring.py` and the authority-baseline and contract tests.
+  `test_native_sessions.py`, `test_login_wiring.py` and the authority-baseline and contract tests.
 - **Date:** 2026-11-03. 0182 and 0183 are reserved for other records and 0184 to 0193 are taken;
   0194 to 0197 are this series.
 - **Relates:** extends [ADR 0054](0054-refresh-token-sessions.md) (one refresh-token family,
@@ -54,15 +54,17 @@ on. A blank reason is refused at construction, as `Policy.public_write` refuses 
 store. An app that does not declare it mounts nothing new: its routes, its contract and its
 authority baseline are unchanged.
 
-### 2. Two routes of their own
+### 2. Three routes of their own
 
 - `POST /api/v1/auth/native/login` takes the `/login` body and runs the same steps: the
   throttle, the credential check, the second factor, the same token epoch and tenant claim.
   It answers `{access_token, refresh_token, token_type}` and sets no cookie.
 - `POST /api/v1/auth/native/refresh` takes `{refresh_token}` and answers the same shape with
   the rotated token.
+- `POST /api/v1/auth/native/logout` takes `{refresh_token}`, revokes its family and answers
+  204 (decision 6).
 
-Both are public by their own `route_policy` (ADR 0148), and `/native/login` carries the
+Each is public by its own `route_policy` (ADR 0148), and `/native/login` carries the
 credential rate limit `/login` carries.
 
 The first sketch of this put a client-kind declaration on `/login` and an optional body on
@@ -80,12 +82,12 @@ The native routes call the same `refresh_issuer` and `refresh_rotator` seams `/l
 detection that revokes the whole family when a rotated token is replayed outside the grace
 window, the same idle and absolute lifetimes, and the same `revoke_sessions` chokepoint for
 logout, deactivation, a role change and a password reset. The carrier differs and nothing
-else does. Logout is unchanged: `POST /logout` with the bearer revokes every family of the
-user.
+else does. `POST /logout` with the bearer revokes every family of the user, as it does for a
+browser.
 
 ### 4. A native route refuses a browser, and the browser routes never read a body token
 
-A request to either native route that carries an `Origin` header, any `Sec-Fetch-*` header
+A request to any native route that carries an `Origin` header, any `Sec-Fetch-*` header
 or the refresh cookie is refused with a typed 403 before any credential is read. A browser
 attaches `Origin` to every `POST`, current browsers add `Sec-Fetch-*` headers to every request
 over HTTPS, and page script can neither remove nor forge either, because they are forbidden
@@ -117,8 +119,8 @@ successor. The cookie routes had the same shape.
 So no credential route accepts the header. The core's `no_idempotency` marker, which
 `/login`, `/token` and `/refresh` carry since 0.36.0 (ADR 0193), refuses a request that sends
 one with a typed 400 (`idempotency_not_supported`) before the route runs, so nothing is
-stored and no token is ever replayed; both native routes carry the same marker. A client
-retries one of these routes by sending it again without a key.
+stored and no token is ever replayed; the two native routes that mint one carry it too. A
+client retries one of these routes by sending it again without a key.
 
 ### 6. The grace window and logout are ADR 0054's, deliberately
 
@@ -128,10 +130,15 @@ removing the window for native clients would sign people out on every dropped re
 thief could make inside the window is the bound ADR 0054 already accepted, and an app that wants
 none sets `REFRESH_ROTATION_GRACE_SECONDS` to 0 for every session.
 
-A native client whose access token has expired refreshes first and then calls `/logout` with
-the new bearer. A lost device is revoked through deactivation or a password reset, the
-chokepoint every session shares. A `/native/logout` that takes the body token is a later
-addition if a client needs one.
+Signing out with the refresh token alone is `/native/logout`, the body counterpart of the
+cookie-only logout ADR 0193 gives a browser. It revokes the presented token's whole family
+without rotating it, so signing out never mints a successor, and it does so for a spent or
+expired member of the family too; an unknown token is a no-op, and another family is never
+touched. An earlier draft had a client whose access token had expired refresh first and then
+call `/logout` with the new bearer, which is exactly the rotation ADR 0193 refuses to make
+during a logout. Ending the access token a client also holds is `/logout`'s bearer path, and a
+lost device is revoked through deactivation or a password reset, the chokepoint every session
+shares.
 
 ### 7. The token is minted to be returned once, and the client keeps it in secure storage
 
@@ -148,16 +155,19 @@ keystore and nowhere else, and to treat a 401 from `/native/refresh` as signed o
 ## Two-layer enforcement
 
 - **Runtime, fail-closed:** a browser-provenance header or the refresh cookie on a native
-  route is a 403; an `Idempotency-Key` on a native route is the core's 400, as on every credential route; an invalid, expired,
-  revoked or reused body token is a 401, and a reuse revokes the family, as for the cookie.
+  route is a 403; an `Idempotency-Key` on a native route is the core's 400, as on every
+  credential route; an invalid, expired, revoked or reused body token is a 401, a reuse
+  revokes the family, as for the cookie, and so does a native logout.
 - **Construction:** a blank reason, or native clients without the refresh seams, is refused
   when the module is built.
 - **Tests:** a rotated body token replayed revokes its whole family; a request carrying both
   the cookie and a body token is refused; a request with browser provenance is refused on
-  both native routes; a captured refresh request resent with its key yields no successor and
+  every native route; a native refresh is refused when the family's epoch no longer matches,
+  when a store returns none, or when the identity is gone after the rotation; a native logout
+  with no bearer revokes the presented family and no other; a captured refresh request resent with its key yields no successor and
   the reuse is still seen; every credential route refuses the key; an app that does not opt in
-  has neither route; the reference app opts in, and its committed authority baseline and
-  contract record the two routes.
+  has none of the routes; the reference app opts in, and its committed authority baseline
+  and contract record the three routes.
 
 No `terp.arch` rule is added: like ADR 0054, this is framework mechanics with no authored
 pattern to police.

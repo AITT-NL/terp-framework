@@ -126,8 +126,8 @@ def build_login_router(
     a failure mode nobody diagnoses correctly under time pressure.
 
     Native clients (ADR 0195) are opt-in with a reason: *native_clients* mounts
-    ``POST /native/login`` and ``POST /native/refresh``, which carry the refresh token in the
-    JSON body for an app with no browser to hold a cookie, run the same family, rotation and
+    ``POST /native/login``, ``/native/refresh`` and ``/native/logout``, which carry the refresh
+    token in the JSON body for an app with no browser to hold a cookie, run the same family, rotation and
     reuse detection through the same seams, and refuse any request with browser provenance.
     They need the refresh seams, and declaring them without the seams raises here.
     """
@@ -299,6 +299,7 @@ def build_login_router(
         and refresh_issuer is not None
         and refresh_rotator is not None
         and principal_resolver is not None
+        and refresh_revoker is not None
     ):
         add_native_routes(
             router,
@@ -307,6 +308,7 @@ def build_login_router(
             issue=refresh_issuer,
             rotate=refresh_rotator,
             resolve=principal_resolver,
+            revoke=refresh_revoker,
         )
 
     if revoke_sessions is not None or refresh_enabled:

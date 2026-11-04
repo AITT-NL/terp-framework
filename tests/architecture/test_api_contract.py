@@ -485,7 +485,7 @@ def _fixture_app(*, title: bool) -> Any:
     app = FastAPI(title="fixture", version="1")
 
     @app.get("/notes/{note_id}", response_model=note)
-    def get_note(note_id: int) -> Any:  # pragma: no cover - the schema is read, never served
+    def get_note(note_id: int) -> Any:  # the schema is read, never served
         return None
 
     return app
@@ -638,7 +638,7 @@ app = FastAPI(title="fixture", version="1")
 
 
 @app.get("/notes/{note_id}", response_model=NoteRead)
-def get_note(note_id: int) -> NoteRead:  # pragma: no cover - the schema is read, never served
+def get_note(note_id: int) -> NoteRead:  # the schema is read, never served
     return NoteRead(id=note_id)
 '''
 

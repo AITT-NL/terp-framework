@@ -212,6 +212,17 @@ def _admits(types: frozenset[str], kind: str) -> bool:
     return "any" in types or kind in types or (kind == "integer" and "number" in types)
 
 
+def _missing(wide: frozenset[str] | None, narrow: frozenset[str] | None, *, everything: str) -> str | None:
+    """What *narrow* no longer allows of *wide*, or ``None``: an open set (``None``) drops
+    nothing when it is the target, and *everything* when it is the source."""
+    if narrow is None:
+        return None
+    if wide is None:
+        return everything
+    dropped = wide - narrow
+    return ", ".join(sorted(dropped)) if dropped else None
+
+
 def _enum(schema: Mapping[str, Any], document: Mapping[str, Any]) -> frozenset[str] | None:
     """Every value the schema's members enumerate, or ``None`` when one of them is open."""
     values: set[str] = set()
@@ -340,16 +351,14 @@ def _diff_value_set(
     new_enum = _enum(after, docs.after)
     if old_enum != new_enum:
         if direction == REQUEST:
-            narrowed = new_enum is not None and (old_enum is None or bool(old_enum - new_enum))
-            if narrowed:
-                lost = "values it accepted" if old_enum is None else ", ".join(sorted(old_enum - new_enum))  # type: ignore[operator]
+            lost = _missing(old_enum, new_enum, everything="values it accepted")
+            if lost is not None:
                 yield Change(True, where, f"{subject} no longer accepts {lost}")
             else:
                 yield Change(False, where, f"{subject} accepts more values")
         else:
-            widened = old_enum is not None and (new_enum is None or bool(new_enum - old_enum))
-            if widened:
-                gained = "any value" if new_enum is None else ", ".join(sorted(new_enum - old_enum))  # type: ignore[operator]
+            gained = _missing(new_enum, old_enum, everything="any value")
+            if gained is not None:
                 yield Change(True, where, f"{subject} may now return {gained}")
             else:
                 yield Change(False, where, f"{subject} returns fewer values")

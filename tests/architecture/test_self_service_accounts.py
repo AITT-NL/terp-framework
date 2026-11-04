@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -118,10 +119,14 @@ def _user(engine: Any, email: str, *, password: str | None = _PASSWORD, role: Ro
         return user.id
 
 
-def _token(mail: CapturingMailTransport) -> str:
-    match = re.search(r"#token=(\S+)", mail.sent[-1].get_content())
-    assert match is not None, mail.sent[-1].get_content()
+def _token_in(message: Any) -> str:
+    match = re.search(r"#token=(\S+)", message.get_content())
+    assert match is not None, message.get_content()
     return match.group(1)
+
+
+def _token(mail: CapturingMailTransport) -> str:
+    return _token_in(mail.sent[-1])
 
 
 # --------------------------------------------------------------------------- #
@@ -167,7 +172,7 @@ def test_a_second_token_for_a_redeemed_address_is_refused(engine: Any, mail: Cap
     client = _client(engine)
     for _ in range(2):
         client.post(_SIGN_UP, json={"email": "twice@example.test", "password": _PASSWORD})
-    first, second = (re.search(r"#token=(\S+)", sent.get_content()).group(1) for sent in mail.sent)  # type: ignore[union-attr]
+    first, second = (_token_in(sent) for sent in mail.sent)
     assert client.post(_VERIFY, json={"token": first}).status_code == 201
     assert client.post(_VERIFY, json={"token": second}).status_code == 400
 
@@ -414,7 +419,7 @@ def test_every_route_declares_a_published_operation_and_none_is_discovered(mail:
 
     module = build_accounts_module(_declaration())
     assert module.router is not None
-    declared = {declared_operation(route.endpoint) for route in module.router.routes}  # type: ignore[attr-defined]
+    declared = {declared_operation(route.endpoint) for route in module.router.routes if isinstance(route, APIRoute)}
     assert None not in declared and len(declared) == 5
     assert declared <= set(USERS_OPERATIONS), "an app that splats USERS_OPERATIONS can boot STRICT"
     assert discovered.router is not None
@@ -438,7 +443,8 @@ def test_an_app_writes_its_own_mail_copy(engine: Any, mail: CapturingMailTranspo
 
 def test_a_token_opens_only_for_its_own_purpose_and_only_while_it_lives() -> None:
     token = account_tokens.seal_account_token("sign_up", {"e": "a@example.test"}, ttl=timedelta(hours=1))
-    assert account_tokens.open_account_token("sign_up", token)["e"] == "a@example.test"  # type: ignore[index]
+    opened = account_tokens.open_account_token("sign_up", token)
+    assert opened is not None and opened["e"] == "a@example.test"
     assert account_tokens.open_account_token("reset", token) is None
     domain = account_tokens._DOMAIN
     for body in ("not json", "[1]", '{"p": "sign_up"}', '{"p": "sign_up", "x": "soon"}'):

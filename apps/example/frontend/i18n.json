@@ -90,6 +90,7 @@
         "auth.logout": "Log uit bij de huidige sessie",
         "auth.me": "Bekijk je eigen profiel",
         "auth.native_login": "Log in vanuit een mobiele app met een e-mailadres en wachtwoord",
+        "auth.native_logout": "Log een mobiele app uit met haar vernieuwingstoken",
         "auth.native_refresh": "Houd een mobiele app ingelogd zonder opnieuw een wachtwoord in te voeren",
         "auth.refresh": "Blijf ingelogd zonder opnieuw een wachtwoord in te voeren",
         "auth.token": "Log een gekoppelde applicatie in met haar eigen inloggegevens",
