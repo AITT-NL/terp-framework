@@ -8,10 +8,11 @@ which is where a credential that lives for weeks belongs.
 
 So an app that declares :class:`NativeClients` gets three routes of its own:
 ``/native/login`` and ``/native/refresh``, which answer with the refresh token in the JSON
-body, and ``/native/logout``, which takes it there. They run the same family, rotation and reuse detection as the cookie routes, through
-the same seams, and they refuse a browser outright: :func:`refuse_browser` turns away any
-request carrying ``Origin``, a ``Sec-Fetch-*`` header or the refresh cookie, so script in a
-page can never be handed a token it could read.
+body, and ``/native/logout``, which takes it there. They run the same family, rotation and
+reuse detection as the cookie routes, through the same seams, and they refuse a browser
+outright: :func:`refuse_browser`, a dependency of each route, turns away any request carrying
+``Origin``, any ``Sec-Fetch-*`` header or the refresh cookie before its body is validated, so
+script in a page can never be handed a token it could read.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 from sqlmodel import Session
 
 from terp.core import (
@@ -46,8 +47,10 @@ SignIn = Callable[[Request, LoginRequest, Session], tuple[Principal, tuple[str, 
 #: What a browser attaches and page script can neither remove nor forge: ``Origin`` on every
 #: ``POST``, and the ``Sec-Fetch-*`` family on every request over HTTPS. They are forbidden
 #: header names in the Fetch standard, so a request that carries none of them did not come
-#: from script running in a page.
-_BROWSER_HEADERS = ("origin", "sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "sec-fetch-user")
+#: from script running in a page. The family is matched by its prefix, so a fetch-metadata
+#: header the standard adds later is refused as well.
+_ORIGIN = "origin"
+_FETCH_METADATA = "sec-fetch-"
 
 
 class BrowserOnNativeRouteError(PermissionDeniedError):
@@ -83,11 +86,14 @@ class NativeClients:
 def refuse_browser(request: Request) -> None:
     """Raise :class:`BrowserOnNativeRouteError` for a request with any browser provenance.
 
-    Checked before any credential is read. The refresh cookie counts as provenance too: a
-    request presenting the cookie and a body token is refused rather than resolved, so
-    there is never a question of which carrier wins.
+    Each native route declares it as a dependency, so it runs before the body is validated:
+    the refusal is the same for a valid, an invalid and a malformed credential. The refresh
+    cookie counts as provenance too: a request presenting the cookie and a body token is
+    refused rather than resolved, so there is never a question of which carrier wins.
     """
-    present = [name for name in _BROWSER_HEADERS if name in request.headers]
+    present = sorted(
+        name for name in request.headers.keys() if name == _ORIGIN or name.startswith(_FETCH_METADATA)
+    )
     if present or settings.REFRESH_COOKIE_NAME in request.cookies:
         raise BrowserOnNativeRouteError(
             log_context={
@@ -115,17 +121,20 @@ def add_native_routes(
     differs, and the browser refusal comes first on every route.
     """
 
-    @router.post("/native/login", response_model=NativeSession)
+    # The browser refusal comes first on every route, ahead of the body and the credential.
+    _refusal = [Depends(refuse_browser)]
+
+    @router.post("/native/login", response_model=NativeSession, dependencies=_refusal)
     @no_idempotency
     @route_policy(
         Policy.public_write(reason="a native client has no token yet; this route is how it gets one")
     )
     @operation(AUTH_NATIVE_LOGIN)
     def native_login(request: Request, credentials: LoginRequest, session: SessionDep) -> NativeSession:
-        # Browser provenance is refused before the password is read: a page may never be
-        # handed a refresh token its script could read. Then the very steps /login takes,
-        # and a fresh family whose first token leaves in the body.
-        refuse_browser(request)
+        # The route's dependency has already refused browser provenance, before the body was
+        # validated or the password read: a page may never be handed a refresh token its
+        # script could read. Then the very steps /login takes, and a fresh family whose first
+        # token leaves in the body.
         principal, methods = sign_in(request, credentials, session)
         access_token, token_version = mint(session, principal, amr=methods)
         return NativeSession(
@@ -133,7 +142,7 @@ def add_native_routes(
             refresh_token=issue(session, principal.id, token_version=token_version),
         )
 
-    @router.post("/native/refresh", response_model=NativeSession)
+    @router.post("/native/refresh", response_model=NativeSession, dependencies=_refusal)
     @no_idempotency
     @route_policy(
         Policy.public_write(
@@ -146,7 +155,6 @@ def add_native_routes(
     ) -> NativeSession:
         # The same rotation /refresh runs: single use, reuse detection that revokes the whole
         # family, and the subject re-checked as active before anything is minted.
-        refuse_browser(request)
         rotation = rotate(session, presented.refresh_token)
         if rotation is None:
             raise AuthenticationError()
@@ -160,7 +168,7 @@ def add_native_routes(
             raise AuthenticationError()
         return NativeSession(access_token=access_token, refresh_token=rotation.token)
 
-    @router.post("/native/logout", status_code=204)
+    @router.post("/native/logout", status_code=204, dependencies=_refusal)
     @route_policy(
         Policy.public_write(
             reason="a native client signs out with its refresh token, which outlives its access token"
@@ -172,7 +180,6 @@ def add_native_routes(
         # without rotating it, so signing out never mints a successor, and an unknown or
         # already-revoked token is a no-op. Ending the access token a client also holds is
         # /logout's bearer path, as it is for a browser.
-        refuse_browser(request)
         revoke(session, presented.refresh_token)
         return Response(status_code=204)
 

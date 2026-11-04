@@ -88,13 +88,20 @@ browser.
 ### 4. A native route refuses a browser, and the browser routes never read a body token
 
 A request to any native route that carries an `Origin` header, any `Sec-Fetch-*` header
-or the refresh cookie is refused with a typed 403 before any credential is read. A browser
-attaches `Origin` to every `POST`, current browsers add `Sec-Fetch-*` headers to every request
-over HTTPS, and page script can neither remove nor forge either, because they are forbidden
-header names. So script running
-in the app's own page, an injected payload included, cannot reach a route that hands out a
-body token, and cannot turn a cookie session into one. A native client sends none of these
-headers.
+or the refresh cookie is refused with a typed 403. A browser attaches `Origin` to every
+`POST`, current browsers add `Sec-Fetch-*` headers to every request over HTTPS, and page
+script can neither remove nor forge either, because they are forbidden header names. So
+script running in the app's own page, an injected payload included, cannot reach a route that
+hands out a body token, and cannot turn a cookie session into one. A native client sends none
+of these headers.
+
+The `Sec-Fetch-*` family is matched by its prefix, not by a list of today's members, so a
+fetch-metadata header the standard adds later is refused as well. The refusal is a dependency
+of each route, so it runs before the body's fields are validated and before any credential is
+read: a valid, an invalid and a malformed credential get a browser the same answer. Two
+answers come earlier, and neither carries or tells anything about a credential: a body that
+is not JSON at all is unparseable before any route logic runs, and an `Idempotency-Key` is
+refused by the core's own check (decision 5), which every route runs first.
 
 A hybrid app, a page inside a native shell, is the case to name. Its page usually runs at a
 custom-scheme origin, cross-site to the API, so the `SameSite=Strict` cookie is never sent,
@@ -118,8 +125,11 @@ successor. The cookie routes had the same shape.
 
 So no credential route accepts the header. The core's `no_idempotency` marker, which
 `/login`, `/token` and `/refresh` carry since 0.36.0 (ADR 0193), refuses a request that sends
-one with a typed 400 (`idempotency_not_supported`) before the route runs, so nothing is
-stored and no token is ever replayed; the two native routes that mint one carry it too. A
+one with a typed 400 (`idempotency_not_supported`) before the route runs, so the route never
+runs under a key: the only response the store can keep for one is that refusal, and no token
+is ever stored or replayed. The two native routes that mint one carry it too. `/native/logout`
+mints nothing and, like `/logout`, is an unmarked route: a key on it runs the route once, and
+a retry with the same key is refused with the core's 409 rather than replayed. A
 client retries one of these routes by sending it again without a key.
 
 ### 6. The grace window and logout are ADR 0054's, deliberately
@@ -161,13 +171,16 @@ keystore and nowhere else, and to treat a 401 from `/native/refresh` as signed o
 - **Construction:** a blank reason, or native clients without the refresh seams, is refused
   when the module is built.
 - **Tests:** a rotated body token replayed revokes its whole family; a request carrying both
-  the cookie and a body token is refused; a request with browser provenance is refused on
-  every native route; a native refresh is refused when the family's epoch no longer matches,
-  when a store returns none, or when the identity is gone after the rotation; a native logout
-  with no bearer revokes the presented family and no other; a captured refresh request resent with its key yields no successor and
-  the reuse is still seen; every credential route refuses the key; an app that does not opt in
-  has none of the routes; the reference app opts in, and its committed authority baseline
-  and contract record the three routes.
+  the cookie and a body token is refused; a request with browser provenance, any member of the
+  `Sec-Fetch-*` family included, is refused on every native route, and before a malformed body
+  is validated; a native sign-in is refused, and opens no family, when the account's authority
+  changes between the password check and the mint or its sessions are revoked before the family
+  is issued; a native refresh is refused when the family's epoch no longer matches, when a
+  store returns none, or when the identity is gone after the rotation; a native logout with no
+  bearer revokes the presented family and no other; a captured refresh request resent with its
+  key yields no successor and the reuse is still seen; every credential route refuses the key;
+  an app that does not opt in has none of the routes; the reference app opts in, and its
+  committed authority baseline and contract record the three routes.
 
 No `terp.arch` rule is added: like ADR 0054, this is framework mechanics with no authored
 pattern to police.

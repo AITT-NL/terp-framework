@@ -1,10 +1,11 @@
 """End-to-end (ADR 0195): a native client's refresh token in the body, over the shipped example.
 
-The full example declares ``NativeClients``, so ``main.build()`` mounts ``/native/login`` and
-``/native/refresh`` beside the cookie routes. These tests prove the three things that make
-that safe: the native session is the same family as a cookie session (rotation, reuse
-detection, revocation), a browser is refused before any credential is read so no page can be
-handed a token its script could read, and an app that does not opt in has neither route.
+The full example declares ``NativeClients``, so ``main.build()`` mounts ``/native/login``,
+``/native/refresh`` and ``/native/logout`` beside the cookie routes. These tests prove the
+three things that make that safe: the native session is the same family as a cookie session
+(rotation, reuse detection, revocation), a browser is refused before its body is validated or
+any credential read, so no page can be handed a token its script could read, and an app that
+does not opt in has none of the routes.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from terp.core import Roles
 _COOKIE = "terp_refresh"
 _LOGIN = "/api/v1/auth/native/login"
 _REFRESH = "/api/v1/auth/native/refresh"
+_LOGOUT = "/api/v1/auth/native/logout"
 _PASSWORD = "correct horse battery"
 
 
@@ -110,6 +112,9 @@ def test_native_refresh_rechecks_the_subject_is_still_active(app_db: FastAPI, ma
         {"Sec-Fetch-Site": "same-origin"},
         {"Sec-Fetch-Mode": "cors"},
         {"Sec-Fetch-Dest": "empty"},
+        # Any member of the family, by its prefix: one the standard added after the first
+        # three is refused like them, and so is the next one it adds.
+        {"Sec-Fetch-Storage-Access": "active"},
     ],
 )
 def test_a_request_with_browser_provenance_is_refused_on_both_routes(
@@ -136,6 +141,27 @@ def test_the_refusal_comes_before_the_password_is_read(app_db: FastAPI, make_use
         headers={"Origin": "https://app.example.test"},
     )
     assert response.status_code == 403, "a browser learns nothing about the credential"
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        (_LOGIN, {"email": "order@example.com", "password": "p" * 257}),
+        (_LOGIN, {"email": "order@example.com"}),
+        (_REFRESH, {"refresh_token": ""}),
+        (_REFRESH, {"refresh_token": "t" * 129}),
+        (_LOGOUT, {}),
+        (_LOGOUT, {"refresh_token": "t" * 129}),
+    ],
+)
+def test_a_browser_is_refused_before_its_body_is_validated(path: str, body: dict[str, str]) -> None:
+    """A malformed credential gets the browser the same answer as a valid or invalid one."""
+    from app.main import build
+
+    client = TestClient(build())
+    assert client.post(path, json=body).status_code == 422, "the control: the body is malformed"
+    refused = client.post(path, json=body, headers={"Origin": "https://app.example.test"})
+    assert refused.status_code == 403 and refused.json()["code"] == "native_client_only"
 
 
 def test_a_request_presenting_the_cookie_and_a_body_token_is_refused(app_db: FastAPI, make_user) -> None:
@@ -205,8 +231,8 @@ def test_a_captured_refresh_request_cannot_be_replayed_past_its_rotation(
     app_db: FastAPI, make_user, monkeypatch
 ) -> None:
     """The replay the idempotency store would otherwise serve: a spent token resent with its
-    original key. Refused at the route, nothing is stored, so the stolen request yields no
-    successor and the reuse detection still sees the replay."""
+    original key. Refused before the route runs, so the store can keep no credential for the
+    key: the stolen request yields no successor and the reuse detection still sees the replay."""
     from terp.core import settings
 
     monkeypatch.setattr(settings, "REFRESH_ROTATION_GRACE_SECONDS", 0)

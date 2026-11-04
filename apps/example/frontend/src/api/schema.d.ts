@@ -1382,7 +1382,7 @@ export interface components {
         };
         /**
          * NativeRefreshRequest
-         * @description The ``/native/refresh`` body: the refresh token the client holds (ADR 0195).
+         * @description The ``/native/refresh`` and ``/native/logout`` body: the client's refresh token (ADR 0195).
          *
          *     A token is 43 URL-safe characters (256 bits); the cap bounds the input with room to
          *     spare and refuses nothing a real token can be.
@@ -1398,7 +1398,9 @@ export interface components {
          *     The access token as ``/login`` returns it, plus the refresh token in the body, because a
          *     native client has no browser to hold an ``HttpOnly`` cookie for it. The client keeps the
          *     refresh token in the operating system's keychain or keystore and presents it once: every
-         *     refresh rotates it, and replaying a rotated one revokes the whole session family.
+         *     refresh rotates it, and replaying a rotated one past ``REFRESH_ROTATION_GRACE_SECONDS``
+         *     revokes the whole session family (inside it, the replay is honoured as a retried request,
+         *     as it is for a cookie).
          */
         NativeSession: {
             /** Access Token */

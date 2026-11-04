@@ -2,10 +2,12 @@
 
 The body carrier rotates in the same refresh families as the cookie, so it is held to the
 same sequence guarantees as ``test_authentication_snapshots.py`` holds the cookie to: a
-refresh is refused when the family's epoch no longer matches the subject's, when a custom
-store returns no epoch, or when the identity is gone after the rotation; and signing out with
-the refresh token alone revokes its whole family server-side, without minting a successor and
-without touching another family.
+sign-in is refused when the account's authority changes between the password check and the
+mint, or when its sessions are revoked before the family is issued; a refresh is refused when
+the family's epoch no longer matches the subject's, when a custom store returns no epoch, or
+when the identity is gone after the rotation; and signing out with the refresh token alone
+revokes its whole family server-side, without minting a successor and without touching
+another family.
 """
 
 from __future__ import annotations
@@ -18,10 +20,16 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from terp.capabilities.auth import AUTH_OPERATIONS, NativeClients, build_login_module, refresh_token_digest
-from terp.capabilities.identity import IdentityService, RefreshToken, RefreshTokenService
-from terp.capabilities.users import UsersService
-from terp.core import ControlPlane, OperationCatalog, create_app, get_session
+from terp.capabilities.auth import (
+    AUTH_OPERATIONS,
+    AuthenticatedPrincipal,
+    NativeClients,
+    build_login_module,
+    refresh_token_digest,
+)
+from terp.capabilities.identity import IdentityService, RefreshToken, RefreshTokenService, User
+from terp.capabilities.users import UserAdminUpdate, UsersService
+from terp.core import ControlPlane, OperationCatalog, Roles, create_app, get_session
 from terp.core._internal.session_guard import WriteGuardedSession
 
 _PASSWORD = "correct horse battery"
@@ -30,12 +38,12 @@ _REFRESH = "/api/v1/auth/native/refresh"
 _LOGOUT = "/api/v1/auth/native/logout"
 
 
-def _client(engine, identity, refresh, *, rotator=None) -> TestClient:
+def _client(engine, identity, refresh, *, authenticate=None, issuer=None, rotator=None) -> TestClient:
     """The login module with native clients over real identity and refresh stores."""
     login = build_login_module(
-        identity.authenticate,
+        authenticate or identity.authenticate,
         token_version_resolver=identity.token_version_for,
-        refresh_issuer=refresh.issue,
+        refresh_issuer=issuer or refresh.issue,
         refresh_rotator=rotator or refresh.rotate,
         refresh_revoker=refresh.revoke_presented,
         principal_resolver=identity.principal_for_id,
@@ -63,7 +71,65 @@ def _sign_in(client: TestClient, email: str) -> str:
     return response.json()["refresh_token"]
 
 
+def _no_family(engine) -> bool:
+    with Session(engine) as session:
+        return session.exec(select(RefreshToken)).all() == []
+
+
 # --- the authenticated snapshot ---------------------------------------------- #
+@pytest.mark.parametrize("change", ["demotion", "password_reset"])
+def test_a_security_change_between_authentication_and_mint_refuses_the_native_login(
+    db_engine, make_user, change: str
+) -> None:
+    make_user("native-other-admin@example.test", _PASSWORD, Roles.ADMIN)
+    user_id = make_user("native-changing@example.test", _PASSWORD, Roles.ADMIN)
+    identity, refresh = IdentityService(), RefreshTokenService()
+
+    def authenticate(session, email, password):
+        principal = identity.authenticate(session, email, password)
+        assert isinstance(principal, AuthenticatedPrincipal)
+        with Session(db_engine) as admin_session:
+            service = UsersService(refresh.revoke_all_for_user)
+            if change == "demotion":
+                row = admin_session.get(User, user_id)
+                service.update(admin_session, user_id, UserAdminUpdate(version=row.version, role=int(Roles.VIEWER)))
+            else:
+                service.reset_password(admin_session, user_id, "replacement correct passphrase")
+        return principal
+
+    refused = _client(db_engine, identity, refresh, authenticate=authenticate).post(
+        _LOGIN, json={"email": "native-changing@example.test", "password": _PASSWORD}
+    )
+    assert refused.status_code == 401
+    assert "refresh_token" not in refused.json() and "access_token" not in refused.json()
+    assert _no_family(db_engine), "no family is issued for authority the account no longer has"
+
+
+def test_a_revocation_before_the_family_is_issued_refuses_the_native_login(db_engine, make_user) -> None:
+    user_id = make_user("native-family@example.test", _PASSWORD)
+    identity, refresh = IdentityService(), RefreshTokenService()
+
+    def issue(session, subject, *, token_version):
+        with Session(db_engine) as admin_session:
+            UsersService(refresh.revoke_all_for_user).revoke_sessions(admin_session, user_id)
+        return refresh.issue(session, subject, token_version=token_version)
+
+    refused = _client(db_engine, identity, refresh, issuer=issue).post(
+        _LOGIN, json={"email": "native-family@example.test", "password": _PASSWORD}
+    )
+    assert refused.status_code == 401
+    assert "refresh_token" not in refused.json()
+    assert _no_family(db_engine), "a revoked epoch opens no family"
+
+
+def test_an_unchanged_native_login_issues_its_family(db_engine, make_user) -> None:
+    """The control for the two sign-in refusals above: nothing changed, and a family opens."""
+    make_user("native-login-control@example.test", _PASSWORD, Roles.ADMIN)
+    client = _client(db_engine, IdentityService(), RefreshTokenService())
+    assert _sign_in(client, "native-login-control@example.test")
+    assert not _no_family(db_engine)
+
+
 def test_a_revocation_between_rotation_and_resolution_refuses_the_native_refresh(db_engine, make_user) -> None:
     user_id = make_user("native-rotation@example.test", _PASSWORD)
     identity, refresh = IdentityService(), RefreshTokenService()
