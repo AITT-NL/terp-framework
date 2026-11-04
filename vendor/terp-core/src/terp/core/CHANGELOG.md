@@ -12,6 +12,26 @@ decision, 0001 onwards.
 
 ## 0.36.1 — unreleased
 
+### Security
+
+- **A release is signed only when every check of its release profile passed in the gate (ADR
+  0200).** `terp release sign` refused a gate whose release-assurance claim did not hold and
+  read nothing else of the gate's run, and that claim follows the Terp Standard's required
+  lanes: six of the release profile's twenty-six checks, and none of an app's own declared
+  checks. So a release could be signed while its backend suite failed, while
+  `production-readiness` refused the production boot or `deploy-safety` the profile, or while
+  `api-contract` said the committed `openapi.json` no longer matched the app, and the signed
+  manifest then carried that contract under the release's signature. `terp release gate` now
+  runs `terp verify --profile release --format json` once and writes a version 2 document:
+  every check the profile ran, by id and verdict, beside the claim composed from those same
+  results. Nothing a check printed is recorded, because it is the app's own text from a run
+  with its environment. The gate exits 1 unless every check passed and the claim holds, naming
+  each red check. `sign` refuses, before it reads the registry, a red check (named, with
+  `terp verify --only <check>` as the way to read why), a document that records the profile
+  green over a red check or red over none, and a claim that does not hold. The claim, its
+  lanes and their requirement levels are unchanged, and the manifest's `collected` still
+  carries it.
+
 ### Added
 
 - **An app's API contract is a committed file, and a change to its shape that breaks a client
@@ -40,8 +60,8 @@ decision, 0001 onwards.
   same lines first. `api-client` generates the typed client from a tracked contract instead of
   exporting over it, and `terp release` carries the committed contract in the signed
   manifest's `inputs`. The signature vouches for the file its commit holds, not for the app
-  serving it: the `api-contract` check holds the file to the app, and `sign` does not require
-  it, because the release-assurance claim it reads composes only the spec's required lanes. The template no longer ignores
+  serving it: the `api-contract` check holds the file to the app, and `sign` signs only a
+  release whose `api-contract` passed in the gate (ADR 0200, under Security). The template no longer ignores
   `openapi.json`: after `copier update`, the next gate run writes the file, and an app commits
   it to adopt the check, or lists it in `.gitignore` again to stay out.
 - **A native mobile client can stay signed in with its refresh token in the body (ADR 0195).**
@@ -93,8 +113,10 @@ decision, 0001 onwards.
   and travel in the URL fragment. Every route backs off and never locks out (ADR 0147), and a
   redemption's counter is the caller's own, so bad tokens from many callers never hold up an
   honest one. Closing needs the password again, refuses the last administrator, ends every
-  session, and scrubs or removes the account as declared, in one write; a removal a reference
-  refuses scrubs the account instead and says so in a warning. Off by default, and refused when
+  session, and scrubs or removes the account as declared, in one write. Building the module
+  with `AccountDeletion.REMOVE` is refused while a reference the app's metadata holds would
+  refuse the delete, naming each one and both remedies; one the build cannot see is met at
+  the close, which scrubs the account instead and says so in a warning. Off by default, and refused when
   it is built without a reason, before `configure_mail`, or in production with a link that is
   not https, which outside production is logged as a refused state. A throttle store each
   worker keeps is accepted and said out loud, as the platform's own is (ADR 0036). The module
@@ -106,6 +128,17 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **Certified against terp-spec 0.42.0, and the runtime security evidence is held to its
+  cases.** The four pins (`pyproject.toml`, `terp.arch.SPEC_VERSION`,
+  `@terpjs/eslint-boundaries`'s dependency and its `SPEC_VERSION`) and both mirrors'
+  `SPEC_RELEASE` move to it; the mirrored deployment and workbench schemas and fixtures are
+  byte for byte the ones 0.42.0 publishes. 0.42.0 carries the standard's runtime security
+  cases, and `docs/security-boundaries.md` now names the case each row is evidence for.
+  `test_runtime_security_evidence` holds the index to the pinned release: every packaged case
+  has a row, every case a row names is one the standard has, and every test file and function
+  a row names exists. The ten cases this release's evidence runs ahead of the pin, for refresh
+  rotation, native clients and self-service accounts, sit in a declared window for terp-spec
+  0.43.0 that must be empty once the pin reaches it.
 - **A public website has a defined way to connect to a Terp app, and is still not a kind of
   Terp app (ADR 0197).** ADR 0123 refused websites as an application kind and recorded that
   nothing here would change for them. Its reasoning stands; that consequence is amended. A
@@ -132,6 +165,20 @@ decision, 0001 onwards.
 
 ### Upgrade notes
 
+- **`terp release sign` reads a gate document only in the version the commit's own `terp-cli`
+  writes (ADR 0200).** The gate runs the commit's pinned toolchain and `sign` the newest, so a
+  commit pinning `terp-cli` below 0.36.1 has a gate that records the claim alone: its version 1
+  document is still accepted, and signed over the claim, as before. A commit pinning 0.36.1 or
+  later is signed only from a version 2 document: a version 1 document for it would skip the
+  checks, and a version 2 document for an older pin is another toolchain's gate, so both are
+  refused with the command that writes the right one, `uv run terp release gate` in the
+  commit's checkout. A release whose profile is red is now refused although its claim holds;
+  the check an operator is likeliest to meet is `conformance`, which needs the development
+  stack running where the gate runs. A lane that stands in for the gate's `terp verify` run
+  now stands in for every check's verdict by id, and the gate composes the claim from it.
+- **An app that pins this release is signed by a signer image of this release or newer.** Its
+  declaration is read against Terp Standard 0.42.0, and an older signer refuses it ("update the
+  signer image first"), as after every move of `terp.arch.SPEC_VERSION`.
 - **`terp-cap-users` depends on `terp-cap-mail` and `cryptography` (ADR 0196),** and the
   identity capability gains the `identity_account_token` table, created by
   `terp migrate upgrade` after 0.36.0's refresh-family migration. An image that installs the capabilities one by one installs
