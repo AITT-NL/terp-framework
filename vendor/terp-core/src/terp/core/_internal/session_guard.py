@@ -24,15 +24,11 @@ rule (and ``connection()`` itself is guarded here). This module lives under ``_i
 rule forbids importing ``terp.core._internal`` from a module — the second layer
 protecting the guard itself).
 
-Reads stay unguarded for *writes* but are **row-scoped**: a ``SELECT`` through the
-user-facing read methods (``exec`` / ``scalars`` / ``scalar``) and a primary-key
-``get`` re-apply the framework's non-droppable row scope (soft-delete / tenant) to a
-single-entity ``select(model)`` / ``get(model, id)``, so a bespoke read cannot leak a
-soft-deleted or cross-tenant row by skipping ``base_query`` (the runtime backstop for
-ADR 0017; the build-time ``reads_use_base_query`` rule is the early warning). ``execute``
-is **not** re-scoped — it is the ORM's own internal load path (``refresh`` / lazy loads),
-and scoping those would, e.g., make a just-soft-deleted row unrefreshable — so a raw
-user ``execute(select(scoped_model))`` is covered by the build rule alone. ``flush`` is
+Reads stay unguarded for *writes* but are **row-scoped**. The ORM execution hook applies
+criteria to each entity, including aliases and relationship loaders. Only a column
+refresh of an already-loaded instance is exempt, so the write chokepoint can refresh a
+just-soft-deleted row without granting the exemption to relationship reads. ``get`` also
+checks visibility before its identity-map fast path. ``flush`` is
 intentionally **not** write-guarded so SQLAlchemy autoflush keeps working — nothing a
 guarded session flushes is durable without the guarded ``commit`` (the request session is
 rolled back on close), and ``add`` / ``delete`` are already refused outside the scope, so
@@ -46,8 +42,11 @@ from collections.abc import Iterator
 from contextvars import ContextVar
 from typing import Any
 
-from sqlalchemy import Select
+from sqlalchemy import Select, event
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.orm import ORMExecuteState, with_loader_criteria
+from sqlalchemy.sql import visitors
+from sqlalchemy.sql.util import ClauseAdapter
 from sqlmodel import Session, SQLModel, select
 
 from terp.core.scoping import apply_row_scope
@@ -251,31 +250,6 @@ def _is_read_statement(statement: Any) -> bool:
     return isinstance(statement, Select)
 
 
-def _scoped_read(statement: Select) -> Select:
-    """Re-apply the framework row scope to a single-entity ``select(model)``.
-
-    A read issued **outside** ``BaseService.base_query`` — a bespoke service method
-    that does ``session.exec(select(self.model)...)`` directly — would otherwise drop
-    soft-delete / tenant scope (the F1 follow-up to ADR 0017): the build-time
-    ``reads_use_base_query`` rule flags the common shape, and this is the runtime
-    backstop that closes it for the user-facing read methods (``exec`` / ``scalars`` /
-    ``scalar``; the primary-key ``get`` has its own scoped path). When the statement
-    selects exactly one mapped entity, the registered scope predicates are composed in
-    (:func:`~terp.core.scoping.apply_row_scope`) — **idempotently**, so a query already
-    built from ``base_query`` is unchanged in effect, and it is a no-op for a model
-    with no scope trait. A multi-entity select, a column/aggregate select (e.g. the
-    pagination ``count``), or a non-model statement is left untouched. Only the request
-    session re-scopes, so a bare ``Session`` (a test, a deliberate privileged read) is
-    unaffected.
-    """
-    descriptions = statement.column_descriptions
-    if len(descriptions) == 1:
-        entity = descriptions[0].get("entity")
-        if isinstance(entity, type) and issubclass(entity, SQLModel):
-            return apply_row_scope(entity, statement)
-    return statement
-
-
 class WriteGuardedSession(Session):
     """A :class:`~sqlmodel.Session` that refuses to persist outside the audited chokepoint.
 
@@ -330,39 +304,24 @@ class WriteGuardedSession(Session):
         super().bulk_update_mappings(*args, **kwargs)
 
     def exec(self, statement: Any, *args: Any, **kwargs: Any) -> Any:
-        if _is_read_statement(statement):
-            statement = _scoped_read(statement)
-        else:
+        if not _is_read_statement(statement):
             _require_write_scope("exec")
         return super().exec(statement, *args, **kwargs)
 
     def execute(self, statement: Any, *args: Any, **kwargs: Any) -> Any:
-        # NB: only ``exec`` (the SQLModel user-facing read) re-applies row scope.
-        # ``execute`` is what the ORM itself calls internally (``refresh``, lazy
-        # loads, identity reloads), and scoping those would, e.g., make a just
-        # soft-deleted row unrefreshable — so here we only enforce the write guard.
-        # A user-issued ``execute(select(scoped_model))`` is still caught by the
-        # build-time ``reads_use_base_query`` rule.
+        # Entity visibility is enforced by the ORM hook below, including when the
+        # ORM calls execute internally for a relationship load.
         if not _is_read_statement(statement):
             _require_write_scope("execute")
         return super().execute(statement, *args, **kwargs)
 
     def scalars(self, statement: Any, *args: Any, **kwargs: Any) -> Any:
-        # A user-facing scalar read: re-scope a single-entity ``select(model)`` like
-        # ``exec`` (so a bespoke ``session.scalars(select(ScopedModel))`` cannot drop
-        # soft-delete / tenant scope), or require the write scope for a DML statement
-        # (a RETURNING insert/update/delete), like ``execute``.
-        if _is_read_statement(statement):
-            statement = _scoped_read(statement)
-        else:
+        if not _is_read_statement(statement):
             _require_write_scope("scalars")
         return super().scalars(statement, *args, **kwargs)
 
     def scalar(self, statement: Any, *args: Any, **kwargs: Any) -> Any:
-        # The single-value sibling of ``scalars`` — same row-scope / write-guard split.
-        if _is_read_statement(statement):
-            statement = _scoped_read(statement)
-        else:
+        if not _is_read_statement(statement):
             _require_write_scope("scalar")
         return super().scalar(statement, *args, **kwargs)
 
@@ -396,6 +355,60 @@ class WriteGuardedSession(Session):
                     return super().get(entity, ident, *args, **kwargs)
                 return super().exec(scoped.where(pk_column == ident)).first()
         return super().get(entity, ident, *args, **kwargs)
+
+
+@event.listens_for(WriteGuardedSession, "do_orm_execute")
+def _scope_orm_read(state: ORMExecuteState) -> None:
+    """Apply the current row scope to roots and every reachable relationship entity.
+
+    Criteria are built at execution time and also propagate to relationship
+    loaders. A later load is narrowed by the current scope as well as the original
+    one, never widened when a context changes. Sessions belong to one authority
+    context; another tenant uses a fresh session. Joined loaders receive their
+    predicates in the JOIN, preserving outer-join parents. Column refreshes are
+    the narrow exception needed after a soft-delete write.
+    """
+    if not state.is_select or state.is_column_load:
+        return
+    pending = list(state.all_mappers)
+    aliases = {}
+    # Include entities used only by a JOIN, predicate or nested SELECT: they can
+    # disclose scoped rows even when the result projects only an unscoped parent.
+    for element in visitors.iterate(state.statement):
+        inspected = sa_inspect(getattr(element, "entity_namespace", None), raiseerr=False)
+        if inspected is not None and getattr(inspected, "is_aliased_class", False):
+            aliases[inspected] = None
+            pending.append(inspected.mapper)
+        elif inspected is not None and getattr(inspected, "is_mapper", False):
+            pending.append(inspected)
+    seen = set()
+    while pending:
+        mapper = pending.pop()
+        if mapper in seen:
+            continue
+        seen.add(mapper)
+        pending.extend(relation.mapper for relation in mapper.relationships)
+        model = mapper.class_
+        if not issubclass(model, SQLModel):
+            continue
+        scoped = apply_row_scope(model, select(model))
+        if scoped.whereclause is not None:
+            state.statement = state.statement.options(
+                with_loader_criteria(model, scoped.whereclause)
+            )
+    # An explicit alias in an explicit JOIN needs criteria referring to that
+    # selectable, rather than columns from the original table. Implicit aliases
+    # used by joinedload are adapted by the ORM itself.
+    for inspected in aliases:
+        model = inspected.mapper.class_
+        if not issubclass(model, SQLModel):
+            continue
+        scoped = apply_row_scope(model, select(model))
+        if scoped.whereclause is not None:
+            criteria = ClauseAdapter(inspected.selectable).traverse(scoped.whereclause)
+            state.statement = state.statement.options(
+                with_loader_criteria(inspected.entity, criteria)
+            )
 
 
 __all__ = [

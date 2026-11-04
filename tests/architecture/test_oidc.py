@@ -41,7 +41,7 @@ from terp.core import (
 from terp.core.app import register_error_handlers
 from terp.core.config import settings
 
-from terp.capabilities.auth import LoginThrottle, decode_access_token
+from terp.capabilities.auth import AuthenticatedPrincipal, LoginThrottle, decode_access_token
 from terp.capabilities.egress import (
     EgressAttempt,
     EgressFailedError,
@@ -820,18 +820,26 @@ def test_full_code_flow_mints_a_terp_token_not_an_idp_one(idp: FakeIdP) -> None:
     assert claims.role.rank == int(Roles.EDITOR)
     assert "idp-secret" not in response.text  # the IdP's tokens never leave
     assert seen["claims"].subject == "subject-1"
-    assert "set-cookie" not in response.headers  # no refresh seam wired -> no cookie
+    assert settings.REFRESH_COOKIE_NAME not in http.cookies
+    assert not any(name.startswith("terp-oidc-") for name in http.cookies)
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_callback_signs_tenant_and_epoch_and_sets_the_refresh_cookie(idp: FakeIdP) -> None:
-    principal = Principal(id=uuid.uuid4(), role=Roles.VIEWER)
+    principal = AuthenticatedPrincipal(id=uuid.uuid4(), role=Roles.VIEWER, token_version=7)
     tenant = uuid.uuid4()
+    issued = []
+
+    def issue(_session, subject, *, token_version):
+        issued.append((subject, token_version))
+        return "raw-refresh-token"
+
     app, _ = _sso_app(
         idp,
         lambda _s, _c: principal,
         tenant_resolver=lambda _s, _p: tenant,
         token_version_resolver=lambda _s, _p: 7,
-        refresh_issuer=lambda _s, _uid: "raw-refresh-token",
+        refresh_issuer=issue,
     )
     http = TestClient(app)
     state, nonce = _begin_flow(http, idp)
@@ -843,6 +851,80 @@ def test_callback_signs_tenant_and_epoch_and_sets_the_refresh_cookie(idp: FakeId
     assert claims.tenant == tenant
     assert claims.token_version == 7  # ADR 0031: revocable from the first mint
     assert settings.REFRESH_COOKIE_NAME in response.cookies  # ADR 0054
+    assert issued == [(principal.id, 7)]
+
+
+def test_callback_requires_the_browser_that_started_the_transaction(idp: FakeIdP) -> None:
+    principal = Principal(id=uuid.uuid4(), role=Roles.VIEWER)
+    app, _ = _sso_app(idp, lambda _s, _c: principal)
+    starter, unrelated = TestClient(app), TestClient(app)
+    state, nonce = _begin_flow(starter, idp)
+    idp.token_body = {"id_token": idp.id_token(nonce=nonce)}
+    payload = {"code": "valid-code", "state": state}
+    assert unrelated.post("/oidc/idp/callback", json=payload).status_code == 401
+    # A browser with no binding cannot consume another browser's pending flow.
+    assert starter.post("/oidc/idp/callback", json=payload).status_code == 200
+
+
+def test_callback_refuses_a_tampered_browser_binding(idp: FakeIdP) -> None:
+    from terp.capabilities.oidc.router import _state_cookie_name
+
+    principal = Principal(id=uuid.uuid4(), role=Roles.VIEWER)
+    app, _ = _sso_app(idp, lambda _s, _c: principal)
+    client = TestClient(app)
+    state, nonce = _begin_flow(client, idp)
+    idp.token_body = {"id_token": idp.id_token(nonce=nonce)}
+    client.cookies.clear()
+    client.cookies.set(_state_cookie_name(state), "different-transaction")
+    assert client.post("/oidc/idp/callback", json={"code": "valid", "state": state}).status_code == 401
+
+
+def test_replaying_a_consumed_flow_with_its_old_cookie_is_refused(idp: FakeIdP) -> None:
+    from terp.capabilities.oidc.router import _state_cookie_name
+
+    principal = Principal(id=uuid.uuid4(), role=Roles.VIEWER)
+    app, _ = _sso_app(idp, lambda _s, _c: principal)
+    client = TestClient(app)
+    state, nonce = _begin_flow(client, idp)
+    idp.token_body = {"id_token": idp.id_token(nonce=nonce)}
+    payload = {"code": "valid", "state": state}
+    assert client.post("/oidc/idp/callback", json=payload).status_code == 200
+    client.cookies.set(_state_cookie_name(state), state)
+    assert client.post("/oidc/idp/callback", json=payload).status_code == 401
+
+
+@pytest.mark.parametrize("samesite, expected", [("strict", "lax"), ("none", "none")])
+def test_authorization_cookies_are_host_only_private_and_independent_per_flow(
+    idp: FakeIdP, monkeypatch, samesite, expected
+) -> None:
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(settings, "REFRESH_COOKIE_SAMESITE", samesite)
+    principal = Principal(id=uuid.uuid4(), role=Roles.VIEWER)
+    app, _ = _sso_app(idp, lambda _s, _c: principal)
+    client = TestClient(app, base_url="https://testserver")
+    first = client.get("/oidc/idp/authorize")
+    header = first.headers["set-cookie"]
+    assert header.startswith("__Host-terp-oidc-")
+    assert all(flag in header for flag in ("HttpOnly", "Secure", "Path=/", f"SameSite={expected}", "Max-Age="))
+    assert "Domain=" not in header
+    assert first.headers["cache-control"] == "no-store"
+    first_params = parse_qs(urlparse(first.json()["authorization_url"]).query)
+    second_state, second_nonce = _begin_flow(client, idp)
+    assert len(client.cookies) == 2
+    for state, nonce in ((first_params["state"][0], first_params["nonce"][0]),
+                         (second_state, second_nonce)):
+        idp.token_body = {"id_token": idp.id_token(nonce=nonce)}
+        assert client.post("/oidc/idp/callback", json={"code": "valid", "state": state}).status_code == 200
+    assert len(client.cookies) == 0
+
+
+def test_oidc_refuses_an_epoch_changed_after_identity_resolution(idp: FakeIdP) -> None:
+    principal = AuthenticatedPrincipal(id=uuid.uuid4(), role=Roles.ADMIN, token_version=4)
+    app, _ = _sso_app(idp, lambda _s, _c: principal, token_version_resolver=lambda _s, _p: 5)
+    client = TestClient(app)
+    state, nonce = _begin_flow(client, idp)
+    idp.token_body = {"id_token": idp.id_token(nonce=nonce)}
+    assert client.post("/oidc/idp/callback", json={"code": "valid", "state": state}).status_code == 401
 
 def test_unknown_provider_is_a_404_on_both_routes(idp: FakeIdP) -> None:
     app, _ = _sso_app(idp, lambda _s, _c: None)

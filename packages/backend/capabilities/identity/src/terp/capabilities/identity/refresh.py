@@ -28,10 +28,10 @@ from terp.capabilities.auth import (
     refresh_token_digest,
     refresh_token_digests,
 )
-from terp.core import settings
+from terp.core import AuthenticationError, settings
 from terp.core._internal.session_guard import enter_write_unit  # arch-allow-no-internal-imports: rotating refresh-token session infra must ride the audited write unit; the scope primitive is _internal so app modules cannot open it
 
-from terp.capabilities.identity.models import RefreshToken
+from terp.capabilities.identity.models import RefreshToken, User
 
 _logger = logging.getLogger("terp.capabilities.identity.refresh")
 
@@ -44,12 +44,16 @@ def _as_utc(value: datetime) -> datetime:
 class RefreshTokenService:
     """Issue / rotate / revoke rotating refresh tokens (ADR 0054)."""
 
-    def issue(self, session: Session, user_id: uuid.UUID) -> str:
+    def issue(
+        self, session: Session, user_id: uuid.UUID, *, token_version: int | None = None
+    ) -> str:
         """Open a new refresh-token family for *user_id*; return the raw token to cookie."""
         now = datetime.now(UTC)
         family_expires_at = now + timedelta(seconds=settings.REFRESH_FAMILY_TTL_SECONDS)
         with enter_write_unit() as outermost:
-            raw = self._mint(session, user_id, uuid.uuid4(), family_expires_at, now)
+            if token_version is not None and not self._epoch_is_current(session, user_id, token_version):
+                raise AuthenticationError()
+            raw = self._mint(session, user_id, uuid.uuid4(), family_expires_at, now, token_version)
             self._commit_if_outermost(session, outermost)
         return raw
 
@@ -78,11 +82,20 @@ class RefreshTokenService:
             ).first()
             if row is None:
                 return None
-            if row.revoked_at is not None or (
+            family_revoked = session.exec(
+                select(RefreshToken.id).where(
+                    RefreshToken.family_id == row.family_id,
+                    RefreshToken.revoked_at.is_not(None),  # type: ignore[attr-defined]
+                ).limit(1)
+            ).first() is not None
+            # A concurrent rotation may insert a successor after logout's family
+            # scan. Any revoked ancestor remains a family tombstone until the shared
+            # absolute expiry, so that late successor cannot reopen the session.
+            if family_revoked or (
                 row.used_at is not None and not self._within_reuse_grace(row, now)
             ):
-                # A spent/revoked token replayed outside the race window — the theft
-                # signal. Kill the whole family and surface it to operators: this is a
+                # A revoked family or spent token replayed outside the race window —
+                # the theft signal. Kill the whole family and surface it to operators: this is a
                 # security event, not a routine 401.
                 self._revoke_family(session, row.family_id, now)
                 self._commit_if_outermost(session, outermost)
@@ -95,14 +108,46 @@ class RefreshTokenService:
                 return None
             if _as_utc(row.expires_at) <= now or _as_utc(row.family_expires_at) <= now:
                 return None
+            token_version = row.token_version
+            if token_version is None:
+                # Promote an existing family on its first post-upgrade rotation.
+                # Capture before minting/resolving a principal: reading a new epoch
+                # afterwards would let a concurrent reset reopen the session.
+                token_version = session.exec(
+                    select(User.token_version).where(User.id == row.user_id, User.is_active)
+                ).first()
+            if token_version is None or not self._epoch_is_current(
+                session, row.user_id, token_version
+            ):
+                self._revoke_family(session, row.family_id, now)
+                self._commit_if_outermost(session, outermost)
+                return None
             if row.used_at is None:
                 row.used_at = now
                 session.add(row)  # arch-allow-mutations-emit-audit: refresh-token session infra (like the outbox) rides enter_write_unit, not BaseService — it is not a BaseTable domain aggregate
             new_raw = self._mint(
-                session, row.user_id, row.family_id, _as_utc(row.family_expires_at), now
+                session, row.user_id, row.family_id, _as_utc(row.family_expires_at), now,
+                token_version,
             )
             self._commit_if_outermost(session, outermost)
-            return RefreshRotation(user_id=row.user_id, token=new_raw)
+            return RefreshRotation(user_id=row.user_id, token=new_raw, token_version=token_version)
+
+    def revoke_presented(self, session: Session, raw_token: str) -> None:
+        """Revoke the presented token's entire family, including live successors.
+
+        Used by cookie-only logout. A spent or expired member can still identify
+        its family, but possession of it never revokes another family or changes
+        the subject's global access-token epoch. Unknown cookies are a no-op.
+        """
+        with enter_write_unit() as outermost:
+            row = session.exec(
+                select(RefreshToken)
+                .where(RefreshToken.token_hash.in_(refresh_token_digests(raw_token)))
+                .with_for_update()
+            ).first()
+            if row is not None:
+                self._revoke_family(session, row.family_id, datetime.now(UTC))
+                self._commit_if_outermost(session, outermost)
 
     def revoke_all_for_user(self, session: Session, user_id: uuid.UUID) -> None:
         """Revoke every live refresh token for *user_id* (logout / deactivate / reset).
@@ -155,6 +200,7 @@ class RefreshTokenService:
         family_id: uuid.UUID,
         family_expires_at: datetime,
         now: datetime,
+        token_version: int | None,
     ) -> str:
         """Create one token row in *family_id*; return the raw token (stored only by digest)."""
         raw = generate_refresh_token()
@@ -164,6 +210,7 @@ class RefreshTokenService:
         session.add(  # arch-allow-mutations-emit-audit: refresh-token session infra (like the outbox) rides enter_write_unit, not BaseService — it is not a BaseTable domain aggregate
             RefreshToken(
                 user_id=user_id,
+                token_version=token_version,
                 family_id=family_id,
                 token_hash=refresh_token_digest(raw),
                 expires_at=expires_at,
@@ -171,6 +218,13 @@ class RefreshTokenService:
             )
         )
         return raw
+
+    @staticmethod
+    def _epoch_is_current(session: Session, user_id: uuid.UUID, token_version: int) -> bool:
+        current = session.exec(
+            select(User.token_version, User.is_active).where(User.id == user_id)
+        ).first()
+        return current is not None and current.is_active and current.token_version == token_version
 
     def _revoke_family(self, session: Session, family_id: uuid.UUID, now: datetime) -> None:
         """Revoke every live token in *family_id* — reuse-detection's blast radius."""

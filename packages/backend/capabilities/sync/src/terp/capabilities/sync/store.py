@@ -4,7 +4,8 @@ Like the durable audit sink and the webhooks delivery log, a record-log row is i
 at the base of the write stack: :class:`~terp.capabilities.sync.models.SyncRecordLog` is not a
 ``BaseTable`` (it is an immutable line), so it cannot route through ``BaseService`` — it
 appends directly, riding the audited write unit so the INSERT joins whatever transaction is
-open (its own outermost unit inside the ``SYNC_PULL`` job, which ``run_job`` opens at depth 0).
+open. Inside a sync job, record logs commit or roll back with the local records and mapping
+ledger they describe; a failed sync's run journal is persisted separately after rollback.
 """
 
 from __future__ import annotations

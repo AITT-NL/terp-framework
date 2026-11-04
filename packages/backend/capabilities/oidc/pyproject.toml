@@ -18,7 +18,7 @@ dependencies = [
     "terp-cap-egress==0.35.0",
     # ID-token signature validation against the provider JWKS (asymmetric algorithms
     # need the crypto extra).
-    "pyjwt[crypto]>=2.8",
+    "pyjwt[crypto]>=2.15.1",
 ]
 
 # A library capability: the app builds its module explicitly (build_oidc_module) with

@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from sqlmodel import Session, select
 
 from terp.capabilities.auth import (
+    AuthenticatedPrincipal,
     AccessTokenClaims,
     SubjectKind,
     hash_password,
@@ -118,9 +119,12 @@ class ServiceAccountService(
             return None
         if not verify_password(client_secret, account.hashed_secret):
             return None
+        # Capture before the usage write: its commit/refresh may observe a later
+        # credential epoch that was never authenticated by this secret check.
+        principal = self._principal_from(account)
         account.last_used_at = datetime.now(UTC)
         self._save(session, account, AuditAction.UPDATED)
-        return self._principal_from(account)
+        return principal
 
     def token_version_for(self, session: Session, principal: Principal) -> int:
         """The account's current token epoch, so the mint signs it (ADR 0031).
@@ -131,8 +135,14 @@ class ServiceAccountService(
         principal in the same session, so absence here means something is wrong with
         the wiring, and the loud failure is the useful one.
         """
-        account = session.get(ServiceAccount, principal.id)
-        if account is None:
+        if not isinstance(principal, AuthenticatedPrincipal) or principal.kind != SubjectKind.SERVICE:
+            raise AuthenticationError()
+        account = session.exec(
+            select(ServiceAccount).where(ServiceAccount.id == principal.id)
+            .execution_options(populate_existing=True)
+        ).first()
+        if (account is None or not account.is_active or self._is_expired(account)
+                or account.role != principal.role.rank or account.token_version != principal.token_version):
             raise AuthenticationError()
         return account.token_version
 
@@ -181,8 +191,9 @@ class ServiceAccountService(
         return expires_at <= datetime.now(UTC)
 
     def _principal_from(self, account: ServiceAccount) -> Principal:
-        return Principal(
+        return AuthenticatedPrincipal(
             id=account.id,
             role=self._permission_model.role_for_rank(account.role),
             kind=SubjectKind.SERVICE,
+            token_version=account.token_version,
         )

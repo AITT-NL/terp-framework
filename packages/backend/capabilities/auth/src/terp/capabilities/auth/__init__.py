@@ -44,6 +44,7 @@ from terp.capabilities.auth.router import (
     LoginTenantResolver,
     PrincipalResolver,
     RefreshIssuer,
+    RefreshRevoker,
     RefreshRotator,
     ServiceTokenVersionResolver,
     TokenRevoker,
@@ -60,6 +61,7 @@ from terp.capabilities.auth.schemas import (
     LoginRequest,
 )
 from terp.capabilities.auth.second_factor import MfaRequiredError, SecondFactor
+from terp.capabilities.auth.snapshot import AuthenticatedPrincipal, resolve_token_version
 from terp.capabilities.auth.throttle import (
     AccountLockedError,
     LoginThrottle,
@@ -86,6 +88,7 @@ __all__ = [
     "AccessTokenClaims",
     "AccountLockedError",
     "Authenticator",
+    "AuthenticatedPrincipal",
     "ClientAuthenticator",
     "ClientCredentialsRequest",
     "CurrentUser",
@@ -98,6 +101,7 @@ __all__ = [
     "SecondFactor",
     "PrincipalResolver",
     "RefreshIssuer",
+    "RefreshRevoker",
     "RefreshRotation",
     "RefreshRotator",
     "ServiceTokenVersionResolver",
@@ -122,6 +126,7 @@ __all__ = [
     "hash_password",
     "refresh_token_digest",
     "refresh_token_digests",
+    "resolve_token_version",
     "set_refresh_cookie",
     "tenant_from_bearer",
     "verify_password",

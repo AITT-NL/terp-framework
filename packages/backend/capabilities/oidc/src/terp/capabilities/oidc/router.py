@@ -23,6 +23,9 @@ refused at construction, and the capability itself never calls ``decrypt_config`
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+from datetime import UTC, datetime
 from collections.abc import Callable, Sequence
 
 from fastapi import APIRouter, Request, Response
@@ -39,7 +42,9 @@ from terp.core import (
     client_ip,
     is_sealed_config,
     operation,
+    no_idempotency,
     route_policy,
+    settings,
 )
 
 from terp.capabilities.egress import Observer, Resolver, Sender
@@ -50,6 +55,7 @@ from terp.capabilities.auth import (
     RefreshIssuer,
     TokenVersionResolver,
     create_access_token,
+    resolve_token_version,
     set_refresh_cookie,
 )
 
@@ -69,6 +75,12 @@ IdentityResolver = Callable[[Session, OIDCClaims], Principal | None]
 # Unseal a sealed client secret — app-wired to its single allowlisted decrypt site
 # (ADR 0055); the capability never decrypts.
 SecretResolver = Callable[[str], str]
+
+
+def _state_cookie_name(state: str) -> str:
+    """One host-only transaction cookie per flow, allowing independent browser tabs."""
+    prefix = "__Host-terp-oidc-" if settings.refresh_cookie_secure else "terp-oidc-"
+    return prefix + hashlib.sha256(state.encode()).hexdigest()[:32]
 
 
 def _throttle_key(provider: str, request: Request) -> str:
@@ -133,19 +145,15 @@ def build_oidc_router(
             return secret_resolver(config.client_secret)
         return config.client_secret
 
-    def _mint_access_token(session: Session, principal: Principal) -> str:
+    def _mint_access_token(session: Session, principal: Principal) -> tuple[str, int]:
         tenant = tenant_resolver(session, principal) if tenant_resolver is not None else None
-        token_version = (
-            token_version_resolver(session, principal)
-            if token_version_resolver is not None
-            else 0
-        )
+        token_version = resolve_token_version(session, principal, token_version_resolver)
         return create_access_token(
             subject=principal.id,
             role=principal.role,
             tenant=tenant,
             token_version=token_version,
-        )
+        ), token_version
 
     router = APIRouter(tags=["auth"])
 
@@ -156,9 +164,19 @@ def build_oidc_router(
         )
     )
     @operation(OIDC_AUTHORIZE)
-    def authorize(provider: str) -> AuthorizationRequest:
+    def authorize(provider: str, response: Response) -> AuthorizationRequest:
         client = _client(provider)
         state, pending = store.issue(provider)
+        # The URL alone is not the browser binding: a caller can transfer its own
+        # valid code/state to another browser. The HttpOnly cookie proves that the
+        # callback came back through the user agent that started this transaction.
+        response.set_cookie(
+            _state_cookie_name(state), state,
+            max_age=max(1, int((pending.expires_at - datetime.now(UTC)).total_seconds())),
+            path="/", secure=settings.refresh_cookie_secure, httponly=True,
+            samesite="none" if settings.REFRESH_COOKIE_SAMESITE == "none" else "lax",
+        )
+        response.headers["Cache-Control"] = "no-store"
         return AuthorizationRequest(
             provider=provider,
             authorization_url=client.authorization_url(
@@ -169,6 +187,7 @@ def build_oidc_router(
         )
 
     @router.post("/{provider}/callback", response_model=AccessToken)
+    @no_idempotency
     @route_policy(
         Policy.public_write(
             reason="the provider redirects an unauthenticated browser here; the code "
@@ -186,6 +205,12 @@ def build_oidc_router(
         client = _client(provider)
         identifier = _throttle_key(provider, request)
         active_throttle.check(identifier)
+        browser_state = request.cookies.get(_state_cookie_name(payload.state))
+        if browser_state is None or not hmac.compare_digest(
+            browser_state.encode(), payload.state.encode()
+        ):
+            active_throttle.record_failure(identifier)
+            raise AuthenticationError()
         pending = store.consume(payload.state, provider)
         if pending is None:
             # Unknown, expired, replayed, or cross-provider state — the uniform 401.
@@ -202,11 +227,19 @@ def build_oidc_router(
             active_throttle.record_failure(identifier)
             raise AuthenticationError()
         active_throttle.record_success(identifier)
-        token = _mint_access_token(session, principal)
+        token, token_version = _mint_access_token(session, principal)
+        response.delete_cookie(
+            _state_cookie_name(payload.state), path="/",
+            secure=settings.refresh_cookie_secure, httponly=True,
+            samesite="none" if settings.REFRESH_COOKIE_SAMESITE == "none" else "lax",
+        )
+        response.headers["Cache-Control"] = "no-store"
         if refresh_issuer is not None:
             # The SSO session gets the same rotating refresh cookie a password login
             # does (ADR 0054), so reloads and /refresh work identically.
-            set_refresh_cookie(response, refresh_issuer(session, principal.id))
+            set_refresh_cookie(
+                response, refresh_issuer(session, principal.id, token_version=token_version)
+            )
         return AccessToken(access_token=token)
 
     return router

@@ -276,6 +276,51 @@ def test_revoking_an_account_that_does_not_exist_reports_that_it_did_nothing(
     assert ServiceAccountService().revoke(session, uuid.uuid4()) is False
 
 
+def test_service_mint_requires_its_unchanged_authenticated_snapshot(session: Session) -> None:
+    from terp.capabilities.auth import AuthenticatedPrincipal, resolve_token_version
+    from terp.core import Principal
+
+    service = ServiceAccountService()
+    account, secret = _provision(service, session)
+    principal = service.authenticate_client(session, account.client_id, secret)
+    assert isinstance(principal, AuthenticatedPrincipal)
+    assert resolve_token_version(session, principal, service.token_version_for) == 0
+    for unsupported in (
+        Principal(id=account.id, role=Roles.EDITOR, kind="service"),
+        AuthenticatedPrincipal(id=account.id, role=Roles.EDITOR, token_version=0),
+    ):
+        with pytest.raises(AuthenticationError):
+            service.token_version_for(session, unsupported)
+    assert service.revoke(session, account.id)
+    with pytest.raises(AuthenticationError):
+        resolve_token_version(session, principal, service.token_version_for)
+
+
+def test_service_snapshot_precedes_last_used_commit_refresh(session: Session, monkeypatch) -> None:
+    from contextvars import Context
+    from terp.capabilities.auth import AuthenticatedPrincipal
+
+    service = ServiceAccountService()
+    account, secret = _provision(service, session)
+    account_id, client_id = account.id, account.client_id
+    original_refresh = session.refresh
+
+    def change_before_refresh(instance, *args, **kwargs):
+        def revoke():
+            with Session(session.get_bind()) as admin_session:
+                assert ServiceAccountService().revoke(admin_session, account_id)
+        Context().run(revoke)
+        return original_refresh(instance, *args, **kwargs)
+
+    monkeypatch.setattr(session, "refresh", change_before_refresh)
+    principal = service.authenticate_client(session, client_id, secret)
+    assert isinstance(principal, AuthenticatedPrincipal)
+    assert account.token_version == 1
+    assert principal.token_version == 0
+    with pytest.raises(AuthenticationError):
+        service.token_version_for(session, principal)
+
+
 def test_the_token_route_mints_for_a_real_credential_and_refuses_a_bad_one() -> None:
     # The grant end to end: the route is the surface an integration actually calls, so
     # it is pinned here rather than only at the service beneath it.

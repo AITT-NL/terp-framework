@@ -143,8 +143,9 @@ def test_require_refresh_without_the_seams_raises() -> None:
 
 def _full_refresh_seams() -> dict:
     return {
-        "refresh_issuer": lambda session, user_id: "t",
+        "refresh_issuer": lambda session, user_id, *, token_version: "t",
         "refresh_rotator": lambda session, raw: None,
+        "refresh_revoker": lambda session, raw: None,
         "principal_resolver": lambda session, user_id: None,
     }
 
@@ -154,6 +155,15 @@ def test_refresh_seams_without_revoke_sessions_raise_at_construction() -> None:
     # family stayed live in the store — a logout that does not log out. Fail closed.
     with pytest.raises(ValueError, match="revoke_sessions"):
         build_login_module(_authenticate_stub, **_full_refresh_seams())
+
+
+def test_refresh_requires_a_presented_family_revoker() -> None:
+    seams = _full_refresh_seams()
+    del seams["refresh_revoker"]
+    with pytest.raises(ValueError, match="refresh_revoker"):
+        build_login_module(_authenticate_stub, revoke_sessions=lambda session, uid: None, **seams)
+    with pytest.raises(ValueError, match="complete refresh-token seams"):
+        build_login_module(_authenticate_stub, refresh_revoker=lambda session, raw: None)
 
 
 def test_refresh_cookie_path_must_match_the_module_mount_prefix() -> None:

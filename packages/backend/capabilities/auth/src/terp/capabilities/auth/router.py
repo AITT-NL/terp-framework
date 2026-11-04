@@ -10,9 +10,9 @@ seam (auth does not own the store it must write).
 Session-management seams (ADR 0031), all optional and app-wired so auth never imports
 the store:
 
-* ``token_version_resolver`` signs the subject's **current token epoch** into the issued
-  token, so a freshly-minted token is valid against the store (without it, the first
-  token issued after any revoking change would be instantly stale);
+* ``token_version_resolver`` checks the **captured token epoch** against the current
+  store. Epoch-aware authenticators return ``AuthenticatedPrincipal`` so the role and
+  epoch come from one snapshot; an intervening revoking change refuses the mint;
 * ``revoke_sessions`` bumps the caller's epoch on ``POST /logout`` (mounted only when
   wired); and
 * ``throttle`` is the failed-credential backoff (on by default, ADR 0031 / L3), keyed
@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from typing import Protocol
 
 from fastapi import APIRouter, Depends, Request, Response
 from sqlmodel import Session
@@ -37,6 +38,7 @@ from terp.core import (
     client_ip,
     get_principal,
     operation,
+    no_idempotency,
     route_policy,
     settings,
 )
@@ -60,6 +62,7 @@ from terp.capabilities.auth.schemas import (
     LoginRequest,
 )
 from terp.capabilities.auth.second_factor import MfaRequiredError, SecondFactor
+from terp.capabilities.auth.snapshot import resolve_token_version
 from terp.capabilities.auth.throttle import LoginThrottle
 from terp.capabilities.auth.tokens import SubjectKind, create_access_token
 
@@ -74,8 +77,16 @@ TokenRevoker = Callable[[Session, uuid.UUID], None]
 # imports it. Issue the first token at login; rotate (single-use + reuse-detect) a presented
 # token; resolve an ACTIVE subject's principal by id (the /refresh analog of authenticate,
 # which needs a password). All three are wired together or not at all.
-RefreshIssuer = Callable[[Session, uuid.UUID], str]
+class RefreshIssuer(Protocol):
+    """Issue a family bound to the same epoch as the authenticated principal."""
+
+    def __call__(
+        self, session: Session, user_id: uuid.UUID, *, token_version: int
+    ) -> str: ...
+
+
 RefreshRotator = Callable[[Session, str], RefreshRotation | None]
+RefreshRevoker = Callable[[Session, str], None]
 PrincipalResolver = Callable[[Session, uuid.UUID], Principal | None]
 # Resolve the authenticated caller's own identity for ``GET /me`` — app-wired to the
 # store (e.g. ``IdentityService.current_user``) so auth never imports where users live
@@ -97,6 +108,7 @@ def build_login_router(
     throttle: LoginThrottle | None = None,
     refresh_issuer: RefreshIssuer | None = None,
     refresh_rotator: RefreshRotator | None = None,
+    refresh_revoker: RefreshRevoker | None = None,
     principal_resolver: PrincipalResolver | None = None,
     authenticate_client: ClientAuthenticator | None = None,
     service_token_version_resolver: ServiceTokenVersionResolver | None = None,
@@ -115,13 +127,13 @@ def build_login_router(
     current token epoch (ADR 0031). *throttle* (default: a fresh on-by-default
     :class:`LoginThrottle`) locks an account after repeated failed logins. When
     *revoke_sessions* is supplied, a ``POST /logout`` route is mounted that bumps the
-    caller's epoch (idempotent; an unauthenticated call is a no-op).
+    caller's epoch. Cookie-only logout independently revokes the presented family.
 
     Refresh-token rotation (ADR 0054) is opt-in and **all-or-nothing**: supply
     *refresh_issuer* (open a family + mint the first token at login), *refresh_rotator*
     (validate + single-use rotate + reuse-detect), and *principal_resolver* (resolve an
-    active subject by id) together — plus *revoke_sessions*, so ``/logout`` revokes the
-    family server-side and not just the cookie — to mount ``POST /refresh`` and have
+    active subject by id) together — plus *revoke_sessions* and *refresh_revoker*, so
+    ``/logout`` revokes both bearer and cookie credentials server-side — to mount ``POST /refresh`` and have
     ``/login`` / ``/logout`` set / clear the httpOnly refresh cookie. Wiring only some of
     the seams, omitting *revoke_sessions*, or passing *require_refresh* without them,
     raises at construction (fail-closed).
@@ -161,6 +173,13 @@ def build_login_router(
             "refresh-token rotation requires revoke_sessions: without it a logout clears "
             "the cookie but leaves the refresh-token family live server-side (ADR 0054)."
         )
+    if refresh_enabled and refresh_revoker is None:
+        raise ValueError(
+            "refresh-token rotation requires refresh_revoker: cookie-only logout must "
+            "revoke the presented family without issuing another token."
+        )
+    if refresh_revoker is not None and not refresh_enabled:
+        raise ValueError("refresh_revoker requires the complete refresh-token seams.")
     if require_refresh and not refresh_enabled:
         raise ValueError(
             "require_refresh=True but the refresh seams are not wired (ADR 0054)."
@@ -174,7 +193,7 @@ def build_login_router(
 
     def _mint_access_token(
         session: Session, principal: Principal, *, amr: tuple[str, ...] = ()
-    ) -> str:
+    ) -> tuple[str, int]:
         tenant = tenant_resolver(session, principal) if tenant_resolver is not None else None
         kind = SubjectKind(principal.kind)
         resolver = (
@@ -182,7 +201,7 @@ def build_login_router(
             if kind is SubjectKind.SERVICE
             else token_version_resolver
         )
-        token_version = resolver(session, principal) if resolver is not None else 0
+        token_version = resolve_token_version(session, principal, resolver)
         return create_access_token(
             subject=principal.id,
             role=principal.role,
@@ -190,9 +209,10 @@ def build_login_router(
             token_version=token_version,
             kind=kind,
             amr=amr,
-        )
+        ), token_version
 
     @router.post("/login", response_model=AccessToken)
+    @no_idempotency
     @route_policy(Policy.public_write(reason="a caller has no token yet; this route is how they get one"))
     @operation(AUTH_LOGIN)
     def login(
@@ -222,17 +242,21 @@ def build_login_router(
                 raise AuthenticationError()
             methods = ("pwd", "otp")
         active_throttle.record_success(credentials.email, source=source)
-        token = _mint_access_token(session, principal, amr=methods)
+        token, token_version = _mint_access_token(session, principal, amr=methods)
         if refresh_issuer is not None:
             # Open a fresh refresh-token family and set its httpOnly cookie beside the
             # bearer, so the session survives a reload and can outlive the access TTL.
-            set_refresh_cookie(response, refresh_issuer(session, principal.id))
+            set_refresh_cookie(
+                response,
+                refresh_issuer(session, principal.id, token_version=token_version),
+            )
         return AccessToken(access_token=token)
 
     if authenticate_client is not None:
         verify_client = authenticate_client
 
         @router.post("/token", response_model=AccessToken)
+        @no_idempotency
         @route_policy(Policy.public_write(reason="a caller has no token yet; this route is how they get one"))
         @operation(AUTH_TOKEN)
         def token(
@@ -267,13 +291,15 @@ def build_login_router(
                 active_throttle.record_failure(credentials.client_id, source=source)
                 raise AuthenticationError()
             active_throttle.record_success(credentials.client_id, source=source)
-            return AccessToken(access_token=_mint_access_token(session, principal))
+            token, _ = _mint_access_token(session, principal)
+            return AccessToken(access_token=token)
 
     if refresh_rotator is not None and principal_resolver is not None:
         rotate_token = refresh_rotator
         resolve_principal = principal_resolver
 
         @router.post("/refresh", response_model=AccessToken)
+        @no_idempotency
         @route_policy(
             Policy.public_write(
                 reason="the refresh cookie is the credential; there is no bearer to gate on"
@@ -295,7 +321,9 @@ def build_login_router(
             principal = resolve_principal(session, rotation.user_id)
             if principal is None:
                 raise AuthenticationError()
-            token = _mint_access_token(session, principal)
+            token, token_version = _mint_access_token(session, principal)
+            if rotation.token_version is None or rotation.token_version != token_version:
+                raise AuthenticationError()
             set_refresh_cookie(response, rotation.token)
             return AccessToken(access_token=token)
 
@@ -310,12 +338,18 @@ def build_login_router(
         )
         @operation(AUTH_LOGOUT)
         def logout(
+            request: Request,
             session: SessionDep,
             principal: Principal | None = Depends(get_principal),
         ) -> Response:
-            # Logout is idempotent: with no (or an already-revoked) token there is nothing
-            # to invalidate. Otherwise bump the caller's epoch (the wired revoke also kills
-            # the refresh families), and always drop the refresh cookie.
+            # Logout is idempotent and clears the cookie even if it was already revoked.
+            # A cookie still identifies its family after its bearer has gone, or
+            # after a racing tab spent that particular token. Revoke that family
+            # directly: rotating just to discover its subject would mint a successor
+            # during logout and miss spent/expired tokens with a live successor.
+            raw = request.cookies.get(settings.REFRESH_COOKIE_NAME)
+            if raw is not None and refresh_revoker is not None:
+                refresh_revoker(session, raw)
             if principal is not None and revoke_sessions is not None:
                 revoke_sessions(session, principal.id)
             response = Response(status_code=204)
@@ -336,6 +370,7 @@ def build_login_module(
     throttle: LoginThrottle | None = None,
     refresh_issuer: RefreshIssuer | None = None,
     refresh_rotator: RefreshRotator | None = None,
+    refresh_revoker: RefreshRevoker | None = None,
     principal_resolver: PrincipalResolver | None = None,
     authenticate_client: ClientAuthenticator | None = None,
     service_token_version_resolver: ServiceTokenVersionResolver | None = None,
@@ -371,6 +406,7 @@ def build_login_module(
             throttle=throttle,
             refresh_issuer=refresh_issuer,
             refresh_rotator=refresh_rotator,
+            refresh_revoker=refresh_revoker,
             principal_resolver=principal_resolver,
             authenticate_client=authenticate_client,
             service_token_version_resolver=service_token_version_resolver,
@@ -452,6 +488,7 @@ __all__ = [
     "LoginTenantResolver",
     "PrincipalResolver",
     "RefreshIssuer",
+    "RefreshRevoker",
     "RefreshRotator",
     "TokenRevoker",
     "TokenVersionResolver",

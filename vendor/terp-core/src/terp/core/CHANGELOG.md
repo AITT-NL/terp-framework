@@ -10,7 +10,42 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.35.1 — unreleased
+## 0.36.0 — unreleased
+
+### Security
+
+- Enforce a permission's role floor and current grant together, including dependency
+  requirements and access projections. Realtime connections recheck current grants and
+  audiences at redemption, delivery, inbound frames and idle heartbeats.
+- Reauthorize stored idempotent responses through the current request dependencies and
+  an explicit read-only replay authorizer. Undeclared replay is refused while preserving
+  the deduplication record; credential-minting routes reject idempotency keys.
+- Scope ORM relationship and alias reads to the same tenant and soft-delete predicates
+  as direct reads. A denied soft-delete or bespoke save leaves no dirty mutation for a
+  later allowed commit; an existing row cannot be relabelled as a creation to restamp
+  ownership. Outbox finalization compares the current claim in the database update.
+- Bind authenticated authority and the revocation epoch to one snapshot, bind OIDC
+  callbacks to their initiating browser, and revoke a presented refresh family even
+  when logout has no bearer. Refresh families issued by the router carry their epoch.
+  Custom auth/refresh integrations need the migration in
+  [authentication transitions](docs/authentication-transitions.md); bundled compositions
+  are updated and the identity schema change is additive.
+- Enforce one elapsed network deadline across outbound socket operations and refuse
+  compressed responses before decoding. Upstreams must support identity encoding.
+  Synchronous OS name resolution is charged to the budget but cannot be cancelled;
+  [egress documentation](packages/backend/capabilities/egress/README.md) states the limit.
+  Mail security strings are normalized and validated before any transport is opened.
+- Webhook signatures now authenticate event type and delivery identity together with
+  timestamp and body. Receivers must adopt the version 2 representation in
+  [webhook signatures](docs/webhook-signatures.md); no unsigned metadata fallback is sent.
+  File references require authority to bind the target, including reassignment.
+- Preserve authorization schemes while redacting formatted log templates, so
+  `Authorization: Bearer %s` cannot lose its credential label before interpolation.
+- Raise affected Python dependency floors, update frontend security overrides, and make
+  dependency audit failures block CI (moderate and higher for npm). A separate lane audits
+  and tests the minimum runtime dependency combination. The remaining low-severity
+  build-tool advisory and its follow-up are recorded in
+  [security boundaries](docs/security-boundaries.md).
 
 ### Changed
 
@@ -56,6 +91,16 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- Jobs now commit their audited service mutations as one transaction and roll them back
+  on handler failure. Independent webhook delivery and sync failure journals are persisted
+  after that transaction finishes, preserving failed attempts without committing business
+  changes. Sync failure journals preserve winning concurrent updates and distinguish
+  attempted work from rolled-back local writes. PostgreSQL sync acquisition and heartbeats
+  use independent custody transactions; finalization fences the business commit and release
+  follows transaction completion. SQLite retains its database-wide write-lock limitation,
+  documented in the [sync contract](packages/backend/capabilities/sync/README.md).
+- Production-refusal classification works when the checkout itself is under a `src`
+  directory.
 - **`@terpjs/react-core` type-checks under TypeScript 6.** `Combobox` chose its first active
   option with an expression TypeScript 6 rejects as always nullish (TS2871). react-core ships
   its source and an app compiles it with its own compiler, so an app on 6 failed its typecheck

@@ -109,6 +109,25 @@ def _production(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(type(settings), "is_production", property(lambda self: True))
 
 
+@pytest.mark.parametrize("security", ["unknown", "", None, 1])
+def test_an_unknown_security_mode_is_refused_at_construction(security: object) -> None:
+    with pytest.raises(ValueError):
+        _settings(security=security)
+
+
+def test_a_plaintext_string_cannot_bypass_the_credential_refusal() -> None:
+    with pytest.raises(ValueError, match="unencrypted"):
+        _settings(security="none", username="relay-user", password="synthetic-password")
+
+
+def test_a_plaintext_string_cannot_bypass_the_production_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _production(monkeypatch)
+    with pytest.raises(ValueError, match="without encryption"):
+        _settings(security="none")
+
+
 # --------------------------------------------------------------------------- #
 # addresses
 # --------------------------------------------------------------------------- #
@@ -620,11 +639,15 @@ def test_the_production_context_verifies_the_certificate_and_the_name() -> None:
     assert context.minimum_version >= ssl.TLSVersion.TLSv1_2
 
 
+@pytest.mark.parametrize("security", [MailSecurity.STARTTLS, "starttls"])
 def test_starttls_encrypts_before_the_password_is_sent(
-    authority: _Authority, relays: Callable[..., _Relay], caplog: pytest.LogCaptureFixture
+    authority: _Authority, relays: Callable[..., _Relay], caplog: pytest.LogCaptureFixture,
+    security: MailSecurity | str,
 ) -> None:
     relay = relays(tls=authority.server_context("localhost"))
-    settings = _relay_settings(relay, username="orders", password="secret-value")
+    settings = _relay_settings(
+        relay, security=security, username="orders", password="secret-value"
+    )
     with caplog.at_level(logging.INFO, logger="terp.capabilities.mail"):
         SmtpTransport(settings)(_rendered())
     assert "accepted <relay-test@example.test> for 1 recipient(s)" in caplog.text
@@ -659,12 +682,13 @@ def test_a_relay_that_does_not_offer_starttls_is_refused_not_spoken_to_in_the_cl
     assert refused.value.message == "The mail could not be handed to the mail server."
 
 
+@pytest.mark.parametrize("security", [MailSecurity.TLS, "tls"])
 def test_implicit_tls_is_encrypted_from_the_first_byte(
-    authority: _Authority, relays: Callable[..., _Relay]
+    authority: _Authority, relays: Callable[..., _Relay], security: MailSecurity | str,
 ) -> None:
     relay = relays(tls=authority.server_context("localhost"), implicit_tls=True)
     settings = _relay_settings(
-        relay, security=MailSecurity.TLS, username="orders", password="secret-value"
+        relay, security=security, username="orders", password="secret-value"
     )
     SmtpTransport(settings)(_rendered())
 

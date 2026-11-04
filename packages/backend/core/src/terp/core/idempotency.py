@@ -3,7 +3,9 @@
 Safe client retries for unsafe methods: a client stamps a mutating request with an
 ``Idempotency-Key`` header and may retry it (a timeout, a dropped connection, a crashed
 client) without executing the mutation twice — the first execution's response is
-stored and **replayed** to every retry of the same key. The middleware half lives in
+stored and replayed only after current authorization on a route that explicitly
+opts in with :func:`idempotent_replay`. Unmarked routes retain the completed key
+and refuse replay without repeating the mutation. The middleware half lives in
 ``terp.core._internal.middleware`` (installed by ``create_app``, innermost in the
 security stack); this module owns the storage port it coordinates through.
 
@@ -27,7 +29,41 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Lock
-from typing import Literal
+from typing import Literal, TypeVar
+
+_Endpoint = TypeVar("_Endpoint", bound=Callable)
+_REPLAY_AUTHORIZER = "__terp_idempotency_authorizer__"
+_NO_IDEMPOTENCY = "__terp_no_idempotency__"
+
+
+def idempotent_replay(*, authorize: Callable) -> Callable[[_Endpoint], _Endpoint]:
+    """Allow replay after current policy, dependencies, and *authorize* succeed.
+
+    ``authorize`` is a FastAPI dependency, run on the initial request and retries.
+    It must check every resource-level condition needed to disclose the stored
+    result, including checks otherwise performed only inside the handler. It must
+    be read-only: replay dependencies run under the persistence write guard. The
+    handler itself never runs on a replay. Without this declaration a completed
+    key is retained but its response is refused with 409.
+    """
+    if not callable(authorize):
+        raise TypeError("idempotent_replay requires an authorization dependency")
+
+    def decorate(endpoint: _Endpoint) -> _Endpoint:
+        if getattr(endpoint, _NO_IDEMPOTENCY, False):
+            raise ValueError("no_idempotency and idempotent_replay are mutually exclusive")
+        setattr(endpoint, _REPLAY_AUTHORIZER, authorize)
+        return endpoint
+
+    return decorate
+
+
+def no_idempotency(endpoint: _Endpoint) -> _Endpoint:
+    """Refuse Idempotency-Key before executing a credential-issuing endpoint."""
+    if getattr(endpoint, _REPLAY_AUTHORIZER, None) is not None:
+        raise ValueError("no_idempotency and idempotent_replay are mutually exclusive")
+    setattr(endpoint, _NO_IDEMPOTENCY, True)
+    return endpoint
 
 
 @dataclass(frozen=True)
@@ -42,6 +78,18 @@ class StoredResponse:
     status_code: int
     headers: tuple[tuple[str, str], ...]
     body: bytes
+
+
+def get_idempotency_response() -> StoredResponse | None:
+    """The immutable original result during replay authorization, otherwise None.
+
+    A FastAPI authorizer can depend on this to check the original resource when a
+    handler selected it from mutable server state (for example a default tenant).
+    Authorizing only today's default would not authorize yesterday's response.
+    """
+    from terp.core._internal.idempotency_replay import replay_response  # arch-allow-no-internal-imports: this kernel public accessor exposes only the immutable original result, keeping the replay context writer inaccessible to app modules
+
+    return replay_response.get()
 
 
 @dataclass(frozen=True)
@@ -254,4 +302,7 @@ __all__ = [
     "StoredResponse",
     "is_shared_idempotency_store",
     "mark_shared_idempotency_store",
+    "idempotent_replay",
+    "no_idempotency",
+    "get_idempotency_response",
 ]

@@ -12,8 +12,8 @@ Security controls applied on every attempt:
 
 * an **SSRF re-check** of the target immediately before the request (DNS-rebinding defense,
   :mod:`terp.capabilities.webhooks.ssrf`);
-* an **HMAC-SHA256** signature over the exact JSON body, keyed by the subscription's stored
-  ``secret`` — which never leaves the server;
+* a versioned **HMAC-SHA256** signature over the timestamp, event, delivery id and exact
+  JSON body, keyed by the subscription's stored ``secret`` — which never leaves the server;
 * a strict outbound **timeout**, a bounded outbound **payload size**, a bounded **read** of
   whatever the subscriber answers with, and **no redirect following** (a 3xx is recorded as
   a failure, never chased to a possibly-disallowed host).
@@ -158,16 +158,21 @@ def active_webhook_sender() -> WebhookSender:
     return _active_sender
 
 
-def _sign(secret: str, timestamp: str, body: bytes) -> str:
-    """``sha256=<hex>`` HMAC-SHA256 over ``timestamp.body``, keyed by the subscription *secret*.
+def _sign(
+    secret: str, timestamp: str, body: bytes, *, event: str, delivery_id: str
+) -> str:
+    """Authenticate routing and replay metadata as well as the unchanged body.
 
-    Binding the timestamp into the signature lets a receiver reject a **replay** of a captured
-    delivery: it recomputes the HMAC over the ``X-Terp-Webhook-Timestamp`` header value and the
-    raw body and bounds the age, so a valid signature is not indefinitely reusable.
+    v2 signs a domain prefix, a compact JSON array of the three header values, a
+    newline, and the raw body. JSON escaping makes the boundary unambiguous even
+    for unusual event names. Receivers must require v2; see docs/webhook-signatures.md.
     """
-    signed = timestamp.encode("utf-8") + b"." + body
+    metadata = json.dumps(
+        [timestamp, delivery_id, event], separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+    signed = b"terp-webhook-v2\n" + metadata + b"\n" + body
     digest = hmac.new(secret.encode("utf-8"), signed, hashlib.sha256).hexdigest()
-    return f"sha256={digest}"
+    return f"v2={digest}"
 
 
 _service = WebhookSubscriptionService()
@@ -248,7 +253,10 @@ def deliver_webhook(ctx: JobContext, payload: WebhookDeliveryPayload) -> None:
     headers = {
         "Content-Type": "application/json",
         _TIMESTAMP_HEADER: timestamp,
-        _SIGNATURE_HEADER: _sign(signing_secret, timestamp, body),
+        _SIGNATURE_HEADER: _sign(
+            signing_secret, timestamp, body,
+            event=payload.event, delivery_id=str(payload.delivery_id),
+        ),
         _EVENT_HEADER: payload.event,
         _DELIVERY_HEADER: str(payload.delivery_id),
     }

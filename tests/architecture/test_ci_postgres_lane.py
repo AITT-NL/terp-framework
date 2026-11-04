@@ -1,9 +1,9 @@
 """Every test module that takes ``terp_db_url`` or ``terp_pg_url`` runs in CI's PostgreSQL lane.
 
 The first runs a test on SQLite and again on PostgreSQL wherever ``TERP_TEST_POSTGRES_URL``
-names a server, and the second on PostgreSQL alone. Only one job has a server, so a module
-the lane does not name runs its PostgreSQL half nowhere. A skip is green, and the module's
-claim to cover both dialects reads as true. That happened to the audit activity's
+names a server, and the second on PostgreSQL alone. The dedicated lane requires every
+case to run, including restore drills with a matching client. A skip is green, and the
+module's claim to cover both dialects reads as true. That happened to the audit activity's
 per-day counts in 0.32.0's development: claimed for both, run on one.
 """
 

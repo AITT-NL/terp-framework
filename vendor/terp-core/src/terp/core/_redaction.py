@@ -77,8 +77,10 @@ _TEXT_SECRETS: Final[tuple[re.Pattern[str], ...]] = tuple(
 # A template whose arguments are still to come: a value that starts with a placeholder is
 # where an argument goes, and redacting it would break the format string. The formatter
 # scrubs the message again once the arguments are in, which is where that value appears.
+# Commit the label before testing for a placeholder: otherwise the optional authorization
+# scheme can backtrack, redact ``Bearer`` itself, and leave its later argument unlabelled.
 _TEMPLATE_SECRETS: Final[tuple[re.Pattern[str], ...]] = tuple(
-    re.compile(f"{label}((?!{_PLACEHOLDER}){value}+){after}", re.IGNORECASE)
+    re.compile(f"(?>{label})((?!{_PLACEHOLDER}){value}+){after}", re.IGNORECASE)
     for label, value, after in _SECRET_SHAPES
 )
 _REDACT_VALUE: Final[str] = r"\g<1>" + REDACTED

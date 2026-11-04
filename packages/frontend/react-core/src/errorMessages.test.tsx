@@ -76,6 +76,21 @@ describe("useErrorMessage", () => {
 });
 
 describe("useErrorMessage under a locale", () => {
+  it.each([
+    ["en", "idempotency_not_supported", 400, "This action does not support automatic retries. Contact support to continue."],
+    ["nl", "idempotency_not_supported", 400, "Deze actie ondersteunt geen automatische herhalingen. Neem contact op met ondersteuning om verder te gaan."],
+    ["en", "idempotency_replay_not_authorized", 409, "The earlier result cannot be shown. Check the current status before submitting this action again."],
+    ["nl", "idempotency_replay_not_authorized", 409, "Het eerdere resultaat kan niet worden getoond. Controleer de huidige status voordat je deze actie opnieuw verstuurt."],
+  ])("renders %s wording for %s without falling back to backend detail", (locale, code, status, words) => {
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN, nl: LOCALE_NL }} defaultLocale={locale}>
+        <ErrorState error={new ApiError("Unlocalized backend detail.", { code, status })} />
+      </LocaleProvider>,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(words);
+    expect(screen.queryByText("Unlocalized backend detail.")).not.toBeInTheDocument();
+  });
+
   it("words the platform's codes in the active locale, and an app's map still wins", () => {
     // The built-in wording used to be an English map that was the context's default, and a
     // plain string resolves as-is, so these two read in English under the Dutch catalog while
