@@ -6,14 +6,33 @@ produce nothing the old one never did. References resolve within each document, 
 shape is compared once per pair of references, and a schema whose own text is unchanged is
 still entered when a schema it reaches changed. :mod:`terp.cli.api_contract` walks the
 operations and calls :func:`diff_schema` for each body, parameter and response.
+
+What the rules at a node do not read (a default, ``additionalProperties``, ``allOf``, the
+members of a union of object shapes, and whatever lies behind a reference inside them) is
+compared too, with every reference resolved. A difference there is a line of its own that
+names the node and counts as breaking, whatever the node's other rules or its fields found.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
 from typing import Any
+
+from terp.cli.api_contract_shapes import (
+    EDITORIAL,
+    SCHEMA_REF,
+    Change,
+    Docs,
+    follow,
+    mapping,
+    ref_of,
+    refs_in,
+    resolve,
+    same,
+    shape,
+    unclassified,
+)
 
 #: Request-side bounds, each with the direction in which a change refuses what was accepted:
 #: ``max`` bounds break when they fall (or appear), ``min`` bounds when they rise (or appear).
@@ -26,133 +45,13 @@ _MAX_DEPTH = 64
 REQUEST = "request"
 RESPONSE = "response"
 
-#: Keys that describe a document without changing any shape a client depends on.
-EDITORIAL = frozenset(
-    {"description", "summary", "title", "tags", "operationId", "examples", "example", "externalDocs"}
-)
+#: What the value-set rules read of every alternative: the kind of value it is.
+_TYPE_KEYS = frozenset({"type", "nullable"})
 
-#: Keys whose value maps names to definitions. The names are data, so a property called
-#: ``title`` is never mistaken for the editorial keyword of the same spelling.
-_NAMED_MAPS = frozenset(
-    {"properties", "patternProperties", "$defs", "definitions", "schemas", "paths", "responses",
-     "content", "securitySchemes", "headers", "parameters", "requestBodies"}
-)
-
-#: Lists whose order carries no meaning for a client.
-_ORDER_FREE = frozenset({"required", "enum", "type"})
-
-
-@dataclass(frozen=True, order=True)
-class Change:
-    """One difference between two contracts, phrased as the change a reviewer approves."""
-
-    breaking: bool
-    where: str
-    what: str
-
-    def render(self) -> str:
-        return f"{'BREAKING ' if self.breaking else ''}{self.where}: {self.what}"
-
-
-@dataclass(frozen=True)
-class Docs:
-    """The two documents a ``$ref`` on either side resolves against.
-
-    *changed* is every component schema whose shape differs, directly or through a schema
-    it refers to, so a node whose own text is unchanged is still entered when something it
-    reaches changed.
-    """
-
-    before: Mapping[str, Any]
-    after: Mapping[str, Any]
-    changed: frozenset[str]
-
-
-def shape(node: Any, *, names: bool = False) -> Any:
-    """*node* as a client depends on it: no editorial keys, order-free lists sorted.
-
-    Two nodes with equal shapes differ only in text or in an order nothing reads, so a
-    difference that survives this is one a reviewer has to look at.
-    """
-    if isinstance(node, Mapping):
-        if names:
-            return {key: shape(value) for key, value in node.items()}
-        found: dict[str, Any] = {}
-        for key, value in node.items():
-            if key in EDITORIAL:
-                continue
-            if key in _ORDER_FREE and isinstance(value, list):
-                found[key] = sorted(json.dumps(item, sort_keys=True) for item in value)
-            else:
-                found[key] = shape(value, names=key in _NAMED_MAPS)
-        return found
-    if isinstance(node, list):
-        return [shape(item) for item in node]
-    return node
-
-
-def unclassified(where: str, subject: str) -> Change:
-    """The line for a difference no rule classifies: counted as breaking until reviewed."""
-    return Change(
-        True, where, f"{subject} changed in a way this check does not classify - review it as breaking"
-    )
-
-
-def schemas_of(document: Mapping[str, Any]) -> dict[str, Any]:
-    return mapping(mapping(document.get("components")).get("schemas"))
-
-
-def refs_in(node: Any) -> set[str]:
-    """Every ``$ref`` written anywhere inside *node*, without following any of them."""
-    if isinstance(node, Mapping):
-        found = {node["$ref"]} if isinstance(node.get("$ref"), str) else set()
-        for value in node.values():
-            found |= refs_in(value)
-        return found
-    if isinstance(node, list):
-        return set().union(*(refs_in(item) for item in node)) if node else set()
-    return set()
-
-
-def changed_refs(before: Mapping[str, Any], after: Mapping[str, Any]) -> frozenset[str]:
-    old, new = schemas_of(before), schemas_of(after)
-    names = old.keys() | new.keys()
-    reference = {name: f"#/components/schemas/{name}" for name in names}
-    changed = {reference[name] for name in names if shape(old.get(name)) != shape(new.get(name))}
-    depends = {reference[name]: refs_in(old.get(name)) | refs_in(new.get(name)) for name in names}
-    grew = True
-    while grew:
-        grew = False
-        for ref, needs in depends.items():
-            if ref not in changed and needs & changed:
-                changed.add(ref)
-                grew = True
-    return frozenset(changed)
-
-
-def mapping(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, Mapping) else {}
-
-
-def resolve(node: Any, document: Mapping[str, Any]) -> dict[str, Any]:
-    """Follow ``$ref`` within *document* until a node that is not a reference; ``{}`` if none."""
-    seen: set[str] = set()
-    current = mapping(node)
-    while isinstance(current.get("$ref"), str):
-        reference = current["$ref"]
-        if reference in seen or not reference.startswith("#/"):
-            return {}
-        seen.add(reference)
-        target: Any = document
-        for part in reference[2:].split("/"):
-            target = mapping(target).get(part.replace("~1", "/").replace("~0", "~"))
-        current = mapping(target)
-    return current
-
-
-def _ref(node: Any) -> str | None:
-    reference = mapping(node).get("$ref")
-    return reference if isinstance(reference, str) else None
+#: What they read of a schema's one alternative beside ``null``, which they compare as its
+#: own. Of a union of several values they read these as one pooled set, which loses which
+#: alternative a bound or a format belonged to, so there they are left for :func:`_unread`.
+_VALUE_KEYS = frozenset({"format", "const", "enum", "pattern", *_UPPER_BOUNDS, *_LOWER_BOUNDS})
 
 
 def _raw_members(schema: Mapping[str, Any]) -> list[Any]:
@@ -238,20 +137,27 @@ def _enum(schema: Mapping[str, Any], document: Mapping[str, Any]) -> frozenset[s
     return frozenset(values)
 
 
-def _single(
+def _of_kind(
     schema: Mapping[str, Any], document: Mapping[str, Any], kind: str
-) -> tuple[str | None, dict[str, Any]] | None:
-    """The one member of *kind* (``object`` or ``array``) a schema has, with its ``$ref``.
+) -> list[tuple[int, str | None, dict[str, Any]]]:
+    """Every member of *kind* (``object`` or ``array``) a schema has: its place, ``$ref`` and body.
 
-    ``None`` when there is no such member or more than one: a union of two object shapes
-    is compared as a whole, by the fallback, rather than guessed at member by member.
+    Only a schema with exactly one on each side has it compared field by field: a union of
+    two object shapes is compared as a whole, by :func:`_unread`, rather than guessed at
+    member by member.
     """
     found = []
-    for raw in _raw_members(schema):
+    for index, raw in enumerate(_raw_members(schema)):
         member = resolve(raw, document)
         if kind in _types(member, document):
-            found.append((_ref(raw), member))
-    return found[0] if len(found) == 1 else None
+            found.append((index, ref_of(raw), member))
+    return found
+
+
+def _read_at(mine: list[tuple[int, str | None, dict[str, Any]]], theirs: list[Any]) -> int | None:
+    """The member whose fields (or items) the walk compares on this side, if it compares any:
+    only when each side has exactly one."""
+    return mine[0][0] if len(mine) == 1 and len(theirs) == 1 else None
 
 
 def diff_schema(
@@ -266,61 +172,161 @@ def diff_schema(
     stack: tuple[tuple[str | None, str | None], ...] = (),
 ) -> Iterator[Change]:
     """Compare two schemas in *direction*; *field* is the dotted path inside the body."""
-    pair = (_ref(was), _ref(now))
-    if _seen(pair, stack):
+    if shape(was) == shape(now) and _settled(refs_in(was) | refs_in(now), docs):
+        return
+    subject = f"{label} field '{field}'" if field else label
+    pair = (ref_of(was), ref_of(now))
+    if pair[0] is not None and pair[0] == pair[1]:
+        docs.covered.add(pair[0])
+    if _cycle(pair, stack):
+        # An ancestor compares this pair of references, so only what is written beside
+        # them is this node's own.
+        if not same(follow(was, docs.before)[1], follow(now, docs.after)[1], docs):
+            docs.cover(was, now)
+            yield unclassified(where, subject)
+        return
+    if len(stack) >= _MAX_DEPTH or not all(node is None or isinstance(node, Mapping) for node in (was, now)):
+        # Deeper than any real schema, or no schema object at all: nothing reads it.
+        docs.cover(was, now)
+        yield unclassified(where, subject)
         return
     stack = (*stack, pair)
     before = resolve(was, docs.before)
     after = resolve(now, docs.after)
-    if before == after and pair[0] == pair[1] and not refs_in(before) & docs.changed:
-        return
-    subject = f"{label} field '{field}'" if field else label
     found = list(_diff_value_set(where, subject, before, after, direction, docs))
-    old_object = _single(before, docs.before, "object")
-    new_object = _single(after, docs.after, "object")
-    if old_object is not None and new_object is not None:
+    old_objects, new_objects = _of_kind(before, docs.before, "object"), _of_kind(after, docs.after, "object")
+    if len(old_objects) == 1 and len(new_objects) == 1:
+        (_, old_ref, old_member), (_, new_ref, new_member) = old_objects[0], new_objects[0]
         # A member reached through a union is entered under its own reference, so a
         # recursive shape behind a nullable `anyOf` is compared once, not to the floor.
-        member = (old_object[0], new_object[0])
-        if not _seen(member, stack):
+        member = (old_ref, new_ref)
+        if old_ref is not None and old_ref == new_ref:
+            docs.covered.add(old_ref)
+        if not _cycle(member, stack):
             found.extend(
                 _diff_properties(
-                    where,
-                    label,
-                    old_object[1],
-                    new_object[1],
-                    direction,
-                    docs,
-                    field=field,
-                    stack=(*stack, member),
+                    where, label, old_member, new_member, direction, docs, field=field, stack=(*stack, member)
                 )
             )
-    old_array = _single(before, docs.before, "array")
-    new_array = _single(after, docs.after, "array")
-    if old_array is not None and new_array is not None:
+    old_arrays, new_arrays = _of_kind(before, docs.before, "array"), _of_kind(after, docs.after, "array")
+    if len(old_arrays) == 1 and len(new_arrays) == 1:
         found.extend(
             diff_schema(
                 where,
                 label,
-                old_array[1].get("items"),
-                new_array[1].get("items"),
+                old_arrays[0][2].get("items"),
+                new_arrays[0][2].get("items"),
                 direction,
                 docs,
                 field=f"{field}[]" if field else "[]",
                 stack=stack,
             )
         )
-    # Nothing above explained a difference that is really there (a map's value schema, a
-    # default, a union of object shapes, `additionalProperties`): say so, as breaking, so a
-    # run never reports "0 breaking" over a change this check cannot read.
-    if not found and shape(before) != shape(after):
+    # What none of that read is compared on its own, whatever the rules above or the
+    # fields below found, so a run never reports "0 breaking" over a change this check
+    # cannot read: a default, `additionalProperties`, `allOf`, a union of object shapes,
+    # and whatever is behind a reference inside them.
+    several = len(_valued(before, docs.before)) > 1 and len(_valued(after, docs.after)) > 1
+    old_unread = _unread(
+        was, before, docs.before, objects=_read_at(old_objects, new_objects),
+        arrays=_read_at(old_arrays, new_arrays), union=several,
+    )
+    new_unread = _unread(
+        now, after, docs.after, objects=_read_at(new_objects, old_objects),
+        arrays=_read_at(new_arrays, old_arrays), union=several,
+    )
+    if not same(old_unread, new_unread, docs):
+        docs.cover(was, now, old_unread, new_unread)
         found.append(unclassified(where, subject))
     yield from found
 
 
-def _seen(pair: tuple[str | None, str | None], stack: tuple[tuple[str | None, str | None], ...]) -> bool:
-    """Whether comparing *pair* again would loop: a reference pair already on the way down."""
-    return (pair != (None, None) and pair in stack) or len(stack) >= _MAX_DEPTH
+def _cycle(pair: tuple[str | None, str | None], stack: tuple[tuple[str | None, str | None], ...]) -> bool:
+    """Whether comparing *pair* again would loop: a pair of references already on the way down.
+
+    Both halves have to be references. A schema written out in place is finite, so a pair
+    with one is a new comparison, never a loop, and the depth floor bounds what is left.
+    """
+    return None not in pair and pair in stack
+
+
+def _settled(references: set[str], docs: Docs) -> bool:
+    """Whether nothing *references* reach can differ: each names a component schema, and
+    none of those changed, directly or through one it refers to."""
+    for reference in references:
+        parts = reference.split("/")
+        if len(parts) < 4 or "/".join(parts[:3]) + "/" != SCHEMA_REF or "/".join(parts[:4]) in docs.changed:
+            return False
+    return True
+
+
+def _valued(schema: Mapping[str, Any], document: Mapping[str, Any]) -> list[int]:
+    """Where a schema's alternatives that are not ``null`` sit among its members."""
+    return [index for index, member in enumerate(_members(schema, document)) if member.get("type") != "null"]
+
+
+def _unread(
+    written: Any,
+    schema: Mapping[str, Any],
+    document: Mapping[str, Any],
+    *,
+    objects: int | None,
+    arrays: int | None,
+    union: bool,
+) -> dict[str, Any]:
+    """What of *schema* the rules at this node leave unread, for :func:`same` to compare.
+
+    What is said of the schema's one value beside ``null`` is compared wherever it is written:
+    beside its reference, on the union around it, or on the value itself, so a default that
+    moves when a field stops being nullable is no difference. Of that value the value-set rules
+    read the type, format, enum and bounds, and the walk the fields or items that *objects* or
+    *arrays* name. Any other alternative keeps everything but its fields or items, with its
+    type, so a bound or a format moving from one alternative to another is still a difference;
+    one that is only a type (``null``, a plain ``string``) is read in full. *union* is whether
+    the union keyword is read, which it is only when both sides are unions of several values:
+    ``anyOf`` and ``oneOf`` agree on a value and ``null``.
+    """
+    members = _raw_members(schema)
+    resolved = [resolve(member, document) for member in members]
+    valued = [index for index, member in enumerate(resolved) if member.get("type") != "null"]
+    single = valued[0] if len(valued) == 1 else None
+    keyword = next((key for key in ("anyOf", "oneOf") if isinstance(schema.get(key), list)), None)
+    said = follow(written, document)[1]
+    if keyword is not None:
+        said.append({key: value for key, value in schema.items() if key != keyword and key not in EDITORIAL})
+    others: list[list[dict[str, Any]]] = []
+    for index, (raw, member) in enumerate(zip(members, resolved, strict=True)):
+        if not isinstance(raw, Mapping):
+            others.append([{"$written": raw}])  # a boolean schema: no rule reads one
+            continue
+        read = _TYPE_KEYS | EDITORIAL | (_VALUE_KEYS if index == single else frozenset())
+        if index == objects:
+            read |= {"properties", "required"}
+        if index == arrays:
+            read |= {"items"}
+        rest = [{key: value for key, value in member.items() if key not in read}, *follow(raw, document)[1]]
+        if index == objects:
+            # A required name with no property of its own is not one the fields compare.
+            names = member.get("required")
+            listed = mapping(member.get("properties"))
+            unlisted = [name for name in names if name not in listed] if isinstance(names, list) else names
+            if unlisted:
+                rest.append({"required": unlisted})
+        if index == single:
+            said.extend(rest)
+        elif any(rest):
+            others.append(_entries(*rest, {key: member[key] for key in _TYPE_KEYS if key in member}))
+    unread: dict[str, Any] = {"said": _entries(*said), "members": others}
+    if union:
+        unread["union"] = keyword
+    return unread
+
+
+def _entries(*sources: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """What *sources* say, one key to an entry in the order of the keys: where each was
+    written is no difference."""
+    entries = [{key: value} for source in sources for key, value in source.items()]
+    return sorted(entries, key=lambda entry: next(iter(entry)))
 
 
 def _diff_value_set(
@@ -481,18 +487,4 @@ def _diff_properties(
         )
 
 
-__all__ = [
-    "EDITORIAL",
-    "REQUEST",
-    "RESPONSE",
-    "Change",
-    "Docs",
-    "changed_refs",
-    "diff_schema",
-    "mapping",
-    "refs_in",
-    "resolve",
-    "schemas_of",
-    "shape",
-    "unclassified",
-]
+__all__ = ["REQUEST", "RESPONSE", "diff_schema"]

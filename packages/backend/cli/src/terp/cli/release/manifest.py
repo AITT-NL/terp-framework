@@ -53,9 +53,11 @@ def carried_contract(tree: Tree) -> dict[str, dict[str, str]]:
     """``{"contract": <carried file>}`` when the commit holds an API contract, else nothing.
 
     ADR 0194: the committed ``openapi.json`` rides in the signed manifest, so a release names
-    the exact contract it serves under the same signature as its images, and a client in
-    another repository pins a release to read it. An app that has not adopted the contract
-    carries none, and its manifest is unchanged.
+    the contract its commit holds under the same signature as its images, and a client in
+    another repository pins a release to read it. The signature vouches for the file, not for
+    the app serving it: the ``api-contract`` check holds the file to the app, and ``sign``
+    does not require that check, whose verdict is in no lane of the claim it reads. An app
+    that has not adopted the contract carries none, and its manifest is unchanged.
     """
     return {"contract": _file(tree, CONTRACT_ARTIFACT)} if tree.has(CONTRACT_ARTIFACT) else {}
 

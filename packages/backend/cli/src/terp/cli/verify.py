@@ -1646,88 +1646,6 @@ def _run_authz_surface(project_root: pathlib.Path) -> tuple[int, str]:
     )
 
 
-#: The app reference ``terp openapi`` loads by default. The contract check composes the same
-#: one, so it compares the committed file with exactly what regenerating it would write.
-_OPENAPI_APP_REF = "app.main:app"
-
-
-def _contract_tracking(root: pathlib.Path) -> int:
-    """git's answer for the contract: ``0`` tracked, ``_NOT_FOUND`` no git, anything else not."""
-    from terp.cli.api_contract import CONTRACT_ARTIFACT
-
-    return _run_argv(
-        ["git", "ls-files", "--error-unmatch", "--", CONTRACT_ARTIFACT], root
-    ).returncode
-
-
-def _run_api_contract(project_root: pathlib.Path) -> tuple[int, str]:
-    """Refuse a change to the app's API that its committed contract does not record.
-
-    A client that is not the app's own frontend — a native app already installed on a
-    phone, a site built in another repository — is compiled against the API's shape at one
-    moment and runs against whatever the app serves afterwards. The production profile
-    hides the schema, rightly, so the shape travels as a committed `openapi.json` (ADR
-    0194), and this holds that file to the composed app.
-
-    Adoption is opt-in and half-adoption impossible, the shape `authz-surface` settled on:
-    an untracked contract skips with a note naming the command that adopts it. The pin is
-    exact, because the committed file is what other repositories pin; every difference is
-    reported in the vocabulary of the change, breaking lines first, and the writer is
-    `terp openapi`, never a `--fix` on this.
-    """
-    from terp.cli._appref import load_app, push_app_root
-    from terp.cli.api_contract import (
-        ADOPT_HINT,
-        CONTRACT_ARTIFACT,
-        diff_contract,
-        read_contract,
-        render_changes,
-    )
-    from terp.cli.openapi import openapi_document
-
-    tracking = _contract_tracking(project_root)
-    if tracking == _NOT_FOUND:
-        # Not "untracked, skipped": without git there is no answer to whether the contract
-        # is tracked, and reading that silence as "no" would pass a comparison never made.
-        return (
-            _NOT_FOUND,
-            f"git: executable not found on PATH - the contract check asks git whether "
-            f"{CONTRACT_ARTIFACT} is tracked, so it cannot run without it",
-        )
-    if tracking != 0:
-        return (
-            0,
-            f"{NOTE_PREFIX}{CONTRACT_ARTIFACT} is not tracked - the API contract is not "
-            f"pinned, drift check skipped (adopt with: {ADOPT_HINT})",
-        )
-    try:
-        committed = read_contract(project_root)
-    except (OSError, ValueError) as exc:
-        return 1, (
-            f"{CONTRACT_ARTIFACT} is tracked but is not a readable JSON document ({exc}), "
-            f"so there is no contract to hold the app to; regenerate it with: {ADOPT_HINT}"
-        )
-    push_app_root(project_root)
-    try:
-        app = load_app(_OPENAPI_APP_REF)
-    except (SystemExit, ImportError) as exc:
-        # A tree with no importable app rather than a broken one: named, not silently
-        # passed, as `authz-surface` names it.
-        return 0, f"{NOTE_PREFIX}no importable {_OPENAPI_APP_REF} ({exc}); skipped"
-    changes = diff_contract(committed, openapi_document(app))
-    if not changes:
-        return 0, f"{CONTRACT_ARTIFACT} matches the API the composed app serves"
-    breaking = sum(1 for change in changes if change.breaking)
-    return 1, (
-        f"the API changed in {len(changes)} way(s) that {CONTRACT_ARTIFACT} does not "
-        f"record, {breaking} of them breaking:\n{render_changes(changes)}\n\n"
-        "A BREAKING line is one a client built against the committed contract fails on: "
-        "a native app already installed, or a site that builds from the file. If every "
-        "line is intended, re-generate the contract IN THE SAME CHANGE so a reviewer sees "
-        f"the diff:\n  {ADOPT_HINT}"
-    )
-
-
 def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
     """Refuse a tree whose declared control plane cannot boot in production.
 
@@ -2110,9 +2028,10 @@ def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
     turn a drift the ``api-contract`` check reports into one that a second run silently
     fixes. A tracked contract is therefore read, not rewritten: the app's own frontend is
     typed against the contract a reviewer accepted, and ``api-contract`` holds that file
-    to the app.
+    to the app. Where git cannot say whether it is tracked, nothing is exported over it.
     """
     from terp.cli.api_contract import CONTRACT_ARTIFACT
+    from terp.cli.api_contract_check import contract_tracking
     from terp.cli.openapi import export_openapi
 
     frontend = root / "frontend"
@@ -2136,7 +2055,12 @@ def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
     problem = _node_modules_problem(root, "frontend")
     if problem is not None:
         return 1, problem
-    if _contract_tracking(root) == 0:
+    tracking = contract_tracking(root)
+    if tracking.state == "unknown":
+        return tracking.exit_code, tracking.refusal(
+            "the API client is not generated: a tracked contract is never exported over (ADR 0194)"
+        )
+    if tracking.state == "tracked":
         source = f"read the committed {CONTRACT_ARTIFACT} (api-contract holds it to the app)"
     else:
         previous = pathlib.Path.cwd()
@@ -2408,7 +2332,9 @@ def run_verify_command(
         elif check.runner == "authz-surface":
             exit_code, output = _run_authz_surface(project_root)
         elif check.runner == "api-contract":
-            exit_code, output = _run_api_contract(project_root)
+            from terp.cli.api_contract_check import run_api_contract_check
+
+            exit_code, output = run_api_contract_check(project_root)
         elif check.runner == "conformance":
             exit_code, output = _run_conformance(project_root)
         else:

@@ -497,75 +497,191 @@ def _tracked(root: pathlib.Path, contract: str) -> None:
     subprocess.run(["git", "-C", str(root), "add", CONTRACT_ARTIFACT], check=True)
 
 
-def _serving(monkeypatch: pytest.MonkeyPatch, app: Any) -> None:
+def _serving(monkeypatch: pytest.MonkeyPatch, root: pathlib.Path, app: Any) -> None:
+    """An app package at *root* that composes to *app*."""
     import terp.cli._appref as appref
 
+    (root / "app").mkdir(exist_ok=True)
     monkeypatch.setattr(appref, "push_app_root", lambda _root: None)
     monkeypatch.setattr(appref, "load_app", lambda _ref: app)
 
 
-def test_an_untracked_contract_is_a_skip_that_names_how_to_adopt_it(tmp_path: pathlib.Path) -> None:
-    from terp.cli.verify import NOTE_PREFIX, _run_api_contract
+@pytest.fixture
+def own_app_package(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Let a test import an ``app`` package of its own, and leave no trace of it behind.
 
+    Every app's package is called ``app``, so one imported earlier in the run would answer
+    for this one, and this one would answer for every later import.
+    """
+    import terp.cli._appref as appref
+
+    def ours(name: str) -> bool:
+        return name == "app" or name.startswith("app.")
+
+    for name in [name for name in sys.modules if ours(name)]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setattr(appref, "push_app_root", lambda root: monkeypatch.syspath_prepend(str(root)))
+    yield
+    for name in [name for name in sys.modules if ours(name)]:
+        del sys.modules[name]
+
+
+def test_an_untracked_contract_is_a_skip_that_names_how_to_adopt_it(tmp_path: pathlib.Path) -> None:
+    from terp.cli.api_contract_check import run_api_contract_check
+    from terp.cli.verify import NOTE_PREFIX
+
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     (tmp_path / CONTRACT_ARTIFACT).write_text("{}", encoding="utf-8")
-    exit_code, output = _run_api_contract(tmp_path)
+    exit_code, output = run_api_contract_check(tmp_path)
     assert exit_code == 0
     assert output.startswith(NOTE_PREFIX) and ADOPT_HINT in output
+    assert "is not tracked" in output
 
 
 def test_without_git_the_check_is_red_rather_than_a_skip(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     import terp.cli.verify as verify_module
+    from terp.cli.api_contract_check import run_api_contract_check
 
     def missing(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         raise FileNotFoundError(2, "No such file or directory", argv[0])
 
     monkeypatch.setattr(verify_module.subprocess, "run", missing)
-    exit_code, output = verify_module._run_api_contract(tmp_path)
+    exit_code, output = run_api_contract_check(tmp_path)
     assert exit_code == 127
     assert "git: executable not found on PATH" in output
+    assert "install git" in output
+
+
+def test_where_git_cannot_answer_the_check_is_red_and_says_why(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    """git exits 128 outside a work tree, and for a repository it refuses as another user's.
+
+    Neither is "untracked". Read as one, the check skipped with a note telling the reader to
+    commit a file that may already be committed, and ``api-client`` exported over it.
+    """
+    from terp.cli.api_contract_check import run_api_contract_check
+    from terp.cli.verify import NOTE_PREFIX
+
+    for variable in ("GIT_DIR", "GIT_WORK_TREE"):
+        monkeypatch.delenv(variable, raising=False)
+    # git looks no further up than this test's own directory, wherever the run happens.
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    (tmp_path / CONTRACT_ARTIFACT).write_text("{}", encoding="utf-8")
+    exit_code, output = run_api_contract_check(tmp_path)
+    assert exit_code == 128
+    assert not output.startswith(NOTE_PREFIX)
+    assert "git could not say whether openapi.json is tracked" in output
+    assert "not a git repository" in output, "git's own words reach the reader"
+    assert "safe.directory" in output and "git work tree" in output, "the remedy is named"
+
+
+def test_where_git_cannot_answer_the_client_is_not_exported_over_the_contract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    import terp.cli.openapi as openapi_module
+    import terp.cli.verify as verify_module
+
+    frontend = tmp_path / "frontend"
+    (frontend / "node_modules").mkdir(parents=True)
+    (frontend / "package.json").write_text(json.dumps({"scripts": {"generate": "x"}}), encoding="utf-8")
+    refused = (
+        "fatal: detected dubious ownership in repository at '/srv/example-app'\n"
+        "To add an exception for this directory, call:\n\n"
+        "\tgit config --global --add safe.directory /srv/example-app\n"
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(argv[1:])
+        return subprocess.CompletedProcess(argv, 128, "", refused)
+
+    def never(**_kwargs: object) -> pathlib.Path:
+        raise AssertionError("api-client exported over a contract git could not vouch for")
+
+    monkeypatch.setattr(openapi_module, "export_openapi", never)
+    monkeypatch.setattr(verify_module.subprocess, "run", fake_run)
+    exit_code, output = verify_module._run_api_client(tmp_path)
+    assert exit_code == 128
+    assert "dubious ownership" in output and "safe.directory /srv/example-app" in output
+    assert "the API client is not generated" in output
+    assert calls == [["ls-files", "--error-unmatch", "--", "openapi.json"]], "npm never ran"
 
 
 def test_a_tracked_contract_that_is_not_json_is_red(tmp_path: pathlib.Path) -> None:
-    from terp.cli.verify import _run_api_contract
+    from terp.cli.api_contract_check import run_api_contract_check
 
     _tracked(tmp_path, "{not json")
-    exit_code, output = _run_api_contract(tmp_path)
+    exit_code, output = run_api_contract_check(tmp_path)
     assert exit_code == 1
     assert "is tracked but is not a readable JSON document" in output
 
 
-def test_a_tracked_contract_with_no_importable_app_is_a_named_skip(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
-    import terp.cli._appref as appref
-    from terp.cli.verify import NOTE_PREFIX, _run_api_contract
-
-    def refuse(_ref: str) -> Any:
-        raise SystemExit("no app")
+def test_a_tracked_contract_with_no_app_package_is_a_named_skip(tmp_path: pathlib.Path) -> None:
+    from terp.cli.api_contract_check import run_api_contract_check
+    from terp.cli.verify import NOTE_PREFIX
 
     _tracked(tmp_path, "{}")
+    exit_code, output = run_api_contract_check(tmp_path)
+    assert exit_code == 0
+    assert output.startswith(NOTE_PREFIX) and "no app/ package" in output
+
+
+def test_a_tracked_contract_whose_app_does_not_import_is_red(own_app_package: Any, tmp_path: pathlib.Path) -> None:
+    """With a tracked contract ``api-client`` reads the file and never imports the app, so
+    this check is what reaches it; a green note here left nothing in ``quick`` that would."""
+    from terp.cli.api_contract_check import run_api_contract_check
+    from terp.cli.verify import NOTE_PREFIX
+
+    _tracked(tmp_path, "{}")
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "app" / "main.py").write_text("import terp_contract_fixture_absent_dependency  # noqa: F401\n", encoding="utf-8")
+    exit_code, output = run_api_contract_check(tmp_path)
+    assert exit_code == 1
+    assert not output.startswith(NOTE_PREFIX)
+    assert "ModuleNotFoundError" in output and "terp_contract_fixture_absent_dependency" in output
+    assert "uv run terp openapi" in output, "the remedy is named"
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [SystemExit("'app.main:app' did not resolve to a FastAPI application"), RuntimeError("DATABASE_URL is not set")],
+    ids=["not-an-app", "a-factory-that-raises"],
+)
+def test_an_app_package_that_does_not_compose_is_red_whatever_it_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, failure: BaseException
+) -> None:
+    import terp.cli._appref as appref
+    from terp.cli.api_contract_check import run_api_contract_check
+
+    def refuse(_ref: str) -> Any:
+        raise failure
+
+    _tracked(tmp_path, "{}")
+    (tmp_path / "app").mkdir()
     monkeypatch.setattr(appref, "push_app_root", lambda _root: None)
     monkeypatch.setattr(appref, "load_app", refuse)
-    exit_code, output = _run_api_contract(tmp_path)
-    assert exit_code == 0
-    assert output.startswith(NOTE_PREFIX) and "no importable app.main:app" in output
+    exit_code, output = run_api_contract_check(tmp_path)
+    assert exit_code == 1
+    assert f"{type(failure).__name__}: {failure}" in output
 
 
 def test_a_tracked_contract_equal_to_the_app_passes(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    from terp.cli.api_contract_check import run_api_contract_check
     from terp.cli.openapi import openapi_document
-    from terp.cli.verify import _run_api_contract
 
     app = _fixture_app(title=True)
     _tracked(tmp_path, json.dumps(openapi_document(app), indent=2, sort_keys=True) + "\n")
-    _serving(monkeypatch, app)
-    assert _run_api_contract(tmp_path) == (0, "openapi.json matches the API the composed app serves")
+    _serving(monkeypatch, tmp_path, app)
+    assert run_api_contract_check(tmp_path) == (0, "openapi.json matches the API the composed app serves")
 
 
 def test_a_change_the_contract_does_not_record_is_red_breaking_first(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    from terp.cli.api_contract_check import run_api_contract_check
     from terp.cli.openapi import openapi_document
-    from terp.cli.verify import _run_api_contract
 
     _tracked(tmp_path, json.dumps(openapi_document(_fixture_app(title=True))))
-    _serving(monkeypatch, _fixture_app(title=False))
-    exit_code, output = _run_api_contract(tmp_path)
+    _serving(monkeypatch, tmp_path, _fixture_app(title=False))
+    exit_code, output = run_api_contract_check(tmp_path)
     assert exit_code == 1
     assert "1 of them breaking" in output
     assert "BREAKING GET /notes/{note_id}: response 200 field 'title' removed" in output
@@ -573,6 +689,7 @@ def test_a_change_the_contract_does_not_record_is_red_breaking_first(monkeypatch
 
 
 def test_the_check_is_reached_through_its_runner(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     with pytest.raises(SystemExit) as excinfo:
         main(["verify", "--profile", "quick", "--root", str(tmp_path), "--only", "api-contract", "--format", "json"])
     assert excinfo.value.code == 0
@@ -782,6 +899,298 @@ def test_an_unread_difference_beside_other_changes_is_counted_as_breaking(before
     assert "POST /added: new operation" in [change.render() for change in changes]
 
 
+_UNREAD = "changed in a way this check does not classify - review it as breaking"
+_A = obj({"a": _TEXT}, ("a",))
+_B = obj({"b": _TEXT}, ("b",))
+#: B with its one field no longer required: a response that may now come without it.
+_B_LOOSER = obj({"b": _TEXT})
+
+
+def _answering(schema: Any, b: dict[str, Any]) -> dict[str, Any]:
+    """``GET /things`` answering *schema*, beside components A and the given B."""
+    return doc({"/things": {"get": {"responses": {"200": ok(schema)}}}}, {"A": _A, "B": b})
+
+
+def _with_header(schema: Any) -> dict[str, Any]:
+    response = {**ok(_TEXT), "headers": {"X-Remaining": {"schema": schema}}}
+    return doc({"/things": {"get": {"responses": {"200": response}}}})
+
+
+def _path_parameter(*, required: bool) -> dict[str, Any]:
+    return doc({"/things": {"parameters": [param("q", required=required)], "get": {"responses": {}}}})
+
+
+def _styled(style: str) -> dict[str, Any]:
+    return _with_parameters({**param("ids"), "style": style})
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "line"),
+    [
+        pytest.param(
+            _answering({"anyOf": [ref("A"), ref("B")]}, _B),
+            _answering({"anyOf": [ref("A"), ref("B")]}, _B_LOOSER),
+            f"BREAKING GET /things: response 200 {_UNREAD}",
+            id="anyOf-of-references",
+        ),
+        pytest.param(
+            _answering({"oneOf": [ref("A"), ref("B")]}, _B),
+            _answering({"oneOf": [ref("A"), ref("B")]}, _B_LOOSER),
+            f"BREAKING GET /things: response 200 {_UNREAD}",
+            id="oneOf-of-references",
+        ),
+        pytest.param(
+            _answering({"allOf": [ref("B")]}, _B),
+            _answering({"allOf": [ref("B")]}, _B_LOOSER),
+            f"BREAKING GET /things: response 200 {_UNREAD}",
+            id="allOf",
+        ),
+        pytest.param(
+            _answering({"type": "object", "additionalProperties": ref("B")}, _B),
+            _answering({"type": "object", "additionalProperties": ref("B")}, _B_LOOSER),
+            f"BREAKING GET /things: response 200 {_UNREAD}",
+            id="additionalProperties-by-reference",
+        ),
+        pytest.param(
+            _answering({"type": "array", "items": {"anyOf": [ref("A"), ref("B")]}}, _B),
+            _answering({"type": "array", "items": {"anyOf": [ref("A"), ref("B")]}}, _B_LOOSER),
+            f"BREAKING GET /things: response 200 field '[]' {_UNREAD}",
+            id="items-a-union-of-references",
+        ),
+        pytest.param(
+            # pydantic writes a field's default beside the reference to its type; the new
+            # field beside it is what used to keep the parent's fallback quiet.
+            _answering(obj({"kind": {"$ref": "#/components/schemas/A", "default": {"a": "x"}}}), _B),
+            _answering(obj({"kind": {"$ref": "#/components/schemas/A", "default": {"a": "y"}}, "extra": _TEXT}), _B),
+            f"BREAKING GET /things: response 200 field 'kind' {_UNREAD}",
+            id="a-default-beside-a-reference",
+        ),
+        pytest.param(
+            get(obj({"a": _TEXT})),
+            get({**obj({"a": _TEXT, "c": _TEXT}), "additionalProperties": False}),
+            f"BREAKING GET /things: response 200 {_UNREAD}",
+            id="an-unread-keyword-where-a-field-also-changed",
+        ),
+        pytest.param(
+            doc(schemas={"Vocabulary": _B}),
+            doc(schemas={"Vocabulary": _B_LOOSER}),
+            f"BREAKING schema Vocabulary: the schema, reached by no operation this check compared, {_UNREAD}",
+            id="a-component-no-operation-reaches",
+        ),
+        pytest.param(
+            _with_header({"type": "integer"}),
+            _with_header({"type": "string"}),
+            f"BREAKING GET /things: response 200 headers {_UNREAD}",
+            id="response-headers",
+        ),
+        pytest.param(
+            _path_parameter(required=False),
+            _path_parameter(required=True),
+            f"BREAKING /things: the path's parameters {_UNREAD}",
+            id="path-item-parameters",
+        ),
+        pytest.param(
+            _styled("form"),
+            _styled("pipeDelimited"),
+            f"BREAKING GET /things: query parameter 'ids' style {_UNREAD}",
+            id="a-parameter-keyword",
+        ),
+        pytest.param(
+            doc(info={"title": "fixture", "version": "1"}),
+            doc(info={"title": "fixture", "version": "2"}),
+            f"BREAKING contract: the document {_UNREAD}",
+            id="the-document-root",
+        ),
+    ],
+)
+def test_a_difference_no_rule_reads_is_breaking_whatever_else_changed(before, after, line: str) -> None:
+    """Each shape beside an unrelated change, which is what used to silence it.
+
+    The fallbacks spoke only when nothing else had: a node whose field produced a line, or
+    a document with one new operation, reported "0 breaking" over a change behind a union of
+    references, a component no operation reached, a response header or a path's parameters.
+    """
+    changes = diff_contract(before, _with_new_operation(after))
+    rendered = [change.render() for change in changes]
+    assert sum(change.breaking for change in changes) > 0, rendered
+    assert line in rendered
+    assert "POST /added: new operation" in rendered
+
+
+def test_a_schema_renamed_behind_a_place_no_rule_reads_is_still_only_named() -> None:
+    """The unread part is compared with its references resolved, so a rename there keeps
+    the verdict a rename gets anywhere: named, without the label."""
+    before = _answering({"anyOf": [ref("A"), ref("B")]}, _B)
+    after = doc(
+        {"/things": {"get": {"responses": {"200": ok({"anyOf": [ref("A"), ref("C")]})}}}}, {"A": _A, "C": _B}
+    )
+    assert lines(before, after) == [
+        "schema B: removed - a client that refers to it by name must follow",
+        "schema C: new",
+    ]
+
+
+def test_an_error_schema_that_changed_is_named_without_the_label_and_only_once() -> None:
+    def document(error: dict[str, Any]) -> dict[str, Any]:
+        responses = {"200": ok(_TEXT), "422": ok(ref("Problem"))}
+        return doc({"/things": {"get": {"responses": responses}}}, {"Problem": error})
+
+    changes = diff_contract(document(_B), _with_new_operation(document(_B_LOOSER)))
+    assert [change.render() for change in changes] == [
+        "GET /things: error response 422 changed",
+        "POST /added: new operation",
+    ]
+
+
+# Each of the comparisons behind that rule, one test apiece: the line it gives, and beside
+# it a control that goes through the same comparison with the thing it reads unchanged.
+
+
+def _field(schema: Any, schemas: dict[str, Any] | None = None) -> dict[str, Any]:
+    """``GET /things`` answering an object whose field ``f`` is *schema*."""
+    return doc({"/things": {"get": {"responses": {"200": ok(obj({"f": schema}))}}}}, schemas)
+
+
+def test_what_is_said_of_a_value_is_compared_wherever_it_is_written() -> None:
+    """A field that stops being nullable keeps its default, which moves off the union onto
+    the value; a reference made optional moves it from beside the reference onto the union.
+    Neither is a difference, and a default that really changes is still one."""
+    kind = {"Kind": {"type": "string", "enum": ["a", "b"]}}
+    optional = {"anyOf": [_TEXT, {"type": "null"}], "default": "x"}
+    assert lines(_field(optional), _field({**_TEXT, "default": "x"})) == [
+        "GET /things: response 200 field 'f' type null|string -> string"
+    ]
+    assert lines(_field({**ref("Kind"), "default": "a"}, kind), _field({"anyOf": [ref("Kind"), {"type": "null"}], "default": "a"}, kind)) == [
+        "BREAKING GET /things: response 200 field 'f' may now be null"
+    ]
+    beside_member = {"anyOf": [{**ref("Kind"), "default": "a"}, {"type": "null"}]}
+    moved = _field({"anyOf": [ref("Kind"), {"type": "null"}], "default": "a"}, kind)
+    assert lines(_field(beside_member, kind), _with_new_operation(moved)) == ["POST /added: new operation"]
+    assert lines(_field(beside_member, kind), _field({"anyOf": [{**ref("Kind"), "default": "b"}, {"type": "null"}]}, kind)) == [
+        f"BREAKING GET /things: response 200 field 'f' {_UNREAD}"
+    ]
+    assert lines(_field(optional), _field({**_TEXT, "default": "y"})) == [
+        f"BREAKING GET /things: response 200 field 'f' {_UNREAD}",
+        "GET /things: response 200 field 'f' type null|string -> string",
+    ]
+
+
+def test_a_boolean_schema_is_compared_as_written() -> None:
+    """``true`` admits everything and ``false`` nothing; no rule reads either."""
+    assert lines(get({"anyOf": [True, _TEXT]}), get({"anyOf": [False, _TEXT]})) == [f"BREAKING GET /things: response 200 {_UNREAD}"]
+    assert lines(get({"type": "array", "items": True}), get({"type": "array", "items": False})) == [
+        f"BREAKING GET /things: response 200 field '[]' {_UNREAD}"
+    ]
+    # Unchanged beside a new alternative, it is no line; the alternative is the type rule's.
+    assert lines(get({"anyOf": [True, _TEXT]}), get({"anyOf": [True, _TEXT, {"type": "integer"}]})) == [
+        "GET /things: response 200 type any|string -> any|integer|string"
+    ]
+
+
+def test_a_schema_deeper_than_the_floor_is_a_line_where_the_walk_stops() -> None:
+    """The floor (64 frames, two to each level of fields) ends the walk at the 32nd field, so
+    a malformed document can neither hang the check nor change below it in silence."""
+
+    def nested(depth: int, leaf: Any) -> dict[str, Any]:
+        node = leaf
+        for _ in range(depth):
+            node = obj({"x": node})
+        return get(node)
+
+    assert lines(nested(40, _TEXT), nested(40, {"type": "integer"})) == [
+        f"BREAKING GET /things: response 200 field '{'.'.join(['x'] * 32)}' {_UNREAD}"
+    ]
+    assert lines(nested(31, _TEXT), nested(31, {"type": "integer"})) == [
+        f"BREAKING GET /things: response 200 field '{'.'.join(['x'] * 31)}' may now be integer"
+    ]
+
+
+def test_a_reference_back_into_a_loop_still_carries_what_is_written_beside_it() -> None:
+    """The loop is compared once, where it starts; what is written beside the reference that
+    closes it belongs to that field alone."""
+
+    def tree(parent: dict[str, Any], **extra: Any) -> dict[str, Any]:
+        node = obj({"name": _TEXT, "parent": parent, **extra})
+        return doc({"/tree": {"get": {"responses": {"200": ok(ref("Node"))}}}}, {"Node": node})
+
+    deprecated = {**ref("Node"), "deprecated": True}
+    assert lines(tree(ref("Node")), tree(deprecated)) == [f"BREAKING GET /tree: response 200 field 'parent' {_UNREAD}"]
+    assert lines(tree(deprecated), tree(deprecated, label=_TEXT)) == ["GET /tree: new response 200 field 'label'"]
+
+
+def test_a_required_name_with_no_property_is_a_line_of_its_own() -> None:
+    """The fields rule reads the names it has properties for; a sender that omits a name
+    required without one is refused all the same."""
+    assert lines(post(obj({"a": _TEXT}, ("a",))), post(obj({"a": _TEXT}, ("a", "ghost")))) == [
+        f"BREAKING POST /things: request body {_UNREAD}"
+    ]
+    assert lines(post(obj({"a": _TEXT, "b": _TEXT}, ("a",))), post(obj({"a": _TEXT, "b": _TEXT}, ("a", "b")))) == [
+        "BREAKING POST /things: request body field 'b' is now required"
+    ]
+
+
+def test_a_parameter_it_cannot_key_is_compared_as_written() -> None:
+    """A parameter is matched by location and name; one with neither, or a second with the
+    same pair, has nothing to be matched by, so it is compared where it stands."""
+    nameless = {"in": "query", "schema": _TEXT}
+    unread = f"BREAKING GET /things: a parameter it cannot tell apart by location and name {_UNREAD}"
+    assert lines(_with_parameters(param("q"), nameless), _with_parameters(param("q"), {**nameless, "schema": {"type": "integer"}})) == [unread]
+    assert lines(_with_parameters(param("q"), param("q")), _with_parameters(param("q"), param("q", required=True))) == [unread]
+    assert lines(_with_parameters(param("q"), nameless), _with_parameters(param("q", required=True), nameless)) == [
+        "BREAKING GET /things: query parameter 'q' is now required"
+    ]
+
+
+def test_a_difference_the_walk_reads_as_none_is_still_a_line_for_the_document() -> None:
+    """The type rule reads a union of plain types as the set of them, so swapping two is no
+    line where they stand. The document still differs, and the net that names it counts it
+    as breaking, because it cannot tell that nothing a client reads changed; text alone is
+    the one difference it names without the label."""
+    assert lines(get({"anyOf": [_TEXT, {"type": "integer"}]}), get({"anyOf": [{"type": "integer"}, _TEXT]})) == [
+        f"BREAKING contract: the document {_UNREAD}"
+    ]
+    assert lines(get({**_TEXT, "description": "a"}), get({**_TEXT, "description": "b"})) == [
+        "contract: text changed (a description, summary, title, tag or operation id) and no shape did"
+    ]
+
+
+def test_a_recursive_schema_no_operation_reaches_is_followed_to_its_end_once() -> None:
+    """Compared through its own loop, a rename inside it is only named, and a change in it
+    is a line."""
+
+    def orphan(leaf: str, required: tuple[str, ...] = ()) -> dict[str, Any]:
+        return doc(schemas={"Node": obj({"next": ref("Node"), "leaf": ref(leaf)}, required), leaf: _A})
+
+    assert lines(orphan("Leaf"), orphan("Renamed")) == [
+        "schema Leaf: removed - a client that refers to it by name must follow",
+        "schema Renamed: new",
+    ]
+    assert lines(orphan("Leaf"), orphan("Leaf", ("next",))) == [
+        f"BREAKING schema Node: the schema, reached by no operation this check compared, {_UNREAD}"
+    ]
+
+
+def test_a_reference_in_what_no_rule_reads_is_followed_or_compared_as_written() -> None:
+    """Behind ``additionalProperties`` a reference is resolved, so what is beside it counts
+    and a rename does not; one that resolves nowhere is compared as written."""
+
+    def values(target: dict[str, Any], **properties: Any) -> dict[str, Any]:
+        node = {**obj(properties), "additionalProperties": target}
+        return doc({"/things": {"get": {"responses": {"200": ok(node)}}}}, {"A": _A, "A2": _A})
+
+    gone = {"$ref": "#/components/schemas/Gone"}
+    unread = [f"BREAKING GET /things: response 200 {_UNREAD}"]
+    assert lines(values({**ref("A"), "default": {"a": "x"}}), values({**ref("A"), "default": {"a": "y"}})) == unread
+    assert lines(values(gone), values(ref("A"))) == unread
+    assert lines(values(gone), values({"$ref": "#/components/schemas/AlsoGone"})) == unread
+    assert lines(values(gone), values(gone, x=_TEXT)) == ["GET /things: new response 200 field 'x'"]
+    renamed = values({**ref("A2"), "default": {"a": "x"}})
+    del renamed["components"]["schemas"]["A"]
+    assert lines(values({**ref("A"), "default": {"a": "x"}}), renamed) == [
+        "schema A: removed - a client that refers to it by name must follow"
+    ]
+
+
 def test_a_property_named_like_an_editorial_keyword_is_still_compared() -> None:
     before = get(obj({"title": {"type": "string", "default": "a"}}))
     after = get(obj({"title": {"type": "string", "default": "b"}}))
@@ -799,7 +1208,9 @@ def test_an_order_nothing_reads_is_not_a_difference() -> None:
     ]
 
 
-def test_how_the_api_authenticates_is_compared_on_every_run() -> None:
+def test_a_declared_security_scheme_is_compared_where_a_document_has_one() -> None:
+    """A document from another generator may declare its security; Terp's writes none (below)."""
+
     def document(scheme: str, security: list[Any]) -> dict[str, Any]:
         base = doc({"/things": {"get": {"responses": {}, "security": security}}}, servers=[{"url": "/"}])
         base["components"]["securitySchemes"] = {"bearer": {"type": "http", "scheme": scheme}}
@@ -815,6 +1226,23 @@ def test_how_the_api_authenticates_is_compared_on_every_run() -> None:
     moved = document("bearer", [{"bearer": []}])
     moved["servers"] = [{"url": "/v2"}]
     assert lines(document("bearer", [{"bearer": []}]), moved) == ["contract: 'servers' changed"]
+
+
+def test_a_terp_contract_says_nothing_about_who_may_call_an_operation() -> None:
+    """Authorization is not in the contract: ADR 0194 says so because this holds.
+
+    Terp declares no ``security``, no ``securitySchemes`` and no 401 or 403 response, so
+    moving a route from public to admin leaves the contract unchanged. The authority baseline
+    (``authz-surface``, ADR 0139) is what pins who may reach what.
+    """
+    contract = json.loads((_REPO_ROOT / "apps" / "example" / CONTRACT_ARTIFACT).read_text(encoding="utf-8"))
+    assert "security" not in contract
+    assert "securitySchemes" not in contract.get("components", {})
+    operations = [operation for item in contract["paths"].values() for operation in item.values()]
+    assert operations, "the reference contract has operations to look at"
+    for operation in operations:
+        assert "security" not in operation
+        assert not {"401", "403"} & set(operation.get("responses", {}))
 
 
 def test_a_document_changed_only_outside_what_is_compared_is_named_as_a_whole() -> None:

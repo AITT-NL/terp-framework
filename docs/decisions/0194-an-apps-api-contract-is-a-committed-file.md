@@ -1,4 +1,4 @@
-# 0194 — An app's API contract is a committed file, and a change that breaks a client is named before it ships
+# 0194 — An app's API contract is a committed file, and a change to its shape that breaks a client is named before it ships
 
 - **Status:** Proposed (awaiting review). Built in 0.36.1: `terp verify --only api-contract`
   with its classification of every difference, the `api-client` check generating from a tracked
@@ -79,6 +79,17 @@ are the ones ADR 0139 settled for the authority baseline:
   GET /api/v1/tags/: new operation
   ```
 
+"Not tracked" is git's own answer and nothing else: `git ls-files --error-unmatch` exiting 1
+and naming the path. Where git cannot answer (it is not installed, the tree is not a work
+tree, or it refuses a repository another user owns, as it does for a checkout mounted into a
+container), the check is red with git's own words and the remedy, because reading that silence
+as "not tracked" would skip the comparison over a committed contract and tell the reader to
+commit a file that is committed. And a tracked contract is skipped only where there is no
+`app/` package to compose, as `production-readiness` skips only where there is no
+`control_plane/`. An app that is there and does not compose is red, naming the error, because
+with a tracked contract `api-client` reads the file and no longer imports the app, and this
+check is then what reaches it.
+
 The pin is exact. An additive change is red too until the file records it, because the
 committed file is the artifact other repositories pin (decision 5), and a contract that lags
 what the app serves is a contract that lies. The classification is advice to the reviewer:
@@ -110,14 +121,30 @@ references. Shapes are compared without their editorial keys (a description, a s
 title, a tag, an operation id) and without the order of lists whose order nothing reads, and a
 property named like one of those keys is still a property.
 
-A difference the list does not model is never silent and never counted as safe. A schema node
-that differs where no rule explains it (a map's value schema, a default, `additionalProperties`,
-a union of object shapes), an operation that changed outside its parameters, body and
-responses (its security requirement, a callback), and a change to `security` or
-`securitySchemes` are each a line that says to review it as breaking, and count as breaking.
-An error response that changed, a schema renamed with its shape unchanged, and a change to
-`servers` or another reusable part are named without the label. Text that changes no shape is
-one line, and only when nothing else changed.
+A difference the list does not model is never silent and never counted as safe, wherever it
+sits and whatever else changed. At every place the check compares (a schema node, a parameter,
+a request body, a response, a media type, a path, an operation, the document), what no rule
+there reads is compared on its own, every `$ref` in it resolved, and a difference in it is a
+line that names the place, says to review it as breaking and counts as breaking, beside
+whatever lines that place's rules or its fields produced. That covers a map's value schema, a
+default (one written beside a `$ref` too), `additionalProperties`, `allOf`, a union of object
+shapes, and whatever is behind a reference inside any of them; a response's headers, a
+parameter's style, a media type's encoding; a path's own parameters or servers; an operation
+that changed outside its parameters, body and responses (a callback, a deprecation); a
+`security` or `securitySchemes` a document declares; and the document's `openapi` and `info`.
+A component schema that changed where no compared operation reaches it (a vocabulary a client
+is typed against, one only a new or a removed operation uses) is such a line of its own. An
+error response that changed, a schema renamed with its shape unchanged (behind a reference the
+rules follow or one they do not), and a change to `servers` or another reusable part are named
+without the label. Text that changes no shape is one line, and only when nothing else changed.
+
+**Who may call an operation is not in the contract.** Terp's composition declares no
+`security`, no `securitySchemes` and no 401 or 403 response, so moving a route from public to
+admin, or tightening the permission behind it, leaves `openapi.json` and this check unchanged,
+although a client built against the old surface is then refused. The authority baseline pins
+that surface (`authz-surface`, ADR 0139); the contract pins the shape of what is sent and
+answered. The rules for `security` and `securitySchemes` are for a document that declares
+them, which a Terp app's does not.
 
 ### 4. The writer is `terp openapi`, never a `--fix`
 
@@ -128,13 +155,24 @@ breaking ones too. `api-client` no longer exports over a tracked contract: it ge
 typed client from the committed file, because a gate check never writes a tracked file (a
 driver that holds checks to being read-only fails otherwise), and because the reviewed contract
 is the one the app's own frontend should be typed against. An untracked contract is exported
-as before.
+as before. Where git cannot say whether the contract is tracked, `api-client` exports nothing
+and is red, with the same words and remedy as the check.
 
 ### 5. The signed release carries the contract
 
 `terp release` records the committed `openapi.json` in the manifest's `inputs` as a carried file
 (path, SHA-256 and content) when the app has one, so every release carries the committed
-contract under the same signature as its images. The manifest is a deploy tool's document,
+contract under the same signature as its images.
+
+The signature vouches for the file the commit holds, not for the app serving it. What holds the
+file to the app is the `api-contract` check, in the gate every change passes before it merges.
+`terp release gate` runs it too, in the release profile, but `sign` refuses only a gate whose
+release-assurance claim does not hold (ADR 0187 decision 6), and that claim follows the spec's
+required lanes, of which `api-contract` is none. So a commit whose contract lags its app can be
+signed, and its manifest then carries the contract the commit records, not the API its images
+serve.
+
+The manifest is a deploy tool's document,
 with base images, scans and profiles beside the contract; a client in another repository is
 given the contract file of the release it pins, never the manifest, and a workbench that
 publishes releases publishes that one file with them. `terp promote` reads nothing new; it checks the carried file's SHA-256 when
@@ -142,9 +180,10 @@ one is present, as it does for every other carried file.
 
 ## Consequences
 
-- An app adopts with one commit. After that, a change to its API arrives as a named line in a
-  red gate and a diff in the pull request that caused it, which is the only moment anyone has
-  the context to judge it.
+- An app adopts with one commit. After that, a change to its API's shape arrives as a named
+  line in a red gate and a diff in the pull request that caused it, which is the only moment
+  anyone has the context to judge it. A change to who may call it arrives through the authority
+  baseline instead, when the app has adopted that one.
 - The production posture is unchanged: the schema endpoints stay hidden, and the contract
   travels as a file, never as an endpoint.
 - An app rendered before this release keeps its gate green. `copier update` drops the ignore
@@ -166,3 +205,8 @@ one is present, as it does for every other carried file.
   history in CI, and is a later addition.
 - **Publishing the contract beside a release** in the workbench's own interface is the
   workbench's change.
+- **Signing over a red contract check.** `sign` reads the gate's release-assurance claim and
+  nothing else of its run, and `api-contract` composes no lane of it, so a release can carry a
+  contract its app no longer serves. Refusing that needs the gate's document to record the
+  check's verdict and `sign` to read it, which is a change to ADR 0187's gate, not a reading of
+  it.
