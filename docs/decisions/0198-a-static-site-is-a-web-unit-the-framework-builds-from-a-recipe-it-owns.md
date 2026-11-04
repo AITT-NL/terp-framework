@@ -1,8 +1,10 @@
 # 0198 — A static site is a web unit the framework builds from a recipe it owns
 
-- **Status:** Proposed (awaiting review). Nothing is built yet: the Terp Standard's schema
-  word, the generator's second web build, the executors and the signer that accept its render,
-  and Studio's builder follow as changes of their own, in the order decision 7 gives.
+- **Status:** Proposed (awaiting review). Decision 3, the part this record most wanted
+  reviewed, was reviewed on 2026-11-04 and kept, with the build refusing what its policy would
+  break. Nothing is built yet: the Terp Standard's schema word, the generator's second web
+  build, the executors and the signer that accept its render, and Studio's builder follow as
+  changes of their own, in the order decision 7 gives.
 - **Date:** 2026-11-04. 0182 and 0183 are reserved for other records, 0184 to 0193 are taken,
   and 0194 to 0197 are the series this extends.
 - **Relates:** applies [ADR 0197](0197-a-public-site-is-a-client-of-an-app-and-the-framework-defines-its-socket.md)
@@ -66,6 +68,11 @@ The generator renders `site/Dockerfile.prod`, a path it owns, held byte for byte
   records, with `npm ci --ignore-scripts`, and runs `npm run build --ignore-scripts` with
   `--network=none`, into `site/dist/`. It takes no build argument, no secret and none of the
   app's environment. A site whose lock needs a lifecycle script stays `own`, as an SPA does.
+  Then it refuses what decision 3's policy would break in a browser: an HTML file under
+  `site/dist/` with an inline script (a `<script>` element without `src` whose type runs as
+  script; a data block such as `application/ld+json` runs as nothing and passes), a `<style>`
+  element, a `style` attribute or an event-handler attribute. The refusal names the file and
+  the first such tag, so the image build fails rather than the pages.
 - **Stage 2** (the table's unprivileged `nginx` base) serves `site/dist/` as `nginx`.
 
 The directory is the recipe's, not a parameter: a site's source is `site/`, beside `frontend/`.
@@ -86,6 +93,7 @@ into the image, with:
 - no `/api` location: a site reads published content when it is built (ADR 0197) and never
   proxies the app;
 - long-lived, immutable caching for content-hashed assets, and none for HTML;
+- the site's own `404.html` for a path with no file, when the build writes one;
 - a health path that nginx answers itself, which the profile probes.
 
 That configuration decides three things for every site built from the recipe:
@@ -105,11 +113,26 @@ That configuration decides three things for every site built from the recipe:
   with no `/api` location nothing on the site's own origin takes a post, so a form on such a
   site has nowhere to post.
 
+Reviewed on 2026-11-04 and kept. Each part was held against what a site built from published
+content needs, and two consequences are now part of the recipe:
+
+- **The media a page shows is the site's own.** `img-src 'self' data:` and `font-src 'self'`
+  hold because the site's build copies the images and fonts its pages show into `site/dist/`.
+  A link the app hands out for a file may be signed and expire, and a page built once outlives
+  it, so a page that pointed at the app's storage would break later under any policy.
+- **What the policy forbids is refused when the image is built.** A static-site generator may
+  inline a small stylesheet, or a script that wakes a page's interactive parts, and the policy
+  refuses both in the browser, where the failure is a page that renders wrong with nothing in
+  any log. So stage 1 refuses such a build (decision 2), and the site starter configures its
+  generator to write every style and script as a file. Allowing inline content by hash was
+  the alternative; it makes the policy depend on each build's output, which is a parameter by
+  another name.
+
 A site that needs another policy, for a third-party script, an inline style or script, a form
-that posts or a browser call to the app, is `own`. This decision is the one this record most
-wants reviewed: it is stricter than the SPA, whose server config is the app's file, and it is
-stricter on purpose. A public site is what a stranger loads first, and a recipe whose headers
-the app could edit would be a recipe with a parameter.
+that posts or a browser call to the app, is `own`. The policy is stricter than the SPA's,
+whose server config is the app's own file, and stricter on purpose: a public site is what a
+stranger loads first, and a recipe whose headers the app could edit would be a recipe with a
+parameter.
 
 ### 4. One SPA and one site, each on its own port and its own image
 
@@ -221,7 +244,9 @@ then the app's pin.
 - An app ships a public site under `"build": "generated"` with no Dockerfile of its own and no
   server config of its own, and every site built from the recipe has the same posture.
 - That posture is strict: a site built from the recipe ships no inline style or script, makes no
-  browser call to the app, and has no form that posts (decision 3).
+  browser call to the app, and has no form that posts (decision 3). Its build copies the media
+  its pages show, and refuses a page the policy would break, so the strictness costs a build
+  error with a file name rather than a broken page.
 - The generator owns one more file, and only for an app that declares the recipe.
 - The fixed list of interpolations grows by two entries, so an app pins the framework release
   that renders a site only after the runner carries them and the signer image has moved to that
@@ -240,7 +265,8 @@ then the app's pin.
 - **Build time:** the readable rule refuses an incoherent recipe; the render rule holds
   `site/Dockerfile.prod` byte for byte; the golden samples hold the render, including the
   unchanged render without the word, and each passes the executor's escape audit, so a render
-  that wrote an interpolation the fixed list lacks would fail.
+  that wrote an interpolation the fixed list lacks would fail. The image build refuses a site
+  whose HTML carries an inline script or style, naming the file.
 - **Runtime:** the image serves the rendered headers and has no route to the app, the browser
   holds every page to that policy, and the deploy waits on the health path the profile probes.
   An executor deploys a site's profile only when every interpolation in it is on the fixed list.
