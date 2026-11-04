@@ -1243,8 +1243,9 @@ Password strength (PasswordPolicy, Tier-B)
   message, whether or not it has an account, and addresses compare case-insensitively.
   Tokens are sealed, expire, work once, and ride the URL fragment, so your account pages
   read them from location.hash and post them. Closing needs the password again and ends
-  every session (AccountDeletion.SCRUB by default, or REMOVE, which scrubs instead, with a
-  warning, when a reference refuses the delete).
+  every session (AccountDeletion.SCRUB by default, or REMOVE: building the module refuses
+  it while a reference to the user table would refuse the delete, so declare CASCADE or
+  SET NULL on that reference; one the build cannot see is scrubbed instead, with a warning).
 - No terp.arch check applies (no module code shape to police) — enforcement is the
   service chokepoint plus the create_app production fail-fast.
 """,

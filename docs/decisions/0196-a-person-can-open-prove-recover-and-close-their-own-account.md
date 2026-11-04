@@ -145,12 +145,21 @@ last active administrator. Then it revokes every session, through the token epoc
 refresh families, and does what the app declared, in one audited write:
 `AccountDeletion.SCRUB` (the default) deactivates the account and replaces its address and
 password, so the row stays for references and the audit trail while the person's data goes;
-`AccountDeletion.REMOVE` deletes the row. A reference to a user declared `RESTRICT` or
-`NO_ACTION` refuses that delete (ADR 0133). The delete's write has then rolled back, so
-nothing has changed, and the account is scrubbed instead, with a warning that names the
-cause and both remedies: let the reference go with the row, or declare `SCRUB`. Closing never stops halfway, the person's data goes either way,
-and the person is not left with an account they asked to close because of a schema choice
-they cannot see.
+`AccountDeletion.REMOVE` deletes the row.
+
+A reference to a user declared `RESTRICT` or `NO_ACTION`, or declaring nothing, refuses that
+delete (ADR 0133), so what such a reference does when an account goes is the app's decision,
+and it is asked for when the module is built. Building it with `REMOVE` is refused while the
+metadata holds a reference that would refuse the delete, naming each one (table, column,
+action) and both remedies: declare `CASCADE` or `SET NULL` on it to let the row go, or declare
+`SCRUB` to keep the row. What the build cannot see is a reference the app's metadata does not
+hold: a table another program owns, or a model imported after the build. A close meets that
+one at run time. The delete's write has then rolled back, so nothing has changed, and the
+account is scrubbed instead, with a warning that names the cause and both remedies. Closing
+never stops halfway, the person's data goes either way, and the person is not left with an
+account they asked to close because of a schema choice they cannot see; refusing the close
+with a 409 was the alternative, and it would have kept a person's account open over an
+operator's oversight.
 
 ### 7. Every step is audited, and the address never is
 
@@ -183,7 +192,7 @@ control. The Terp Standard states them as its `self-service-accounts` runtime se
 | Repeated public requests back off per caller and never lock out | `LoginThrottle` on the declared store; the per-caller redemption counter |
 | A self-registered account starts at the viewer rank, and an app that approves accounts creates it inactive | `UsersService.create_verified` |
 | Closing an account requires the password and revokes every session | `UsersService.close_account` |
-| Half-configured, the capability refuses to be built | `SelfService.__post_init__`, `build_accounts_module` |
+| Half-configured, the capability refuses to be built, `REMOVE` included while a reference it can see would refuse the delete | `SelfService.__post_init__`, `build_accounts_module` |
 
 ## Consequences
 

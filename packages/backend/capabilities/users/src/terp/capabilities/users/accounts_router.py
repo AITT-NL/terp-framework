@@ -34,6 +34,7 @@ from terp.core import (
 )
 
 from terp.capabilities.auth import LoginThrottle
+from terp.capabilities.identity import User
 from terp.capabilities.mail import MAIL_SEND, mail_is_configured, parse_address
 from terp.capabilities.users.accounts import AccountsService
 from terp.capabilities.users.operations import (
@@ -43,7 +44,7 @@ from terp.capabilities.users.operations import (
     ACCOUNTS_SIGN_UP,
     ACCOUNTS_VERIFY,
 )
-from terp.capabilities.users.self_service import SelfService
+from terp.capabilities.users.self_service import AccountDeletion, SelfService
 
 _logger = logging.getLogger("terp.capabilities.users.accounts")
 
@@ -211,19 +212,55 @@ def build_accounts_router(declaration: SelfService) -> APIRouter:
     return router
 
 
+#: What a reference may declare on delete for the row it points at to be deleted.
+_LETS_THE_ROW_GO = frozenset({"CASCADE", "SET NULL", "SET DEFAULT"})
+
+
+def _references_refusing_removal() -> list[str]:
+    """Every reference the metadata holds that would refuse deleting an account's row.
+
+    A foreign key to the user table that declares ``RESTRICT``, ``NO ACTION`` or nothing,
+    which is ``NO ACTION``, refuses the delete while a row points at the account (ADR 0133).
+    Only what the metadata holds when the module is built is seen here; a table it does not
+    map, or a model imported after the build, meets the runtime fallback instead.
+    """
+    users = User.__table__
+    found: list[str] = []
+    for table in users.metadata.tables.values():
+        for key in table.foreign_keys:
+            if key.target_fullname.rsplit(".", 1)[0] not in (users.name, users.fullname):
+                continue
+            action = (key.ondelete or "NO ACTION").upper()
+            if action not in _LETS_THE_ROW_GO:
+                found.append(f"{table.fullname}.{key.parent.name} ({action})")
+    return sorted(found)
+
+
 def build_accounts_module(declaration: SelfService, *, name: str = "accounts") -> ModuleSpec:
     """The self-service accounts ``ModuleSpec``, refused when the process cannot honour it.
 
-    Refused before ``configure_mail`` was called, since every route but one sends mail. It
-    declares the ``MAIL_SEND`` job, so a boot whose catalog lacks it is refused. A throttle
-    store that is not shared is accepted and said out loud, as the platform does for its own
-    (ADR 0036): it is correct for one instance, and wrong only once there are several.
+    Refused before ``configure_mail`` was called, since every route but one sends mail, and
+    refused for ``AccountDeletion.REMOVE`` while a reference the metadata already holds would
+    refuse deleting an account's row: the app decides what that reference does when an
+    account goes, here, rather than a person's close deciding it later. It declares the
+    ``MAIL_SEND`` job, so a boot whose catalog lacks it is refused. A throttle store that is
+    not shared is accepted and said out loud, as the platform does for its own (ADR 0036): it
+    is correct for one instance, and wrong only once there are several.
     """
     if not mail_is_configured():
         raise ValueError(
             "self-service accounts send mail: call configure_mail(...) in the composition "
             "root before build_accounts_module (ADR 0196)."
         )
+    if declaration.deletion is AccountDeletion.REMOVE:
+        refusing = _references_refusing_removal()
+        if refusing:
+            raise ValueError(
+                "SelfService(deletion=AccountDeletion.REMOVE) deletes a closed account's row, "
+                f"and these references would refuse that delete: {', '.join(refusing)}. "
+                "Declare OnDelete.CASCADE or OnDelete.SET_NULL on each to let the row go "
+                "(ADR 0133), or declare AccountDeletion.SCRUB to keep it (ADR 0196)."
+            )
     if not is_shared_throttle_store(declaration.throttle_store):
         _logger.warning(
             "self-service accounts back off PER WORKER in this deployment: the declared "

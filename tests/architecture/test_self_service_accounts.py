@@ -400,10 +400,54 @@ def test_an_app_that_removes_accounts_deletes_the_row(engine: Any, mail: Capturi
     assert all(row.revoked_at is not None for row in _rows(engine, RefreshToken)), "no family is left live"
 
 
+@pytest.mark.parametrize(("on_delete", "named"), [("RESTRICT", "RESTRICT"), (None, "NO ACTION"), ("NO ACTION", "NO ACTION")])
+def test_removal_is_refused_at_build_while_a_mapped_reference_would_refuse_the_delete(
+    mail: CapturingMailTransport, on_delete: str | None, named: str
+) -> None:
+    """The app decides what its reference does when an account goes when it builds the module,
+    not when a person's close finds out."""
+    import sqlalchemy as sa
+
+    reference = sa.Table(
+        "example_reference",
+        SQLModel.metadata,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("user_id", sa.Uuid, sa.ForeignKey("identity_user.id", ondelete=on_delete)),
+    )
+    try:
+        with pytest.raises(ValueError, match=rf"example_reference\.user_id \({named}\)") as refused:
+            build_accounts_module(_declaration(deletion=AccountDeletion.REMOVE))
+        assert "OnDelete.CASCADE" in str(refused.value) and "AccountDeletion.SCRUB" in str(refused.value)
+        # Control: a scrub deletes nothing, so the same reference is no obstacle to it.
+        build_accounts_module(_declaration(deletion=AccountDeletion.SCRUB))
+    finally:
+        SQLModel.metadata.remove(reference)
+
+
+@pytest.mark.parametrize("on_delete", ["CASCADE", "SET NULL", "set default"])
+def test_removal_builds_beside_a_reference_that_lets_the_row_go(mail: CapturingMailTransport, on_delete: str) -> None:
+    import sqlalchemy as sa
+
+    reference = sa.Table(
+        "example_reference",
+        SQLModel.metadata,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("user_id", sa.Uuid, sa.ForeignKey("identity_user.id", ondelete=on_delete), nullable=True),
+        sa.Column("other_id", sa.Uuid, sa.ForeignKey("identity_account_token.id")),
+    )
+    try:
+        assert build_accounts_module(_declaration(deletion=AccountDeletion.REMOVE)).name == "accounts"
+    finally:
+        SQLModel.metadata.remove(reference)
+
+
 def test_a_removal_a_reference_refuses_closes_the_account_by_scrubbing_it(
     mail: CapturingMailTransport, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """One write either way: the refused delete changes nothing, and the scrub then closes it."""
+    """One write either way: the refused delete changes nothing, and the scrub then closes it.
+
+    The reference is one the app's metadata does not hold (a table another program owns), so
+    building the module could not see it; the close is where it is met."""
     import sqlalchemy as sa
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
