@@ -1,12 +1,12 @@
 # 0196 — A person can open, prove, recover and close their own account, behind a switch that is off
 
-- **Status:** Proposed (awaiting review). Built in 0.35.1 in `terp-cap-users`:
+- **Status:** Proposed (awaiting review). Built in 0.36.1 in `terp-cap-users`:
   `SelfService`, the five routes of `build_accounts_module`, the sealed account tokens, the
   `identity_account_token` table that makes them single-use, and the construction refusals. Held by `tests/architecture/test_self_service_accounts.py`. Its
   guarantees are written to become the self-service capability contract in the Terp
   Standard, with black-box probes, as a later spec record.
-- **Date:** 2026-11-03. 0182 and 0183 are reserved for other records; 0184 to 0191 are taken,
-  0192 is claimed by a proposal under review, and 0193 to 0195 are this series.
+- **Date:** 2026-11-03. 0182 and 0183 are reserved for other records and 0184 to 0193 are taken;
+  0194 to 0197 are this series.
 - **Relates:** extends [ADR 0013](0013-users-capability-and-identity-boundary.md) (the users
   capability is the audited write boundary over identity); applies
   [ADR 0142](0142-provisioning-an-account-is-not-admitting-it.md) (an account that exists and

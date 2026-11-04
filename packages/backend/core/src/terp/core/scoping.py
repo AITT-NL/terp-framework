@@ -54,10 +54,10 @@ def apply_row_scope(model: type[SQLModel], query: SelectOfScalar) -> SelectOfSca
     The single definition of "row scope": the built-in soft-delete predicate (when
     *model* is a :class:`~terp.core.SoftDeleteMixin`) plus every capability-registered
     row predicate (e.g. the tenant filter). :meth:`~terp.core.BaseService.base_query`
-    composes it, **and** the request session re-applies it to any single-entity
-    ``select(model)`` a custom read issues directly — so reading a scope-trait model
-    outside ``base_query`` can no longer silently drop soft-delete / tenant scope
-    (the runtime backstop for ADR 0017; the ``reads_use_base_query`` rule is the
+    composes it, **and** the request session applies its criteria to ORM query
+    entities, aliases and relationship loads — so reaching a scope-trait model
+    through another model cannot silently drop soft-delete / tenant scope (the
+    runtime backstop for ADR 0017; the ``reads_use_base_query`` rule is the
     build-time early warning). It is **idempotent** — composing it twice yields the
     same filtered set — so the double application (``base_query`` + session) is safe,
     and it is a no-op for a model with no scope trait.

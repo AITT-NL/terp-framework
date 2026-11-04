@@ -331,7 +331,9 @@ def test_access_service_revoke_and_permissions(engine: Engine) -> None:
         assert service.revoke(session, subject, "absent") is False  # nothing to remove
         service.grant(session, subject, "a.b")
         assert service.permissions_for(session, subject) == {"a.b"}
-        dep = require_permission("a.b")
+        from terp.core import EDITOR, Permission
+
+        dep = require_permission(Permission("a.b", EDITOR))
         with pytest.raises(AuthenticationError):
             dep(session=session, principal=None)
         from terp.core import Principal

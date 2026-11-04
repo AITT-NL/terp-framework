@@ -602,7 +602,7 @@ async def _sse_for(
 
 def test_sse_protocol_strips_newlines_emits_payload_and_heartbeat() -> None:
     assert _sse_data('{"text":"a\r\nb"}') == b'data: {"text":"ab"}\n\n'
-    channel = register_channel(RealtimeChannel("notes.sse", Notice))
+    channel = register_channel(RealtimeChannel("notes.sse", Notice, audience=lambda _s, _p: "user-a"))
     broker = InMemoryRealtimeBroker()
     configure_broker(broker)
     principal = _principal(VIEWER)
@@ -676,13 +676,13 @@ def test_websocket_inbound_close_paths_and_outbound_delivery() -> None:
     )
     async def exercise() -> None:
         too_large = _WebSocketDouble(["x" * (64 * 1024 + 1)])
-        channel = RealtimeChannel(
+        channel = register_channel(RealtimeChannel(
             "notes.live",
             Notice,
             mode="websocket",
             inbound_model=Command,
             on_message=lambda _session, _principal, _message: None,
-        )
+        ))
         await _websocket_inbound(too_large, channel, ticket)
         assert too_large.closed == [(1009, "message too large")]
 
@@ -692,9 +692,10 @@ def test_websocket_inbound_close_paths_and_outbound_delivery() -> None:
         assert revoked.closed == [(1008, "session no longer valid")]
         reset_realtime_configuration()
 
-        push_only = RealtimeChannel("notes.push", Notice, mode="websocket")
+        push_only = register_channel(RealtimeChannel("notes.push", Notice, mode="websocket"))
         refused = _WebSocketDouble(['{"action":"refresh"}'])
-        await _websocket_inbound(refused, push_only, ticket)
+        push_ticket = ConnectionTicket(principal, push_only.name, "websocket", audience=str(principal.id))
+        await _websocket_inbound(refused, push_only, push_ticket)
         assert refused.closed == [(1008, "channel is server-push only")]
 
         outbound_socket = _WebSocketDouble()
@@ -735,13 +736,13 @@ def test_websocket_awaits_async_handler_under_the_audit_actor() -> None:
         await asyncio.sleep(0)
         observed.append(current_actor_id())
 
-    channel = RealtimeChannel(
+    channel = register_channel(RealtimeChannel(
         "notes.async",
         Notice,
         mode="websocket",
         inbound_model=Command,
         on_message=on_message,
-    )
+    ))
     socket = _WebSocketDouble(['{"action":"refresh"}'])
     sessions: list[object] = []
     closed: list[object] = []
@@ -759,7 +760,7 @@ def test_websocket_awaits_async_handler_under_the_audit_actor() -> None:
     with pytest.raises(WebSocketDisconnect):
         asyncio.run(_websocket_inbound(socket, channel, ticket))
     assert observed == [principal.id, principal.id]
-    assert len(sessions) == 1
+    assert len(sessions) == 2  # authorization check, then the handler unit of work
     assert closed == sessions
 
 
@@ -784,13 +785,13 @@ def test_websocket_sync_handler_gets_a_fresh_closed_session_per_frame() -> None:
         observed.append(session)
 
     configure_realtime(message_session_provider=session_provider)  # type: ignore[arg-type]
-    channel = RealtimeChannel(
+    channel = register_channel(RealtimeChannel(
         "notes.sync",
         Notice,
         mode="websocket",
         inbound_model=Command,
         on_message=on_message,
-    )
+    ))
     socket = _WebSocketDouble(
         ['{"action":"first"}', '{"action":"second"}']
     )
@@ -798,8 +799,8 @@ def test_websocket_sync_handler_gets_a_fresh_closed_session_per_frame() -> None:
     with pytest.raises(WebSocketDisconnect):
         asyncio.run(_websocket_inbound(socket, channel, ticket))
 
-    assert len(sessions) == 2
-    assert observed == sessions
+    assert len(sessions) == 4  # a check and a handler session for each frame
+    assert observed == sessions[1::2]
     assert closed == sessions
 
 
@@ -814,19 +815,16 @@ def test_websocket_handler_session_contract_fails_closed() -> None:
             yield object()
 
     configure_realtime(message_session_provider=empty_provider)  # type: ignore[arg-type]
-    channel = RealtimeChannel(
+    channel = register_channel(RealtimeChannel(
         "notes.contract",
         Notice,
         mode="websocket",
         inbound_model=Command,
         on_message=lambda _session, _principal, _message: None,
-    )
-    with pytest.raises(RuntimeError, match="yielded no session"):
-        asyncio.run(
-            _websocket_inbound(
-                _WebSocketDouble(['{"action":"refresh"}']), channel, ticket
-            )
-        )
+    ))
+    refused = _WebSocketDouble(['{"action":"refresh"}'])
+    asyncio.run(_websocket_inbound(refused, channel, ticket))
+    assert refused.closed == [(1008, "session no longer valid")]
 
     def session_provider():
         yield object()
@@ -838,13 +836,13 @@ def test_websocket_handler_session_contract_fails_closed() -> None:
         return work()
 
     configure_realtime(message_session_provider=session_provider)  # type: ignore[arg-type]
-    misdeclared = RealtimeChannel(
+    misdeclared = register_channel(RealtimeChannel(
         "notes.misdeclared",
         Notice,
         mode="websocket",
         inbound_model=Command,
         on_message=misdeclared_handler,
-    )
+    ))
     with pytest.raises(TypeError, match="declare it with async def"):
         asyncio.run(
             _websocket_inbound(
@@ -873,13 +871,13 @@ def test_websocket_supports_an_async_callable_handler() -> None:
             observed.append(actor.id)
 
     configure_realtime(message_session_provider=session_provider)  # type: ignore[arg-type]
-    channel = RealtimeChannel(
+    channel = register_channel(RealtimeChannel(
         "notes.callable",
         Notice,
         mode="websocket",
         inbound_model=Command,
         on_message=AsyncHandler(),
-    )
+    ))
     ticket = ConnectionTicket(
         principal, channel.name, "websocket", audience=str(principal.id)
     )
@@ -910,13 +908,13 @@ def test_websocket_async_handler_contract_fails_closed() -> None:
 
     handler.__call__ = async_marker  # type: ignore[method-assign]
     configure_realtime(message_session_provider=session_provider)  # type: ignore[arg-type]
-    channel = RealtimeChannel(
+    channel = register_channel(RealtimeChannel(
         "notes.broken-async",
         Notice,
         mode="websocket",
         inbound_model=Command,
         on_message=handler,
-    )
+    ))
     ticket = ConnectionTicket(
         principal, channel.name, "websocket", audience=str(principal.id)
     )

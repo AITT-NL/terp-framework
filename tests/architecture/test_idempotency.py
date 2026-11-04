@@ -27,6 +27,7 @@ from terp.core import (
     ModuleSpec,
     Policy,
     route_policy,
+    idempotent_replay,
     SecurityConfig,
     StoredResponse,
     create_app,
@@ -186,6 +187,10 @@ def test_shared_marker_roundtrip() -> None:
 # --------------------------------------------------------------------------- #
 # IdempotencyMiddleware — end-to-end through create_app
 # --------------------------------------------------------------------------- #
+def _authorize_public_fixture() -> None:
+    """This fixture discloses only an execution counter; its public policy is complete."""
+
+
 def _build_client(store: IdempotencyStore) -> tuple[TestClient, list[int]]:
     """A tiny app whose POST/DELETE handlers count their executions."""
     router = APIRouter()
@@ -193,18 +198,21 @@ def _build_client(store: IdempotencyStore) -> tuple[TestClient, list[int]]:
 
     @router.post("/things", response_model=dict)
     @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
+    @idempotent_replay(authorize=_authorize_public_fixture)
     def create_thing(payload: dict) -> dict:
         executions.append(1)
         return {"execution": len(executions)}
 
     @router.put("/things", response_model=dict)
     @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
+    @idempotent_replay(authorize=_authorize_public_fixture)
     def replace_thing(payload: dict) -> dict:
         executions.append(1)
         return {"execution": len(executions)}
 
     @router.patch("/things", response_model=dict)
     @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
+    @idempotent_replay(authorize=_authorize_public_fixture)
     def update_thing(payload: dict) -> dict:
         executions.append(1)
         return {"execution": len(executions)}
@@ -217,6 +225,7 @@ def _build_client(store: IdempotencyStore) -> tuple[TestClient, list[int]]:
 
     @router.delete("/things", response_model=dict)
     @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
+    @idempotent_replay(authorize=_authorize_public_fixture)
     def delete_thing() -> dict:
         executions.append(1)
         return {"execution": len(executions)}
@@ -535,7 +544,7 @@ def test_the_body_cap_follows_a_mount_declared_request_size() -> None:
     assert b"4 bytes" in sent[1]["body"]
 
 
-def test_a_disconnect_mid_body_passes_through_unprocessed() -> None:
+def test_a_disconnect_mid_body_never_executes_without_a_dedup_claim() -> None:
     store = InMemoryIdempotencyStore()
     middleware = IdempotencyMiddleware(_echo_app(), store=store)
     inbound = [
@@ -543,8 +552,8 @@ def test_a_disconnect_mid_body_passes_through_unprocessed() -> None:
         {"type": "http.disconnect"},
     ]
     sent = _run_middleware(middleware, _http_scope(), inbound)
-    assert sent[0]["status"] == 200  # the app still saw the request…
-    assert store._entries == {}  # …but no claim was made for a dead request
+    assert sent == []  # The disconnected client receives nothing; the app never ran.
+    assert store._entries == {}
 
 
 def test_a_5xx_response_is_released_not_replayed() -> None:
@@ -695,3 +704,224 @@ def test_development_is_not_warned_about_a_deployment_property(
     with caplog.at_level("WARNING", logger="terp.core"):
         create_app([_spec()])
     assert "PER WORKER" not in "\n".join(r.getMessage() for r in caplog.records)
+
+
+def test_bare_asgi_replay_fails_closed_without_invoking_the_app() -> None:
+    store = InMemoryIdempotencyStore()
+    middleware = IdempotencyMiddleware(_echo_app(), store=store)
+    inbound = [{"type": "http.request", "body": b"{}"}]
+    assert _run_middleware(middleware, _http_scope(), inbound)[0]["status"] == 200
+    for _ in range(2):
+        denied = _run_middleware(middleware, _http_scope(), inbound)
+        assert denied[0]["status"] == 409
+        assert b"idempotency_replay_not_authorized" in denied[1]["body"]
+    assert next(iter(store._entries.values())).done
+
+
+def test_async_nested_route_and_repeated_composition_keep_replay_authorization() -> None:
+    nested, parent = APIRouter(), APIRouter()
+    effects, authorizations = [], []
+
+    async def authorize():
+        authorizations.append(True)
+
+    @nested.post("/effect", response_model=dict)
+    @route_policy(Policy.public_write(reason="public counter fixture"))
+    @idempotent_replay(authorize=authorize)
+    async def effect() -> dict:
+        effects.append(True)
+        return {"execution": len(effects)}
+
+    parent.include_router(nested, prefix="/nested")
+    spec = ModuleSpec(name="probe", router=parent, policy=Policy.public_write(reason="public counter"))
+    create_app([spec], discover_capabilities=False)
+    app = create_app([spec], discover_capabilities=False)
+    with TestClient(app) as client:
+        headers = {"Idempotency-Key": "nested"}
+        first = client.post("/api/v1/probe/nested/effect", headers=headers)
+        retry = client.post("/api/v1/probe/nested/effect", headers=headers)
+    assert first.json() == retry.json() == {"execution": 1}
+    assert retry.headers["idempotency-replayed"] == "true"
+    assert len(effects) == 1
+    assert len(authorizations) == 2
+
+
+def test_replay_declarations_reject_ambiguous_or_unsupported_shapes() -> None:
+    from terp.core import no_idempotency
+    from terp.core._internal.idempotency_replay import prepare_idempotency_route
+
+    with pytest.raises(TypeError, match="authorization dependency"):
+        idempotent_replay(authorize=None)
+
+    def ordinary():
+        return {}
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        idempotent_replay(authorize=_authorize_public_fixture)(no_idempotency(ordinary))
+
+    def other():
+        return {}
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        no_idempotency(idempotent_replay(authorize=_authorize_public_fixture)(other))
+
+    @idempotent_replay(authorize=_authorize_public_fixture)
+    def streaming():
+        yield {}
+
+    router = APIRouter()
+    router.post("/stream", response_model=dict)(streaming)
+    with pytest.raises(ValueError, match="streaming generator"):
+        prepare_idempotency_route(router.routes[0])
+
+
+def test_credential_endpoints_refuse_keys_before_any_credential_callback() -> None:
+    import secrets
+    import uuid
+
+    from terp.capabilities.auth import AUTH_OPERATIONS, build_login_module
+    from terp.capabilities.mfa import MFA_OPERATIONS, build_mfa_module
+    from terp.capabilities.oidc import OIDC_OPERATIONS, OIDCProviderConfig, build_oidc_module
+    from terp.capabilities.realtime import REALTIME_OPERATIONS, module as realtime_module
+    from terp.core import OperationCatalog, Principal, Roles
+
+    calls = []
+
+    def credential_callback(*args, **kwargs):
+        calls.append(True)
+        raise AssertionError("credential callback must not execute with Idempotency-Key")
+
+    module = build_login_module(
+        credential_callback,
+        authenticate_client=credential_callback,
+        service_token_version_resolver=credential_callback,
+        refresh_issuer=credential_callback,
+        refresh_rotator=credential_callback,
+        refresh_revoker=credential_callback,
+        principal_resolver=credential_callback,
+        revoke_sessions=credential_callback,
+    )
+    app = create_app(
+        [module, build_mfa_module(), realtime_module, build_oidc_module(
+            [OIDCProviderConfig(
+                name="provider", issuer="https://identity.example.test",
+                client_id="browser", client_secret=secrets.token_urlsafe(32),
+                redirect_uri="https://application.example.test/callback",
+            )], credential_callback,
+        )], discover_capabilities=False,
+        principal_provider=lambda: Principal(uuid.uuid4(), Roles.EDITOR),
+        control_plane=ControlPlane(operations=OperationCatalog(operations=(
+            *AUTH_OPERATIONS, *MFA_OPERATIONS, *OIDC_OPERATIONS, *REALTIME_OPERATIONS,
+        ))),
+    )
+    with TestClient(app) as client:
+        for path, payload in (
+            ("auth/login", {"email": "credential@example.test", "password": "unused passphrase"}),
+            ("auth/token", {"client_id": "integration", "client_secret": "unused secret"}),
+            ("auth/refresh", None),
+            ("mfa/", None),
+            ("oidc/provider/callback", {"code": "unused", "state": "unused"}),
+            ("realtime/tickets", {"channel": "unused", "transport": "sse"}),
+        ):
+            for _ in range(2):
+                response = client.post(f"/api/v1/{path}", json=payload,
+                                       headers={"Idempotency-Key": path.replace("/", "-")})
+                assert response.status_code == 400, response.text
+                assert response.json()["code"] == "idempotency_not_supported"
+                assert "idempotency-replayed" not in response.headers
+    assert calls == []
+
+
+def test_replay_cannot_switch_a_header_selected_resource() -> None:
+    from fastapi import Header
+    from terp.core import PermissionDeniedError
+
+    rights = {"record-a", "record-b"}
+    effects = []
+    router = APIRouter()
+
+    def authorize(x_record: str = Header()):
+        if x_record not in rights:
+            raise PermissionDeniedError()
+
+    @router.post("/detail", response_model=dict)
+    @route_policy(Policy.public_write(reason="resource dependency checks access"))
+    @idempotent_replay(authorize=authorize)
+    def detail(x_record: str = Header()):
+        effects.append(x_record)
+        return {"record": x_record, "private": "authorized result"}
+
+    app = create_app([ModuleSpec(name="records", router=router,
+                                policy=Policy.public_write(reason="resource dependency checks access"))],
+                     discover_capabilities=False)
+    with TestClient(app) as client:
+        headers = {"Idempotency-Key": "resource", "X-Record": "record-a"}
+        first = client.post("/api/v1/records/detail", headers=headers)
+        assert first.status_code == 200
+        rights.remove("record-a")
+        switched = client.post("/api/v1/records/detail", headers={**headers, "X-Record": "record-b"})
+        assert switched.status_code == 422
+        assert switched.json()["code"] == "idempotency_key_mismatch"
+        assert client.post("/api/v1/records/detail", headers=headers).status_code == 403
+        rights.add("record-a")
+        retry = client.post("/api/v1/records/detail", headers=headers)
+        assert retry.json() == first.json()
+        assert retry.headers["idempotency-replayed"] == "true"
+    assert effects == ["record-a"]
+
+
+def test_fingerprint_binds_target_and_ordered_duplicate_headers_without_ambiguity() -> None:
+    fingerprint = IdempotencyMiddleware._fingerprint
+    scope = {**_http_scope(), "scheme": "https", "server": ("server", 443),
+             "client": ("192.0.2.1", 12345), "root_path": "/tenant", "raw_path": b"/record",
+             "headers": [(b"X-Record", b"a"), (b"Host", b"tenant.example.test"), (b"x-record", b"b")]}
+    expected = fingerprint(scope, b"payload")
+    reordered = {**scope, "headers": [(b"host", b"tenant.example.test"), (b"x-record", b"a"), (b"X-Record", b"b")]}
+    assert fingerprint(reordered, b"payload") == expected
+    for field, value in (
+        ("scheme", "http"), ("server", ("other", 443)), ("client", ("192.0.2.2", 12345)),
+        ("root_path", "/another"), ("raw_path", b"/another"),
+        ("headers", [(b"host", b"tenant.example.test"), (b"x-record", b"b"), (b"x-record", b"a")]),
+        ("headers", [*scope["headers"], (b"x-request-id", b"new-trace")]),
+    ):
+        assert fingerprint({**scope, field: value}, b"payload") != expected
+    assert fingerprint({**scope, "path": "/a\nb", "query_string": b"c"}, b"payload") != fingerprint(
+        {**scope, "path": "/a", "query_string": b"b\nc"}, b"payload")
+
+
+def test_authorizer_can_check_original_result_after_server_default_changes() -> None:
+    import json
+    from fastapi import Depends
+    from terp.core import PermissionDeniedError, get_idempotency_response
+
+    assert get_idempotency_response() is None
+    default, rights, effects = ["tenant-a"], {"tenant-a", "tenant-b"}, []
+    router = APIRouter()
+
+    def authorize(stored=Depends(get_idempotency_response)):
+        resource = json.loads(stored.body)["tenant"] if stored is not None else default[0]
+        if resource not in rights:
+            raise PermissionDeniedError()
+
+    @router.post("/snapshot", response_model=dict)
+    @route_policy(Policy.public_write(reason="result dependency checks tenant access"))
+    @idempotent_replay(authorize=authorize)
+    def snapshot():
+        effects.append(default[0])
+        return {"tenant": default[0]}
+
+    app = create_app([ModuleSpec(name="records", router=router,
+                                policy=Policy.public_write(reason="result dependency checks tenant access"))],
+                     discover_capabilities=False)
+    with TestClient(app) as client:
+        headers = {"Idempotency-Key": "server-default"}
+        assert client.post("/api/v1/records/snapshot", headers=headers).json() == {"tenant": "tenant-a"}
+        default[0] = "tenant-b"
+        rights.remove("tenant-a")
+        assert client.post("/api/v1/records/snapshot", headers=headers).status_code == 403
+        rights.add("tenant-a")
+        retry = client.post("/api/v1/records/snapshot", headers=headers)
+        assert retry.json() == {"tenant": "tenant-a"}
+        assert retry.headers["idempotency-replayed"] == "true"
+    assert effects == ["tenant-a"]
+    assert get_idempotency_response() is None

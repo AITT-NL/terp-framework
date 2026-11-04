@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from typing import Protocol
 
 from sqlmodel import Session
 
@@ -27,8 +28,18 @@ TokenRevoker = Callable[[Session, uuid.UUID], None]
 # imports it. Issue the first token at login; rotate (single-use + reuse-detect) a presented
 # token; resolve an ACTIVE subject's principal by id (the /refresh analog of authenticate,
 # which needs a password). All three are wired together or not at all.
-RefreshIssuer = Callable[[Session, uuid.UUID], str]
+class RefreshIssuer(Protocol):
+    """Issue a family bound to the same epoch as the authenticated principal."""
+
+    def __call__(
+        self, session: Session, user_id: uuid.UUID, *, token_version: int
+    ) -> str: ...
+
+
 RefreshRotator = Callable[[Session, str], RefreshRotation | None]
+# Revoke the family a presented refresh token belongs to, without rotating it: a logout
+# that rotated just to learn the subject would mint a successor while signing out.
+RefreshRevoker = Callable[[Session, str], None]
 PrincipalResolver = Callable[[Session, uuid.UUID], Principal | None]
 # Resolve the authenticated caller's own identity for ``GET /me`` — app-wired to the
 # store (e.g. ``IdentityService.current_user``) so auth never imports where users live
@@ -48,6 +59,7 @@ __all__ = [
     "LoginTenantResolver",
     "PrincipalResolver",
     "RefreshIssuer",
+    "RefreshRevoker",
     "RefreshRotator",
     "ServiceTokenVersionResolver",
     "TokenRevoker",

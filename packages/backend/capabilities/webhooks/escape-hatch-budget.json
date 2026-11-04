@@ -1,6 +1,8 @@
 {
   "arch-allow-mutations-emit-audit": 2,
   "arch-allow-no-destructive-migrations": 1,
-  "arch-allow-no-internal-imports": 1,
+  "arch-allow-no-internal-imports": 2,
+  "arch-allow-no-raw-connection-access": 1,
+  "arch-allow-no-raw-session-construction": 1,
   "arch-allow-table-models-use-base-table": 1
 }

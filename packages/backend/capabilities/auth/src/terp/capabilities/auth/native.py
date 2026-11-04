@@ -29,15 +29,16 @@ from terp.core import (
     Policy,
     Principal,
     SessionDep,
+    no_idempotency,
     operation,
     route_policy,
     settings,
 )
 
-from terp.capabilities.auth.credentials import refuse_replay_key
 from terp.capabilities.auth.operations import AUTH_NATIVE_LOGIN, AUTH_NATIVE_REFRESH
 from terp.capabilities.auth.refresh import RefreshRotation
 from terp.capabilities.auth.schemas import LoginRequest, NativeRefreshRequest, NativeSession
+from terp.capabilities.auth.seams import RefreshIssuer
 
 #: The sign-in steps ``/login`` takes, handed over so the native route takes exactly them.
 SignIn = Callable[[Request, LoginRequest, Session], tuple[Principal, tuple[str, ...]]]
@@ -100,8 +101,8 @@ def add_native_routes(
     router: APIRouter,
     *,
     sign_in: SignIn,
-    mint: Callable[..., str],
-    issue: Callable[[Session, uuid.UUID], str],
+    mint: Callable[..., tuple[str, int]],
+    issue: RefreshIssuer,
     rotate: Callable[[Session, str], RefreshRotation | None],
     resolve: Callable[[Session, uuid.UUID], Principal | None],
 ) -> None:
@@ -114,6 +115,7 @@ def add_native_routes(
     """
 
     @router.post("/native/login", response_model=NativeSession)
+    @no_idempotency
     @route_policy(
         Policy.public_write(reason="a native client has no token yet; this route is how it gets one")
     )
@@ -124,12 +126,14 @@ def add_native_routes(
         # and a fresh family whose first token leaves in the body.
         refuse_browser(request)
         principal, methods = sign_in(request, credentials, session)
+        access_token, token_version = mint(session, principal, amr=methods)
         return NativeSession(
-            access_token=mint(session, principal, amr=methods),
-            refresh_token=issue(session, principal.id),
+            access_token=access_token,
+            refresh_token=issue(session, principal.id, token_version=token_version),
         )
 
     @router.post("/native/refresh", response_model=NativeSession)
+    @no_idempotency
     @route_policy(
         Policy.public_write(
             reason="the refresh token in the body is the credential; there is no bearer to gate on"
@@ -142,14 +146,18 @@ def add_native_routes(
         # The same rotation /refresh runs: single use, reuse detection that revokes the whole
         # family, and the subject re-checked as active before anything is minted.
         refuse_browser(request)
-        refuse_replay_key(request)
         rotation = rotate(session, presented.refresh_token)
         if rotation is None:
             raise AuthenticationError()
         principal = resolve(session, rotation.user_id)
         if principal is None:
             raise AuthenticationError()
-        return NativeSession(access_token=mint(session, principal), refresh_token=rotation.token)
+        # The family carries the epoch it was issued under, and the mint checks the one it
+        # resolves now: an intervening revocation refuses the pair (ADR 0193).
+        access_token, token_version = mint(session, principal)
+        if rotation.token_version is None or rotation.token_version != token_version:
+            raise AuthenticationError()
+        return NativeSession(access_token=access_token, refresh_token=rotation.token)
 
 
 __all__ = ["BrowserOnNativeRouteError", "NativeClients", "SignIn", "add_native_routes", "refuse_browser"]

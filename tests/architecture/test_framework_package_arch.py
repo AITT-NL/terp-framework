@@ -46,7 +46,7 @@ import pathlib
 
 import pytest
 
-from terp.arch import assert_app_clean, check_app
+from terp.arch import assert_app_clean, check_app, check_escape_hatch_budget
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _BACKEND = _REPO_ROOT / "packages" / "backend"
@@ -102,6 +102,21 @@ def test_every_framework_package_is_either_scanned_or_counted() -> None:
     )
     both = (set(_CLEAN) | set(_BUDGETED)) & set(_recorded())
     assert not both, f"scanned AND recorded as unscanned: {sorted(both)}"
+
+
+@pytest.mark.parametrize("name", sorted(json.loads(_UNSCANNED.read_text())["packages"]))
+def test_unscanned_package_opt_outs_have_a_budget(name: str, tmp_path: pathlib.Path) -> None:
+    """Count justified kernel primitives as well as the remaining unscanned debt.
+
+    A marker suppresses its finding before the debt ratchet sees it. Keeping those
+    markers separately budgeted prevents an unscanned package from hiding new
+    findings behind uncounted opt-outs while its recorded debt appears unchanged.
+    """
+    budget = _BACKEND / name / "escape-hatch-budget.json"
+    if not budget.is_file():
+        budget = tmp_path / "escape-hatch-budget.json"
+        budget.write_text("{}", encoding="utf-8")
+    assert check_escape_hatch_budget(_root(name), budget_path=budget) == []
 
 
 @pytest.mark.parametrize("name", sorted(json.loads(_UNSCANNED.read_text())["packages"]))

@@ -1,4 +1,4 @@
-# 0193 — A public site is a client of an app, and the framework defines the socket it plugs into
+# 0197 — A public site is a client of an app, and the framework defines the socket it plugs into
 
 - **Status:** Proposed (awaiting review). Amends [ADR 0123](0123-marketing-websites-are-not-a-terp-application-kind.md)
   §4, the closing paragraph of §1 and the first of its consequences, and keeps the reasoning
@@ -7,8 +7,8 @@
   §1's closing paragraph is amended openly rather than said to stand. Nothing is built by this
   record: the contract baseline, the rules profile, the lint preset, the starter and the deploy
   recipe are each a later change of their own, listed under "How it will be held".
-- **Date:** 2026-11-03. 0182 and 0183 are reserved for other records; 0184 to 0191 are taken, and
-  0192 is claimed by a proposal under review.
+- **Date:** 2026-11-03. 0182 and 0183 are reserved for other records and 0184 to 0193 are taken;
+  0194 to 0197 are this series.
 - **Relates:** amends [ADR 0123](0123-marketing-websites-are-not-a-terp-application-kind.md)
   (§4, and its consequence that nothing here changes for websites); applies
   [ADR 0111](0111-flexibility-is-bounded-by-legibility-not-by-capability.md) decision 4 (the

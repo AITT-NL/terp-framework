@@ -82,8 +82,14 @@ from terp.core.scheduling import (
 from terp.core._internal.discovery import iter_capability_specs
 from terp.core._internal.engine import get_engine
 from terp.core._internal.middleware import install_security_middleware
+from terp.core._internal.idempotency_replay import prepare_idempotency_route, replay_response  # arch-allow-no-internal-imports: the kernel composition root installs the replay boundary and preserves its read-only context; app modules must not prepare routes or replace replay state
+
 from terp.core._internal.session_guard import read_only_request
 from terp.core.module_spec import ModuleSpec, Policy, decide
+from terp.core.request_authorization import (
+    _AUTHORIZATION_SCOPE_KEY,
+    RequestAuthorization,
+)
 from terp.core.passwords import configure_password_policy
 from terp.core.operations import OperationCatalog, OperationCoverage
 from terp.core.routing import (
@@ -250,6 +256,18 @@ def build_guard(
         # routing. A missing scope simply means no route was matched, which is exactly
         # the case where the module policy is the only answer available.
         scope = getattr(connection, "scope", None) or {}
+        context = RequestAuthorization(
+            permission_model=permission_model,
+            module_rank=(
+                None
+                if module_rank_resolver is None or module_name is None
+                else lambda active_session, subject_id: _declared_rank_only(
+                    module_rank_resolver(active_session, subject_id, module_name),
+                    permission_model,
+                )
+            ),
+        )
+        scope[_AUTHORIZATION_SCOPE_KEY] = context
         applied = effective_policy(policy, getattr(scope.get("route"), "endpoint", None))
         decision = decide(
             applied,
@@ -273,12 +291,8 @@ def build_guard(
             module_rank=(
                 None
                 if principal is None
-                or module_rank_resolver is None
-                or module_name is None
-                else lambda: _declared_rank_only(
-                    module_rank_resolver(session, principal.id, module_name),
-                    permission_model,
-                )
+                or context.module_rank is None
+                else lambda: context.module_rank(session, principal.id)
             ),
         )
         # Every decision, allow and deny, is recorded with the rule that made it: on the
@@ -354,7 +368,11 @@ def build_read_only_request_binder() -> Callable[..., AsyncIterator[None]]:
         # marked read-only here. Testing membership of a safe-method set instead
         # left a method in neither set (TRACE, or a verb registered through
         # add_api_route) authorized as a read and still able to write.
-        with read_only_request(declared or request_method(connection) not in MUTATING_METHODS):
+        with read_only_request(
+            replay_response.get() is not None
+            or declared
+            or request_method(connection) not in MUTATING_METHODS
+        ):
             yield
 
     return binder
@@ -2390,6 +2408,8 @@ def create_app(
             raise BootError(f"module {spec.name!r} declares no Policy (deny-by-default)")
         if spec.router is not None:
             validate_router_response_models(spec.router)
+            for route in _iter_api_routes(spec.router.routes):
+                prepare_idempotency_route(route)
             app.include_router(
                 spec.router,
                 prefix=f"/api/v1/{spec.name}",

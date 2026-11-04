@@ -11,9 +11,9 @@ on top of the built-in owner check and can deny a write — and the registry's r
 seam, exercising the fail-closed / edge paths the end-to-end reference tests do not all
 reach, so the framework holds 100% line coverage.
 
-Each logical request runs in its own ``Session`` (as in production), so a denied
-write's uncommitted, dirty state is discarded on session close — the same per-request
-rollback boundary the runtime write guard relies on (ADR 0015).
+Each logical request here runs in its own ``Session`` (as in production). The HTTP
+regressions in ``test_persistence_isolation`` additionally catch a denial and continue
+writing in the same session: a refused mutation must not rely on closing it for safety.
 """
 
 from __future__ import annotations

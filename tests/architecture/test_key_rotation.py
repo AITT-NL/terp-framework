@@ -58,7 +58,7 @@ from terp.capabilities.auth import (
     refresh_token_digests,
 )
 from terp.capabilities.auth.tokens import _signing_key
-from terp.capabilities.identity import RefreshToken, RefreshTokenService
+from terp.capabilities.identity import RefreshToken, RefreshTokenService, User
 from terp.capabilities.mfa import MfaSecretError
 from terp.capabilities.mfa import seal_secret as seal_totp
 from terp.capabilities.mfa import unseal_secret as unseal_totp
@@ -320,7 +320,7 @@ def refresh_session() -> Iterator[Session]:
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
-    SQLModel.metadata.create_all(engine, tables=[RefreshToken.__table__])  # type: ignore[list-item]
+    SQLModel.metadata.create_all(engine, tables=[RefreshToken.__table__, User.__table__])  # type: ignore[list-item]
     with Session(engine) as session:
         yield session
     engine.dispose()
@@ -330,7 +330,10 @@ def test_a_refresh_session_survives_a_rotation_and_moves_to_the_new_key(
     monkeypatch: pytest.MonkeyPatch, refresh_session: Session
 ) -> None:
     service = RefreshTokenService()
-    user = uuid.uuid4()
+    user_row = User(email="key-rotation@example.test")
+    refresh_session.add(user_row)
+    refresh_session.commit()
+    user = user_row.id
     raw = service.issue(refresh_session, user)
     _rotate(monkeypatch, verify=[_OLD])
     # Looked up under the current key's digest first, then the fallback's.

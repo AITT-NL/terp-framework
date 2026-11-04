@@ -49,6 +49,8 @@ function builtInErrorMessages(strings: TerpStrings): ErrorMessages {
     idempotency_body_too_large: strings.errorCodeRequestTooLarge,
     idempotency_unavailable: strings.errorCodeInternalError,
     idempotency_in_flight: strings.errorCodeStillProcessing,
+    idempotency_not_supported: strings.errorCodeIdempotencyNotSupported,
+    idempotency_replay_not_authorized: strings.errorCodeIdempotencyReplayNotAuthorized,
     // The core's other refusals: work another process holds is still being done, work whose
     // lease ran out is a conflict to refresh past, and sealed configuration that cannot be read
     // is the server's failure. A weak password keeps its detail: it names the policy's numbers.

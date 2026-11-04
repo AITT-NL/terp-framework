@@ -1,21 +1,21 @@
 # 0194 — An app's API contract is a committed file, and a change that breaks a client is named before it ships
 
-- **Status:** Proposed (awaiting review). Built in 0.35.1: `terp verify --only api-contract`
+- **Status:** Proposed (awaiting review). Built in 0.36.1: `terp verify --only api-contract`
   with its classification of every difference, the `api-client` check generating from a tracked
   contract instead of rewriting it, `terp openapi` naming what changed when it overwrites one,
   the template no longer ignoring `openapi.json`, and `terp release` carrying the contract in
   the signed manifest. Held by `tests/architecture/test_api_contract.py`, with the profiles
   and the published manifest in `test_cli_verify.py` and the template's ignore rules in
   `test_template_build_inputs.py`.
-- **Date:** 2026-11-03. 0182 and 0183 are reserved for other records; 0184 to 0191 are taken,
-  0192 is claimed by a proposal under review, and 0193 is the site socket.
+- **Date:** 2026-11-03. 0182 and 0183 are reserved for other records and 0184 to 0193 are taken;
+  0194 to 0197 are this series.
 - **Relates:** follows [ADR 0139](0139-who-can-reach-what-is-pinned-not-merely-reportable.md)
   (the shape of a pinned baseline: opt-in, drift is red, every line reported in the vocabulary
   of the change, and the writer is never a `--fix`); builds on
   [ADR 0041](0041-frontend-contract-openapi-export-seam.md) (the typed client is generated
   from the backend's OpenAPI) and [ADR 0181](0181-terp-supplies-the-inside-of-a-deployable.md)
   decision 1 (one deployable, one contract); serves
-  [ADR 0193](0193-a-public-site-is-a-client-of-an-app-and-the-framework-defines-its-socket.md)
+  [ADR 0197](0197-a-public-site-is-a-client-of-an-app-and-the-framework-defines-its-socket.md)
   (a site generates its client from its app's committed contract); extends the release manifest
   of [ADR 0184](0184-a-deployment-declares-its-units.md) decision 9 and
   [ADR 0187](0187-in-the-generated-state-the-framework-renders-the-build-files.md) decision 6;

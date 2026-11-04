@@ -1,7 +1,7 @@
 """create identity account_token table
 
 Revision ID: d4e6f8a0b2c1
-Revises: 4f1c9d3a7b02
+Revises: 0c8d9e2f4b71
 Create Date: 2026-11-03 18:00:00.000000
 
 """
@@ -16,7 +16,7 @@ import sqlmodel
 
 # revision identifiers, used by Alembic.
 revision: str = 'd4e6f8a0b2c1'
-down_revision: str | None = '4f1c9d3a7b02'
+down_revision: str | None = '0c8d9e2f4b71'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

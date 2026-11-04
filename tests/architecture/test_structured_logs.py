@@ -480,6 +480,10 @@ def test_a_placeholder_in_a_template_survives_and_its_value_does_not() -> None:
 @pytest.mark.parametrize(
     ("template", "args", "message"),
     [
+        ("Authorization: Bearer %s", (_TOKEN,), "Authorization: Bearer [REDACTED]"),
+        ("Authorization: Basic %s", (_TOKEN,), "Authorization: Basic [REDACTED]"),
+        ("Authorization: Bearer %(value)s", ({"value": _TOKEN},), "Authorization: Bearer [REDACTED]"),
+        ("Cookie:  %s", (_TOKEN,), "Cookie:  [REDACTED]"),
         ("password=%s for %s", (_PASSWORD, "ada"), "password=[REDACTED] for ada"),
         ("password=%(pw)s", ({"pw": _PASSWORD},), "password=[REDACTED]"),
         ("api_key=%.40s, page %-3d|", (_TOKEN, 2), "api_key=[REDACTED], page 2  |"),

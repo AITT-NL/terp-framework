@@ -16,7 +16,9 @@ The model is **at-least-once + idempotent** (design §6 rule 3): a mapping is ke
 from both sides, and a record's checksum makes a redelivery a no-op, so a retried job re-runs
 safely. A per-record failure is logged (``failed``/``ACTION_FAILED``) and does not abort the
 run; a failure in the *pull itself* closes the run ``failed`` and re-raises so the outbox
-retries the whole job.
+retries the whole job. The job transaction rolls back local rows, mappings, record logs,
+and cursor advancement. Its failed-run journal is then written independently through the
+audited service, preserving the failure without committing those business changes.
 
 A reconcile also takes a **lease on its source** for as long as it runs
 (:mod:`terp.capabilities.sync.leasing`), which answers the two questions this docstring used
@@ -39,9 +41,13 @@ from datetime import UTC, datetime
 
 from sqlmodel import Session, col, select
 
-from terp.core import AuditAction, BaseService, LeaseGuard
+from terp.core import AuditAction, BaseService, StaleDataError
+
+from terp.core._internal.job_runtime import defer_after_job_transaction  # arch-allow-no-internal-imports: failed sync-attempt journals must survive job rollback without committing the job's local business writes
+from terp.core._internal.session_guard import WriteGuardedSession  # arch-allow-no-internal-imports: the deferred attempt journal uses a fresh guarded session and the audited run service after the job transaction has finished
 
 from terp.capabilities.sync.leasing import (
+    SourceLeaseGuard,
     hold_source,
     register_stale_run_reaper,
     worker_holder,
@@ -52,6 +58,7 @@ from terp.capabilities.sync.models import (
     ACTION_UNCHANGED,
     ACTION_UPDATED,
     STATUS_FAILED,
+    STATUS_RUNNING,
     STATUS_SUCCEEDED,
     SyncMapping,
     SyncRun,
@@ -105,6 +112,48 @@ class _SyncRunService(BaseService[SyncRun, SyncRunDraft, SyncRunUpdate]):
             AuditAction.CREATED,
         )
 
+    def fail(
+        self, session: Session, opened: SyncRun, outcome: SyncRunUpdate,
+        *, local_effects: bool = True,
+    ) -> None:
+        """Journal a failed attempt after a job's business transaction finishes.
+
+        ``opened`` is a detached snapshot taken before calling the source. A failed
+        job rolls its new run back together with its business writes; only this
+        narrow run journal is recreated afterward. Its counts cannot claim local
+        creations or updates that were rolled back, and its resume cursor remains
+        the one captured at open. Record logs and mappings are not replayed. A push
+        preserves a count its external source already confirmed: database rollback
+        cannot retract that external effect.
+
+        A custom handler can catch the source failure and finish its transaction.
+        Then the original run still exists and gets its ordinary audited outcome,
+        unless a reaper or another writer already closed or advanced it. The same
+        optimistic fence protects a concurrent change between reading and updating.
+        """
+        engine = session.get_bind().engine  # arch-allow-no-raw-connection-access: failed-attempt infrastructure reuses only the database engine for its post-transaction journal; it never runs business SQL through a raw connection
+
+        def journal() -> None:
+            with WriteGuardedSession(engine) as journal_session:  # arch-allow-no-raw-session-construction: the attempt journal needs an independent guarded transaction after job commit or rollback, and writes only through the audited run service
+                current = self.find(journal_session, opened.id)
+                if current is None:
+                    values = opened.model_dump() | outcome.model_dump(
+                        exclude_unset=True, exclude={"version"},
+                    )
+                    if local_effects:
+                        values.update(created_count=0, updated_count=0)
+                    self._save(journal_session, SyncRun.model_validate(values), AuditAction.CREATED)
+                elif current.status == STATUS_RUNNING and current.version == outcome.version:
+                    try:
+                        self.update(journal_session, current.id, outcome)
+                    except StaleDataError:
+                        # The concurrent winner's verdict owns this run; a delayed
+                        # failure report must not overwrite it.
+                        pass
+
+        if not defer_after_job_transaction(session, journal):
+            self.update(session, opened.id, outcome)
+
 
 _runs = _SyncRunService()
 
@@ -150,9 +199,8 @@ class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate])
             )
         finally:
             if guard is not None:
-                # Hand the source back now: an exception means this worker is alive and
-                # reporting, so the next attempt should not have to wait out the TTL. Only a
-                # crash leaves the lease to expire, which is when the reaper is the answer.
+                # Jobs defer the fenced release until their business transaction
+                # finishes, so rolling back a failed attempt cannot undo the release.
                 guard.release()
 
     def _pull_leased(
@@ -162,7 +210,7 @@ class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate])
         *,
         tenant_scope: str,
         tenant_id: uuid.UUID | None,
-        guard: LeaseGuard | None,
+        guard: SourceLeaseGuard | None,
     ) -> SyncRun:
         """The reconcile itself, with the source's lease already held."""
         resume = self._resume_cursor(session, source.entity_type, tenant_scope)
@@ -174,6 +222,7 @@ class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate])
             cursor=resume,
         )
         run_id, run_version = run.id, run.version
+        opened = SyncRun.model_validate(run.model_dump())
         counts = _Counts()
         try:
             page = source.pull(resume)
@@ -186,6 +235,8 @@ class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate])
                 self._reconcile_record(
                     session, source, record, run_id, tenant_scope, tenant_id, counts
                 )
+            if guard is not None:
+                guard.check()
             _runs.update(
                 session,
                 run_id,
@@ -201,9 +252,9 @@ class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate])
                 ),
             )
         except Exception as exc:
-            _runs.update(
+            _runs.fail(
                 session,
-                run_id,
+                opened,
                 SyncRunUpdate(
                     status=STATUS_FAILED,
                     finished_at=_utc_now(),
@@ -226,13 +277,11 @@ class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate])
         Delegates the direction to :meth:`~terp.capabilities.sync.remote.SyncSource.push`
         (unsupported by default — a pull-only source closes the run ``failed`` and re-raises).
 
-        Unlike ``pull`` there is nothing to heartbeat *inside*: ``push`` is one opaque call,
-        so a source that takes longer than the lease TTL will have its lease lapse and its run
-        reaped while it is still working. That is bounded rather than dangerous, and the bound
-        is the run row's own optimistic-concurrency token: this method captured the run's
-        ``version`` at open, so once the reaper has closed the run, the losing update raises
-        :class:`~terp.core.StaleDataError` instead of overwriting the reaper's verdict. A
-        source with work that long should chunk it, or the app should raise the TTL.
+        ``push`` is one opaque external call. The final custody check joins the local
+        business transaction, so an expired or superseded holder cannot commit its local
+        outcome. That cannot retract an external write already performed by the source:
+        the destination still needs its own idempotency or fencing contract. The run's
+        optimistic version also preserves a reaper's verdict if it already closed the run.
         """
         tenant_scope = tenant_scope_for(tenant_id)
         # The same lease as pull, on purpose: a push and a pull of one source both write the
@@ -245,7 +294,7 @@ class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate])
         )
         try:
             return self._push_leased(
-                session, source, tenant_scope=tenant_scope, tenant_id=tenant_id
+                session, source, tenant_scope=tenant_scope, tenant_id=tenant_id, guard=guard
             )
         finally:
             if guard is not None:
@@ -261,6 +310,7 @@ class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate])
         *,
         tenant_scope: str,
         tenant_id: uuid.UUID | None,
+        guard: SourceLeaseGuard | None,
     ) -> SyncRun:
         """The push itself, with the source's lease already held."""
         run = _runs.open(
@@ -270,8 +320,12 @@ class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate])
             source=source.entity_type,
         )
         run_id, run_version = run.id, run.version
+        opened = SyncRun.model_validate(run.model_dump())
+        pushed = 0
         try:
             pushed = source.push(session)
+            if guard is not None:
+                guard.check()
             _runs.update(
                 session,
                 run_id,
@@ -284,15 +338,18 @@ class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate])
                 ),
             )
         except Exception as exc:
-            _runs.update(
+            _runs.fail(
                 session,
-                run_id,
+                opened,
                 SyncRunUpdate(
                     status=STATUS_FAILED,
                     finished_at=_utc_now(),
+                    processed_count=pushed,
+                    updated_count=pushed,
                     error=clip_sync_message(str(exc)),
                     version=run_version,
                 ),
+                local_effects=False,
             )
             raise
         return _runs.get(session, run_id)

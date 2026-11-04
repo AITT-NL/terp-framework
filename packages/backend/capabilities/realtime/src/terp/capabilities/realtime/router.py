@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import contextmanager
 from inspect import isawaitable, iscoroutinefunction
@@ -32,8 +33,10 @@ from terp.core import (
     SessionDep,
     bind_audit_actor,
     get_principal,
+    decide_requirement,
     get_session,
     operation,
+    no_idempotency,
     route_policy,
 )
 
@@ -58,6 +61,8 @@ from terp.capabilities.realtime.transport import (
 TICKET_TTL_SECONDS = 30
 HEARTBEAT_SECONDS = 15.0
 MAX_INBOUND_BYTES = 64 * 1024
+
+_logger = logging.getLogger(__name__)
 
 PrincipalValidator = Callable[[Principal, str], bool]
 MessageSessionProvider = Callable[[], Iterator[Session]]
@@ -91,9 +96,10 @@ def configure_realtime(
     A channel whose requirement is a Permission denies fail-closed unless
     ``permission_enforcer`` is present. ``principal_validator`` may revalidate
     long-lived connections at handshake/heartbeat/frame boundaries; without it,
-    authority is the live principal captured by the 30-second ticket mint.
-    ``message_session_provider`` supplies one fresh session per inbound frame;
-    the core request-session provider is the default. ``require_shared_broker=True``
+    identity and role remain the principal captured at ticket mint. Named grants
+    and the channel audience are always rechecked at those boundaries.
+    ``message_session_provider`` supplies fresh sessions for those checks and
+    each inbound handler; the core request-session provider is the default. ``require_shared_broker=True``
     promises a broker shared across processes and refuses a per-process one (ADR 0176);
     ``None`` leaves the promise as it stands, so a later call for the other seams keeps it.
     """
@@ -115,12 +121,15 @@ def _authorize_requirement(
     principal: Principal,
     session: Session,
 ) -> None:
-    if principal.role.rank < requirement.min_rank:
-        raise PermissionDeniedError()
-    if requirement.kind == "permission" and (
-        _permission_enforcer is None
-        or not _permission_enforcer(session, principal.id, requirement.name)
-    ):
+    decision = decide_requirement(
+        requirement,
+        role=principal.role,
+        holds_permission=(
+            None if _permission_enforcer is None
+            else lambda name: _permission_enforcer(session, principal.id, name)
+        ),
+    )
+    if not decision.allowed:
         raise PermissionDeniedError()
 
 
@@ -130,19 +139,36 @@ def _authorize(channel: RealtimeChannel, principal: Principal, session: Session)
         _authorize_requirement(channel.inbound_requirement, principal, session)
 
 
-def _validate_live(ticket: ConnectionTicket) -> bool:
+def _principal_is_live(ticket: ConnectionTicket) -> bool:
     return _principal_validator is None or _principal_validator(
         ticket.principal, ticket.credential
     )
 
 
+def _validate_live(ticket: ConnectionTicket) -> bool:
+    """Recheck current grants and audience in a short, fresh transaction.
+
+    The ticket proves a past mint; it does not preserve a revoked grant or an
+    audience membership. Any lookup failure denies and closes the transport.
+    """
+    try:
+        if not _principal_is_live(ticket):
+            return False
+        channel = get_channel(ticket.channel)
+        if channel is None or channel.mode != ticket.transport:
+            return False
+        with _message_session() as session:
+            _authorize(channel, ticket.principal, session)
+            return channel.audience(session, ticket.principal) == ticket.audience
+    except PermissionDeniedError:
+        return False
+    except Exception:
+        _logger.exception("realtime authorization recheck failed")
+        return False
+
+
 async def _validate_live_async(ticket: ConnectionTicket) -> bool:
-    validator = _principal_validator
-    if validator is None:
-        return True
-    return await asyncio.to_thread(
-        validator, ticket.principal, ticket.credential
-    )
+    return await asyncio.to_thread(_validate_live, ticket)
 
 
 @contextmanager
@@ -220,6 +246,7 @@ router = APIRouter(tags=["realtime"])
 # a realtime channel exists for.
 @route_policy(Policy(read=Roles.VIEWER, write=Roles.VIEWER))
 @operation(REALTIME_MINT_TICKET)
+@no_idempotency
 def mint_ticket(
     payload: TicketRequest,
     request: Request,
@@ -246,7 +273,7 @@ def mint_ticket(
             credential=_bearer_credential(request),
             audience=channel.audience(session, principal),
         )
-    if not _validate_live(connection_ticket):
+    if not _principal_is_live(connection_ticket):
         from terp.core import AuthenticationError
 
         raise AuthenticationError()

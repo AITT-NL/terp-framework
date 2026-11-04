@@ -185,7 +185,7 @@ def test_a_sign_in_route_refuses_an_idempotency_key(app_db: FastAPI, make_user, 
         headers={"Idempotency-Key": "sign-in-1"},
     )
     assert response.status_code == 400
-    assert response.json()["code"] == "idempotency_key_not_accepted"
+    assert response.json()["code"] == "idempotency_not_supported"
     assert "set-cookie" not in response.headers and "token" not in response.json()
 
 
@@ -196,7 +196,7 @@ def test_the_cookie_refresh_refuses_an_idempotency_key(app_db: FastAPI, make_use
         "/api/v1/auth/login", json={"email": "cookie-keyed@example.com", "password": _PASSWORD}
     ).status_code == 200
     keyed = browser.post("/api/v1/auth/refresh", headers={"Idempotency-Key": "refresh-1"})
-    assert keyed.status_code == 400 and keyed.json()["code"] == "idempotency_key_not_accepted"
+    assert keyed.status_code == 400 and keyed.json()["code"] == "idempotency_not_supported"
     assert browser.post("/api/v1/auth/refresh").status_code == 200, "the cookie still works without one"
 
 

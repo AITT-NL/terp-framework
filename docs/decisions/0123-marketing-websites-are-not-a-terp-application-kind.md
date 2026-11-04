@@ -1,7 +1,7 @@
 # 0123 — Marketing websites are not a Terp application kind
 
 - **Status:** Accepted; §4, the closing paragraph of §1 and the first consequence amended by
-  [ADR 0193](0193-a-public-site-is-a-client-of-an-app-and-the-framework-defines-its-socket.md)
+  [ADR 0197](0197-a-public-site-is-a-client-of-an-app-and-the-framework-defines-its-socket.md)
   (proposed 2026-11-03): the tokens are pinned rather than copied, the family ships a site's
   build-time tooling, and the framework defines the socket a site plugs into. The reasoning of
   §1–3 and all of §5 stand.

@@ -223,10 +223,10 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   governed opt-out is a justified `// terp-allow-<rule>: <reason>` marker whose counts must
   exactly match the app's checked-in `escape-hatch-budget.json` (a ratchet, run by
   `npm run lint`).
-- **A public website is not a Terp app** (ADRs 0123 and 0193) — never put public pages in an
+- **A public website is not a Terp app** (ADRs 0123 and 0197) — never put public pages in an
   app's SPA, ask for a relaxed zone for them, or connect a site to the database; a site is a
   separate client that reads published content through the app's API at build time, and ADR
-  0193 defines the socket it plugs into.
+  0197 defines the socket it plugs into.
 
 ## The Terp Standard (terp-spec)
 
@@ -248,6 +248,11 @@ both pins together to adopt a new spec release; `test_repo_split_readiness` fail
 the build if the framework re-couples to `spec/` or `studio/` by path.
 
 ## Run the gate
+
+Set `TERP_TEST_POSTGRES_URL` to a disposable PostgreSQL server first. The suite
+creates scratch databases; the user must be able to create and drop them. The full
+coverage gate includes PostgreSQL-specific custody paths and cannot reach 100%
+when those tests skip. CI supplies PostgreSQL 17 to both coverage jobs.
 
 ```bash
 uv run coverage run -m pytest   # the gate: the suite ...

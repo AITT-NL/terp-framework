@@ -9,10 +9,6 @@ live.
 
 from __future__ import annotations
 
-from terp.capabilities.auth.credentials import (
-    ReplayKeyOnCredentialRouteError,
-    refuse_replay_key,
-)
 from terp.capabilities.auth.deps import (
     TokenValidator,
     build_get_principal,
@@ -55,6 +51,7 @@ from terp.capabilities.auth.router import (
     LoginTenantResolver,
     PrincipalResolver,
     RefreshIssuer,
+    RefreshRevoker,
     RefreshRotator,
     ServiceTokenVersionResolver,
     TokenRevoker,
@@ -73,6 +70,7 @@ from terp.capabilities.auth.schemas import (
     NativeSession,
 )
 from terp.capabilities.auth.second_factor import MfaRequiredError, SecondFactor
+from terp.capabilities.auth.snapshot import AuthenticatedPrincipal, resolve_token_version
 from terp.capabilities.auth.throttle import (
     AccountLockedError,
     LoginThrottle,
@@ -101,6 +99,7 @@ __all__ = [
     "AccessTokenClaims",
     "AccountLockedError",
     "Authenticator",
+    "AuthenticatedPrincipal",
     "BrowserOnNativeRouteError",
     "ClientAuthenticator",
     "ClientCredentialsRequest",
@@ -117,9 +116,9 @@ __all__ = [
     "SecondFactor",
     "PrincipalResolver",
     "RefreshIssuer",
+    "RefreshRevoker",
     "RefreshRotation",
     "RefreshRotator",
-    "ReplayKeyOnCredentialRouteError",
     "ServiceTokenVersionResolver",
     "SubjectKind",
     "TooManyAttemptsError",
@@ -143,7 +142,7 @@ __all__ = [
     "refresh_token_digest",
     "refresh_token_digests",
     "refuse_browser",
-    "refuse_replay_key",
+    "resolve_token_version",
     "set_refresh_cookie",
     "tenant_from_bearer",
     "verify_password",

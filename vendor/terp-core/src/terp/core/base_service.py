@@ -443,6 +443,23 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         fails exactly as a missing one does), so the flush below enforces it for this write
         and for any other the unit carries.
         """
+        state = sa_inspect(entity, raiseerr=False)
+        if action is AuditAction.CREATED and state is not None and state.has_identity:
+            # A caller-supplied audit action cannot turn an existing row into an
+            # insertion and thereby restamp its owner or skip update authorization.
+            if state.session is session:
+                session.expire(entity)
+            raise ValueError("An existing row cannot be saved with AuditAction.CREATED")
+        if action is not AuditAction.CREATED:
+            self._refuse_if_append_only(action)
+            try:
+                self._authorize_object_write(entity, action)
+            except PermissionDeniedError:
+                # A bespoke service may have changed the entity before _save. A
+                # caught denial must not leave those changes for another commit.
+                if state is not None and state.persistent and state.session is session:
+                    session.expire(entity)
+                raise
         if isinstance(entity, ActorStampedMixin):
             actor = audit_actor_ctx.get()
             if action is AuditAction.CREATED:
@@ -450,9 +467,6 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
             entity.modified_by_id = actor
         if isinstance(entity, OwnedMixin) and action is AuditAction.CREATED:
             entity.owner_id = audit_actor_ctx.get()
-        if action is not AuditAction.CREATED:
-            self._refuse_if_append_only(action)
-            self._authorize_object_write(entity, action)
         with enter_write_unit() as outermost:
             try:
                 session.add(entity)
@@ -607,6 +621,9 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         """
         self._refuse_if_append_only(AuditAction.DELETED)
         entity = self.get(session, entity_id)
+        # A denied delete must leave no dirty state for a later authorized write to
+        # flush. In particular a batch may catch the denial and keep this session.
+        self._authorize_object_write(entity, AuditAction.DELETED)
         if issubclass(self.model, SoftDeleteMixin):
             entity.deleted_at = _utc_now()  # type: ignore[attr-defined]
             self._save(session, entity, AuditAction.DELETED)

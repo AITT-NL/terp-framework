@@ -928,9 +928,13 @@ frontend design-system track below.
       0189), the personal-data marker (ADR 0190), store-aware readiness (ADR 0191) and the
       stricter destructive-migrations rule. Every allowance is empty again: both
       `_AWAITING_SPEC_RELEASE` lists and `VERDICTS_AWAITING_SPEC_RELEASE`.
-- [ ] Owed: the Studio's pin to 0.35.0. It brings the Studio's theme catalog along: its parity
-      gates read the framework's palettes, and three of them failed against this main on
-      2026-10-05 (none against its 0.30.0 pin).
+- [x] Released as 0.36.0 (2026-11-04), on terp-spec 0.40.0: a security pass (a grant
+      rechecked where it is used, a stored idempotent response reauthorised on replay,
+      relationship reads scoped like direct ones, one authority snapshot per request, one
+      deadline per outbound call, webhook signatures over the event's identity, a redacted log
+      line that keeps its credential label), a job's audited mutations in one transaction,
+      newer production bases, and TypeScript 6.0 in the workspace and the generated app.
+- [ ] Owed: the Studio's pin to 0.36.0. It pins 0.35.0.
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
       every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
       the template's two `AGENTS.md` files, the repository's own and the react-core README.

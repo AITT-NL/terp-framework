@@ -42,9 +42,8 @@ jobs:
 
       - run: npm ci
 
-      - name: npm audit — dependency CVEs (advisory, mirrors pip-audit)
-        continue-on-error: true
-        run: npm audit --audit-level=high
+      - name: npm audit — moderate and higher dependency CVEs
+        run: npm audit --audit-level=moderate
 
       - name: Type-check the generated client
         run: npm run -w @terpjs/contract typecheck

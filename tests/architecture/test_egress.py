@@ -132,7 +132,10 @@ def test_the_allowlist_is_exact_not_a_suffix() -> None:
     [
         ({"timeout_seconds": 0}, "timeout_seconds"),
         ({"timeout_seconds": -1}, "timeout_seconds"),
+        ({"timeout_seconds": float("inf")}, "timeout_seconds"),
+        ({"timeout_seconds": float("nan")}, "timeout_seconds"),
         ({"max_response_bytes": 0}, "max_response_bytes"),
+        ({"max_response_bytes": float("inf")}, "max_response_bytes"),
         ({"allowed_schemes": ()}, "allowed_schemes"),
         ({"allowed_hosts": ("*.example.com",)}, "wildcard"),
         ({"allowed_hosts": (" api.example.com ",)}, "lowercase hostnames"),
@@ -270,7 +273,9 @@ def test_the_policy_supplies_the_timeout_and_the_cap_not_the_call_site() -> None
         allowed_hosts=("api.example.com",), timeout_seconds=2.5, max_response_bytes=1234
     )
     _client(policy, sender=_capture).get("https://api.example.com/")
-    assert seen == [(2.5, 1234)]
+    assert len(seen) == 1
+    assert 0 < seen[0][0] <= 2.5  # resolution consumes part of the same budget
+    assert seen[0][1] == 1234
 
 
 def test_post_carries_the_body_and_the_method() -> None:
@@ -421,7 +426,14 @@ def _mock_httpx(monkeypatch: pytest.MonkeyPatch, handler: object) -> list[httpx.
 
     def _record(request: httpx.Request) -> httpx.Response:
         recorded.append(request)
-        return handler(request)  # type: ignore[operator]
+        response = handler(request)  # type: ignore[operator]
+        # Model a streamed response, as the actual network transport supplies it.
+        if response.is_stream_consumed:
+            return httpx.Response(
+                response.status_code, headers=response.headers,
+                stream=httpx.ByteStream(response.content),
+            )
+        return response
 
     real_client = httpx.Client
 

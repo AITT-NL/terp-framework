@@ -1,13 +1,12 @@
 # 0195 — A native client carries its refresh token in the body, on routes that refuse a browser
 
-- **Status:** Proposed (awaiting review). Built in 0.35.1: `NativeClients`, the two routes,
+- **Status:** Proposed (awaiting review). Built in 0.36.1: `NativeClients`, the two routes,
   the browser-provenance refusal and the reference app's opt-in, with its committed contract
   and authority baseline. The one governed escape-hatch marker decision 7 spends was agreed
   by the owner before it was added. Held by `apps/example/tests/test_native_refresh.py`,
   `test_login_wiring.py` and the authority-baseline and contract tests.
-- **Date:** 2026-11-03. 0182 and 0183 are reserved for other records; 0184 to 0191 are taken,
-  0192 is claimed by a proposal under review, 0193 is the site socket and 0194 the API
-  contract baseline.
+- **Date:** 2026-11-03. 0182 and 0183 are reserved for other records and 0184 to 0193 are taken;
+  0194 to 0197 are this series.
 - **Relates:** extends [ADR 0054](0054-refresh-token-sessions.md) (one refresh-token family,
   rotated, reuse-detecting, revoked through `revoke_sessions`; this adds a second carrier and
   changes nothing about the first); keeps [ADR 0031](0031-session-management-token-revocation-and-login-lockout.md)
@@ -115,9 +114,11 @@ reuse. The store key folds in `Authorization` and `Cookie`, and a native refresh
 neither, so a captured request, key and body token included, would have kept yielding its
 successor. The cookie routes had the same shape.
 
-So `/login`, `/token`, `/refresh` and both native routes refuse the header with a typed 400
-(`idempotency_key_not_accepted`). The middleware then stores the refusal, harmless to replay,
-and never a token. A client retries one of these routes by sending it again without a key.
+So no credential route accepts the header. The core's `no_idempotency` marker, which
+`/login`, `/token` and `/refresh` carry since 0.36.0 (ADR 0193), refuses a request that sends
+one with a typed 400 (`idempotency_not_supported`) before the route runs, so nothing is
+stored and no token is ever replayed; both native routes carry the same marker. A client
+retries one of these routes by sending it again without a key.
 
 ### 6. The grace window and logout are ADR 0054's, deliberately
 
@@ -147,7 +148,7 @@ keystore and nowhere else, and to treat a 401 from `/native/refresh` as signed o
 ## Two-layer enforcement
 
 - **Runtime, fail-closed:** a browser-provenance header or the refresh cookie on a native
-  route is a 403; an `Idempotency-Key` on any credential route is a 400; an invalid, expired,
+  route is a 403; an `Idempotency-Key` on a native route is the core's 400, as on every credential route; an invalid, expired,
   revoked or reused body token is a 401, and a reuse revokes the family, as for the cookie.
 - **Construction:** a blank reason, or native clients without the refresh seams, is refused
   when the module is built.

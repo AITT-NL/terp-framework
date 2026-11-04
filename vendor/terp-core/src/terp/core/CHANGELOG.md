@@ -10,19 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.35.1 — unreleased
-
-### Security
-
-- **A route that mints a credential no longer accepts an `Idempotency-Key` (ADR 0195).** The
-  idempotency middleware stores a completed response and replays it to a retry of the same key
-  before the route runs. On `/login`, `/token` and `/refresh` that put a live credential in the
-  replay store for a day, and let a captured refresh request, cookie and key included, be
-  replayed for the session it had already rotated into, without the reuse detection that
-  catches a stolen refresh token ever seeing it. These routes, and the new native ones, now
-  refuse the header with a typed 400, `idempotency_key_not_accepted`, so only that refusal is
-  ever stored. The framework's own client never sends the header on these routes; a client
-  that does retries without it.
+## 0.36.1 — unreleased
 
 ### Added
 
@@ -68,7 +56,10 @@ decision, 0001 onwards.
   cookie never reaches, calls the native routes from its native layer and gives its page only
   access tokens. Off by default: an app that does not declare it mounts nothing
   new and its contract is unchanged. A blank reason, or native clients without the refresh
-  seams, is refused at construction. The minted refresh-token field carries the same governed
+  seams, is refused at construction. Like every credential route they refuse an
+  `Idempotency-Key`, and they take the same authenticated snapshot `/login` and `/refresh` do
+  (ADR 0193): a family is issued at the epoch the sign-in captured, and a refresh whose family
+  epoch no longer matches is refused. The minted refresh-token field carries the same governed
   marker the access token does, so the auth capability's `schemas_exclude_sensitive_fields`
   budget moves from 1 to 2. The reference app opts in; its committed contract and authority
   baseline record the two routes.
@@ -95,17 +86,64 @@ decision, 0001 onwards.
 ### Changed
 
 - **A public website has a defined way to connect to a Terp app, and is still not a kind of
-  Terp app (ADR 0193).** ADR 0123 refused websites as an application kind and recorded that
+  Terp app (ADR 0197).** ADR 0123 refused websites as an application kind and recorded that
   nothing here would change for them. Its reasoning stands; that consequence is amended. A
   site is a separate client that reads published content from one app's API at build time,
   from a public read route with no credential in its build, and never connects to the app's
-  database. ADR 0193 names the five
+  database. ADR 0197 names the five
   things such a site declares about itself (where its content comes from, how its build
   authenticates, what rebuilds it, which rules it is held to, and the unit it deploys as), and
   moves the design tokens from a copy to an exact pin of `@terpjs/contract`, so a site keeps
   the provenance of the contrast gate and the pairs it measures. This release builds none of
   it: the contract baseline, the site rules profile, the starter and the deploy recipe follow
   as changes of their own.
+
+### Upgrade notes
+
+- **`terp-cap-users` depends on `terp-cap-mail` and `cryptography` (ADR 0196),** and the
+  identity capability gains the `identity_account_token` table, created by
+  `terp migrate upgrade` after 0.36.0's refresh-family migration. An image that installs the capabilities one by one installs
+  `terp-cap-mail` beside `terp-cap-users`, as the reference app's Dockerfiles now do.
+
+## 0.36.0 — 2026-11-04
+
+### Security
+
+- Enforce a permission's role floor and current grant together, including dependency
+  requirements and access projections. Realtime connections recheck current grants and
+  audiences at redemption, delivery, inbound frames and idle heartbeats.
+- Reauthorize stored idempotent responses through the current request dependencies and
+  an explicit read-only replay authorizer. Undeclared replay is refused while preserving
+  the deduplication record; credential-minting routes reject idempotency keys.
+- Scope ORM relationship and alias reads to the same tenant and soft-delete predicates
+  as direct reads. A denied soft-delete or bespoke save leaves no dirty mutation for a
+  later allowed commit; an existing row cannot be relabelled as a creation to restamp
+  ownership. Outbox finalization compares the current claim in the database update.
+- Bind authenticated authority and the revocation epoch to one snapshot, bind OIDC
+  callbacks to their initiating browser, and revoke a presented refresh family even
+  when logout has no bearer. Refresh families issued by the router carry their epoch.
+  Custom auth/refresh integrations need the migration in
+  [authentication transitions](docs/authentication-transitions.md); bundled compositions
+  are updated and the identity schema change is additive.
+- Enforce one elapsed network deadline across outbound socket operations and refuse
+  compressed responses before decoding. Upstreams must support identity encoding.
+  Synchronous OS name resolution is charged to the budget but cannot be cancelled;
+  [egress documentation](packages/backend/capabilities/egress/README.md) states the limit.
+  Mail security strings are normalized and validated before any transport is opened.
+- Webhook signatures now authenticate event type and delivery identity together with
+  timestamp and body. Receivers must adopt the version 2 representation in
+  [webhook signatures](docs/webhook-signatures.md); no unsigned metadata fallback is sent.
+  File references require authority to bind the target, including reassignment.
+- Preserve authorization schemes while redacting formatted log templates, so
+  `Authorization: Bearer %s` cannot lose its credential label before interpolation.
+- Raise affected Python dependency floors, update frontend security overrides, and make
+  dependency audit failures block CI (moderate and higher for npm). A separate lane audits
+  and tests the minimum runtime dependency combination. The remaining low-severity
+  build-tool advisory and its follow-up are recorded in
+  [security boundaries](docs/security-boundaries.md).
+
+### Changed
+
 - **A generated app's production images build on newer bases.** terp-arch's base-image table
   moves uv from 0.13.4 to 0.13.7, `node:26-slim` from Node.js 26.12.0 to 26.13.0 and
   `python:3.14-slim` from Python 3.14.8 to 3.14.10, each by digest; the digest the nginx base's
@@ -122,15 +160,47 @@ decision, 0001 onwards.
   and close the pull request. Its own digest is not to be copied: Dependabot cannot see the tag
   on a `FROM` line pinned by digest alone, and two of the last three it proposed were another
   tag's image.
-
-### Upgrade notes
-
-- **`terp-cap-users` depends on `terp-cap-mail` and `cryptography` (ADR 0196),** and the
-  identity capability gains the `identity_account_token` table, created by
-  `terp migrate upgrade`. An image that installs the capabilities one by one installs
-  `terp-cap-mail` beside `terp-cap-users`, as the reference app's Dockerfiles now do.
+- **TypeScript 6.0, in the workspace and in the generated app.** Every frontend package, the
+  example app, the workbench and the template move from `^5.9.3` to `^6.0.3`, and so does
+  `@terpjs/contract`'s runtime dependency, which `terp-routes` reads module manifests through.
+  6.0 is the last release on the JavaScript compiler and sits inside typescript-eslint's peer
+  range, so the boundary linter runs unchanged. Its deprecations are exactly what TypeScript 7
+  removes, and no tsconfig here or in the template uses one. TypeScript 7 stays out:
+  typescript-eslint refuses to start on it, and the compiler API `terp-routes` reads moved
+  behind `typescript/unstable/*` in 7.0.
+- **The template gives openapi-typescript the app's own TypeScript.** The latest
+  openapi-typescript declares `typescript: ^5.x`, so on 6.0 a generated app's `npm install`
+  fails with ERESOLVE before anything runs. The template's `overrides` now carries
+  `"openapi-typescript": { "typescript": "$typescript" }`, scoped to that one package rather
+  than `legacy-peer-deps` for the whole tree; on 6.0 it writes the same `schema.d.ts` byte for
+  byte. The workspace root carries the same entry, because without it npm installs but hoists a
+  second TypeScript that typescript-eslint picks up, and the linter then reads a different
+  compiler from the build. A test holds the override to the peer range that made it necessary:
+  when a release declares another range, it fails and names what to delete. An existing app
+  receives the bump and the override together with its next template update.
+- **A generated app's Dependabot holds back the TypeScript major the framework does.** Its
+  frontend updates arrive as one grouped pull request, and a TypeScript major outside
+  typescript-eslint's peer range fails the whole install, so the group failed every week with
+  every routine update in it. The template's `.github/dependabot.yml` now ignores TypeScript
+  majors the way this repository's own does, and a test keeps the two together.
 
 ### Fixed
+
+- Jobs now commit their audited service mutations as one transaction and roll them back
+  on handler failure. Independent webhook delivery and sync failure journals are persisted
+  after that transaction finishes, preserving failed attempts without committing business
+  changes. Sync failure journals preserve winning concurrent updates and distinguish
+  attempted work from rolled-back local writes. PostgreSQL sync acquisition and heartbeats
+  use independent custody transactions; finalization fences the business commit and release
+  follows transaction completion. SQLite retains its database-wide write-lock limitation,
+  documented in the [sync contract](packages/backend/capabilities/sync/README.md).
+- Production-refusal classification works when the checkout itself is under a `src`
+  directory.
+- **`@terpjs/react-core` type-checks under TypeScript 6.** `Combobox` chose its first active
+  option with an expression TypeScript 6 rejects as always nullish (TS2871). react-core ships
+  its source and an app compiles it with its own compiler, so an app on 6 failed its typecheck
+  inside the package, not in its own code. The expression is split in two; behaviour is
+  unchanged.
 
 - **A date picker and the DataView page-size trigger name the value they show (WCAG 2.5.3).**
   Each trigger was named by its label alone, and `aria-label` replaces a button's content in

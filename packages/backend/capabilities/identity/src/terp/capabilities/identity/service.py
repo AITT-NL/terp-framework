@@ -21,6 +21,7 @@ from collections.abc import Callable
 from sqlmodel import Session, select
 
 from terp.capabilities.auth import (
+    AuthenticatedPrincipal,
     AccessTokenClaims,
     CurrentUser,
     SubjectKind,
@@ -128,7 +129,11 @@ class IdentityService:
 
     def _principal_from(self, user: User) -> Principal:
         """Build the typed principal for *user*, resolving its stored rank to a role."""
-        return Principal(id=user.id, role=self._permission_model.role_for_rank(user.role))
+        return AuthenticatedPrincipal(
+            id=user.id,
+            role=self._permission_model.role_for_rank(user.role),
+            token_version=user.token_version,
+        )
 
     def current_user(self, session: Session, principal: Principal) -> CurrentUser:
         """The authenticated caller's own identity — the ``GET /me`` resolver (ADR 0044).
@@ -163,16 +168,23 @@ class IdentityService:
         )
 
     def token_version_for(self, session: Session, principal: Principal) -> int:
-        """The principal's current token epoch, so login signs it (ADR 0031).
+        """Validate the live authority against the authenticated snapshot (ADR 0031).
 
-        The ``token_version_resolver`` the login builder calls after authentication: a
-        token minted at the user's *current* epoch is valid; without signing it, the
-        first token issued after any revoking change would be instantly stale. A missing
-        user resolves to ``0`` (the default epoch); the caller just authenticated, so the
-        row exists in practice.
+        The login builder compares this epoch to the captured one; it never replaces
+        the authenticated epoch with a later one. A missing/inactive subject, changed
+        role, or principal without an authenticated snapshot fails closed.
         """
-        user = self.get_by_id(session, principal.id)
-        return user.token_version if user is not None else 0
+        if not isinstance(principal, AuthenticatedPrincipal) or principal.kind != "user":
+            raise AuthenticationError()
+        # Select scalar columns so an identity-map copy cannot hide a committed
+        # demotion or credential reset from the snapshot check.
+        current = session.exec(
+            select(User.token_version, User.role, User.is_active).where(User.id == principal.id)
+        ).first()
+        if (current is None or not current.is_active or current.role != principal.role.rank
+                or current.token_version != principal.token_version):
+            raise AuthenticationError()
+        return current.token_version
 
     def token_is_current(self, session: Session, claims: AccessTokenClaims) -> bool:
         """Whether *claims* still authorize a live session — the revocation check.

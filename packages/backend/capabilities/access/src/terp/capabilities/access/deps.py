@@ -30,14 +30,18 @@ from collections.abc import Callable
 
 from fastapi import Depends
 from sqlmodel import Session
+from starlette.requests import HTTPConnection
 
 from terp.core import (
     AuthenticationError,
+    AuthorizationRequirement,
     PermissionDeniedError,
     Permission,
     Principal,
     SessionDep,
     get_principal,
+    decide_requirement,
+    request_authorization,
     mark_required_permission,
     register_permission_projector,
 )
@@ -55,12 +59,9 @@ def require_permission(permission: str | Permission) -> Callable[..., None]:
     call in app code, so the typed constant from the control plane is the only form that
     passes the gate.
 
-    ``str`` stays in the signature because two callers legitimately have only a name: the
-    kernel guard's enforcer seam, which is handed the name the ``Policy`` resolved, and an
-    operator revoking a permission the app has since stopped declaring. It is not a second
-    authoring style — the rule already closed that — and this note used to say the rule
-    could not yet guide modules to the control plane, which stopped being true when it
-    started refusing the literal.
+    A string is resolved against the mounted app's permission catalog, including
+    its minimum role. Without that context, a string is denied: its name alone
+    cannot establish a role floor. Direct callers should supply a Permission.
     """
 
     permission_name = permission.name if isinstance(permission, Permission) else permission
@@ -68,15 +69,40 @@ def require_permission(permission: str | Permission) -> Callable[..., None]:
     def dependency(
         session: SessionDep,
         principal: Principal | None = Depends(get_principal),
+        connection: HTTPConnection = None,
     ) -> None:
         if principal is None:
             raise AuthenticationError()
-        if not _service.has_permission(session, principal.id, permission_name):
+        context = request_authorization(connection)
+        model = None if context is None else context.permission_model
+        declared = (
+            None if model is None else next(
+                (item for item in model.permissions if item.name == permission_name), None
+            )
+        )
+        if model is not None and (
+            declared is None
+            or isinstance(permission, Permission) and permission.min_role != declared.min_role
+        ):
+            raise PermissionDeniedError()
+        resolved = declared if declared is not None else permission
+        if not isinstance(resolved, Permission):
+            raise PermissionDeniedError()
+        decision = decide_requirement(
+            AuthorizationRequirement.from_permission(resolved),
+            role=principal.role,
+            role_is_registered=model is None or model.has_role(principal.role),
+            holds_permission=lambda name: _service.has_permission(session, principal.id, name),
+            module_rank=(
+                None if context is None or context.module_rank is None
+                else lambda: context.module_rank(session, principal.id)
+            ),
+        )
+        if not decision.allowed:
             raise PermissionDeniedError()
 
-    # Introspection marker (never a control): `terp inspect access` reads this to
-    # surface route-level permission requirements in the access graph.
-    return mark_required_permission(dependency, permission_name)
+    # Introspection retains the floor as well as the name; it is never a control.
+    return mark_required_permission(dependency, permission)
 
 
 def enforce_permission(
