@@ -12,14 +12,14 @@ transport servers where the transport itself is the boundary.
 | Current authorization before cached-response replay | `apps/example/tests/test_idempotency_authorization.py`, `tests/architecture/test_idempotency.py` |
 | Revoked grants on established realtime streams | `tests/architecture/test_realtime_revocation.py` |
 | Related-entity scope | `tests/architecture/test_persistence_isolation.py` |
-| Denied mutation followed by another commit | `tests/architecture/test_object_authz.py`, `test_persistence_isolation.py` |
+| Denied mutation followed by another commit | `tests/architecture/test_object_authz.py`, `test_persistence_isolation.py`, `test_refused_delete.py` |
 | Consistent authenticated authority and epoch | `apps/example/tests/test_authentication_snapshots.py`, `tests/architecture/test_service_principals.py` |
 | Login bound to the initiating browser | `tests/architecture/test_oidc.py` |
 | Cookie-only server-side logout, including concurrent PostgreSQL rotation | `apps/example/tests/test_authentication_snapshots.py`, `tests/architecture/test_refresh_concurrency_postgres.py` |
-| Body-carried logout and the authenticated epoch on native refresh | `apps/example/tests/test_native_sessions.py` |
-| Single-use refresh rotation and reuse detection, cookie and body carriers | `apps/example/tests/test_runtime_security_cases.py`, `test_refresh_tokens.py`, `test_native_refresh.py` |
-| Routes that return a refresh token in the body refuse browser provenance | `apps/example/tests/test_runtime_security_cases.py`, `test_native_refresh.py` |
-| Self-service accounts: identical answers, proof of address, sealed single-use expiring tokens, backoff, lowest rank and closing | `apps/example/tests/test_runtime_security_cases.py`, `tests/architecture/test_self_service_accounts.py` |
+| Body-carried logout, and the authenticated epoch on native sign-in and refresh | `apps/example/tests/test_native_sessions.py` |
+| Refresh rotation and reuse detection outside the grace window, cookie and body carriers | `apps/example/tests/test_runtime_security_cases.py`, `test_refresh_tokens.py`, `test_native_refresh.py` |
+| Routes that return a refresh token in the body refuse browser provenance before reading the body | `apps/example/tests/test_runtime_security_cases.py`, `test_native_refresh.py` |
+| Self-service accounts: identical answers and work, proof of address with the password chosen at redemption, sealed single-use expiring tokens, per-caller backoff, lowest rank and closing | `apps/example/tests/test_runtime_security_cases.py`, `tests/architecture/test_self_service_accounts.py` |
 | Stale worker finalization and job rollback | `tests/architecture/test_worker_transactions.py` |
 | Sync failure journal with rolled-back business changes | `tests/architecture/test_sync_transactions.py` |
 | Visible source custody without committing business work | `tests/architecture/test_sync_custody.py` (PostgreSQL and SQLite) |
