@@ -1102,21 +1102,25 @@ The security declaration (SecurityConfig, refused at production boot)
   either way - so turning this on is a choice to publish, not a way to get the file.
   Commit that file instead: `openapi.json` is the app's API contract, the one a mobile
   app or a site in another repository pins, and `terp verify --only api-contract` holds
-  it to the API the app serves and names every change that breaks a client (ADR 0194).
+  it to the API the app serves, naming every change to its shape, the ones that break a
+  client first (ADR 0194). Who may call a route is not in it: authz-surface pins that.
 - headers ships a safe SecurityHeaders set; max_request_bytes (1 MiB) is the body cap and
   is per-mount overridable (ADR 0067); request_id_header names the correlation header
   ("X-Request-ID") echoed on every response.
 - A NATIVE MOBILE CLIENT stays signed in through its own routes, opt-in with a reason
   (ADR 0195): build_login_module(..., native_clients=NativeClients(reason="...")) mounts
-  POST /api/v1/auth/native/login and /native/refresh, which answer the refresh token in
-  the JSON body and run the same rotation, reuse detection and revocation as the cookie.
-  The client keeps that token in the OS keychain or keystore and nowhere else, and treats
-  a 401 from /native/refresh as signed out. Both routes refuse any request with browser
-  provenance (Origin, Sec-Fetch-*, the refresh cookie) with 403 native_client_only, so a
-  browser stays on /login and /refresh. A HYBRID app (a page inside a native shell) calls
-  them from its native layer and hands its page only access tokens: a page that holds the
-  refresh token has given up what the cookie protects. No credential route (/login, /token,
-  /refresh, /native/*) accepts an Idempotency-Key; retry without one.
+  POST /api/v1/auth/native/login, /native/refresh and /native/logout. The first two answer
+  the refresh token in the JSON body and run the same rotation, reuse detection and
+  revocation as the cookie, its rotation grace window included; /native/logout takes the
+  token and revokes its whole family without minting a successor. The client keeps that
+  token in the OS keychain or keystore and nowhere else, and treats a 401 from
+  /native/refresh as signed out. All three refuse any request with browser provenance
+  (Origin, any Sec-Fetch-* header, the refresh cookie) with 403 native_client_only before
+  the body is validated, so a browser stays on /login, /refresh and /logout. A HYBRID app
+  (a page inside a native shell) calls them from its native layer and hands its page only
+  access tokens: a page that holds the refresh token has given up what the cookie
+  protects. No route that mints a credential (/login, /token, /refresh, /native/login,
+  /native/refresh) accepts an Idempotency-Key; retry without one.
 - No terp.arch check applies - there is no module code shape to police. Enforcement is
   the create_app production fail-fast plus the production-readiness verify lane.
 """,
@@ -1233,11 +1237,14 @@ Password strength (PasswordPolicy, Tier-B)
           users=users_service, throttle_store=shared_store,
           link_base="https://app.example.com"))
   for POST /api/v1/accounts/sign-up, /verify, /password-reset, /password-reset/confirm
-  and /me/close. An account exists only once its address redeems the mailed token; a
-  request about an address answers 202 the same way whether or not it has an account;
-  tokens are sealed, expire, work once, and ride the URL fragment, so your account pages
+  and /me/close. Sign-up takes only the address: the account opens when the mailed token
+  is redeemed at /verify with the password, so whoever asked cannot choose it. Every
+  request about an address answers 202 the same way and sends that address exactly one
+  message, whether or not it has an account, and addresses compare case-insensitively.
+  Tokens are sealed, expire, work once, and ride the URL fragment, so your account pages
   read them from location.hash and post them. Closing needs the password again and ends
-  every session (AccountDeletion.SCRUB by default, or REMOVE).
+  every session (AccountDeletion.SCRUB by default, or REMOVE, which scrubs instead, with a
+  warning, when a reference refuses the delete).
 - No terp.arch check applies (no module code shape to police) — enforcement is the
   service chokepoint plus the create_app production fail-fast.
 """,

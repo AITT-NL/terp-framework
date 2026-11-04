@@ -14,8 +14,8 @@ decision, 0001 onwards.
 
 ### Added
 
-- **An app's API contract is a committed file, and a change that breaks a client is named
-  before it ships (ADR 0194).** A native client already installed on a phone, or a site built
+- **An app's API contract is a committed file, and a change to its shape that breaks a client
+  is named before it ships (ADR 0194).** A native client already installed on a phone, or a site built
   in another repository, runs against whatever the app serves next, and the production profile
   rightly hides the schema endpoints, so nothing recorded the shape such a client was built
   against: a removed response field or a new required request field passed every gate. The
@@ -28,14 +28,20 @@ decision, 0001 onwards.
   produce what it never did, including a new `enum` value, which a strict decoder in a native
   client refuses. The pin is exact, because the file is what other repositories pin.
   A difference the check cannot read, such as a map's value schema, a default, a union of object
-  shapes or a change to how the API authenticates, is a line that says to review it as
-  breaking, and counts as breaking, so a run never reports "0 breaking" over it. The contract is
+  shapes, a response header or a change behind a reference no rule follows, is a line of its
+  own that names the place, says to review it as breaking and counts as breaking, whatever
+  else changed, so a run never reports "0 breaking" over it. Who may call an operation is not
+  in the contract: Terp declares no security and no 401 or 403 response, so moving a route
+  from public to admin leaves `openapi.json` unchanged, and the authority baseline
+  (authz-surface, ADR 0139) is what pins it. The contract is
   the API as `terp openapi` composes it, in the development environment by default, so a route
   mounted only in some environments appears as that composition has it.
   `terp openapi` is the writer, and when it overwrites a contract that differs it prints the
   same lines first. `api-client` generates the typed client from a tracked contract instead of
-  exporting over it, and `terp release` carries the contract in the signed manifest's
-  `inputs`, so a release names the exact contract it serves. The template no longer ignores
+  exporting over it, and `terp release` carries the committed contract in the signed
+  manifest's `inputs`. The signature vouches for the file its commit holds, not for the app
+  serving it: the `api-contract` check holds the file to the app, and `sign` does not require
+  it, because the release-assurance claim it reads composes only the spec's required lanes. The template no longer ignores
   `openapi.json`: after `copier update`, the next gate run writes the file, and an app commits
   it to adopt the check, or lists it in `.gitignore` again to stay out.
 - **A native mobile client can stay signed in with its refresh token in the body (ADR 0195).**
@@ -50,12 +56,14 @@ decision, 0001 onwards.
   `POST /api/v1/auth/native/logout`, which takes `{refresh_token}` and revokes its whole family
   without rotating it: the body counterpart of 0.36.0's cookie-only logout, so a client whose
   access token has expired signs out without minting a successor. They run the same family,
-  single-use rotation, reuse detection (a replayed rotated token revokes the whole family) and
-  revocation on logout, deactivation and password reset, through the same seams, and
-  `/native/login` takes the credential rate limit `/login` takes. All three refuse a request with
-  browser provenance, an `Origin` header, any `Sec-Fetch-*` header or the refresh cookie, with
-  403 `native_client_only` before any credential is read, so a page can never be handed a
-  token its script could read. A hybrid app, whose page runs at a custom-scheme origin the
+  rotation, reuse detection (a rotated token replayed after `REFRESH_ROTATION_GRACE_SECONDS`
+  revokes the whole family) and revocation on logout, deactivation and password reset, through
+  the same seams, and `/native/login` takes the credential rate limit `/login` takes. All three
+  refuse a request with browser provenance, an `Origin` header, any `Sec-Fetch-*` header
+  (matched by its prefix, so one the standard adds later counts too) or the refresh cookie,
+  with 403 `native_client_only`, as a dependency of the route that runs before the body is
+  validated or any credential read, so a page can never be handed a token its script could
+  read. A hybrid app, whose page runs at a custom-scheme origin the
   cookie never reaches, calls the native routes from its native layer and gives its page only
   access tokens. Off by default: an app that does not declare it mounts nothing
   new and its contract is unchanged. A blank reason, or native clients without the refresh
@@ -65,26 +73,36 @@ decision, 0001 onwards.
   captured, and a refresh whose family epoch no longer matches is refused. The minted refresh-token field carries the same governed
   marker the access token does, so the auth capability's `schemas_exclude_sensitive_fields`
   budget moves from 1 to 2. The reference app opts in; its committed contract and authority
-  baseline record the three routes.
+  baseline record the three routes. `AUTH_NATIVE_LOGIN`, `AUTH_NATIVE_REFRESH` and
+  `AUTH_NATIVE_LOGOUT` are exported beside the other auth operations.
 - **A person can open, prove, recover and close their own account (ADR 0196).** The users
   capability had only operator operations, so an app with consumer accounts wrote the public
   half itself, which is where an address gets enumerated, a reset token works twice or ends up
   in a server log, and a stolen access token closes an account. `build_accounts_module` over
   a `SelfService` declaration mounts `POST /api/v1/accounts/sign-up`, `/verify`,
-  `/password-reset`, `/password-reset/confirm` and `/me/close`. An account exists only once
-  its address redeems the token mailed to it, at the viewer rank, and inactive when the app
-  approves accounts (ADR 0142). A request about an address answers `202` the same way whether
-  or not it has an account, doing the same hashing, sealing and write either way. Tokens are
-  sealed, expire (24 hours for a sign-up and 1 hour for a reset by default), work once through
-  a new `identity_account_token` row that stores only their digest, and travel in the URL
-  fragment. Every route backs off and never locks out (ADR 0147). Closing needs the password
-  again, refuses the last administrator, ends every session, and scrubs or removes the account
-  as declared. Off by default, and refused when it is built without a reason, before
-  `configure_mail`, or in production with a link that is not https, which outside production
-  is logged as a refused state. A throttle store each worker keeps is accepted and said out
-  loud, as the platform's own is (ADR 0036). The module declares `MAIL_SEND`, so a boot whose
-  job catalog lacks it is refused. The mail capability gains `mail_is_configured()`, and
-  `terp-cap-users` now depends on `terp-cap-mail` and `cryptography`.
+  `/password-reset`, `/password-reset/confirm` and `/me/close`. Sign-up takes only the
+  address. An account exists only once the token mailed to it is redeemed at `/verify` with
+  the password the account opens with, so whoever asked cannot choose it, at the viewer rank,
+  and inactive when the app approves accounts (ADR 0142). A request about an address answers
+  `202` with the same body and headers, and sends the address exactly one message, whether or
+  not it has an account: the link, or a notice that the address already has an account or has
+  no password to reset. Addresses compare without regard to case, and one that is not a single
+  mail address is a 422 that does not repeat it. Tokens are sealed, expire (24 hours for a
+  sign-up and 1 hour for a reset by default, a lifetime the mail states without rounding it
+  up), work once through a new `identity_account_token` row that stores only their digest,
+  and travel in the URL fragment. Every route backs off and never locks out (ADR 0147), and a
+  redemption's counter is the caller's own, so bad tokens from many callers never hold up an
+  honest one. Closing needs the password again, refuses the last administrator, ends every
+  session, and scrubs or removes the account as declared, in one write; a removal a reference
+  refuses scrubs the account instead and says so in a warning. Off by default, and refused when
+  it is built without a reason, before `configure_mail`, or in production with a link that is
+  not https, which outside production is logged as a refused state. A throttle store each
+  worker keeps is accepted and said out loud, as the platform's own is (ADR 0036). The module
+  declares `MAIL_SEND`, so a boot whose job catalog lacks it is refused. The mail capability
+  gains `mail_is_configured()` and exports `parse_address`, and `terp-cap-users` now depends
+  on `terp-cap-mail` and `cryptography`. ADR 0196 records the one exposure it leaves open: a
+  queued mail's text, a link's token included, rests in the outbox in plaintext until the job
+  sends it.
 
 ### Changed
 
@@ -97,9 +115,20 @@ decision, 0001 onwards.
   things such a site declares about itself (where its content comes from, how its build
   authenticates, what rebuilds it, which rules it is held to, and the unit it deploys as), and
   moves the design tokens from a copy to an exact pin of `@terpjs/contract`, so a site keeps
-  the provenance of the contrast gate and the pairs it measures. This release builds none of
-  it: the contract baseline, the site rules profile, the starter and the deploy recipe follow
-  as changes of their own.
+  the provenance of the contrast gate and the pairs it measures. This release builds the
+  first thing a site needs, the committed API contract it pins (ADR 0194, above). The site
+  rules profile, the starter and the deploy recipe, which ADR 0198 proposes, follow as changes
+  of their own.
+
+### Fixed
+
+- **A hard delete that a foreign key refuses is a 409 again, not a 500.** The conflict an
+  integrity error maps to withholds the row's personal values from the database's text, and it
+  read them from the row. A refused flush had expired that row while its session waited for a
+  rollback, so the read tried to load it and raised, and the typed conflict became an
+  unhandled error. The values are now read from what the row holds in memory, never loaded, so
+  the refusal is the uniform `ConflictError`, its personal values withheld, and the session
+  takes the next write once it is rolled back.
 
 ### Upgrade notes
 
