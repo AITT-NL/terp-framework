@@ -38,14 +38,24 @@ class AccountDeletion(enum.StrEnum):
 
 @dataclass(frozen=True)
 class AccountMessages:
-    """The mails the routes send. ``{link}`` and ``{hours}`` are filled in; the text is plain."""
+    """The mails the routes send. ``{link}`` and ``{lifetime}`` are filled in; the text is plain.
+
+    ``{lifetime}`` is the link's lifetime in words ("24 hours", "1 hour", "30 minutes"),
+    rounded down, so a mail never promises more time than the link has.
+
+    Every request about an address sends that address exactly one of them, so neither the
+    answer, nor its timing, nor a relay that is down tells whether an account exists: a
+    sign-up gets the link or, for an address that has an account, the ``registered`` notice;
+    a reset gets the link or, for an address with no active account that signs in with a
+    password, the ``reset_unavailable`` notice.
+    """
 
     sign_up_subject: str = "Confirm your address"
     sign_up_text: str = (
         "Someone, probably you, asked to open an account with this address.\n\n"
-        "Open this link to confirm it:\n{link}\n\n"
-        "The link works once and expires in {hours} hours. If you did not ask, ignore this "
-        "message."
+        "Open this link to confirm it and choose your password:\n{link}\n\n"
+        "The link works once and expires in {lifetime}. If you did not ask, ignore this "
+        "message: no account is opened unless the link is used."
     )
     registered_subject: str = "You already have an account"
     registered_text: str = (
@@ -57,8 +67,14 @@ class AccountMessages:
     reset_text: str = (
         "Someone, probably you, asked to reset the password of the account with this "
         "address.\n\nOpen this link to choose a new one:\n{link}\n\n"
-        "The link works once and expires in {hours} hours. If you did not ask, ignore this "
+        "The link works once and expires in {lifetime}. If you did not ask, ignore this "
         "message: your password has not changed."
+    )
+    reset_unavailable_subject: str = "No password to reset"
+    reset_unavailable_text: str = (
+        "Someone asked to reset the password of an account with this address. No active "
+        "account signs in with a password here, so nothing has changed. If you sign in "
+        "through another provider, use it. If you did not ask, ignore this message."
     )
 
 

@@ -12,6 +12,7 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request, Response
+from pydantic import field_validator
 from sqlmodel import Field
 
 from terp.core import (
@@ -33,7 +34,7 @@ from terp.core import (
 )
 
 from terp.capabilities.auth import LoginThrottle
-from terp.capabilities.mail import MAIL_SEND, mail_is_configured
+from terp.capabilities.mail import MAIL_SEND, mail_is_configured, parse_address
 from terp.capabilities.users.accounts import AccountsService
 from terp.capabilities.users.operations import (
     ACCOUNTS_CLOSE,
@@ -46,24 +47,65 @@ from terp.capabilities.users.self_service import SelfService
 
 _logger = logging.getLogger("terp.capabilities.users.accounts")
 
-#: The throttle key a redemption counts under: a failed redemption is a guess at a token,
-#: which has no address to key by, so it is counted per caller.
+#: The prefix of the counter a failed redemption spends. A failed redemption is a guess at a
+#: token, which names no account, so the caller is the whole key (see _redemption_key).
 _REDEEM = "accounts:redeem"
 
 
+def _redemption_key(request: Request) -> str:
+    """The caller's own redemption counter (ADR 0147: a backoff, never a lockout).
+
+    The caller is part of the identifier, not only the source, so the throttle's
+    identifier-wide backstop is per caller too. One identifier for every caller would be one
+    counter everyone spends: enough bad tokens from anywhere would hold up everyone's good one.
+    """
+    return f"{_REDEEM}:{client_ip(request)}"
+
+
+def _one_address(value: str) -> str:
+    """*value*, when it is one mail address the relay will accept.
+
+    Checked at the boundary, so a malformed address is a 422 that names the field and not a
+    refusal deep in the mail capability. The parser's own message repeats the value, which is
+    personal data, so the refusal here does not.
+    """
+    try:
+        parse_address(value)
+    except ValueError:
+        raise ValueError("not one mail address of the form name@example.com") from None
+    return value
+
+
 class SignUpRequest(BaseSchema):
-    email: str = Personal(max_length=320)
-    password: str = Field(max_length=256)
+    """An address asking for an account. The password is chosen when the mailed token is
+    redeemed, by whoever reads the mail, so the one who asks cannot choose it."""
+
+    email: str = Personal(max_length=254)
+
+    @field_validator("email")
+    @classmethod
+    def _email_is_one_address(cls, value: str) -> str:
+        return _one_address(value)
 
 
 class PasswordResetRequest(BaseSchema):
-    email: str = Personal(max_length=320)
+    email: str = Personal(max_length=254)
+
+    @field_validator("email")
+    @classmethod
+    def _email_is_one_address(cls, value: str) -> str:
+        return _one_address(value)
 
 
-class AccountTokenRedemption(BaseSchema):
-    """A token from a mail; sealed tokens are a few hundred characters."""
+class SignUpConfirmation(BaseSchema):
+    """A sign-up token from a mail, and the password the account opens with.
+
+    Sealed tokens are a few hundred characters. The password is held to the policy here, at
+    redemption, so the person who reads the mail is the one who chooses it.
+    """
 
     token: str = Field(min_length=1, max_length=2048)
+    password: str = Field(max_length=256)
 
 
 class PasswordResetConfirmation(BaseSchema):
@@ -105,19 +147,19 @@ def build_accounts_router(declaration: SelfService) -> APIRouter:
     @operation(ACCOUNTS_SIGN_UP)
     def sign_up(request: Request, body: SignUpRequest, session: SessionDep) -> AccountRequestAccepted:
         _counted(throttle, body.email, request)
-        accounts.request_sign_up(session, body.email, body.password)
+        accounts.request_sign_up(session, body.email)
         return AccountRequestAccepted()
 
     @router.post("/verify", status_code=201, response_model=AccountOpened)
     @route_policy(Policy.public_write(reason="the token mailed to the address is the credential"))
     @operation(ACCOUNTS_VERIFY)
-    def verify(request: Request, body: AccountTokenRedemption, session: SessionDep) -> AccountOpened:
-        source = client_ip(request)
-        throttle.check(_REDEEM, source=source)
+    def verify(request: Request, body: SignUpConfirmation, session: SessionDep) -> AccountOpened:
+        key = _redemption_key(request)
+        throttle.check(key)
         try:
-            user = accounts.verify_sign_up(session, body.token)
+            user = accounts.verify_sign_up(session, body.token, body.password)
         except InvalidTokenError:
-            throttle.record_failure(_REDEEM, source=source)
+            throttle.record_failure(key)
             raise
         return AccountOpened(active=user.is_active)
 
@@ -135,12 +177,12 @@ def build_accounts_router(declaration: SelfService) -> APIRouter:
     @route_policy(Policy.public_write(reason="the token mailed to the address is the credential"))
     @operation(ACCOUNTS_RESET_PASSWORD)
     def reset_password(request: Request, body: PasswordResetConfirmation, session: SessionDep) -> Response:
-        source = client_ip(request)
-        throttle.check(_REDEEM, source=source)
+        key = _redemption_key(request)
+        throttle.check(key)
         try:
             accounts.confirm_password_reset(session, body.token, body.password)
         except InvalidTokenError:
-            throttle.record_failure(_REDEEM, source=source)
+            throttle.record_failure(key)
             raise
         return Response(status_code=204)
 
@@ -211,10 +253,10 @@ def build_accounts_module(declaration: SelfService, *, name: str = "accounts") -
 __all__ = [
     "AccountOpened",
     "AccountRequestAccepted",
-    "AccountTokenRedemption",
     "CloseAccountRequest",
     "PasswordResetConfirmation",
     "PasswordResetRequest",
+    "SignUpConfirmation",
     "SignUpRequest",
     "build_accounts_module",
     "build_accounts_router",

@@ -4,9 +4,10 @@ Two properties shape every method here.
 
 **A request about an address answers the same way whether or not an account exists for
 it.** Signing up for an address that has an account, or asking to reset one that has none,
-does the same costly work as the other case, writes the same kind of row and returns
-nothing that differs: the password is hashed and a token is sealed every time. Only the mail
-differs, and the mail goes to the address, which is the one party allowed to know.
+does the same work as the other case: a token is sealed, the same row is written and one
+message is sent, every time. Only that message's words differ, and it goes to the address,
+which is the one party allowed to know. Addresses are compared without regard to case, so
+two spellings of one mailbox are one address.
 
 **A token works once.** Redeeming one requires both its seal (unexpired, for this purpose)
 and its row (unused); redeeming spends the row, after the write it authorizes.
@@ -15,6 +16,7 @@ and its row (unused); redeeming spends the row, after the write it authorizes.
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from typing import Any
 
 from sqlmodel import Session
@@ -46,9 +48,15 @@ class AccountSignsInElsewhereError(AppError):
     )
 
 
-def _hours(declaration: SelfService, purpose: str) -> int:
-    ttl = declaration.sign_up_ttl if purpose == SIGN_UP else declaration.reset_ttl
-    return max(1, int(ttl.total_seconds() // 3600))
+def _lifetime(ttl: timedelta) -> str:
+    """*ttl* in words for a mail, rounded down so a mail never promises more than the link has."""
+    minutes = int(ttl.total_seconds() // 60)
+    if minutes < 1:
+        return "less than a minute"
+    if minutes % 60:
+        return "1 minute" if minutes == 1 else f"{minutes} minutes"
+    hours = minutes // 60
+    return "1 hour" if hours == 1 else f"{hours} hours"
 
 
 class AccountsService:
@@ -59,44 +67,48 @@ class AccountsService:
         self._users = declaration.users
         self._tokens = AccountTokenService()
 
+    def _mail(self, session: Session, email: str, subject: str, text: str) -> None:
+        send_mail(session, MailMessage(to=[email], subject=subject, text=text))
+
     # -- open --------------------------------------------------------------------------- #
-    def request_sign_up(self, session: Session, email: str, password: str) -> None:
+    def request_sign_up(self, session: Session, email: str) -> None:
         """Mail *email* a sign-up token, or a notice that it already has an account.
 
-        The policy check comes first and depends only on the password, so it says nothing
-        about the address. Then the same work in both cases: hash, seal, mail, record.
+        The same work in both cases: seal a token, record its row, send one message. The
+        token carries the address and nothing else; the password is chosen when it is
+        redeemed, by whoever reads this mail.
         """
-        validate_password(password)
         declaration = self._declaration
-        token = seal_account_token(
-            SIGN_UP, {"e": email, "h": hash_password(password)}, ttl=declaration.sign_up_ttl
-        )
+        token = seal_account_token(SIGN_UP, {"e": email}, ttl=declaration.sign_up_ttl)
         messages = declaration.messages
-        if self._users.get_by_email(session, email) is None:
+        if self._users.get_by_address(session, email) is None:
             link = declaration.link(declaration.verify_path, token)
-            text = messages.sign_up_text.format(link=link, hours=_hours(declaration, SIGN_UP))
-            send_mail(session, MailMessage(to=[email], subject=messages.sign_up_subject, text=text))
+            text = messages.sign_up_text.format(link=link, lifetime=_lifetime(declaration.sign_up_ttl))
+            self._mail(session, email, messages.sign_up_subject, text)
         else:
-            send_mail(
-                session,
-                MailMessage(to=[email], subject=messages.registered_subject, text=messages.registered_text),
-            )
+            self._mail(session, email, messages.registered_subject, messages.registered_text)
         self._tokens.record(session, token, purpose=SIGN_UP, ttl=declaration.sign_up_ttl)
 
-    def verify_sign_up(self, session: Session, token: str) -> User:
-        """Create the account a live sign-up token asks for, or refuse the token."""
+    def verify_sign_up(self, session: Session, token: str, password: str) -> User:
+        """Open the account a live sign-up token asks for, with *password*, or refuse.
+
+        The token is checked first, and only then the password, so a guess at a token is
+        always a failed redemption and never a policy answer. A password the policy refuses
+        leaves the token usable for a better one.
+        """
         claims = open_account_token(SIGN_UP, token)
         row = self._tokens.live(session, token, purpose=SIGN_UP)
-        email, hashed = _claim(claims, "e"), _claim(claims, "h")
-        if row is None or email is None or hashed is None:
+        email = _claim(claims, "e")
+        if row is None or email is None:
             raise InvalidTokenError()
-        if self._users.get_by_email(session, email) is not None:
-            # The account exists, so this token, or one for the same address, was redeemed.
+        if self._users.get_by_address(session, email) is not None:
+            # The account exists, so this token, or one for the same mailbox, was redeemed.
             raise InvalidTokenError()
+        validate_password(password)
         user = self._users.create_verified(
             session,
             email=email,
-            hashed_password=hashed,
+            hashed_password=hash_password(password),
             active=not self._declaration.requires_approval,
         )
         self._tokens.consume(session, row)
@@ -104,13 +116,14 @@ class AccountsService:
 
     # -- recover ------------------------------------------------------------------------ #
     def request_password_reset(self, session: Session, email: str) -> None:
-        """Mail a reset token to an active account with a password; otherwise mail nothing.
+        """Mail a reset link to an active account with a password, and a notice otherwise.
 
-        A token is sealed and a row is recorded either way, so the work and the write do
-        not tell the cases apart.
+        Every request seals a token, records its row and sends one message, so neither the
+        work, nor the write, nor a relay that is down tells the cases apart.
         """
         declaration = self._declaration
-        user = self._users.get_by_email(session, email)
+        messages = declaration.messages
+        user = self._users.get_by_address(session, email)
         eligible = user is not None and user.is_active and user.hashed_password is not None
         subject_id = user.id if user is not None and eligible else uuid.uuid4()
         epoch = user.token_version if user is not None and eligible else 0
@@ -119,19 +132,18 @@ class AccountsService:
         )
         if eligible:
             link = declaration.link(declaration.reset_path, token)
-            text = declaration.messages.reset_text.format(link=link, hours=_hours(declaration, RESET))
-            send_mail(
-                session, MailMessage(to=[email], subject=declaration.messages.reset_subject, text=text)
-            )
-        self._tokens.record(
-            session, token, purpose=RESET, ttl=declaration.reset_ttl, user_id=subject_id if eligible else None
-        )
+            text = messages.reset_text.format(link=link, lifetime=_lifetime(declaration.reset_ttl))
+            self._mail(session, email, messages.reset_subject, text)
+        else:
+            self._mail(session, email, messages.reset_unavailable_subject, messages.reset_unavailable_text)
+        self._tokens.record(session, token, purpose=RESET, ttl=declaration.reset_ttl)
 
     def confirm_password_reset(self, session: Session, token: str, password: str) -> None:
         """Set *password* on the account a live reset token names, or refuse the token.
 
-        The token is bound to the account's token epoch, which the reset moves, so it works
-        once and dies with any revocation that came after it was mailed.
+        The sealed token names the account and its token epoch, which the reset moves, so it
+        works once and dies with any revocation that came after it was mailed; its row is
+        spent as well.
         """
         claims = open_account_token(RESET, token)
         row = self._tokens.live(session, token, purpose=RESET)
@@ -139,7 +151,6 @@ class AccountsService:
         if (
             row is None
             or user is None
-            or row.user_id != user.id
             or not user.is_active
             or user.hashed_password is None
             or claims is None

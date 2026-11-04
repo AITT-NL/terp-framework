@@ -6,14 +6,14 @@ address. Two layers hold it.
 **The token is sealed.** It is a ``SealingDomain`` value under a key of its own derived from
 ``SECRET_KEY``, so its content (the purpose, the expiry, and what redeeming it needs) can be
 neither read nor forged without the app's secret, and it rotates like every sealed value. A
-sign-up token carries the address and the password's hash, never the password, so nothing
-personal is stored before the account exists.
+sign-up token carries the address and nothing else: the password is chosen when the token is
+redeemed, by whoever reads the mail, so nothing personal is stored before the account exists.
 
 **Its row makes it single-use.** :class:`AccountTokenService` writes one
-:class:`~terp.capabilities.identity.AccountToken` per request, holding only a keyed digest
-of the token, and redeeming stamps ``used_at``. Writing that row is the audited write the
-mail is queued on, so with the durable outbox the mail commits, or rolls back, with it
-(ADR 0150).
+:class:`~terp.capabilities.identity.AccountToken` per request, holding only its purpose, a
+keyed digest of the token and its expiry, the same row whatever the address; redeeming
+stamps ``used_at``. Writing that row is the audited write the mail is queued on, so with the
+durable outbox the mail commits, or rolls back, with it (ADR 0150).
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -115,13 +114,15 @@ class AccountTokenService(BaseService[AccountToken, _NoInput, _NoUpdate]):
         *,
         purpose: str,
         ttl: timedelta,
-        user_id: uuid.UUID | None = None,
     ) -> AccountToken:
-        """Store *token*'s digest; this audited write is the one its mail commits with."""
+        """Store *token*'s digest; this audited write is the one its mail commits with.
+
+        The row names no account, so it is the same whatever the address; what a token is
+        for travels sealed inside it.
+        """
         row = AccountToken(
             purpose=purpose,
             token_hash=account_token_digests(token)[0],
-            user_id=user_id,
             expires_at=_utc_now() + ttl,
         )
         return self._save(session, row, AuditAction.CREATED)

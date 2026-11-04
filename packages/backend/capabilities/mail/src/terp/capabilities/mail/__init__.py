@@ -49,6 +49,7 @@ from terp.capabilities.mail.settings import (
     MailSecurity,
     MailSettings,
     mail_settings_from_environment,
+    parse_address,
 )
 
 __all__ = [
@@ -64,6 +65,7 @@ __all__ = [
     "configure_mail",
     "mail_is_configured",
     "mail_settings_from_environment",
+    "parse_address",
     "reset_mail",
     "send_mail",
 ]
