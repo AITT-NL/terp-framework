@@ -3033,14 +3033,20 @@ build container holds a credential or writes into what is built. Each takes the 
     <registry>/<image>:<tag> with the credential your docker configuration holds for this
     release. It writes terp-release-build.json: BuildKit's own digests.
   uv run terp release gate --sha <sha> --build terp-release-build.json
-    runs in a clean checkout of the commit: `terp verify --profile release --format
-    assurance` with npm's scripts off, then the schedule catalog, read by running the pushed
-    image sealed (no network, read-only, its own non-root user). It holds no push credential
-    and no key. It writes terp-release-gate.json.
+    runs in a clean checkout of the commit: `terp verify --profile release` once, with npm's
+    scripts off, recording every check's verdict and the release-assurance claim those same
+    results compose (no check's output), then the schedule catalog, read by running the
+    pushed image sealed (no network, read-only, its own non-root user). It holds no push
+    credential and no key. It writes terp-release-gate.json, and exits 1 unless every check
+    passed and the claim holds, naming each red check. Run it from the commit's own
+    environment: sign reads the document only in the version the commit's pinned terp-cli
+    writes (ADR 0200).
   terp release sign --sha <sha> --tag <tag> --registry ... --build ... --gate ... \\
       --hosts separated --signer '["your-kms-signer", "--key", "release"]' --public-key k.pub
     runs from the signer image, never the commit's own toolchain, and runs nothing of the
-    app: it repeats the refusals, renders a generated app's files with the terp-arch the
+    app: it repeats the refusals, refuses a gate with a red check or a claim that does not
+    hold (ADR 0200; a commit pinning terp-cli below 0.36.1 has a gate that records the claim
+    alone, and is held to it), renders a generated app's files with the terp-arch the
     commit pins (fetched by hash, run in a process of its own), reads the backend image from
     the registry as data and holds it to the tree and the lock, scans for known
     vulnerabilities and for secrets in the history, and signs the manifest as a DSSE envelope

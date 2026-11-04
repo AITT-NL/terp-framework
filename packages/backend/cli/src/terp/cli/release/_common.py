@@ -90,15 +90,20 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def read_document(path: str | os.PathLike[str], kind: str, version: int = 1) -> dict[str, Any]:
-    """A job's JSON document at *path*: one object whose *kind* key holds *version*."""
+def read_document(
+    path: str | os.PathLike[str], kind: str, version: int | tuple[int, ...] = 1
+) -> dict[str, Any]:
+    """A job's JSON document at *path*: one object whose *kind* key holds *version*, or one of
+    them. The number is compared exactly, so JSON's ``true`` or ``1.0`` is no version."""
+    versions = (version,) if isinstance(version, int) else version
     try:
         with open(path, encoding="utf-8") as handle:
             loaded = json.load(handle)
     except (OSError, ValueError) as exc:
         raise ReleaseError(f"{path} is not a readable JSON document", cause=str(exc)) from exc
-    if not isinstance(loaded, dict) or loaded.get(kind) != version:
-        raise ReleaseError(f"{path} is not a {kind} document of version {version}")
+    found = loaded.get(kind) if isinstance(loaded, dict) else None
+    if not isinstance(found, int) or isinstance(found, bool) or found not in versions:
+        raise ReleaseError(f"{path} is not a {kind} document of version {' or '.join(map(str, versions))}")
     return loaded
 
 

@@ -2,23 +2,40 @@
 
 ADR 0187 decision 6. The gate runs the app, so it holds nothing a release is protected by: its
 docker client gets a configuration directory of its own, and the pushed image is run sealed,
-as its own non-root user, with no network.
+as its own non-root user, with no network. ADR 0200: it runs the release profile once, and
+records every check's verdict beside the claim those same results compose, and nothing any
+check printed.
 """
 
 from __future__ import annotations
 
 import json
 import pathlib
+import sys
 
 import pytest
 
 from terp.cli.release import gate
-from terp.cli.release._common import ReleaseError, write_document
+from terp.cli.release._common import ReleaseError, canonical, write_document
+from terp.cli.verify import PROFILES, assurance_document
 from tests.architecture.release_fixtures import PROJECT, Runs, committed_app
 
 DIGEST = "sha256:" + "1" * 64
-ASSURANCE = {"terp_assurance": 1, "ok": True, "lanes": []}
 CONTROL_PLANE = {"schedules": [{"name": "nightly.sync", "cron": "0 3 * * *", "job": "sync.pull", "extra": "x"}]}
+
+#: Every check of the release profile, green: what the gate records of a green run.
+CHECKS = [{"id": check.id, "ok": True} for check in PROFILES["release"]]
+
+
+def _printed(red: tuple[str, ...] = (), *, app: tuple[str, ...] = (), said: str = "") -> bytes:
+    """What ``terp verify --profile release --format json`` prints: every check of the profile,
+    then the app's own, each with more than the gate keeps of it."""
+    checks = [
+        {"id": check, "category": "test", "command": f"terp verify --only {check}", "scope": ["app/**"],
+         "ok": check not in red, "exit_code": int(check in red), "output_tail": said, "reports": []}
+        for check in [*(check.id for check in PROFILES["release"]), *app]
+    ]
+    return json.dumps({"terp_verify": 1, "profile": "release", "ok": not red, "checks": checks}).encode()
 
 
 def _build(tmp_path: pathlib.Path, sha: str, images: list[dict] | None = None) -> pathlib.Path:
@@ -34,14 +51,12 @@ def _build(tmp_path: pathlib.Path, sha: str, images: list[dict] | None = None) -
     return path
 
 
-def _runs(user: bytes = b'"appuser"', control: bytes | None = None) -> Runs:
-    import sys
-
+def _runs(user: bytes = b'"appuser"', control: bytes | None = None, printed: bytes | None = None) -> Runs:
     from terp.cli.release._common import run as real
 
     return (
         Runs(real=real)
-        .on(sys.executable, "-c", out=json.dumps(ASSURANCE).encode())
+        .on(sys.executable, "-c", out=printed if printed is not None else _printed())
         .on("docker", "pull")
         .on("docker", "image", "inspect", out=user)
         .on("docker", "run", out=control if control is not None else json.dumps(CONTROL_PLANE).encode())
@@ -64,7 +79,8 @@ def test_the_gate_runs_the_release_profile_then_reads_the_schedules_sealed(tmp_p
     credentials.write_text('{"auths": {}}', encoding="utf-8")
     document = gate.gate(repo, sha, _build(tmp_path, sha), pull_credentials=credentials)
     assert document == {
-        "terpReleaseGate": 1, "commit": sha, "assurance": ASSURANCE,
+        "terpReleaseGate": 2, "commit": sha,
+        "profile": {"name": "release", "ok": True, "checks": CHECKS}, "assurance": assurance_document(CHECKS),
         "schedules": [{"name": "nightly.sync", "cron": "0 3 * * *", "job": "sync.pull"}],
         "image": f"127.0.0.1:5000/rel/{PROJECT}-backend-prod@{DIGEST}",
     }
@@ -103,16 +119,71 @@ def test_the_gate_runs_only_in_a_clean_checkout_of_the_build_s_commit(tmp_path: 
         gate.gate(repo, sha, _build(tmp_path, sha))
 
 
-def test_an_assurance_document_and_a_schedule_catalog_are_required(tmp_path: pathlib.Path, monkeypatch) -> None:
-    import sys
+def test_the_gate_records_every_check_and_the_claim_of_one_run(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """ADR 0200 decision 1. Two checks no required lane composes are red, so the claim still holds:
+    the document records both red beside it, the app's own check among them, from the one run the
+    claim was composed of, and nothing either check printed."""
+    repo = tmp_path / "repo"
+    sha = committed_app(repo)
+    said = "SOME_API_TOKEN=an-example-value-a-failing-check-printed"
+    runs = _runs(printed=_printed(("api-contract", "domain-invariants"), app=("domain-invariants",), said=said))
+    composed: list = []
+    monkeypatch.setattr(gate, "assurance_document", lambda results: composed.append(results) or assurance_document(results))
+    monkeypatch.setattr(gate, "run", runs)
+    document = gate.gate(repo, sha, _build(tmp_path, sha))
+    assert len(runs.ran(sys.executable, "-c")) == 1, "the release profile runs once, for both verdicts"
+    checks = document["profile"]["checks"]
+    assert document["terpReleaseGate"] == 2 and document["profile"]["ok"] is False
+    assert [check["id"] for check in checks] == [*(check.id for check in PROFILES["release"]), "domain-invariants"]
+    assert [check["id"] for check in checks if not check["ok"]] == ["api-contract", "domain-invariants"]
+    assert all(sorted(check) == ["id", "ok"] for check in checks), "a check is its id and its verdict"
+    assert composed == [checks], "the claim is composed from the very checks the document records"
+    assert document["assurance"] == assurance_document(checks) and document["assurance"]["ok"] is True
+    assert said not in canonical(document).decode(), "nothing a check printed reaches the document"
+    assert gate.red(document) == ["api-contract", "domain-invariants"]
 
+
+def _verdict(**changes) -> bytes:  # type: ignore[no-untyped-def]
+    printed = json.loads(_printed())
+    for key, value in changes.items():
+        printed[key] = value(printed[key]) if callable(value) else value
+    return json.dumps(printed).encode()
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        b'{"ok": "yes"}',
+        b"[]",
+        _verdict(terp_verify=2),
+        _verdict(profile="full"),
+        _verdict(checks=[]),
+        _verdict(checks="architecture"),
+        _verdict(checks=lambda checks: [*checks, {"id": "x", "ok": "yes"}]),
+        _verdict(checks=lambda checks: [*checks, {"ok": True}]),
+        _verdict(checks=lambda checks: [*checks, "x"]),
+        _verdict(checks=lambda checks: [*checks, {"id": "x", "ok": False}]),
+        _verdict(ok=False),
+        _verdict(ok="yes"),
+    ],
+)
+def test_a_run_that_wrote_no_verdict_of_each_check_is_refused(tmp_path: pathlib.Path, monkeypatch, printed: bytes) -> None:
+    """A run the gate cannot read as each check's verdict is refused before the image is pulled,
+    including one whose ``ok`` its checks contradict: green over a red check, or red over none."""
+    repo = tmp_path / "repo"
+    sha = committed_app(repo)
+    runs = _runs(printed=printed)
+    monkeypatch.setattr(gate, "run", runs)
+    with pytest.raises(ReleaseError, match="terp verify --profile release wrote no verdict of each check it ran"):
+        gate.gate(repo, sha, _build(tmp_path, sha))
+    assert not runs.ran("docker"), "the image is not pulled for a run that said nothing"
+
+
+def test_a_verdict_document_and_a_schedule_catalog_are_required(tmp_path: pathlib.Path, monkeypatch) -> None:
     repo = tmp_path / "repo"
     sha = committed_app(repo)
     monkeypatch.setattr(gate, "run", _runs().on(sys.executable, "-c", out=b"not json", err=b"Traceback"))
-    with pytest.raises(ReleaseError, match="wrote no assurance document"):
-        gate.gate(repo, sha, _build(tmp_path, sha))
-    monkeypatch.setattr(gate, "run", _runs().on(sys.executable, "-c", out=b'{"ok": "yes"}'))
-    with pytest.raises(ReleaseError, match="wrote no assurance claim"):
+    with pytest.raises(ReleaseError, match="wrote no verdict document\n  Traceback"):
         gate.gate(repo, sha, _build(tmp_path, sha))
     monkeypatch.setattr(gate, "run", _runs(control=b"{}"))
     with pytest.raises(ReleaseError, match="printed no schedule catalog"):

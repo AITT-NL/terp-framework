@@ -6,7 +6,10 @@
   the template no longer ignoring `openapi.json`, and `terp release` carrying the contract in
   the signed manifest. Held by `tests/architecture/test_api_contract.py`, with the profiles
   and the published manifest in `test_cli_verify.py` and the template's ignore rules in
-  `test_template_build_inputs.py`.
+  `test_template_build_inputs.py`. Amended 2026-11-04 by
+  [ADR 0200](0200-a-release-is-signed-only-over-a-green-release-profile.md): `sign` refuses a
+  release whose `api-contract` check is red (decision 5, and the open item on signing over a red
+  contract check, which it settles).
 - **Date:** 2026-11-03. 0182 and 0183 are reserved for other records and 0184 to 0193 are taken;
   0194 to 0197 are this series.
 - **Relates:** follows [ADR 0139](0139-who-can-reach-what-is-pinned-not-merely-reportable.md)
@@ -165,12 +168,17 @@ and is red, with the same words and remedy as the check.
 contract under the same signature as its images.
 
 The signature vouches for the file the commit holds, not for the app serving it. What holds the
-file to the app is the `api-contract` check, in the gate every change passes before it merges.
-`terp release gate` runs it too, in the release profile, but `sign` refuses only a gate whose
-release-assurance claim does not hold (ADR 0187 decision 6), and that claim follows the spec's
-required lanes, of which `api-contract` is none. So a commit whose contract lags its app can be
-signed, and its manifest then carries the contract the commit records, not the API its images
-serve.
+file to the app is the `api-contract` check, in the gate every change passes before it merges,
+and `terp release gate` runs it too, in the release profile. When this record was written,
+`sign` refused only a gate whose release-assurance claim did not hold (ADR 0187 decision 6), and
+that claim follows the spec's required lanes, of which `api-contract` is none, so a commit whose
+contract lagged its app could be signed, its manifest carrying the contract the commit records
+rather than the API its images serve.
+[ADR 0200](0200-a-release-is-signed-only-over-a-green-release-profile.md) closes that: the gate
+records every check of the release profile beside the claim, and `sign` refuses a red one, so a
+commit that pins `terp-cli` 0.36.1 or later is signed only when its `api-contract` check passed
+in the gate. A commit pinning an older `terp-cli` has a gate that records the claim alone, and
+is signed over that claim, as before.
 
 The manifest is a deploy tool's document,
 with base images, scans and profiles beside the contract; a client in another repository is
@@ -205,8 +213,8 @@ one is present, as it does for every other carried file.
   history in CI, and is a later addition.
 - **Publishing the contract beside a release** in the workbench's own interface is the
   workbench's change.
-- **Signing over a red contract check.** `sign` reads the gate's release-assurance claim and
-  nothing else of its run, and `api-contract` composes no lane of it, so a release can carry a
-  contract its app no longer serves. Refusing that needs the gate's document to record the
-  check's verdict and `sign` to read it, which is a change to ADR 0187's gate, not a reading of
-  it.
+- **Signing over a red contract check**, which needed the gate's document to record the
+  check's verdict and `sign` to read it, a change to ADR 0187's gate rather than a reading of
+  it, is settled by [ADR 0200](0200-a-release-is-signed-only-over-a-green-release-profile.md):
+  the gate records every check of the release profile beside the claim, and `sign` refuses a
+  red one for a commit that pins `terp-cli` 0.36.1 or later (decision 5, amended).
