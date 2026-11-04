@@ -39,7 +39,7 @@ from terp.core.jobs import configure_jobs, reset_jobs_runtime
 
 from terp.capabilities.auth import hash_password, verify_password
 from terp.capabilities.identity import AccountToken, RefreshToken, RefreshTokenService, User
-from terp.capabilities.mail import MAIL_SEND, CapturingMailTransport, MailSettings, configure_mail, reset_mail
+from terp.capabilities.mail import MAIL_SEND, CapturingMailTransport, MailMessage, MailSettings, configure_mail, reset_mail
 from terp.capabilities.users import (
     USERS_OPERATIONS,
     AccountDeletion,
@@ -77,6 +77,11 @@ def mail(engine: Any) -> Iterator[CapturingMailTransport]:
     yield captured
     reset_mail()
     reset_jobs_runtime()
+
+
+#: The mail a row this file writes by hand is queued with: a token row is recorded only with
+#: the mail its write queues (ADR 0196).
+_ROW_MAIL = MailMessage(to=["row@example.test"], subject="A row this test writes", text="Written by hand.")
 
 
 def _declaration(**overrides: Any) -> SelfService:
@@ -198,7 +203,9 @@ def test_two_spellings_of_one_mailbox_are_one_address(engine: Any, mail: Capturi
     assert notice["Subject"] == "You already have an account", "a case variant is the same address"
     sealed = account_tokens.seal_account_token("sign_up", {"e": "MEMBER@example.test"}, ttl=timedelta(hours=1))
     with WriteGuardedSession(engine) as session:
-        account_tokens.AccountTokenService().record(session, sealed, purpose="sign_up", ttl=timedelta(hours=1))
+        account_tokens.AccountTokenService().record(
+            session, sealed, purpose="sign_up", ttl=timedelta(hours=1), mail=_ROW_MAIL
+        )
     assert client.post(_VERIFY, json={"token": sealed, "password": _PASSWORD}).status_code == 400
     assert [u.email for u in _rows(engine, User)] == ["member@example.test"], "no second account for one mailbox"
     client.post(_RESET, json={"email": "MEMBER@example.test"})
@@ -269,7 +276,9 @@ def test_an_expired_token_is_refused(engine: Any, mail: CapturingMailTransport, 
 def test_a_seal_past_its_expiry_is_refused_even_when_its_row_is_live(engine: Any, mail: CapturingMailTransport) -> None:
     expired = account_tokens.seal_account_token("sign_up", {"e": "seal@example.test"}, ttl=timedelta(seconds=-1))
     with WriteGuardedSession(engine) as session:
-        account_tokens.AccountTokenService().record(session, expired, purpose="sign_up", ttl=timedelta(hours=1))
+        account_tokens.AccountTokenService().record(
+            session, expired, purpose="sign_up", ttl=timedelta(hours=1), mail=_ROW_MAIL
+        )
     assert _client(engine).post(_VERIFY, json={"token": expired, "password": _PASSWORD}).status_code == 400
     assert _rows(engine, User) == [], "the seal's own expiry refuses it, not only the row's"
 
@@ -358,7 +367,9 @@ def test_a_reset_token_for_no_account_or_a_forged_subject_is_refused(engine: Any
     assert decoy is None, "an address with no account gets no token"
     forged = account_tokens.seal_account_token("reset", {"u": "not-a-uuid", "v": 0}, ttl=timedelta(hours=1))
     with WriteGuardedSession(engine) as session:
-        account_tokens.AccountTokenService().record(session, forged, purpose="reset", ttl=timedelta(hours=1))
+        account_tokens.AccountTokenService().record(
+            session, forged, purpose="reset", ttl=timedelta(hours=1), mail=_ROW_MAIL
+        )
     for token in (forged, "not-a-token"):
         assert client.post(_CONFIRM, json={"token": token, "password": "a new and long passphrase"}).status_code == 400
 

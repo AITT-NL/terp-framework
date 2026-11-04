@@ -25,7 +25,7 @@ from terp.core import AppError, AuthenticationError, InvalidTokenError, Principa
 
 from terp.capabilities.auth import hash_password, verify_password, verify_password_dummy
 from terp.capabilities.identity import User
-from terp.capabilities.mail import MailMessage, send_mail
+from terp.capabilities.mail import MailMessage
 from terp.capabilities.users.account_tokens import (
     RESET,
     SIGN_UP,
@@ -67,8 +67,9 @@ class AccountsService:
         self._users = declaration.users
         self._tokens = AccountTokenService()
 
-    def _mail(self, session: Session, email: str, subject: str, text: str) -> None:
-        send_mail(session, MailMessage(to=[email], subject=subject, text=text))
+    @staticmethod
+    def _message(email: str, subject: str, text: str) -> MailMessage:
+        return MailMessage(to=[email], subject=subject, text=text)
 
     # -- open --------------------------------------------------------------------------- #
     def request_sign_up(self, session: Session, email: str) -> None:
@@ -84,10 +85,10 @@ class AccountsService:
         if self._users.get_by_address(session, email) is None:
             link = declaration.link(declaration.verify_path, token)
             text = messages.sign_up_text.format(link=link, lifetime=_lifetime(declaration.sign_up_ttl))
-            self._mail(session, email, messages.sign_up_subject, text)
+            mail = self._message(email, messages.sign_up_subject, text)
         else:
-            self._mail(session, email, messages.registered_subject, messages.registered_text)
-        self._tokens.record(session, token, purpose=SIGN_UP, ttl=declaration.sign_up_ttl)
+            mail = self._message(email, messages.registered_subject, messages.registered_text)
+        self._tokens.record(session, token, purpose=SIGN_UP, ttl=declaration.sign_up_ttl, mail=mail)
 
     def verify_sign_up(self, session: Session, token: str, password: str) -> User:
         """Open the account a live sign-up token asks for, with *password*, or refuse.
@@ -133,10 +134,10 @@ class AccountsService:
         if eligible:
             link = declaration.link(declaration.reset_path, token)
             text = messages.reset_text.format(link=link, lifetime=_lifetime(declaration.reset_ttl))
-            self._mail(session, email, messages.reset_subject, text)
+            mail = self._message(email, messages.reset_subject, text)
         else:
-            self._mail(session, email, messages.reset_unavailable_subject, messages.reset_unavailable_text)
-        self._tokens.record(session, token, purpose=RESET, ttl=declaration.reset_ttl)
+            mail = self._message(email, messages.reset_unavailable_subject, messages.reset_unavailable_text)
+        self._tokens.record(session, token, purpose=RESET, ttl=declaration.reset_ttl, mail=mail)
 
     def confirm_password_reset(self, session: Session, token: str, password: str) -> None:
         """Set *password* on the account a live reset token names, or refuse the token.

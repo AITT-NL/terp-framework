@@ -227,6 +227,35 @@ def test_a_self_service_link_never_rests_in_the_outbox_and_still_works(
     assert opened.status_code == 201
 
 
+def test_a_token_row_that_fails_to_write_takes_its_mail_with_it(
+    engine: Any, relay: CapturingMailTransport, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A self-service mail is queued inside its token row's write unit (ADR 0196): with the
+    durable outbox the two commit together, and a row the database refuses queues no mail."""
+    from sqlmodel import select
+
+    from terp.capabilities.identity import AccountToken
+    from terp.capabilities.users import accounts
+
+    def rows() -> tuple[int, int]:
+        with Session(engine) as session:
+            return len(_at_rest(engine)), len(session.exec(select(AccountToken)).all())
+
+    client = _accounts_client(engine)
+    # Every request below seals the same token, so the token row of the second one to be
+    # written is refused by the digest's unique index, after its mail was queued.
+    monkeypatch.setattr(accounts, "seal_account_token", lambda purpose, claims, *, ttl: "enc:v1:the-same-token")
+    # Control: a request commits its token row and its mail together.
+    assert client.post("/api/v1/accounts/sign-up", json={"email": "first@example.test"}).status_code == 202
+    assert rows() == (1, 1)
+
+    refused = client.post("/api/v1/accounts/sign-up", json={"email": "second@example.test"})
+    assert refused.status_code == 409
+    assert rows() == (1, 1), "the refused row's mail rolled back with it"
+    refused = client.post("/api/v1/accounts/password-reset", json={"email": "third@example.test"})
+    assert refused.status_code == 409 and rows() == (1, 1)
+
+
 # --------------------------------------------------------------------------- #
 # the plaintext form: read, never written
 # --------------------------------------------------------------------------- #

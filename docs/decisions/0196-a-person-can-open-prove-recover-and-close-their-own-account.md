@@ -71,9 +71,12 @@ instances declares a store marked shared, and its backoff is then global.
 
 `POST /sign-up` takes an address and nothing else, and creates no account. It mails the
 address a sealed token carrying the address, and records the token's digest in an
-`identity_account_token` row. That audited row is the write the mail is queued on, so the
-mail commits with it (ADR 0150); it holds no address and nothing else that differs between
-one address and another. `POST /verify` takes the token and the password the account opens
+`identity_account_token` row. That audited row is the write the mail is queued on: the mail
+is queued from inside the row's own write unit, so with the durable outbox the two commit, or
+roll back, together (ADR 0150). Queued before it, the mail would be an enqueue of its own,
+committed first, and a row that then failed to write would leave a mail whose link nothing
+redeems. The row holds no address and nothing else that differs between one address and
+another. `POST /verify` takes the token and the password the account opens
 with. It checks the token first and the password policy second, so a guess at a token is
 always a failed redemption and never a policy answer, and a password the policy refuses
 leaves the token usable for a better one. Only then does it create the account, at the viewer
@@ -168,13 +171,13 @@ Each write goes through the users capability's audited boundary. The address is 
 The token table holds a token's digest and never the token, so a reader of the database
 cannot recover one from it.
 
-The queued message is the exception, and it is recorded here rather than left implicit. The
-outbox row that carries a mail holds its recipient and its text, a link's token included, in
-plaintext until the job runs, and the outbox keeps dispatched rows. A token there stays
-usable until it is redeemed or expires, within the hour for a reset by default, so a reader
-of the database inside that window could redeem it. Sealing queued mail at rest closes this.
-It changes the mail capability's payload (ADR 0150) and what `terp secrets reseal` walks (ADR
-0189), so it is left to a decision of its own rather than made here.
+The queued message was the exception. The outbox row that carries a mail held its recipient
+and its text, a link's token included, in plaintext, and the outbox keeps dispatched rows. A
+token there stays usable until it is redeemed or expires, within the hour for a reset by
+default, so a reader of the database inside that window could have redeemed it. [ADR
+0199](0199-a-queued-mail-is-sealed-at-rest.md) (proposed 2026-11-04) closes it: the queued
+message is sealed at rest, and `terp secrets reseal` reaches it inside the outbox's JSON
+payload.
 
 ## Guarantees (contract-ready)
 

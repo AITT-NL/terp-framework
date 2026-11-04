@@ -12,8 +12,11 @@ redeemed, by whoever reads the mail, so nothing personal is stored before the ac
 **Its row makes it single-use.** :class:`AccountTokenService` writes one
 :class:`~terp.capabilities.identity.AccountToken` per request, holding only its purpose, a
 keyed digest of the token and its expiry, the same row whatever the address; redeeming
-stamps ``used_at``. Writing that row is the audited write the mail is queued on, so with the
-durable outbox the mail commits, or rolls back, with it (ADR 0150).
+stamps ``used_at``. Writing that row is the audited write the mail is queued on: the mail is
+queued from inside the row's own write unit, so with the durable outbox the two commit, or
+roll back, together (ADR 0150). Queued before the row's write, the mail would be a
+standalone enqueue, its own commit, and a row that then failed to write would leave a mail
+whose link nothing redeems.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ import hashlib
 import hmac
 import json
 from collections.abc import Mapping
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -30,6 +34,7 @@ from sqlmodel import Session
 from terp.core import AuditAction, BaseSchema, BaseService, BaseUpdateSchema, SealingDomain, settings
 
 from terp.capabilities.identity import AccountToken
+from terp.capabilities.mail import MailMessage, send_mail
 
 #: The purposes a token is sealed for; one never opens as another.
 SIGN_UP = "sign_up"
@@ -37,6 +42,10 @@ RESET = "reset"
 
 _DOMAIN = SealingDomain("users.account", b"terp.users.account-token.v1")
 _DIGEST_CONTEXT = b"terp.users.account-token-digest.v1"
+
+#: The mail the row being recorded is to be queued with. Set for the one ``_save`` that writes
+#: the row, per call, so concurrent requests through one service never see each other's.
+_QUEUED_WITH: ContextVar[MailMessage | None] = ContextVar("terp_users_account_mail", default=None)
 
 
 def _utc_now() -> datetime:
@@ -114,18 +123,31 @@ class AccountTokenService(BaseService[AccountToken, _NoInput, _NoUpdate]):
         *,
         purpose: str,
         ttl: timedelta,
+        mail: MailMessage,
     ) -> AccountToken:
-        """Store *token*'s digest; this audited write is the one its mail commits with.
+        """Store *token*'s digest, and queue *mail* in the same write.
 
         The row names no account, so it is the same whatever the address; what a token is
-        for travels sealed inside it.
+        for travels sealed inside it. *mail* is queued from inside the row's write unit
+        (:meth:`_after_write`), so it joins that unit's one commit, and a row that fails to
+        write takes its mail with it.
         """
         row = AccountToken(
             purpose=purpose,
             token_hash=account_token_digests(token)[0],
             expires_at=_utc_now() + ttl,
         )
-        return self._save(session, row, AuditAction.CREATED)
+        queued = _QUEUED_WITH.set(mail)
+        try:
+            return self._save(session, row, AuditAction.CREATED)
+        finally:
+            _QUEUED_WITH.reset(queued)
+
+    def _after_write(self, session: Session, entity: AccountToken, action: AuditAction) -> None:
+        """Queue the recorded row's mail, inside the row's own write unit."""
+        mail = _QUEUED_WITH.get()
+        if action is AuditAction.CREATED and mail is not None:
+            send_mail(session, mail)
 
     def live(self, session: Session, token: str, *, purpose: str) -> AccountToken | None:
         """The unused, unexpired row for *token* and *purpose*, or ``None``."""
