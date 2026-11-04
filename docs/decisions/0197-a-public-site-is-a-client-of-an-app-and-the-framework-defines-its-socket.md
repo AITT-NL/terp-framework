@@ -6,7 +6,12 @@
   from a public route with no credential in its build, it claims no conformance level, and
   §1's closing paragraph is amended openly rather than said to stand. Nothing is built by this
   record: the contract baseline, the rules profile, the lint preset, the starter and the deploy
-  recipe are each a later change of their own, listed under "How it will be held".
+  recipe are each a later change of their own, listed under "How it will be held". Revised
+  2026-11-04: decision 5 no longer says the generated-client rule keeps a page from calling the
+  app, and says what does. Item 5 of "How it will be held" is amended by
+  [ADR 0198](0198-a-static-site-is-a-web-unit-the-framework-builds-from-a-recipe-it-owns.md)
+  (proposed 2026-11-04): the static `web` recipe and a second `web` unit land in the standard
+  and the framework's generator.
 - **Date:** 2026-11-03. 0182 and 0183 are reserved for other records and 0184 to 0193 are taken;
   0194 to 0197 are this series.
 - **Relates:** amends [ADR 0123](0123-marketing-websites-are-not-a-terp-application-kind.md)
@@ -166,12 +171,24 @@ socket does not depend on it.
 The `site` profile names the frontend catalog's security rules that mean the same thing on a
 static page: no DOM HTML injection, no `eval` or `new Function`, no `javascript:` URL, no
 `target="_blank"` without `rel="noopener"`, and the generated-client rule exactly as it stands,
-applied to the site's page code, so a page makes no browser call of its own. The build script
-that fetches published content is not page code and is outside that rule. It names none
+applied to the site's page code. That rule refuses the raw egress primitives the spec's
+`restricted-surface.json` lists (`fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource` and
+`navigator.sendBeacon`) and sanctions a generated client in their place, which decision 3 has a
+site generate. A page that calls the app through that client passes it, so the rule does not
+keep a page from calling the app. The build script that fetches published content is not page
+code and is outside that rule. It names none
 of the rules whose purpose is an app's uniformity: inline styling, stylesheet imports, token-styled
 elements, the layout contract, router links and framework markers. The escape-hatch ratchet is the
 site's own choice. The exact partition of the catalog's frontend entries is recorded in the spec,
 with the profile.
+
+What keeps a page from calling the app is the policy it is served with. For a site built from
+[ADR 0198](0198-a-static-site-is-a-web-unit-the-framework-builds-from-a-recipe-it-owns.md)'s
+recipe, that is the rendered content security policy's `connect-src 'self'` with no `/api` route
+on the site's own origin (its decision 3): the browser refuses a script's connection to any
+other origin, and the site's origin has no route to the app. A site that is not built from the
+recipe has only the policy its own host sends: the site writes it, the starter ships one
+(below), and no Terp check reads it.
 
 The profile adds no rule and varies none; it names a subset of existing ones, so ADR 0122's
 breadth freeze is untouched. Each rule in it classifies `runtime.applicability` as
