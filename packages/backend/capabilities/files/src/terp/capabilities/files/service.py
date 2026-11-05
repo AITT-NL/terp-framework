@@ -25,6 +25,11 @@ the storage backend registered under the file's **storage profile** (ADR 0057):
 * :meth:`FileService.load_for` — the serve-through delegation read (ADR 0057): serve a
   file through an already-authorized referencing row, fail-closed on any column not
   declared with :func:`~terp.capabilities.files.FileRef`.
+* :meth:`FileService.link` / :meth:`FileService.link_for` /
+  :meth:`FileService.open_link_stream` — a short-lived link to a file's bytes, minted
+  where a download is authorized (ADR 0201): the same scope and quarantine checks, then
+  the row's own backend signs a URL, or the capability seals an app-signed token that
+  ``open_link_stream`` opens for the public route, re-checking the verdict first.
 * :meth:`FileService.remove` — the delete folds both stores into **one** owner-gated,
   audited transaction (:meth:`FileService._after_write`): the kernel authorizes the
   per-row write first (a caller who may not delete the row never reaches the bytes), then
@@ -32,13 +37,16 @@ the storage backend registered under the file's **storage profile** (ADR 0057):
   delete commits — so a backend failure rolls the whole unit back (the row, which alone
   holds the key, survives and the delete stays retryable by id) and a committed delete
   never leaves an orphan blob behind.
+
+What an upload may claim to be — the content-type allowlist (ADR 0068) and the magic-byte
+check (ADR 0076) — lives in :mod:`terp.capabilities.files.content_types`; ``store`` is the
+chokepoint that applies both before any byte lands.
 """
 
 from __future__ import annotations
 
 import hashlib
 import uuid
-from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import BinaryIO, ClassVar
 
@@ -52,6 +60,16 @@ from terp.core import (
     ValidationFailedError,
 )
 
+from terp.capabilities.files.content_types import (
+    ContentTypeMismatchError,
+    UnsupportedContentTypeError,
+    active_allowed_content_types,
+    configure_allowed_content_types,
+    reset_allowed_content_types,
+    _SNIFF_LEN,
+    _ensure_bytes_match_declared_type,
+    _ensure_content_type_allowed,
+)
 from terp.capabilities.files.links import (
     SIGNED_LINK_PATH,
     FileLink,
@@ -78,123 +96,6 @@ def _new_storage_key() -> str:
     """A fresh opaque blob address: UUID-derived, two-level sharded, never client data."""
     token = uuid.uuid4().hex
     return f"{token[:2]}/{token}"
-
-
-class UnsupportedContentTypeError(AppError):
-    """415 — the upload's content type is not in the deployment's allowlist (ADR 0068)."""
-
-    status_code = 415
-    code = "content_type_not_allowed"
-    default_message = "The uploaded file's content type is not allowed."
-
-
-class ContentTypeMismatchError(AppError):
-    """415 — the upload's bytes do not carry the declared content type's signature (ADR 0076)."""
-
-    status_code = 415
-    code = "content_type_mismatch"
-    default_message = "The uploaded bytes do not match the declared content type."
-
-
-def _normalized_media_type(value: str) -> str:
-    """The bare, lowercased media type: parameters stripped (``TEXT/Plain; q=1`` → ``text/plain``)."""
-    return value.split(";", 1)[0].strip().lower()
-
-
-# The deployment's upload content-type allowlist (ADR 0068). ``None`` — the default —
-# allows every type (content type is descriptive metadata; ADR 0056's shipped posture).
-# A composition root narrows it with one line; the check is enforced in the service
-# chokepoint so no upload path (router or programmatic ``store``) can bypass it.
-_allowed_content_types: tuple[str, ...] | None = None
-
-
-def configure_allowed_content_types(allowed: Iterable[str]) -> None:
-    """Restrict uploads to *allowed* media types (a composition-root line, ADR 0068).
-
-    Entries are exact media types (``"application/pdf"``) or whole-subtype wildcards
-    (``"image/*"``); they are normalized (lowercased, parameters stripped) and validated
-    eagerly — an empty allowlist or a shapeless entry raises ``ValueError`` at boot, not
-    at the first upload. Allow-everything is expressed by *not* configuring an allowlist
-    (or :func:`reset_allowed_content_types`), never by a ``*/*`` entry — a visible,
-    greppable default rather than a wildcard that reads like a restriction.
-    """
-    global _allowed_content_types
-    normalized = tuple(dict.fromkeys(_normalized_media_type(item) for item in allowed))
-    if not normalized:
-        raise ValueError("the content-type allowlist must name at least one media type")
-    for entry in normalized:
-        base, separator, subtype = entry.partition("/")
-        if not base or base == "*" or not separator or not subtype:
-            raise ValueError(
-                f"content-type allowlist entry {entry!r} must be 'type/subtype' or 'type/*'"
-            )
-    _allowed_content_types = normalized
-
-
-def active_allowed_content_types() -> tuple[str, ...] | None:
-    """The configured allowlist, or ``None`` when every content type is allowed."""
-    return _allowed_content_types
-
-
-def reset_allowed_content_types() -> None:
-    """Restore the allow-everything default (the test-isolation reset)."""
-    global _allowed_content_types
-    _allowed_content_types = None
-
-
-def _ensure_content_type_allowed(content_type: str) -> None:
-    """Fail closed when an allowlist is configured and *content_type* is not on it."""
-    allowed = _allowed_content_types
-    if allowed is None:
-        return
-    media_type = _normalized_media_type(content_type)
-    for entry in allowed:
-        if media_type == entry:
-            return
-        if entry.endswith("/*") and media_type.startswith(entry[:-1]):
-            return
-    raise UnsupportedContentTypeError(log_context={"content_type": media_type})
-
-
-# Magic-byte sniffing (ADR 0076): for a media type whose file format carries a
-# well-known signature, the upload's *bytes* must actually carry it — a declared
-# content type is client input, and a later consumer (a browser rendering the
-# stored `content_type`, a downstream parser choosing a decoder by it) must not
-# be handed mislabeled bytes. Each entry maps a media type to its accepted
-# signature alternatives; an alternative is a set of (offset, bytes) constraints
-# that must **all** hold. A type not listed here has no canonical signature
-# (text/*, application/json, …) and is not sniffed — the control refuses proven
-# mismatches, never guesses.
-_MAGIC_SIGNATURES: dict[str, tuple[tuple[tuple[int, bytes], ...], ...]] = {
-    "image/png": (((0, b"\x89PNG\r\n\x1a\n"),),),
-    "image/jpeg": (((0, b"\xff\xd8\xff"),),),
-    "image/gif": (((0, b"GIF87a"),), ((0, b"GIF89a"),)),
-    "image/webp": (((0, b"RIFF"), (8, b"WEBP")),),
-    "image/bmp": (((0, b"BM"),),),
-    "image/tiff": (((0, b"II*\x00"),), ((0, b"MM\x00*"),)),
-    "application/pdf": (((0, b"%PDF-"),),),
-    "application/zip": (((0, b"PK\x03\x04"),), ((0, b"PK\x05\x06"),), ((0, b"PK\x07\x08"),)),
-    "application/gzip": (((0, b"\x1f\x8b"),),),
-}
-
-# The longest constraint ends at offset 8 + len(b"WEBP") = 12; peeking 16 keeps headroom.
-_SNIFF_LEN = 16
-
-
-def _ensure_bytes_match_declared_type(content_type: str, head: bytes) -> None:
-    """Fail closed when the declared type has a known signature the bytes lack (ADR 0076)."""
-    alternatives = _MAGIC_SIGNATURES.get(_normalized_media_type(content_type))
-    if alternatives is None:
-        return
-    for constraints in alternatives:
-        if all(
-            head[offset : offset + len(signature)] == signature
-            for offset, signature in constraints
-        ):
-            return
-    raise ContentTypeMismatchError(
-        log_context={"content_type": _normalized_media_type(content_type)}
-    )
 
 
 class _PrefixedReader:

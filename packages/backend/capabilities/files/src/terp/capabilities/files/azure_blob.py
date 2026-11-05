@@ -24,7 +24,7 @@ the adapter without the extra fails at boot, with the install line.
 from __future__ import annotations
 
 import io
-import threading
+from threading import Lock
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, BinaryIO, Final
 
@@ -98,7 +98,7 @@ class AzureBlobStorage(StorageBackend):
         self._delegation = delegation
         self._key: UserDelegationKey | None = None
         self._key_expires_at = datetime.min.replace(tzinfo=UTC)
-        self._lock = threading.Lock()
+        self._lock = Lock()
 
     def _failed(self, operation: str, key: str, exc: Exception) -> FileStorageError:
         return FileStorageError(
