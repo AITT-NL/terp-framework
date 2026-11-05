@@ -173,6 +173,14 @@ def test_an_unmanaged_app_names_its_own_address(tmp_path: pathlib.Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
+def _with_a_suite(root: pathlib.Path) -> pathlib.Path:
+    """The suite's manifest: without one the check is not applicable (ADR 0202), and
+    these tests are about an app that HAS a suite and no stack to drive it against."""
+    (root / "conformance").mkdir(exist_ok=True)
+    (root / "conformance" / "package.json").write_text('{"name": "suite"}', encoding="utf-8")
+    return root
+
+
 def test_the_check_refuses_before_the_suite_starts_and_names_both_fixes(
     tmp_path: pathlib.Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -180,6 +188,7 @@ def test_the_check_refuses_before_the_suite_starts_and_names_both_fixes(
 ) -> None:
     root = tmp_path / "app"
     root.mkdir()
+    _with_a_suite(root)
     _echo_the_address(monkeypatch)
     with pytest.raises(SystemExit) as excinfo:
         main(["verify", "--profile", "release", "--only", "conformance", "--root", str(root)])
@@ -200,6 +209,7 @@ def test_the_check_hands_the_suite_the_published_address(
     """Through the CLI, so the dispatch, the lookup and the environment overlay are one path:
     the suite must SEE the address, not merely have it computed on its behalf."""
     root = _published(tmp_path / "app", WEB_PORT=21107, API_PORT=22107)
+    _with_a_suite(root)
     _echo_the_address(monkeypatch)
     with pytest.raises(SystemExit) as excinfo:
         main(
