@@ -41,6 +41,7 @@ updates:
     groups:
       python-deps:
         patterns: ["*"]
+{%- if frontend %}
 
   # Both manifests that pin `@terpjs/*`: the app's frontend and the conformance
   # suite beside it. A bump to one and not the other is a mixed install, which
@@ -70,4 +71,4 @@ updates:
     groups:
       conformance-deps:
         patterns: ["*"]
-
+{%- endif %}

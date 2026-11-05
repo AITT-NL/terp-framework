@@ -170,8 +170,36 @@ def test_deptry_is_told_why_the_server_and_the_driver_are_never_imported() -> No
     assert set(yaml.safe_load(exempt.group(1))) == {"uvicorn", "psycopg"}
 
 
-def _jobs() -> dict:
-    return yaml.safe_load(_CI.read_text(encoding="utf-8"))["jobs"]
+def _jobs(*, frontend: bool = True) -> dict:
+    return yaml.safe_load(_rendered_ci(_CI, frontend=frontend))["jobs"]
+
+
+#: The frontend answer's blocks (ADR 0202), resolved the way copier resolves them: the
+#: workflow a generated app with a frontend gets, which is the one this file holds.
+_FRONTEND_BLOCK = re.compile(
+    r"\s*\{%- if (?P<negated>not )?frontend %\}(?P<body>.*?)\s*\{%- endif %\}", re.DOTALL
+)
+
+
+def _rendered_ci(path: pathlib.Path, *, frontend: bool = True) -> str:
+    resolved = _FRONTEND_BLOCK.sub(
+        lambda m: m.group("body") if frontend != bool(m.group("negated")) else "",
+        path.read_text(encoding="utf-8"),
+    )
+    assert "{%" not in resolved, "a Jinja construct other than a frontend block"
+    return resolved
+
+
+def test_an_api_only_app_s_ci_installs_no_node_and_runs_no_browser_job() -> None:
+    """ADR 0202: the negative answer leaves the gate job without the Node setup and the
+    two npm installs, and drops the conformance job whole; the Python half is unchanged."""
+    jobs = _jobs(frontend=False)
+    assert set(jobs) == {"gate"}
+    runs = [step.get("run", "") for step in jobs["gate"]["steps"]]
+    assert "uv sync --locked" in runs and not [run for run in runs if run.startswith("npm ")]
+    assert not [step for step in jobs["gate"]["steps"] if "setup-node" in step.get("uses", "")]
+    with_frontend = _jobs()
+    assert set(with_frontend) == {"gate", "conformance"}
 
 
 def test_the_template_ci_installs_the_same_locks() -> None:

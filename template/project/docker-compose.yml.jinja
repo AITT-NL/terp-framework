@@ -4,9 +4,16 @@
 #   terp docker dev              # (or: docker compose watch) build, migrate, seed, then run
 #
 # Topology: Postgres (prod-parity DB) -> one-shot migrate -> one-shot seed -> the API
+{%- if frontend %}
 # (uvicorn) and the frontend (Vite). App and frontend source are bind-mounted straight
 # from the checkout (uvicorn --reload + Vite HMR, both polling — reliable on every
 # filesystem); dependency/manifest changes rebuild via compose watch.
+{%- endif %}
+{%- if not frontend %}
+# (uvicorn), which is this app's whole surface: it has no frontend of its own (ADR 0202).
+# App source is bind-mounted straight from the checkout (uvicorn --reload, polling —
+# reliable on every filesystem); dependency/manifest changes rebuild via compose watch.
+{%- endif %}
 #
 # A dependency change (`uv add`, `npm install <pkg>`) rebuilds an image and every service
 # that runs it comes back up on the new one; a settings change (`.app.env`, `.env`) is
@@ -223,6 +230,7 @@ services:
       retries: 3
       start_period: 30s
     logging: *container-logging
+{%- if frontend %}
 
   web:
     build:
@@ -304,6 +312,7 @@ services:
         - action: rebuild
           path: frontend/package.json
     logging: *container-logging
+{%- endif %}
 
 volumes:
   db-data:

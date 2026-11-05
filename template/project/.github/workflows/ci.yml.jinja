@@ -74,15 +74,18 @@ jobs:
           # shallow clone would scan one commit and report clean.
           fetch-depth: 0
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+{%- if frontend %}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
+{%- endif %}
       # The committed locks, installed exactly: the gate proves the same dependency set
       # the production images install (`uv sync --locked --no-dev` and `npm ci` in the
       # Dockerfiles), and a lock that has drifted from its manifest fails here, naming the
       # command that fixes it (`uv lock`; `npm --prefix frontend install`), instead of
-      # being re-resolved into a set nobody committed. Commit both locks.
+      # being re-resolved into a set nobody committed. Commit every lock.
       - run: uv sync --locked
+{%- if frontend %}
       # Both manifests that pin @terpjs/*. The profile's platform-install check reads the
       # INSTALLED copy under each node_modules, not just the declared range, so they have
       # to be here for its verdict to mean anything — and a name left under the
@@ -91,6 +94,7 @@ jobs:
       # and needs no committed lock.
       - run: npm --prefix frontend ci
       - run: npm --prefix conformance install
+{%- endif %}
       # The merge bar. platform-install runs first and refuses a mixed install before the
       # rest of the run spends time proving things about a combination never released.
       - run: uv run terp verify --profile full
@@ -117,6 +121,7 @@ jobs:
           tar -xzf gitleaks.tgz gitleaks
           sudo install gitleaks /usr/local/bin/gitleaks
       - run: uv run terp verify --profile release --only secret-scanning
+{%- if frontend %}
 
   conformance:
     # The release profile's `conformance` check with the precondition its manifest entry
@@ -168,3 +173,4 @@ jobs:
       - name: Stop the workbench
         if: always()
         run: docker compose down -v
+{%- endif %}

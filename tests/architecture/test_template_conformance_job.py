@@ -37,9 +37,25 @@ _SUITE_CONFIG = _PROJECT / "conformance" / "playwright.config.ts"
 _FRAMEWORK_CI = _REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 
+#: The frontend answer's blocks (ADR 0202), resolved the way copier resolves them: the
+#: workflow a generated app with a frontend gets, which is the one this file holds.
+_FRONTEND_BLOCK = re.compile(
+    r"\s*\{%- if (?P<negated>not )?frontend %\}(?P<body>.*?)\s*\{%- endif %\}", re.DOTALL
+)
+
+
+def _rendered_ci(path: pathlib.Path, *, frontend: bool = True) -> str:
+    resolved = _FRONTEND_BLOCK.sub(
+        lambda m: m.group("body") if frontend != bool(m.group("negated")) else "",
+        path.read_text(encoding="utf-8"),
+    )
+    assert "{%" not in resolved, "a Jinja construct other than a frontend block"
+    return resolved
+
+
 def _conformance_steps() -> list[dict]:
-    # The workflow carries no Jinja tags, so it parses as the YAML a generated app gets.
-    workflow = yaml.safe_load(_TEMPLATE_CI.read_text(encoding="utf-8"))
+    # Through the frontend answer, the workflow parses as the YAML a generated app gets.
+    workflow = yaml.safe_load(_rendered_ci(_TEMPLATE_CI))
     return workflow["jobs"]["conformance"]["steps"]
 
 
@@ -103,7 +119,7 @@ def test_acceptance_runs_the_generated_job_and_the_runner_can_run_it() -> None:
     invocation = invocations[0]
     assert re.search(r"/\.github/workflows/ci\.yml conformance\b", invocation), invocation
     provided = frozenset(re.findall(r"--provided (\S+)", invocation))
-    workflow = yaml.safe_load(_TEMPLATE_CI.read_text(encoding="utf-8"))
+    workflow = yaml.safe_load(_rendered_ci(_TEMPLATE_CI))
     try:
         run_workflow_job.plan(workflow, "conformance", provided=provided)
     except run_workflow_job.Refusal as refusal:

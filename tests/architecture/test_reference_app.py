@@ -86,7 +86,10 @@ def test_a_line_ending_is_not_a_template_change(tmp_path: pathlib.Path) -> None:
 
 def test_template_source_finds_plain_and_jinja_sources_and_nothing_else() -> None:
     assert reference.template_source("control_plane/__init__.py") == (
-        reference.TEMPLATE_PROJECT / "control_plane" / "__init__.py"
+        reference.TEMPLATE_PROJECT / "control_plane" / "__init__.py.jinja"
+    )
+    assert reference.template_source("workbench.json") == (
+        reference.TEMPLATE_PROJECT / "workbench.json.jinja"
     )
     assert reference.template_source("app/main.py") == (
         reference.TEMPLATE_PROJECT / "app" / "main.py.jinja"

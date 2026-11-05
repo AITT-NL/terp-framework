@@ -62,9 +62,12 @@ DECLARATION = "deployment.json"
 #: The lock a web unit is built from, which `npm install` writes and the template does not.
 LOCK = "frontend/package-lock.json"
 
-#: The files volume, the seed's one conditional block. The template before the question
-#: wrote a plain declaration, so its seed is the render with the answer off.
+#: The files volume, the seed's one conditional block before ADR 0202. The template before
+#: the question wrote a plain declaration, so its seed is the render with the answer off.
 FILES_BLOCK = re.compile(r"\s*\{%- if use_files %\}.*?\{%- endif %\}", re.DOTALL)
+#: The web unit, the seed's other conditional block (ADR 0202): the template before the
+#: question always declared it, so its seed is the render with the answer on.
+FRONTEND_BLOCK = re.compile(r"\{%- if frontend %\}(.*?)\s*\{%- endif %\}", re.DOTALL)
 
 #: Where the files capability's volume lands in the production profile.
 FILES_MOUNT = '"files-data:/srv/var/files"'
@@ -225,8 +228,9 @@ def _before_the_question(tpl: pathlib.Path) -> None:
         "{{ deploy_build }}" in text, "the seed declaration no longer takes build from deploy_build"
     )
     seed.unlink()
+    text = FRONTEND_BLOCK.sub(lambda match: match.group(1), FILES_BLOCK.sub("", text))
     (tpl / "project" / DECLARATION).write_text(
-        FILES_BLOCK.sub("", text).replace("{{ deploy_build }}", "own"), encoding="utf-8"
+        text.replace("{{ deploy_build }}", "own"), encoding="utf-8"
     )
 
 

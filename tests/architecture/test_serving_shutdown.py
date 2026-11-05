@@ -62,12 +62,24 @@ _INVOCATION = re.compile(r"""["']uvicorn["']\s*,\s*["'][\w.]+:\w+["']""")
 #: The template compose is Jinja. Substituting the one interpolation and stripping the wizard's
 #: conditional blocks (their default render) lets it parse as YAML without a Jinja engine --
 #: the same no-render treatment ``test_compose_workbench.py`` gives it.
+#: The frontend answer (ADR 0202), resolved as copier resolves it before the other blocks
+#: are stripped: the default render HAS a web service, and a strip that removed it would
+#: judge an API-only app's compose as the default's.
+_FRONTEND_BLOCK = re.compile(
+    r"\s*\{%- if (?P<negated>not )?frontend %\}(?P<body>.*?)\s*\{%- endif %\}", re.DOTALL
+)
+
+
+def _with_frontend(text: str) -> str:
+    return _FRONTEND_BLOCK.sub(lambda m: "" if m.group("negated") else m.group("body"), text)
+
+
 _JINJA_IF_BLOCK = re.compile(r"\{%-?\s*if\b.*?%\}.*?\{%-?\s*endif\s*-?%\}", re.DOTALL)
 
 
 def _api_command(compose_path: pathlib.Path) -> list[str]:
     text = compose_path.read_text(encoding="utf-8").replace("{{ project_slug }}", "app")
-    text = _JINJA_IF_BLOCK.sub("", text)
+    text = _JINJA_IF_BLOCK.sub("", _with_frontend(text))
     assert "{%" not in text, f"{compose_path.name}: unstripped Jinja block"
     data = yaml.safe_load(text)
     command = data["services"]["api"]["command"]
