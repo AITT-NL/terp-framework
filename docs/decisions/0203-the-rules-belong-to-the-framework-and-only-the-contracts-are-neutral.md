@@ -3,8 +3,8 @@
 - **Status:** Proposed (awaiting review). Nothing is built on this record until it is accepted.
   It sets a direction; each move it describes is a later change of its own, and the first one
   waits for PR #204 released as 0.36.1 and terp-spec#52 released as 0.43.0.
-- **Date:** 2026-11-05. 0194 to 0200 are on PR #204, and 0201 and 0202 are claimed on another
-  branch.
+- **Date:** 2026-11-05. 0194 to 0200 are on PR #204, and 0201 and 0202 are claimed by work in
+  progress elsewhere.
 - **Amends:** [ADR 0080](0080-terp-standard-rule-catalog-and-violation-corpus.md),
   [ADR 0081](0081-terp-standard-consumable-findings-schema-and-layers.md),
   [ADR 0082](0082-repo-split-readiness-spec-as-a-package.md),
@@ -27,9 +27,10 @@
 Terp is a Python and React framework, and making the backend stack-neutral is not a goal. The
 rule catalog and its corpus are this framework's own rules: they move into this repository,
 split by surface under one id namespace, and every rule keeps its machine-checked runtime
-applicability. Only the documents that more than one program reads stay a separate package:
-the deployment, workbench and layout declarations, the check-report and findings formats, the
-assurance profile, and the conversation event stream. That package has no dependencies, is
+applicability. Only the contracts stay a separate package: the documents that more than one
+program reads (the deployment, workbench and layout declarations, the check-report and
+findings formats, and the conversation event stream), and the assurance profile, which ADR
+0111 decision 5 places with them. That package has no dependencies, is
 versioned outside the lockstep, and is renamed `terp-contracts` / `@terpjs/contracts`. Another
 language or client joins at the edges, as a client of an app's HTTP API or as a declared unit
 of its deployment, never as a second kind of Terp app. Terp certifies no app built without it:
@@ -113,9 +114,10 @@ observe a rule, a fail-closed runtime control sees what the check misses. 38 rul
   descriptions, and both repositories' `AGENTS.md` stop calling the rules stack-neutral.
 - The generated rule pages still end their reference text with "another stack ships its own
   realisation". They are regenerated where the rules land.
-- Withdrawing the scorecard removes its emitters here: the CI step that emits the `terp-arch`
-  scorecard, `tools/emit_backend_scorecard.py`, `@terpjs/eslint-boundaries`' `scorecard.js`,
-  and the release step that attaches scorecards (`docs/RELEASING.md`).
+- Withdrawing the scorecard removes its emitters here: `tools/emit_backend_scorecard.py` and
+  `@terpjs/eslint-boundaries`' `scorecard.js`, the steps that run them in `ci.yml`,
+  `frontend.yml` and `release.yml`, and the release's attachment of the scorecards
+  (`release.yml`, `docs/RELEASING.md`).
 - With the rules here, no CI job checks out another repository, and a rule, its check and its
   corpus land in one pull request.
 - The rename costs one migration: a last `terp-spec` release points to `terp-contracts`, and
