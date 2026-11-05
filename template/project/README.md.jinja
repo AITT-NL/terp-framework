@@ -63,7 +63,7 @@ report success against a database that disappears with the process. So set
 `DATABASE_URL=sqlite:///./dev.db` in `.env` and run `uv run terp migrate upgrade` once (the
 Compose workbench below does all of this with Postgres instead).
 {%- endif %}
-{% if frontend -%}
+{% if frontend %}
 **If a frontend edit does not appear, restart the dev server rather than trusting HMR.**
 Vite watches for file events, and some filesystems deliver them unreliably or not at all —
 Docker Desktop bind mounts and volume-backed checkouts are the known cases, but a plain

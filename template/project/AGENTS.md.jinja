@@ -182,7 +182,7 @@ it is. One command runs everything:
 uv run terp verify --profile full   # the merge bar: exactly what CI enforces
 ```
 
-Or run the halves individually (useful for narrower reruns while iterating):
+Or run the {% if frontend %}four {% endif %}halves individually (useful for narrower reruns while iterating):
 
 ```bash
 uv run pytest                         # backend gate (architecture, migrations, mounted modules)
@@ -216,7 +216,7 @@ reddens for a reason no test failure will explain:
 - `generated` — are the production build files the framework's render? Where
   `deployment.json` says `"build": "generated"`, `Dockerfile.prod`{% if frontend %}, `frontend/Dockerfile.prod`{% endif %}
   and `docker-compose.prod.yml` are rendered from it: change `deployment.json`, run
-  `uv run terp deployment render`, and commit both. Never edit the three files by hand; a
+  `uv run terp deployment render`, and commit both. Never edit the {% if frontend %}three{% else %}two{% endif %} files by hand; a
   copy that is not the render is red, and so is a `deploy_build` in `.copier-answers.yml`
   that disagrees. `uv run terp deployment adopt --build generated` (or `--build own`, back)
   moves the app between the two states and writes both files. Silent for any other state.

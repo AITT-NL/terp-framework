@@ -2932,17 +2932,35 @@ def test_an_npm_check_is_not_applicable_without_its_workspace_and_runs_nothing(
     for check in (_FRONTEND_BOUNDARIES, _FRONTEND_TYPECHECK, _FRONTEND_BUILD, _DEPENDENCY_AUDIT_NPM):
         exit_code, output = _run_subprocess(check, tmp_path)
         assert exit_code == 0
-        assert output == f"no frontend/package.json - {check.id} {NOT_APPLICABLE}"
+        assert output == f"no frontend/ - {check.id} {NOT_APPLICABLE}"
     exit_code, output = _run_subprocess(_CONFORMANCE, tmp_path)
-    assert (exit_code, output) == (0, f"no conformance/package.json - conformance {NOT_APPLICABLE}")
+    assert (exit_code, output) == (0, f"no conformance/ - conformance {NOT_APPLICABLE}")
 
-    # The workspace exists but was never installed: the existing red, with its fix.
+    # The directory decides, never one file in it: a frontend/ without its manifest is a
+    # frontend that cannot be built, and the command runs and reports that as it did.
     frontend = tmp_path / "frontend"
     frontend.mkdir()
+    (frontend / "src").mkdir()
+    ran: list[list[str]] = []
+
+    def enoent(argv: list[str], root: pathlib.Path, *, env: dict[str, str] | None = None):
+        ran.append(argv)
+        return subprocess.CompletedProcess(argv, 254, "", "npm error code ENOENT")
+
+    monkeypatch.setattr(verify_module, "_run_argv", enoent)
+    exit_code, output = _run_subprocess(_FRONTEND_BUILD, tmp_path)
+    assert exit_code == 254 and "ENOENT" in output and NOT_APPLICABLE not in output
+    assert ran == [["npm", "--prefix", "frontend", "run", "build"]]
+
+    # The workspace exists but was never installed: the existing red, with its fix.
     (frontend / "package.json").write_text('{"name": "x"}', encoding="utf-8")
     (frontend / "package-lock.json").write_text('{"packages": {}}', encoding="utf-8")
     exit_code, output = _run_subprocess(_FRONTEND_BUILD, tmp_path)
-    assert exit_code == 1 and NOT_APPLICABLE not in output
+    assert exit_code == 1 and NOT_APPLICABLE not in output and ran[1:] == []
+    # A root-level manifest command of the app's own is never skipped: the root exists.
+    from terp.cli.verify import _workspace_absent
+
+    assert _workspace_absent(tmp_path, ".", "own") is None
 
 
 def test_the_conformance_runner_is_not_applicable_before_it_looks_for_a_stack(
@@ -2956,7 +2974,7 @@ def test_the_conformance_runner_is_not_applicable_before_it_looks_for_a_stack(
 
     monkeypatch.setattr(verify_module, "conformance_address", never)
     exit_code, output = _run_conformance(tmp_path)
-    assert (exit_code, output) == (0, f"no conformance/package.json - conformance {NOT_APPLICABLE}")
+    assert (exit_code, output) == (0, f"no conformance/ - conformance {NOT_APPLICABLE}")
 
 
 def test_a_green_check_that_says_it_had_nothing_to_judge_is_recorded_as_not_applicable() -> None:

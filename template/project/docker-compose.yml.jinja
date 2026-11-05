@@ -15,9 +15,16 @@
 # reliable on every filesystem); dependency/manifest changes rebuild via compose watch.
 {%- endif %}
 #
+{%- if frontend %}
 # A dependency change (`uv add`, `npm install <pkg>`) rebuilds an image and every service
 # that runs it comes back up on the new one; a settings change (`.app.env`, `.env`) is
 # applied by `terp docker dev` itself (`terp guide environment`).
+{%- endif %}
+{%- if not frontend %}
+# A dependency change (`uv add`) rebuilds the image and every service that runs it comes
+# back up on the new one; a settings change (`.app.env`, `.env`) is applied by
+# `terp docker dev` itself (`terp guide environment`).
+{%- endif %}
 name: {{ project_slug }}
 
 # Shared backend definition — migrate / seed / api run the same image. Only `migrate`

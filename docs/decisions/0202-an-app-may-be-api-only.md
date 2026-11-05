@@ -81,12 +81,18 @@ an unmet precondition, never a pass), some is a verdict on the rest. The require
 unchanged in shape; for an API-only app `terp-standard` and `dependency-audit` carry the
 backend halves, and `blackbox-conformance` is `not-run`.
 
-### 5. Studio offers it; Studio's deploy path is the deployment record's
+### 5. Studio offers it where the starting screen is chosen; its deploy path is the deployment record's
 
-The new-app wizard shows "API only" beside the capability toggles and passes the answer to
-copier; the proposal, prompt and chat that describe a new app say it too. Studio's deploy
-and preview code assumes a `web` service and `WEB_PORT`; routing a hostname to a published
-`api` unit is a change to the managed deployment, recorded there, not here.
+The new-app wizard shows "API only" beside the starting screens, not the capability toggles:
+it answers the same question a layout answers, what the app starts with, and the render turns
+it into the template's `frontend` answer and no layout at all. The proposal, prompt and chat
+that describe a new app say it too, and the portal rule leaves it alone, since an app for
+outsiders may have its screens elsewhere. The offering appears only where the template Studio
+will render is known to ask the question; for a template source Studio cannot read, the
+choice is withheld rather than assumed. Studio's deploy and preview code assumes a `web`
+service and `WEB_PORT`; routing a hostname to a published `api` unit is a change to the
+managed deployment, recorded there, not here, and until it lands Studio says so for such an
+app instead of refusing for a reason that is not the cause.
 
 ## What does not change
 
@@ -96,8 +102,12 @@ kernel, the control plane and the authority baseline are the same with or withou
 
 ## Two-layer enforcement
 
-- **Runtime:** the rendered profile has a way in, or compose cannot be reached at all; a
-  check that is not applicable says so in its output and in the JSON and assurance records.
+- **Runtime:** not applicable, and recorded as such: nothing here is observed by the
+  running app. The shape is decided when the template renders and when the generator
+  renders; a generated app is held to the render by the `generated` check, and an `own`
+  build's profile is the app's own, as every shape is (ADR 0184 keeps "no frontend" off
+  the red list, and this record adds no reader of `ports:`). A check that is not
+  applicable says so in its output and in the JSON and assurance records.
 - **Build time:** a fourth template-acceptance variant renders `frontend=false` and runs the
   backend gate and the production boot on it; the generator's `no-frontend` golden carries
   the port; the template's premise tests read the rendered answer; the assurance document's

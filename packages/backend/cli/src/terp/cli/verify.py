@@ -1227,6 +1227,20 @@ def _run_argv(
         )
 
 
+def _workspace_absent(root: pathlib.Path, workspace: str, check_id: str) -> str | None:
+    """Why *check_id* is not applicable: the npm *workspace* is not there at all.
+
+    The directory decides, never one file in it. An app rendered API-only has no
+    ``frontend/`` and no ``conformance/`` (ADR 0202), so there is nothing to run and
+    nothing to fail; a ``frontend/`` that exists without its ``package.json`` is a
+    frontend that cannot be built, and that stays the red the command itself reports.
+    The project root is never absent, so a root-level manifest command is never skipped.
+    """
+    if workspace in ("", ".") or (root / workspace).is_dir():
+        return None
+    return f"no {workspace}/ - {check_id} {NOT_APPLICABLE}"
+
+
 def _run_subprocess(
     check: VerifyCheck, root: pathlib.Path, *, env: dict[str, str] | None = None
 ) -> tuple[int, str]:
@@ -1244,13 +1258,9 @@ def _run_subprocess(
     argv = shlex.split(check.command)
     if argv and argv[0] == "npm":
         workspace = _npm_workspace(argv)
-        manifest = root / workspace / "package.json"
-        if not manifest.is_file():
-            # An app with no such workspace at all (an API-only app has no frontend/
-            # and no conformance/, ADR 0202): nothing to run, and nothing to fail. The
-            # app that HAS the workspace and cannot run it is the next branch's red.
-            where = manifest.relative_to(root).as_posix()
-            return 0, f"no {where} - {check.id} {NOT_APPLICABLE}"
+        absent = _workspace_absent(root, workspace, check.id)
+        if absent is not None:
+            return 0, absent
         problem = _node_modules_problem(root, workspace)
         if problem is not None:
             return 1, problem
@@ -2130,10 +2140,11 @@ def _run_conformance(root: pathlib.Path) -> tuple[int, str]:
     """
     from terp.cli.dev import DEFAULT_WEB_PORT
 
-    if not (root / "conformance" / "package.json").is_file():
-        # No suite to drive (an API-only app renders none, ADR 0202): not a stack that
-        # is down, which is the red below, but nothing to run at all.
-        return 0, f"no conformance/package.json - conformance {NOT_APPLICABLE}"
+    absent = _workspace_absent(root, "conformance", _CONFORMANCE.id)
+    if absent is not None:
+        # No suite to drive at all (an API-only app renders none, ADR 0202): the same
+        # seam every npm check answers through, before the stack is looked for.
+        return 0, absent
     url, source = conformance_address(root)
     if url is None:
         return 1, (
