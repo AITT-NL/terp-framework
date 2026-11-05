@@ -64,6 +64,20 @@ class UnknownStorageProfileError(FileStorageError):
     default_message = "No storage backend is registered for the requested profile."
 
 
+class StorageSdkMissingError(FileStorageError):
+    """500 — a storage adapter was built without the provider SDK its extra installs.
+
+    Raised by an adapter's constructor, so a composition root that registers the adapter
+    without the matching extra (``terp-cap-files[azure]``, ``terp-cap-files[s3]``) fails at
+    boot with the install line, never at the first upload. A wiring error, like
+    :class:`UnknownStorageProfileError`: nothing a client did or can see.
+    """
+
+    status_code = 500
+    code = "storage_sdk_missing"
+    default_message = "A storage adapter's provider SDK is not installed."
+
+
 class StorageBackend(abc.ABC):
     """The byte-store port: stream opaque blobs addressed by a server-generated key.
 
@@ -201,6 +215,7 @@ __all__ = [
     "FileStorageError",
     "LocalFilesystemStorage",
     "StorageBackend",
+    "StorageSdkMissingError",
     "UnknownStorageProfileError",
     "active_storage_backend",
     "register_storage_backend",

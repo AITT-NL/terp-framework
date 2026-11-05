@@ -10,6 +10,38 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.36.1 — unreleased
+
+### Added
+
+- **A file's bytes are handed out from where they rest (ADR 0201).** The files capability's
+  storage port grows one optional method, `link(key, *, ttl, content_type, disposition)`: a
+  store that signs URLs hands the bytes out itself, and the default, `None`, leaves them to
+  the API. `FileService.link` mints a short-lived link only after the checks a download
+  passes (row scope, then quarantine), from the store the row itself names; where that store
+  cannot sign, the capability signs an **app-signed link** of its own, a token sealed under a
+  `files.link` sealing domain and served by `GET /api/v1/files/link/{token}`: the capability's
+  one public route, declared with `Policy.public(reason=...)`, rate-limited, answering an
+  expired, altered or foreign token with the same 404, and re-checking the scan verdict before
+  it streams. `GET /api/v1/files/{id}/link` mints a link under the module's policy, with a
+  lifetime of an hour by default and 24 hours at most, and `inline` honoured only for a type a
+  browser renders without running anything in it. `link_for` is the serve-through form: a
+  module mints a link through its own authorized row and a declared `FileRef`.
+- **Two object-store adapters, as extras.** `terp-cap-files[s3]` installs `S3Storage`, which
+  takes the SDK's own client and a bucket and links with a presigned `GET`;
+  `terp-cap-files[azure]` installs `AzureBlobStorage`, which takes the SDK's `ContainerClient`
+  and links with a read-only SAS, signed with a user-delegation key when a `BlobServiceClient`
+  under an Entra credential is given, with the account key when the container client holds
+  one, and not at all otherwise (the API then serves the bytes). Both carry the download's
+  media type and disposition in the link, so a client is told the same thing by either path;
+  both map a vanished blob to the typed 404 and a provider failure to the typed 502 with the
+  provider's text kept in `log_context`. Building either without its extra fails at boot with
+  the install line (`StorageSdkMissingError`).
+- **`Range` on the two routes the API serves bytes from.** The authenticated content route and
+  the app-signed route honour one `bytes=` range (`206` with `Content-Range`, `416` for a range
+  the file cannot satisfy, `Accept-Ranges: bytes` on every answer); a stream that cannot seek
+  is read forward to the offset. `terp guide files` carries the recipe.
+
 ## 0.36.0 — 2026-11-04
 
 ### Security

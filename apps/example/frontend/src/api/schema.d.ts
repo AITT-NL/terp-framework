@@ -227,6 +227,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/files/link/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a file's contents through a short-lived link */
+        get: operations["files.read_link"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/files/{file_id}": {
         parameters: {
             query?: never;
@@ -255,6 +272,23 @@ export interface paths {
         };
         /** Download a file's contents */
         get: operations["files.download_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/{file_id}/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a short-lived link to a file's contents */
+        get: operations["files.link_file"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1002,6 +1036,24 @@ export interface components {
             role_name: string;
             /** Role Rank */
             role_rank: number;
+        };
+        /**
+         * FileLinkRead
+         * @description A short-lived link to a file's bytes (ADR 0201): the URL, and when it stops working.
+         *
+         *     ``url`` is absolute for a store's own signed URL and path-absolute for one the
+         *     capability signed itself; a client uses either as it is. A store's URL carries the
+         *     store's own address of the blob, which is the store's business and expires with the
+         *     link: ``storage_key`` itself still never leaves the API.
+         */
+        FileLinkRead: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Url */
+            url: string;
         };
         /**
          * FileRead
@@ -2295,6 +2347,37 @@ export interface operations {
             };
         };
     };
+    "files.read_link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     "files.get_file": {
         parameters: {
             query?: never;
@@ -2408,6 +2491,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    "files.link_file": {
+        parameters: {
+            query?: {
+                ttl_seconds?: number | null;
+                inline?: boolean;
+            };
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileLinkRead"];
                 };
             };
             /** @description Validation Error */

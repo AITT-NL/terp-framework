@@ -55,7 +55,7 @@ from terp.capabilities.files.links import (
     open_link,
     seal_link,
 )
-from terp.capabilities.files.router import _byte_range, _UnsatisfiableRange, module, read_link, router
+from terp.capabilities.files.router import _byte_range, _skip_to, _UnsatisfiableRange, module, read_link, router
 
 _CONTENT = b"0123456789abcdefghijklmnopqrstuvwxyz"
 _PNG = b"\x89PNG\r\n\x1a\n" + _CONTENT
@@ -374,6 +374,16 @@ def test_a_range_on_a_stream_that_cannot_seek_is_read_up_to_and_discarded(engine
         assert part.status_code == 206 and part.content == _CONTENT[10:13]
     finally:
         reset_storage_backend()
+
+
+def test_skipping_forward_stops_at_the_end_of_a_stream_that_cannot_seek() -> None:
+    """A blob shorter than its row says ends the skip, so the body is a protocol error, not a hang."""
+    short = _NonSeekableStorage._Reader(_CONTENT[:4])
+    _skip_to(short, 10)
+    assert short.read() == b""
+    seekable = io.BytesIO(_CONTENT)
+    _skip_to(seekable, 10)
+    assert seekable.read(3) == _CONTENT[10:13]
 
 
 @pytest.mark.parametrize(

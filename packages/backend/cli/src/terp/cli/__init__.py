@@ -1716,11 +1716,32 @@ File objects (files capability, ADR 0056/0057)
   objects) in a NAMED-PROFILE registry;
   metadata (name, type, size, sha256, storage_key, storage_profile) lives in the platform
   DB. storage_key/storage_profile never leave the boundary (FileRead omits both).
-- Any provider is an adapter subclass (local ships; S3/Azure/NAS are each a
-  StorageBackend). Register each store once at the composition root:
-      register_storage_backend("azure-invoices", AzureBlobStorage(container="invoices"))
-      register_storage_backend("azure-hr", AzureBlobStorage(container="hr"))
-  Keep credentials in settings / sealed config — never in module code.
+- Any provider is an adapter subclass (local ships; a NAS mount is the local adapter on
+  another root). Two object-store adapters ship behind extras (ADR 0201): S3Storage
+  (terp-cap-files[s3]) takes the SDK's own client and a bucket; AzureBlobStorage
+  (terp-cap-files[azure]) takes the SDK's ContainerClient and, for user-delegation SAS
+  links, a BlobServiceClient under an Entra credential. Register each store once at the
+  composition root:
+      register_storage_backend("s3-media", S3Storage(boto3.client("s3"), bucket="app-media"))
+      register_storage_backend("azure-invoices", AzureBlobStorage(invoices_container))
+      register_storage_backend("azure-hr", AzureBlobStorage(hr_container, delegation=service))
+  Keep credentials in settings / sealed config — never in module code. Building an adapter
+  without its extra fails at boot with the install line (StorageSdkMissingError).
+- A client that cannot send a bearer (an <audio>/<video> element, a PDF viewer, a native
+  client's media stack) gets a short-lived LINK to one file's bytes instead (ADR 0201):
+      GET /api/v1/files/{id}/link?ttl_seconds=600&inline=true   ->  {url, expires_at}
+  The link is minted where a download is authorized (row scope, then quarantine), by the
+  store the ROW names: an S3 presigned GET or an Azure SAS where the store can sign, else
+  an app-signed token the capability serves itself at GET /api/v1/files/link/{token} —
+  its one public route, rate-limited, answering 404 to an expired, altered or foreign
+  token. The default lifetime is an hour, the longest 24 hours; a link is not single-use
+  (a player makes many range requests), its expiry is the control. inline is honoured only
+  for a type a browser renders without running it (image, audio, video, PDF). From a
+  module, mint through your own authorized row and a declared FileRef:
+      link = FileService().link_for(session, invoice, "attachment_file_id", ttl=timedelta(minutes=10))
+  Both content routes honour one bytes= Range (206 / 416); the local adapter seeks, an
+  object store's stream is read forward, and a store that signs never streams through
+  the API at all.
 - Pick the store per module (subclass default) or per call — never from a client:
       class InvoiceFileService(FileService):
           storage_profile = "azure-invoices"
