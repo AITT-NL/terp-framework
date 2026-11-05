@@ -39,6 +39,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
 from typing import BinaryIO, ClassVar
 
 from sqlmodel import Session, SQLModel
@@ -51,6 +52,15 @@ from terp.core import (
     ValidationFailedError,
 )
 
+from terp.capabilities.files.links import (
+    SIGNED_LINK_PATH,
+    FileLink,
+    content_disposition,
+    inline_allowed,
+    link_ttl,
+    open_link,
+    seal_link,
+)
 from terp.capabilities.files.models import File
 from terp.capabilities.files.references import (
     UndeclaredFileReferenceError,
@@ -407,6 +417,88 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
                 },
             )
         return self.load(session, file_id)
+
+    def link(
+        self,
+        session: Session,
+        file_id: uuid.UUID,
+        *,
+        ttl: timedelta | None = None,
+        inline: bool = False,
+    ) -> FileLink:
+        """A short-lived link to the file's bytes, minted where a download is authorized (ADR 0201).
+
+        The same checks :meth:`open_stream` makes come first: ``get`` honours the row scope,
+        so an invisible row is a 404 before any store is asked, and a quarantined row is
+        refused. Then the backend the **row itself** names is asked for a link; a backend
+        that hands out none (the local adapter, a store that cannot sign) gets an
+        app-signed one instead: a sealed token the capability's own public route serves,
+        with ``Range`` support. *ttl* is bounded by :data:`~terp.capabilities.files.links.LINK_TTL_MAX`;
+        *inline* is honoured only for a type a browser renders without running it, so a
+        stored HTML page is an attachment whatever was asked.
+        """
+        row = self.get(session, file_id)
+        ensure_servable(row.scan_state)
+        lifetime = link_ttl(ttl)
+        expires_at = datetime.now(UTC) + lifetime
+        shown_inline = inline and inline_allowed(row.content_type)
+        url = resolve_storage_backend(row.storage_profile).link(
+            row.storage_key,
+            ttl=lifetime,
+            content_type=row.content_type,
+            disposition=content_disposition(row.filename, inline=shown_inline),
+        )
+        if url is None:
+            url = f"{SIGNED_LINK_PATH}/{seal_link(row.id, expires_at, inline=shown_inline)}"
+        return FileLink(url=url, expires_at=expires_at)
+
+    def link_for(
+        self,
+        session: Session,
+        referencing: SQLModel,
+        column: str,
+        *,
+        ttl: timedelta | None = None,
+        inline: bool = False,
+    ) -> FileLink:
+        """A link through an already-authorized referencing row: the serve-through form of :meth:`link`.
+
+        Mirrors :meth:`load_for` (ADR 0057): the caller loaded *referencing* through its own
+        service, so that row's policy and scope already decided visibility; this follows the
+        row's **declared** reference (fail-closed on a column not declared with ``FileRef``,
+        a typed 404 on an empty one) and mints the link for exactly that one file.
+        """
+        if not is_file_reference(type(referencing), column):
+            raise UndeclaredFileReferenceError(
+                log_context={"model": type(referencing).__name__, "column": column}
+            )
+        file_id = getattr(referencing, column)
+        if file_id is None:
+            raise NotFoundError(
+                "The record references no file.",
+                log_context={"model": type(referencing).__name__, "column": column},
+            )
+        return self.link(session, file_id, ttl=ttl, inline=inline)
+
+    def open_link_stream(self, session: Session, token: str) -> tuple[File, BinaryIO, bool]:
+        """The row, its stream and whether to show it inline, for a live app-signed *token*.
+
+        A token the link domain cannot open, one whose claims are not a link's, and an
+        expired one are all the same typed 404, which says nothing about which it was. A
+        live token goes through :meth:`open_stream` again: the row must still exist and
+        still be servable, because a scan verdict can change after a link was minted. The
+        public route runs with no actor, so the owner read scope does not narrow this read
+        (an actor-less read is not narrowed, by that scope's own rule); the authorization
+        was the mint, and the expiry bounds it.
+        """
+        opened = open_link(token)
+        if opened is None:
+            raise NotFoundError(
+                "The link is not valid.", log_context={"reason": "link_not_honoured"}
+            )
+        file_id, inline = opened
+        row, stream = self.open_stream(session, file_id)
+        return row, stream, inline
 
     def remove(self, session: Session, file_id: uuid.UUID) -> None:
         """Delete a file: its bytes and its metadata row as one atomic, owner-gated unit.

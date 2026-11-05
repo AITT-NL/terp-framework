@@ -37,10 +37,18 @@ never a sibling capability or a storage engine SDK.
 from __future__ import annotations
 
 from terp.capabilities.files.models import File
+from terp.capabilities.files.links import (
+    DEFAULT_LINK_TTL,
+    LINK_TTL_MAX,
+    SIGNED_LINK_PATH,
+    FileLink,
+)
 from terp.capabilities.files.operations import (
     FILES_DELETE,
     FILES_DOWNLOAD,
     FILES_GET,
+    FILES_LINK,
+    FILES_LINK_CONTENT,
     FILES_LIST,
     FILES_OPERATIONS,
     FILES_UPDATE,
@@ -71,7 +79,7 @@ from terp.capabilities.files.scanning import (
     register_file_scanner,
     reset_file_scanner,
 )
-from terp.capabilities.files.schemas import FileCreate, FileRead, FileUpdate
+from terp.capabilities.files.schemas import FileCreate, FileLinkRead, FileRead, FileUpdate
 from terp.capabilities.files.service import (
     ContentTypeMismatchError,
     FileService,
@@ -95,7 +103,10 @@ from terp.capabilities.files.storage import (
 
 __all__ = [
     "ContentTypeMismatchError",
+    "DEFAULT_LINK_TTL",
     "DEFAULT_STORAGE_PROFILE",
+    "LINK_TTL_MAX",
+    "SIGNED_LINK_PATH",
     "SCAN_CLEAN",
     "SCAN_NOT_SCANNED",
     "SCAN_REJECTED",
@@ -103,12 +114,16 @@ __all__ = [
     "FILES_DELETE",
     "FILES_DOWNLOAD",
     "FILES_GET",
+    "FILES_LINK",
+    "FILES_LINK_CONTENT",
     "FILES_LIST",
     "FILES_OPERATIONS",
     "FILES_UPDATE",
     "FILES_UPLOAD",
     "File",
     "FileCreate",
+    "FileLink",
+    "FileLinkRead",
     "FileQuarantinedError",
     "FileRead",
     "FileRef",

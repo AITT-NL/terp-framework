@@ -18,6 +18,12 @@ FILES_DOWNLOAD = OperationDefinition(
 )
 FILES_UPDATE = OperationDefinition(id="files.update_file", label="Edit a file's details")
 FILES_DELETE = OperationDefinition(id="files.delete", label="Delete a file")
+FILES_LINK = OperationDefinition(
+    id="files.link_file", label="Get a short-lived link to a file's contents"
+)
+FILES_LINK_CONTENT = OperationDefinition(
+    id="files.read_link", label="Read a file's contents through a short-lived link"
+)
 
 #: Every operation this capability's routes declare, in declaration order.
 #:
@@ -33,12 +39,16 @@ FILES_OPERATIONS: tuple[OperationDefinition, ...] = (
     FILES_DOWNLOAD,
     FILES_UPDATE,
     FILES_DELETE,
+    FILES_LINK,
+    FILES_LINK_CONTENT,
 )
 
 __all__ = [
     "FILES_DELETE",
     "FILES_DOWNLOAD",
     "FILES_GET",
+    "FILES_LINK",
+    "FILES_LINK_CONTENT",
     "FILES_LIST",
     "FILES_OPERATIONS",
     "FILES_UPDATE",

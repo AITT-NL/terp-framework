@@ -30,12 +30,13 @@ the partial blob, so the write path never buffers the whole upload — and the k
 
 from __future__ import annotations
 
-import urllib.parse
+import re
 import uuid
 from collections.abc import Iterator
-from typing import BinaryIO, Final
+from datetime import timedelta
+from typing import Annotated, BinaryIO, Final
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Path, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from starlette.datastructures import UploadFile
 
@@ -45,21 +46,26 @@ from terp.core import (
     Page,
     PaginationDep,
     Policy,
+    RateLimit,
     SessionDep,
     ValidationFailedError,
     operation,
+    route_policy,
 )
 
-from terp.capabilities.files.models import CONTENT_TYPE_MAX, FILENAME_MAX
+from terp.capabilities.files.links import LINK_TTL_MAX, content_disposition
+from terp.capabilities.files.models import CONTENT_TYPE_MAX, FILENAME_MAX, File
 from terp.capabilities.files.operations import (
     FILES_DELETE,
     FILES_DOWNLOAD,
     FILES_GET,
+    FILES_LINK,
+    FILES_LINK_CONTENT,
     FILES_LIST,
     FILES_UPDATE,
     FILES_UPLOAD,
 )
-from terp.capabilities.files.schemas import FileRead, FileUpdate
+from terp.capabilities.files.schemas import FileLinkRead, FileRead, FileUpdate
 from terp.capabilities.files.service import FileService
 
 # The default cap on one upload's stored byte size (a DoS guard enforced mid-stream by the
@@ -114,18 +120,114 @@ _DEFAULT_FILENAME: Final[str] = "upload"
 _DEFAULT_CONTENT_TYPE: Final[str] = "application/octet-stream"
 
 
-def _iter_blob(stream: BinaryIO) -> Iterator[bytes]:
+def _iter_blob(stream: BinaryIO, remaining: int | None = None) -> Iterator[bytes]:
     """Yield a backend blob stream in fixed-size chunks, closing it when exhausted.
 
     Feeds ``StreamingResponse`` so a download never materializes the whole file in memory;
     the ``finally`` guarantees the backend handle is released even if the client disconnects
-    mid-stream.
+    mid-stream. With *remaining*, exactly that many bytes are yielded from the stream's
+    current position: the body of a ``206``.
     """
     try:
-        while chunk := stream.read(_DOWNLOAD_CHUNK_BYTES):
+        while True:
+            size = _DOWNLOAD_CHUNK_BYTES if remaining is None else min(_DOWNLOAD_CHUNK_BYTES, remaining)
+            if size <= 0:
+                return
+            chunk = stream.read(size)
+            if not chunk:
+                return
+            if remaining is not None:
+                remaining -= len(chunk)
             yield chunk
     finally:
         stream.close()
+
+
+# One range, in bytes, as RFC 9110 writes it: ``bytes=first-last``, ``bytes=first-`` or the
+# suffix form ``bytes=-count``. Several ranges, or any other unit, are answered whole.
+_ONE_RANGE: Final[re.Pattern[str]] = re.compile(r"^bytes=(\d*)-(\d*)$")
+
+
+class _UnsatisfiableRange(Exception):
+    """A single range that selects no byte of the file: a ``416``."""
+
+
+def _byte_range(header: str | None, size: int) -> tuple[int, int] | None:
+    """``(first, last)`` for one satisfiable range in *header*, or ``None`` for the whole file.
+
+    A header the route does not read (absent, another unit, several ranges, malformed)
+    means the whole file with ``200``, as RFC 9110 allows a server to answer. A single range
+    that selects nothing raises :class:`_UnsatisfiableRange`.
+    """
+    if header is None:
+        return None
+    match = _ONE_RANGE.match(header.strip())
+    if match is None:
+        return None
+    first_text, last_text = match.groups()
+    if not first_text and not last_text:
+        return None
+    if not first_text:  # bytes=-count: the last `count` bytes
+        count = int(last_text)
+        if count == 0 or size == 0:
+            raise _UnsatisfiableRange()
+        return max(size - count, 0), size - 1
+    first = int(first_text)
+    if first >= size:
+        raise _UnsatisfiableRange()
+    last = size - 1 if not last_text else min(int(last_text), size - 1)
+    if last < first:
+        return None
+    return first, last
+
+
+def _skip_to(stream: BinaryIO, offset: int) -> None:
+    """Position *stream* at *offset*: a seek where the stream can, a read-and-discard where it cannot."""
+    seekable = getattr(stream, "seekable", None)
+    if callable(seekable) and seekable():
+        stream.seek(offset)
+        return
+    while offset > 0:
+        chunk = stream.read(min(_DOWNLOAD_CHUNK_BYTES, offset))
+        if not chunk:
+            return
+        offset -= len(chunk)
+
+
+def _serve(row: File, stream: BinaryIO, request: Request, *, inline: bool = False) -> Response:
+    """The bytes of *row* from *stream*, whole or the one range the request asks for (ADR 0201).
+
+    Every answer says ``Accept-Ranges: bytes``; a satisfiable single range is a ``206`` with
+    ``Content-Range``; a range the file cannot satisfy is a ``416`` naming the size; anything
+    else is the whole file with ``200``. The stored size is append-only and derived from the
+    streamed bytes at create time, so it is authoritative for both lengths, and a blob
+    truncated out-of-band surfaces as a protocol error instead of a silently short body.
+    """
+    headers = {
+        "Content-Disposition": content_disposition(row.filename, inline=inline),
+        "Accept-Ranges": "bytes",
+    }
+    try:
+        part = _byte_range(request.headers.get("range"), row.size)
+    except _UnsatisfiableRange:
+        stream.close()
+        return Response(
+            status_code=416,
+            headers={"Content-Range": f"bytes */{row.size}", "Accept-Ranges": "bytes"},
+        )
+    if part is None:
+        headers["Content-Length"] = str(row.size)
+        return StreamingResponse(_iter_blob(stream), media_type=row.content_type, headers=headers)
+    first, last = part
+    _skip_to(stream, first)
+    headers["Content-Length"] = str(last - first + 1)
+    headers["Content-Range"] = f"bytes {first}-{last}/{row.size}"
+    return StreamingResponse(
+        _iter_blob(stream, last - first + 1),
+        status_code=206,
+        media_type=row.content_type,
+        headers=headers,
+    )
 
 
 router = APIRouter(tags=["files"])
@@ -133,17 +235,8 @@ _service = FileService()
 
 
 def _content_disposition(filename: str) -> str:
-    """A header-safe attachment disposition for *filename* (RFC 5987 / RFC 6266).
-
-    The stored filename is caller-supplied, so it is never emitted raw: the primary
-    ``filename*`` value is fully percent-encoded (no CR/LF/quote can survive), and the
-    ASCII ``filename`` fallback keeps only a conservative character set.
-    """
-    fallback = "".join(
-        ch if ch.isascii() and (ch.isalnum() or ch in "._-") else "_" for ch in filename
-    )
-    encoded = urllib.parse.quote(filename, safe="")
-    return f'attachment; filename="{fallback or _DEFAULT_FILENAME}"; filename*=UTF-8\'\'{encoded}'
+    """The attachment disposition a download carries; the one definition is in ``links``."""
+    return content_disposition(filename)
 
 
 @router.post("/", response_model=FileRead, status_code=201)
@@ -195,22 +288,45 @@ def get_file(file_id: uuid.UUID, session: SessionDep) -> FileRead:
     return FileRead.model_validate(_service.get(session, file_id))
 
 
+@router.get("/link/{token}")  # arch-allow-routes-declare-response-model: binary download through an app-signed link — the bytes stream out through a StreamingResponse, never a serialized ORM object
+@route_policy(
+    Policy.public(
+        reason="an app-signed link is read by a player or a viewer that cannot send a bearer; "
+        "the sealed, expiring token is the credential, minted only where a download was authorized"
+    )
+)
+@operation(FILES_LINK_CONTENT)
+def read_link(
+    token: Annotated[str, Path(min_length=1, max_length=2048)],
+    session: SessionDep,
+    request: Request,
+) -> Response:
+    row, stream, inline = _service.open_link_stream(session, token)
+    return _serve(row, stream, request, inline=inline)
+
+
 @router.get("/{file_id}/content")  # arch-allow-routes-declare-response-model: binary download — the bytes stream out through a StreamingResponse (stored media type + sanitized attachment disposition), never a serialized ORM object
 @operation(FILES_DOWNLOAD)
-def download_file(file_id: uuid.UUID, session: SessionDep) -> StreamingResponse:
+def download_file(file_id: uuid.UUID, session: SessionDep, request: Request) -> Response:
     row, stream = _service.open_stream(session, file_id)
-    return StreamingResponse(
-        _iter_blob(stream),
-        media_type=row.content_type,
-        headers={
-            "Content-Disposition": _content_disposition(row.filename),
-            # The stored size is append-only and derived from the streamed bytes at create
-            # time, so it is authoritative: declaring it keeps download progress / resume
-            # working, and a blob truncated out-of-band surfaces as a protocol error
-            # instead of a silently short body.
-            "Content-Length": str(row.size),
-        },
+    return _serve(row, stream, request)
+
+
+@router.get("/{file_id}/link", response_model=FileLinkRead)
+@operation(FILES_LINK)
+def link_file(
+    file_id: uuid.UUID,
+    session: SessionDep,
+    ttl_seconds: Annotated[int | None, Query(ge=1, le=int(LINK_TTL_MAX.total_seconds()))] = None,
+    inline: bool = False,
+) -> FileLinkRead:
+    link = _service.link(
+        session,
+        file_id,
+        ttl=None if ttl_seconds is None else timedelta(seconds=ttl_seconds),
+        inline=inline,
     )
+    return FileLinkRead(url=link.url, expires_at=link.expires_at)
 
 
 @router.patch("/{file_id}", response_model=FileRead)
@@ -235,6 +351,11 @@ module = ModuleSpec(
     # stored-bytes cap plus multipart framing headroom, so a maximum-size upload fits
     # through the kernel's request-size middleware without widening the global cap.
     max_request_bytes=MAX_UPLOAD_BYTES + _MULTIPART_HEADROOM_BYTES,
+    # The one public route verifies a credential (the sealed link token), so it declares
+    # its own rate limit (ADR 0138). Opening a sealed token is cheap, and a player makes
+    # many range requests over one session, so the general allowance is the right cap;
+    # declaring it here is what makes it visible beside the route it protects.
+    rate_limit={"/link": RateLimit()},
 )
 
 

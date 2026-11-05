@@ -9,11 +9,18 @@ description = "Terp files capability — owner-scoped file objects with metadata
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.36.0",
+    # With the sealing cipher: an app-signed file link is a sealed token (ADR 0201).
+    "terp-core[secrets]==0.36.0",
     # FastAPI parses the multipart upload body through this (UploadFile); the byte
     # stream never touches app code — it flows metadata->DB, bytes->StorageBackend.
     "python-multipart>=0.0.31",
 ]
+
+# The object-store adapters (ADR 0201), each behind its own extra so an app that keeps
+# its bytes on disk never installs a cloud SDK.
+[project.optional-dependencies]
+azure = ["azure-storage-blob>=12.19"]
+s3 = ["boto3>=1.34"]
 
 # Self-registering: the kernel discovers this ModuleSpec via the entry point, mounting the
 # admin files router at `/api/v1/files` without any composition-root edit.

@@ -29,6 +29,7 @@ from __future__ import annotations
 import abc
 import pathlib
 import shutil
+from datetime import timedelta
 from typing import BinaryIO, Final
 
 from terp.core import AppError
@@ -87,6 +88,20 @@ class StorageBackend(abc.ABC):
     @abc.abstractmethod
     def delete(self, key: str) -> None:
         """Remove *key*'s bytes if present (idempotent: an unknown key is a no-op)."""
+
+    def link(
+        self, key: str, *, ttl: timedelta, content_type: str, disposition: str
+    ) -> str | None:
+        """A URL a client reads *key*'s bytes from for *ttl*, or ``None`` (ADR 0201).
+
+        A store that signs URLs returns one that serves the bytes with *content_type* and
+        the *disposition* header the download would carry, so a client is told the same by
+        either path. The default, ``None``, leaves the bytes to the API: the service then
+        signs a link of its own and serves them itself, with ``Range`` support. The service
+        asks only after the checks a download passes, so an adapter never decides who may
+        read; it decides where the bytes come from.
+        """
+        return None
 
 
 class LocalFilesystemStorage(StorageBackend):

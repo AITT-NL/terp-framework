@@ -51,14 +51,15 @@ without the API in the middle, and what keeps that reach as narrow as a download
 
 ```python
 class StorageBackend(abc.ABC):
-    def link(self, key: str, *, ttl: timedelta, filename: str, content_type: str) -> str | None:
+    def link(self, key: str, *, ttl: timedelta, content_type: str, disposition: str) -> str | None:
         return None  # the API serves the bytes
 ```
 
 A backend that returns a URL hands the bytes out itself; one that returns `None` leaves it to
-the API. The link carries the download's own filename and media type where the store can be
-told (a presigned URL's response-header parameters, a SAS's `rscd` and `rsct`), so a client is
-told the same thing by either path. `put`, `open` and `delete` are unchanged, and the
+the API. The link carries the download's own media type and `Content-Disposition` header
+where the store can be told (a presigned URL's response-header parameters, a SAS's `rscd` and
+`rsct`), so a client is told the same thing by either path; the service builds that header,
+so the filename is encoded once, the same way, for both. `put`, `open` and `delete` are unchanged, and the
 in-memory backend of the test suite proves the default path.
 
 ### 2. Two adapters, as extras
@@ -73,7 +74,7 @@ an emulator in the conformance lane is a later change of its own.
 
 ### 3. A link is minted where a download is authorized
 
-`FileService.link(session, file_id, *, ttl=None) -> FileLink` runs the same checks as
+`FileService.link(session, file_id, *, ttl=None, inline=False) -> FileLink` runs the same checks as
 `open_stream`: `get` honours the row scope, so an invisible row is a 404 before any store is
 asked, and `ensure_servable` refuses a quarantined row. Then the row's own backend is asked for
 a link; `FileLink` carries the URL and its expiry, nothing else. `link_for(session, referencing,
@@ -81,9 +82,12 @@ column, ...)` is the serve-through form of ADR 0057: a module mints a link throu
 already-authorized row and a declared `FileRef`, never through a bare column.
 
 The router gains `GET /api/v1/files/{id}/link`, under the module's policy exactly as the
-download is, answering the `FileLink`. The default `ttl` is one hour, set per adapter at the
-composition root; a player makes many range requests over a listening session, so a link is
-not single-use, and its expiry is the control.
+download is, answering the `FileLink`. The default `ttl` is one hour and the longest any
+caller gets is 24 hours; a player makes many range requests over a listening session, so a
+link is not single-use, and its expiry is the control. `inline` asks for the bytes to be shown
+rather than saved, and is honoured only for a type a browser renders without running anything
+in it (image, audio, video, PDF): a stored HTML page is an attachment whatever was asked, so
+nothing a user uploaded is ever rendered on the API's own origin.
 
 ### 4. Where the backend cannot link, the capability signs one
 

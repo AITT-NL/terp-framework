@@ -659,6 +659,22 @@ def _multipart_request(
     return Request(scope, receive)
 
 
+def _get_request(headers: dict[str, str] | None = None) -> Request:
+    """A bare GET as the download route sees it, with *headers* (a ``Range``, say)."""
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "query_string": b"",
+            "headers": [
+                (name.lower().encode("latin-1"), value.encode("latin-1"))
+                for name, value in (headers or {}).items()
+            ],
+        }
+    )
+
+
 def _empty_multipart_request() -> Request:
     boundary = "terp-test-boundary"
     body = f"--{boundary}--\r\n".encode("ascii")
@@ -743,7 +759,7 @@ def test_download_builds_an_injection_proof_disposition(
 ) -> None:
     service = FileService()
     row = _store(service, session, filename='we"ird\r\nname.txt')
-    response = download_file(row.id, session)
+    response = download_file(row.id, session, _get_request())
     assert _collect_stream(response) == _CONTENT
     disposition = response.headers["content-disposition"]
     assert "\r" not in disposition and "\n" not in disposition
