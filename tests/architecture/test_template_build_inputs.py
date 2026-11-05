@@ -47,7 +47,7 @@ _DOCKERIGNORE = _PROJECT / ".dockerignore"
 #: .gitignore patterns an image may hold: generated from the app's own source, they carry
 #: nothing the source does not, and a build may one day want them. Every other pattern in
 #: .gitignore must exclude the same paths from the build context.
-_GENERATED_NOT_SECRET = frozenset({"/openapi.json", "frontend/src/api/"})
+_GENERATED_NOT_SECRET = frozenset({"frontend/src/api/"})
 
 
 def _instructions(dockerfile: pathlib.Path) -> list[str]:
@@ -447,7 +447,8 @@ def test_what_the_images_are_built_from_stays_in_the_context(path: str) -> None:
         ("app/var/files/a", False, False),
         ("node_modules/a", True, True),
         ("frontend/coverage/index.html", True, True),
-        ("openapi.json", True, False),
+        # The committed API contract (ADR 0194): tracked, and in the build context.
+        ("openapi.json", False, False),
     ],
 )
 def test_the_two_readers_read_the_files_the_way_git_and_docker_do(

@@ -190,7 +190,7 @@ class VerifyCheck:
     # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift"
     # | "platform-install" | "env-seams" | "api-client" | "package-boundaries"
     # | "dependency-hygiene" | "workbench" | "deployment" | "locks" | "generated"
-    # | "deploy-safety"
+    # | "deploy-safety" | "api-contract"
     # | "production-readiness" | "conformance"
     runner: str = "subprocess"
 
@@ -512,8 +512,21 @@ _API_CLIENT = VerifyCheck(
     id="api-client",
     category="build",
     command="terp verify --only api-client",
-    scope=("app/**", "control_plane/**", "frontend/package.json"),
+    scope=("app/**", "control_plane/**", "frontend/package.json", "openapi.json"),
     runner="api-client",
+)
+
+# The app's committed API contract against the API it serves (ADR 0194). A native client
+# already installed on a phone, or a site built in another repository, runs against
+# whatever the app serves next, and the production profile hides the schema, so the shape
+# travels as a committed `openapi.json`. Opt-in by tracking the file, like `authz-surface`;
+# ordered before `api-client`, which generates the typed client from that same file.
+_API_CONTRACT = VerifyCheck(
+    id="api-contract",
+    category="build",
+    command="terp verify --only api-contract",
+    scope=("app/**", "control_plane/**", "openapi.json"),
+    runner="api-contract",
 )
 
 _FRONTEND_TYPECHECK = VerifyCheck(
@@ -666,6 +679,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _PACKAGE_BOUNDARIES,
         _FRONTEND_BOUNDARIES,
         _ROUTES_DRIFT,
+        _API_CONTRACT,
         _API_CLIENT,
         _FRONTEND_TYPECHECK,
     ),
@@ -688,6 +702,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _DEPENDENCY_AUDIT_NPM,
         _FRONTEND_BOUNDARIES,
         _ROUTES_DRIFT,
+        _API_CONTRACT,
         _API_CLIENT,
         _FRONTEND_TYPECHECK,
         _FRONTEND_TESTS,
@@ -713,6 +728,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _SECRET_SCAN,
         _FRONTEND_BOUNDARIES,
         _ROUTES_DRIFT,
+        _API_CONTRACT,
         _API_CLIENT,
         _FRONTEND_TYPECHECK,
         _FRONTEND_TESTS,
@@ -2005,7 +2021,17 @@ def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
     file — makes it permanent. The fix is to stop tracking it. Skips with a note
     rather than a red for an app with no frontend or no ``generate`` script:
     upgrading the framework must not fail a gate for a seam the app never wired.
+
+    The contract the client is generated from is the one exception, and the reason is
+    the same rule. Once an app tracks ``openapi.json`` it is the committed API contract
+    (ADR 0194), so exporting over it would make this check write a tracked file — and
+    turn a drift the ``api-contract`` check reports into one that a second run silently
+    fixes. A tracked contract is therefore read, not rewritten: the app's own frontend is
+    typed against the contract a reviewer accepted, and ``api-contract`` holds that file
+    to the app. Where git cannot say whether it is tracked, nothing is exported over it.
     """
+    from terp.cli.api_contract import CONTRACT_ARTIFACT
+    from terp.cli.api_contract_check import contract_tracking
     from terp.cli.openapi import export_openapi
 
     frontend = root / "frontend"
@@ -2029,17 +2055,26 @@ def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
     problem = _node_modules_problem(root, "frontend")
     if problem is not None:
         return 1, problem
-    previous = pathlib.Path.cwd()
-    try:
-        # export_openapi resolves the app package relative to its app_root.
-        os.chdir(root)
-        written = export_openapi(out="openapi.json", app_root=".")
-    except SystemExit as refusal:  # an app ref that resolves to no FastAPI app
-        return 1, f"could not export the OpenAPI document: {refusal}"
-    finally:
-        os.chdir(previous)
+    tracking = contract_tracking(root)
+    if tracking.state == "unknown":
+        return tracking.exit_code, tracking.refusal(
+            "the API client is not generated: a tracked contract is never exported over (ADR 0194)"
+        )
+    if tracking.state == "tracked":
+        source = f"read the committed {CONTRACT_ARTIFACT} (api-contract holds it to the app)"
+    else:
+        previous = pathlib.Path.cwd()
+        try:
+            # export_openapi resolves the app package relative to its app_root.
+            os.chdir(root)
+            written = export_openapi(out=CONTRACT_ARTIFACT, app_root=".")
+        except SystemExit as refusal:  # an app ref that resolves to no FastAPI app
+            return 1, f"could not export the OpenAPI document: {refusal}"
+        finally:
+            os.chdir(previous)
+        source = f"wrote {written.name}"
     completed = _run_argv(["npm", "--prefix", "frontend", "run", "generate"], root)
-    output = f"wrote {written.name}\n{completed.stdout}{completed.stderr}"
+    output = f"{source}\n{completed.stdout}{completed.stderr}"
     if completed.returncode != 0:
         output += (
             "\nthe API client could not be generated - the frontend typecheck "
@@ -2296,6 +2331,10 @@ def run_verify_command(
             exit_code, output = _run_production_readiness(project_root)
         elif check.runner == "authz-surface":
             exit_code, output = _run_authz_surface(project_root)
+        elif check.runner == "api-contract":
+            from terp.cli.api_contract_check import run_api_contract_check
+
+            exit_code, output = run_api_contract_check(project_root)
         elif check.runner == "conformance":
             exit_code, output = _run_conformance(project_root)
         else:

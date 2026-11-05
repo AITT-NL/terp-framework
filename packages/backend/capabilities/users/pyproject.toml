@@ -12,6 +12,10 @@ dependencies = [
     "terp-core==0.36.0",
     "terp-cap-identity==0.36.0",
     "terp-cap-auth==0.36.0",
+    # Self-service accounts (ADR 0196): their mails leave through the declared relay, and
+    # their tokens are sealed values (the same direct dependency mfa and webhooks declare).
+    "terp-cap-mail==0.36.0",
+    "cryptography>=50",
 ]
 
 # Self-registering: the kernel discovers this ModuleSpec via the entry point,

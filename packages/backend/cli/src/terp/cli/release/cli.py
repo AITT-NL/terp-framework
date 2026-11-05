@@ -110,14 +110,19 @@ def run_release(args: argparse.Namespace) -> int:
             emit(f"wrote {args.out}")
             return 0
         if args.release_command == "gate":
-            from terp.cli.release.gate import gate
+            from terp.cli.release.gate import gate, red
 
             document = gate(args.repo, args.sha, args.build, pull_credentials=args.pull_credentials)
             write_document(args.out, document)
             emit(f"read {len(document['schedules'])} schedules from {document['image']}")
+            failed = red(document)
+            emit(
+                f"the release profile is RED: {', '.join(failed)} (`terp verify --only <check>` says why)"
+                if failed else "the release profile is green"
+            )
             emit(f"the release-assurance claim {'holds' if document['assurance']['ok'] else 'does NOT hold'}")
             emit(f"wrote {args.out}")
-            return 0 if document["assurance"]["ok"] else 1
+            return 0 if not failed and document["assurance"]["ok"] else 1
         from terp.cli.release.sign import sign
 
         options: dict[str, Any] = {

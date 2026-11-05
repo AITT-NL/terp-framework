@@ -255,6 +255,7 @@ jobs:
           tests/architecture/test_seed_checksum.py
           tests/architecture/test_refresh_concurrency_postgres.py
           tests/architecture/test_sync_custody.py
+          tests/architecture/test_cli_reseal_json.py
 
   # The signer image (ADR 0187 decision 6): the operator's own toolchain `terp release sign`
   # runs from, built from this commit's wheels and the lock's hashes, and run. Nothing here
@@ -803,6 +804,13 @@ jobs:
           for workspace in frontend conformance; do
             npm --prefix "$workspace" install --package-lock-only --offline --no-audit --no-fund
           done
+          # The profile's api-contract and api-client checks ask git whether openapi.json is
+          # tracked, and refuse to guess where there is no work tree (ADR 0194). An app is
+          # held to its profile in its own repository, so the render gets one first: the
+          # untracked contract is then the skip that names how to adopt it, not git's silence.
+          git init -q .
+          git add -A
+          git -c user.name=acceptance -c user.email=acceptance@example.invalid commit -qm "the rendered reference app"
           # Its deploy declaration first, on its own, so a lane reading this log sees the
           # verdict on deployment.json by name (ADR 0184): the file part and the app part,
           # against the rendered profile and the composed app.

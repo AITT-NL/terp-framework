@@ -49,6 +49,7 @@ from typing import Any, Final
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 from sqlalchemy import MetaData
+from sqlalchemy import inspect as _inspect
 from sqlmodel import Field, SQLModel
 
 #: What a declared personal field's value is replaced with, wherever it is withheld.
@@ -287,6 +288,21 @@ def _redact_model(instance: BaseModel) -> dict[str, Any]:
     return dumped
 
 
+def _held(instance: BaseModel, name: str) -> Any:
+    """*name*'s value as *instance* holds it in memory, never loaded from the database.
+
+    The text this redacts is often a database's refusal of a flush, and a refused flush
+    expires the rows in it while their session waits for a rollback. Asking such a row for an
+    attribute would try to load it and raise, so the uniform conflict an integrity error maps
+    to would become a 500 whose log carries the database's unredacted detail. A value the row
+    no longer holds is not in memory to withhold.
+    """
+    state = _inspect(instance, raiseerr=False)
+    if state is None:
+        return getattr(instance, name, None)
+    return state.dict.get(name)
+
+
 def withhold_personal_values(text: str, instance: BaseModel) -> str:
     """*text* with every declared personal value *instance* holds replaced by ``[PERSONAL]``.
 
@@ -298,7 +314,7 @@ def withhold_personal_values(text: str, instance: BaseModel) -> str:
         {
             str(current)
             for name in personal_fields(instance)
-            if (current := getattr(instance, name, None)) is not None and str(current)
+            if (current := _held(instance, name)) is not None and str(current)
         },
         key=len,
         reverse=True,

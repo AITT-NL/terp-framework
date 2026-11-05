@@ -4,7 +4,9 @@
   production, and `SMTP_CA_FILE` names its authority). `terp-cap-mail`
   (`terp.capabilities.mail`) ships, and `no_raw_outbound_http` refuses `smtplib` and sends
   the author to it. Held by `tests/architecture/test_mail.py` and
-  `tests/architecture/test_arch_harness.py`.
+  `tests/architecture/test_arch_harness.py`. The job's payload is amended by
+  [ADR 0199](0199-a-queued-mail-is-sealed-at-rest.md) (proposed 2026-11-04): the queued
+  message is sealed at rest, and the `Message-ID` rides beside it.
 - **Date:** 2026-09-23
 - **Relates:** [ADR 0117](0117-the-egress-capability-the-rule-was-already-naming.md) (the
   capability this one is the sibling of, for a different protocol),

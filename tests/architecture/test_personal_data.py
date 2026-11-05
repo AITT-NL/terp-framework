@@ -617,6 +617,13 @@ def test_withholding_takes_the_longest_value_first_and_skips_empty_ones() -> Non
     assert withhold_personal_values("nothing here", _Customer(email="", phone=None)) == "nothing here"
 
 
+def test_a_schema_that_is_not_a_row_has_its_values_withheld_too() -> None:
+    """A model no session maps holds its values as plain attributes, and they go the same way."""
+    schema = _CustomerCreate(email=_OTHER_EMAIL, phone=_PHONE)
+    text = f"refused: {_OTHER_EMAIL} / {_PHONE}"
+    assert withhold_personal_values(text, schema) == f"refused: {PERSONAL} / {PERSONAL}"
+
+
 # --------------------------------------------------------------------------- #
 # the audit trail
 # --------------------------------------------------------------------------- #

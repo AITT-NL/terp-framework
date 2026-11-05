@@ -21,8 +21,11 @@ git and the images from the registry as data, and it judges what a sandbox compu
    key never enters this process) or ``--sign-key <file>``, which it refuses without
    ``--test-key``.
 
-It refuses a gate whose release-assurance claim does not hold, and it writes, beside the
-envelope, the manifest's bytes, each SBOM and each installed-package list.
+Before it reads the registry, it reads the gate's document in the version the commit's pinned
+``terp-cli`` writes, and refuses a release whose release-assurance claim does not hold or, where
+that gate records every check of the release profile (version 2), one with a red check (ADR
+0200). It writes, beside the envelope, the manifest's bytes, each SBOM and each installed-package
+list.
 """
 
 from __future__ import annotations
@@ -58,6 +61,8 @@ from terp.cli.release._sandbox import sandboxed
 from terp.cli.release.build import DOCUMENT as BUILD_DOCUMENT
 from terp.cli.release.build import loopback, registry
 from terp.cli.release.gate import DOCUMENT as GATE_DOCUMENT
+from terp.cli.release.gate import VERSION as GATE_VERSION
+from terp.cli.release.gate import require_passed
 from terp.cli.release.manifest import HOSTS, assemble, inputs, purls, sbom
 
 DEFAULT_OSV = "https://api.osv.dev"
@@ -187,26 +192,25 @@ def sign(
     if hosts not in HOSTS:
         raise ReleaseError(f"--hosts is {hosts!r} (allowed: {', '.join(HOSTS)})")
     build = read_document(build_document, BUILD_DOCUMENT)
-    gate = read_document(gate_document, GATE_DOCUMENT)
+    gate = read_document(gate_document, GATE_DOCUMENT, (1, GATE_VERSION))  # the pin says which
     for name, document in (("build", build), ("gate", gate)):
         if document["commit"] != sha:
             raise ReleaseError(f"the {name} document is of {document['commit']}, not of {sha}")
-    if gate["assurance"].get("ok") is not True:
-        raise ReleaseError("the gate's release-assurance claim does not hold: sign signs only a release the gate passed")
     credentials = None
     if registry_credentials is not None:
         loaded = json.loads(pathlib.Path(registry_credentials).read_text(encoding="utf-8"))
         credentials = (str(loaded["username"]), str(loaded["password"]))
     tree = Tree.read(repo, sha)
     lock = read_uv_lock(tree.read_text(UV_LOCK)) if tree.has(UV_LOCK) else {"package": []}
+    cli_pin, arch_pin = pinned(lock, "terp-cli"), pinned(lock, "terp-arch")
+    if cli_pin is None or arch_pin is None:
+        raise ReleaseError(f"{UV_LOCK} pins no single terp-cli and terp-arch, so the commit's toolchain is unknown")
+    require_passed(gate, cli_pin)  # the commit's own gate, read as its pinned terp-cli writes it
     platform = str(build["platform"])
     with tempfile.TemporaryDirectory(prefix="terp-sign-") as scratch_dir:
         scratch = pathlib.Path(scratch_dir)
         root = scratch / "tree"
         tree.materialize(root)
-        cli_pin, arch_pin = pinned(lock, "terp-cli"), pinned(lock, "terp-arch")
-        if cli_pin is None or arch_pin is None:
-            raise ReleaseError(f"{UV_LOCK} pins no single terp-cli and terp-arch, so the commit's toolchain is unknown")
         arch = fetch(releases, index, arch_pin, scratch)
         if version_key(arch.spec) > version_key(SPEC_RELEASE):
             raise ReleaseError(

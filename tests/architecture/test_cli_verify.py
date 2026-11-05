@@ -174,6 +174,11 @@ def test_the_full_profile_is_the_template_ci_surface() -> None:
         "dependency-audit-npm",
         "frontend-boundaries",
         "routes-drift",
+        # Does the committed API contract still describe the API the app serves? A
+        # native client already installed, or a site built elsewhere, runs against
+        # whatever ships next, and a removed field is a one-line edit every other check
+        # passes (ADR 0194). Before api-client, which generates from that same file.
+        "api-contract",
         # The generated API client is an INPUT to the typecheck below and is
         # gitignored, so a fresh checkout has none: producing it belongs to the
         # profile, not to whatever steps a scaffolded workflow happens to list.
@@ -1236,11 +1241,16 @@ def test_the_api_client_names_a_missing_npm(
     import terp.cli.openapi as openapi_module
     import terp.cli.verify as verify_module
 
+    def only_git(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[1:3] == ["ls-files", "--error-unmatch"]:
+            return _contract_untracked(argv)
+        return _no_such_executable(argv, **kwargs)
+
     _generating_frontend(tmp_path)
     monkeypatch.setattr(
         openapi_module, "export_openapi", lambda **_k: tmp_path / "openapi.json"
     )
-    monkeypatch.setattr(verify_module.subprocess, "run", _no_such_executable)
+    monkeypatch.setattr(verify_module.subprocess, "run", only_git)
 
     exit_code, output = verify_module._run_api_client(tmp_path)
 
@@ -1856,6 +1866,17 @@ def test_verify_dispatches_production_readiness_through_its_own_runner(
 # is ordered first in every profile that type-checks — and its verdict is "can this
 # be produced at all", not a drift diff, because the client is gitignored.
 # --------------------------------------------------------------------------- #
+def _contract_untracked(argv: list[str]) -> subprocess.CompletedProcess[str]:
+    """git's answer for a contract it does not track (ADR 0194): exit 1, naming the path.
+
+    Only this answer is "untracked"; any other failure keeps `api-client` from exporting
+    over a contract that may be committed, so these tests give git's real words.
+    """
+    return subprocess.CompletedProcess(
+        argv, 1, "", "error: pathspec 'openapi.json' did not match any file(s) known to git\n"
+    )
+
+
 def _generating_frontend(root: pathlib.Path) -> pathlib.Path:
     """A frontend that declares the codegen script and looks installed.
 
@@ -1944,6 +1965,8 @@ def test_an_app_ref_that_resolves_to_no_fastapi_app_is_a_red_not_a_crash(
     import terp.cli.openapi as openapi_module
     from terp.cli.verify import _run_api_client
 
+    # A work tree with no contract in it, so git answers "not tracked" and the export runs.
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     _generating_frontend(tmp_path)
 
     def refuse(**_kwargs: object) -> pathlib.Path:
@@ -1971,6 +1994,10 @@ def _stub_generation(
     calls: list[dict[str, object]] = []
 
     def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[1:3] == ["ls-files", "--error-unmatch"]:
+            # The contract probe (ADR 0194) answered "not tracked", so these tests stay on
+            # the export path; a tracked contract has its own tests in test_api_contract.
+            return _contract_untracked(argv)
         calls.append({"argv": argv, **kwargs})
         return subprocess.CompletedProcess(argv, returncode, "generated 1 file\n", "")
 

@@ -6,24 +6,42 @@ concurrent change. An exception or a successful source check alone does not prov
 properties. The tests below use real persistence and framework services, with local
 transport servers where the transport itself is the boundary.
 
-| Runtime scenario | Regression evidence |
-|---|---|
-| Permission role floor and grant, including projection parity | `tests/architecture/test_permission_floors.py`, `test_permission_projection.py` |
-| Current authorization before cached-response replay | `apps/example/tests/test_idempotency_authorization.py`, `tests/architecture/test_idempotency.py` |
-| Revoked grants on established realtime streams | `tests/architecture/test_realtime_revocation.py` |
-| Related-entity scope | `tests/architecture/test_persistence_isolation.py` |
-| Denied mutation followed by another commit | `tests/architecture/test_object_authz.py`, `test_persistence_isolation.py` |
-| Consistent authenticated authority and epoch | `apps/example/tests/test_authentication_snapshots.py`, `tests/architecture/test_service_principals.py` |
-| Login bound to the initiating browser | `tests/architecture/test_oidc.py` |
-| Cookie-only server-side logout, including concurrent PostgreSQL rotation | `apps/example/tests/test_authentication_snapshots.py`, `tests/architecture/test_refresh_concurrency_postgres.py` |
-| Stale worker finalization and job rollback | `tests/architecture/test_worker_transactions.py` |
-| Sync failure journal with rolled-back business changes | `tests/architecture/test_sync_transactions.py` |
-| Visible source custody without committing business work | `tests/architecture/test_sync_custody.py` (PostgreSQL and SQLite) |
-| Outbound allocation and elapsed network budgets | `tests/architecture/test_egress_limits.py` |
-| Rendered credential redaction | `tests/architecture/test_structured_logs.py` |
-| Validated encrypted mail configuration | `tests/architecture/test_mail.py` |
-| Authenticated webhook routing and replay metadata | `tests/architecture/test_webhooks.py` |
-| Authority to bind a file reference | `tests/architecture/test_file_binding.py` |
+Each row names the Terp Standard runtime security case it is evidence for (the `id` in
+`runtime-security.fixtures.json`), and each piece of evidence is a test file, or a test
+function in one, that runs it. `tests/architecture/test_runtime_security_evidence.py` holds the
+index to the cases the pinned standard packages: every case has a row, every case a row names
+is one the standard has, and every file and function named exists. A case the evidence runs
+ahead of the pinned release sits in that test's declared window until the pin reaches it.
+
+| Case | Runtime scenario | Regression evidence |
+|---|---|---|
+| `permissions.floor-and-grant` | Permission role floor and grant, including projection parity | `tests/architecture/test_permission_floors.py`, `tests/architecture/test_permission_projection.py` |
+| `replay.current-authority` | Current authorization before cached-response replay | `apps/example/tests/test_idempotency_authorization.py`, `tests/architecture/test_idempotency.py` |
+| `streams.current-grants` | Revoked grants on established realtime streams | `tests/architecture/test_realtime_revocation.py` |
+| `scope.relationships` | Related-entity scope | `tests/architecture/test_persistence_isolation.py` |
+| `writes.denial` | Denied mutation followed by another commit | `tests/architecture/test_object_authz.py`, `tests/architecture/test_persistence_isolation.py`, `tests/architecture/test_refused_delete.py` |
+| `tokens.snapshot` | Consistent authenticated authority and epoch | `apps/example/tests/test_authentication_snapshots.py`, `tests/architecture/test_service_principals.py` |
+| `oidc.browser-binding` | Login bound to the initiating browser | `tests/architecture/test_oidc.py` |
+| `sessions.logout` | Cookie-only server-side logout, including concurrent PostgreSQL rotation | `apps/example/tests/test_authentication_snapshots.py`, `tests/architecture/test_refresh_concurrency_postgres.py` |
+| `sessions.logout`, `tokens.snapshot` | Body-carried logout, and the authenticated epoch on native sign-in and refresh | `apps/example/tests/test_native_sessions.py` |
+| `sessions.rotation` | Refresh rotation and reuse detection outside the grace window, cookie and body carriers | `apps/example/tests/test_runtime_security_cases.py::test_case_sessions_rotation`, `apps/example/tests/test_refresh_tokens.py`, `apps/example/tests/test_native_refresh.py` |
+| `native.browser-refused` | Routes that return a refresh token in the body refuse browser provenance before reading the body | `apps/example/tests/test_runtime_security_cases.py::test_case_native_browser_refused`, `apps/example/tests/test_native_refresh.py` |
+| `accounts.enumeration` | Self-service: a request about an address answers alike, and sends it one message, whatever the address | `apps/example/tests/test_runtime_security_cases.py::test_case_accounts_enumeration`, `tests/architecture/test_self_service_accounts.py` |
+| `accounts.proof-of-address` | Self-service: an account opens only when its mailed token is redeemed, with the password chosen then | `apps/example/tests/test_runtime_security_cases.py::test_case_accounts_proof_of_address`, `tests/architecture/test_self_service_accounts.py` |
+| `accounts.single-use` | Self-service: a token works once, and a reset token dies with a later revocation | `apps/example/tests/test_runtime_security_cases.py::test_case_accounts_single_use`, `tests/architecture/test_self_service_accounts.py` |
+| `accounts.sealed-tokens` | Self-service: a token cannot be read or altered, and rides only the link's fragment | `apps/example/tests/test_runtime_security_cases.py::test_case_accounts_sealed_tokens`, `tests/architecture/test_self_service_accounts.py` |
+| `accounts.expiry` | Self-service: a token dies with its lifetime, bounded at a week and a day | `apps/example/tests/test_runtime_security_cases.py::test_case_accounts_expiry`, `tests/architecture/test_self_service_accounts.py` |
+| `accounts.backoff` | Self-service: requests back off per caller and never lock out | `apps/example/tests/test_runtime_security_cases.py::test_case_accounts_backoff`, `tests/architecture/test_self_service_accounts.py` |
+| `accounts.lowest-rank` | Self-service: a self-registered account starts with the least authority | `apps/example/tests/test_runtime_security_cases.py::test_case_accounts_lowest_rank`, `tests/architecture/test_self_service_accounts.py` |
+| `accounts.close` | Self-service: closing takes the password again and ends every session | `apps/example/tests/test_runtime_security_cases.py::test_case_accounts_close`, `tests/architecture/test_self_service_accounts.py` |
+| `outbox.finalize`, `jobs.atomicity` | Stale worker finalization and job rollback | `tests/architecture/test_worker_transactions.py` |
+| `jobs.atomicity` | Sync failure journal with rolled-back business changes | `tests/architecture/test_sync_transactions.py` |
+| `leases.protected-effects` | Visible source custody without committing business work, PostgreSQL and SQLite | `tests/architecture/test_sync_custody.py` |
+| `egress.budgets` | Outbound allocation and elapsed network budgets | `tests/architecture/test_egress_limits.py` |
+| `logs.redaction` | Rendered credential redaction | `tests/architecture/test_structured_logs.py` |
+| `config.transport` | Validated encrypted mail configuration | `tests/architecture/test_mail.py` |
+| `webhooks.envelope` | Authenticated webhook routing and replay metadata | `tests/architecture/test_webhooks.py` |
+| `files.binding` | Authority to bind a file reference | `tests/architecture/test_file_binding.py` |
 
 Run the framework gate with `uv run coverage run -m pytest` and `uv run coverage report`.
 Set `TERP_TEST_POSTGRES_URL` to a disposable PostgreSQL server when running the full

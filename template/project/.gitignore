@@ -44,7 +44,13 @@ frontend/dist/
 /.coverage.*
 /htmlcov/
 
-# Generated: the app's OpenAPI document and the typed client generated from it
-# (`uv run terp openapi` + `npm --prefix frontend run generate`). Regenerated, never hand-edited.
-/openapi.json
+# Generated: the typed client, from the app's OpenAPI document
+# (`npm --prefix frontend run generate`). Regenerated, never hand-edited.
+#
+# The document itself, `openapi.json`, is deliberately NOT ignored: committed, it is the
+# app's API contract, the file a native client or a site in another repository pins, and
+# `terp verify` holds it to the API the app serves (ADR 0194). `uv run terp openapi`
+# regenerates it in the same change as the API it describes. To opt out of the check,
+# untrack the file (`git rm --cached openapi.json`) and list /openapi.json here again: a
+# committed file git still tracks is held to the app whatever this file says.
 frontend/src/api/

@@ -41,7 +41,7 @@ from terp.cli.jobs import (
     run_scheduler_command,
     run_worker_command,
 )
-from terp.cli.openapi import _load_app, export_openapi
+from terp.cli.openapi import _load_app, export_openapi, run_openapi_command
 from terp.cli.routes import run_routes_command
 from terp.cli.profiles import DEFAULT_PROFILE, profile_names
 from terp.cli.scaffold import new_module, new_module_message
@@ -339,11 +339,15 @@ Both are comma-separated. The procedure, in this order:
   1. Put the old key in BOTH lists and the new one in SECRET_KEY. Deploy.
   2. Run `terp secrets reseal` where the app runs (its own container, its own
      environment). It rewrites every value sealed under a fallback under SECRET_KEY,
+     one nested in a JSON column included (a queued mail in the outbox, ADR 0199),
      one transaction per table, refuses while a migration is pending, is safe to run
      twice, and exits 0 only when nothing is left. `--check` counts and writes nothing.
   3. Drop SECRET_KEY_DECRYPT_FALLBACKS once reseal reports nothing left. Keep the old
      key itself while a backup sealed under it may still be restored: restoring one
-     means listing it again and running reseal.
+     means listing it again and running reseal. A self-service link already mailed is
+     sealed under the key it was sent under, where reseal cannot reach it, so dropping
+     the fallback sooner than its lifetime (a day for a sign-up link by default) only
+     makes such a link stop working, and its owner asks for a new one.
   4. Drop SECRET_KEY_FALLBACKS once the longest signature lifetime has passed since
      step 1: REFRESH_TOKEN_TTL_SECONDS if the app issues refresh sessions, 15 minutes
      if not. Dropping it sooner loses nothing; it signs out sessions still on the old key.
@@ -1100,9 +1104,27 @@ The security declaration (SecurityConfig, refused at production boot)
   /openapi.json are hidden there because a production API's full schema is not public
   information. Development always serves them, and `terp openapi` exports the document
   either way - so turning this on is a choice to publish, not a way to get the file.
+  Commit that file instead: `openapi.json` is the app's API contract, the one a mobile
+  app or a site in another repository pins, and `terp verify --only api-contract` holds
+  it to the API the app serves, naming every change to its shape, the ones that break a
+  client first (ADR 0194). Who may call a route is not in it: authz-surface pins that.
 - headers ships a safe SecurityHeaders set; max_request_bytes (1 MiB) is the body cap and
   is per-mount overridable (ADR 0067); request_id_header names the correlation header
   ("X-Request-ID") echoed on every response.
+- A NATIVE MOBILE CLIENT stays signed in through its own routes, opt-in with a reason
+  (ADR 0195): build_login_module(..., native_clients=NativeClients(reason="...")) mounts
+  POST /api/v1/auth/native/login, /native/refresh and /native/logout. The first two answer
+  the refresh token in the JSON body and run the same rotation, reuse detection and
+  revocation as the cookie, its rotation grace window included; /native/logout takes the
+  token and revokes its whole family without minting a successor. The client keeps that
+  token in the OS keychain or keystore and nowhere else, and treats a 401 from
+  /native/refresh as signed out. All three refuse any request with browser provenance
+  (Origin, any Sec-Fetch-* header, the refresh cookie) with 403 native_client_only before
+  the body is validated, so a browser stays on /login, /refresh and /logout. A HYBRID app
+  (a page inside a native shell) calls them from its native layer and hands its page only
+  access tokens: a page that holds the refresh token has given up what the cookie
+  protects. No route that mints a credential (/login, /token, /refresh, /native/login,
+  /native/refresh) accepts an Idempotency-Key; retry without one.
 - No terp.arch check applies - there is no module code shape to police. Enforcement is
   the create_app production fail-fast plus the production-readiness verify lane.
 """,
@@ -1213,6 +1235,21 @@ Password strength (PasswordPolicy, Tier-B)
   The reason is the opt-out: it is stored as `relaxed_reason` and named back to you in the
   BootError, so "why is this off" always has an answer that travels with the declaration.
       PasswordPolicy.relaxed(reason="legacy bulk import")
+- SELF-SERVICE accounts (ADR 0196) hold sign-up and reset to the same policy. They are
+  opt-in and never discovered: after configure_mail(...), build the module and mount it
+      build_accounts_module(SelfService(reason="members open their own accounts",
+          users=users_service, throttle_store=shared_store,
+          link_base="https://app.example.com"))
+  for POST /api/v1/accounts/sign-up, /verify, /password-reset, /password-reset/confirm
+  and /me/close. Sign-up takes only the address: the account opens when the mailed token
+  is redeemed at /verify with the password, so whoever asked cannot choose it. Every
+  request about an address answers 202 the same way and sends that address exactly one
+  message, whether or not it has an account, and addresses compare case-insensitively.
+  Tokens are sealed, expire, work once, and ride the URL fragment, so your account pages
+  read them from location.hash and post them. Closing needs the password again and ends
+  every session (AccountDeletion.SCRUB by default, or REMOVE: building the module refuses
+  it while a reference to the user table would refuse the delete, so declare CASCADE or
+  SET NULL on that reference; one the build cannot see is scrubbed instead, with a warning).
 - No terp.arch check applies (no module code shape to police) — enforcement is the
   service chokepoint plus the create_app production fail-fast.
 """,
@@ -1924,6 +1961,11 @@ Sending e-mail (terp-cap-mail)
   dead-letters` lists it. With the
   in-process default queue (no worker) the mail is sent inline, and a failing relay
   fails the request that asked for it.
+- The queued message is SEALED at rest (ADR 0199): the outbox row's payload holds the
+  Message-ID and one value sealed under SECRET_KEY, never an address or the text. After a
+  key rotation keep SECRET_KEY_DECRYPT_FALLBACKS until `terp secrets reseal` reports
+  nothing left: a queued mail no configured key opens is never sent, and fails with
+  MailSealError, which names that remedy, until it dead-letters.
 - Test without a relay:
       from terp.capabilities.mail import (
           CapturingMailTransport, MailSettings, configure_mail, reset_mail)
@@ -3000,14 +3042,20 @@ build container holds a credential or writes into what is built. Each takes the 
     <registry>/<image>:<tag> with the credential your docker configuration holds for this
     release. It writes terp-release-build.json: BuildKit's own digests.
   uv run terp release gate --sha <sha> --build terp-release-build.json
-    runs in a clean checkout of the commit: `terp verify --profile release --format
-    assurance` with npm's scripts off, then the schedule catalog, read by running the pushed
-    image sealed (no network, read-only, its own non-root user). It holds no push credential
-    and no key. It writes terp-release-gate.json.
+    runs in a clean checkout of the commit: `terp verify --profile release` once, with npm's
+    scripts off, recording every check's verdict and the release-assurance claim those same
+    results compose (no check's output), then the schedule catalog, read by running the
+    pushed image sealed (no network, read-only, its own non-root user). It holds no push
+    credential and no key. It writes terp-release-gate.json, and exits 1 unless every check
+    passed and the claim holds, naming each red check. Run it from the commit's own
+    environment: sign reads the document only in the version the commit's pinned terp-cli
+    writes (ADR 0200).
   terp release sign --sha <sha> --tag <tag> --registry ... --build ... --gate ... \\
       --hosts separated --signer '["your-kms-signer", "--key", "release"]' --public-key k.pub
     runs from the signer image, never the commit's own toolchain, and runs nothing of the
-    app: it repeats the refusals, renders a generated app's files with the terp-arch the
+    app: it repeats the refusals, refuses a gate with a red check or a claim that does not
+    hold (ADR 0200; a commit pinning terp-cli below 0.36.1 has a gate that records the claim
+    alone, and is held to it), renders a generated app's files with the terp-arch the
     commit pins (fetched by hash, run in a process of its own), reads the backend image from
     the registry as data and holds it to the tree and the lock, scans for known
     vulnerabilities and for secrets in the history, and signs the manifest as a DSSE envelope
@@ -5182,7 +5230,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             emit(f"wrote {path}")
         return
     if args.command == "openapi":
-        emit(f"wrote {export_openapi(args.app, out=args.out, app_root=args.app_root)}")
+        emit(run_openapi_command(args.app, out=args.out, app_root=args.app_root))
         return
     if args.command == "routes":
         emit(

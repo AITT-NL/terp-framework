@@ -133,6 +133,11 @@ uv run terp routes                  # write frontend/src/routes.gen.d.ts from th
 npm --prefix frontend run generate  # openapi.json -> frontend/src/api/schema.d.ts
 ```
 
+Commit `openapi.json`. It is the app's API contract: the file a mobile app or a site in another
+repository pins, and the one `uv run terp verify` holds to the API the app serves, naming every
+change to its shape and which would break such a client (ADR 0194). Who may call a route is not
+in it; authz-surface pins that. Regenerate it in the same change as the API it describes.
+
 ```ts
 import type { paths } from "../../api/schema";
 const client = useTerpClient<paths>();   // now typed to YOUR endpoints

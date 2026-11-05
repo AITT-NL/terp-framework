@@ -29,7 +29,7 @@ from sqlmodel import Field
 
 from terp.core import BaseSchema
 
-from terp.capabilities.mail.settings import breaks_a_header, parse_address
+from terp.capabilities.mail.settings import MAX_ADDRESS_LENGTH, breaks_a_header, parse_address
 
 #: At most this many recipients per message. A message to many visible recipients hands
 #: every one of them everybody else's address, and it is the shape relays score as bulk
@@ -42,7 +42,7 @@ MAX_RECIPIENTS: Final[int] = 50
 MAX_SUBJECT_LENGTH: Final[int] = 250
 
 #: The body bound, in characters. The message travels as a job payload — a row in the
-#: durable outbox — so it is bounded like any other stored input.
+#: durable outbox, sealed — so it is bounded like any other stored input.
 MAX_TEXT_LENGTH: Final[int] = 100_000
 
 
@@ -64,7 +64,7 @@ class MailMessage(BaseSchema):
     text: Annotated[str, StringConstraints(strip_whitespace=False)] = Field(
         min_length=1, max_length=MAX_TEXT_LENGTH
     )
-    reply_to: str | None = Field(default=None, max_length=254)
+    reply_to: str | None = Field(default=None, max_length=MAX_ADDRESS_LENGTH)
 
     @field_validator("to")
     @classmethod
@@ -95,9 +95,9 @@ class MailMessage(BaseSchema):
     def _text_says_something(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("the text is empty")
-        # The message is stored as a job payload before it is sent, and PostgreSQL's
-        # JSON types cannot hold a NUL character: accepting one here would turn a
-        # validated send into a database error inside the business write.
+        # A message body's text excludes NUL (RFC 5322 §3.5). It mattered first for storage:
+        # before the queued message was sealed (ADR 0199) the text sat in a JSON column, and
+        # PostgreSQL's refusal of a NUL there failed the business write the send rode.
         if "\x00" in value:
             raise ValueError("the text contains a NUL character")
         return value

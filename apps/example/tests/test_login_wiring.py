@@ -21,6 +21,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from terp.capabilities.auth import (
     AUTH_LOGIN,
+    NativeClients,
     build_login_module,
     decode_access_token,
     hash_password,
@@ -207,3 +208,16 @@ def test_the_credential_cap_lands_on_the_hashing_routes_and_not_on_refresh() -> 
     assert "/" not in declared
     assert "/refresh" not in declared
     assert "/logout" not in declared
+
+    # A native client's sign-in hashes a password too, so where it is mounted (ADR 0195) it
+    # takes the same cap, and its refresh, like the cookie one, does not.
+    native = build_login_module(
+        _authenticate_stub,
+        revoke_sessions=lambda session, user_id: None,
+        native_clients=NativeClients(reason="a mobile app"),
+        **_full_refresh_seams(),
+    )
+    native_limits = dict(native.rate_limit)
+    assert set(native_limits) == {"/login", "/token", "/native/login"}
+    assert native_limits["/native/login"] == RateLimit.credentials()
+    assert "/native/refresh" not in native_limits
