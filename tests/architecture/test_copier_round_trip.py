@@ -53,6 +53,9 @@ def test_the_round_trip_holds_both_ways_with_copier_itself(tmp_path, capsys) -> 
         "copier update records deploy_build: own; adopt then changes no build file",
         "ok  with use_files: the production profile mounts the files volume the seed "
         "declares, and adopt --build generated changes no build file",
+        "ok  with frontend=false: no Node workspace and no frontend Dockerfile, the "
+        "production profile publishes the api unit as the only way in, and adopt --build "
+        "generated changes no build file",
     ]
 
 

@@ -269,8 +269,13 @@ def test_the_reference_lane_verifies_the_lock_and_manifest_an_app_would_commit()
     an app commits with the tool its image installs with. The answer to a workflow artefact
     is a faithful workflow, never a lenient check.
     """
-    steps = [str(step.get("run", "")) for step in _acceptance()["steps"]]
-    (verify,) = [step for step in steps if "terp verify --profile quick" in step]
+    # By name: the api-only variant holds its render to the same profile (ADR 0202), with
+    # no manifest to put back.
+    (verify,) = [
+        str(step.get("run", ""))
+        for step in _acceptance()["steps"]
+        if str(step.get("name", "")).startswith("Hold the reference app to its own verify profile")
+    ]
     pins = verify.index("<<'PINS'")
     resync = verify.index("install --package-lock-only --offline")
     assert pins < resync < verify.index("uv run terp verify --only deployment")

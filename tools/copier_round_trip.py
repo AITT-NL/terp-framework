@@ -71,6 +71,8 @@ FRONTEND_BLOCK = re.compile(r"\{%- if frontend %\}(.*?)\s*\{%- endif %\}", re.DO
 
 #: Where the files capability's volume lands in the production profile.
 FILES_MOUNT = '"files-data:/srv/var/files"'
+#: How the api unit is published when no web tier fronts it (ADR 0202).
+API_PUBLISHED = '"${API_PORT:-23200}:8000"'
 
 #: What each later revision adds, so a merge can be told apart from a re-render.
 MARKERS = {
@@ -139,13 +141,14 @@ class Trip:
         out = self.git(root, "status", "--porcelain", "--untracked-files=all", "--no-renames")
         return {line[3:].strip().strip('"') for line in out.splitlines() if line.strip()}
 
-    def copy(self, ref: str, dest: pathlib.Path, *data: str) -> None:
+    def copy(self, ref: str, dest: pathlib.Path, *data: str, lock: bool = True) -> None:
         extra = [arg for item in data for arg in ("--data", item)]
         self.must(
             [*self.copier, "copy", "--defaults", "--trust", "--vcs-ref", ref, *extra,
              str(self.work / "tpl"), str(dest)]
         )
-        (dest / LOCK).write_text("{}\n", encoding="utf-8")
+        if lock:
+            (dest / LOCK).write_text("{}\n", encoding="utf-8")
         self.git(dest, "init", "-q")
         self.commit(dest, f"render {ref}")
 
@@ -422,6 +425,41 @@ def with_files(trip: Trip, rendered: dict[str, bytes | None]) -> list[str]:
     ]
 
 
+def api_only(trip: Trip, rendered: dict[str, bytes | None]) -> list[str]:
+    """The frontend answer off (ADR 0202): no frontend Dockerfile, the api unit published
+    as the only way in, the backend Dockerfile the default render's, and it adopts."""
+    app = trip.work / "api-only"
+    trip.copy("v1", app, "frontend=false", lock=False)
+    require(
+        not (app / "frontend").exists() and not (app / "conformance").exists(),
+        "copy v1 with frontend=false rendered a Node workspace",
+    )
+    without = snapshot(app)
+    require(
+        without["frontend/Dockerfile.prod"] is None,
+        "copy v1 with frontend=false rendered frontend/Dockerfile.prod for no web unit",
+    )
+    profile = (without["docker-compose.prod.yml"] or b"").decode("utf-8")
+    require(
+        "\n  web:\n" not in profile and profile.count(API_PUBLISHED) == 1,
+        "copy v1 with frontend=false: the production profile keeps a web service or does "
+        "not publish the api unit",
+    )
+    require(
+        without["Dockerfile.prod"] == rendered["Dockerfile.prod"],
+        "copy v1 with frontend=false: the backend Dockerfile differs from the default render's",
+    )
+    trip.adopt(app, "generated")
+    same_build(app, "adopt --build generated with frontend=false", without)
+    expect(trip, app, "adopt --build generated with frontend=false", {ANSWERS, DECLARATION})
+    trip.render(app, "--check")
+    return [
+        "with frontend=false: no Node workspace and no frontend Dockerfile, the production "
+        "profile publishes the api unit as the only way in, and adopt --build generated "
+        "changes no build file"
+    ]
+
+
 def round_trip(trip: Trip) -> list[str]:
     template_repository(trip)
     done, rendered = own_generated_own(trip)
@@ -430,6 +468,7 @@ def round_trip(trip: Trip) -> list[str]:
         *generated_copy(trip, rendered),
         *before_the_question(trip),
         *with_files(trip, rendered),
+        *api_only(trip, rendered),
     ]
 
 
