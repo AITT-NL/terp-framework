@@ -14,20 +14,25 @@ out of the admin-only routes.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Callable
 from threading import RLock
 from typing import ClassVar
 
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from terp.capabilities.auth import hash_password
-from terp.core import AppError, AuditAction, BaseService, FilterField, Roles, validate_password
+from terp.core import AppError, AuditAction, BaseService, ConflictError, FilterField, Roles, validate_password
 
 from terp.capabilities.identity import User
 from terp.capabilities.users.schemas import UserAdminUpdate, UserProvision
 
 _ADMIN_RANK = int(Roles.ADMIN)
+
+
+_logger = logging.getLogger("terp.capabilities.users.service")
 
 
 class LastAdminError(AppError):
@@ -95,6 +100,16 @@ class UsersService(BaseService[User, UserProvision, UserAdminUpdate]):
     def get_by_email(self, session: Session, email: str) -> User | None:
         """Find a user by email, or ``None`` — the lookup the bootstrap / seed paths share."""
         return session.exec(select(User).where(User.email == email)).first()
+
+    def get_by_address(self, session: Session, email: str) -> User | None:
+        """The account *email* reaches, compared without regard to case, or ``None``.
+
+        Self-service asks this rather than :meth:`get_by_email`: ``Member@example.test`` and
+        ``member@example.test`` reach one mailbox, so an exact match would let a second
+        account open for it (ADR 0196). Both sides are folded by the database, so the stored
+        address and the asked one are compared by one rule.
+        """
+        return session.exec(select(User).where(func.lower(User.email) == func.lower(email))).first()
 
     def list_matching(
         self, session: Session, *, email: str, skip: int, limit: int
@@ -195,6 +210,68 @@ class UsersService(BaseService[User, UserProvision, UserAdminUpdate]):
         user.hashed_password = hash_password(new_password)
         self._bump_token_version(user)
         return self._save(session, user, AuditAction.UPDATED)
+
+    def create_verified(
+        self, session: Session, *, email: str, hashed_password: str, active: bool
+    ) -> User:
+        """Create the account a proven address asked for (ADR 0196), at the viewer rank.
+
+        The address was proven by redeeming a token mailed to it, and the password was given
+        with that redemption, held to the policy and hashed there, so it is the mail
+        reader's choice and never the requester's. *active* is ``False`` for an app that
+        admits new accounts by approval: ADR 0142's inactive state, which an administrator's
+        activation lifts.
+        """
+        user = User(
+            email=email,
+            hashed_password=hashed_password,
+            role=int(Roles.VIEWER),
+            is_active=active,
+        )
+        return self._save(session, user, AuditAction.CREATED)
+
+    def close_account(self, session: Session, user_id: uuid.UUID, *, remove: bool) -> None:
+        """Close an account at its holder's request (ADR 0196); every session ends with it.
+
+        The last active administrator is refused, as a deactivation is. Each outcome is one
+        audited write, so a close never stops halfway:
+
+        - ``remove=False``: the account is deactivated, its password cleared, its address
+          replaced and its token epoch moved, which also revokes its refresh families. The
+          row stays for references and the trail; the person's data goes.
+        - ``remove=True``: the row is deleted, and every way to sign in as it with it. When a
+          reference the app declared refuses the delete, the delete's own write has rolled
+          back, so nothing has changed, and the account is closed the first way instead, with
+          a warning that names the cause. The person's data goes either way.
+        """
+        with self._admin_invariant_lock:
+            user = self.get(session, user_id)
+            if self._is_last_active_admin(session, user):
+                raise LastAdminError()
+            if remove:
+                try:
+                    self.delete(session, user_id)
+                except ConflictError as exc:
+                    _logger.warning(
+                        "closing account %s: a reference refused deleting its row, so it is "
+                        "scrubbed instead. To let a closed account's row be deleted, declare "
+                        "OnDelete.CASCADE or OnDelete.SET_NULL on that reference (ADR 0133); to "
+                        "keep the row, declare AccountDeletion.SCRUB (ADR 0196). %s",
+                        user_id,
+                        exc.log_context.get("integrity_error", ""),
+                    )
+                    user = self.get(session, user_id)
+                else:
+                    # The row is gone, so no token resolves to it; the families are revoked as
+                    # well, so none lingers live in the store.
+                    if self._refresh_revoker is not None:
+                        self._refresh_revoker(session, user_id)
+                    return
+            user.is_active = False
+            user.hashed_password = None
+            user.email = f"closed-{user.id.hex}@closed.invalid"
+            self._bump_token_version(user)
+            self._save(session, user, AuditAction.UPDATED)
 
     def revoke_sessions(self, session: Session, user_id: uuid.UUID) -> None:
         """Invalidate a user's outstanding tokens — the logout / forced-logout write.

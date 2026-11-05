@@ -18,7 +18,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from terp.capabilities.auth import (
     AuthenticatedPrincipal,
@@ -53,7 +53,17 @@ class IdentityService:
         )
 
     def get_by_email(self, session: Session, email: str) -> User | None:
-        return session.exec(select(User).where(User.email == email)).first()
+        """The user *email* names: the spelling as given, or else its lower-cased form.
+
+        A self-service account is stored lower-cased and compared without regard to case
+        (ADR 0196), so a sign-in that spells the address with capitals must still reach it.
+        The spelling as given wins where both exist, so an account provisioned with capitals
+        keeps signing in as it was written. One query, two spellings: the miss costs no
+        second round trip that the dummy verify would then have to cover.
+        """
+        spellings = (email, email.lower())
+        found = session.exec(select(User).where(col(User.email).in_(spellings))).all()
+        return next((user for user in found if user.email == email), None) or next(iter(found), None)
 
     def get_by_id(self, session: Session, user_id: uuid.UUID) -> User | None:
         return session.get(User, user_id)

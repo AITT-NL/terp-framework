@@ -29,6 +29,7 @@ from sqlmodel import Session
 
 from terp.capabilities.auth import (
     LoginThrottle,
+    NativeClients,
     build_login_module,
     build_me_module,
     build_realtime_validator,
@@ -41,7 +42,7 @@ from terp.capabilities.identity import (
 )
 from terp.capabilities.oidc import OIDCClaims, OIDCProviderConfig, build_oidc_module
 from terp.capabilities.users import UsersService
-from terp.core import InMemoryThrottleStore, Principal, get_session, get_settings
+from terp.core import InMemoryThrottleStore, ModuleSpec, Principal, get_session, get_settings
 
 from control_plane import control_plane
 
@@ -113,17 +114,34 @@ def _tenant_from_email_domain(session: Session, principal: Principal) -> uuid.UU
     return tenant_id_for_email(user.email)
 
 
-login_module = build_login_module(
-    _identity.authenticate,
-    tenant_resolver=_tenant_from_email_domain,
-    token_version_resolver=_identity.token_version_for,
-    revoke_sessions=_users.revoke_sessions,
-    throttle=login_throttle,
-    refresh_issuer=_refresh.issue,
-    refresh_rotator=_refresh.rotate,
-    refresh_revoker=_refresh.revoke_presented,
-    principal_resolver=_identity.principal_for_id,
-    require_refresh=True,
+def _login_module(*, native_clients: NativeClients | None = None) -> ModuleSpec:
+    return build_login_module(
+        _identity.authenticate,
+        tenant_resolver=_tenant_from_email_domain,
+        token_version_resolver=_identity.token_version_for,
+        revoke_sessions=_users.revoke_sessions,
+        throttle=login_throttle,
+        refresh_issuer=_refresh.issue,
+        refresh_rotator=_refresh.rotate,
+        refresh_revoker=_refresh.revoke_presented,
+        principal_resolver=_identity.principal_for_id,
+        require_refresh=True,
+        native_clients=native_clients,
+    )
+
+
+# The base profile's sign-in: every Terp app has it, and the bundled @terpjs/contract client is
+# typed from it, so it declares no native clients.
+login_module = _login_module()
+
+# The full example also shows a native mobile client staying signed in (ADR 0195): the same
+# seams and the same session families, with the refresh token carried in the body of two routes
+# that refuse a browser. Declared with its reason, as every such opt-in is.
+native_login_module = _login_module(
+    native_clients=NativeClients(
+        reason="the example shows a mobile app that keeps its refresh token in the "
+        "operating system's keychain, because it has no browser to hold a cookie"
+    )
 )
 
 # The who-am-I endpoint (ADR 0044): GET /api/v1/me returns the authenticated caller's own

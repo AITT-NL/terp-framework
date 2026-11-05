@@ -10,6 +10,10 @@ requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
     "terp-core==0.36.0",
+    # A queued message is sealed at rest (ADR 0199), with the Fernet-over-HKDF shape every
+    # other sealing domain uses, under a mail-specific label: the same direct dependency
+    # the mfa and webhooks capabilities declare.
+    "cryptography>=50",
     # Nothing else, on purpose. The SMTP client is the standard library's `smtplib`,
     # imported in exactly one module of this distribution -- which is the whole point of
     # `no_raw_outbound_http` refusing it everywhere else.

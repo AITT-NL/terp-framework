@@ -283,16 +283,21 @@ meant to run on a fresh host that is discarded after it, because the second one 
 | Job | Runs from | Holds | Writes |
 |---|---|---|---|
 | `terp release build` | the operator's toolchain, never the app's environment | a push credential for this release's repositories | the images, and `terp-release-build.json` (BuildKit's digests) |
-| `terp release gate` | a clean checkout of the commit, with the app's environment | at most a pull credential | `terp-release-gate.json` (the release profile's assurance claim, the schedule catalog) |
+| `terp release gate` | a clean checkout of the commit, with the app's environment | at most a pull credential | `terp-release-gate.json` (every check of the release profile and its assurance claim, from one run; the schedule catalog) |
 | `terp release sign` | the signer image (`packages/backend/cli/signer/`) | a way to reach the signer, never the key | `release.dsse.json`, the manifest, an SBOM and a package list per image |
 
 `build` reads the commit from git's object store and builds from that pristine tree in a
 BuildKit builder of its own, with fresh bases and no cache; `sign` reads the same commit and the
 pushed images as data, holds the backend image's app files, bytecode, installed set and wheel
 to the commit and its lock, every other file of its environment to the `RECORD` that lists it,
-and its configuration to its Dockerfile, scans the SBOMs and the history, and signs. Where one machine runs
-all three, say so: `--hosts shared` is recorded in the manifest, and the guarantee becomes "the
-host is trusted".
+and its configuration to its Dockerfile, scans the SBOMs and the history, and signs. It signs only
+over a green gate (ADR 0200): for a commit pinning `terp-cli` 0.36.1 or later, every check of the
+release profile passed and the assurance claim holds, while an older commit's gate records the
+claim alone and is held to it. It reads the gate's document in the version the commit's own
+pinned `terp-cli` writes, so run the gate from the commit's environment (`uv run terp release
+gate` in its checkout) and never from another toolchain. Where one machine runs all three, say
+so: `--hosts shared` is recorded in the manifest, and the guarantee becomes "the host is
+trusted".
 
 Run the signer image with the checkout mounted read-only and an engine to start the base
 image's interpreter on (the bytecode check): mount the engine's socket and add its group, since

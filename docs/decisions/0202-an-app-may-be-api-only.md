@@ -1,9 +1,7 @@
 # 0202 — An app may be API-only: the template asks, and every reader accepts the absence
 
-- **Status:** Proposed; the implementation ships beside it for one review.
-- **Date:** 2026-11-05. 0194 to 0200 are taken by the series under review on other
-  branches and 0201 by the files link work; this number is provisional until that series
-  merges, and is renumbered then if it collides.
+- **Status:** Accepted; built in 0.36.1, the record and the implementation reviewed together.
+- **Date:** 2026-11-05.
 - **Relates:** [ADR 0110](0110-an-app-declares-which-parts-of-its-dev-topology-are-load-bearing.md)
   (no frontend is never red), [ADR 0184](0184-a-deployment-declares-its-units.md) and
   [ADR 0187](0187-in-the-generated-state-the-framework-renders-the-build-files.md) (the

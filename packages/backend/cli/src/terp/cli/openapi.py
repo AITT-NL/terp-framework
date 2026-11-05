@@ -104,6 +104,24 @@ def _vocabulary_schemas(app: FastAPI) -> dict[str, dict[str, Any]]:
     return schemas
 
 
+def openapi_document(app: FastAPI) -> dict[str, Any]:
+    """The document :func:`export_openapi` writes for *app*, as parsed JSON.
+
+    One function for the writer and for the ``api-contract`` check (ADR 0194), so the check
+    compares the committed file with exactly what regenerating it would write. The JSON
+    round trip is part of that: what a check compares is what a file can hold.
+    """
+    spec: dict[str, Any] = app.openapi()
+    # Added rather than merged over: a module that has declared a schema under one of
+    # these names owns it, and silently replacing it would break that client's types to
+    # supply a vocabulary it did not ask for.
+    components = spec.setdefault("components", {}).setdefault("schemas", {})
+    for name, schema in _vocabulary_schemas(app).items():
+        components.setdefault(name, schema)
+    document: dict[str, Any] = json.loads(json.dumps(spec))
+    return document
+
+
 def export_openapi(
     app_ref: str = "app.main:app",
     *,
@@ -120,20 +138,52 @@ def export_openapi(
     if root not in sys.path:
         sys.path.insert(0, root)
     app = _load_app(app_ref)
-    spec: dict[str, Any] = app.openapi()
-    # Added rather than merged over: a module that has declared a schema under one of
-    # these names owns it, and silently replacing it would break that client's types to
-    # supply a vocabulary it did not ask for.
-    components = spec.setdefault("components", {}).setdefault("schemas", {})
-    for name, schema in _vocabulary_schemas(app).items():
-        components.setdefault(name, schema)
     destination = pathlib.Path(out)
     destination.parent.mkdir(parents=True, exist_ok=True)
     # newline="\n" keeps the generated artifact byte-stable across platforms, so a
     # committed, drift-checked contract does not flip to CRLF when regenerated on Windows.
     destination.write_text(
-        json.dumps(spec, indent=2, sort_keys=True) + "\n",
+        json.dumps(openapi_document(app), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
         newline="\n",
     )
     return destination
+
+
+def _readable_document(path: pathlib.Path) -> dict[str, Any] | None:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return document if isinstance(document, dict) else None
+
+
+def run_openapi_command(
+    app_ref: str = "app.main:app",
+    *,
+    out: str | pathlib.Path = "openapi.json",
+    app_root: str | pathlib.Path = ".",
+) -> str:
+    """``terp openapi``: write the document, and name what changed when it overwrites one.
+
+    Regenerating is how a change to a committed contract is accepted (ADR 0194), so the
+    person who runs it is shown what they are accepting, breaking lines first, before the
+    line that says what was written. A file that was absent or unreadable has nothing to
+    compare with, and a document that did not change prints only what was written.
+    """
+    from terp.cli.api_contract import diff_contract, render_changes
+
+    previous = _readable_document(pathlib.Path(out))
+    written = export_openapi(app_ref, out=out, app_root=app_root)
+    lines = [f"wrote {written}"]
+    current = _readable_document(written)
+    if previous is not None and current is not None:
+        changes = diff_contract(previous, current)
+        if changes:
+            breaking = sum(1 for change in changes if change.breaking)
+            lines.insert(
+                0,
+                f"the contract changed in {len(changes)} way(s), {breaking} of them "
+                f"breaking:\n{render_changes(changes)}",
+            )
+    return "\n".join(lines)

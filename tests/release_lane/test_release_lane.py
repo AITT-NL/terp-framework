@@ -21,8 +21,9 @@ job-local ``registry:2`` pinned by digest, both on the loopback:
   under a valid one refused.
 
 The gate's ``terp verify --profile release`` runs the app's own suite, conformance and audits,
-which are the app's subject and not this lane's: the lane gives the gate a passing claim and
-runs the half of it that needs an engine. Selected with ``-m release_lane`` (the gate
+which are the app's subject and not this lane's: the lane gives the gate every check of the
+release profile green, from which the gate composes the claim as it does from a run (ADR 0200),
+and runs the half of it that needs an engine. Selected with ``-m release_lane`` (the gate
 deselects it: it builds four releases cold from PyPI and npm, about fifteen minutes); skipped
 without an engine, failed instead where ``TERP_REQUIRE_RELEASE_LANE`` is set, as CI's job sets it.
 """
@@ -155,13 +156,13 @@ def lane(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Lane]:
         rl.unavailable(f"the release lane needs {', '.join(missing)}")
     from terp.cli.release import build as build_module
     from terp.cli.release import gate as gate_module
+    from terp.cli.verify import PROFILES
 
     patch = pytest.MonkeyPatch()
     patch.setattr(build_module, "BUILDER_PREFIX", f"{rl.prefix()}builder-")
-    patch.setattr(gate_module, "_verify", lambda checkout: {
-        "ok": True, "profile": "release",
-        "note": "the release lane's stand-in: the app's suite is the app's subject, not the lane's",
-    })
+    # The release lane's stand-in for the profile: the app's suite is the app's subject, not the
+    # lane's. Every platform check passes, and the gate composes the claim from them.
+    patch.setattr(gate_module, "_verify", lambda checkout: [{"id": check.id, "ok": True} for check in PROFILES["release"]])
     name = f"{rl.prefix()}app"
     work = tmp_path_factory.mktemp("lane")
     rl.remove_everything(name)

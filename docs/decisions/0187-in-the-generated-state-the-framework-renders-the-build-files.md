@@ -27,7 +27,12 @@
   it was built*. Amended 2026-10-22 by
   [ADR 0191](0191-readiness-asks-the-stores-a-deployment-requires-and-a-worker-reports-a-heartbeat.md):
   a worker and a scheduler are checked on the heartbeat their own loop writes (decision 5, and
-  decision 9's open item on their health, which it settles).
+  decision 9's open item on their health, which it settles). Amended 2026-11-04 by
+  [ADR 0200](0200-a-release-is-signed-only-over-a-green-release-profile.md), proposed and built
+  in 0.36.1: the gate records
+  every check of the release profile beside its assurance document, and `sign` signs only over
+  a green profile whose claim holds, reading the gate's document in the version the commit's
+  pinned `terp-cli` writes (decision 6).
 - **Date:** 2026-10-21
 - **Relates:** amends [ADR 0062](0062-production-deployment-profile.md) decisions 1 to 4, on top
   of its 2026-10-21 amendment; amends [ADR 0184](0184-a-deployment-declares-its-units.md)

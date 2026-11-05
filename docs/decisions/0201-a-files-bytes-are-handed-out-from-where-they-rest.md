@@ -1,8 +1,7 @@
 # 0201 — A file's bytes are handed out from where they rest
 
 - **Status:** Accepted; built in 0.36.1.
-- **Date:** 2026-11-05. 0194 to 0200 are taken by the series under review on other branches;
-  this number is provisional until that series merges, and is renumbered then if it collides.
+- **Date:** 2026-11-05.
 - **Relates:** [ADR 0056](0056-files-capability.md) (the capability), [ADR 0057](0057-files-storage-profiles-and-references.md)
   (named profiles, `FileRef` and the serve-through read this extends),
   [ADR 0066](0066-files-streaming-storage-port.md) (the streamed port the adapters implement),

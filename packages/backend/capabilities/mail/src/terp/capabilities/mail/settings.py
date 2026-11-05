@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 from email.errors import HeaderParseError
 from email.headerregistry import Address
 from enum import StrEnum
+from typing import Final
 
 from terp.core import settings as _platform_settings
 
@@ -55,6 +56,10 @@ _HOSTNAME = re.compile(r"^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.
 #: ``Display Name <address@example.com>`` — the one shape besides a bare address that a
 #: sender setting takes.
 _NAMED_ADDRESS = re.compile(r"^(?P<name>[^<>]*?)\s*<(?P<address>[^<>]+)>$")
+
+#: The longest address accepted, in characters: RFC 5321's 256 for a path, less the angle
+#: brackets around it.
+MAX_ADDRESS_LENGTH: Final[int] = 254
 
 
 class MailSecurity(StrEnum):
@@ -102,7 +107,7 @@ def parse_address(value: str) -> Address:
     dot, and a non-ASCII local part — which needs an extension (SMTPUTF8) this capability
     does not negotiate, so accepting it here would only move the refusal to the relay.
     """
-    if not value or len(value) > 254:
+    if not value or len(value) > MAX_ADDRESS_LENGTH:
         raise ValueError(f"not a mail address: {value!r}")
     try:
         address = Address(addr_spec=value)
@@ -288,6 +293,7 @@ def mail_settings_from_environment(
 
 
 __all__ = [
+    "MAX_ADDRESS_LENGTH",
     "MailSecurity",
     "breaks_a_header",
     "MailSettings",

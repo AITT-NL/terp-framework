@@ -19,6 +19,7 @@ from terp.migrations import assert_migrations_current
 
 from app.auth import (
     login_module,
+    native_login_module,
     me_module,
     oidc_module,
     principal_provider,
@@ -103,8 +104,9 @@ def build() -> FastAPI:
     import app.webhooks  # noqa: F401  (registers the NOTE_CREATED -> webhook fan-out subscriber)
     from terp.capabilities.outbox import OutboxJobQueue
 
-    # The dev-only SSO module is None in production (see app/auth.py).
-    modules = [login_module, me_module]
+    # The dev-only SSO module is None in production (see app/auth.py). The full app's sign-in
+    # also serves native clients (ADR 0195); the base profile's below does not.
+    modules = [native_login_module, me_module]
     if oidc_module is not None:
         modules.append(oidc_module)
 

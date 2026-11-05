@@ -12,7 +12,142 @@ decision, 0001 onwards.
 
 ## 0.36.1 — unreleased
 
+### Security
+
+- **A release is signed only when every check of its release profile passed in the gate (ADR
+  0200).** `terp release sign` refused a gate whose release-assurance claim did not hold and
+  read nothing else of the gate's run, and that claim follows the Terp Standard's required
+  lanes: six of the release profile's twenty-six checks, and none of an app's own declared
+  checks. So a release could be signed while its backend suite failed, while
+  `production-readiness` refused the production boot or `deploy-safety` the profile, or while
+  `api-contract` said the committed `openapi.json` no longer matched the app, and the signed
+  manifest then carried that contract under the release's signature. `terp release gate` now
+  runs `terp verify --profile release --format json` once and writes a version 2 document:
+  every check the profile ran, by id and verdict, beside the claim composed from those same
+  results. Nothing a check printed is recorded, because it is the app's own text from a run
+  with its environment; what a red check printed goes to the gate's own log instead, so the
+  job that ran the gate says why. The gate exits 1 unless every check passed and the claim
+  holds, naming each red check. `sign` refuses, before it reads the registry, a red check (named, with
+  `terp verify --only <check>` as the way to read why), a document that records the profile
+  green over a red check or red over none, and a claim that does not hold. The claim, its
+  lanes and their requirement levels are unchanged, and the manifest's `collected` still
+  carries it.
+- **A queued mail rests sealed, and a key rotation reaches it (ADR 0199).** With the durable
+  outbox wired, a mail's job payload is a row of `outbox_message`, and the outbox keeps every
+  row it has dispatched, so each mail's recipients and text stayed in the database in
+  plaintext, a self-service link's token included: a reset link works for an hour by default,
+  and a reader of the database inside that hour could take the account over. `send_mail` now
+  seals the message, its recipients, subject, text and `Reply-To`, as one value of a sealing
+  domain of its own, and the payload carries only that value and the `Message-ID`, which is the
+  job's idempotency key. The worker opens it under `SECRET_KEY` or a
+  `SECRET_KEY_DECRYPT_FALLBACKS` entry, and the in-process queue seals and opens it the same
+  way. A payload no configured key opens is never sent: it fails with `MailSealError`, whose
+  message names the remedy, listing the replaced key in `SECRET_KEY_DECRYPT_FALLBACKS` again,
+  and it retries and dead-letters like any failed delivery. `terp secrets reseal` now walks
+  JSON columns as well as string columns, every string at any depth, so `--check` counts a
+  queued mail still under a fallback, as `outbox_message.payload`, and a run re-seals it in a
+  compare-and-swap on the document's text form, with nothing else in the document moved. A row
+  that 0.36.0 or an earlier release queued in plaintext is still read and delivers; the
+  plaintext form is never written, whichever path enqueues it. `MailJobPayload` is no longer a
+  `MailMessage`: its message is `.message()`. `terp-cap-mail` now depends on `cryptography`.
+
 ### Added
+
+- **An app's API contract is a committed file, and a change to its shape that breaks a client
+  is named before it ships (ADR 0194).** A native client already installed on a phone, or a site built
+  in another repository, runs against whatever the app serves next, and the production profile
+  rightly hides the schema endpoints, so nothing recorded the shape such a client was built
+  against: a removed response field or a new required request field passed every gate. The
+  committed `openapi.json` is now that record. `terp verify --only api-contract`, in `quick`,
+  `full` and `release`, holds it to the composed app with the shape of the authority baseline
+  (ADR 0139): an untracked file is a skip that names how to adopt it, and a tracked one that
+  differs is red, every difference on its own line, the breaking ones first, for example
+  `BREAKING GET /api/v1/notes/{item_id}: response 200 field 'title' removed`. Breaking is
+  decided from the client's side: a request that refuses what it accepted, a response that may
+  produce what it never did, including a new `enum` value, which a strict decoder in a native
+  client refuses. The pin is exact, because the file is what other repositories pin.
+  A difference the check cannot read, such as a map's value schema, a default, a union of object
+  shapes, a response header or a change behind a reference no rule follows, is a line of its
+  own that names the place, says to review it as breaking and counts as breaking, whatever
+  else changed, so a run never reports "0 breaking" over it. Who may call an operation is not
+  in the contract: Terp declares no security and no 401 or 403 response, so moving a route
+  from public to admin leaves `openapi.json` unchanged, and the authority baseline
+  (authz-surface, ADR 0139) is what pins it. The contract is
+  the API as `terp openapi` composes it, in the development environment by default, so a route
+  mounted only in some environments appears as that composition has it.
+  `terp openapi` is the writer, and when it overwrites a contract that differs it prints the
+  same lines first. `api-client` generates the typed client from a tracked contract instead of
+  exporting over it, and `terp release` carries the committed contract in the signed
+  manifest's `inputs`. The signature vouches for the file its commit holds, not for the app
+  serving it: the `api-contract` check holds the file to the app, and `sign` signs only a
+  release whose `api-contract` passed in the gate (ADR 0200, under Security). The template no longer ignores
+  `openapi.json`: after `copier update`, the next gate run writes the file, and an app commits
+  it to adopt the check, or lists it in `.gitignore` again to stay out (untracking it first,
+  `git rm --cached openapi.json`, if it was ever committed: the check asks git, not the
+  ignore rules).
+- **A native mobile client can stay signed in with its refresh token in the body (ADR 0195).**
+  The refresh token rode only an `HttpOnly; SameSite=Strict` cookie, and every one of those
+  properties is a browser's: to an app on a phone a `Set-Cookie` is just a header, and where
+  its HTTP stack keeps a cookie store at all, that store is ordinary application data rather
+  than the keychain or keystore a credential that lives for weeks belongs in. So such a client
+  logged in again every 15 minutes or kept the cookie somewhere it should not.
+  `build_login_module(..., native_clients=NativeClients(reason=...))` now mounts
+  `POST /api/v1/auth/native/login` and `POST /api/v1/auth/native/refresh`, which answer
+  `{access_token, refresh_token, token_type}` and set no cookie, and
+  `POST /api/v1/auth/native/logout`, which takes `{refresh_token}` and revokes its whole family
+  without rotating it: the body counterpart of 0.36.0's cookie-only logout, so a client whose
+  access token has expired signs out without minting a successor. They run the same family,
+  rotation, reuse detection (a rotated token replayed after `REFRESH_ROTATION_GRACE_SECONDS`
+  revokes the whole family) and revocation on logout, deactivation and password reset, through
+  the same seams, and `/native/login` takes the credential rate limit `/login` takes. All three
+  refuse a request with browser provenance, an `Origin` header, any `Sec-Fetch-*` header
+  (matched by its prefix, so one the standard adds later counts too) or the refresh cookie,
+  with 403 `native_client_only`, as a dependency of the route that runs before the body is
+  validated or any credential read, so a page can never be handed a token its script could
+  read. A hybrid app, whose page runs at a custom-scheme origin the
+  cookie never reaches, calls the native routes from its native layer and gives its page only
+  access tokens. Off by default: an app that does not declare it mounts nothing
+  new and its contract is unchanged. A blank reason, or native clients without the refresh
+  seams, is refused at construction. The two that mint a credential refuse an
+  `Idempotency-Key`, as every credential route does, and take the same authenticated snapshot
+  `/login` and `/refresh` take (ADR 0193): a family is issued at the epoch the sign-in
+  captured, and a refresh whose family epoch no longer matches is refused. The minted refresh-token field carries the same governed
+  marker the access token does, so the auth capability's `schemas_exclude_sensitive_fields`
+  budget moves from 1 to 2. The reference app opts in; its committed contract and authority
+  baseline record the three routes. `AUTH_NATIVE_LOGIN`, `AUTH_NATIVE_REFRESH` and
+  `AUTH_NATIVE_LOGOUT` are exported beside the other auth operations.
+- **A person can open, prove, recover and close their own account (ADR 0196).** The users
+  capability had only operator operations, so an app with consumer accounts wrote the public
+  half itself, which is where an address gets enumerated, a reset token works twice or ends up
+  in a server log, and a stolen access token closes an account. `build_accounts_module` over
+  a `SelfService` declaration mounts `POST /api/v1/accounts/sign-up`, `/verify`,
+  `/password-reset`, `/password-reset/confirm` and `/me/close`. Sign-up takes only the
+  address. An account exists only once the token mailed to it is redeemed at `/verify` with
+  the password the account opens with, so whoever asked cannot choose it, at the viewer rank,
+  and inactive when the app approves accounts (ADR 0142). A request about an address answers
+  `202` with the same body and headers, and sends the address exactly one message, whether or
+  not it has an account: the link, or a notice that the address already has an account or has
+  no password to reset. Addresses compare without regard to case: a self-service account is
+  stored lower-cased, and a sign-in reaches it in any spelling, because the identity lookup
+  tries the address as written and then lower-cased. One that is not a single mail address
+  is a 422 that does not repeat it. Tokens are sealed, expire (24 hours for a
+  sign-up and 1 hour for a reset by default, a lifetime the mail states without rounding it
+  up), work once through a new `identity_account_token` row that stores only their digest,
+  and travel in the URL fragment. Every route backs off and never locks out (ADR 0147), and a
+  redemption's counter is the caller's own, so bad tokens from many callers never hold up an
+  honest one. Closing needs the password again, refuses the last administrator, ends every
+  session, and scrubs or removes the account as declared, in one write. Building the module
+  with `AccountDeletion.REMOVE` is refused while a reference the app's metadata holds would
+  refuse the delete, naming each one and both remedies; one the build cannot see is met at
+  the close, which scrubs the account instead and says so in a warning. Off by default, and refused when
+  it is built without a reason, before `configure_mail`, or in production with a link that is
+  not https, which outside production is logged as a refused state. A throttle store each
+  worker keeps is accepted and said out loud, as the platform's own is (ADR 0036). The module
+  declares `MAIL_SEND`, so a boot whose job catalog lacks it is refused. The mail capability
+  gains `mail_is_configured()` and exports `parse_address`, and `terp-cap-users` now depends
+  on `terp-cap-mail` and `cryptography`. Each mail is queued from inside its token row's write,
+  so with the durable outbox the two commit or roll back together, and a mail's text, a link's
+  token included, rests in the outbox sealed (ADR 0199, under Security).
 
 - **A file's bytes are handed out from where they rest (ADR 0201).** The files capability's
   storage port grows one optional method, `link(key, *, ttl, content_type, disposition)`: a
@@ -59,6 +194,81 @@ decision, 0001 onwards.
   claim composes each assurance lane from the checks that ran, with a lane composed only of
   such checks `not-run`, never `passed`. The template-acceptance lane renders and holds the
   variant, and Terp Studio's wizard offers it beside the starting screens.
+
+### Changed
+
+- **Certified against terp-spec 0.42.0, and the runtime security evidence is held to its
+  cases.** The four pins (`pyproject.toml`, `terp.arch.SPEC_VERSION`,
+  `@terpjs/eslint-boundaries`'s dependency and its `SPEC_VERSION`) and both mirrors'
+  `SPEC_RELEASE` move to it; the mirrored deployment and workbench schemas and fixtures are
+  byte for byte the ones 0.42.0 publishes. 0.42.0 carries the standard's runtime security
+  cases, and `docs/security-boundaries.md` now names the case each row is evidence for.
+  `test_runtime_security_evidence` holds the index to the pinned release: every packaged case
+  has a row, every case a row names is one the standard has, and every test file and function
+  a row names exists. The ten cases this release's evidence runs ahead of the pin, for refresh
+  rotation, native clients and self-service accounts, sit in a declared window for terp-spec
+  0.43.0 that must be empty once the pin reaches it.
+- **A public website has a defined way to connect to a Terp app, and is still not a kind of
+  Terp app (ADR 0197).** ADR 0123 refused websites as an application kind and recorded that
+  nothing here would change for them. Its reasoning stands; that consequence is amended. A
+  site is a separate client that reads published content from one app's API at build time,
+  from a public read route with no credential in its build, and never connects to the app's
+  database. ADR 0197 names the four
+  things such a site declares about itself (where its content comes from, how its build
+  authenticates, what rebuilds it, and the unit it deploys as), and
+  moves the design tokens from a copy to an exact pin of `@terpjs/contract`, so a site keeps
+  the provenance of the contrast gate and the pairs it measures. A site's lint is its own,
+  from stock plugins, and a site claims nothing of Terp: no profile, no conformance level.
+  This release builds the first thing a site needs, the committed API contract it pins (ADR
+  0194, above). The deploy recipe, which ADR 0198 proposes, and the reference site it builds
+  follow as changes of their own.
+
+### Fixed
+
+- **A hard delete that a foreign key refuses is a 409 again, not a 500.** The conflict an
+  integrity error maps to withholds the row's personal values from the database's text, and it
+  read them from the row. A refused flush had expired that row while its session waited for a
+  rollback, so the read tried to load it and raised, and the typed conflict became an
+  unhandled error. The values are now read from what the row holds in memory, never loaded, so
+  the refusal is the uniform `ConflictError`, its personal values withheld, and the session
+  takes the next write once it is rolled back.
+
+### Upgrade notes
+
+- **`terp release sign` reads a gate document only in the version the commit's own `terp-cli`
+  writes (ADR 0200).** The gate runs the commit's pinned toolchain and `sign` the newest, so a
+  commit pinning `terp-cli` below 0.36.1 has a gate that records the claim alone: its version 1
+  document is still accepted, and signed over the claim, as before. A commit pinning 0.36.1 or
+  later is signed only from a version 2 document: a version 1 document for it would skip the
+  checks, and a version 2 document for an older pin is another toolchain's gate, so both are
+  refused with the command that writes the right one, `uv run terp release gate` in the
+  commit's checkout. A release whose profile is red is now refused although its claim holds;
+  the check an operator is likeliest to meet is `conformance`, which needs the development
+  stack running where the gate runs. A lane that stands in for the gate's `terp verify` run
+  now stands in for every check's verdict by id, and the gate composes the claim from it.
+- **Mail an earlier release queued delivers as it is, and rows it already dispatched keep their
+  plaintext (ADR 0199).** A pending row is read in its plaintext form, so the worker sends it;
+  that reader stays through the 0.36 releases. Nothing rewrites a dispatched or dead-lettered
+  row, so the recipients and text of mail sent before this release stay readable in
+  `outbox_message` until those rows are removed; the tokens in them stop working within a week.
+  After a key rotation, keep `SECRET_KEY_DECRYPT_FALLBACKS` until `terp secrets reseal` reports
+  nothing left, queued mail now included. An image that installs the capabilities one by one
+  gets `cryptography` with `terp-cap-mail`.
+- **An app that pins this release is signed by a signer image of this release or newer.** Its
+  declaration is read against Terp Standard 0.42.0, and an older signer refuses it ("update the
+  signer image first"), as after every move of `terp.arch.SPEC_VERSION`.
+- **`terp-cap-users` depends on `terp-cap-mail` and `cryptography` (ADR 0196),** and the
+  identity capability gains the `identity_account_token` table, created by
+  `terp migrate upgrade` after 0.36.0's refresh-family migration. An image that installs the capabilities one by one installs
+  `terp-cap-mail` beside `terp-cap-users`, as the reference app's Dockerfiles now do.
+- **`terp-cap-files` depends on `cryptography` (ADR 0201),** because an app-signed file link
+  is a sealed token, and offers two extras for its object-store adapters: `[s3]` installs
+  `boto3` and `[azure]` installs `azure-storage-blob`. An app that uses neither installs neither.
+- **A generated app with an `api` unit and no `web` unit publishes the api (ADR 0202).** Its
+  next `terp deployment render` writes `${API_PORT:-23200}:8000` on that unit, and
+  `terp verify --only generated` is red until it does. A deploy tool that holds the
+  generator's closed list of interpolations carries the new one before such an app is
+  deployed through it.
 
 ## 0.36.0 — 2026-11-04
 

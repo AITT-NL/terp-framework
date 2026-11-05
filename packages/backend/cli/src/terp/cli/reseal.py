@@ -9,6 +9,10 @@ it. This command is how an operator gets there, and how they know they have:
   sealed ``enc:v1:`` format, and asks the sealing domains which key it opens under
   (:func:`terp.core.check_sealed_value`). The plaintext never reaches this module: a
   domain hands back the value already re-sealed under ``SECRET_KEY``.
+* It walks every JSON column too, and judges each string nested in a document, at any
+  depth, the same way (ADR 0199). A queued mail is one: its message is a sealed value
+  inside an ``outbox_message.payload``, and a check that saw string columns only would
+  call a database clean while that mail still needed the fallback to be sent.
 * A value under a fallback is rewritten in place. A value already under ``SECRET_KEY``
   is left alone, so a second run writes nothing.
 * A table it can read but not rewrite is still read, and named. A mapped table with no
@@ -29,10 +33,15 @@ Three properties make it safe to run against a live database:
 * **Compare-and-swap per value.** The update matches the value it read, so a value
   the running app rewrote in the meantime — sealed under ``SECRET_KEY`` already — is
   never overwritten with the stale copy; it is counted as changed, and the next run
-  judges it.
+  judges it. A document is matched on its text form as it was read, because
+  PostgreSQL's ``json`` has no equality: a change to anything in it since the read
+  loses the swap, and every value that would have been re-sealed in it is counted as
+  changed.
 * **Nothing else moves.** A re-seal changes no value, only the key it is sealed under,
   so it writes no audit record and pins every column with an ``onupdate`` (the
-  ``updated_at`` stamp) to itself; the ORM version counter is not touched either.
+  ``updated_at`` stamp) to itself; the ORM version counter is not touched either. A
+  document is written back through its column's own type with only its sealed values
+  replaced, every other key and value as it was read.
 
 It refuses to run while a migration is pending: it writes rows, and it reads them
 through the schema this code maps, which is the schema the migration is about to change.
@@ -105,24 +114,64 @@ class ResealReport:
         )
 
 
-def _holds_text(column: Column[Any]) -> bool:
-    """Whether *column* stores a string: through any type decorator, and never an enum.
+def _kind(column: Column[Any]) -> Any:
+    """*column*'s type through any type decorator.
 
     SQLModel maps ``str`` to ``AutoString``, a decorator over ``String`` rather than a
-    subclass of it, so the type is unwrapped before it is judged. An enum is a ``String``
-    to SQLAlchemy but a native type to PostgreSQL, where LIKE does not apply to it.
+    subclass of it, so the type is unwrapped before it is judged.
     """
-    from sqlalchemy import Enum, String, TypeDecorator
+    from sqlalchemy import TypeDecorator
 
     kind = column.type
     while isinstance(kind, TypeDecorator):
         kind = kind.impl
+    return kind
+
+
+def _holds_text(column: Column[Any]) -> bool:
+    """Whether *column* stores a string, and never an enum.
+
+    An enum is a ``String`` to SQLAlchemy but a native type to PostgreSQL, where LIKE does
+    not apply to it.
+    """
+    from sqlalchemy import Enum, String
+
+    kind = _kind(column)
     return isinstance(kind, String) and not isinstance(kind, Enum)
 
 
-def _string_columns(table: Table) -> list[Column[Any]]:
-    """The columns that can hold a sealed value."""
-    return [column for column in table.columns if _holds_text(column)]
+def _holds_json(column: Column[Any]) -> bool:
+    """Whether *column* stores a JSON document (``JSONB`` and a reflected ``JSON`` included)."""
+    from sqlalchemy import JSON
+
+    return isinstance(_kind(column), JSON)
+
+
+def _judge(stored: str, tally: ColumnTally, *, write: bool) -> str | None:
+    """Count one sealed value; return its re-sealing when it needs a fallback and *write*."""
+    from terp.core import SealState, check_sealed_value
+
+    check = check_sealed_value(stored)
+    if check.state is SealState.CURRENT:
+        tally.current += 1
+    elif check.state is SealState.UNREADABLE:
+        tally.unreadable += 1  # never rewritten: there is nothing true to re-seal
+    elif not write:
+        tally.fallback += 1
+    else:
+        return check.resealed
+    return None
+
+
+def _swap(
+    conn: Connection, table: Table, where: list[Any], read: Any, column: Column[Any], value: Any
+) -> bool:
+    """Write *value* to *column* of the row *where* names, if *read* still matches it."""
+    from sqlalchemy import update
+
+    pinned = {other: other for other in table.columns if other.onupdate is not None}
+    result = conn.execute(update(table).where(*where, read).values({**pinned, column: value}))
+    return result.rowcount == 1
 
 
 def _settle(
@@ -136,56 +185,102 @@ def _settle(
     write: bool,
 ) -> None:
     """Count one sealed value, and with *write* re-seal it if it needs a fallback."""
-    from sqlalchemy import update
-
-    from terp.core import SealState, check_sealed_value
-
-    check = check_sealed_value(stored)
-    if check.state is SealState.CURRENT:
-        tally.current += 1
+    resealed = _judge(stored, tally, write=write)
+    if resealed is None:
         return
-    if check.state is SealState.UNREADABLE:
-        tally.unreadable += 1  # never rewritten: there is nothing true to re-seal
-        return
-    if not write:
-        tally.fallback += 1
-        return
-    pinned = {other: other for other in table.columns if other.onupdate is not None}
-    result = conn.execute(
-        update(table)
-        .where(*where, column == stored)
-        .values({**pinned, column: check.resealed})
-    )
-    if result.rowcount == 1:
+    if _swap(conn, table, where, column == stored, column, resealed):
         tally.resealed += 1
     else:
         tally.changed += 1
+
+
+def _resealed(value: Any, settle: Callable[[str], str]) -> Any:
+    """*value* with every string in the sealed format, a key or a value at any depth, settled."""
+    if isinstance(value, str):
+        return settle(value) if value.startswith(_SEALED_PREFIX) else value
+    if isinstance(value, list):
+        return [_resealed(item, settle) for item in value]
+    if isinstance(value, dict):
+        return {_resealed(key, settle): _resealed(item, settle) for key, item in value.items()}
+    return value
+
+
+def _settle_document(
+    conn: Connection,
+    table: Table,
+    where: list[Any],
+    column: Column[Any],
+    text: str,
+    tally: ColumnTally,
+    *,
+    write: bool,
+) -> None:
+    """Count every sealed value in one JSON document; with *write*, re-seal those under a fallback.
+
+    The document is read as text, so the swap can match the text it read. A document that
+    does not parse holds the sealed format somewhere no walk can reach, so it is counted as
+    one value no key opens, and the report is not clean while it is there.
+    """
+    from sqlalchemy import Text, cast
+
+    try:
+        document = json.loads(text)
+    except ValueError:
+        tally.unreadable += 1
+        return
+    pending: list[str] = []
+
+    def settle(stored: str) -> str:
+        resealed = _judge(stored, tally, write=write)
+        if resealed is None:
+            return stored
+        pending.append(resealed)
+        return resealed
+
+    document = _resealed(document, settle)
+    if not pending:
+        return
+    if _swap(conn, table, where, cast(column, Text) == text, column, document):
+        tally.resealed += len(pending)
+    else:
+        tally.changed += len(pending)
 
 
 def _survey_table(conn: Connection, table: Table, *, write: bool) -> list[ColumnTally]:
     """Every sealed value in *table*, counted and (with *write*) re-sealed.
 
     A table with no primary key is counted and never written: without a key, an update
-    that matches a row matches every row holding the same value.
+    that matches a row matches every row holding the same value. A JSON column is read as
+    its text form, and only a row whose text holds the sealed format somewhere is walked.
     """
-    from sqlalchemy import inspect, or_, select
+    from sqlalchemy import Text, cast, inspect, or_, select
 
-    columns = _string_columns(table)
+    columns = [column for column in table.columns if _holds_text(column)]
+    documents = [column for column in table.columns if _holds_json(column)]
     primary = list(table.primary_key.columns)
     write = write and bool(primary)
-    if not columns or not inspect(conn).has_table(table.name, schema=table.schema):
+    if not (columns or documents) or not inspect(conn).has_table(table.name, schema=table.schema):
         return []
-    tallies = {column.name: ColumnTally(table.name, column.name) for column in columns}
+    tallies = {column.name: ColumnTally(table.name, column.name) for column in [*columns, *documents]}
+    texts = [cast(document, Text) for document in documents]
     rows = conn.execute(
-        select(*primary, *columns).where(
-            or_(*(column.like(f"{_SEALED_PREFIX}%") for column in columns))
+        select(*primary, *columns, *texts).where(
+            or_(
+                *(column.like(f"{_SEALED_PREFIX}%") for column in columns),
+                *(text.like(f'%"{_SEALED_PREFIX}%') for text in texts),
+            )
         )
     ).all()
     for row in rows:
         where = [key == value for key, value in zip(primary, row[: len(primary)], strict=True)]
-        for column, stored in zip(columns, row[len(primary) :], strict=True):
+        values = row[len(primary) :]
+        for column, stored in zip(columns, values[: len(columns)], strict=True):
             if isinstance(stored, str) and stored.startswith(_SEALED_PREFIX):
                 _settle(conn, table, where, column, stored, tallies[column.name], write=write)
+        for document, text in zip(documents, values[len(columns) :], strict=True):
+            if text is not None and f'"{_SEALED_PREFIX}' in text:
+                tally = tallies[document.name]
+                _settle_document(conn, table, where, document, text, tally, write=write)
     return [tally for tally in tallies.values() if tally.found]
 
 

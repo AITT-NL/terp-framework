@@ -434,8 +434,9 @@ sentence some readers cannot read.
 Add a module: `uv run terp new module <name>` → fill the slots → **mount it in
 `app/main.py`** (import its `module`, add it to the `modules` list — unmounted
 modules serve no routes) → `uv run terp migrate make <name>` →
-{% if frontend %}`uv run terp openapi && npm --prefix frontend run generate` (typed client) →
-`uv run terp routes` (route types — see below) → `uv run terp check`.{% else %}`uv run terp openapi` (the contract every client types itself from) → `uv run terp check`.{% endif %}
+{% if frontend %}`uv run terp openapi && npm --prefix frontend run generate` (the committed API contract
+`openapi.json`, then the typed client) →
+`uv run terp routes` (route types — see below) → `uv run terp check`.{% else %}`uv run terp openapi` (the committed API contract `openapi.json`, which every client types itself from) → `uv run terp check`.{% endif %}
 {% if frontend %}
 Route paths and params are type-checked from **generated** types (ADR 0092): the router
 is built at runtime from the module manifests, so nothing checks a path or a param name
