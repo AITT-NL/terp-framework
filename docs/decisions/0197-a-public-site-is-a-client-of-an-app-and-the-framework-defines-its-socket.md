@@ -5,13 +5,16 @@
   of its §1–3 and all of §5. Revised 2026-11-03 after review: a site reads published content
   from a public route with no credential in its build, it claims no conformance level, and
   §1's closing paragraph is amended openly rather than said to stand. Nothing is built by this
-  record: the contract baseline, the rules profile, the lint preset, the starter and the deploy
-  recipe are each a later change of their own, listed under "How it will be held". Revised
+  record: the contract baseline, the reference site and the deploy recipe are each a later
+  change of their own, listed under "How it will be held". Revised
   2026-11-04: decision 5 no longer says the generated-client rule keeps a page from calling the
   app, and says what does. Item 5 of "How it will be held" is amended by
   [ADR 0198](0198-a-static-site-is-a-web-unit-the-framework-builds-from-a-recipe-it-owns.md)
   (proposed 2026-11-04): the static `web` recipe and a second `web` unit land in the standard
-  and the framework's generator.
+  and the framework's generator. Revised 2026-11-05: the site rules profile, its lint preset and
+  its conformance claim are withdrawn (decision 5), following the direction that rules belong to
+  the framework and that a site carries no Terp claim; the socket is four declarations, and the
+  starter is reduced to a reference site the recipe builds.
 - **Date:** 2026-11-03. 0182 and 0183 are reserved for other records and 0184 to 0193 are taken;
   0194 to 0197 are this series.
 - **Relates:** amends [ADR 0123](0123-marketing-websites-are-not-a-terp-application-kind.md)
@@ -89,9 +92,11 @@ it, without a site ever becoming a kind of Terp application.
 half of two-layer enforcement, and that is why it is not a kind of Terp application. Its
 closing paragraph said that what would transfer (a token system, a lint rule set, a
 scaffolder) is "none of it this framework". That paragraph is amended: the Terp family now
-ships those three things, from this repository and the spec, as build-time tooling for a
-site. They carry no Terp guarantee to it, and nothing here says otherwise. §2 and §3 stand
-unchanged.
+ships the first and the third of those, the tokens as a pinned package and a build recipe with
+a reference site, from this repository, as build-time tooling for a site. The lint rule set it
+does not ship: a site's lint is its own, from stock plugins, and the Terp Standard names no
+profile for a site (decision 5). None of it carries a Terp guarantee to the site, and nothing
+here says otherwise. §2 and §3 stand unchanged.
 
 A site is not a Terp application kind. No `site` value joins the layout manifest's `contract`
 vocabulary, no page archetype is added for a public page, and the frontend primitives are not
@@ -113,21 +118,20 @@ role model, a trail on every change, media through the files capability, and a r
 content for the site as one of its own module's endpoints. Business nouns such as a content type
 or a publish workflow are that app's modules, not capabilities.
 
-### 3. The socket: five things a site declares about itself
+### 3. The socket: four things a site declares about itself
 
 | Part | What the site declares | Where the fact lives | What it may never be |
 |---|---|---|---|
 | Content source | `repo` (content in the site's own tree) or `api` (published content from one Terp app) | the site manifest; for `api`, the base URL is a declared variable per environment, because it is an environment fact (ADR 0184 decision 2) | a database connection, or members-only content, which stays behind the app's API and is never built into static output |
 | Authentication | none: what a public site shows is public, so the app serves its published content from a public, rate-limited read route (ADR 0148), and the build reads it anonymously | the app's own route declaration | any credential handed to a build: a person's token, a shared account, or a service principal, which is authorized exactly as a person with its role (ADR 0088 §4) and so cannot be held to published content |
 | Rebuild trigger | `none` (rebuilt when it is deployed) or `webhook` (the app's publish event asks the deploy tool for a rebuild) | the site manifest | a rebuild that needs a new image |
-| Rules profile | `site`: the subset of the Terp Standard's frontend rules a site is held to (decision 5) | the site manifest names it; the profile's words live in the spec | the application profile's uniformity rules |
 | Deployment unit | a `web` unit built from the checkout; for an `api` source, also a `one-shot` build unit that runs inside the environment, where the API is reachable, and writes the site to a volume the `web` unit serves | `deployment.json` (ADR 0184) | a free image, an image build that fetches content or holds a secret, a build unit that receives the app's own environment, an `/api` proxy it did not declare, or a hostname in the API's CORS when its pages make no browser call |
 
 Facts keep the owners ADR 0184 gave them. Units, volumes and the variable names a unit needs are
 in `deployment.json`. Variables, whether each is secret and where each is required are in
 `environment.schema.json`. Hostnames, TLS and CORS are environment facts, held by whatever records
 environments. The **site manifest** is one file that holds only what no existing declaration can:
-the content source, the rebuild trigger and the rules profile. Once a deploy
+the content source and the rebuild trigger. Once a deploy
 tool reads it as well as the site's own build, which wiring the rebuild trigger makes the case, it
 is a declaration two programs read. Its schema then goes to the spec under ADR 0111 decision 5,
 versioned and fixture-checked as ADR 0186 describes.
@@ -147,7 +151,7 @@ Three more facts belong to the socket, because a site cannot be safe without the
   record, the API contract baseline (ADR 0194); the socket depends on it existing.
 - **A site and the app's frontend share no source.** The app's frontend rules cover its own
   tree, so an import from `site/` into `frontend/` would bring unchecked code into the app; no
-  import crosses between the two, and the site preset refuses one when it lands.
+  import crosses between the two, and each build reads only its own tree.
 
 How a deploy tool picks the recipe that builds a site's `web` unit, whether by a field in
 `deployment.json` or by inference from the profile, is not decided here. A field would be a change
@@ -161,51 +165,37 @@ guarantee depends on. It imports nothing from `terp.*` or `@terpjs/react-core`. 
 `ModuleSpec`, no archetype and no runtime control, and nothing in this platform's two-layer model
 extends to it.
 
-The starter is also only one plug. Any site that makes the five declarations above is as
+The starter is also only one plug. Any site that makes the four declarations above is as
 first-class to the family's tooling as one made from the starter, which is what makes this a
 socket rather than a second framework. The starter's build tool is chosen with the starter; the
 socket does not depend on it.
 
-### 5. A site is held to the `site` profile, and claims no application level
+### 5. A site's lint is its own, and a site claims nothing of Terp
 
-The `site` profile names the frontend catalog's security rules that mean the same thing on a
-static page: no DOM HTML injection, no `eval` or `new Function`, no `javascript:` URL, no
-`target="_blank"` without `rel="noopener"`, and the generated-client rule exactly as it stands,
-applied to the site's page code. That rule refuses the raw egress primitives the spec's
-`restricted-surface.json` lists (`fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource` and
-`navigator.sendBeacon`) and sanctions a generated client in their place, which decision 3 has a
-site generate. A page that calls the app through that client passes it, so the rule does not
-keep a page from calling the app. The build script that fetches published content is not page
-code and is outside that rule. It names none
-of the rules whose purpose is an app's uniformity: inline styling, stylesheet imports, token-styled
-elements, the layout contract, router links and framework markers. The escape-hatch ratchet is the
-site's own choice. The exact partition of the catalog's frontend entries is recorded in the spec,
-with the profile.
+The frontend catalog's rules that would mean the same thing on a static page, no DOM HTML
+injection, no `eval` or `new Function`, no `javascript:` URL, no `target="_blank"` without
+`rel="noopener"`, are each a stock ESLint rule already. A site's lint configuration uses those,
+from the plugins that ship them, and is the site's own: the Terp Standard names no profile for
+a site, the framework's checkers do not run on one, and the escape-hatch ratchet is not
+applied. This follows from §1: a rule that cannot be paired with a runtime control is a lint,
+and a lint on free-form code is not a Terp guarantee, so it is not dressed as one.
+
+A site therefore claims nothing of Terp: no conformance level, no certification, no scorecard.
+What a site may say is that it reads one Terp app through the socket of decision 3, which the
+app's own gate holds (the committed contract, ADR 0194) and the deploy's declaration records.
 
 What keeps a page from calling the app is the policy it is served with. For a site built from
 [ADR 0198](0198-a-static-site-is-a-web-unit-the-framework-builds-from-a-recipe-it-owns.md)'s
 recipe, that is the rendered content security policy's `connect-src 'self'` with no `/api` route
 on the site's own origin (its decision 3): the browser refuses a script's connection to any
 other origin, and the site's origin has no route to the app. A site that is not built from the
-recipe has only the policy its own host sends: the site writes it, the starter ships one
+recipe has only the policy its own host sends: the site writes it, the reference site ships one
 (below), and no Terp check reads it.
 
-The profile adds no rule and varies none; it names a subset of existing ones, so ADR 0122's
-breadth freeze is untouched. Each rule in it classifies `runtime.applicability` as
-`not-applicable` for this surface, with §1's rationale: there is no runtime to observe.
-
-A site does **not** claim the spec's Level 2. That level builds on Level 1 and requires every
-`static-portable` rule, and the profile deliberately leaves out several of them. A site's claim
-is its own: its source is checked by the site preset against the `site` profile. What that
-claim is called, and what it requires, is recorded in the spec with the profile, together with
-the per-surface classification and corpus cases in the site's own source formats. The reference checker is a named preset
-of `@terpjs/eslint-boundaries` that parses those formats and attributes its findings to the same
-catalog ids.
-
 A site's own threat model is §1's: do not accept spam through a form, do not ship a hostile
-third-party script, do not break. The starter answers it with what a static host can carry: a
-Content-Security-Policy in the posture of ADR 0104, no analytics or third-party script by
-default, and the profile's rules in its CI.
+third-party script, do not break. The reference site answers it with what a static host can
+carry: a Content-Security-Policy in the posture of ADR 0104, no analytics or third-party script
+by default, and its lint in its CI.
 
 ### 6. The tokens are pinned, not copied (amends §4)
 
@@ -234,14 +224,14 @@ not travel.
 
 - ADR 0123 gains a status line pointing here. Its text is otherwise not edited, so the reasoning
   this record keeps is read where it was written.
-- The framework gains a site starter template, a site preset in `@terpjs/eslint-boundaries` and a
-  guide topic, and the spec gains the `site` profile and its corpus. Capabilities gain nothing for
-  sites: the content backend is an ordinary app, and its published read is one of its own routes,
-  declared public with a reason and a rate limit.
+- The framework gains a build recipe for a site (ADR 0198), a reference site the recipe is
+  tested against, and a guide topic. Neither the framework's checkers nor the Standard gain a
+  site profile. Capabilities gain nothing for sites: the content backend is an ordinary app, and
+  its published read is one of its own routes, declared public with a reason and a rate limit.
 - An agent asked for public pages in a Terp app has an answer before it improvises one: not in the
   single-page app, not in a relaxed zone, and not against the database, but a site reading the API
   through the socket. `AGENTS.md` says so in one sentence.
-- A site that keeps the five declarations can live in its content app's repository, as a `site/`
+- A site that keeps the four declarations can live in its content app's repository, as a `site/`
   directory beside `frontend/` (two frontends are a shape ADR 0110 never flags), or in a
   repository of its own. The pinned contract makes a later move between the two cheap.
 
@@ -252,11 +242,8 @@ Each part is its own change, in this order, and each is held by its own tests wh
 1. **The API contract baseline** (a framework record): a pinned `openapi.json`, a check that
    refuses a breaking change unless the baseline is moved on purpose, and the file published so
    another repository can pin a version of it.
-2. **The `site` profile** (a spec release, before the framework pins it): the per-surface
-   classification and corpus cases in the site's source formats.
-3. **The site preset** in `@terpjs/eslint-boundaries`, run against that corpus by the existing
-   parity tests.
-4. **The starter template and its guide topic.** Done when the family's own public site is
-   rebuilt from it and deploys, and a second site scaffolds without an edit to the starter.
-5. **The deploy side**: a static `web` recipe, more than one `web` unit per app, and an on-demand
+2. **The reference site and its guide topic.** Done when the family's own public site builds
+   from the recipe and deploys. A themed starter with content types and editor flows waits for
+   a second client that wants an app and its public site from one Studio.
+3. **The deploy side**: a static `web` recipe, more than one `web` unit per app, and an on-demand
    rebuild. These land in the workbench and the runner, which record their own decisions.

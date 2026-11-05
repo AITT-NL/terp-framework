@@ -167,14 +167,15 @@ decision, 0001 onwards.
   nothing here would change for them. Its reasoning stands; that consequence is amended. A
   site is a separate client that reads published content from one app's API at build time,
   from a public read route with no credential in its build, and never connects to the app's
-  database. ADR 0197 names the five
+  database. ADR 0197 names the four
   things such a site declares about itself (where its content comes from, how its build
-  authenticates, what rebuilds it, which rules it is held to, and the unit it deploys as), and
+  authenticates, what rebuilds it, and the unit it deploys as), and
   moves the design tokens from a copy to an exact pin of `@terpjs/contract`, so a site keeps
-  the provenance of the contrast gate and the pairs it measures. This release builds the
-  first thing a site needs, the committed API contract it pins (ADR 0194, above). The site
-  rules profile, the starter and the deploy recipe, which ADR 0198 proposes, follow as changes
-  of their own.
+  the provenance of the contrast gate and the pairs it measures. A site's lint is its own,
+  from stock plugins, and a site claims nothing of Terp: no profile, no conformance level.
+  This release builds the first thing a site needs, the committed API contract it pins (ADR
+  0194, above). The deploy recipe, which ADR 0198 proposes, and the reference site it builds
+  follow as changes of their own.
 
 ### Fixed
 
