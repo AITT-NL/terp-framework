@@ -270,6 +270,19 @@
         },
         {
           "by_role": {
+            "admin": "public",
+            "editor": "public",
+            "viewer": "public"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/files/link/{token}",
+          "requirement": "public"
+        },
+        {
+          "by_role": {
             "admin": "allowed",
             "editor": "rank",
             "viewer": "rank"
@@ -318,6 +331,19 @@
             "GET"
           ],
           "path": "/api/v1/files/{file_id}/content",
+          "requirement": "role:admin"
+        },
+        {
+          "by_role": {
+            "admin": "allowed",
+            "editor": "rank",
+            "viewer": "rank"
+          },
+          "extra_permissions": [],
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/v1/files/{file_id}/link",
           "requirement": "role:admin"
         }
       ],

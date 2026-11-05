@@ -584,6 +584,27 @@
         "title": "CurrentUser",
         "type": "object"
       },
+      "FileLinkRead": {
+        "description": "A short-lived link to a file's bytes (ADR 0201): the URL, and when it stops working.\n\n``url`` is absolute for a store's own signed URL and path-absolute for one the\ncapability signed itself; a client uses either as it is. A store's URL carries the\nstore's own address of the blob, which is the store's business and expires with the\nlink: ``storage_key`` itself still never leaves the API.",
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 4096,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expires_at"
+        ],
+        "title": "FileLinkRead",
+        "type": "object"
+      },
       "FileRead": {
         "description": "The file metadata as returned by the API \u2014 **without** ``storage_key`` / ``storage_profile``.",
         "properties": {
@@ -3334,6 +3355,48 @@
         ]
       }
     },
+    "/api/v1/files/link/{token}": {
+      "get": {
+        "operationId": "files.read_link",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read a file's contents through a short-lived link",
+        "tags": [
+          "files"
+        ]
+      }
+    },
     "/api/v1/files/{file_id}": {
       "delete": {
         "operationId": "files.delete",
@@ -3498,6 +3561,77 @@
           }
         },
         "summary": "Download a file's contents",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/files/{file_id}/link": {
+      "get": {
+        "operationId": "files.link_file",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ttl_seconds",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 86400,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ttl Seconds"
+            }
+          },
+          {
+            "in": "query",
+            "name": "inline",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Inline",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileLinkRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get a short-lived link to a file's contents",
         "tags": [
           "files"
         ]

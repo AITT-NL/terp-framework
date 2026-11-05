@@ -82,6 +82,12 @@ dev = [
     "pyyaml>=6.0.3",
     # Exercises the terp-core[secrets] sealing cipher (terp.core.secrets, design §5.4).
     "cryptography>=50.0.2",
+    # The two object-store adapters of terp-cap-files (ADR 0201) are tested against the
+    # SDKs' own offline surface: botocore's stubber and the real presigner for S3, the
+    # real SAS signer and exception types for Azure Blob. An app installs either through
+    # the capability's extra; the suite needs both.
+    "boto3>=1.34",
+    "azure-storage-blob>=12.19",
     # Validates every log line a production app writes against the terp-log/1 schema
     # (terp.core's log-record.schema.json, ADR 0188) with a full draft 2020-12 validator.
     "jsonschema>=4.26.0",

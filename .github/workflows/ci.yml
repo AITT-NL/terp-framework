@@ -472,6 +472,10 @@ jobs:
             copier-args: "--data layout=process"
           - variant: portal
             copier-args: "--data layout=portal"
+          # ADR 0202: no frontend at all. The Node steps below skip it; the backend gate,
+          # the production boot and the app's own quick profile run on it like the others.
+          - variant: api-only
+            copier-args: "--data frontend=false"
           - variant: reference
             copier-args: ""
           - variant: reference-generated
@@ -603,6 +607,7 @@ jobs:
           done
 
       - name: Build the generated frontend against the packed tarballs  # zizmor: ignore[adhoc-packages]
+        if: matrix.variant != 'api-only'
         working-directory: /tmp/acceptance-app/frontend
         run: |
           set -eux
@@ -632,6 +637,7 @@ jobs:
       # runs. Escape is included on purpose; it is the path a polyfill that only toggled
       # `open` got wrong.
       - name: Unit-test a ConfirmDialog flow in the generated frontend
+        if: matrix.variant != 'api-only'
         working-directory: /tmp/acceptance-app/frontend
         run: |
           set -eux
@@ -751,6 +757,34 @@ jobs:
           test ! -e app/deployment.json
           uvx copier copy --defaults --trust --vcs-ref v2 tpl fresh
           test -f fresh/deployment.json
+
+      # ADR 0202: an app with no frontend is held to its own quick profile as rendered. The
+      # npm checks of that profile report themselves not applicable rather than failing on a
+      # workspace the app does not have, and the release claim composes its lanes from the
+      # checks that ran; its deploy declaration names no web unit and its production profile
+      # publishes the api unit, which `deployment` and `deploy-safety` judge here. Committed
+      # first, as an app is: a check that reads the work tree has one to read.
+      - name: Hold the API-only app to its own verify profile (api-only)
+        if: matrix.variant == 'api-only'
+        working-directory: /tmp/acceptance-app
+        env:
+          UV_FIND_LINKS: /tmp/terp-wheels
+        run: |
+          set -eux
+          test ! -e frontend && test ! -e conformance
+          git init -q && git add -A
+          git -c user.email=ci@example.invalid -c user.name=ci commit -qm render
+          uv run terp verify --only deployment
+          uv run terp verify --profile quick --format json > verify.json
+          python3 - <<'LANES'
+          import json
+          checks = {c["id"]: c for c in json.load(open("verify.json"))["checks"]}
+          assert all(c["ok"] for c in checks.values()), [k for k, c in checks.items() if not c["ok"]]
+          unjudged = {k for k, c in checks.items() if not c["applicable"]}
+          assert {"frontend-boundaries", "frontend-typecheck"} <= unjudged, unjudged
+          assert checks["architecture"]["applicable"] and checks["workbench"]["applicable"]
+          LANES
+          rm verify.json
 
       # ADR 0187 decision 4: the build state is the recorded deploy_build answer, which
       # `terp deployment adopt` writes, and copier honours it on every update. Run for real,

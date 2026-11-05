@@ -6,6 +6,7 @@ row scoping for you, with precise, fixable messages.
 
 ## This project's selections
 
+{% if frontend -%}
 {% if layout == 'hub' -%}
 - **Layout: hub landing** — `frontend/src/modules/home` owns `/` as a `DashboardPage`: the
   app's key figures in the band under its title, and a `HubCard` per area below. No module
@@ -28,6 +29,15 @@ row scoping for you, with precise, fixable messages.
 - **Layout: blank shell** — no starter module; `frontend/src/modules/home` renders a
   welcome page at `/`. Build the first real module with `uv run terp new module <name>`
   and replace the welcome page (or point `/` at your first real screen).
+{%- endif %}
+{%- else -%}
+- **API only** (ADR 0202) — this app has no frontend of its own: its clients are a native
+  app, a site built elsewhere or other services, and the API is the one surface they share
+  (`uv run terp openapi` writes the contract they type themselves from). There is no
+  `frontend/`, no `web` service and no `conformance/` suite; `uv run terp new module <name>`
+  scaffolds the backend slots only. In production the `api` unit is the deployment's only
+  way in and publishes `API_PORT`; a browser client on another origin needs
+  `BACKEND_CORS_ORIGINS` (never `*`).
 {%- endif %}
 {%- if use_files %}
 - **File uploads** (`terp-cap-files`): auto-discovered admin surface at `/api/v1/files`;
@@ -100,8 +110,9 @@ or `python` will not resolve.
   structured violations (rule, file, line, message, and the `uv run terp guide` fix
   recipe) for tools and agents; `--format check-report` emits the Terp Standard
   check-report document (catalog-attributed findings + the evaluated-rule inventory).
-- **`uv run terp dev`** — run the API (:22100) and frontend (:21100) together, with an
-  OpenAPI preflight so the typed client stays current. Not 8000 and 5173: every host
+- **`uv run terp dev`** — {% if frontend %}run the API (:22100) and frontend (:21100) together, with an
+  OpenAPI preflight so the typed client stays current{% else %}run the API (:22100), with an OpenAPI preflight
+  so `openapi.json` stays current for the clients that type themselves from it{% endif %}. Not 8000 and 5173: every host
   port Terp binds by default sits in a range Terp owns (web 21100+, api 22100+, deploy
   23100+), because 8000 and 5173 are where a developer's *other* applications live.
 - **`uv run terp new module <name>`** — scaffold the five slots.
@@ -171,14 +182,14 @@ it is. One command runs everything:
 uv run terp verify --profile full   # the merge bar: exactly what CI enforces
 ```
 
-Or run the four halves individually (useful for narrower reruns while iterating):
+Or run the {% if frontend %}four {% endif %}halves individually (useful for narrower reruns while iterating):
 
 ```bash
 uv run pytest                         # backend gate (architecture, migrations, mounted modules)
-npm --prefix frontend run typecheck   # frontend types (tsc)
+{% if frontend %}npm --prefix frontend run typecheck   # frontend types (tsc)
 npm --prefix frontend run lint        # frontend boundary lint + budget
 npm --prefix frontend run build       # the production build CI ships
-```
+{% endif %}```
 
 Six of the profile's checks ask questions the test suite cannot, and each of them
 reddens for a reason no test failure will explain:
@@ -198,24 +209,25 @@ reddens for a reason no test failure will explain:
   production profile and the app, never whether the topology is approved. Deploy policy
   (who may publish, approvals, gate policy) never belongs in it: `uv run terp guide deployment`.
 - `locks` — can the production images be built from what is committed? They install
-  exactly `uv.lock` and `frontend/package-lock.json`, so a dependency added to a manifest
+  exactly `uv.lock`{% if frontend %} and `frontend/package-lock.json`{% endif %}, so a dependency added to a manifest
   without re-locking is an image that cannot be built. After changing a dependency, run
-  `uv lock` or `npm --prefix frontend install` and commit the lock with the manifest. Red for
+  `uv lock`{% if frontend %} or `npm --prefix frontend install`{% endif %} and commit the lock with the manifest. Red for
   an app whose `deployment.json` declares units; a note for any other.
 - `generated` — are the production build files the framework's render? Where
-  `deployment.json` says `"build": "generated"`, `Dockerfile.prod`, `frontend/Dockerfile.prod`
+  `deployment.json` says `"build": "generated"`, `Dockerfile.prod`{% if frontend %}, `frontend/Dockerfile.prod`{% endif %}
   and `docker-compose.prod.yml` are rendered from it: change `deployment.json`, run
-  `uv run terp deployment render`, and commit both. Never edit the three files by hand; a
+  `uv run terp deployment render`, and commit both. Never edit the {% if frontend %}three{% else %}two{% endif %} files by hand; a
   copy that is not the render is red, and so is a `deploy_build` in `.copier-answers.yml`
   that disagrees. `uv run terp deployment adopt --build generated` (or `--build own`, back)
   moves the app between the two states and writes both files. Silent for any other state.
 
+{% if frontend -%}
 A frontend module that fails typecheck breaks the app at runtime (a blank page —
 Vite refuses the module graph), so a red typecheck means the app does not work,
 even if the backend gate passes. Import only what a package really exports:
 check the catalog in `node_modules/@terpjs/react-core/README.md` instead of
 guessing component names or props.
-
+{% endif %}
 Two boundaries are never autonomous agent decisions:
 
 - Never add an opt-out marker or raise an escape-hatch budget. Fix the underlying
@@ -279,6 +291,7 @@ Two boundaries are never autonomous agent decisions:
    counterpart of `emit_audit`, for the case where nothing was written but something
    was seen.
 
+{% if frontend -%}
 ## Frontend golden rules
 
 Screens compose the **`@terpjs/react-core` component surface** — catalog in
@@ -417,13 +430,14 @@ sentence some readers cannot read.
   sidebar bottom automatically; there is nothing to wire. The theme toggle and the
   language switch are separate controls in the shell header, not entries in this menu.
 
+{% endif -%}
 Add a module: `uv run terp new module <name>` → fill the slots → **mount it in
 `app/main.py`** (import its `module`, add it to the `modules` list — unmounted
 modules serve no routes) → `uv run terp migrate make <name>` →
-`uv run terp openapi && npm --prefix frontend run generate` (the committed API contract
+{% if frontend %}`uv run terp openapi && npm --prefix frontend run generate` (the committed API contract
 `openapi.json`, then the typed client) →
-`uv run terp routes` (route types — see below) → `uv run terp check`.
-
+`uv run terp routes` (route types — see below) → `uv run terp check`.{% else %}`uv run terp openapi` (the committed API contract `openapi.json`, which every client types itself from) → `uv run terp check`.{% endif %}
+{% if frontend %}
 Route paths and params are type-checked from **generated** types (ADR 0092): the router
 is built at runtime from the module manifests, so nothing checks a path or a param name
 until `uv run terp routes` extracts them into the committed
@@ -434,3 +448,4 @@ until `uv run terp routes` extracts them into the committed
 `uv run terp verify` refuses a stale table (the `routes-drift` check, before the
 typecheck) and prints the command. A route whose `path` is not a plain string literal is
 refused by name, because a partial table would make a real path look wrong.
+{%- endif %}

@@ -251,6 +251,30 @@ def test_template_acceptance_boots_every_render_against_postgresql() -> None:
     assert "use_sso=true" in variants["hub-all-capabilities"], "one render boots with SSO"
 
 
+def test_template_acceptance_renders_an_api_only_app_and_holds_it_to_its_profile() -> None:
+    """ADR 0202: one variant renders `frontend=false`. The Node steps skip it, the backend
+    gate and the production boot run on it like every other render, and its own quick
+    profile is held with the npm checks reporting themselves not applicable."""
+    job = _acceptance()
+    variants = {e["variant"]: e["copier-args"] for e in job["strategy"]["matrix"]["include"]}
+    assert variants["api-only"] == "--data frontend=false"
+    by_name = {step.get("name", ""): step for step in job["steps"]}
+    for name in (
+        "Build the generated frontend against the packed tarballs",
+        "Unit-test a ConfirmDialog flow in the generated frontend",
+    ):
+        assert by_name[name]["if"] == "matrix.variant != 'api-only'", name
+    (boot,) = [s for s in job["steps"] if "tools/production_boot.py" in str(s.get("run", ""))]
+    assert "api-only" not in boot["if"], "the api-only render boots in production too"
+    held = by_name["Hold the API-only app to its own verify profile (api-only)"]
+    assert held["if"] == "matrix.variant == 'api-only'"
+    run = held["run"]
+    assert "test ! -e frontend && test ! -e conformance" in run
+    assert "uv run terp verify --only deployment" in run
+    assert "uv run terp verify --profile quick --format json" in run
+    assert '"frontend-boundaries", "frontend-typecheck"' in run
+
+
 def test_template_acceptance_runs_the_production_profile_with_files_and_sso_on_docker() -> None:
     (step,) = [
         s for s in _acceptance()["steps"]

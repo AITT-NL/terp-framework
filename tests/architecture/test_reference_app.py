@@ -86,7 +86,10 @@ def test_a_line_ending_is_not_a_template_change(tmp_path: pathlib.Path) -> None:
 
 def test_template_source_finds_plain_and_jinja_sources_and_nothing_else() -> None:
     assert reference.template_source("control_plane/__init__.py") == (
-        reference.TEMPLATE_PROJECT / "control_plane" / "__init__.py"
+        reference.TEMPLATE_PROJECT / "control_plane" / "__init__.py.jinja"
+    )
+    assert reference.template_source("workbench.json") == (
+        reference.TEMPLATE_PROJECT / "workbench.json.jinja"
     )
     assert reference.template_source("app/main.py") == (
         reference.TEMPLATE_PROJECT / "app" / "main.py.jinja"
@@ -266,8 +269,13 @@ def test_the_reference_lane_verifies_the_lock_and_manifest_an_app_would_commit()
     an app commits with the tool its image installs with. The answer to a workflow artefact
     is a faithful workflow, never a lenient check.
     """
-    steps = [str(step.get("run", "")) for step in _acceptance()["steps"]]
-    (verify,) = [step for step in steps if "terp verify --profile quick" in step]
+    # By name: the api-only variant holds its render to the same profile (ADR 0202), with
+    # no manifest to put back.
+    (verify,) = [
+        str(step.get("run", ""))
+        for step in _acceptance()["steps"]
+        if str(step.get("name", "")).startswith("Hold the reference app to its own verify profile")
+    ]
     pins = verify.index("<<'PINS'")
     resync = verify.index("install --package-lock-only --offline")
     assert pins < resync < verify.index("uv run terp verify --only deployment")

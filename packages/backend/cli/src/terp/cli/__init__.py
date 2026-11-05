@@ -133,6 +133,9 @@ Then the codegen chain, in this order — each step reads what the one before it
 
 `terp verify` runs the drift halves of that chain and names the command to re-run when
 something is stale, so it is the one to reach for if you are unsure what is out of date.
+An API-only app (rendered with the template's `frontend: false`, ADR 0202) has no
+frontend: its chain is `terp migrate make`, `terp openapi` and `terp check`, and
+`terp new module` writes no frontend slot where there is none.
 Policy.default() = authenticated; read VIEWER, write EDITOR.
 
 FORMATTING: `terp fmt`, NOT `ruff format .`
@@ -1753,11 +1756,35 @@ File objects (files capability, ADR 0056/0057)
   objects) in a NAMED-PROFILE registry;
   metadata (name, type, size, sha256, storage_key, storage_profile) lives in the platform
   DB. storage_key/storage_profile never leave the boundary (FileRead omits both).
-- Any provider is an adapter subclass (local ships; S3/Azure/NAS are each a
-  StorageBackend). Register each store once at the composition root:
-      register_storage_backend("azure-invoices", AzureBlobStorage(container="invoices"))
-      register_storage_backend("azure-hr", AzureBlobStorage(container="hr"))
-  Keep credentials in settings / sealed config — never in module code.
+- Any provider is an adapter subclass (local ships; a NAS mount is the local adapter on
+  another root). Two object-store adapters ship behind extras (ADR 0201): S3Storage
+  (terp-cap-files[s3]) takes the SDK's own client and a bucket; AzureBlobStorage
+  (terp-cap-files[azure]) takes the SDK's ContainerClient and, for user-delegation SAS
+  links, a BlobServiceClient under an Entra credential. Register each store once at the
+  composition root:
+      register_storage_backend("s3-media", S3Storage(boto3.client("s3"), bucket="app-media"))
+      register_storage_backend("azure-invoices", AzureBlobStorage(invoices_container))
+      register_storage_backend("azure-hr", AzureBlobStorage(hr_container, delegation=service))
+  Keep credentials in settings / sealed config — never in module code. Building the Azure
+  adapter without its extra fails at boot with the install line (StorageSdkMissingError);
+  the S3 adapter takes the SDK's client, so a missing extra fails where that is built.
+- A client that cannot send a bearer (an <audio>/<video> element, a PDF viewer, a native
+  client's media stack) gets a short-lived LINK to one file's bytes instead (ADR 0201):
+      GET /api/v1/files/{id}/link?ttl_seconds=600&inline=true   ->  {url, expires_at}
+  The link is minted where a download is authorized (row scope, then quarantine), by the
+  store the ROW names: an S3 presigned GET or an Azure SAS where the store can sign, else
+  an app-signed token the capability serves itself at GET /api/v1/files/link/{token} —
+  its one public route, rate-limited, answering 404 to an expired, altered or foreign
+  token. The default lifetime is an hour, the longest 24 hours; a link is not single-use
+  (a player makes many range requests), its expiry is the control. inline is honoured only
+  for a type a browser renders without running it (image, audio, video, PDF — not an XML
+  image such as SVG, which is a document with script in it). From a module, mint through
+  your own authorized row and a declared FileRef:
+      link = FileService().link_for(session, invoice, "attachment_file_id", ttl=timedelta(minutes=10))
+  Both content routes honour one bytes= Range (206 / 416); the local adapter seeks, an
+  object store's stream is read forward. A link from a store that signs never streams
+  through the API; the authenticated content route still serves any store's bytes to a
+  caller who asks it to.
 - Pick the store per module (subclass default) or per call — never from a client:
       class InvoiceFileService(FileService):
           storage_profile = "azure-invoices"
@@ -2799,7 +2826,12 @@ FOUR STATES, EXACTLY ONE AT A TIME
   "build": "generated"            the framework renders Dockerfile.prod,
                                   frontend/Dockerfile.prod and docker-compose.prod.yml
                                   from this file (`terp deployment render`), and a
-                                  committed copy that is not the render is refused
+                                  committed copy that is not the render is refused.
+                                  frontend/Dockerfile.prod only beside a web unit: an api
+                                  unit with no web unit in front of it is the deployment's
+                                  only way in and publishes ${API_PORT:-23200}:8000 (ADR
+                                  0202) -- the shape an app rendered API-only (the
+                                  template's `frontend: false`) has from the start
   {"unmanaged": true, "reason"}   no tool can drive this deploy; the checks are off and
                                   a tool shows the reason. Nothing may stand beside it.
 
@@ -2896,7 +2928,8 @@ or an override; externalDatabase beside a database unit; a database or store wit
 or two of a kind; a one-shot that declares `terp migrate upgrade` (drop the command: the
 one-shot without one is the migration step) or a second step; a role with no command of
 its own and none declared; a web unit with a command, with no single api to proxy to, or
-without frontend/package-lock.json; an api without both health paths; a start-order cycle
+without frontend/package-lock.json; two or more api units with no web unit in front of
+them (which one callers reach would be a guess); an api without both health paths; a start-order cycle
 or a unit it names that is not declared; a volume without its mount, mounted anywhere but
 var/files, on a unit not on the backend image, or on a unit that already mounts another
 volume there (Compose would mount only the last of them, without a word); any system

@@ -98,6 +98,15 @@ services:
       - path: .app.api.env
         required: false
     restart: unless-stopped
+{%- if not frontend %}
+    ports:
+      # 23200, not 8000: no web tier fronts this api, so it is the deployment's
+      # only way in (ADR 0202), one range step past the web tier's 23100. A
+      # deployment sets API_PORT explicitly -- this default only decides what a
+      # first `docker compose -f docker-compose.prod.yml up` grabs on a machine
+      # that is also running the developer's own things.
+      - "${API_PORT:-23200}:8000"
+{%- endif %}
 {%- if use_files %}
     # The files capability's storage root. The backend image makes it, owned by the
     # user the image runs as, and Docker gives an empty named volume the owner of
@@ -117,6 +126,7 @@ services:
       retries: 3
       start_period: 30s
     logging: *container-logging
+{%- if frontend %}
 
   web:
     build:
@@ -140,6 +150,7 @@ services:
       retries: 3
       start_period: 30s
     logging: *container-logging
+{%- endif %}
 
 volumes:
   db-data:

@@ -38,6 +38,7 @@ control_plane = ControlPlane(
     permissions=PermissionModel.default(),
     security=SecurityConfig(
         cors=CorsPolicy.disabled(reason="server-to-server"),
+{%- if frontend %}
         # One hop IN PRODUCTION, because that is the stack that has one:
         # `docker-compose.prod.yml` puts the `web` container in front and its nginx
         # appends the caller to `X-Forwarded-For`, and `api` publishes no port of its
@@ -59,6 +60,22 @@ control_plane = ControlPlane(
         # Change the production side if you put another proxy (a load balancer, an
         # ingress, a CDN) in front of `web`; that is a count of hops, not a boolean.
         trusted_proxy_hops=1 if get_settings().is_production else 0,
+{%- endif %}
+{%- if not frontend %}
+        # Zero in EVERY environment, because this app has no proxy of its own (ADR 0202):
+        # `docker-compose.prod.yml` publishes `api` directly, nothing in the profile
+        # appends to `X-Forwarded-For`, and a trusted hop would let a caller put whatever
+        # they like in that header — not merely stepping out of their own rate-limit
+        # bucket but attributing their requests to somebody else's address, which
+        # poisons the login lockout and the OIDC callback throttle too. Zero is the
+        # platform default precisely because an undeclared forwarding header is
+        # attacker-supplied.
+        #
+        # Count the hops you put in front of `api` yourself (a load balancer, an
+        # ingress, a CDN) in production only; the DEV stack publishes `api` directly
+        # whatever stands in front of production.
+        trusted_proxy_hops=0,
+{%- endif %}
         # Production declares no override, so the auth mount keeps whatever the platform
         # decides `RateLimit.credentials()` should be. Outside it, the credential family
         # gets a bucket a conformance suite can finish inside.

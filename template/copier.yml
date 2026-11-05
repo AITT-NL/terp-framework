@@ -76,8 +76,15 @@ _skip_if_exists:
 # generated` (or `--build own` to go back) writes it -- and never through `copier update
 # --data deploy_build=...`, whose old render still holds the files it would then delete.
 # Held by the round trip of template acceptance (tools/copier_round_trip.py).
+#
+# The two Node workspaces of an app that has no frontend (ADR 0202): excluded whole when
+# the `frontend` answer below is no, so an API-only app never holds a package.json it does
+# not use -- and `terp verify`'s npm checks, which look for exactly that file, report
+# themselves not applicable instead of failing on it.
 _exclude:
   - "{% if _copier_operation == 'update' %}deployment.json{% endif %}"
+  - "{% if not frontend %}/frontend{% endif %}"
+  - "{% if not frontend %}/conformance{% endif %}"
   - "{% if deploy_build == 'generated' %}/Dockerfile.prod{% endif %}"
   - "{% if deploy_build == 'generated' %}/frontend/Dockerfile.prod{% endif %}"
   - "{% if deploy_build == 'generated' %}/docker-compose.prod.yml{% endif %}"
@@ -121,6 +128,21 @@ deploy_build:
     "Generated -- the framework renders them from deployment.json": generated
 
 # ---------------------------------------------------------------------------
+# Whether the app has screens of its own (ADR 0202). Answered no, the template renders
+# an API-only app: no frontend/ and no conformance/ (the two Node workspaces, excluded
+# above), no `web` service in either Compose file, no `web` role in workbench.json, no
+# `web` unit in deployment.json and no Node steps in the app's own CI; the api unit is
+# then the deployment's only way in and publishes its own port. The answer is for a new
+# app: one that later removes or adds a frontend does it by hand, for the reason
+# deploy_build's comment gives -- an update rendered with a flipped answer still holds
+# the files the old answer wrote.
+# ---------------------------------------------------------------------------
+frontend:
+  type: bool
+  help: A React frontend of its own (no -- an API-only app whose clients live elsewhere)
+  default: true
+
+# ---------------------------------------------------------------------------
 # Layout preset — the shape the app starts in. All four render a runnable,
 # loginnable app with NO pre-built domain module: the first module is created
 # on demand (`terp new module <name>` / the agent), named after the actual
@@ -137,6 +159,8 @@ layout:
   type: str
   help: Starting layout
   default: blank
+  # A layout is a frontend's shape: neither asked nor recorded for an API-only app.
+  when: "{{ frontend }}"
   choices:
     "Blank shell — sign-in and admin only; add modules later": blank
     "Hub landing — a dashboard: the key figures, and a card into each area": hub

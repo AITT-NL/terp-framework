@@ -149,6 +149,52 @@ decision, 0001 onwards.
   so with the durable outbox the two commit or roll back together, and a mail's text, a link's
   token included, rests in the outbox sealed (ADR 0199, under Security).
 
+- **A file's bytes are handed out from where they rest (ADR 0201).** The files capability's
+  storage port grows one optional method, `link(key, *, ttl, content_type, disposition)`: a
+  store that signs URLs hands the bytes out itself, and the default, `None`, leaves them to
+  the API. `FileService.link` mints a short-lived link only after the checks a download
+  passes (row scope, then quarantine), from the store the row itself names; where that store
+  cannot sign, the capability signs an **app-signed link** of its own, a token sealed under a
+  `files.link` sealing domain and served by `GET /api/v1/files/link/{token}`: the capability's
+  one public route, declared with `Policy.public(reason=...)`, rate-limited, answering an
+  expired, altered or foreign token with the same 404, and re-checking the scan verdict before
+  it streams. `GET /api/v1/files/{id}/link` mints a link under the module's policy, with a
+  lifetime of an hour by default and 24 hours at most, and `inline` honoured only for a type a
+  browser renders without running anything in it (image, audio, video and PDF; an XML image
+  such as SVG is a document with script in it and stays an attachment). `link_for` is the
+  serve-through form: a
+  module mints a link through its own authorized row and a declared `FileRef`.
+- **Two object-store adapters, as extras.** `terp-cap-files[s3]` installs `S3Storage`, which
+  takes the SDK's own client and a bucket and links with a presigned `GET`;
+  `terp-cap-files[azure]` installs `AzureBlobStorage`, which takes the SDK's `ContainerClient`
+  and links with a read-only SAS, signed with a user-delegation key when a `BlobServiceClient`
+  under an Entra credential is given, with the account key when the container client holds
+  one, and not at all otherwise (the API then serves the bytes). Both carry the download's
+  media type and disposition in the link, so a client is told the same thing by either path;
+  both map a vanished blob to the typed 404 and a provider failure to the typed 502 with the
+  provider's text kept in `log_context`. Building the Azure adapter without its extra fails
+  at boot with the install line (`StorageSdkMissingError`); the S3 adapter takes the SDK's
+  own client and imports nothing, so there a missing extra surfaces where the client is built.
+- **`Range` on the two routes the API serves bytes from.** The authenticated content route and
+  the app-signed route honour one `bytes=` range (`206` with `Content-Range`, `416` for a range
+  the file cannot satisfy, `Accept-Ranges: bytes` on every answer); a stream that cannot seek
+  is read forward to the offset. `terp guide files` carries the recipe.
+- **An app may be API-only (ADR 0202).** The template asks one more question, `frontend`,
+  answered yes by default. Answered no, it renders an app with no screens of its own: no
+  `frontend/` and no `conformance/`, no `web` service in either Compose file, no `web` role in
+  `workbench.json`, no `web` unit in `deployment.json`, and no Node steps in the app's own CI;
+  `layout`, a frontend's shape, is neither asked nor recorded. The `api` unit is then the
+  deployment's only way in, so the generator publishes it on `${API_PORT:-23200}:8000`
+  whenever a declaration has an `api` unit and no `web` unit (an existing generated app
+  without one takes the port with its next `terp deployment render`; several `api` units with
+  nothing in front of them are refused), and `trusted_proxy_hops` stays at the platform's 0 in
+  production, because nothing in the profile proxies. A `terp verify` check that runs `npm` in
+  a workspace the app does not have reports itself *not applicable* and passes, as
+  `frontend-tests` and `api-client` already did; its JSON record says so, and the release
+  claim composes each assurance lane from the checks that ran, with a lane composed only of
+  such checks `not-run`, never `passed`. The template-acceptance lane renders and holds the
+  variant, and Terp Studio's wizard offers it beside the starting screens.
+
 ### Changed
 
 - **Certified against terp-spec 0.42.0, and the runtime security evidence is held to its
@@ -215,6 +261,14 @@ decision, 0001 onwards.
   identity capability gains the `identity_account_token` table, created by
   `terp migrate upgrade` after 0.36.0's refresh-family migration. An image that installs the capabilities one by one installs
   `terp-cap-mail` beside `terp-cap-users`, as the reference app's Dockerfiles now do.
+- **`terp-cap-files` depends on `cryptography` (ADR 0201),** because an app-signed file link
+  is a sealed token, and offers two extras for its object-store adapters: `[s3]` installs
+  `boto3` and `[azure]` installs `azure-storage-blob`. An app that uses neither installs neither.
+- **A generated app with an `api` unit and no `web` unit publishes the api (ADR 0202).** Its
+  next `terp deployment render` writes `${API_PORT:-23200}:8000` on that unit, and
+  `terp verify --only generated` is red until it does. A deploy tool that holds the
+  generator's closed list of interpolations carries the new one before such an app is
+  deployed through it.
 
 ## 0.36.0 — 2026-11-04
 

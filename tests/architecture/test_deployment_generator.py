@@ -141,8 +141,10 @@ def _render(name: str) -> dict[str, bytes]:
     return files
 
 
-def _seed(*, use_files: bool = False) -> reader.Declaration:
-    return _declare(template_seed("generated", use_files=use_files), published_tables())
+def _seed(*, use_files: bool = False, frontend: bool = True) -> reader.Declaration:
+    return _declare(
+        template_seed("generated", use_files=use_files, frontend=frontend), published_tables()
+    )
 
 
 def _profile(files: dict[str, bytes]) -> dict:
@@ -181,8 +183,11 @@ def _not_the_render(path: str, template: pathlib.Path) -> str:
 # --------------------------------------------------------------------------- #
 # the seed is the template                                                      #
 # --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("frontend", [True, False], ids=["frontend", "api-only"])
 @pytest.mark.parametrize("use_files", [False, True], ids=["default", "use_files"])
-def test_the_seed_renders_the_template_s_own_files_byte_for_byte(use_files: bool) -> None:
+def test_the_seed_renders_the_template_s_own_files_byte_for_byte(
+    use_files: bool, frontend: bool
+) -> None:
     """Decision 1: the template's three files are the render of the seed, held byte for
     byte, with the slug left as the template's placeholder. So a hardening change is made
     once, in the generator, and adopting generated in a template-shaped app at the same
@@ -190,17 +195,24 @@ def test_the_seed_renders_the_template_s_own_files_byte_for_byte(use_files: bool
 
     For every answer the seed renders on: with ``use_files`` the seed declares the files
     volume, and the profile carries it exactly as the generator renders it, so an
-    app with files adopts ``generated`` without a build-file change either."""
+    app with files adopts ``generated`` without a build-file change either. Without a
+    frontend (ADR 0202) the seed declares no web unit and the profile publishes the api
+    unit instead, again exactly as the generator renders it."""
     files, found = generate(
-        _seed(use_files=use_files), _SLUG, tables=published_tables(), frontend_lock=True
+        _seed(use_files=use_files, frontend=frontend),
+        _SLUG,
+        tables=published_tables(),
+        frontend_lock=frontend,
     )
     assert found == []
-    assert set(files) == set(OWNED_PATHS)
+    assert set(files) == (set(OWNED_PATHS) if frontend else set(OWNED_PATHS) - {FRONTEND_DOCKERFILE})
     for path, template in _TEMPLATE_FILES.items():
+        if path not in files:
+            continue
         rendered = files[path].replace(_SLUG.encode(), _PLACEHOLDER.encode())
         if _WRITE and path in _WRITTEN_FROM_THE_RENDER:  # pragma: no cover - run by hand
             template.write_bytes(rendered)
-        text = answer_files(template.read_bytes().decode("ascii"), use_files)
+        text = answer_files(template.read_bytes().decode("ascii"), use_files, frontend=frontend)
         assert text.encode("ascii") == rendered, _not_the_render(path, template)
     assert _SLUG.encode() not in b"".join(_TEMPLATE_FILES[path].read_bytes() for path in files)
 
@@ -248,9 +260,12 @@ def test_the_template_s_placeholder_is_the_project_name_a_render_uses() -> None:
     profile = _TEMPLATE_FILES[PROFILE].read_text(encoding="utf-8")
     assert profile.count(_PLACEHOLDER) == 3
     for use_files in (False, True):
-        text = answer_files(profile, use_files)
-        assert "{%" not in text and "{#" not in text, "the render holds no other Jinja"
+        for frontend in (True, False):
+            text = answer_files(profile, use_files, frontend=frontend)
+            assert "{%" not in text and "{#" not in text, "the render holds no other Jinja"
     assert profile.count("{%- if use_files %}") == 2, "the volume and its mount, nothing else"
+    assert profile.count("{%- if frontend %}") == 1, "the web tier, nothing else"
+    assert profile.count("{%- if not frontend %}") == 1, "the api unit's port, nothing else"
 
 
 # --------------------------------------------------------------------------- #

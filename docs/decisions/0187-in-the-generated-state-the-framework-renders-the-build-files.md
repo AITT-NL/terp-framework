@@ -394,7 +394,9 @@ no check, because a check of a heartbeat nobody writes could only ever fail.
   without a command.
 - **The web tier** proxies to the one `api` it depends on, or the only one; `API_UPSTREAM` is
   rendered only when that id is not `api`. It publishes `${WEB_PORT:-23100}:8080` and loads no
-  environment file.
+  environment file. Amended by ADR 0202: a declaration with no web tier and one `api` unit
+  publishes that unit on `${API_PORT:-23200}:8000`, since it is then the only way in;
+  several api units with nothing in front of them are refused.
 - **Environment:** `.app.env` and the four platform values from `x-backend`; `.app.env` then
   `.app.<id>.env` listed on each backend unit. A file a variable names (`SMTP_CA_FILE`, say) is the
   environment's to mount; the generator renders none.

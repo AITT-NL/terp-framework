@@ -33,7 +33,7 @@
         "db",
         "migrate"
       ]
-    },
+    }{%- if frontend %},
     {
       "id": "web",
       "role": "web",
@@ -41,6 +41,7 @@
         "api"
       ]
     }
+{%- endif %}
   ]
 {%- if use_files %},
   "volumes": [

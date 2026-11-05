@@ -118,6 +118,13 @@ services:
       - path: .app.api.env
         required: false
     restart: unless-stopped
+    ports:
+      # 23200, not 8000: no web tier fronts this api, so it is the deployment's
+      # only way in (ADR 0202), one range step past the web tier's 23100. A
+      # deployment sets API_PORT explicitly -- this default only decides what a
+      # first `docker compose -f docker-compose.prod.yml up` grabs on a machine
+      # that is also running the developer's own things.
+      - "${API_PORT:-23200}:8000"
     depends_on:
       db:
         condition: service_healthy

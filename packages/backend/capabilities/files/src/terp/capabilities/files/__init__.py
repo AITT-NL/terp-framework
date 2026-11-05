@@ -16,7 +16,12 @@ retrieves **file objects** through a maintained, secure-by-default surface, with
   profiles (one per container / module use) with one :func:`register_storage_backend`
   line each; resolution (:func:`resolve_storage_backend`) is fail-closed
   (:class:`UnknownStorageProfileError`). A service or call selects a store by profile
-  name; a client never does.
+  name; a client never does. Two object-store adapters ship behind extras (ADR 0201):
+  :class:`S3Storage` (``terp-cap-files[s3]``) and :class:`AzureBlobStorage`
+  (``terp-cap-files[azure]``), each handing bytes out by the provider's own signed URL.
+* :meth:`FileService.link` mints a short-lived link to a file's bytes where a download is
+  authorized: the row's own backend signs one, or the capability signs an app-signed token
+  served by its one public, rate-limited route with ``Range`` support (ADR 0201).
 * :func:`FileRef` declares a model column that references a stored file, and
   :meth:`FileService.load_for` is the serve-through delegation read: a module serves a
   file through its **own**, already-authorized row, fail-closed on any undeclared
@@ -36,11 +41,27 @@ never a sibling capability or a storage engine SDK.
 
 from __future__ import annotations
 
+from terp.capabilities.files.azure_blob import AzureBlobStorage
+from terp.capabilities.files.content_types import (
+    ContentTypeMismatchError,
+    UnsupportedContentTypeError,
+    active_allowed_content_types,
+    configure_allowed_content_types,
+    reset_allowed_content_types,
+)
 from terp.capabilities.files.models import File
+from terp.capabilities.files.links import (
+    DEFAULT_LINK_TTL,
+    LINK_TTL_MAX,
+    SIGNED_LINK_PATH,
+    FileLink,
+)
 from terp.capabilities.files.operations import (
     FILES_DELETE,
     FILES_DOWNLOAD,
     FILES_GET,
+    FILES_LINK,
+    FILES_LINK_CONTENT,
     FILES_LIST,
     FILES_OPERATIONS,
     FILES_UPDATE,
@@ -71,20 +92,15 @@ from terp.capabilities.files.scanning import (
     register_file_scanner,
     reset_file_scanner,
 )
-from terp.capabilities.files.schemas import FileCreate, FileRead, FileUpdate
-from terp.capabilities.files.service import (
-    ContentTypeMismatchError,
-    FileService,
-    UnsupportedContentTypeError,
-    active_allowed_content_types,
-    configure_allowed_content_types,
-    reset_allowed_content_types,
-)
+from terp.capabilities.files.s3 import S3Storage
+from terp.capabilities.files.schemas import FileCreate, FileLinkRead, FileRead, FileUpdate
+from terp.capabilities.files.service import FileService
 from terp.capabilities.files.storage import (
     DEFAULT_STORAGE_PROFILE,
     FileStorageError,
     LocalFilesystemStorage,
     StorageBackend,
+    StorageSdkMissingError,
     UnknownStorageProfileError,
     active_storage_backend,
     register_storage_backend,
@@ -94,8 +110,12 @@ from terp.capabilities.files.storage import (
 )
 
 __all__ = [
+    "AzureBlobStorage",
     "ContentTypeMismatchError",
+    "DEFAULT_LINK_TTL",
     "DEFAULT_STORAGE_PROFILE",
+    "LINK_TTL_MAX",
+    "SIGNED_LINK_PATH",
     "SCAN_CLEAN",
     "SCAN_NOT_SCANNED",
     "SCAN_REJECTED",
@@ -103,12 +123,16 @@ __all__ = [
     "FILES_DELETE",
     "FILES_DOWNLOAD",
     "FILES_GET",
+    "FILES_LINK",
+    "FILES_LINK_CONTENT",
     "FILES_LIST",
     "FILES_OPERATIONS",
     "FILES_UPDATE",
     "FILES_UPLOAD",
     "File",
     "FileCreate",
+    "FileLink",
+    "FileLinkRead",
     "FileQuarantinedError",
     "FileRead",
     "FileRef",
@@ -118,8 +142,10 @@ __all__ = [
     "FileUpdate",
     "LocalFilesystemStorage",
     "MAX_UPLOAD_BYTES",
+    "S3Storage",
     "ScanSubject",
     "StorageBackend",
+    "StorageSdkMissingError",
     "UndeclaredFileReferenceError",
     "UnknownStorageProfileError",
     "UnsupportedContentTypeError",

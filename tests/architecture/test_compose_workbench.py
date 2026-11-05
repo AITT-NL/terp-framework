@@ -73,6 +73,18 @@ def _compose() -> dict:
 
 #: A non-nested `{% if ... %}...{% endif %}` Jinja block (the create wizard's optional
 #: capability wiring). Dropping the blocks yields the template's default render.
+#: The frontend answer (ADR 0202), resolved as copier resolves it before the other blocks
+#: are stripped: the default render HAS a web service, and a strip that removed it would
+#: judge an API-only app's compose as the default's.
+_FRONTEND_BLOCK = re.compile(
+    r"\s*\{%- if (?P<negated>not )?frontend %\}(?P<body>.*?)\s*\{%- endif %\}", re.DOTALL
+)
+
+
+def _with_frontend(text: str) -> str:
+    return _FRONTEND_BLOCK.sub(lambda m: "" if m.group("negated") else m.group("body"), text)
+
+
 _JINJA_IF_BLOCK = re.compile(r"\{%-?\s*if\b.*?%\}.*?\{%-?\s*endif\s*-?%\}", re.DOTALL)
 
 
@@ -82,7 +94,7 @@ def _template_compose() -> dict:
     # parse as YAML without a Jinja engine (mirrors test_template.py's no-render checks).
     # The toggled-on renders are proven by the template-acceptance CI matrix.
     text = _TEMPLATE_COMPOSE.read_text(encoding="utf-8").replace("{{ project_slug }}", "app")
-    text = _JINJA_IF_BLOCK.sub("", text)
+    text = _JINJA_IF_BLOCK.sub("", _with_frontend(text))
     assert "{%" not in text, "unstripped Jinja block in the template compose"
     return yaml.safe_load(text)
 
@@ -96,7 +108,7 @@ def _reference_compose() -> dict:
 def _template_prod_compose() -> dict:
     text = _TEMPLATE_PROD_COMPOSE.read_text(encoding="utf-8")
     text = text.replace("{{ project_slug }}", "app").replace("{{ project_name }}", "App")
-    return yaml.safe_load(_JINJA_IF_BLOCK.sub("", text))
+    return yaml.safe_load(_JINJA_IF_BLOCK.sub("", _with_frontend(text)))
 
 
 def _bind_sources(service: dict) -> set[str]:
@@ -545,11 +557,9 @@ def test_the_template_declaration_tells_the_truth_about_the_template_compose() -
     """
     from terp.cli.workbench import Declaration, audit
 
-    declared = json.loads(
-        (_REPO_ROOT / "template" / "project" / "workbench.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    from tests.architecture.test_workbench_declaration import template_workbench
+
+    declared = json.loads(template_workbench())
 
     findings = audit(
         Declaration(
