@@ -1,9 +1,10 @@
-"""Operation declarations for the ``files`` capability's admin-only routes.
+"""Operation declarations for the ``files`` capability's routes.
 
 Each route below declares what it does in plain English (ADR 0102), so a
 non-technical reader can see the effect of uploading, viewing, downloading,
-renaming, or deleting a stored file without having to read HTTP verbs and
-paths.
+linking, renaming, or deleting a stored file without having to read HTTP verbs
+and paths. All but one sit behind the module's admin policy; reading a link
+(``files.read_link``) is the capability's one public route (ADR 0201).
 """
 
 from __future__ import annotations

@@ -343,6 +343,20 @@ def test_azure_signs_with_a_user_delegation_key_first_and_keeps_it_until_a_link_
     assert third is not None and len(service.requests) == 2
 
 
+def test_azure_links_a_container_client_built_from_a_sas_url_with_one_query() -> None:
+    """The SDK keeps the URL's own SAS in every blob URL; the link carries the minted SAS only."""
+
+    class _SasUrlContainer(_Container):
+        def get_blob_client(self, blob: str) -> Any:
+            return SimpleNamespace(url=f"{self.url}/{urllib.parse.quote(blob)}?sv=2020-10-02&sig=abc")
+
+    backend = AzureBlobStorage(_SasUrlContainer(), delegation=_DelegatingService())
+    url = backend.link("ab/k", ttl=timedelta(hours=1), content_type="image/png", disposition="inline")
+    assert url is not None and url.count("?") == 1
+    query = _sas_query(url)
+    assert query["skoid"] == ["object-id"] and "abc" not in query.get("sig", [])
+
+
 def test_azure_reports_a_failed_delegation_key_request_as_the_typed_error() -> None:
     class _Refusing:
         def get_user_delegation_key(self, key_start_time: datetime, key_expiry_time: datetime) -> UserDelegationKey:

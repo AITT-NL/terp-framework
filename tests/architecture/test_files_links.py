@@ -142,9 +142,12 @@ def test_a_token_opens_to_its_file_and_nothing_else_opens_at_all() -> None:
 def test_inline_is_allowed_only_for_a_type_a_browser_renders_without_running_it() -> None:
     assert inline_allowed("image/png") and inline_allowed("audio/mpeg; codecs=x")
     assert inline_allowed("VIDEO/MP4") and inline_allowed("application/pdf")
-    assert not inline_allowed("text/html") and not inline_allowed("image/svg+xml") is False or True
     assert not inline_allowed("text/html")
     assert not inline_allowed("application/octet-stream")
+    # An XML image is a document with script in it, and nothing pins what bytes declared as
+    # it really are: refused however the image family is admitted.
+    assert not inline_allowed("image/svg+xml") and not inline_allowed("IMAGE/SVG+XML; charset=utf-8")
+    assert not inline_allowed("application/xml") and not inline_allowed("image/x-thing+xml")
 
 
 def test_the_disposition_is_inline_or_attachment_and_never_carries_a_raw_name() -> None:
@@ -172,7 +175,7 @@ def test_the_local_adapter_gets_an_app_signed_link_bound_to_the_file(session: Se
 
 def test_inline_is_honoured_for_an_image_and_refused_for_text(session: Session, storage_root: Path) -> None:
     service = FileService()
-    text = _store(service, session, inline=False) if False else _store(service, session)
+    text = _store(service, session)
     image = _store(service, session, filename="a.png", content_type="image/png", source=io.BytesIO(_PNG))
     assert open_link(service.link(session, text.id, inline=True).url.rsplit("/", 1)[1]) == (text.id, False)
     assert open_link(service.link(session, image.id, inline=True).url.rsplit("/", 1)[1]) == (image.id, True)
@@ -303,6 +306,10 @@ def test_a_link_is_minted_by_the_route_and_read_back_whole_or_by_range(engine: A
     open_ended = client.get(url, headers={"Range": "bytes=30-"})
     assert open_ended.status_code == 206 and open_ended.content == _CONTENT[30:]
 
+    # A number built to exhaust the integer parser is not a range at all: the whole file,
+    # and the backend stream is closed behind the answer.
+    huge = client.get(url, headers={"Range": "bytes=" + "9" * 5000 + "-"})
+    assert huge.status_code == 200 and huge.content == _CONTENT
     beyond = client.get(url, headers={"Range": f"bytes={len(_CONTENT)}-"})
     assert beyond.status_code == 416 and beyond.headers["content-range"] == f"bytes */{len(_CONTENT)}"
     assert beyond.content == b""
@@ -398,6 +405,8 @@ def test_skipping_forward_stops_at_the_end_of_a_stream_that_cannot_seek() -> Non
         ("bytes=-", 10, None),
         ("bytes=5-2", 10, None),
         ("bytes=0-1,2-3", 10, None),
+        ("bytes=" + "1" * 20 + "-", 10, None),
+        ("bytes=-" + "1" * 5000, 10, None),
         ("items=0-1", 10, None),
         (" bytes=1-2 ", 10, (1, 2)),
     ],

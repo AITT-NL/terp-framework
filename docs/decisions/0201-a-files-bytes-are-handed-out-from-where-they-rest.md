@@ -1,8 +1,8 @@
 # 0201 — A file's bytes are handed out from where they rest
 
-- **Status:** Proposed, for review before anything is built. Nothing is built by this record.
-- **Date:** 2026-11-05. 0194 to 0200 are taken by the series under review; this number is
-  provisional until that series merges.
+- **Status:** Accepted; built in 0.36.1.
+- **Date:** 2026-11-05. 0194 to 0200 are taken by the series under review on other branches;
+  this number is provisional until that series merges, and is renumbered then if it collides.
 - **Relates:** [ADR 0056](0056-files-capability.md) (the capability), [ADR 0057](0057-files-storage-profiles-and-references.md)
   (named profiles, `FileRef` and the serve-through read this extends),
   [ADR 0066](0066-files-streaming-storage-port.md) (the streamed port the adapters implement),
@@ -37,9 +37,9 @@ missing, and the gap is structural rather than a matter of tuning:
    and a cached partial download cannot resume.
 3. **The API process is the wrong place for gigabytes.** Every byte of every download passes
    through a worker of the API, which exists to answer requests, not to serve media. The
-   evidence is an app whose content is audio, video and e-books for consumer accounts: tens of
-   megabytes per item, a native client that caches and seeks, and a backoffice that converts
-   books to another format in a job.
+   evidence is an app whose content is large media for consumer accounts: tens of megabytes
+   per item, a native client that caches and seeks, and a backoffice job that converts items
+   to another format.
 
 ADR 0057 already names the shape: the same S3/Azure-style adapter registered under several
 profiles. What was never decided is how a client reaches a blob that rests in such a store
@@ -66,11 +66,18 @@ in-memory backend of the test suite proves the default path.
 
 `terp-cap-files[azure]` installs `AzureBlobStorage` and `terp-cap-files[s3]` installs
 `S3Storage`. Each is one class per provider, registered once per profile as ADR 0057 has it,
-takes the provider's own client object and the container or bucket, and imports its SDK lazily,
-so an app without the extra never loads it. Each implements `link` with the provider's signed
-URL, user-delegation SAS for Azure and a presigned GET for S3, for the `ttl` asked, capped at
-24 hours. The tests drive both through fakes of the SDK's small surface; running them against
-an emulator in the conformance lane is a later change of its own.
+and takes the provider's own client object and the container or bucket. The Azure adapter
+imports its SDK when it is built, never when its module loads, and fails at boot with the
+install line without the extra; the S3 adapter imports nothing from its SDK at all, because
+every error it maps is a class the client it was given carries. Each implements `link` with
+the provider's signed URL for the `ttl` asked, capped at 24 hours: a presigned GET for S3; for
+Azure a read-only blob SAS, signed with a user-delegation key when a `BlobServiceClient` under
+an Entra credential is given, with the account key when the container client holds one, and
+not at all otherwise, so the API serves the bytes. The tests drive S3 through the SDK's real
+client under its stubber, with the real presigner, and Azure through a fake of the container
+client's small surface, checked against the real client's shape, with the SDK's own signer and
+exception types; running either against an emulator in the conformance lane is a later change
+of its own.
 
 ### 3. A link is minted where a download is authorized
 
@@ -93,11 +100,13 @@ nothing a user uploaded is ever rendered on the API's own origin.
 
 For the local adapter, and for a store whose credentials cannot sign, the service mints an
 **app-signed link**: a token sealed under a sealing domain of its own (`files.link`) carrying
-the file id and the expiry, served at `GET /api/v1/files/link/{token}`. That route is declared
-`Policy.public(reason=...)` on the route (ADR 0148), with its own rate limit (ADR 0138), and it
-is the only public route of the capability. It opens the token, refuses an expired, altered or
-foreign one with a 404 that does not say which, runs `ensure_servable` again (a verdict can
-change after a link was minted), and streams with `Range` support. The token is the secret:
+the file id, the expiry and whether the bytes are shown inline, served at
+`GET /api/v1/files/link/{token}`. That route is declared `Policy.public(reason=...)` on the
+route (ADR 0148), with its own rate limit (ADR 0138), and it is the only public route of the
+capability. It opens the token, refuses an expired, altered or foreign one with a 404 that does
+not say which (a token longer than any it mints is refused by the path's length cap before it
+is read), runs `ensure_servable` again (a verdict can change after a link was minted), and
+streams with `Range` support. The token is the secret:
 whoever holds it reads until it expires, which is the posture of a provider's signed URL too.
 
 ### 5. `Range`, on the two routes the API serves bytes from
@@ -129,7 +138,7 @@ built page does not.
 
 - **Runtime:** a link is minted only through `get` (scope) and `ensure_servable`, under the
   module's policy; an app-signed token is sealed, its expiry is enforced on the server, and the
-  public route is rate-limited and answers 404 to everything it cannot open.
+  public route is rate-limited and answers 404 to every token it cannot open.
 - **Build time:** tests hold that a quarantined or invisible row gets no link, that an altered,
   expired or foreign token is a 404, the `Range` semantics of both routes, both adapters'
   round trips and links through their fakes, that the default port path still serves, and
@@ -138,7 +147,8 @@ built page does not.
 ## Consequences
 
 - An app gives a player, a viewer or a native client a URL, and the bytes come from the store
-  that holds them; the API process serves bytes only for the local adapter.
+  that holds them; the API process streams bytes only for a store that cannot sign, and on the
+  authenticated content route, for a caller who asks it to.
 - A deployment moves media to a store with one composition-root line per profile and no
   migration; rows written before keep the profile they name.
 - `terp-cap-files` gains two optional extras and one public route, declared and rate-limited.

@@ -9,8 +9,11 @@ description = "Terp files capability — owner-scoped file objects with metadata
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    # With the sealing cipher: an app-signed file link is a sealed token (ADR 0201).
-    "terp-core[secrets]==0.36.0",
+    "terp-core==0.36.0",
+    # The sealing cipher terp-core[secrets] names: an app-signed file link is a sealed
+    # token (ADR 0201). Pinned here as its own line, because the lockstep pin above is
+    # rewritten by every release and carries no extra.
+    "cryptography>=50",
     # FastAPI parses the multipart upload body through this (UploadFile); the byte
     # stream never touches app code — it flows metadata->DB, bytes->StorageBackend.
     "python-multipart>=0.0.31",

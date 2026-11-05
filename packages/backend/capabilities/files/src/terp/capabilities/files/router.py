@@ -1,11 +1,16 @@
-"""Admin router for files: upload, download, list, rename, delete.
+"""The files router: upload, download, list, rename, delete, and a link to a file's bytes.
 
 Self-registering (``module``): the kernel's entry-point discovery mounts it at
 ``/api/v1/files`` with no composition-root edit. File storage is a privileged,
 disk/backend-consuming capability, so the policy requires ``ADMIN``; ``File`` also
 composes ``OwnedMixin``, so the **per-row** write gate (an admin may rename / delete only
 their *own* file) is enforced centrally by ``BaseService`` — the routes carry no ownership
-logic.
+logic. One route steps outside that policy on purpose and says so on its own line
+(ADR 0148): ``GET /link/{token}`` serves the bytes an **app-signed link** names, to a
+client that cannot send a bearer, for as long as the sealed token lives (ADR 0201). It is
+rate-limited on its own, answers a token it cannot open with a 404 that says nothing about
+why, and re-checks the scan verdict before it streams; ``GET /{id}/link`` mints such a link
+under the module's policy, exactly as the download is.
 
 **Writes are owner-scoped; reads are not**, and the distinction is worth stating because
 this docstring used to open with "owner-scoped" unqualified and mean only the first half.
@@ -144,8 +149,10 @@ def _iter_blob(stream: BinaryIO, remaining: int | None = None) -> Iterator[bytes
 
 
 # One range, in bytes, as RFC 9110 writes it: ``bytes=first-last``, ``bytes=first-`` or the
-# suffix form ``bytes=-count``. Several ranges, or any other unit, are answered whole.
-_ONE_RANGE: Final[re.Pattern[str]] = re.compile(r"^bytes=(\d*)-(\d*)$")
+# suffix form ``bytes=-count``. Several ranges, or any other unit, are answered whole, and so
+# is a number longer than any size a file can have: the digits are bounded here, so a header
+# built to exhaust the integer parser is not read at all rather than refused with a 500.
+_ONE_RANGE: Final[re.Pattern[str]] = re.compile(r"^bytes=(\d{0,19})-(\d{0,19})$")
 
 
 class _UnsatisfiableRange(Exception):

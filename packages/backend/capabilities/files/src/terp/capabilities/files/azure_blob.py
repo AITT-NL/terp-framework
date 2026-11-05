@@ -9,8 +9,9 @@ profile name::
 ``put`` / ``open`` / ``delete`` are the port's streaming contract over the container. ``link``
 is a read-only blob SAS carrying the download's media type and disposition (``rsct`` and
 ``rscd``), signed one of two ways: with a **user-delegation key** when a ``BlobServiceClient``
-authenticated by an Entra credential is given as ``delegation`` (the key is requested once,
-kept for a day and replaced before a link could outlive it), or with the **account key** when
+authenticated by an Entra credential is given as ``delegation`` (the key is requested for
+twice the longest link and replaced before a link could outlive it, so under steady use it
+is replaced at most once a day), or with the **account key** when
 the container client itself was built with one. A container client that holds neither — a
 token credential without a delegating service client, a SAS — gets no link, and the API serves
 the bytes itself. Nothing here decides who may read: the service asks for a link only after
@@ -27,6 +28,7 @@ import io
 from threading import Lock
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, BinaryIO, Final
+from urllib.parse import urlsplit
 
 from terp.capabilities.files.links import LINK_TTL_MAX, link_ttl
 from terp.capabilities.files.storage import (
@@ -38,10 +40,11 @@ from terp.capabilities.files.storage import (
 if TYPE_CHECKING:  # the SDK is an extra: names only, never an import at load time
     from azure.storage.blob import BlobServiceClient, ContainerClient, UserDelegationKey
 
-#: How long a user-delegation key is requested for: the longest link (``LINK_TTL_MAX``) plus
-#: an hour, so every link signed under a key expires before the key does, and a key is
-#: replaced at most once a day under steady use.
-_DELEGATION_KEY_LIFETIME: Final[timedelta] = LINK_TTL_MAX + timedelta(hours=1)
+#: How long a user-delegation key is requested for: twice the longest link (``LINK_TTL_MAX``),
+#: well inside the seven days the service allows. A key is replaced when the next link would
+#: outlive it, so every link expires before its key does, and a steady stream of even the
+#: longest links replaces the key once a day, shorter links less often.
+_DELEGATION_KEY_LIFETIME: Final[timedelta] = 2 * LINK_TTL_MAX
 
 #: The key's validity starts this much before now, so a clock a little ahead of the service's
 #: never signs a link the service reads as not yet valid.
@@ -151,7 +154,10 @@ class AzureBlobStorage(StorageBackend):
             content_disposition=disposition,
             **signing,
         )
-        return f"{self._container.get_blob_client(key).url}?{sas}"
+        # The SDK keeps the query a client was built from (a SAS URL) in the blob URL; the
+        # link carries this SAS and nothing else.
+        blob_url = urlsplit(self._container.get_blob_client(key).url)
+        return f"{blob_url._replace(query='', fragment='').geturl()}?{sas}"
 
     def _signing(self, until: datetime) -> dict[str, Any] | None:
         """The key a SAS expiring at *until* is signed with: delegated, shared, or none."""

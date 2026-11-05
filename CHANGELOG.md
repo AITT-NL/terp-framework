@@ -25,7 +25,9 @@ decision, 0001 onwards.
   expired, altered or foreign token with the same 404, and re-checking the scan verdict before
   it streams. `GET /api/v1/files/{id}/link` mints a link under the module's policy, with a
   lifetime of an hour by default and 24 hours at most, and `inline` honoured only for a type a
-  browser renders without running anything in it. `link_for` is the serve-through form: a
+  browser renders without running anything in it (image, audio, video and PDF; an XML image
+  such as SVG is a document with script in it and stays an attachment). `link_for` is the
+  serve-through form: a
   module mints a link through its own authorized row and a declared `FileRef`.
 - **Two object-store adapters, as extras.** `terp-cap-files[s3]` installs `S3Storage`, which
   takes the SDK's own client and a bucket and links with a presigned `GET`;
@@ -35,8 +37,9 @@ decision, 0001 onwards.
   one, and not at all otherwise (the API then serves the bytes). Both carry the download's
   media type and disposition in the link, so a client is told the same thing by either path;
   both map a vanished blob to the typed 404 and a provider failure to the typed 502 with the
-  provider's text kept in `log_context`. Building either without its extra fails at boot with
-  the install line (`StorageSdkMissingError`).
+  provider's text kept in `log_context`. Building the Azure adapter without its extra fails
+  at boot with the install line (`StorageSdkMissingError`); the S3 adapter takes the SDK's
+  own client and imports nothing, so there a missing extra surfaces where the client is built.
 - **`Range` on the two routes the API serves bytes from.** The authenticated content route and
   the app-signed route honour one `bytes=` range (`206` with `Content-Range`, `416` for a range
   the file cannot satisfy, `Accept-Ranges: bytes` on every answer); a stream that cannot seek

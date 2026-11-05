@@ -39,8 +39,11 @@ SIGNED_LINK_PATH: Final[str] = "/api/v1/files/link"
 
 #: Media types a browser renders without running anything in them: the only ones a link may
 #: ask to be shown inline. Everything else is an attachment whatever was asked, so a stored
-#: HTML page can never be rendered on the API's own origin.
+#: HTML page can never be rendered on the API's own origin. The image family is admitted by
+#: prefix, except an XML image (``image/svg+xml``): that is a document with script and event
+#: handlers in it, and no magic signature pins what bytes declared as it really are.
 _INLINE_TYPES: Final[tuple[str, ...]] = ("image/", "audio/", "video/", "application/pdf")
+_INLINE_REFUSED_SUFFIXES: Final[tuple[str, ...]] = ("+xml", "/xml")
 
 _DEFAULT_FILENAME: Final[str] = "upload"
 
@@ -72,6 +75,8 @@ def link_ttl(ttl: timedelta | None) -> timedelta:
 def inline_allowed(content_type: str) -> bool:
     """Whether a link to a file of *content_type* may ask to be shown inline."""
     media_type = content_type.split(";", 1)[0].strip().lower()
+    if media_type.endswith(_INLINE_REFUSED_SUFFIXES):
+        return False
     return any(media_type.startswith(prefix) for prefix in _INLINE_TYPES)
 
 

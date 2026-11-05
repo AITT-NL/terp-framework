@@ -67,9 +67,11 @@ class UnknownStorageProfileError(FileStorageError):
 class StorageSdkMissingError(FileStorageError):
     """500 — a storage adapter was built without the provider SDK its extra installs.
 
-    Raised by an adapter's constructor, so a composition root that registers the adapter
-    without the matching extra (``terp-cap-files[azure]``, ``terp-cap-files[s3]``) fails at
-    boot with the install line, never at the first upload. A wiring error, like
+    Raised by the constructor of an adapter that imports its SDK itself (the Azure Blob
+    adapter, ``terp-cap-files[azure]``), so a composition root that registers it without
+    the extra fails at boot with the install line, never at the first upload. The S3
+    adapter takes the SDK's own client and imports nothing, so there the missing extra
+    surfaces where the client is built. A wiring error, like
     :class:`UnknownStorageProfileError`: nothing a client did or can see.
     """
 
