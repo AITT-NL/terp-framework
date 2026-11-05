@@ -44,6 +44,21 @@ decision, 0001 onwards.
   the app-signed route honour one `bytes=` range (`206` with `Content-Range`, `416` for a range
   the file cannot satisfy, `Accept-Ranges: bytes` on every answer); a stream that cannot seek
   is read forward to the offset. `terp guide files` carries the recipe.
+- **An app may be API-only (ADR 0202).** The template asks one more question, `frontend`,
+  answered yes by default. Answered no, it renders an app with no screens of its own: no
+  `frontend/` and no `conformance/`, no `web` service in either Compose file, no `web` role in
+  `workbench.json`, no `web` unit in `deployment.json`, and no Node steps in the app's own CI;
+  `layout`, a frontend's shape, is neither asked nor recorded. The `api` unit is then the
+  deployment's only way in, so the generator publishes it on `${API_PORT:-23200}:8000`
+  whenever a declaration has an `api` unit and no `web` unit (an existing generated app
+  without one takes the port with its next `terp deployment render`; several `api` units with
+  nothing in front of them are refused), and `trusted_proxy_hops` stays at the platform's 0 in
+  production, because nothing in the profile proxies. A `terp verify` check that runs `npm` in
+  a workspace the app does not have reports itself *not applicable* and passes, as
+  `frontend-tests` and `api-client` already did; its JSON record says so, and the release
+  claim composes each assurance lane from the checks that ran, with a lane composed only of
+  such checks `not-run`, never `passed`. The template-acceptance lane renders and holds the
+  variant, and Terp Studio's wizard offers it beside the starting screens.
 
 ## 0.36.0 — 2026-11-04
 

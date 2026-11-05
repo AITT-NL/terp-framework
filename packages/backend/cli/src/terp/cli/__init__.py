@@ -133,6 +133,9 @@ Then the codegen chain, in this order — each step reads what the one before it
 
 `terp verify` runs the drift halves of that chain and names the command to re-run when
 something is stale, so it is the one to reach for if you are unsure what is out of date.
+An API-only app (rendered with the template's `frontend: false`, ADR 0202) has no
+frontend: its chain is `terp migrate make`, `terp openapi` and `terp check`, and
+`terp new module` writes no frontend slot where there is none.
 Policy.default() = authenticated; read VIEWER, write EDITOR.
 
 FORMATTING: `terp fmt`, NOT `ruff format .`
@@ -2781,7 +2784,12 @@ FOUR STATES, EXACTLY ONE AT A TIME
   "build": "generated"            the framework renders Dockerfile.prod,
                                   frontend/Dockerfile.prod and docker-compose.prod.yml
                                   from this file (`terp deployment render`), and a
-                                  committed copy that is not the render is refused
+                                  committed copy that is not the render is refused.
+                                  frontend/Dockerfile.prod only beside a web unit: an api
+                                  unit with no web unit in front of it is the deployment's
+                                  only way in and publishes ${API_PORT:-23200}:8000 (ADR
+                                  0202) -- the shape an app rendered API-only (the
+                                  template's `frontend: false`) has from the start
   {"unmanaged": true, "reason"}   no tool can drive this deploy; the checks are off and
                                   a tool shows the reason. Nothing may stand beside it.
 
@@ -2878,7 +2886,8 @@ or an override; externalDatabase beside a database unit; a database or store wit
 or two of a kind; a one-shot that declares `terp migrate upgrade` (drop the command: the
 one-shot without one is the migration step) or a second step; a role with no command of
 its own and none declared; a web unit with a command, with no single api to proxy to, or
-without frontend/package-lock.json; an api without both health paths; a start-order cycle
+without frontend/package-lock.json; two or more api units with no web unit in front of
+them (which one callers reach would be a guess); an api without both health paths; a start-order cycle
 or a unit it names that is not declared; a volume without its mount, mounted anywhere but
 var/files, on a unit not on the backend image, or on a unit that already mounts another
 volume there (Compose would mount only the last of them, without a word); any system
