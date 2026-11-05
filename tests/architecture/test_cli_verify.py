@@ -2903,3 +2903,164 @@ def test_the_human_listing_prints_the_non_goals_too(
     out = capsys.readouterr().out
     assert "not checked here (deliberately)" in out
     assert "terp fmt" in out
+
+
+# --------------------------------------------------------------------------- #
+# ADR 0202: a check is not applicable where its workspace does not exist          #
+# --------------------------------------------------------------------------- #
+def test_an_npm_check_is_not_applicable_without_its_workspace_and_runs_nothing(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every npm check runs through one seam, and that seam answers *not applicable* for
+    an app that has no such workspace at all: the API-only app of ADR 0202 has no
+    frontend/ and no conformance/, so there is nothing to run and nothing to fail. An
+    app that HAS the workspace and cannot run it stays the red it was."""
+    from terp.cli import verify as verify_module
+    from terp.cli.verify import (
+        _CONFORMANCE,
+        _DEPENDENCY_AUDIT_NPM,
+        _FRONTEND_BOUNDARIES,
+        _FRONTEND_BUILD,
+        _FRONTEND_TYPECHECK,
+        NOT_APPLICABLE,
+    )
+
+    def never(*args: object, **kwargs: object) -> None:
+        raise AssertionError("npm ran for a workspace the app does not have")
+
+    monkeypatch.setattr(verify_module, "_run_argv", never)
+    for check in (_FRONTEND_BOUNDARIES, _FRONTEND_TYPECHECK, _FRONTEND_BUILD, _DEPENDENCY_AUDIT_NPM):
+        exit_code, output = _run_subprocess(check, tmp_path)
+        assert exit_code == 0
+        assert output == f"no frontend/package.json - {check.id} {NOT_APPLICABLE}"
+    exit_code, output = _run_subprocess(_CONFORMANCE, tmp_path)
+    assert (exit_code, output) == (0, f"no conformance/package.json - conformance {NOT_APPLICABLE}")
+
+    # The workspace exists but was never installed: the existing red, with its fix.
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "package.json").write_text('{"name": "x"}', encoding="utf-8")
+    (frontend / "package-lock.json").write_text('{"packages": {}}', encoding="utf-8")
+    exit_code, output = _run_subprocess(_FRONTEND_BUILD, tmp_path)
+    assert exit_code == 1 and NOT_APPLICABLE not in output
+
+
+def test_the_conformance_runner_is_not_applicable_before_it_looks_for_a_stack(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from terp.cli import verify as verify_module
+    from terp.cli.verify import NOT_APPLICABLE, _run_conformance
+
+    def never(root: pathlib.Path) -> tuple[str | None, str]:
+        raise AssertionError("an address was resolved for a suite that does not exist")
+
+    monkeypatch.setattr(verify_module, "conformance_address", never)
+    exit_code, output = _run_conformance(tmp_path)
+    assert (exit_code, output) == (0, f"no conformance/package.json - conformance {NOT_APPLICABLE}")
+
+
+def test_a_green_check_that_says_it_had_nothing_to_judge_is_recorded_as_not_applicable() -> None:
+    from terp.cli.verify import NOTE_PREFIX, _applicable
+
+    assert _applicable(True, "no frontend/package.json - frontend-build not applicable") is False
+    assert _applicable(True, f"{NOTE_PREFIX}no frontend/ - the API client is not applicable") is False
+    assert _applicable(True, "no frontend/ - route types not applicable\nmore") is False
+    assert _applicable(True, "3 passed") is True
+    assert _applicable(True, f"{NOTE_PREFIX}route types not adopted - drift check skipped") is True
+    # A red check is a verdict whatever its words say.
+    assert _applicable(False, "error: this rule is not applicable to that") is True
+
+
+def test_an_assurance_lane_composes_from_the_checks_that_ran_and_is_not_run_from_none() -> None:
+    """ADR 0202 decision 4: a not-applicable check gives no verdict. A lane whose every
+    check was not applicable is `not-run` with no checks named (the schema's word for an
+    unmet precondition, never a pass); a lane with one check that ran green composes
+    from that check alone; the claim follows the required lanes as before."""
+    from terp.cli.verify import assurance_document
+
+    def result(check_id: str, *, ok: bool = True, applicable: bool = True) -> dict[str, object]:
+        return {"id": check_id, "ok": ok, "applicable": applicable}
+
+    api_only = [
+        result("architecture"),
+        result("frontend-boundaries", applicable=False),
+        result("appsec-baseline"),
+        result("dependency-audit-python"),
+        result("dependency-audit-npm", applicable=False),
+        result("secret-scanning"),
+        result("conformance", applicable=False),
+    ]
+    document = assurance_document(api_only)
+    lanes = {lane["id"]: lane for lane in document["lanes"]}
+    assert document["ok"] is True
+    assert lanes["terp-standard"] == {
+        "id": "terp-standard", "status": "passed", "checks": ["architecture"],
+    }
+    assert lanes["dependency-audit"]["checks"] == ["dependency-audit-python"]
+    assert lanes["blackbox-conformance"] == {
+        "id": "blackbox-conformance", "status": "not-run", "checks": [],
+    }
+    # A required lane whose every check was not applicable is `not-run`, and not-run is
+    # never a pass: the claim does not hold.
+    unjudged = [item for item in api_only if item["id"] != "architecture"] + [
+        result("architecture", applicable=False)
+    ]
+    document = assurance_document(unjudged)
+    lanes = {lane["id"]: lane for lane in document["lanes"]}
+    assert lanes["terp-standard"] == {"id": "terp-standard", "status": "not-run", "checks": []}
+    assert document["ok"] is False
+    # And a red check beside a not-applicable one still fails its lane.
+    red = [item for item in api_only if item["id"] != "architecture"] + [
+        result("architecture", ok=False)
+    ]
+    assert {lane["id"]: lane["status"] for lane in assurance_document(red)["lanes"]}[
+        "terp-standard"
+    ] == "failed"
+    # A record without the key (a driver's own) is a verdict, as every record was.
+    legacy = [{"id": item["id"], "ok": item["ok"]} for item in api_only]
+    assert assurance_document(legacy)["ok"] is True
+
+
+def test_the_release_claim_holds_for_an_api_only_app_and_says_which_lanes_did_not_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End to end through the command: the three checks an API-only app has no workspace
+    for say so and pass, the JSON record carries `applicable: false` for each, and the
+    assurance document composes the required lanes from the checks that ran, reports
+    the browser lane as `not-run`, and holds the claim."""
+    from terp.cli.verify import NOT_APPLICABLE
+
+    unjudged = {"frontend-boundaries", "dependency-audit-npm", "conformance"}
+    checks = []
+    for check in PROFILES["release"]:
+        code = (
+            f"print('no frontend/package.json - {check.id} {NOT_APPLICABLE}')"
+            if check.id in unjudged
+            else "pass"
+        )
+        checks.append(_python_check(check.id, code, category=check.category))
+    monkeypatch.setitem(PROFILES, "release", tuple(checks))
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "release", "--root", str(tmp_path), "--format", "json"])
+    assert excinfo.value.code == 0
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["ok"] is True
+    recorded = {item["id"]: item["applicable"] for item in envelope["checks"]}
+    assert {name for name, applicable in recorded.items() if not applicable} == unjudged
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "release", "--root", str(tmp_path), "--format", "assurance"])
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    document = json.loads(captured.out)
+    assert document["ok"] is True
+    lanes = {lane["id"]: lane for lane in document["lanes"]}
+    assert lanes["terp-standard"]["checks"] == ["architecture"]
+    assert lanes["dependency-audit"]["checks"] == ["dependency-audit-python"]
+    assert lanes["blackbox-conformance"] == {
+        "id": "blackbox-conformance", "status": "not-run", "checks": [],
+    }
+    assert f"verify: conformance ok ({NOT_APPLICABLE})" in captured.err
