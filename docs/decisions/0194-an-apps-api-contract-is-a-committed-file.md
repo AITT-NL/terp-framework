@@ -213,8 +213,10 @@ one is present, as it does for every other carried file.
   committed, the gate is green and a reviewer sees a JSON diff. Printing the classified lines
   between the contract on the target branch and the one in the change would need the target's
   history in CI, and is a later addition.
-- **Publishing the contract beside a release** in the workbench's own interface is the
-  workbench's change.
+- **Publishing the contract beside a release** in the workbench's own interface is settled
+  in Terp Studio, which reads the file from git and needs nothing more from the framework: a
+  release hands out the `openapi.json` its own commit holds, byte for byte, with the file's
+  SHA-256, and the Releases view downloads it.
 - **Signing over a red contract check**, which needed the gate's document to record the
   check's verdict and `sign` to read it, a change to ADR 0187's gate rather than a reading of
   it, is settled by [ADR 0200](0200-a-release-is-signed-only-over-a-green-release-profile.md):
