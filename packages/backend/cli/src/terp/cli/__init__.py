@@ -999,6 +999,58 @@ Object-level (per-row) authorization (OwnedMixin)
   itself would run fine. The clause is a judgement about the DESIGN, enforced before the
   app serves anything -- not a description of what the write boundary would do.
 """,
+    "aggregates": """\
+Aggregates: counts and sums declared on the service, like filters (ADR 0204)
+
+- The problem: a statistics screen counts and sums the rows its lists read. A hand-built
+  select(func.count(...)).group_by(...) over a soft-delete or tenant model is what
+  reads_use_base_query refuses, and the workaround (an aggregate over a subquery of
+  base_query()) makes every module solve calendar days, bounds and grouping on its own.
+- Declare what may be counted and summed, and by what, beside filterable and sortable:
+      from terp.core import Dimension, FilterField, Measure, TimeBucket
+      class InvoiceService(BaseService[Invoice, InvoiceCreate, InvoiceUpdate]):
+          model = Invoice
+          filterable = (FilterField("customer_id", Invoice.customer_id),)
+          measures = (Measure("invoices"), Measure("revenue", Invoice.amount, op="sum"))
+          dimensions = (Dimension("status", Invoice.status),)
+          time_buckets = (TimeBucket("issued", Invoice.issued_at, steps=("day", "month")),)
+  op is one of count, count_distinct, sum, avg, min, max. A dimension groups by a
+  column's own values; an expression is a column the model declares, or a database view.
+- The route takes the capped query and returns a page typed by the declarations:
+      from terp.core import Page, SessionDep, StatisticsQueryDep
+      @router.get("/statistics", response_model=Page[InvoiceService.statistics_model()])
+      def invoice_statistics(query: StatisticsQueryDep, session: SessionDep, customer_id: uuid.UUID | None = None):
+          return InvoiceService().aggregate_page(session, query, filters={"customer_id": customer_id})
+  The caller asks ?measures=invoices&measures=revenue&by=status&sort=-revenue, and for a
+  series &bucket=issued&start=2026-01-01&end=2026-12-31&zone=Europe/Amsterdam&step=month.
+- Each group carries its dimensions, its measures and, with a step, its series: one point
+  per calendar step of the zone, empty steps counting zero, each with its local date (label
+  a step by date, not by re-zoning start). total counts the groups, so "the top eight" is
+  limit=8 and the rest are still counted. A Numeric sum arrives as a decimal string.
+- A day is the zone's own, so a day that daylight saving shortens keeps its real length. A
+  week starts on Monday; a series may start or end part way through a week or month.
+- Everything undeclared is refused with a 400 that lists what is declared: a measure, a
+  dimension, a time bucket, a step, a sort key, a filter. A page holds at most max_groups
+  (100); a series at most the bucket's max_buckets (366); a page at most max_points (10,000)
+  groups times steps. Each cap refuses, never clamps, and names what would fit.
+- Personal data stays personal. A Dimension or a TimeBucket over a field declared
+  Personal(...), and a sum, avg, min or max over one, is refused when the class is defined:
+  over a group of one each is that person's value. count and count_distinct may run over
+  personal data. A statistic is never narrowed by a filter over a personal field (counts
+  under a contains filter would spell out an address); the list keeps its filter.
+- A read that is not a service's (a capability's own table) uses the same seam directly:
+      from terp.core import Statistics, aggregate, group_model
+      STATS = Statistics(measures=(Measure("events"),), dimensions=(...,), time_buckets=(...,))
+      groups, total = aggregate(session, select(AuditEvent), STATS, measures=["events"], ...)
+- The runtime half: the request session scopes every ORM read, aggregates included, and
+  refuses with UnscopedReadError (a 500) a SELECT that reads a row-scoped table through Core
+  - Model.__table__.c.x, a Core join or subquery over it, a Core alias, table("name"),
+  literal SQL in a FROM - because there is no mapped entity in that SELECT to attach the
+  scope to. A many-to-many whose link table is row-scoped is refused the same way: map the
+  link as an association object.
+- On SQLite a timestamp is stored as its wall time without its offset: write instants in UTC
+  (every timestamp the framework stamps already is) and the steps are exact on both dialects.
+""",
     "leases": """\
 Leases: expiring, fenced custody of work (leases capability)
 

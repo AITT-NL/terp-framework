@@ -25,10 +25,13 @@ rule forbids importing ``terp.core._internal`` from a module — the second laye
 protecting the guard itself).
 
 Reads stay unguarded for *writes* but are **row-scoped**. The ORM execution hook applies
-criteria to each entity, including aliases and relationship loaders. Only a column
-refresh of an already-loaded instance is exempt, so the write chokepoint can refresh a
-just-soft-deleted row without granting the exemption to relationship reads. ``get`` also
-checks visibility before its identity-map fast path. ``flush`` is
+criteria to each entity, including aliases and relationship loaders, and to every mapped
+entity an aggregate reaches. Only a column refresh of an already-loaded instance is
+exempt, so the write chokepoint can refresh a just-soft-deleted row without granting the
+exemption to relationship reads. ``get`` also checks visibility before its identity-map
+fast path. A read that reaches a row-scoped table only through its Core ``Table`` names no
+mapped entity to take that criteria, so the hook refuses it with
+:class:`UnscopedReadError` instead of running it unscoped (ADR 0204 decision 6). ``flush`` is
 intentionally **not** write-guarded so SQLAlchemy autoflush keeps working — nothing a
 guarded session flushes is durable without the guarded ``commit`` (the request session is
 rolled back on close), and ``add`` / ``delete`` are already refused outside the scope, so
@@ -49,7 +52,7 @@ from sqlalchemy.sql import visitors
 from sqlalchemy.sql.util import ClauseAdapter
 from sqlmodel import Session, SQLModel, select
 
-from terp.core.scoping import apply_row_scope
+from terp.core.scoping import _core_only_reads, apply_row_scope
 
 # Dynamic-scope flag: True only while BaseService._save / _remove are persisting.
 # A ContextVar (not a session attribute) so the scope follows the call stack — the
@@ -105,6 +108,19 @@ class ReadOnlyRequestError(RuntimeError):
     500. Move the write behind a ``POST`` / ``PUT`` / ``PATCH`` / ``DELETE`` route so
     it is authorized at the write tier (and audited). This is the runtime half of the
     build-time ``safe_methods_are_read_only`` rule.
+    """
+
+
+class UnscopedReadError(RuntimeError):
+    """A read reached a row-scoped table only through its Core ``Table`` (ADR 0204 decision 6).
+
+    The request session scopes a read by attaching soft-delete and the registered row
+    predicates to each **mapped entity** the statement reaches. ``Model.__table__.c.amount``,
+    ``select_from(Model.__table__)``, a Core alias of that table or a ``table("name")``
+    reference reaches the rows without one, so there is nothing to attach the scope to and
+    the read would return soft-deleted or another tenant's rows. Refused before it runs. Like
+    :class:`UnauditedWriteError` it is a *programming* error and surfaces as a generic 500:
+    read through the model, on the service's ``base_query()`` or a declared aggregate.
     """
 
 
@@ -396,6 +412,15 @@ def _scope_orm_read(state: ORMExecuteState) -> None:
             state.statement = state.statement.options(
                 with_loader_criteria(model, scoped.whereclause)
             )
+    unscoped = _core_only_reads(state.statement)
+    if unscoped:
+        raise UnscopedReadError(
+            f"A read reached {', '.join(unscoped)} through Core, where the request session "
+            "cannot apply soft-delete, tenant or owner scope. Read it through the model: the "
+            "service's base_query(), or a declared aggregate (terp guide aggregates), never "
+            "Model.__table__ or literal SQL. A many-to-many whose link table is row-scoped "
+            "maps the link as an association object instead of a secondary table."
+        )
     # An explicit alias in an explicit JOIN needs criteria referring to that
     # selectable, rather than columns from the original table. Implicit aliases
     # used by joinedload are adapted by the ORM itself.
@@ -414,6 +439,7 @@ def _scope_orm_read(state: ORMExecuteState) -> None:
 __all__ = [
     "ReadOnlyRequestError",
     "UnauditedWriteError",
+    "UnscopedReadError",
     "WriteGuardedSession",
     "allow_session_writes",
     "enter_write_unit",

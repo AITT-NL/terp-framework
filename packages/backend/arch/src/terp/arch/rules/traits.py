@@ -596,11 +596,13 @@ def check_reads_use_base_query(
     ``select(<Model>)`` directly — instead of building on ``base_query()`` — drops
     that scope, leaking soft-deleted or cross-tenant rows (the F1 follow-up to
     ADR 0017: closing ``base_query`` to overrides did not close a *new* read method
-    that never calls it). Build reads on ``base_query()`` / ``business_filters()``;
-    the request session re-applies the scope to any single-entity ``select`` as the
-    runtime backstop, and this rule is the build-time early warning. ``base_query``
-    itself — the one sanctioned ``select(model)`` — lives in the framework, not a
-    module, so it is never scanned here.
+    that never calls it). Build reads on ``base_query()`` / ``business_filters()``,
+    and a statistic on the service's declared ``measures`` / ``dimensions`` /
+    ``time_buckets`` (ADR 0204). The request session scopes every ORM read as the
+    runtime backstop, aggregates included, and refuses one that reaches a scoped
+    table only through its Core ``Table``; this rule is the build-time early
+    warning. ``base_query`` itself — the one sanctioned ``select(model)`` — lives in
+    the framework, not a module, so it is never scanned here.
 
     The whole ``select(...)`` chain is inspected, so a scope-trait model referenced
     in a trailing ``.where`` / ``.join`` / ``.order_by`` / ``.select_from`` is caught
@@ -650,7 +652,9 @@ def check_reads_use_base_query(
                             f"reads scope-trait model {target!r} via a raw select(); a "
                             "soft-delete / tenant model must be read through base_query() so "
                             "its row scope is not dropped — build on self.base_query() / "
-                            "business_filters() instead of select(...)",
+                            "business_filters() instead of select(...), and declare a count "
+                            "or sum as measures / dimensions on the service "
+                            "(terp guide aggregates)",
                         )
                     )
             elif (

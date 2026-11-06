@@ -940,7 +940,12 @@ frontend design-system track below.
       short-lived links to a file's bytes with S3 and Azure Blob adapters and `Range`, and
       an API-only choice in the template. The ten runtime security cases of terp-spec#52
       stay in the evidence window for 0.43.0.
-- [ ] Owed: the Studio's pin to 0.36.1. It pins 0.35.0.
+- [x] The Studio pins 0.36.1 (terp-studio#163), and its wizard's API-only choice works end
+      to end.
+- [ ] 0.37.0, unreleased: a statistic declared on the service, like a filter, and the
+      request session refusing every SELECT it cannot scope (ADR 0204). Owed before the
+      release: the repin to terp-spec 0.43.0 (merged on its main, waiting for its tag), which
+      empties the runtime security evidence window.
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
       every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
       the template's two `AGENTS.md` files, the repository's own and the react-core README.
