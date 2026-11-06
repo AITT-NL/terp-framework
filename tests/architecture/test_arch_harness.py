@@ -1930,19 +1930,23 @@ def test_datetime_columns_are_timezone_aware(tmp_path: pathlib.Path) -> None:
     # A UtcDateTime that is not terp.core's is held to nothing: defined in the file, imported
     # from elsewhere, never imported at all, or named on a module that is not terp.core. A
     # local definition shadows even an import of the real one.
+    named = "    due_at: datetime = Field(sa_type=UtcDateTime())\n"
     foreign = (
-        "class UtcDateTime(TypeDecorator):\n    impl = DateTime\n\n\n",
-        "from app.common.types import UtcDateTime\n\n\n",
-        "",
-        "import app.common.types as core\n\n\n",
-        "from terp.core import UtcDateTime\n\nUtcDateTime = make_naive_type()\n\n\n",
+        ("class UtcDateTime(TypeDecorator):\n    impl = DateTime\n\n\n", named),
+        ("from app.common.types import UtcDateTime\n\n\n", named),
+        ("", named),
+        (
+            "import app.common.types as core\n\n\n",
+            "    due_at: datetime = Field(sa_type=core.UtcDateTime())\n",
+        ),
+        ("from terp.core import UtcDateTime\n\nUtcDateTime = make_naive_type()\n\n\n", named),
+        # Reached through a call's result, it is whatever that call returns.
+        (
+            "import terp.core as core\n\n\n",
+            "    due_at: datetime = Field(sa_type=core.registry().UtcDateTime())\n",
+        ),
     )
-    for imports in foreign:
-        fields = (
-            "    due_at: datetime = Field(sa_type=core.UtcDateTime())\n"
-            if "as core" in imports
-            else "    due_at: datetime = Field(sa_type=UtcDateTime())\n"
-        )
+    for imports, fields in foreign:
         _write(app, "modules/notes/models.py", model(fields, imports))
         (message,) = messages(check_datetime_columns_are_timezone_aware(app))
         assert "is not terp.core's" in message and "import UtcDateTime from terp.core" in message

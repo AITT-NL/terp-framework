@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import datetime as dt
 from datetime import UTC, datetime
+from typing import Annotated
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import AfterValidator
 from pydantic import Field as PydanticField
 from pydantic import ValidationError
 from sqlmodel import Field
@@ -48,6 +50,12 @@ class _Outer(BaseSchema):
 
 class _WindowUpdate(BaseUpdateSchema):
     ends_at: datetime | None = None
+
+
+class _SelfLenient(BaseSchema):
+    """An app's own "assume UTC" validator, which is not the escape."""
+
+    taken_at: Annotated[datetime, AfterValidator(lambda value: value.replace(tzinfo=UTC))] | None = None
 
 
 class _Lenient(BaseSchema):
@@ -134,6 +142,14 @@ def test_a_nested_body_is_held_to_it_and_located_under_its_parent() -> None:
 def test_an_update_body_is_held_to_it() -> None:
     assert _refusals(_WindowUpdate, {"version": 1, "ends_at": NAIVE}) == [
         (("ends_at",), "timestamp_offset_required", OFFSET_REQUIRED)
+    ]
+
+
+def test_an_annotated_timestamp_of_the_apps_own_is_judged_like_a_plain_one() -> None:
+    """Only the escape steps around the refusal: a validator of the app's own that would
+    read the value as UTC never sees text without an offset."""
+    assert _refusals(_SelfLenient, {"taken_at": NAIVE}) == [
+        (("taken_at",), "timestamp_offset_required", OFFSET_REQUIRED)
     ]
 
 
