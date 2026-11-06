@@ -180,21 +180,29 @@ def _dotted(node: ast.expr) -> str | None:
     return None
 
 
+def _names_machinery(name: str) -> bool:
+    return name == _TIMESTAMPS_MODULE or name.startswith(f"{_TIMESTAMPS_MODULE}.")
+
+
 def _reaches_machinery(node: ast.AST, core: set[str]) -> bool:
-    """True for an import of the boundary's own module, or an attribute that reaches it."""
+    """True for whatever reaches the boundary's own module.
+
+    An import of it, an attribute or a literal ``getattr`` of ``timestamps`` on a name the file
+    binds to ``terp.core``, and its dotted name written as a literal, which is how
+    ``importlib`` and ``sys.modules`` are handed it.
+    """
     if isinstance(node, ast.ImportFrom) and node.level == 0:
-        if node.module == _TIMESTAMPS_MODULE or (node.module or "").startswith(f"{_TIMESTAMPS_MODULE}."):
+        if _names_machinery(node.module or ""):
             return True
         return node.module == "terp.core" and any(alias.name == "timestamps" for alias in node.names)
     if isinstance(node, ast.Import):
-        return any(
-            alias.name == _TIMESTAMPS_MODULE or alias.name.startswith(f"{_TIMESTAMPS_MODULE}.")
-            for alias in node.names
-        )
+        return any(_names_machinery(alias.name) for alias in node.names)
     if isinstance(node, ast.Attribute) and node.attr == "timestamps":
-        head = _dotted(node.value)
-        return head is not None and (head in core or head.endswith(".core"))
-    return False
+        return _dotted(node.value) in core
+    if isinstance(node, ast.Call) and base_name(node.func) == "getattr" and len(node.args) >= 2:
+        name = node.args[1]
+        return isinstance(name, ast.Constant) and name.value == "timestamps" and _dotted(node.args[0]) in core
+    return isinstance(node, ast.Constant) and isinstance(node.value, str) and _names_machinery(node.value)
 
 
 def _escape_findings(tree: ast.Module) -> dict[int, str]:

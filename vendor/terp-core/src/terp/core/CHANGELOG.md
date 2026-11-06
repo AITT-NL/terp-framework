@@ -41,9 +41,9 @@ decision, 0001 onwards.
   - A `BaseSchema` now refuses timestamp text without an offset wherever Pydantic reads a
     timestamp for it, following every definition the schema refers to: a field, an item of a
     list or mapping, a member of a union, a type alias, a dataclass, a `TypedDict`, a nested
-    `BaseSchema`, under the alias it reads. It is a 422 of type `timestamp_offset_required` at
-    that place, whose message names the fix (`2026-11-06T10:00:00Z` or
-    `2026-11-06T11:00:00+01:00`).
+    `BaseSchema` or plain model, and schemas that refer to each other, under the alias it reads.
+    It is a 422 of type `timestamp_offset_required` at that place, whose message names the fix
+    (`2026-11-06T10:00:00Z` or `2026-11-06T11:00:00+01:00`).
   - A declared filter refuses a bound without an offset with a 400 that names the filter.
   - Only text is judged. An object the server built, a row read back through the ORM and a
     Unix time validate as before, and a job's payload, written as text when it is enqueued, is
@@ -56,9 +56,13 @@ decision, 0001 onwards.
   appears, unless its line carries `# arch-allow-request-timestamps-carry-their-offset:
   <reason>`, which the app's escape-hatch budget counts. `BaseSchema`'s metaclass refuses a
   subclass, at any depth, that defines `__get_pydantic_core_schema__` or
-  `__pydantic_init_subclass__`. A `BaseSchema` that nests a model bringing its own complete
-  Pydantic validator (a plain `BaseModel`, a Pydantic dataclass) that holds a timestamp is
-  refused when it is defined, since that validator would read the timestamp unjudged.
+  `__pydantic_init_subclass__`. A nested class that brings its own complete Pydantic validator
+  (a plain `BaseModel`, a Pydantic dataclass, a table, a model the framework builds) is read by
+  that validator whatever schema surrounds it, so what it is given is judged first, under the
+  class's own config, and then handed to it unchanged; its other errors come once its
+  timestamps carry their offsets. Such a class as a choice of a discriminated union that
+  refers back to the schema is refused when the schema is built, since Pydantic could no
+  longer pick it by its tag.
 - **`backend/datetime_columns_are_timezone_aware` accepts only `terp.core`'s `UtcDateTime`
   (ADR 0205, open question B).** `DateTime(timezone=True)` and `TIMESTAMP(timezone=True)` keep
   the zone on PostgreSQL but store the wall time on SQLite, so the instant a row recorded
@@ -89,14 +93,15 @@ decision, 0001 onwards.
   generated from the contract is typed with a string and sends what the app gives it, so a form
   that sends a `datetime-local` input's value sends no offset and gets the 422. The same
   refusal reads every other text a schema reads: a realtime message, a mapping passed to
-  `enqueue`, a mapping the app hands a schema, and a row read by literal SQL on SQLite. For a
+  `enqueue`, a mapping the app hands a schema, a row read by literal SQL on SQLite, and what a
+  plain model, a dataclass or a table nested in a schema is given. For a
   sender known to send UTC without saying so, type that one field or query parameter
   `NaiveMeansUtc`, and add the rule's marker with its reason and the budget entry in the same
   change.
-- **A `BaseSchema` can now be refused when it is defined.** One that nests a plain `BaseModel` or
-  a Pydantic dataclass holding a timestamp raises a `TypeError` naming both: derive the nested
-  model from `BaseSchema`, or type that timestamp `NaiveMeansUtc`. So does a subclass that
-  defines `__get_pydantic_core_schema__` or `__pydantic_init_subclass__`.
+- **A `BaseSchema` can now be refused when it is defined.** A subclass that defines
+  `__get_pydantic_core_schema__` or `__pydantic_init_subclass__` raises a `TypeError`. So does a
+  schema with a plain model that holds a timestamp as a choice of a discriminated union that
+  refers back to the schema, when its schema is built: derive that model from `BaseSchema`.
 - **A naive bound passed to `filters=` is now a 400,** from the app's own code as from a client.
   Pass an aware value: `datetime.now(UTC)`, or `.replace(tzinfo=UTC)` for a value known to be UTC.
 - **A column declared `DateTime(timezone=True)` now turns the gate red.** Replace it with

@@ -2199,6 +2199,21 @@ def test_request_timestamps_carry_their_offset(tmp_path: pathlib.Path) -> None:
     assert lines("from terp.core import timestamps\n") == [1]
     assert lines("import terp.core as core\n\nMARK = core.timestamps.OFFSET_REQUIRED\n") == [3]
     assert lines("import terp\n\nMARK = terp.core.timestamps.OFFSET_REQUIRED\n") == [3]
+    assert lines("from terp import core\n\nBOUNDARY = getattr(core, 'timestamps')\n") == [3]
+    assert lines(
+        "import importlib\nimport sys\n\n"
+        "BOUNDARY = importlib.import_module('terp.core.timestamps')\n"
+        "LOADED = sys.modules['terp.core.timestamps']\n"
+    ) == [4, 5]
+
+    # An attribute called timestamps on anything that is not terp.core is the app's own.
+    assert lines(
+        "import terp.core\n\n\nclass Clock:\n"
+        "    def latest(self):\n"
+        "        return self.core.timestamps, getattr(self.core, 'timestamps')\n"
+    ) == []
+    assert lines("def latest(app):\n    return app.core.timestamps\n") == []
+    assert lines("import terp.core\n\n\ndef latest(rows):\n    return rows[0].timestamps, rows.core().timestamps\n") == []
 
     # A name bound to the escape counts where that binding is the one in scope: a function's
     # own local of the same name is not it, and a class attribute counts at each use through
@@ -2207,7 +2222,7 @@ def test_request_timestamps_carry_their_offset(tmp_path: pathlib.Path) -> None:
         "from terp.core import NaiveMeansUtc\n\n"
         "Stamp = NaiveMeansUtc\n\n\n"
         "class ReadingCreate(BaseSchema):\n    taken_at: Stamp\n\n\n"
-        "def unrelated(row):\n    Stamp = row.created_at\n    return Stamp\n"
+        "def unrelated(row, *rest, **options):\n    Stamp = row.created_at\n    return Stamp\n"
     ) == [3, 7]
     assert lines(
         "from terp.core import NaiveMeansUtc\n\n\n"

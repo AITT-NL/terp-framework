@@ -24,14 +24,19 @@ from pydantic import (
     AliasChoices,
     AliasPath,
     BaseModel,
+    ConfigDict,
     Discriminator,
     FutureDatetime,
     GetCoreSchemaHandler,
     NaiveDatetime,
+    RootModel,
     Tag,
+    create_model,
+    model_validator,
 )
 from pydantic import Field as PydanticField
 from pydantic import ValidationError
+from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pydantic_core import CoreSchema
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Field, Session, create_engine
@@ -490,6 +495,7 @@ def test_a_timestamp_inside_a_definition_is_judged(data: dict[str, object], loc:
 
 
 class _SettingNames(BaseSchema):
+    type: datetime | None = None
     default: datetime | None = None
     expected: datetime | None = None
     metadata_: datetime | None = PydanticField(default=None, alias="metadata")
@@ -498,9 +504,18 @@ class _SettingNames(BaseSchema):
     serialization: datetime | None = None
 
 
-@pytest.mark.parametrize("name", ["default", "expected", "metadata", "ref", "cls", "serialization"])
+@pytest.mark.parametrize("name", ["type", "default", "expected", "metadata", "ref", "cls", "serialization"])
 def test_a_field_named_like_a_schema_setting_is_judged(name: str) -> None:
     assert _refusals(_SettingNames, {name: NAIVE}) == [((name,), "timestamp_offset_required", OFFSET_REQUIRED)]
+
+
+def test_fields_named_type_and_default_are_each_judged() -> None:
+    """A model's mapping of field names holds a field named "type" beside one named "default",
+    so the mapping is not mistaken for a schema node of some kind."""
+    assert [loc for loc, _, _ in _refusals(_SettingNames, {"type": NAIVE, "default": NAIVE})] == [
+        ("type",),
+        ("default",),
+    ]
 
 
 class _Kept(BaseSchema):
@@ -536,6 +551,11 @@ def test_a_union_member_is_located_by_the_name_pydantic_gives_it() -> None:
     assert (loc, kind) == (("listed", "list[datetime]", 0), "timestamp_offset_required")
 
 
+# --------------------------------------------------------------------------- #
+# a nested class with its own validator is judged in front of it
+# --------------------------------------------------------------------------- #
+
+
 class _PlainSpan(BaseModel):
     start: datetime
 
@@ -544,18 +564,209 @@ class _PlainLenientSpan(BaseModel):
     start: NaiveMeansUtc
 
 
-def test_a_nested_model_that_brings_its_own_validator_is_refused_when_defined() -> None:
-    """Pydantic validates such a model with its own complete validator, which does not judge,
-    so the schema around it would let its timestamp through; it is refused instead."""
-    with pytest.raises(TypeError, match="nests _PlainSpan, which brings its own Pydantic validator"):
+class _AliasOnlySpan(BaseModel):
+    """Its own config reads the alias only, unlike a ``BaseSchema``, which reads both."""
 
-        class _Nests(BaseSchema):
-            span: _PlainSpan
+    start: datetime = PydanticField(alias="startsAt")
 
-    class _NestsLenient(BaseSchema):
-        span: _PlainLenientSpan
 
-    assert _NestsLenient.model_validate({"span": {"start": NAIVE}}).span.start == INSTANT
+class _StrictSpan(BaseModel):
+    model_config = ConfigDict(strict=True)
+
+    start: datetime
+
+
+class _CheckedSpan(BaseModel):
+    start: datetime
+
+    @model_validator(mode="after")
+    def _kept(self) -> _CheckedSpan:
+        return self
+
+
+class _Stamped(RootModel[datetime]):
+    pass
+
+
+@pydantic_dataclass
+class _PydanticSpan:
+    start: datetime
+
+
+class _PlainTree(BaseModel):
+    at: datetime
+    kids: list[_PlainTree] = []
+
+
+class _Visit(BaseTable, table=True):
+    __tablename__ = "request_timestamp_visit"
+
+    seen_at: datetime = Field(sa_type=UtcDateTime())
+
+
+_FrameworkPoint = create_model("_FrameworkPoint", start=(datetime, ...))
+_FrameworkGroup = create_model("_FrameworkGroup", series=(list[_FrameworkPoint], ...))
+
+
+class _Nests(BaseSchema):
+    span: _PlainSpan | None = None
+    spans: list[_PlainSpan] = []
+    either: _PlainSpan | int | None = None
+    aliased: _AliasOnlySpan | None = None
+    strict: _StrictSpan | None = None
+    checked: _CheckedSpan | None = None
+    stamp: _Stamped | None = None
+    dataclass_span: _PydanticSpan | None = None
+    tree: _PlainTree | None = None
+    visits: list[_Visit] = []
+    group: _FrameworkGroup | None = None
+    lenient: _PlainLenientSpan | None = None
+
+
+@pytest.mark.parametrize(
+    ("data", "loc"),
+    [
+        ({"span": {"start": NAIVE}}, ("span", "start")),
+        ({"spans": [{"start": AWARE}, {"start": NAIVE}]}, ("spans", 1, "start")),
+        ({"either": {"start": NAIVE}}, ("either", "_PlainSpan", "start")),
+        ({"aliased": {"startsAt": NAIVE}}, ("aliased", "startsAt")),
+        ({"strict": {"start": NAIVE}}, ("strict", "start")),
+        ({"checked": {"start": NAIVE}}, ("checked", "start")),
+        ({"stamp": NAIVE}, ("stamp",)),
+        ({"dataclass_span": {"start": NAIVE}}, ("dataclass_span", "start")),
+        ({"tree": {"at": AWARE, "kids": [{"at": AWARE, "kids": [{"at": NAIVE}]}]}}, ("tree", "kids", 0, "kids", 0, "at")),
+        ({"visits": [{"seen_at": NAIVE}]}, ("visits", 0, "seen_at")),
+        ({"group": {"series": [{"start": NAIVE}]}}, ("group", "series", 0, "start")),
+    ],
+)
+def test_a_nested_class_with_its_own_validator_is_judged_in_front_of_it(
+    data: dict[str, object], loc: tuple[str | int, ...]
+) -> None:
+    """Pydantic validates a complete plain model, a Pydantic dataclass, a root model, a table and
+    a model the framework builds with its own validator, whatever schema surrounds it, so what
+    it is given is judged first, wherever it sits."""
+    assert (loc, "timestamp_offset_required", OFFSET_REQUIRED) in _refusals(_Nests, data)
+
+
+def test_a_nested_class_with_its_offsets_validates_as_its_own_validator_does() -> None:
+    nests = _Nests.model_validate(
+        {"span": {"start": AWARE}, "stamp": AMSTERDAM, "dataclass_span": {"start": AWARE}, "lenient": {"start": NAIVE}}
+    )
+    assert (type(nests.span), nests.span.start) == (_PlainSpan, INSTANT)
+    assert (type(nests.stamp), nests.stamp.root) == (_Stamped, INSTANT)
+    assert type(nests.dataclass_span) is _PydanticSpan
+    assert nests.lenient is not None and nests.lenient.start == INSTANT
+
+
+def test_a_nested_class_the_server_built_goes_straight_on() -> None:
+    """An instance was built already, and a row's values are objects: neither is text."""
+    built = datetime(2026, 11, 6, 10, 0)
+    span, visit = _PlainSpan(start=built), _Visit(seen_at=INSTANT)
+
+    class _Row:
+        at = built
+        kids: list[object] = []
+
+    nests = _Nests.model_validate({"span": span, "visits": [visit], "stamp": _Stamped(built)})
+    assert nests.span is span and nests.visits == [visit] and nests.stamp is not None
+    assert _Nests.model_validate({"tree": _Row()}, from_attributes=True).tree == _PlainTree(at=built)
+
+
+def test_a_nested_class_is_judged_under_its_own_config() -> None:
+    """A model that reads only an alias leaves a value under its field name unread, so that
+    value is not judged; its own error says the alias is missing."""
+    assert _refusals(_Nests, {"aliased": {"start": NAIVE}}) == [
+        (("aliased", "startsAt"), "missing", "Field required")
+    ]
+
+
+def test_a_nested_class_reports_its_own_errors_once() -> None:
+    """A refusal comes beside the outer schema's own errors; the nested class's other errors
+    are its own validator's, which reads its input once the timestamps in it are taken."""
+    assert [(loc, kind) for loc, kind, _ in _refusals(_Nests, {"span": {"start": NAIVE}, "spans": "x"})] == [
+        (("span", "start"), "timestamp_offset_required"),
+        (("spans",), "list_type"),
+    ]
+    assert [(loc, kind) for loc, kind, _ in _refusals(_Nests, {"span": {"start": "soon"}})] == [
+        (("span", "start"), "datetime_from_date_parsing")
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# schemas that refer to each other, and a union that picks by a tag
+# --------------------------------------------------------------------------- #
+
+
+class _Ping(BaseSchema):
+    at: datetime
+    pong: _Pong | None = None
+    pair: tuple[_Pong, datetime, _PlainSpan] | int | None = None
+
+
+class _Pong(BaseSchema):
+    at: datetime | None = None
+    ping: _Ping | None = None
+
+
+_Ping.model_rebuild()
+
+
+def test_schemas_that_refer_to_each_other_are_each_judged() -> None:
+    assert [loc for loc, _, _ in _refusals(_Pong, {"ping": {"at": AWARE, "pong": {"at": NAIVE}}})] == [
+        ("ping", "pong", "at")
+    ]
+    assert [loc for loc, _, _ in _refusals(_Ping, {"at": NAIVE, "pong": {"ping": {"at": NAIVE}}})] == [
+        ("at",),
+        ("pong", "ping", "at"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("pair", "place"), [([{}, NAIVE, {"start": AWARE}], (1,)), ([{}, AWARE, {"start": NAIVE}], (2, "start"))]
+)
+def test_a_member_that_refers_back_is_named_as_pydantic_names_it(
+    pair: list[object], place: tuple[str | int, ...]
+) -> None:
+    """The member is named as Pydantic built it, before its timestamps were held, even where it
+    was first held while the schema it refers to was still being built."""
+    (loc, kind, _), *_ = _refusals(_Pong, {"ping": {"at": AWARE, "pair": pair}})
+    assert (loc, kind) == (("ping", "pair", "tuple[_Pong, datetime, _PlainSpan]", *place), "timestamp_offset_required")
+
+
+class _Leaf(BaseSchema):
+    kind: Literal["leaf"] = "leaf"
+    at: datetime
+
+
+class _Branch(BaseSchema):
+    kind: Literal["branch"] = "branch"
+    child: Annotated[Union[_Leaf, _Branch], PydanticField(discriminator="kind")] | None = None
+
+
+def test_a_recursive_union_still_picks_its_member_by_its_tag() -> None:
+    """Pydantic settles such a union's tag once the schema is built, from its own metadata; a
+    held copy of the union that shared it would be left a union that tries every member."""
+    assert _refusals(_Branch, {"child": {"kind": "twig"}})[0][:2] == (("child",), "union_tag_invalid")
+    assert _refusals(_Branch, {"child": {"kind": "branch", "child": {"kind": "leaf", "at": NAIVE}}}) == [
+        (("child", "branch", "child", "leaf", "at"), "timestamp_offset_required", OFFSET_REQUIRED)
+    ]
+
+
+def test_a_plain_choice_of_a_recursive_union_is_refused_when_its_schema_is_built() -> None:
+    """Pydantic picks a choice of such a union by the tag in the choice's own fields, which a
+    choice judged in front of its own validator no longer shows, so it is refused, naming why.
+    A class that refers to itself in a function is built at its first use, here a rebuild."""
+
+    class _PlainLeaf(BaseModel):
+        kind: Literal["plain"] = "plain"
+        at: datetime
+
+    class _Tangle(BaseSchema):
+        kind: Literal["tangle"] = "tangle"
+        child: Annotated[Union[_PlainLeaf, _Tangle], PydanticField(discriminator="kind")] | None = None
+
+    with pytest.raises(TypeError, match=r"_PlainLeaf as a choice of a discriminated union .* derive"):
+        _Tangle.model_rebuild()
 
 
 def test_a_plain_model_around_the_same_type_stays_as_it_was() -> None:

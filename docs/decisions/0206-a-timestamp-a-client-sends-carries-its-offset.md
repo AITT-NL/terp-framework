@@ -3,8 +3,9 @@
 - **Status:** Accepted on 2026-11-06. The owner decided
   [ADR 0205](0205-a-timestamp-column-stores-an-instant-as-utc.md)'s open question A on the
   recommendation this records: refuse a timestamp without an offset where it enters, in a
-  record of its own. Built in 0.38.0. Two rounds of independent review changed the build: the
-  refusal now sits at the timestamp type, follows every definition a schema refers to, and
+  record of its own. Built in 0.38.0. Three rounds of independent review changed the build: the
+  refusal now sits at the timestamp type, follows every definition a schema refers to, judges
+  what a nested model with its own validator is given before that validator reads it, and
   trusts only marks no app can forge (see *What the review changed*).
 - **Date:** 2026-11-06.
 - **Relates:** [ADR 0205](0205-a-timestamp-column-stores-an-instant-as-utc.md) (its open
@@ -50,10 +51,10 @@ app's request contract. Two facts settled it:
 builds for a subclass, following every definition that schema refers to. So it runs wherever
 Pydantic validates a timestamp for it: a field, an item of a list or a tuple, a value of a
 mapping, a member of a union, a `NewType` or a type alias over one, a stdlib dataclass, a
-`TypedDict`, a nested or recursive `BaseSchema`, and under whatever name Pydantic reads the
-value by, an alias, a choice of aliases or a path. Text that reads as a date and time with no
-offset, such as `2026-11-06T10:00:00` or a bare date `2026-11-06`, is refused with the error
-type `timestamp_offset_required` and this message:
+`TypedDict`, a nested or recursive `BaseSchema`, schemas that refer to each other, and under
+whatever name Pydantic reads the value by, an alias, a choice of aliases or a path. Text that
+reads as a date and time with no offset, such as `2026-11-06T10:00:00` or a bare date
+`2026-11-06`, is refused with the error type `timestamp_offset_required` and this message:
 
 > A date and time needs its UTC offset, for example 2026-11-06T10:00:00Z or
 > 2026-11-06T11:00:00+01:00
@@ -63,11 +64,23 @@ a nested model, so a form maps it to its input. A member of a union is named as 
 it (`list[datetime]`). Every such value in a body is named in the same error, beside the body's
 other errors.
 
-A nested model that brings its own complete Pydantic validator, a plain `BaseModel` or a
-Pydantic dataclass, is validated by that validator whatever schema surrounds it, and that
-validator does not judge. So a `BaseSchema` that nests one holding a timestamp is refused when
-it is defined, naming both classes: derive the nested model from `BaseSchema`, or type that
-timestamp `NaiveMeansUtc`. A plain model elsewhere is left exactly as it was.
+A nested class that brings its own complete Pydantic validator is validated by that
+validator whatever schema surrounds it, and that validator does not judge: a plain
+`BaseModel`, a Pydantic dataclass, a table, or a model the framework builds, such as the one
+`group_model` returns. So what it is given is judged first. A held copy of its fields, read under the
+class's own config, raises the refusal wherever the class would read timestamp text without an
+offset, and then the class's own validator reads the value unchanged. An instance of the class
+goes straight on, since it was built already, and so does a row it reads by attribute, whose
+values are objects. Only the refusals are raised there. The class's other errors are its own
+validator's, so they come once its timestamps carry their offsets. Judging first changes no
+mode the class reads in: a `BaseSchema` reads every value as Python does, JSON included,
+because SQLModel's `__init__` validates the mapping it is given. A plain model elsewhere is left
+exactly as it was.
+
+One composition cannot be judged first: such a class as a choice of a discriminated union that
+refers back to the schema being defined. Pydantic settles that union's tags only once the schema
+is built, from each choice's own fields, and a choice judged first no longer shows them. So the
+schema is refused when it is built, naming the class: derive it from `BaseSchema`.
 
 A member of a union that is not a timestamp still takes what it takes: `datetime | str` keeps
 the text, and `datetime | date` reads a bare date as a date. A field typed `NaiveDatetime` takes
@@ -175,8 +188,8 @@ framework's way around them. The rule's catalog entry classifies its runtime hal
 
 ## What the review changed
 
-The build was reviewed independently twice before its pull request. Each finding is fixed in
-the build, except the three recorded as open above. The first round:
+The build was reviewed independently three times before its pull request. Each finding is fixed
+in the build, except the three recorded as open above. The first round:
 
 - **The refusal guessed.** It was a model validator that judged a body's raw keys against the
   field shapes it recognised. It missed a timestamp under `Sequence`, `dict`, a tuple, a nested
@@ -198,7 +211,8 @@ The second round, of the rework:
 - **A definition was never judged.** The hook saw a nested plain model, a dataclass, a
   `TypedDict` or a type alias as a reference to a definition, and could not see into it. It now
   follows each reference into a held copy of the definition. A nested model whose own complete
-  validator Pydantic reuses is refused when the schema is defined, decision 1.
+  validator Pydantic reuses was refused when the schema was defined; the third round replaced
+  that refusal with judging first.
 - **A field named like a schema setting was never judged.** The walk skipped keys such as
   `default` and `expected` at every level, including in a model's mapping of field names. It
   now reads a mapping of names by every key.
@@ -217,6 +231,26 @@ The second round, of the rework:
   carries the member's own name. The rule now follows a function's own local of the same name
   as that local, and a class attribute bound to the escape at each use. A machinery import is
   now told to recognise a refusal by its error type.
+
+The third round, of the second rework, and what fixing it turned up:
+
+- **A field named `type` broke the schema.** The walk read a model's mapping of field names as a
+  schema node when a field was called `type`, and the class could not be defined. A mapping is
+  now told from a node by whether its `type` is a kind.
+- **The nested-model refusal refused what an app cannot change.** A schema that nested a model
+  the framework builds, a table or a third party's model could not be defined, and the remedy it
+  named could not be applied to them. Such a class is now judged first, decision 1.
+- **Schemas that refer to each other could not be defined.** The hook asked Pydantic for a
+  definition it was still building further up, and failed. Such a reference now stays as it is,
+  for that schema's own hook to hold as it is finished.
+- **A recursive discriminated union lost its tag.** Pydantic settles a deferred discriminator by
+  taking it out of the union's metadata, which held copies shared, so all but one copy tried
+  every member and reported every member's errors. Each held copy now has metadata of its own.
+- **The machinery check missed a literal `getattr` and flagged ordinary code.** It now refuses
+  `getattr(terp.core, "timestamps")` and the module's dotted name written as a literal, as
+  `importlib` and `sys.modules` are handed it. An attribute called `timestamps` counts only on a
+  name the file binds to `terp.core`, so `self.core.timestamps` is the app's own. A package's
+  namespace mapping, `vars(terp.core)`, is recorded as a residual.
 
 ## Consequences
 
