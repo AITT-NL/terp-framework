@@ -71,6 +71,13 @@ decision, 0001 onwards.
   slim container included. `terp-cap-audit` no longer declares it itself.
 - `reads_use_base_query` names the seam in its remedy, and its docstring describes the runtime
   backstop as it now is.
+- **Certified against terp-spec 0.43.0.** Both pins move: `terp-spec` in `pyproject.toml` and
+  `@terpjs/spec` in `@terpjs/eslint-boundaries`, with `terp.arch.SPEC_VERSION`, the JS
+  `SPEC_VERSION` and both mirrors' `SPEC_RELEASE`. The mirrored deployment and workbench schemas
+  are unchanged in 0.43.0. 0.43.0 packages the ten runtime security cases the evidence already
+  ran ahead of 0.42.0: refresh rotation, the native-client browser refusal and eight
+  self-service-account cases. `test_runtime_security_evidence`'s window is empty again, so the
+  index now answers for every case the pinned standard packages.
 
 ### Upgrade notes
 
