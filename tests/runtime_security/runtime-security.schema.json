@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://terp.dev/spec/runtime-security.schema.json",
+  "title": "Runtime security conformance scenarios",
+  "description": "Normative behavioral scenarios for runtime security claims. Implementations execute applicable scenarios through their own adapters and retain assertion evidence; this artifact is not itself executable evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runtime_security",
+    "cases"
+  ],
+  "properties": {
+    "runtime_security": {
+      "type": "integer",
+      "const": 1
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "capability",
+          "rules",
+          "requirement",
+          "setup",
+          "exercise",
+          "expected",
+          "controls"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*(?![\\s\\S])",
+            "maxLength": 80
+          },
+          "capability": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*(?![\\s\\S])",
+            "maxLength": 80
+          },
+          "rules": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^backend/[a-z_]+(?![\\s\\S])"
+            }
+          },
+          "requirement": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1200
+          },
+          "setup": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1200
+            }
+          },
+          "exercise": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1200
+            }
+          },
+          "expected": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1200
+            }
+          },
+          "controls": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1200
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

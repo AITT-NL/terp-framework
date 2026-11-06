@@ -35,9 +35,17 @@ _TEMPLATE = _REPO_ROOT / "template" / "project"
 _SANCTIONED_IGNORES = {"S101", "S105", "S106"}
 _SANCTIONED_TEST_IGNORES = {"S311", "S603", "S607"}
 #: Paths a ruff exclude may carve out without weakening the baseline: virtualenvs,
-#: the byte-checked vendored mirror, and generated Alembic DDL. Excluding app or
-#: framework code is a silent-disable vector, so anything else fails.
-_SANCTIONED_ROOT_EXCLUDES = {".venv", "vendor", "**/migrations/versions"}
+#: the byte-checked vendored mirror, generated Alembic DDL, and the two rule corpora,
+#: whose violation cases exist to carry the very forms the baseline refuses and are
+#: never imported (ADR 0080, ADR 0203; ``test_rule_standard`` holds them to case trees).
+#: Excluding app or framework code is a silent-disable vector, so anything else fails.
+_SANCTIONED_ROOT_EXCLUDES = {
+    ".venv",
+    "vendor",
+    "**/migrations/versions",
+    "packages/backend/arch/corpus",
+    "packages/frontend/eslint-boundaries/corpus",
+}
 _SANCTIONED_TEMPLATE_EXCLUDES = {".venv", "**/migrations/versions"}
 
 
@@ -212,3 +220,51 @@ def test_template_acceptance_proves_a_rendered_project_passes_the_baseline() -> 
         "the template-acceptance job must run `uv run ruff check .` against the "
         "rendered project (ADR 0085)"
     )
+
+
+#: The only trees whose files must carry credential-shaped literals: the rule corpora.
+_SECRET_SCAN_ALLOWED_PATHS = (
+    "^packages/backend/arch/corpus/",
+    "^packages/frontend/eslint-boundaries/corpus/",
+)
+
+
+def test_the_secret_scan_is_narrowed_only_where_a_match_cannot_be_real() -> None:
+    """The rule corpora are the one place a credential-shaped literal is required.
+
+    A violation case for ``backend/no_hardcoded_credentials`` that holds no credential-shaped
+    literal is a broken case: the check it exists to hold would have nothing to flag. So the
+    scan finds some there today and would find one more with every case added, and a per-line
+    baseline would grow an entry each time until appending to it is the reflex.
+
+    Narrowing is only defensible while it stays that narrow, so this asserts its shape rather
+    than that a config file exists: the default ruleset stays on, every allowed path is one of
+    the two corpora, and nothing is allowed by *value* or by commit, which would hide the same
+    literal anywhere in the repository.
+    """
+    config = _REPO_ROOT / ".gitleaks.toml"
+    assert config.is_file(), (
+        "the rule corpora carry credential-shaped literals by construction; .gitleaks.toml is "
+        "where that is recorded, scoped and reviewable"
+    )
+    text = config.read_text(encoding="utf-8")
+    assert re.search(r"useDefault\s*=\s*true", text), (
+        "a .gitleaks.toml without `[extend] useDefault = true` REPLACES the default ruleset "
+        "rather than extending it, and the scan would then check almost nothing"
+    )
+    blocks = re.findall(r"paths\s*=\s*\[(.*?)\]", text, re.S)
+    assert blocks, "the allowlist declares no paths; delete the file instead"
+    quoted = re.findall(r"'''(.*?)'''|\"(.*?)\"", "\n".join(blocks), re.S)
+    patterns = [first or second for first, second in quoted]
+    assert patterns, f"no path patterns parsed out of {blocks!r}"
+    for pattern in patterns:
+        assert pattern in _SECRET_SCAN_ALLOWED_PATHS, (
+            f"{pattern!r} takes the secret scan off a tree that is not a rule corpus. Only "
+            "corpus cases are invented by construction; anywhere else a match may be a real "
+            "credential, and the answer to one of those is to rotate it"
+        )
+    for widening in ("regexes", "stopwords", "commits"):
+        assert not re.search(rf"^\s*{widening}\s*=", text, re.M), (
+            f"`{widening}` allows a match by value or by commit rather than by path, so it "
+            "would hide the same literal anywhere in the repository"
+        )

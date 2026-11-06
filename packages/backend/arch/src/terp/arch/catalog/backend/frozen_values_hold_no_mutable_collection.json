@@ -1,0 +1,22 @@
+{
+  "id": "backend/frozen_values_hold_no_mutable_collection",
+  "surface": "backend",
+  "title": "A frozen value object must not hold a mutable collection",
+  "intent": "Freezing a value object announces that it cannot change after construction, and callers rely on that: they share it between requests, cache it, use it as a registry key, and skip defensive copies because the type says none are needed. Freezing binds the ATTRIBUTES, not what they point at — a frozen object holding a list or a dict or a set is immutable only one level deep, so anyone holding it can append to its contents while every guarantee the type advertises still appears to hold. The mutation is invisible at the call site that performs it and arrives somewhere else entirely, in another request or another worker, as state that changed without an assignment. A frozen field must therefore be typed as an immutable sequence or mapping, so the promise the type makes is the promise it keeps.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_frozen_values_hold_no_mutable_collection"
+    }
+  ],
+  "reference": "Flagged on the field of a frozen value object whose annotation is a mutable built-in collection — list, dict or set, including their typing spellings and parameterised forms — with the immutable counterpart named in the message: a tuple for a sequence, a Mapping or frozen mapping for a dict, a frozenset for a set. A frozen object is recognised by its declaration, not by convention: a dataclass frozen at the decorator, a NamedTuple, or a model configured immutable. An annotation that is not statically a mutable collection is not judged, because the shape of an aliased or computed type is not knowable here and guessing would reject correct code.",
+  "opt_out": "# arch-allow-frozen-values-hold-no-mutable-collection: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "A runtime control would have to intercept mutation of an object the frozen value merely references, which is the thing the language does not offer: the list belongs to whoever else holds it, its mutating methods are not the frozen object's to override, and a deep-freeze on construction would change the value's semantics rather than check them. This is the shape of invariant only a build-time reading of the declaration can hold — which is exactly why declaring a frozen field as immutable is the control, rather than watching what happens to it later."
+  },
+  "guide_topic": "module",
+  "corpus": true
+}

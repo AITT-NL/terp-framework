@@ -1538,13 +1538,9 @@ def _assurance_schema() -> dict:
 
 #: Lanes this framework realises that the **pinned** spec release does not yet declare.
 #:
-#: The lane analogue of ``_AWAITING_SPEC_RELEASE`` in ``test_spec_catalog.py``, and it
-#: exists for the same ordering (ADR 0116). terp-spec's ``certify-against-reference``
-#: job resolves the standard against the framework commit the spec pins in its
-#: ``REFERENCE_SHA``, so the standard cannot merge a vocabulary entry until a reference
-#: commit realises it —
-#: while this test reads the *installed*, pinned spec, which is still the release before
-#: it. One of the two has to move first, and it is this one.
+#: The assurance profile is a contract in the shared package (ADR 0203), and this toolchain
+#: may realise a lane before the release that declares it, while this test reads the
+#: *installed*, pinned release, which is still the one before it.
 #:
 #: Emptying this list is a step of adopting the spec release (``docs/RELEASING.md``),
 #: alongside bumping the pin. A name left here after that adoption is caught below.

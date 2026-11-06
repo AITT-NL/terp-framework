@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/reads_use_base_query",
+    "path": "modules/notes/service.py",
+    "line": 8
+  }
+]

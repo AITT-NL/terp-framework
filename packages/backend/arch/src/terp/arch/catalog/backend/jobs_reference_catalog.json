@@ -1,0 +1,27 @@
+{
+  "id": "backend/jobs_reference_catalog",
+  "surface": "backend",
+  "title": "Enqueued / declared jobs are typed catalog constants, never bare strings",
+  "intent": "Background work carries the same no-drift guarantee as the event bus: every job a module enqueues or declares is a typed definition from the control-plane catalog. The rule forbids a bare string (or an inline, ad hoc definition) wherever a job is named — the job argument of an enqueue call and the jobs list of the module manifest — so a job name can never drift in outside the catalog. The runtime half is the enqueue chokepoint, which rejects a job not registered in the active catalog.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_jobs_reference_catalog"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "enqueue"
+    }
+  ],
+  "reference": "JobDefinition constants from the control-plane catalog, cited in enqueue(job=...) / ModuleSpec(jobs=[...]); the runtime half is terp.core.enqueue.",
+  "opt_out": "# arch-allow-jobs-reference-catalog: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "enqueue is the single producer chokepoint and fails closed on a job the active JobCatalog does not register (the job analogue of emit); execution re-checks (run_job raises JobError on a stale envelope), and boot refuses a ModuleSpec whose declared jobs miss the catalog (ControlPlane.validation_errors)."
+  },
+  "guide_topic": "jobs",
+  "corpus": true
+}

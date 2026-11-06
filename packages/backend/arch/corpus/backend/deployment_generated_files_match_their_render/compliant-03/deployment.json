@@ -1,0 +1,4 @@
+{
+  "unmanaged": true,
+  "reason": "Built and deployed by the operator's own pipeline."
+}

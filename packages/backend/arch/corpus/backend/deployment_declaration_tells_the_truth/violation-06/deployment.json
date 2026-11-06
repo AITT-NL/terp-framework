@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "build": "own",
+  "compose": {
+    "file": "docker-compose.prod.yml"
+  },
+  "units": [
+    {
+      "id": "db",
+      "role": "database",
+      "kind": "postgres",
+      "version": "17",
+      "stateful": true,
+      "backup": {
+        "every": "P1D",
+        "keep": "P30D"
+      }
+    },
+    {
+      "id": "api",
+      "role": "api",
+      "healthPath": "/health/ready",
+      "livenessPath": "/health/live",
+      "migrations": ["notes", "tasks"],
+      "env": ["SOME_API_BASE_URL"],
+      "instances": "one",
+      "size": "small",
+      "dependsOn": ["db"]
+    },
+    {
+      "id": "worker",
+      "role": "worker",
+      "command": ["terp", "jobs", "run"],
+      "dependsOn": ["db"]
+    },
+    {
+      "id": "web",
+      "role": "web",
+      "dependsOn": ["api"]
+    }
+  ],
+  "volumes": [
+    {
+      "id": "files",
+      "backup": {
+        "every": "P1D",
+        "keep": "P30D"
+      }
+    }
+  ],
+  "sizes": {
+    "small": {
+      "cpu": 0.5,
+      "memoryMiB": 512
+    }
+  },
+  "rollback": {
+    "strategy": "redeploy-previous-release"
+  }
+}

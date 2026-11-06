@@ -1,0 +1,27 @@
+{
+  "id": "backend/no_raw_file_references",
+  "surface": "backend",
+  "title": "A table model's file-pointer column is a declared file reference, never a bare id column",
+  "intent": "A stored pointer to a file object carries authorization semantics: the files capability serves delegated reads only through a declared reference, failing closed on an undeclared column. A bare id-typed file-pointer column on a table model is an undeclared reference: nothing ties the file's access to the referencing row, which is the classic object-level (BOLA) drift. Declare the column with the files capability's reference type so the pointer is greppable, verified at runtime, and served through the module's own already-authorized row — never hand-rolled. A non-table schema (a read DTO exposing the pointer) is fine and not policed; only the persisted column is.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_raw_file_references"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.capabilities.files",
+      "ref": "load_for"
+    }
+  ],
+  "reference": "FileRef(...) from terp-cap-files declares the column; FileService.load_for fail-closes on an undeclared *file_id column (ADR 0057).",
+  "opt_out": "# arch-allow-no-raw-file-references: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "Delegated reads fail closed on an undeclared reference column: FileService.load_for serves a file only through a FileRef-declared column (UndeclaredFileReferenceError otherwise, ADR 0057), so a bare uuid column never acquires read-delegation semantics."
+  },
+  "guide_topic": "files",
+  "corpus": true
+}

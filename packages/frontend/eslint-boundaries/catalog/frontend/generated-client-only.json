@@ -1,0 +1,26 @@
+{
+  "id": "frontend/generated-client-only",
+  "surface": "frontend",
+  "title": "All network egress goes through the generated, typed client",
+  "intent": "Raw fetch / XMLHttpRequest / WebSocket / EventSource (and navigator.sendBeacon) bypass the app's single audited, typed egress path. One client means one place for auth, errors, and contract types. The refused globals and member calls are declared in restricted-surface.json (restrictedGlobals, restrictedMemberCalls).",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "@terpjs/eslint-boundaries",
+      "ref": "BOUNDARY_SPEC.restrictedGlobals",
+      "reported_as": "no-restricted-globals"
+    }
+  ],
+  "reference": "useTerpClient() + unwrap from @terpjs/react-core for request/response; useRealtimeChannel() from @terpjs/react-core for typed SSE/WebSocket subscriptions (one-use ticket minted through the generated client).",
+  "opt_out": "// terp-allow-generated-client-only: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "In the running bundle the sanctioned generated client is itself built on fetch, so egress-primitive use cannot be attributed to an app module from inside the app. One typed egress path is an authoring contract; network policy beyond it (CSP connect-src) is deployment configuration the framework does not own per module."
+  },
+  "restricted_surface": [
+    "restrictedGlobals",
+    "restrictedMemberCalls"
+  ],
+  "corpus": true
+}

@@ -1,0 +1,12 @@
+[
+  {
+    "rule": "backend/input_schemas_exclude_managed_columns",
+    "path": "modules/notes/router.py",
+    "line": 7
+  },
+  {
+    "rule": "backend/input_schemas_exclude_managed_columns",
+    "path": "modules/notes/router.py",
+    "line": 8
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "SOME_API_BASE_URL": {
+      "type": "string",
+      "description": "Where the worker reaches the partner service.",
+      "services": ["worker"]
+    }
+  },
+  "required": []
+}

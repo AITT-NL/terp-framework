@@ -1,0 +1,21 @@
+{
+  "id": "backend/no_cross_module_imports",
+  "surface": "backend",
+  "title": "A module imports a sibling only across an edge it declared",
+  "intent": "Modules are independent by default; a real dependency is DECLARED, never implicit. The depending module names the sibling as a dependency edge in its own manifest, which puts the coupling where a reader already looks; an undeclared sibling import is refused. Both absolute and relative sibling imports are caught: a relative import is resolved to its absolute module first, so renaming the import style does not re-couple two leaf modules. The declaration is read from source, so one a static reader cannot resolve grants nothing (fail closed).",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_cross_module_imports"
+    }
+  ],
+  "opt_out": "# arch-allow-no-cross-module-imports: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "Whether an edge was declared is an import-graph property of the source tree. At runtime the composed app legitimately holds every module in one process, so a cross-module reference is indistinguishable from composition itself."
+  },
+  "guide_topic": "dependencies",
+  "corpus": true
+}

@@ -1,0 +1,25 @@
+{
+  "id": "frontend/token-styled-elements",
+  "surface": "frontend",
+  "title": "Raw interactive/structural HTML elements are refused in app modules",
+  "intent": "A raw <button>/<input>/<select>/<textarea>/<table>/<dialog>/<form>/<meter> bypasses the app's sanctioned, token-styled primitive surface (accessible and theme-consistent by construction). The refused elements are declared in restricted-surface.json (restrictedElements); each has a sanctioned replacement in the stack's component surface, and the violation message names it.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "@terpjs/eslint-boundaries",
+      "ref": "BOUNDARY_SPEC.restrictedElements",
+      "reported_as": "no-restricted-syntax"
+    }
+  ],
+  "reference": "Button, Input, Select, Textarea, DataView, ConfirmDialog, Stack as=\"form\" and Meter from @terpjs/react-core (BOUNDARY_SPEC.restrictedElements maps each element to its replacement).",
+  "opt_out": "// terp-allow-token-styled-elements: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The sanctioned components themselves render the raw elements into the built DOM -- every button on screen is legitimate output of Button. Compilation erases which JSX authored a node, and third-party components legitimately render the same primitives, so a DOM scan cannot soundly attribute a raw element to app authorship (unlike the layout contract's slot check, which verifies the identity of sanctioned components at one owned seam)."
+  },
+  "restricted_surface": [
+    "restrictedElements"
+  ],
+  "corpus": true
+}

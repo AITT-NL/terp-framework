@@ -3,7 +3,7 @@
 - **Status:** Accepted for building on 2026-11-06. The owner approved the follow-up
   [ADR 0204](0204-a-statistic-is-declared-on-the-service-like-a-filter.md) recorded; the
   choices below were made in the build and are the owner's to review, the two open questions
-  first. Built in 0.37.0 (unreleased). An independent review of the first build found three
+  first. Built in 0.37.0. An independent review of the first build found three
   runtime regressions and four claims the code did not support. Each is fixed below (see
   *What the review changed*).
 - **Date:** 2026-11-06.

@@ -66,10 +66,11 @@ A few expectations that save a review round:
 - **Prove a test can fail.** A test that passes against broken code is not
   evidence. Break the thing on purpose once, watch the test go red, and say so
   in the pull request.
-- **A new rule ships its catalog entry** in
-  [AITT-NL/terp-spec](https://github.com/AITT-NL/terp-spec), and its corpus
-  samples. The two repositories' CIs are circularly coupled — `AGENTS.md`
-  explains the push order.
+- **A new rule ships its catalog entry and its corpus cases** in the same pull
+  request, beside the checker that enforces it (ADR 0203): the backend catalog in
+  `packages/backend/arch/src/terp/arch/catalog/`, the frontend one in
+  `packages/frontend/eslint-boundaries/catalog/`, each corpus beside its package.
+  Regenerate the rule pages with `python tools/generate_rule_docs.py`.
 - **Keep the scope to the change.** A formatting pass over unrelated files makes
   a diff unreviewable, which is why `terp fmt` defaults to `--changed`.
 

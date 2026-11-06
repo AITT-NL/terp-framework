@@ -1,0 +1,21 @@
+{
+  "id": "frontend/no-unsafe-href",
+  "surface": "frontend",
+  "title": "javascript: URLs are refused in app modules",
+  "intent": "A javascript: href executes script on click \u2014 an XSS vector that survives the framework's attribute escaping. Links carry http(s), mailto, tel or in-app router paths only.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "@terpjs/eslint-boundaries",
+      "ref": "terp/no-unsafe-href",
+      "reported_as": "terp/no-unsafe-href"
+    }
+  ],
+  "opt_out": "// terp-allow-no-unsafe-href: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The refusal is of authoring javascript: URLs in source. Data-driven links are the sanctioned components' own concern (the Markdown component strips unsafe protocols at render -- its control, not this rule's), and raw anchors are refused wholesale in app modules anyway."
+  },
+  "corpus": true
+}

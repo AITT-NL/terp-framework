@@ -1,0 +1,25 @@
+{
+  "id": "frontend/no-inline-styling",
+  "surface": "frontend",
+  "title": "style and className attributes are refused in app modules",
+  "intent": "A style or className attribute is a side channel into hand-authored CSS that drifts per screen; styling flows from the app's design tokens and sanctioned layout primitives only. The refused attributes are declared in restricted-surface.json (restrictedAttributes).",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "@terpjs/eslint-boundaries",
+      "ref": "BOUNDARY_SPEC.restrictedAttributes",
+      "reported_as": "no-restricted-syntax"
+    }
+  ],
+  "reference": "Layout via Stack, DetailList and the page archetypes from @terpjs/react-core; theming via the app's token source.",
+  "opt_out": "// terp-allow-no-inline-styling: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "style/className are authoring-surface attributes: the token pipeline itself emits inline styles and class names into the built DOM, so their presence at runtime is legitimate and unattributable to app authorship."
+  },
+  "restricted_surface": [
+    "restrictedAttributes"
+  ],
+  "corpus": true
+}

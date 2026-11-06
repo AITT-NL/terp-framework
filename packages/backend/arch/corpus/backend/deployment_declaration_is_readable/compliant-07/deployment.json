@@ -1,0 +1,43 @@
+{
+  "$schema": "https://terp.dev/spec/deployment-declaration.schema.json",
+  "$comment": "Three APIs, no frontend, a role nobody has heard of.",
+  "schemaVersion": 1,
+  "build": "own",
+  "compose": {
+    "file": "docker-compose.prod.yml",
+    "$comment": "the hardened profile"
+  },
+  "units": [
+    {
+      "id": "public-api",
+      "role": "api",
+      "instances": "many",
+      "$comment": "scales behind the shared store"
+    },
+    {
+      "id": "admin-api",
+      "role": "api"
+    },
+    {
+      "id": "partner-api",
+      "role": "api",
+      "instances": "one"
+    },
+    {
+      "id": "cache",
+      "role": "store",
+      "kind": "redis",
+      "version": "7",
+      "stateful": true
+    },
+    {
+      "id": "scanner",
+      "role": "virus-scanner"
+    },
+    {
+      "id": "files-db",
+      "role": "database",
+      "stateful": true
+    }
+  ]
+}

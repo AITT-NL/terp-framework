@@ -13,7 +13,7 @@ import { SPEC_VERSION } from "./spec.js";
 
 // The machine-readable boundary lint (the frontend analog of `terp check --format json`):
 // the findings envelope publishes the evaluated-rule inventory + findings attributed to
-// stack-neutral catalog ids, humans keep stderr, and the exit code stays the verdict.
+// catalog ids, humans keep stderr, and the exit code stays the verdict.
 
 const SPEC_ROOT = path.dirname(
   createRequire(import.meta.url).resolve("@terpjs/spec/package.json"),

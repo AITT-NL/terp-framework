@@ -1,0 +1,32 @@
+{
+  "id": "backend/schemas_exclude_sensitive_fields",
+  "surface": "backend",
+  "title": "A read / response DTO never exposes a credential-shaped field",
+  "intent": "Routes serialize a response DTO out of the boundary, so a field whose name reads like a secret — a password, a password hash, or a *secret / *api_key / *token suffix — would leak the credential to every caller. A response DTO is a schema in the response role: a read/response base schema or any class wired as a route's declared response type (so an input DTO mistakenly reused as a response is caught), excluding the inputs that are only ever request bodies (a client supplies a password) and table models (a table may store the hash). Plain helper classes are not policed. This guards the gap response_model_not_table_model leaves: a hand-rolled read DTO that copies the stored hash. (Version counters are integers, not secrets.)",
+  "layer": "black-box",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_schemas_exclude_sensitive_fields"
+    },
+    {
+      "kind": "black-box",
+      "tool": "@terpjs/conformance",
+      "ref": "standard: responses never expose credential-shaped fields"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "validate_schemas_exclude_sensitive_fields"
+    }
+  ],
+  "reference": "BaseSchema / BaseUpdateSchema models and response_model= classes are scanned for password / hashed_password / *secret / *api_key / *token field names; request-body-only inputs and table=True models are excluded.",
+  "opt_out": "# arch-allow-schemas-exclude-sensitive-fields: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "At boot, the route scan on the composition seam (the same seam as _validate_router_response_models) walks every composed route — decorator, imperative add_api_route, and nested included routers alike — and raises a BootError naming this rule and the route when a declared response DTO carries a credential-shaped field (the same underscore-delimited word match, with the token_version / version / trailing-token exclusions, as the build-time rule; framework-vetted terp.* DTOs exempt). The black-box probe remains a conformance-suite observation on top of this in-app fail-closed control."
+  },
+  "guide_topic": "module",
+  "corpus": true
+}

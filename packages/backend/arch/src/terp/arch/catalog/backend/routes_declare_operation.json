@@ -1,0 +1,27 @@
+{
+  "id": "backend/routes_declare_operation",
+  "surface": "backend",
+  "title": "Every route declares the operation it performs",
+  "intent": "A route's method and path say how to call it; nothing about them says what it does for the person calling it. Under this app's chosen coverage level, a route that declares no operation leaves that question permanently unanswered for anyone reading the permission surface rather than the source.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_routes_declare_operation"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "validate_declared_operations"
+    }
+  ],
+  "reference": "the operation(...) route-level marker, or for a canonical CRUD factory its *_operation= keywords, checked once the app's operations catalog opts into strict coverage.",
+  "opt_out": "# arch-allow-routes-declare-operation: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "Boot refuses a mounted route with no declared operation once the app's operations catalog opts into strict coverage; a lighter warn mode records the same gap without refusing the boot, and the coverage choice itself is optional, so an app that has not adopted it boots unchanged."
+  },
+  "guide_topic": "operations",
+  "corpus": true
+}

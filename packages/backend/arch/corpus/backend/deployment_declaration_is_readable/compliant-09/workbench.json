@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "compose": {
+    "file": "docker-compose.yml"
+  },
+  "services": [
+    {
+      "service": "api",
+      "role": "api"
+    }
+  ]
+}

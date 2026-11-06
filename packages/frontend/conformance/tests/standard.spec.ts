@@ -2,10 +2,9 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
 
 import { ADMIN, assertNotThrottled } from "../src/index";
 
-// Terp Standard black-box probes (spec/catalog entries with layer "black-box"): these
-// invariants are observable on a RUNNING app with no source access, so they are portable to
-// any stack — this file is the reference realisation the catalog's `black-box` enforcement
-// entries point at. Like auth.spec.ts, the probes use only the base profile (auth + the
+// Black-box probes (catalog entries with layer "black-box"): these invariants are observable
+// on a RUNNING app with no source access, and this file is where the catalog's `black-box`
+// enforcement entries point. Like auth.spec.ts, the probes use only the base profile (auth + the
 // seeded admin) plus the `users` capability every generated app starts with, so they stay
 // app-agnostic. Each test title is the catalog entry's enforcement `ref`.
 
@@ -19,7 +18,7 @@ async function bearer(request: APIRequestContext): Promise<{ Authorization: stri
   return { Authorization: "Bearer " + access_token };
 }
 
-// spec/catalog/backend/list_routes_paginate.json
+// packages/backend/arch/src/terp/arch/catalog/backend/list_routes_paginate.json
 test("standard: list routes return a capped Page envelope", async ({ request }) => {
   const headers = await bearer(request);
 
@@ -37,7 +36,7 @@ test("standard: list routes return a capped Page envelope", async ({ request }) 
   expect(oversized.status()).toBe(422);
 });
 
-// spec/catalog/backend/safe_methods_are_read_only.json
+// packages/backend/arch/src/terp/arch/catalog/backend/safe_methods_are_read_only.json
 test("standard: safe methods observably mutate nothing", async ({ request }) => {
   const headers = await bearer(request);
 
@@ -55,7 +54,7 @@ test("standard: safe methods observably mutate nothing", async ({ request }) => 
   expect(after.items.length).toBe(before.items.length);
 });
 
-// spec/catalog/backend/schemas_exclude_sensitive_fields.json
+// packages/backend/arch/src/terp/arch/catalog/backend/schemas_exclude_sensitive_fields.json
 const SENSITIVE_KEY = new RegExp(
   "(?:^|_)(?:password|passwd|pwd|passphrase|secret|salt|api_key|apikey" +
     "|private_key|privatekey|credentials?)(?:$|_)|(?:^|_)token$",

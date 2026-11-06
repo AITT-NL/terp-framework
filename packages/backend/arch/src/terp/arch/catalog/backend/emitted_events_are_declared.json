@@ -1,0 +1,22 @@
+{
+  "id": "backend/emitted_events_are_declared",
+  "surface": "backend",
+  "title": "A module emits only the events its manifest declares",
+  "intent": "The manifest's emits list is the module's published contract: it is what the control plane validates, what an operator reads to know what a module produces, and what another team subscribes against. An emit the manifest never declared makes that contract quietly untrue — the event really does go out, so nothing fails, while the document everyone reasons from says it cannot happen. The rule compares every event constant an emit call or lifecycle event map names inside a module package against that module's declared emits.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_emitted_events_are_declared"
+    }
+  ],
+  "reference": "ModuleSpec(emits=[...]) in modules/<name>/module.py, compared against emit(event=...) and LifecycleEventMap(created=/updated=/deleted=...) references in the same module package.",
+  "opt_out": "# arch-allow-emitted-events-are-declared: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "emit() carries no module identity at the call site, so the running system cannot attribute an emit to the manifest that should have declared it; the association exists only in the source layout (which module package the call lives in). Adding a module handle to emit() to make it runtime-checkable would put the answer in the caller's hands, which is exactly what the rule is verifying."
+  },
+  "guide_topic": "events",
+  "corpus": true
+}

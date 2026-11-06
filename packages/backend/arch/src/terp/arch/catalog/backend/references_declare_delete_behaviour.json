@@ -1,0 +1,23 @@
+{
+  "id": "backend/references_declare_delete_behaviour",
+  "surface": "backend",
+  "title": "Every stored reference declares what a delete of its target does, and can do it",
+  "intent": "A foreign key has a referential action whether or not anyone chose one: SQL supplies NO ACTION when nobody does, and the action you get by not choosing is indistinguishable in the source from the action you chose. A reader cannot tell a deliberate \"the database takes no action here, the owning service handles this\" from an oversight, and neither can a reviewer. Declare the behaviour on the column, so the decision is explicit, greppable and reviewable. The standard deliberately does NOT prefer an action: which one is correct is a property of what the reference means -- delete-with-parent for a component of its parent, refuse-the-delete for something the parent must not vanish underneath, blank-the-pointer for a reference allowed to go slack -- so every action is accepted, including the explicit form of the SQL default, and only the naming is enforced. Second condition: an action that cannot fire is not a declaration but a belief. Where the platform makes a delete a lifecycle stamp rather than a row removal (a soft-delete trait), no DELETE statement ever reaches the constraint, so every action whose value depends on firing is dead code against such a target -- delete-with-parent, blank-the-pointer and point-at-the-default alike, worst in the blank-the-pointer case, where the referencing rows keep a live pointer to a row that row-scoping now hides from every read, so the reference reads as broken rather than absent. The dividing line is not passive versus active: refuse-the-delete and explicit-no-action are accepted because they only ever described the hard-delete path, which nothing but an out-of-band deletion can reach. Against such a target, declare one of those as the backstop and perform the lifecycle cascade in the owning service.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_references_declare_delete_behaviour"
+    }
+  ],
+  "reference": "Ref(target, on_delete=OnDelete.<ACTION>) from terp.core declares the column, with on_delete as a required keyword so a missing decision is a TypeError where the model is defined; OnDelete offers CASCADE / RESTRICT / SET NULL / SET DEFAULT / NO ACTION. OnDelete.NO_ACTION is a full answer and emits no ON DELETE clause, so adopting the declaration on an existing schema needs no migration. SQLModel's own Field(foreign_key=..., ondelete=...) and a hand-built ForeignKey(..., ondelete=...) also count as declarations. terp.core.assert_references_declare_delete_behaviour audits live SQLAlchemy metadata for a consumer's own test suite. Recipe: terp guide references (ADR 0133).",
+  "opt_out": "# arch-allow-references-declare-delete-behaviour: <reason>",
+  "runtime": {
+    "applicability": "deferred",
+    "rationale": "A running system can observe an undeclared referential action from its own mapper metadata, and the reference implementation ships that audit as a callable helper. What it deliberately does not do is run it unconditionally at application boot, which is where the fail-closed control would belong: the shared model registry is process-global and accumulates every table any test in the process ever declares, so an unconditional walk would let one ad-hoc test fixture with a bare foreign key fail an unrelated later test that happens to build an application. The named seam is a boot check scoped to the application's own declared packages, which needs ownership information the composition root does not currently carry. Until then the build-time rule is the control, and it is strictly more capable in one respect a runtime check can never match: only the source distinguishes a deliberately declared no-action from an undeclared one, because both compile to the same schema.",
+    "tracking": "docs/decisions/0133-a-reference-declares-what-a-delete-of-its-target-does.md in the reference implementation, Consequences section: the boot check scoped to the app's own declared packages."
+  },
+  "guide_topic": "references",
+  "corpus": true
+}

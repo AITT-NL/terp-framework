@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/no_manual_ownership_checks",
+    "path": "modules/notes/service.py",
+    "line": 6
+  }
+]

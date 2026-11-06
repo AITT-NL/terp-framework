@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/references_declare_delete_behaviour",
+    "path": "modules/billing/models.py",
+    "line": 12
+  }
+]

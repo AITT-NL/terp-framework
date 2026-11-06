@@ -1,0 +1,22 @@
+{
+  "id": "backend/path_id_params_are_uuid",
+  "surface": "backend",
+  "title": "A route path parameter naming a resource id must be typed as a UUID",
+  "intent": "A URL path segment that names a resource id (spelled id or ending in _id) identifies a specific row, and the platform issues UUID identifiers. Typing that path parameter as a UUID rejects a malformed identifier at the request boundary, before it reaches the data layer, instead of letting an untyped or wrongly-typed value through. Only path parameters are in scope; query and body parameters are unaffected.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_path_id_params_are_uuid"
+    }
+  ],
+  "reference": "A handler parameter that also appears in the route decorator's URL template and is named id or ends in _id must be annotated uuid.UUID (a uuid.UUID attribute or a bare UUID name); a missing or non-UUID annotation is flagged at the handler.",
+  "opt_out": "# arch-allow-path-id-params-are-uuid: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The rule constrains the authored route signature (the declared parameter type), a source-form property of the handler rather than an observable runtime event; the framework does not re-derive intended id-parameter types at mount time, so a mis-typed parameter merely validates against the wrong type with no separate signal that a UUID was intended."
+  },
+  "guide_topic": "module",
+  "corpus": true
+}

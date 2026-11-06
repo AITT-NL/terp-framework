@@ -1,0 +1,27 @@
+{
+  "id": "backend/reads_use_base_query",
+  "surface": "backend",
+  "title": "A scope-trait model is read through the composed scoped query, never a raw query built from scratch",
+  "intent": "A model that mixes a soft-delete or tenant-scope trait carries row scope. A bespoke read that queries the model directly — instead of building on the composed scoped query — drops that scope, leaking soft-deleted or cross-tenant rows (closing the composition point to overrides did not close a new read method that never calls it). Build reads on the scoped query and the declared filter seam; the request session applies the scope to every ORM read as the runtime backstop (the mapped entities a statement reaches through its columns, joins, predicates and nested selects, aggregates included), and this rule is the build-time early warning. A read that names a scoped table only through its Core table reaches no mapped entity for the session to scope, so this rule is the only control for it, and only where the source names the model. The one sanctioned raw query — the scoped composition point itself — lives in the framework, not a module, so it is never scanned here.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_reads_use_base_query"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "apply_row_scope"
+    }
+  ],
+  "reference": "select(Model) on a SoftDeleteMixin / TenantScopedMixin model is refused in modules (ADR 0017, F1); build on base_query() / business_filters(), with apply_row_scope as the runtime backstop.",
+  "opt_out": "# arch-allow-reads-use-base-query: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "The request session scopes every ORM read at execution: apply_row_scope's predicates are applied as loader criteria to each mapped entity the statement reaches, in its columns, joins, predicates and nested selects, aggregates included. A bespoke select(Model), or an aggregate over a scoped model, that skipped base_query() is filtered for soft-delete and the registered predicates at execution, so the leak the rule warns about is closed even when the source pattern slips through. A read that reaches a scoped table only through its Core table names no mapped entity and is not scoped at runtime: the build-time check is the only control for that shape, and it sees the shape only where the source names the model."
+  },
+  "guide_topic": "service",
+  "corpus": true
+}

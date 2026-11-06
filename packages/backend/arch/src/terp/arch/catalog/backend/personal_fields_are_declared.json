@@ -1,0 +1,22 @@
+{
+  "id": "backend/personal_fields_are_declared",
+  "surface": "backend",
+  "title": "A model field named like personal data says whether it holds personal data",
+  "intent": "Personal data has no shape a redactor can find: an email address, a phone number or a date of birth is a string or a date like every other value, so a log, an audit trail or an event payload that leaves the process can withhold it only where the model holding it says which of its fields are personal. That declaration is made per field and per model, because a data-transfer model that redeclares a field without it has declared that field not personal, and a reader of the redeclaring model has nothing else to go on. So a field whose name says it holds a person's data is either declared personal on every model that declares it, or carries a justified opt-out stating why it holds no person's data (an organisation's shared mailbox is not a person's address). The name test is a fixed vocabulary matched against the last words of the field name, case-insensitively, at an underscore boundary: an email address (email, e_mail, emails, email_address, email_addresses), a phone number (phone, phones, phone_number, phone_numbers, telephone, telephone_number, mobile_number), a date of birth (date_of_birth, birth_date, birthdate, birthday, dob), a national identifier (national_id, national_id_number, national_identification_number, national_identity_number, social_security_number, ssn, bsn, passport_number), a person's name (first_name, last_name, full_name, given_name, family_name, middle_name, surname) and a home address (home_address, residential_address). So contact_email is in scope and email_verified is not: a flag about an address is not the address. The vocabulary is deliberately short, names that hold a person's data in nearly every application, and it is a floor rather than a definition of personal data: a postcode, a bare address or a bare name belongs to an organisation as often as to a person, and declaring those is left to the author. Only model classes are in scope: a persisted table, or a data-transfer or validation model, directly or through a model base defined in the same tree. A plain class, a record type that cannot carry the field declaration, and a function parameter are not.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_personal_fields_are_declared"
+    }
+  ],
+  "reference": "terp.core.Personal(...) declares the field: it is sqlmodel's Field with every keyword forwarded, and it records the declaration in the field's metadata (personal_fields(Model)) and in a table column's info (personal_columns()), so no DDL, JSON schema or OpenAPI document changes and no migration follows. What reads it: the log renders a declared field as [PERSONAL] in any model it is handed and withholds a value logged under a declared field's name; the audit trail keeps the key and drops the value; a model with a declared field hides its input in a validation error's text; a PUBLIC event or job may not declare one in its payload; redact_personal(payload) is the copy that may leave the process. The check accepts Personal(...) as the field's value or inside Annotated[...]; a class is a model when it is a table=True class or its bases reach SQLModel, BaseModel, BaseTable, BaseSchema or BaseUpdateSchema by name through the scanned tree. The three checks that read a field's keywords (input_str_fields_have_max_length, no_unique_columns_on_soft_delete_models, references_declare_delete_behaviour) read Personal as they read Field. Recipe: terp guide personal-data (ADR 0190).",
+  "opt_out": "# arch-allow-personal-fields-are-declared: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The rule accepts two answers, and the running system can see only one of them. A field declared personal is visible at runtime, and the reference implementation reads it there constructively: the log, the audit trail, validation errors and event definitions withhold what it marks. The other answer is a justified opt-out marker, which is a source comment: by the time the app runs, a field deliberately declared not personal is indistinguishable from one nobody looked at, so a runtime refusal could only refuse every justified opt-out. Whether a field named like personal data was decided about is a property of the authored source."
+  },
+  "guide_topic": "personal-data",
+  "corpus": true
+}

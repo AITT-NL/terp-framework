@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/expand_revisions_only_expand",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 2
+  }
+]

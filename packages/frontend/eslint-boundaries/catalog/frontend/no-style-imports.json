@@ -1,0 +1,24 @@
+{
+  "id": "frontend/no-style-imports",
+  "surface": "frontend",
+  "title": "Module-authored stylesheets are refused",
+  "intent": "Importing a stylesheet from an app module reintroduces per-screen CSS; theming flows from the app's token source only. The refused stylesheet extensions are declared in restricted-surface.json (styleImportExtensions).",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "@terpjs/eslint-boundaries",
+      "ref": "BOUNDARY_SPEC.styleImportPatterns",
+      "reported_as": "no-restricted-imports"
+    }
+  ],
+  "opt_out": "// terp-allow-no-style-imports: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "A stylesheet import is a build-graph edge; the bundler compiles it into the emitted CSS, after which module authorship does not exist."
+  },
+  "restricted_surface": [
+    "styleImportExtensions"
+  ],
+  "corpus": true
+}

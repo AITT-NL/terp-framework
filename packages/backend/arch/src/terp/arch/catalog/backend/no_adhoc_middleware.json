@@ -1,0 +1,27 @@
+{
+  "id": "backend/no_adhoc_middleware",
+  "surface": "backend",
+  "title": "App code never wires HTTP middleware itself; security is centralized",
+  "intent": "Cross-cutting HTTP security (headers, CORS, rate-limit, body-size, request-id) is declared once as central security configuration and installed at composition. A module that registers middleware itself — by call, decorator, or subclassing — is assembling a security posture outside that single control plane.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_adhoc_middleware"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "freeze_app_middleware_registration"
+    }
+  ],
+  "reference": "SecurityConfig declared once and installed by create_app; add_middleware(...), the @app.middleware(\"http\") decorator, and BaseHTTPMiddleware subclasses are refused in app modules. On the composed app both registration spellings raise BootError at runtime; create_app's middleware parameter is the one sanctioned composition seam.",
+  "opt_out": "# arch-allow-no-adhoc-middleware: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "The composition freeze covers the middleware seam: on the composed app, add_middleware(...) and the @app.middleware(...) decorator are replaced by refusers that raise a BootError naming this rule and the sanctioned alternative (create_app's middleware parameter) -- so middleware registered between composition and serving is refused fail-closed, not just flagged at build time."
+  },
+  "guide_topic": "capability",
+  "corpus": true
+}

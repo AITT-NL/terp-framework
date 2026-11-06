@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_empty_tests",
+  "surface": "backend",
+  "title": "Every test must assert a real outcome",
+  "intent": "A test whose body is empty, is only a docstring or a bare pass, or asserts a constant that can never fail, passes unconditionally — it exercises nothing yet reports green, giving false confidence that the behaviour it names is covered. A test must drive real behaviour and assert a real result.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_empty_tests"
+    }
+  ],
+  "reference": "A test_* function with an empty body, a lone pass, or a single assertion of a constant truthy value is refused. The scan covers every test_*.py file — the test tree the other source rules deliberately skip.",
+  "opt_out": "# arch-allow-no-empty-tests: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The invariant is a property of the authored test source, evaluated at build time in the test suite itself; there is no production runtime seam that observes whether a test asserts anything. Only a source-form check can see the empty body."
+  },
+  "guide_topic": "rules",
+  "corpus": true
+}

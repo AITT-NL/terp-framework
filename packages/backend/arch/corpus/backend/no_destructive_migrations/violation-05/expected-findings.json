@@ -1,0 +1,12 @@
+[
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 2
+  },
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 3
+  }
+]

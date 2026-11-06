@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_raw_outbound_http",
+  "surface": "backend",
+  "title": "App modules do not import raw HTTP clients; outbound calls use a capability",
+  "intent": "Directly importing an HTTP client library — or the lower-level socket / protocol primitives that reach the same network, the standard library's mail client among them — makes SSRF protection, allowlists, encryption and certificate checks, egress auditing, and timeout policy a per-call-site choice. Outbound traffic belongs behind a declared capability that centralizes those controls. As a security rule this also scans test and migration files inside a module — they are importable code, so they are application surface too.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_raw_outbound_http"
+    }
+  ],
+  "reference": "httpx / httpx2 / requests / urllib.request / urllib3 / aiohttp imports and the socket / http.client escape routes are refused in app modules, and so is smtplib; outbound HTTP goes through a declared egress capability, and outbound mail through a declared mail capability.",
+  "opt_out": "# arch-allow-no-raw-outbound-http: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "Import-form rule: the sanctioned egress capability itself drives an HTTP client at runtime, so client presence and traffic cannot be attributed to an app module from inside the process. Network-level egress policy is deployment configuration, not a per-module framework seam."
+  },
+  "guide_topic": "capability",
+  "corpus": true
+}

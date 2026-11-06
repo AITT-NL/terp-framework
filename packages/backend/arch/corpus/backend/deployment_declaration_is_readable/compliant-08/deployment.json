@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "build": "own",
+  "compose": {
+    "file": "docker-compose.prod.yml",
+    "overrides": ["docker-compose.restart.yml"]
+  },
+  "units": [
+    {
+      "id": "migrate",
+      "role": "one-shot"
+    },
+    {
+      "id": "api",
+      "role": "api",
+      "healthPath": "/health/ready",
+      "dependsOn": ["migrate"]
+    },
+    {
+      "id": "web",
+      "role": "web",
+      "dependsOn": ["api"]
+    }
+  ],
+  "externalDatabase": {
+    "backup": "client"
+  }
+}

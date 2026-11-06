@@ -1212,8 +1212,8 @@ function escapeRegExp(s) {
 
 /**
  * The `no-restricted-syntax` realisation of the BOUNDARY_SPEC families, each entry tagged
- * with the Terp Standard catalog rule it realises (`spec/catalog/frontend/<rule>.json`) so
- * a reported message stays attributable to its stack-neutral rule id (see
+ * with the catalog rule it realises (`catalog/frontend/<rule>.json`) so
+ * a reported message stays attributable to its catalog rule id (see
  * {@link catalogRuleId}). {@link restrictedSyntax} strips the tag for the ESLint config.
  */
 function restrictedSyntaxWithCatalogIds() {
@@ -1385,7 +1385,7 @@ const CATALOG_ID_BY_SYNTAX_MESSAGE = new Map(
 );
 
 /**
- * The Terp Standard catalog rule id (`frontend/<rule>`, per `spec/catalog/frontend/`) a
+ * The catalog rule id (`frontend/<rule>`, per `catalog/frontend/`) a
  * reported ESLint message realises, or null for a message outside the boundary. This is the
  * adapter's published `reported_as -> catalog id` mapping: several catalog rules share a core
  * ESLint rule id (`no-restricted-syntax` / `no-restricted-imports` / `no-restricted-globals`),
@@ -1425,7 +1425,7 @@ export function catalogRuleId(message) {
  * inventory a boundary lint run publishes in its findings envelope (see ./findings.js):
  * a consumer joining findings to the catalog reads the inventory from the run itself, so
  * a per-rule "pass" can never be claimed for a rule this adapter never ran (fail closed
- * under version skew). Parity with `spec/catalog/frontend/` is locked by findings.test.js.
+ * under version skew). Parity with `catalog/frontend/` is locked by findings.test.js.
  */
 export function catalogRuleIds() {
   return [
@@ -1443,7 +1443,7 @@ export function catalogRuleIds() {
 /** The marker name a message answers to: its catalog rule name, or null when unwaivable.
  *
  * Suppression attributes markers exactly the way findings are attributed — through
- * {@link catalogRuleId} — so a marker names the stack-neutral catalog rule
+ * {@link catalogRuleId} — so a marker names the catalog rule
  * (`terp-allow-token-styled-elements`). One marker therefore covers every detection
  * path of its rule and cannot waive a sibling rule that shares a core lint id.
  * A message outside the boundary is not waivable by the terp escape hatch at all, and
@@ -1528,7 +1528,7 @@ export function parseAllowMarkers(text) {
  * Apply the governed escape hatch to a lint result (the frontend analog of the backend's
  * justified `# arch-allow-<rule>: <reason>` suppressions): a marker with a reason, on the
  * violating line or the line immediately above, suppresses that rule there. The marker names
- * the CATALOG rule (see {@link suppressibleRuleName}), so `spec/catalog/frontend/<rule>.json`'s
+ * the CATALOG rule (see {@link suppressibleRuleName}), so `catalog/frontend/<rule>.json`'s
  * `opt_out` spelling is the one that works — for every detection path of the rule at once.
  * An unjustified marker (no reason) is itself reported — never silently honoured — and so
  * is a marker naming no governed rule (a typo, a stale name, or a pre-0.6.0 core-id

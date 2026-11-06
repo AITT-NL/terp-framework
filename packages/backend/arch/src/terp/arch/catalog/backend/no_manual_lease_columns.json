@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_manual_lease_columns",
+  "surface": "backend",
+  "title": "Application tables do not re-derive leases; expiring custody of work is a platform primitive",
+  "intent": "Exclusive, time-bounded custody of a unit of work belongs to the platform, not to each table that needs it. An application table must not declare its own lease bookkeeping \u2014 a holder column paired with an expiry, a heartbeat stamp, or an equivalent claim deadline \u2014 because the hand-rolled form reliably omits the part that makes a lease safe. Expiry alone establishes that a holder may have died; it does not prevent that holder, if it merely paused, from waking after its deadline and completing work a successor has already taken over. A conformant platform supplies custody that is fenced (a monotonic grant token every write is matched against, so a superseded holder is refused rather than trusted), taken atomically with the state change it guards, renewable by a heartbeat that fails closed when the grant is lost, and recoverable \u2014 an expired grant must trigger the owning domain's declared recovery, so work a crashed holder abandoned returns to a retryable state instead of requiring manual repair. Platform-owned delivery infrastructure that claims batches of its own rows, and needs no domain recovery, is a reviewed exception rather than an application pattern.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_manual_lease_columns"
+    }
+  ],
+  "reference": "LeaseResource names the leased row or domain mutex; hold_lease / acquire_lease take it through the configured LeaseStore, LeaseGuard.heartbeat renews it and raises when the grant was lost, and register_lease_reaper declares the per-kind recovery an expiry triggers. terp-cap-leases keeps the grants in the app's own database so a claim commits with the row change it protects.",
+  "opt_out": "# arch-allow-no-manual-lease-columns: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "Column presence is observable at runtime but not attributable. Composition shares one model-metadata registry across every installed distribution, and the platform's own durable-delivery table legitimately declares exactly these columns for its batch claim \u2014 so a running app cannot tell an application's hand-rolled lease from the framework's sanctioned one (the same non-attribution as the import-form egress and background-runtime rules). Nor can a module manifest close the gap: it carries routers and jobs, never a model reference to attribute a column through. The lease seam's own fail-closed controls \u2014 the fence that refuses a superseded holder's write, the heartbeat that raises rather than returning a flag, and the boot guard that refuses a store whose grants die with their holder \u2014 protect the sanctioned path; they cannot see a table that never joined it. The paired protection is therefore constructive rather than preventive: a maintained primitive that is strictly better than the hand-rolled shape, offered where the hand-rolled shape used to be the only option."
+  },
+  "guide_topic": "leases",
+  "corpus": true
+}

@@ -344,11 +344,9 @@ def _check_report_schema() -> dict:
 
 def test_spec_version_constants_match_the_pinned_spec() -> None:
     # The drift lock for the coupled pin bump: the constants the check reports
-    # carry must equal the pinned terp-spec release. Deliberately NOT part of
-    # test_spec_catalog.py — the spec repo's certify-against-reference runs that
-    # file against CANDIDATE spec versions, which are allowed to be newer; this
-    # framework-gate-only test is what forces the constants to move together
-    # with the pins.
+    # carry name the check-report format they follow, so they must equal the
+    # pinned contracts release (terp-spec, ADR 0203). This is what forces the
+    # constants to move together with the pins.
     import re as _re
 
     import terp_spec
@@ -413,7 +411,7 @@ def test_check_report_envelope_validates_against_the_spec_schema(
     tmp_path: pathlib.Path,
 ) -> None:
     # Held to app-check-report.schema.json field by field (the same manual
-    # discipline test_spec_corpus applies to the finding format), so the emitted
+    # discipline test_rule_corpus applies to the finding format), so the emitted
     # document can never drift from the published contract.
     import re as _re
 

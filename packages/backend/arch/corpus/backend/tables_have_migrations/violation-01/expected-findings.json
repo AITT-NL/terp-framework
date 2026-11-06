@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/tables_have_migrations",
+    "path": "modules/notes/models.py",
+    "line": 5
+  }
+]

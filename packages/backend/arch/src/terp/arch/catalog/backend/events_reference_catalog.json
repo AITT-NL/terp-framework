@@ -1,0 +1,27 @@
+{
+  "id": "backend/events_reference_catalog",
+  "surface": "backend",
+  "title": "Emitted / subscribed events are typed catalog constants, never bare strings",
+  "intent": "The event bus carries the same no-drift guarantee as the permission model: every event a module emits or subscribes to is a typed definition from the control-plane catalog. The rule forbids a bare string (or an inline, ad hoc definition) wherever an event is named — the event argument of an emit call, the argument of a subscribe decorator, the emits / subscribes lists of the module manifest, and the lifecycle event map — so an event name can never drift in outside the catalog.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_events_reference_catalog"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "emit"
+    }
+  ],
+  "reference": "EventDefinition constants from the control-plane catalog, cited in emit(...) / subscribe(...) / ModuleSpec(emits=..., subscribes=...) / LifecycleEventMap(...); the runtime half is terp.core.emit.",
+  "opt_out": "# arch-allow-events-reference-catalog: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "emit() is the single producer chokepoint and fails closed on an event that is unknown to -- or shadows -- the registered EventCatalog entry; boot additionally refuses a ModuleSpec whose declared emits/subscribes miss the catalog (ControlPlane.validation_errors)."
+  },
+  "guide_topic": "events",
+  "corpus": true
+}

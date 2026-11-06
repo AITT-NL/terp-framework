@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/input_str_fields_have_max_length",
+    "path": "modules/crm/schemas.py",
+    "line": 5
+  }
+]

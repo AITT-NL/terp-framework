@@ -1,0 +1,21 @@
+{
+  "id": "frontend/no-eval",
+  "surface": "frontend",
+  "title": "eval() and new Function() are refused in app modules",
+  "intent": "Runtime code evaluation defeats every static guarantee the boundary provides and is a classic injection primitive. There is no sanctioned dynamic-code path in an app module.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "@terpjs/eslint-boundaries",
+      "ref": "terp/no-eval",
+      "reported_as": "terp/no-eval"
+    }
+  ],
+  "opt_out": "// terp-allow-no-eval: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The prohibition is on authoring dynamic-code primitives in app modules \u2014 a source-form fact. In the running bundle the primitive itself is a platform global the framework cannot remove, and legitimately vendored code may reference it, so a runtime hook cannot attribute authorship to an app module. Deployment-level CSP can harden the served app, but it is deployment configuration, not a control this framework owns per rule."
+  },
+  "corpus": true
+}

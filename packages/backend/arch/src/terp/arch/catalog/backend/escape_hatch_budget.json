@@ -1,0 +1,21 @@
+{
+  "id": "backend/escape_hatch_budget",
+  "surface": "backend",
+  "title": "Opt-out marker counts must exactly match the checked-in budget (a ratchet)",
+  "intent": "The budget is a checked-in per-app object mapping each opt-out marker to its count. Actual usage must equal it exactly: a marker that rose needs a justified budget bump in the same change; one that dropped must be lowered to lock in the win; an unbudgeted marker must be added with a justified count. This keeps every secure-by-default opt-out visible, greppable, and governed.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_escape_hatch_budget"
+    }
+  ],
+  "reference": "# arch-allow-<rule>: <reason> markers reconciled against the app's checked-in escape-hatch budget JSON (design §8). The rule carries no opt_out: governance cannot be waived by the mechanism it governs.",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The budget ratchet reconciles a checked-in governance file against source markers -- both sides are repository artifacts with no runtime counterpart. The controls the markers opt out of keep their own runtime halves regardless."
+  },
+  "guide_topic": "rules",
+  "corpus": true
+}

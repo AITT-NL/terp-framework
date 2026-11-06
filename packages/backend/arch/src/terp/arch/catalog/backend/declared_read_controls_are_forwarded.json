@@ -1,0 +1,22 @@
+{
+  "id": "backend/declared_read_controls_are_forwarded",
+  "surface": "backend",
+  "title": "A declared filter or sort must be reachable from an endpoint that forwards it",
+  "intent": "A read layer declares which fields a caller may narrow or order by, and an endpoint reaches those declarations by forwarding the caller's request into the read. A declaration no endpoint forwards is inert: the capability is described in the source, absent from the API, and silent about the difference. The failure is worse than an unimplemented feature because it presents as an implemented one — a client generated from the contract offers no way to sort, a screen built against it ships with every column's sorting disabled, and nothing in the read layer is wrong. Each declared filter and sort must therefore be reachable: a module that declares one and forwards none is rejected on the source, rather than discovered by a user who cannot order a list the code says is orderable.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_declared_read_controls_are_forwarded"
+    }
+  ],
+  "reference": "Judged per module and per control kind by PRESENCE, never by name: a module that declares a filter is required to forward a filters mapping somewhere within itself, and a module that declares a sort is required to forward a sort. The keyword is visible in the source even when the value handed to it is computed, which is what makes presence decidable where a per-name comparison is not — a mapping built elsewhere hides its names but not its existence, so requiring a specific declared name to appear at a call site would reject correct code. The pairing of one declaration to one endpoint is not statically knowable either, which is why the unit is the module that owns both.",
+  "opt_out": "# arch-allow-declared-read-controls-are-forwarded: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "There is nothing for a runtime check to observe. The defect is the ABSENCE of a call: a request that would have carried a filter or a sort never arrives, because the endpoint exposes no parameter for it, so no code path runs and no fail-closed control can fire. This is a build-time-only invariant by nature, not by omission — the counterpart rule that judges a forwarded name against the declarations is enforced at runtime precisely because there a request does reach the read layer."
+  },
+  "guide_topic": "service",
+  "corpus": true
+}

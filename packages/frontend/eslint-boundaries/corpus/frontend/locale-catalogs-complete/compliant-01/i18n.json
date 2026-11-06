@@ -1,0 +1,11 @@
+{
+  "sourceLocale": "en",
+  "locales": {
+    "en": { "label": "English" },
+    "nl": {
+      "label": "Nederlands",
+      "messages": { "widgets.title": "Widgets" },
+      "allowIdentical": ["widgets.title"]
+    }
+  }
+}

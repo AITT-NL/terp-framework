@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://terp.dev/spec/catalog/schema.json",
+  "title": "Terp Standard catalog entry",
+  "description": "One enforced Terp rule as data (ADR 0080). The file lives at catalog/<surface>/<rule>.json beside the checker that enforces it (ADR 0203: the backend half in terp-arch, the frontend half in @terpjs/eslint-boundaries), and its id must equal '<surface>/<rule>'.",
+  "type": "object",
+  "required": ["id", "surface", "title", "intent", "layer", "enforcement", "runtime", "corpus"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Rule id: backend/<snake_case> or frontend/<kebab-case>. Findings are attributed to this id (see ../findings.schema.json).",
+      "pattern": "^(backend/[a-z0-9_]+|frontend/[a-z0-9-]+)$"
+    },
+    "surface": { "enum": ["backend", "frontend"] },
+    "title": { "type": "string", "minLength": 1 },
+    "intent": { "type": "string", "minLength": 1 },
+    "layer": {
+      "description": "An estimate of the rule's porting cost to another stack (none exists): black-box (probe a running app), static-portable (generic source patterns), static-bespoke (needs deep framework knowledge).",
+      "enum": ["black-box", "static-portable", "static-bespoke"]
+    },
+    "enforcement": {
+      "description": "How the reference implementation enforces the rule today. At least one build-time entry; a 'runtime' entry records the fail-closed runtime half of the two-layer discipline, and a 'black-box' entry names the conformance-suite probe.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["kind", "tool", "ref"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": { "enum": ["build-time", "runtime", "black-box"] },
+          "tool": { "type": "string", "minLength": 1 },
+          "ref": { "type": "string", "minLength": 1 },
+          "reported_as": {
+            "type": "string",
+            "description": "Frontend build-time only: the ESLint rule id violations surface as. Several catalog rules share a core rule id, so conformance findings are attributed via the adapter's catalogRuleId mapping, never this field."
+          }
+        }
+      }
+    },
+    "runtime": {
+      "description": "The rule's runtime-applicability classification: whether the two-layer discipline pairs this build-time rule with a fail-closed runtime control. 'required' means the reference implementation owns such a control and the entry declares it (a kind 'runtime' enforcement entry whose ref must resolve — the parity test fails otherwise). 'not-applicable' means the invariant is a property of the authored artifact (source form, imports, markers, checked-in files) that is erased or already materialised by the time the app runs, so no runtime seam can enforce it — the rationale states why. 'deferred' means a runtime control would add independent fidelity on a seam the framework owns but has not shipped yet — an explicit, reviewed gap, never a silent one. Coherence is held by tests/architecture/test_rule_standard.py: 'required' iff a kind 'runtime' enforcement entry exists; an exemption always carries a rationale.",
+      "type": "object",
+      "required": ["applicability"],
+      "additionalProperties": false,
+      "properties": {
+        "applicability": { "enum": ["required", "not-applicable", "deferred"] },
+        "rationale": {
+          "type": "string",
+          "description": "Why the rule is exempt from the runtime half (mandatory for 'not-applicable' and 'deferred'; optional for 'required', e.g. to record which vector the control covers).",
+          "minLength": 1
+        },
+        "tracking": {
+          "type": "string",
+          "description": "Where the deferral is tracked (mandatory for 'deferred', held by tests/architecture/test_rule_standard.py): an issue URL, or the reference implementation's tracker document plus the named seam — so a deferred runtime control has a lifecycle instead of being an open-ended gap.",
+          "minLength": 1
+        }
+      }
+    },
+    "restricted_surface": {
+      "type": "array",
+      "description": "The restricted-surface.json keys this rule realises (frontend prohibition rules only). The structural half of the citation: tests/architecture/test_rule_standard.py resolves each key against the refused surface and requires every key to be claimed by some rule, so the linkage never depends on parsing prose.",
+      "minItems": 1,
+      "items": {
+        "enum": [
+          "restrictedElements",
+          "restrictedAttributes",
+          "restrictedGlobals",
+          "restrictedMemberCalls",
+          "styleImportExtensions",
+          "deepImportPathSegments"
+        ]
+      }
+    },
+    "reference": {
+      "type": "string",
+      "description": "Reference-implementation metadata: how the reference stack realises this rule — the compliant shape it offers (component / helper names), what its check flags, or what that check deliberately leaves alone. Not normative — the title and intent state the invariant. Deliberately one field rather than separate remediation and detection ones: entries carry both kinds of sentence, no consumer distinguishes them (the finding envelope sources fix_hint from the stack's guide topic, not from here), and the generated rule page renders it under a heading true of both.",
+      "minLength": 1
+    },
+    "opt_out": {
+      "type": "string",
+      "description": "The reference realisation of the abstract escape-hatch contract: a justified inline marker naming the CATALOG RULE NAME (the <rule> half of the id — never a tool-internal rule id, mirroring findings attribution), counted against the app's checked-in budget ratchet. Each surface realises the same contract in its own comment syntax; only the semantics are normative. Omitted exactly by the escape-hatch governance rules themselves (the budget ratchet, the ungoverned-marker condition) — governance cannot be waived by the mechanism it governs — and by a rule whose way out is its own subject (a migration revision that needs an operation off the expand list declares that it is not expand-only). tests/architecture/test_rule_standard.py holds both the derivation and the omissions, each list by name.",
+      "minLength": 1
+    },
+    "escape": {
+      "type": "string",
+      "description": "Normative: the governed way out of a rule whose subject is a checked-in declaration that cannot carry an inline marker (a JSON document has no comments), stated as a state of that declaration itself - typically opting the whole file out with a stated reason, which a tool then reports. Declared in place of opt_out, never beside it, and only by the rules tests/architecture/test_rule_standard.py lists as escaped by their declaration; the escape-hatch governance rules carry neither.",
+      "minLength": 1
+    },
+    "guide_topic": {
+      "type": "string",
+      "description": "Reference-implementation metadata (backend only): the `terp guide` topic teaching the compliant pattern. Not normative.",
+      "minLength": 1
+    },
+    "corpus": {
+      "type": "boolean",
+      "description": "Whether the surface's corpus has cases for this rule, corpus/<surface>/<rule>/ beside the package (held to the directory truth by tests/architecture/test_rule_standard.py; a covered rule needs at least one violation-* AND one compliant-* case)."
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "backend/modules_ship_tests",
+  "surface": "backend",
+  "title": "Every wired module ships at least one test of its own",
+  "intent": "The canonical module shape is five production files — models, schemas, service, router, manifest — and not one of them is a test, so a module could satisfy every structural rule in this Standard while shipping no tests at all. That is not a corner an application cuts by accident: a scaffolder that emits the canonical shape emits an untested module by default, and the gate then agrees with it. This rule closes the gap that no_empty_tests exposes — the Standard had an opinion about whether a test that exists can fail, and none about whether one exists. It asks only that the tests exist and are attributable to the module; whether they are any good is no_empty_tests and the application's own coverage gate.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_modules_ship_tests"
+    }
+  ],
+  "reference": "For every directory under modules/ that is a wired module (it ships a manifest or a mounted router — the same signal canonical_module_shape uses), the project's tests/ tree carries either a tests/<module>/ package containing at least one test_*.py, or a flat tests/test_<module>.py / tests/test_<module>_*.py. The per-module package is the canonical form and is what a scaffolder should emit; the flat form is recognised so that an application whose modules are in fact tested is not forced to justify them with a marker claiming they are not. The separator is required, so a module named as a prefix of another is not credited with its sibling's tests. Tests belong to the project's tests/ tree rather than the module directory, because a test that drives the composed application has to live where the application fixtures are; a reference checker resolves that tree beside the scanned root, and accepts one inside it so a corpus case can express the rule.",
+  "opt_out": "# arch-allow-modules-ship-tests: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "Repository-layout governance, like canonical_module_shape: whether a module has tests exists only in the source tree. Composition consumes the ModuleSpec object, which carries no memory of what was written about it, so no runtime seam can observe the absence."
+  },
+  "guide_topic": "testing",
+  "corpus": true
+}

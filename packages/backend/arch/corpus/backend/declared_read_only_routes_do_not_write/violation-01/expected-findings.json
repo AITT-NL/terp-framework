@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/declared_read_only_routes_do_not_write",
+    "path": "modules/notes/router.py",
+    "line": 4
+  }
+]

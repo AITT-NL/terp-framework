@@ -50,7 +50,7 @@ a guard to make a change pass:
 - **Two‑layer enforcement** — a rule whose invariant is observable at runtime is
   a fail‑closed runtime control *and* a build‑time test; never make the test the
   only control for such a rule. A source‑form rule is build‑time‑only by recorded
-  decision: the Terp Standard catalog classifies every rule
+  decision: the rule catalog classifies every rule
   (`runtime.applicability`, ADR 0084) and tests fail closed on a missing or
   contradictory classification.
 
@@ -87,12 +87,14 @@ the same change instead of weakening either guard.
 
 Source of truth: [AGENTIC_PLATFORM_DESIGN.md](../AGENTIC_PLATFORM_DESIGN.md);
 decisions in [docs/decisions/](../docs/decisions/). The rule catalog +
-violation corpus (the Terp Standard, ADRs 0080/0081) — written against this
-framework, not stack-neutral; ADR 0203 (accepted) moves it here — lives in
-[AITT-NL/terp-spec](https://github.com/AITT-NL/terp-spec) — a new rule ships
-with a catalog entry there, and corpus cases shrink its `corpus/PENDING.json`.
-The spec is consumed as a package (`terp-spec` / `@terpjs/spec`, published from
-the spec repo per ADR 0086 and pinned here), never a repo-relative path (ADR 0082).
+violation corpus (ADRs 0080/0081) live here, beside the checkers (ADR 0203): the
+backend catalog in `packages/backend/arch/src/terp/arch/catalog/`, the frontend one
+in `packages/frontend/eslint-boundaries/catalog/`, each corpus beside its package. A
+new rule ships its check, its catalog entry, its corpus cases and its regenerated rule
+page (`python tools/generate_rule_docs.py`) in one pull request. The contracts more
+than one program reads stay in [AITT-NL/terp-spec](https://github.com/AITT-NL/terp-spec),
+consumed as a package (`terp-spec` / `@terpjs/spec`, published from the spec repo per
+ADR 0086 and pinned here), never a repo-relative path (ADR 0082).
 Run the gate with `uv run coverage run -m pytest` followed by `uv run coverage
 report` — both, since the 100% bar is a separate control and a plain `pytest`
 run passes without it. Never `pytest --cov` (see `pyproject.toml` for why).

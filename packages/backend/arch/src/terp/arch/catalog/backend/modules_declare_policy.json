@@ -1,0 +1,26 @@
+{
+  "id": "backend/modules_declare_policy",
+  "surface": "backend",
+  "title": "Every module manifest declares an access policy",
+  "intent": "The deny-by-default posture hangs on the declaration: composition mounts a module's routes behind the guard its declared policy configures, so a module without one has no stated authority model at all — there is nothing to authorize against, and the framework refuses to guess. Requiring the declaration in the manifest keeps every module's access decision explicit, reviewable, and in one predictable place.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_modules_declare_policy"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "build_guard"
+    }
+  ],
+  "runtime": {
+    "applicability": "required"
+  },
+  "reference": "modules/<name>/module.py declares ModuleSpec(policy=Policy(...)); create_app mounts the router behind the guard built from it (build_guard).",
+  "opt_out": "# arch-allow-modules-declare-policy: <reason>",
+  "guide_topic": "policy",
+  "corpus": true
+}

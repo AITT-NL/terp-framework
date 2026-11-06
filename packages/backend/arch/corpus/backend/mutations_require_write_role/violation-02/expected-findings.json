@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/mutations_require_write_role",
+    "path": "modules/notes/module.py",
+    "line": 6
+  }
+]

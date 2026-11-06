@@ -1,53 +1,48 @@
 /**
- * The ESLint adapter is held to the Terp Standard's violation corpus (ADR 0080).
+ * The ESLint adapter is held to its violation corpus (ADR 0080, ADR 0203).
  *
- * `spec/corpus/frontend/<rule>/` holds violating and compliant sample module files — the
- * executable meaning of each frontend catalog entry. This test lints every case with the real
- * boundary config and applies the corpus contract in terms of the **stack-neutral catalog id**
- * (findings are attributed through the adapter's published {@link catalogRuleId} mapping, never
- * the raw ESLint rule id — several catalog rules share a core rule id):
+ * `corpus/frontend/<rule>/` (beside this package's sources) holds violating and compliant sample
+ * module files: the executable meaning of each frontend catalog entry in `catalog/frontend/`. This
+ * test lints every case with the real boundary config and applies the corpus contract in terms of
+ * the **catalog id** (findings are attributed through the adapter's published {@link catalogRuleId}
+ * mapping, never the raw ESLint rule id — several catalog rules share a core rule id):
  *
  * - every `violation-*` case produces at least one finding attributed to the entry's catalog id;
  * - every `compliant-*` case is completely clean (no messages at all).
  *
- * The same corpus certifies any future stack's adapter (e.g. a Svelte realisation of
- * BOUNDARY_SPEC). The backend half lives in `tests/architecture/test_spec_corpus.py`.
+ * The rules, their entries and their cases live together (ADR 0203), so a rule, its entry and its
+ * cases land in one change. The backend half lives in `tests/architecture/test_rule_corpus.py`.
  */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
 import { lintCaseFindings } from "./corpus-harness.js";
 
-// The spec is a declared dependency (@terpjs/spec, ADR 0082), never a repo-relative path.
-const SPEC_ROOT = path.dirname(
+const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const CATALOG = path.join(PACKAGE_ROOT, "catalog", "frontend");
+const CORPUS = path.join(PACKAGE_ROOT, "corpus", "frontend");
+// The finding format is a contract more than one program reads, so it stays in the shared
+// contracts package (ADR 0203), resolved as a declared dependency, never a repo path.
+const CONTRACTS_ROOT = path.dirname(
   createRequire(import.meta.url).resolve("@terpjs/spec/package.json"),
 );
-const CATALOG = path.join(SPEC_ROOT, "catalog", "frontend");
-const CORPUS = path.join(SPEC_ROOT, "corpus", "frontend");
 
 const catalogEntries = fs
   .readdirSync(CATALOG)
   .filter((name) => name.endsWith(".json"))
   .map((name) => JSON.parse(fs.readFileSync(path.join(CATALOG, name), "utf8")));
-const catalogIds = new Set(catalogEntries.map((entry) => entry.id));
-const entries = catalogEntries
-  .filter((entry) => entry.corpus);
-
-async function findingsForConsumedSpec(caseDir) {
-  return (await lintCaseFindings(caseDir)).filter(
-    (finding) => finding.rule === null || catalogIds.has(finding.rule),
-  );
-}
+const entries = catalogEntries.filter((entry) => entry.corpus);
 
 async function lintCase(caseDir) {
-  return (await findingsForConsumedSpec(caseDir)).map((finding) => finding.rule);
+  return (await lintCaseFindings(caseDir)).map((finding) => finding.rule);
 }
 
-describe("frontend corpus (spec/corpus/frontend)", () => {
+describe("frontend corpus (corpus/frontend)", () => {
   for (const entry of entries) {
     const rule = entry.id.split("/")[1];
     const ruleDir = path.join(CORPUS, rule);
@@ -65,11 +60,11 @@ describe("frontend corpus (spec/corpus/frontend)", () => {
   }
 });
 
-describe("findings round-trip (spec/findings.schema.json)", () => {
-  // The reference adapter's output, rendered as spec findings, must validate against the
-  // published finding format (ADR 0081) — the contract a Level 2 checker is certified on.
+describe("findings round-trip (findings.schema.json)", () => {
+  // The adapter's output, rendered as findings, must validate against the finding format, the
+  // contract every reader of a check report is held to.
   const schema = JSON.parse(
-    fs.readFileSync(path.join(SPEC_ROOT, "findings.schema.json"), "utf8"),
+    fs.readFileSync(path.join(CONTRACTS_ROOT, "findings.schema.json"), "utf8"),
   );
   const item = schema.items;
   const rulePattern = new RegExp(item.properties.rule.pattern);
@@ -80,7 +75,7 @@ describe("findings round-trip (spec/findings.schema.json)", () => {
       const ruleDir = path.join(CORPUS, entry.id.split("/")[1]);
       for (const caseName of fs.readdirSync(ruleDir).sort()) {
         if (!caseName.startsWith("violation-")) continue;
-        findings.push(...(await findingsForConsumedSpec(path.join(ruleDir, caseName))));
+        findings.push(...(await lintCaseFindings(path.join(ruleDir, caseName))));
       }
     }
     expect(findings.length).toBeGreaterThan(0);

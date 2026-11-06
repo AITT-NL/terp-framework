@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/not_null_columns_are_backfilled",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 2
+  }
+]

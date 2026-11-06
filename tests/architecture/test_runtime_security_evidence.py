@@ -1,42 +1,31 @@
-"""Every runtime security case the pinned Terp Standard packages has evidence named in the index.
+"""The runtime security cases are well-formed, and every one has evidence named in the index.
 
-The standard's runtime security cases (``runtime-security.fixtures.json``) are requirements an
-implementation proves by running them, and its README asks the evidence to name each applicable
-case and a runnable test. ``docs/security-boundaries.md`` is that index for the reference
-implementation, and this holds it to the cases the PINNED release packages: every case has a row,
-every case a row names is one the standard has, and every test file and test function a row names
-exists. Without it the index is prose: a case added to the standard, or a test renamed under a
-row, would leave it claiming evidence nobody runs.
+The cases (``tests/runtime_security/runtime-security.fixtures.json``) are requirements this
+framework proves by running them (``tests/runtime_security/README.md``).
+``docs/security-boundaries.md`` is the index of that evidence, and this holds it to the cases in
+both directions: every case has a row, every case a row names is one the fixtures have, and every
+test file and test function a row names exists. Without it the index is prose: a case added, or a
+test renamed under a row, would leave it claiming evidence nobody runs.
 
-The evidence may run ahead of the pinned release, as the deployment schema's mirror may
-(``SPEC_RELEASE``): a case the next release adds is written, and its evidence built, before that
-release is published. Such a case is allowed only inside the declared window below, which names
-the release that is to carry it. When the pin reaches that release the window must be empty,
-because the package then answers for every id in it, and an id it does not carry is a typo or a
-case that changed its name.
+The cases live beside the tests that run them (ADR 0203), so a case, its row and its tests land
+in one change, and nothing here waits for another repository's release.
 """
 
 from __future__ import annotations
 
 import ast
+import copy
 import json
-import pathlib
 import re
-from collections.abc import Iterable
 
 import pytest
-import terp_spec
 
-from terp.arch import SPEC_VERSION
+from terp.arch.deployment._jsonschema import check_schema, validate
+from tests.architecture.rule_layout import REPO_ROOT, RUNTIME_SECURITY, catalog_dir
 
-_REPO = pathlib.Path(__file__).resolve().parents[2]
-_INDEX = _REPO / "docs" / "security-boundaries.md"
-
-#: The cases the evidence runs ahead of the pinned standard, and the release that is to carry them.
-#: Empty: terp-spec 0.43.0 packages the ten cases that ran ahead of 0.42.0, and the pin is there.
-#: A case written before the next release ships goes here again, beside that release.
-_AHEAD_RELEASE = "0.44.0"
-_AHEAD: frozenset[str] = frozenset()
+_INDEX = REPO_ROOT / "docs" / "security-boundaries.md"
+_FIXTURES = RUNTIME_SECURITY / "runtime-security.fixtures.json"
+_SCHEMA = RUNTIME_SECURITY / "runtime-security.schema.json"
 
 _CASE = re.compile(r"`([a-z][a-z0-9-]*\.[a-z][a-z0-9-]*)`")
 _EVIDENCE = re.compile(r"`([^`]+)`")
@@ -44,15 +33,84 @@ _EVIDENCE = re.compile(r"`([^`]+)`")
 Row = tuple[list[str], list[str]]
 
 
-def _version(value: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in value.split("."))
+def _artifacts() -> tuple[dict, dict]:
+    return (
+        json.loads(_FIXTURES.read_text(encoding="utf-8")),
+        json.loads(_SCHEMA.read_text(encoding="utf-8")),
+    )
 
 
-def _packaged() -> set[str]:
-    fixtures = json.loads((terp_spec.spec_dir() / "runtime-security.fixtures.json").read_text(encoding="utf-8"))
+def _problems_of(instance: object, schema: dict) -> list[str]:
+    return [f"{problem.path or '<document>'}: {problem.detail}" for problem in validate(instance, schema)]
+
+
+def _cases() -> set[str]:
+    fixtures, _ = _artifacts()
     return {case["id"] for case in fixtures["cases"]}
 
 
+# --------------------------------------------------------------------------- #
+# the cases themselves
+# --------------------------------------------------------------------------- #
+def test_the_cases_validate_and_name_real_catalog_rules() -> None:
+    fixtures, schema = _artifacts()
+    check_schema(schema)
+    assert _problems_of(fixtures, schema) == []
+    ids = [case["id"] for case in fixtures["cases"]]
+    assert len(ids) == len(set(ids)), "a repeated id makes evidence ambiguous"
+    for case in fixtures["cases"]:
+        for rule in case["rules"]:
+            surface, _, name = rule.partition("/")
+            assert (catalog_dir(surface) / f"{name}.json").is_file(), (
+                f"{case['id']}: names {rule!r}, which no catalog entry declares"
+            )
+
+
+@pytest.mark.parametrize("field", ["setup", "exercise", "expected", "controls"])
+def test_a_case_without_actions_outcomes_or_controls_is_not_a_requirement(field: str) -> None:
+    fixtures, schema = _artifacts()
+    invalid = copy.deepcopy(fixtures)
+    invalid["cases"][0][field] = []
+    assert _problems_of(invalid, schema)
+    del invalid["cases"][0][field]
+    assert _problems_of(invalid, schema)
+
+
+@pytest.mark.parametrize("field", ["id", "capability"])
+def test_case_identifiers_cannot_end_in_a_newline(field: str) -> None:
+    fixtures, schema = _artifacts()
+    invalid = copy.deepcopy(fixtures)
+    invalid["cases"][0][field] += "\n"
+    assert _problems_of(invalid, schema)
+
+
+def test_an_empty_or_wrong_version_document_is_refused() -> None:
+    fixtures, schema = _artifacts()
+    assert _problems_of(fixtures | {"cases": []}, schema)
+    assert _problems_of(fixtures | {"runtime_security": True}, schema)
+    assert _problems_of(fixtures | {"runtime_security": 2}, schema)
+
+
+def test_the_cases_cover_the_security_boundaries_they_claim() -> None:
+    # These stable identifiers are the minimum, not a count a newly added case can preserve
+    # while accidentally removing another boundary.
+    assert _cases() >= {
+        "scope.relationships", "writes.denial", "tokens.snapshot",
+        "oidc.browser-binding", "sessions.logout", "outbox.finalize",
+        "egress.budgets", "logs.redaction", "config.transport",
+        "webhooks.envelope", "jobs.atomicity", "files.binding",
+        "permissions.floor-and-grant", "replay.current-authority",
+        "streams.current-grants", "leases.protected-effects",
+        "sessions.rotation", "native.browser-refused",
+        "accounts.enumeration", "accounts.proof-of-address", "accounts.single-use",
+        "accounts.sealed-tokens", "accounts.expiry", "accounts.backoff",
+        "accounts.lowest-rank", "accounts.close",
+    }
+
+
+# --------------------------------------------------------------------------- #
+# the evidence index
+# --------------------------------------------------------------------------- #
 def _rows(text: str) -> list[Row]:
     """The index's rows as (case ids, evidence references), below its header row."""
     rows: list[Row] = []
@@ -64,38 +122,28 @@ def _rows(text: str) -> list[Row]:
     return rows
 
 
-def _problems(rows: list[Row], packaged: set[str], ahead: Iterable[str], release: str, pin: str) -> list[str]:
-    """What is wrong with *rows* as the index of the cases *packaged* by terp-spec *pin*."""
-    ahead = frozenset(ahead)
-    cited = {case for cases, _ in rows for case in cases}
-    problems = [f"a row names no case: {evidence}" for cases, evidence in rows if not cases]
-    problems += [f"the row for {cases} names no evidence" for cases, evidence in rows if not evidence]
-    if missing := sorted(packaged - cited):
+def _problems(rows: list[Row], cases: set[str]) -> list[str]:
+    """What is wrong with *rows* as the index of *cases*."""
+    cited = {case for named, _ in rows for case in named}
+    problems = [f"a row names no case: {evidence}" for named, evidence in rows if not named]
+    problems += [f"the row for {named} names no evidence" for named, evidence in rows if not evidence]
+    if missing := sorted(cases - cited):
         problems.append(
-            f"terp-spec {pin} packages cases the index has no row for: {missing}. Add a row naming "
-            "each case and the tests that run it, or the reason it is not applicable here."
+            f"the index has no row for these cases: {missing}. Add a row naming each case and "
+            "the tests that run it, or the reason it is not applicable here."
         )
-    if unknown := sorted(cited - packaged - ahead):
+    if unknown := sorted(cited - cases):
         problems.append(
-            f"the index names cases terp-spec {pin} does not package and the window does not "
-            f"declare: {unknown}. Fix the id, or declare it in _AHEAD with the release to carry it."
-        )
-    if unwritten := sorted(ahead - cited):
-        problems.append(f"cases declared ahead of the pin have no row: {unwritten}")
-    if arrived := sorted(ahead & packaged):
-        problems.append(f"terp-spec {pin} now packages {arrived}: drop them from _AHEAD")
-    if ahead and _version(release) <= _version(pin):
-        problems.append(
-            f"the pin is terp-spec {pin}, and the window still declares cases for {release}: "
-            "the package answers for them now, so empty _AHEAD"
+            f"the index names cases the fixtures do not have: {unknown}. Fix the id, or add the "
+            "case to tests/runtime_security/runtime-security.fixtures.json in the same change."
         )
     return problems
 
 
-def test_the_index_is_held_to_the_cases_the_pinned_standard_packages() -> None:
+def test_the_index_is_held_to_the_cases() -> None:
     rows = _rows(_INDEX.read_text(encoding="utf-8"))
-    assert len(rows) >= len(_packaged()), "the index lost its table, or its table its rows"
-    assert _problems(rows, _packaged(), _AHEAD, _AHEAD_RELEASE, SPEC_VERSION) == []
+    assert len(rows) >= len(_cases()), "the index lost its table, or its table its rows"
+    assert _problems(rows, _cases()) == []
 
 
 def test_every_piece_of_evidence_a_row_names_exists() -> None:
@@ -103,7 +151,7 @@ def test_every_piece_of_evidence_a_row_names_exists() -> None:
     for _, evidence in _rows(_INDEX.read_text(encoding="utf-8")):
         for reference in evidence:
             path, _, function = reference.partition("::")
-            source = _REPO / path
+            source = REPO_ROOT / path
             if not source.is_file():
                 missing.append(reference)
             elif function:
@@ -117,25 +165,20 @@ _TABLE = "| Case | Runtime scenario | Regression evidence |\n|---|---|---|\n"
 
 
 @pytest.mark.parametrize(
-    ("table", "packaged", "ahead", "release", "pin", "refusal"),
+    ("table", "cases", "refusal"),
     [
-        ("| `a.one` | x | `t.py` |", {"a.one", "a.two"}, (), "0.2.0", "0.1.0", "no row for: ['a.two']"),
-        ("| `a.one`, `a.typo` | x | `t.py` |", {"a.one"}, (), "0.2.0", "0.1.0", "does not package and the window"),
-        ("| `a.one` | x | `t.py` |", {"a.one"}, ("a.next",), "0.2.0", "0.1.0", "declared ahead of the pin have no row"),
-        ("| `a.one` | x | `t.py` |", {"a.one"}, ("a.one",), "0.2.0", "0.1.0", "now packages ['a.one']"),
-        ("| `a.one`, `a.next` | x | `t.py` |", {"a.one"}, ("a.next",), "0.2.0", "0.2.0", "so empty _AHEAD"),
-        ("| not a case | x | `t.py` |", set(), (), "0.2.0", "0.1.0", "a row names no case"),
-        ("| `a.one` | x | none |", {"a.one"}, (), "0.2.0", "0.1.0", "names no evidence"),
+        ("| `a.one` | x | `t.py` |", {"a.one", "a.two"}, "no row for these cases: ['a.two']"),
+        ("| `a.one`, `a.typo` | x | `t.py` |", {"a.one"}, "names cases the fixtures do not have"),
+        ("| not a case | x | `t.py` |", set(), "a row names no case"),
+        ("| `a.one` | x | none |", {"a.one"}, "names no evidence"),
     ],
 )
-def test_each_way_the_index_can_be_wrong_is_refused(
-    table: str, packaged: set[str], ahead: tuple[str, ...], release: str, pin: str, refusal: str
-) -> None:
-    problems = _problems(_rows(_TABLE + table), packaged, ahead, release, pin)
+def test_each_way_the_index_can_be_wrong_is_refused(table: str, cases: set[str], refusal: str) -> None:
+    problems = _problems(_rows(_TABLE + table), cases)
     assert any(refusal in problem for problem in problems), problems
 
 
-def test_a_case_cited_ahead_and_a_case_shared_by_rows_are_both_accepted() -> None:
-    """The control: a sound index, with a window and a case two rows share, has no problem."""
-    table = "| `a.one` | x | `t.py` |\n| `a.one`, `a.next` | y | `u.py::test_y` |"
-    assert _problems(_rows(_TABLE + table), {"a.one"}, ("a.next",), "0.2.0", "0.1.0") == []
+def test_a_case_shared_by_two_rows_is_accepted() -> None:
+    """The control: a sound index, with a case two rows share, has no problem."""
+    table = "| `a.one` | x | `t.py` |\n| `a.one`, `a.two` | y | `u.py::test_y` |"
+    assert _problems(_rows(_TABLE + table), {"a.one", "a.two"}) == []

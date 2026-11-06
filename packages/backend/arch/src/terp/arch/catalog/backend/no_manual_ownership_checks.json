@@ -1,0 +1,32 @@
+{
+  "id": "backend/no_manual_ownership_checks",
+  "surface": "backend",
+  "title": "Modules preserve structural row ownership and never reimplement it by hand",
+  "intent": "Object-level authorization belongs to the platform's write boundary: user-owned rows retain their ownership declaration across request and background workflows, and a worker identity never becomes a blanket cross-owner authority. Application code must not compare, filter or assign the managed owner column, nor remove ownership merely to let unattended maintenance mutate every user's rows. Cross-owner maintenance requires a separately reviewed authority mechanism whose scope is explicit; ordinary background work remains subject to the same row ownership as interactive writes. Unlike the actor-stamp rule, a plain read of the owner column is refused too, and deliberately: a read is the first half of a hand-rolled per-row gate, and no static check can tell it from a read that only displays who owns the row.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_manual_ownership_checks"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "apply_object_authz"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "validate_background_jobs_preserve_ownership"
+    }
+  ],
+  "reference": "OwnedMixin declares ownership; BaseService stamps owner_id and apply_object_authz gates writes. create_app refuses a job-bearing ModuleSpec whose declared service model omits OwnedMixin. A custom object-authz predicate can be registered.",
+  "opt_out": "# arch-allow-no-manual-ownership-checks: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "Every update/delete of an owned row is authorized per-row at the write chokepoint and owner identity is stamped centrally on create. Composition also rejects job-bearing modules that bind an unowned service model, so an application cannot remove the ownership trait to grant background work blanket cross-owner authority."
+  },
+  "guide_topic": "ownership",
+  "corpus": true
+}

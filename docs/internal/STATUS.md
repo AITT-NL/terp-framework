@@ -947,7 +947,7 @@ frontend design-system track below.
       (ADR 0204); every framework timestamp a `UtcDateTime`, which stores an instant as UTC
       on SQLite too (ADR 0205). The runtime security evidence window is empty: 0.43.0
       packages its ten cases.
-- [ ] Owed: the Studio's pin to 0.37.0. It pins 0.36.1.
+- [x] The Studio pins 0.37.0 (terp-studio#165).
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
       every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
       the template's two `AGENTS.md` files, the repository's own and the react-core README.

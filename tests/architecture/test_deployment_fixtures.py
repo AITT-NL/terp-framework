@@ -23,9 +23,10 @@ import terp_spec
 
 import terp.arch as arch
 from terp.arch.deployment import SPEC_RELEASE
+from tests.architecture.rule_layout import corpus_dir
 
 _FIXTURES = terp_spec.spec_dir() / "deployment-declaration.fixtures.json"
-_CORPUS = terp_spec.spec_dir() / "corpus" / "backend"
+_CORPUS = corpus_dir("backend")
 
 
 def _fixtures() -> dict | None:
@@ -98,5 +99,5 @@ def test_the_tree_fixtures_a_corpus_case_cannot_carry(tmp_path) -> None:
 
 @pytest.mark.parametrize("rule", sorted(arch.PROJECT_ROOT_RULES))
 def test_a_project_rule_s_entry_point_is_the_one_the_catalog_names(rule) -> None:
-    """The corpus runner and the scorecard reach these through ``check_<rule>``."""
+    """The corpus runner reaches these through ``check_<rule>``."""
     assert callable(getattr(arch, f"check_{rule}"))

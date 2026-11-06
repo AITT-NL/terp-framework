@@ -79,16 +79,6 @@ jobs:
           test -f packages/frontend/conformance/dist/index.js
           test -f packages/frontend/conformance/dist/index.d.ts
 
-      # The verifiable certification artifact (scorecard.schema.json): the
-      # adapter's scorecard over the violation corpus, emitted by the same
-      # harness the suite above just proved green. Self-validating.
-      - name: Emit the @terpjs/eslint-boundaries conformance scorecard
-        run: node packages/frontend/eslint-boundaries/src/scorecard.js --out scorecard-eslint-boundaries.json
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: scorecard-eslint-boundaries
-          path: scorecard-eslint-boundaries.json
-
       - name: Regenerate the example client and fail on drift from openapi.json
         run: |
           npm run -w @terpjs-example/frontend generate

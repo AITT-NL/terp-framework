@@ -1,0 +1,8 @@
+[
+  { "rule": "backend/no_hardcoded_credentials", "path": "modules/billing/client.py", "line": 8 },
+  { "rule": "backend/no_hardcoded_credentials", "path": "modules/billing/client.py", "line": 9 },
+  { "rule": "backend/no_hardcoded_credentials", "path": "modules/billing/client.py", "line": 10 },
+  { "rule": "backend/no_hardcoded_credentials", "path": "modules/billing/client.py", "line": 11 },
+  { "rule": "backend/no_hardcoded_credentials", "path": "modules/billing/client.py", "line": 12 },
+  { "rule": "backend/no_hardcoded_credentials", "path": "modules/billing/client.py", "line": 13 }
+]

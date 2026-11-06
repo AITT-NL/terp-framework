@@ -1,0 +1,550 @@
+{
+  "runtime_security": 1,
+  "cases": [
+    {
+      "id": "scope.relationships",
+      "capability": "row-scoping",
+      "rules": [
+        "backend/reads_use_base_query",
+        "backend/tenant_scoped_models_use_scoped_service"
+      ],
+      "requirement": "Every entity exposed by a read retains its row scope, including related entities.",
+      "setup": [
+        "Create a shared parent and children belonging to two tenants through permitted writes."
+      ],
+      "exercise": [
+        "Read the parent as one tenant using lazy, batched eager and joined eager loading.",
+        "Repeat with a deleted child and without a tenant context."
+      ],
+      "expected": [
+        "No response or serialized relationship exposes another tenant's or a deleted child's protected values.",
+        "Missing scope context grants no access to scoped children."
+      ],
+      "controls": [
+        "A direct scoped child list and a related-child read expose the same allowed set.",
+        "The current tenant's live child remains readable."
+      ]
+    },
+    {
+      "id": "writes.denial",
+      "capability": "object-write-authorization",
+      "rules": [
+        "backend/no_manual_ownership_checks",
+        "backend/mutations_emit_audit"
+      ],
+      "requirement": "A rejected write leaves no change that a later operation can persist.",
+      "setup": [
+        "Create separately owned rows and open one request write session."
+      ],
+      "exercise": [
+        "Attempt a forbidden update and soft delete, catch each denial, then perform an allowed service write in that session."
+      ],
+      "expected": [
+        "The forbidden row's persistent state is unchanged after the allowed write commits.",
+        "Every committed mutation has its own matching transactional audit evidence."
+      ],
+      "controls": [
+        "An authorized update and delete persist and emit their required audit events."
+      ]
+    },
+    {
+      "id": "tokens.snapshot",
+      "capability": "session-epochs",
+      "rules": [],
+      "requirement": "Authority claims and their revocation version come from one authenticated snapshot.",
+      "setup": [
+        "Authenticate an active subject with elevated authority."
+      ],
+      "exercise": [
+        "Schedule a demotion, tenant reassignment or credential reset between authentication and token issuance.",
+        "Exercise password, refresh, federated and machine credential issuance paths that the implementation supports."
+      ],
+      "expected": [
+        "The old authentication cannot issue an accepted token with old authority and the new revocation version.",
+        "It cannot create a refresh family that restores the revoked authentication."
+      ],
+      "controls": [
+        "Unchanged authentication issues a usable token.",
+        "A fresh authentication after the change receives only current authority."
+      ]
+    },
+    {
+      "id": "oidc.browser-binding",
+      "capability": "oidc",
+      "rules": [],
+      "requirement": "A login transaction is bound to the user agent that initiated it.",
+      "setup": [
+        "Start a valid authorization transaction in one browser and obtain a valid callback for it."
+      ],
+      "exercise": [
+        "Present that callback from a second browser with no transaction-binding proof."
+      ],
+      "expected": [
+        "The second browser receives neither an authenticated session nor a refresh credential.",
+        "Unknown, expired, reused and cross-provider transactions also fail."
+      ],
+      "controls": [
+        "The initiating browser can finish its own valid transaction once."
+      ]
+    },
+    {
+      "id": "sessions.logout",
+      "capability": "refresh-sessions",
+      "rules": [],
+      "requirement": "Logout invalidates the presented refresh session server-side even without an access token.",
+      "setup": [
+        "Create a live refresh session and retain a copy of its credential."
+      ],
+      "exercise": [
+        "Log out with the refresh credential and no bearer token.",
+        "Attempt refresh with the retained credential from another client; repeat logout."
+      ],
+      "expected": [
+        "The retained credential cannot restore the logged-out session.",
+        "Logout is idempotent and removes the client's cookie."
+      ],
+      "controls": [
+        "A live refresh credential can refresh before logout.",
+        "An unrelated subject's session is not revoked."
+      ]
+    },
+    {
+      "id": "outbox.finalize",
+      "capability": "outbox",
+      "rules": [],
+      "requirement": "A worker's authority to finalize is checked atomically with the final state transition.",
+      "setup": [
+        "Worker A claims an item, completes its work, and pauses after reading its claim."
+      ],
+      "exercise": [
+        "Expire A's lease, let B reclaim and finalize the item, then resume A's success and failure finalizers."
+      ],
+      "expected": [
+        "A reports loss of authority and cannot change B's state, counters, completion timestamps or claim."
+      ],
+      "controls": [
+        "A current claim finalizes normally.",
+        "At-least-once delivery remains a separate documented property."
+      ]
+    },
+    {
+      "id": "egress.budgets",
+      "capability": "egress",
+      "rules": [],
+      "requirement": "Outbound work has enforceable allocation and elapsed-time bounds.",
+      "setup": [
+        "Use an allowed local upstream, a small body budget and a short deadline."
+      ],
+      "exercise": [
+        "Return a compressed payload that expands beyond the body budget.",
+        "Return small chunks often enough to avoid an inactivity timeout but beyond the elapsed budget.",
+        "Let resolution consume the declared budget before connection."
+      ],
+      "expected": [
+        "Refusal precedes an oversized decoded allocation; rejecting unsupported compression before decoding is acceptable.",
+        "The network operation cannot extend its deadline by continually delivering small chunks.",
+        "An exhausted budget cannot start another connection; any non-cancellable resolver limitation is explicit and is not described as a hard total deadline."
+      ],
+      "controls": [
+        "An in-budget identity-encoded response succeeds.",
+        "Connection pinning, TLS verification and redirect restrictions remain enforced."
+      ]
+    },
+    {
+      "id": "logs.redaction",
+      "capability": "logging",
+      "rules": [
+        "backend/no_adhoc_logging_config"
+      ],
+      "requirement": "Credential redaction applies to the rendered output, including exceptions and interpolation.",
+      "setup": [
+        "Generate a distinctive synthetic credential at test time."
+      ],
+      "exercise": [
+        "Log literal and formatted authorization headers, bare bearer messages, structured sensitive fields and exception tracebacks.",
+        "Pass the record through the actual installed handler and formatter."
+      ],
+      "expected": [
+        "The credential never appears in emitted output.",
+        "Interpolation cannot cause the authentication scheme to be mistaken for the credential."
+      ],
+      "controls": [
+        "Benign message content and usable structured output survive."
+      ]
+    },
+    {
+      "id": "config.transport",
+      "capability": "mail",
+      "rules": [],
+      "requirement": "Every public configuration construction path validates security-sensitive values before transport use.",
+      "setup": [
+        "Construct mail configuration through enum values, equivalent strings, an environment loader and invalid values."
+      ],
+      "exercise": [
+        "Attempt production delivery and credential authentication for each accepted configuration."
+      ],
+      "expected": [
+        "Invalid values fail before connection.",
+        "Accepted encrypted modes actually negotiate and verify the requested encryption before credentials are sent.",
+        "Plaintext credential transmission and production plaintext relay configuration are refused."
+      ],
+      "controls": [
+        "Valid TLS and STARTTLS modes deliver through a local verified relay."
+      ]
+    },
+    {
+      "id": "webhooks.envelope",
+      "capability": "webhooks",
+      "rules": [],
+      "requirement": "Authentication covers every field a receiver uses for routing or replay decisions.",
+      "setup": [
+        "Produce a signed delivery with event type, stable delivery identity, timestamp and payload."
+      ],
+      "exercise": [
+        "Alter each field independently while retaining the signature.",
+        "Repeat a valid delivery within the timestamp window."
+      ],
+      "expected": [
+        "Altered event, delivery identity, timestamp and payload all fail verification.",
+        "A replay retains its authenticated delivery identity and is recognizable as the same delivery.",
+        "The signed representation is versioned and its encoding is unambiguous."
+      ],
+      "controls": [
+        "An unmodified delivery verifies using the documented receiver algorithm."
+      ]
+    },
+    {
+      "id": "jobs.atomicity",
+      "capability": "atomic-jobs",
+      "rules": [],
+      "requirement": "A job that promises one atomic unit cannot persist an earlier service write after later failure.",
+      "setup": [
+        "Run a job through the public enqueue and worker path with real persistence."
+      ],
+      "exercise": [
+        "Perform one service mutation and then raise from the handler."
+      ],
+      "expected": [
+        "The mutation and transactional audit/outbox effects roll back together.",
+        "Raw session mutation remains forbidden while the job is running.",
+        "External effects are not claimed to roll back with a database transaction."
+      ],
+      "controls": [
+        "A successful multi-write job commits its mutations and transactional effects."
+      ]
+    },
+    {
+      "id": "files.binding",
+      "capability": "file-references",
+      "rules": [
+        "backend/no_raw_file_references"
+      ],
+      "requirement": "Authority to read a parent does not grant authority to attach an arbitrary existing file.",
+      "setup": [
+        "Create a file owned by A and a parent writable by B; give B knowledge of the file's identifier."
+      ],
+      "exercise": [
+        "Attempt to attach or reassign that file through the parent's ordinary input schema and download through the parent."
+      ],
+      "expected": [
+        "An attachment without file-binding authority is rejected before persistence.",
+        "A parent reference cannot confer access to another owner's content without an explicit authorized delegation."
+      ],
+      "controls": [
+        "The file owner or an explicitly authorized delegate can bind and read the file."
+      ]
+    },
+    {
+      "id": "permissions.floor-and-grant",
+      "capability": "named-permissions",
+      "rules": [],
+      "requirement": "A named permission enforces both its registered authority floor and its current grant at every use.",
+      "setup": [
+        "Give a below-floor subject a direct grant, then repeat through group membership."
+      ],
+      "exercise": [
+        "Call a route dependency, a policy-protected route and a channel requiring the same permission.",
+        "Demote an allowed subject while retaining its grant and repeat."
+      ],
+      "expected": [
+        "Below-floor subjects are refused at every boundary even while the grant exists.",
+        "String references resolve the registered permission; unknown or conflicting declarations authorize nothing.",
+        "Authority projections agree with the runtime decision, including declared module-role semantics."
+      ],
+      "controls": [
+        "A subject at the required floor with a current grant succeeds.",
+        "An at-floor subject without the grant is refused."
+      ]
+    },
+    {
+      "id": "replay.current-authority",
+      "capability": "idempotent-responses",
+      "rules": [],
+      "requirement": "A protected cached response is delivered only after current authorization, without executing the mutation again.",
+      "setup": [
+        "Perform one successful mutation with an idempotency key and retain its response."
+      ],
+      "exercise": [
+        "Expire or revoke the credential, withdraw a required grant, demote or reassign its tenant before retrying.",
+        "Repeat with valid authority and the same key and payload."
+      ],
+      "expected": [
+        "A retry without current authority cannot receive protected cached content.",
+        "Denial preserves the deduplication record and cannot cause the original effect to execute again.",
+        "Credential-minting routes and resource checks that cannot be safely repeated have an explicit fail-closed replay contract."
+      ],
+      "controls": [
+        "An authorized supported replay returns the original result with exactly one committed effect."
+      ]
+    },
+    {
+      "id": "streams.current-grants",
+      "capability": "realtime-permissions",
+      "rules": [],
+      "requirement": "A named channel grant remains required at redemption and throughout delivery.",
+      "setup": [
+        "Mint a stream ticket while a subject holds the channel grant."
+      ],
+      "exercise": [
+        "Revoke the grant before ticket redemption and attempt to connect.",
+        "In a separate connection revoke the grant after connection but before publishing another event."
+      ],
+      "expected": [
+        "The revoked ticket does not establish an authorized stream.",
+        "The established stream delivers no newly protected event after the revocation check.",
+        "The identity remaining active does not substitute for the missing channel grant."
+      ],
+      "controls": [
+        "A live subject with the current grant can connect and receive allowed events."
+      ]
+    },
+    {
+      "id": "leases.protected-effects",
+      "capability": "fenced-effects",
+      "rules": [
+        "backend/no_manual_lease_columns"
+      ],
+      "requirement": "Custody metadata alone does not authorize a protected transition or fence an external effect.",
+      "setup": [
+        "Claim work with a holder and monotonic epoch; pause the worker before its protected effect."
+      ],
+      "exercise": [
+        "Attempt completion by a different holder and after expiry but before reaping.",
+        "Reassign the expired work and then let the old worker attempt the protected effect."
+      ],
+      "expected": [
+        "Foreign, expired and superseded claims cannot finalize protected state.",
+        "A promised external fence is checked atomically by the destination with its write, or by equivalent destination-side serialization.",
+        "A control-plane heartbeat before an external write is not accepted as proof of fencing; unsupported destinations are explicitly excluded from that guarantee."
+      ],
+      "controls": [
+        "The current valid holder can complete once under its actual destination fencing contract."
+      ]
+    },
+    {
+      "id": "sessions.rotation",
+      "capability": "refresh-sessions",
+      "rules": [],
+      "requirement": "Outside any concurrent-refresh grace period the implementation documents, a refresh credential works once, and presenting a spent one revokes every refresh credential descended from the same sign-in.",
+      "setup": [
+        "Sign one active subject in twice through each refresh carrier the implementation supports, and keep every refresh credential."
+      ],
+      "exercise": [
+        "Refresh the first sign-in once, then present its spent credential again after any concurrent-refresh grace period the implementation documents.",
+        "Present the successor credential that first refresh issued."
+      ],
+      "expected": [
+        "The spent credential is refused and yields no access credential.",
+        "The successor is refused too: reuse revokes every refresh credential descended from that sign-in, not only the one presented."
+      ],
+      "controls": [
+        "Before the reuse, the second sign-in refreshes, and the successor that refresh issued refreshes in turn.",
+        "After the first sign-in's refresh credentials are revoked, the second sign-in's latest one still refreshes."
+      ]
+    },
+    {
+      "id": "native.browser-refused",
+      "capability": "native-clients",
+      "rules": [],
+      "requirement": "A route that returns a refresh credential in its response body refuses every request that carries browser provenance, before it reads the credential or checks its form.",
+      "setup": [
+        "Offer native clients, and hold a valid password and a live body-carried refresh credential for an active subject."
+      ],
+      "exercise": [
+        "Sign in and refresh on the body-carrier routes with each browser provenance signal page script cannot remove, one at a time: an origin header and each fetch-metadata header.",
+        "Repeat carrying the cookie that holds a browser's refresh credential, and repeat every request with an invalid credential and with one of a form the route does not accept, such as an empty one or one longer than any it issues."
+      ],
+      "expected": [
+        "Every such request is refused, and no response body carries an access or refresh credential.",
+        "The refusal is the same whether the presented credential was valid, invalid or of a form the route does not accept, and a refused refresh credential stays live."
+      ],
+      "controls": [
+        "The same requests without browser provenance sign in and refresh, and the ones whose credential is of a form the route does not accept are refused as malformed."
+      ]
+    },
+    {
+      "id": "accounts.enumeration",
+      "capability": "self-service-accounts",
+      "rules": [],
+      "requirement": "A public request about an address answers identically whether or not an account exists for it, and does the same observable work: it sends that address exactly one message, whatever kind of account it has.",
+      "setup": [
+        "Hold an address with an active password account, one with a deactivated account, one whose account signs in only through an identity provider, and one with no account."
+      ],
+      "exercise": [
+        "From a caller the backoff has not slowed, ask to open an account and ask for a password reset for each address."
+      ],
+      "expected": [
+        "For each kind of request, every address receives the same status, the same body and the same headers, apart from values that differ on every response, such as a request identifier.",
+        "Each request sends exactly one message, to the address it names, so neither the answer, nor a delivery failure, nor the work done tells whether an account exists."
+      ],
+      "controls": [
+        "The address with no account receives a verification link, and the active password account a reset link."
+      ]
+    },
+    {
+      "id": "accounts.proof-of-address",
+      "capability": "self-service-accounts",
+      "rules": [],
+      "requirement": "An account opened through self-service exists, and can sign in, only after a token sent to its address is redeemed, and it opens with a password given at redemption, so whoever asked for it cannot choose it.",
+      "setup": [
+        "Choose an address with no account, and two different passwords the implementation's policy accepts."
+      ],
+      "exercise": [
+        "Ask to open an account for the address, presenting the first password with the request if the request accepts one, and sign in with the address and each password before redeeming the mailed token.",
+        "Redeem the token with the second password, then sign in with each password."
+      ],
+      "expected": [
+        "Before redemption every sign-in is refused exactly as for an address with no account.",
+        "A password presented with the request never signs in: the account opens with the password given at redemption.",
+        "Where the implementation holds new accounts for approval, the redeemed account is inactive and still cannot sign in."
+      ],
+      "controls": [
+        "Without an approval step, the redeemed account signs in with the password given at redemption."
+      ]
+    },
+    {
+      "id": "accounts.single-use",
+      "capability": "self-service-accounts",
+      "rules": [],
+      "requirement": "A verification or reset token works once, and a reset token stops working once the account's sessions are revoked after it was issued.",
+      "setup": [
+        "Obtain a verification token for a new address, and two reset tokens for one existing account."
+      ],
+      "exercise": [
+        "Redeem the verification token twice, each time with a password the policy accepts.",
+        "Reset the password with the first reset token, redeem it again, then redeem the second reset token."
+      ],
+      "expected": [
+        "Every second redemption of a token is refused and changes nothing.",
+        "The second reset token is refused, because the first reset revoked the account's sessions after it was issued."
+      ],
+      "controls": [
+        "The first redemption of the verification token and of the first reset token succeeds."
+      ]
+    },
+    {
+      "id": "accounts.sealed-tokens",
+      "capability": "self-service-accounts",
+      "rules": [],
+      "requirement": "An account token cannot be altered, forged or read without the implementation's secret, and never travels to a server in a URL.",
+      "setup": [
+        "Obtain a mailed verification link and a mailed reset link."
+      ],
+      "exercise": [
+        "Alter each token so that its decoded bytes differ, and redeem it; redeem each unaltered token for the other purpose.",
+        "Decode each token in the common text encodings and search the result for the address.",
+        "Inspect where each link carries its token."
+      ],
+      "expected": [
+        "Altered tokens, and tokens redeemed for the wrong purpose, are refused.",
+        "No decoding of a token contains the address.",
+        "The token appears only in the link's fragment, never in its path or query."
+      ],
+      "controls": [
+        "Each unaltered token redeems for its own purpose."
+      ]
+    },
+    {
+      "id": "accounts.expiry",
+      "capability": "self-service-accounts",
+      "rules": [],
+      "requirement": "An account token stops working at the end of its lifetime, which is at most seven days for a verification token and one day for a reset token.",
+      "setup": [
+        "Configure token lifetimes the test can outlast, or control the clock the implementation reads."
+      ],
+      "exercise": [
+        "Redeem a verification token and a reset token after their lifetimes.",
+        "Where the implementation lets the lifetimes be configured, configure a verification lifetime longer than seven days and a reset lifetime longer than one day."
+      ],
+      "expected": [
+        "Both expired tokens are refused and change nothing.",
+        "Where the lifetimes are configurable, each lifetime beyond its bound is refused before any token is issued."
+      ],
+      "controls": [
+        "A verification token and a reset token redeemed within their lifetimes succeed."
+      ]
+    },
+    {
+      "id": "accounts.backoff",
+      "capability": "self-service-accounts",
+      "rules": [],
+      "requirement": "Repeated public account requests are slowed down, never refused for good, and slowed alike whether or not the address has an account, and slowing one caller does not hold up another.",
+      "setup": [
+        "Use two callers, an address with an account, an address without one, and the backoff schedule the implementation documents."
+      ],
+      "exercise": [
+        "From the first caller, send requests about each address until one is refused as too frequent; while it is refused, send one request about the same address from the second caller; then wait out the documented backoff and send again from the first.",
+        "Redeem invalid tokens from the first caller until refused; while it is refused, redeem a valid token from the second caller; then wait out the backoff and redeem a valid token from the first."
+      ],
+      "expected": [
+        "Both addresses are slowed alike: the same sequence of requests receives the same answers.",
+        "A refusal tells the caller to wait, and never says that an account or an address is locked.",
+        "While the first caller is slowed, the second caller's request and redemption are answered on their merits. An implementation may also slow every caller once the requests about one address together reach a bound it documents; invalid tokens name no address, so they never slow another caller's redemption.",
+        "After the backoff, a request is answered on its merits."
+      ],
+      "controls": [
+        "A first request about each address, and a first valid redemption, are accepted."
+      ]
+    },
+    {
+      "id": "accounts.lowest-rank",
+      "capability": "self-service-accounts",
+      "rules": [],
+      "requirement": "An account opened through self-service starts with the least authority the implementation grants a signed-in subject.",
+      "setup": [
+        "Open and prove an account through self-service, with no approval step, and hold a subject with the next authority above the least."
+      ],
+      "exercise": [
+        "Sign in, read the subject's own profile, and attempt an operation the next authority above the least may perform and the least may not."
+      ],
+      "expected": [
+        "The profile reports the least authority the implementation grants a signed-in subject.",
+        "The operation is refused."
+      ],
+      "controls": [
+        "The subject with the next authority performs the same operation."
+      ]
+    },
+    {
+      "id": "accounts.close",
+      "capability": "self-service-accounts",
+      "rules": [],
+      "requirement": "Closing one's own account requires the current password and ends every session of the account.",
+      "setup": [
+        "Sign one self-service account in on two clients, and hold an administrator who is the only active one."
+      ],
+      "exercise": [
+        "Close the account with a wrong password, then with the right one, then present each client's access and refresh credentials and sign in again.",
+        "Ask the only active administrator to close their own account."
+      ],
+      "expected": [
+        "The wrong password is refused, and the account and its sessions stay intact.",
+        "After closing, no credential of either client is accepted and signing in fails.",
+        "The only active administrator cannot close their own account."
+      ],
+      "controls": [
+        "Before closing, both clients' credentials are accepted."
+      ]
+    }
+  ]
+}

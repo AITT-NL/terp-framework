@@ -1,0 +1,22 @@
+{
+  "id": "backend/deployment_declaration_tells_the_truth",
+  "surface": "backend",
+  "title": "A deployment declaration states nothing its profile or its app contradicts",
+  "intent": "A deployment declaration is a partial description, never a gate on topology: a service it does not name is not its business, a role nobody has heard of is information, and no rule asks whether a topology is approved, so three APIs, no frontend, a schedule with no scheduler, or a unit nobody predicted are never refused. What it does say must be true, because a tool that drives the deploy acts on it. A declared unit is a service of the profile it names, read with its overrides in order as one resolved profile; a declared volume is a named volume of that profile, and the mount it restates is the one the profile makes - exactly the declared units whose services mount it, at that path; a variable a unit claims is one the profile passes to that service, directly or through the environment file the app's variable manifest routes the name to; a restated command or start order is the profile's own, the order restricted to declared units; a datastore unit runs exactly the image the stack's datastore table publishes for its kind and version - not a tag without a digest, not another registry, not another digest - and every other declared unit runs an image the profile builds from the checkout; and a database left to its owner never stands beside a profile that still runs one. From the app: a migration history a unit claims is one some installed package or app module owns, and a health path a unit names is one the app serves. Those two need the composed app, so where no app can be loaded they are skipped with a named note, never passed in silence and never failed. A field the vocabulary resolves by role, declared under a role it does not know, is refused, because nothing will ever read it. A restated fact that differs from its owner is a lie rather than a second opinion: the profile, the variable manifest and the app keep their facts, and the declaration only describes them. Under the opted-out state the check is off, and an absent file passes. A stateful resource with no backup is not refused here: that is a safety property, held against the resolved plan where the deploy happens.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_deployment_declaration_tells_the_truth"
+    }
+  ],
+  "reference": "terp verify --only deployment compares deployment.json with the compose profile it names (the base file and its compose.overrides merged as docker compose -f merges them), with environment.schema.json's routing (a name with no services renders into .app.env, a scoped one into .app.<service>.env, by the renderer's own rendered_files rule), and with the datastore table the framework release publishes. The app part reads the migration labels the installed packages and app modules own and the routes the imported app serves, and skips with a named note where no app is importable, as authz-surface does; the reference stack runs it in the app's own gate. The corpus contracts the file part: its compliant cases name migrations and health paths with no importable app, which must be skipped and not reported. A volume's mount path is read against /srv, the directory the reference images run the app from, so var/files is /srv/var/files in the profile. A stateful resource with no backup, a writable bind mount and an anonymous volume are the deploy boundary's to refuse, and a profile service with a free image that no unit declares is terp release's; none of them is this check's.",
+  "escape": "Declare the opted-out state: replace the whole file with unmanaged set to true and a reason that says why. The check is then off, and a tool that drives deploys reports that reason instead of driving the app.",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The declaration is a checked-in file the running app never reads, and every fact it is compared with - the profile, the variable manifest, the migration histories, the route table - is fixed before the app starts. The checks that matter at deploy time run in the tools that drive a deploy, against the resolved plan; those are that tool's controls, not the app's runtime."
+  },
+  "guide_topic": "deployment",
+  "corpus": true
+}

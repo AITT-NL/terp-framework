@@ -553,11 +553,10 @@ def freeze_app_route_registration(app: FastAPI) -> None:
 #
 # These thirteen are the fail-closed runtime half of two-layer rules, and the
 # Standard's catalog cites each one BY NAME as the `runtime` enforcement ref of
-# the rule it enforces (terp-spec, ADRs 0080/0081). That is why they carry no
-# leading underscore: a released artifact in another repository pins these
-# spellings, so renaming one is a breaking change to the Standard, not a local
-# refactor -- and, in the other direction, a private name is unusable by any
-# second implementation, which is the property stack-neutrality promises.
+# the rule it enforces (ADRs 0080/0081, ADR 0203). That is why they carry no
+# leading underscore: the catalog and its rule pages cite these spellings as the
+# control, so a name that says "this may be renamed without notice" would be the
+# wrong thing to cite.
 #
 # They are NOT application API and are deliberately absent from
 # `terp.core.__all__`: an app author never calls one. `create_app` does, once,

@@ -1,0 +1,5 @@
+# Wires the partner integration into the api.
+services:
+  api:
+    environment:
+      SOME_API_BASE_URL: ${SOME_API_BASE_URL:?SOME_API_BASE_URL is required}

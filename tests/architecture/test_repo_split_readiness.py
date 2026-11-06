@@ -1,7 +1,8 @@
 """Repo-split integrity: the three repositories stay decoupled (ADR 0082).
 
 The split is DONE: this repository is the framework (``packages/`` +
-``tests/`` + ``apps/`` + ``template/``); the Terp Standard lives in
+``tests/`` + ``apps/`` + ``template/``) and, since ADR 0203, its rule catalog and
+corpus; the contracts more than one program reads live in
 `AITT-NL/terp-spec <https://github.com/AITT-NL/terp-spec>`_ (consumed as the
 published ``terp-spec`` / ``@terpjs/spec`` packages, pinned by release) and
 Terp Studio in its own private repository. This guard fails the build the
@@ -88,8 +89,8 @@ def test_the_spec_unit_stays_layer_neutral() -> None:
     ``[tool.uv.sources]``), never re-vendored here — and the installed
     accessor stays dependency-free and framework-import-free."""
     assert not (_REPO_ROOT / "spec").exists(), (
-        "the Terp Standard lives in AITT-NL/terp-spec now — bump the pinned tag "
-        "instead of re-vendoring spec/ into the framework repository"
+        "the contracts live in AITT-NL/terp-spec — bump the pinned release instead of "
+        "re-vendoring spec/ into the framework repository (the rules live in packages/)"
     )
     import terp_spec
 

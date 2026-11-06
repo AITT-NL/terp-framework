@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/personal_fields_are_declared",
+    "path": "modules/crm/schemas.py",
+    "line": 8
+  }
+]

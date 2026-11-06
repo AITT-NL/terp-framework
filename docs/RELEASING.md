@@ -78,60 +78,29 @@ a single distribution whose upload failed mid-release
 (`gh workflow run release.yml -f package=packages/backend/capabilities/<name>`).
 
 `terp-spec` / `@terpjs/spec` are **not** published from this repository — AITT-NL/terp-spec
-publishes them to PyPI and npm from its own release workflow (ADR 0086), and the framework
-consumes them as ordinary pinned dependencies. Adopting a new spec release means moving
-**four** declarations together, which is what ADR 0082 asks: the two pins
-(`pyproject.toml`'s dev group and `packages/frontend/eslint-boundaries/package.json`) and
-the two constants that report the certified version (`terp.arch.SPEC_VERSION` and the ESLint
-adapter's `SPEC_VERSION` in `packages/frontend/eslint-boundaries/src/spec.js`) — then
-re-lock both lockfiles. `test_repo_split_readiness.py` fails the build if they skew.
+publishes them to PyPI and npm from its own release workflow (ADR 0086). Since ADR 0203 the
+rules live here: the backend catalog in `terp-arch`, the frontend catalog in
+`@terpjs/eslint-boundaries`, their corpora beside those packages, and the runtime security
+cases in `tests/runtime_security/`. **A rule lands in one pull request in this repository**,
+with its catalog entry, its corpus cases and its regenerated rule page
+(`python tools/generate_rule_docs.py`), and no spec release is involved.
 
-**Adopt the spec release in the same week it is cut, and move the two repositories in this
-order.** The two pipelines are circularly coupled, which is the whole of the procedure and
-the reason a bare "bump the pin when convenient" does not survive contact with a new rule.
-terp-spec's `certify-against-reference` job checks out this repository at the **commit
-terp-spec pins** in its `REFERENCE_SHA` file and runs its parity tests against the new
-catalog; this repository's gate installs the **published** pin. So:
+What the framework still takes from terp-spec are the contracts more than one program reads:
+the deployment, workbench and layout declarations, the check-report and findings formats, the
+assurance profile and the conversation stream. Adopting a new contracts release means moving
+**four** declarations together, which is what ADR 0082 asks: the two pins (`pyproject.toml`'s
+dev group and `packages/frontend/eslint-boundaries/package.json`) and the two constants that
+name the check-report format the toolchain writes (`terp.arch.SPEC_VERSION` and the ESLint
+adapter's `SPEC_VERSION` in `packages/frontend/eslint-boundaries/src/spec.js`) — then re-lock
+both lockfiles, and move the mirrored schemas' `SPEC_RELEASE` where the release changes a
+mirrored file. `test_repo_split_readiness.py` fails the build if they skew.
 
-**terp-framework moves first**, which is the opposite of what the coupling suggests and is
-the whole point of ADR 0116. terp-spec's `main` is protected by
-`certify-against-reference`, and that job reads the pinned reference commit — so the
-standard cannot merge its own catalog entry until a commit here carries the rule and the
-spec's pin names it. (terp-spec's `reference-drift.yml` watches this repository's default
-branch on its own schedule, so drift past the pin is its own red build there.)
-
-1. **terp-framework first.** Land the rule implementation here and add its name to
-   `_AWAITING_SPEC_RELEASE` (`tests/architecture/test_spec_catalog.py`, ADR 0116). That
-   list is what lets `main` carry a rule whose catalog entry is not in the *installed*
-   release yet, so this merge is green instead of knowingly red.
-
-   **An assurance *lane* moves the same way, through its own list.** The spec's lane
-   vocabulary is normative and pinned in two places — the schema's enum and
-   `ASSURANCE_LANES` here — and `test_assurance_lanes_mirror_the_pinned_spec_vocabulary`
-   holds them equal against the installed release. A lane this toolchain realises ahead
-   of the release that declares it goes in `_AWAITING_SPEC_RELEASE` in
-   `tests/architecture/test_cli_verify.py`, which is a separate list from the rule one
-   and empties at the same step 4. `test_no_lane_awaits_a_spec_release_it_already_had`
-   fails on a name left behind, so the allowance cannot rot into an exemption from the
-   one assertion that holds the two vocabularies together.
-2. **terp-spec second.** Move its `REFERENCE_SHA` to the commit here that carries the rule,
-   in the pull request that adds the catalog entry. Its certification then runs against a
-   commit that implements the rule, so it passes and the catalog merges normally — no
-   override on a protected branch.
-3. **Release terp-spec.** The tag's verify job certifies against the same pinned commit and
-   publishes.
-4. **Come back here and close the window.** Move the four declarations above to the new spec
-   version, re-lock, and **empty both `_AWAITING_SPEC_RELEASE` lists** (the rule one in
-   `test_spec_catalog.py`, the lane one in `test_cli_verify.py`) — a framework release
-   cannot be cut while either is non-empty, and a listed name whose entry has since been
-   published fails the staleness check, so no half can be forgotten.
-
-A release that only *records* behaviour this repository already ships — a residual promoted
-to required, say — collapses to step 2 alone, and that is the case most likely to be
-forgotten, because nothing here goes red when it is skipped. It does not go red because the
-gate reads the catalog from the installed package (ADR 0082): a stale pin certifies against
-the old bar silently, and the corpus cases written to hold the new one never run. Treat a
-spec release as unadopted until the four declarations name its version.
+**An assurance lane may be realised here ahead of the release that declares it.** The lane
+vocabulary is pinned in two places — the schema's enum and `ASSURANCE_LANES` here — and
+`test_assurance_lanes_mirror_the_pinned_spec_vocabulary` holds them equal against the
+installed release. A lane realised here first goes in `_AWAITING_SPEC_RELEASE` in
+`tests/architecture/test_cli_verify.py`, and comes out when the pin reaches the release that
+declares it; `test_no_lane_awaits_a_spec_release_it_already_had` fails on a name left behind.
 
 **Check what the spec release actually ships, not what its changelog says it ships.** A
 schema declared in the spec repository but missing from its packaging manifests installs as
@@ -203,7 +172,7 @@ create packages.
 4. Watch the `release` workflow: `verify` (tag ↔ version + the full gate, both stacks)
    fans out to `build-pypi` and `publish-images`, and `publish-npm` runs **after**
    `publish-pypi` rather than beside it — the serialization is deliberate and the reason is
-   below. Then `github-release` attaches the conformance scorecards.
+   below. Then `github-release` publishes the tag's authored notes.
    Both publish jobs enter the `release` environment, and the run parks **twice** — once
    before `publish-pypi` and again before `publish-npm`. Expect to approve two deployments
    for one release. GitHub shares an approval between jobs that enter a protected

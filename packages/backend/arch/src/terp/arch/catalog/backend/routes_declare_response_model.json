@@ -1,0 +1,27 @@
+{
+  "id": "backend/routes_declare_response_model",
+  "surface": "backend",
+  "title": "Every content route declares its response type (no bare data out)",
+  "intent": "A route with neither a declared response type nor a no-body status code can serialize a bare stored object out of the boundary — whatever the handler happens to return, including columns that were never meant to leave the app. Declaring the response type makes the boundary shape explicit and reviewable; both decorator routes and imperative route registration are checked.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_routes_declare_response_model"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "validate_routes_declare_response_model"
+    }
+  ],
+  "reference": "response_model= on @router.<verb>(...) decorators and router.add_api_route(...); a no-body status_code (204/205/304) is the accepted alternative.",
+  "opt_out": "# arch-allow-routes-declare-response-model: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "At boot, the route scan on the composition seam (the same seam as _validate_router_response_models) walks every composed route — decorator, imperative add_api_route, and nested included routers alike — and raises a BootError naming this rule and the route when a content route declares no response_model. No-body 204/205/304 statuses and Response-subclass-annotated non-content routes stay exempt, so the control refuses exactly the routes that would serialize a bare object out of the boundary."
+  },
+  "guide_topic": "module",
+  "corpus": true
+}

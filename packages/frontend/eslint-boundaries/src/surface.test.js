@@ -1,10 +1,11 @@
 /**
- * The reference adapter is held to the spec's declared refused surface (`spec/restricted-surface.json`).
+ * The adapter is held to the declared refused surface (`restricted-surface.json`, beside this
+ * package's sources).
  *
- * The refused raw frontend surface is spec **data**, not adapter code: the stack-neutral,
- * normative part of the portable prohibition rules is the list of raw primitives an app module
- * must not author; which sanctioned component answers each primitive is per-stack configuration
- * (the catalog entries' non-normative `reference` field). This test locks the two together:
+ * The refused raw frontend surface is **data**, not adapter code: the normative part of the
+ * prohibition rules is the list of raw browser primitives an app module must not author; which
+ * sanctioned component answers each primitive is the catalog entries' non-normative `reference`
+ * field. This test locks the two together:
  *
  * - structurally: `BOUNDARY_SPEC` realises exactly the declared surface (no drift in either
  *   direction — an element/attribute/global added to one side must be added to the other);
@@ -14,20 +15,19 @@
  */
 
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
 
 import terpBoundaries, { BOUNDARY_SPEC, catalogRuleId } from "./index.js";
 
-// The spec is a declared dependency (@terpjs/spec, ADR 0082), never a repo-relative path.
-const SPEC_ROOT = path.dirname(
-  createRequire(import.meta.url).resolve("@terpjs/spec/package.json"),
-);
 const SURFACE = JSON.parse(
-  fs.readFileSync(path.join(SPEC_ROOT, "restricted-surface.json"), "utf8"),
+  fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "restricted-surface.json"),
+    "utf8",
+  ),
 );
 
 async function lintModuleSource(source) {
@@ -172,12 +172,11 @@ describe("behavioural parity: each declared primitive is refused with the right 
 
 // ---------------------------------------------------------------------------
 // opt-out parity: the catalog's declared marker spelling is the one that works.
-// A violating line per rule; the spec's own `opt_out` (a justified marker naming
-// the CATALOG rule) must suppress exactly that rule — and the escape-hatch
+// A violating line per rule; the catalog entry's own `opt_out` (a justified marker
+// naming the CATALOG rule) must suppress exactly that rule — and the escape-hatch
 // governance rule declares no opt_out at all (waiving governance is refused).
-// The pinned spec (>= 0.6.0) states this contract.
 // ---------------------------------------------------------------------------
-const CATALOG_DIR = path.join(SPEC_ROOT, "catalog", "frontend");
+const CATALOG_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "catalog", "frontend");
 const CATALOG_ENTRIES = fs
   .readdirSync(CATALOG_DIR)
   .filter((name) => name.endsWith(".json"))

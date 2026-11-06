@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/input_schemas_exclude_managed_columns",
+    "path": "modules/notes/schemas.py",
+    "line": 8
+  }
+]

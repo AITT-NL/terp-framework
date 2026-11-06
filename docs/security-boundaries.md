@@ -6,12 +6,12 @@ concurrent change. An exception or a successful source check alone does not prov
 properties. The tests below use real persistence and framework services, with local
 transport servers where the transport itself is the boundary.
 
-Each row names the Terp Standard runtime security case it is evidence for (the `id` in
-`runtime-security.fixtures.json`), and each piece of evidence is a test file, or a test
-function in one, that runs it. `tests/architecture/test_runtime_security_evidence.py` holds the
-index to the cases the pinned standard packages: every case has a row, every case a row names
-is one the standard has, and every file and function named exists. A case the evidence runs
-ahead of the pinned release sits in that test's declared window until the pin reaches it.
+Each row names the runtime security case it is evidence for (the `id` in
+[`tests/runtime_security/runtime-security.fixtures.json`](../tests/runtime_security/README.md)),
+and each piece of evidence is a test file, or a test function in one, that runs it.
+`tests/architecture/test_runtime_security_evidence.py` holds the index to those cases: every
+case has a row, every case a row names is one the fixtures have, and every file and function
+named exists. A case, its row and its tests land in one change.
 
 | Case | Runtime scenario | Regression evidence |
 |---|---|---|
@@ -52,7 +52,7 @@ restore client and refuses skipped restore drills.
 The minimum-runtime-security CI lane independently resolves the lowest allowed direct
 dependencies, audits its external runtime tree, and exercises the relevant boundaries.
 The normal gate and dependency audit cover the current resolution. These checks complement
-the source-rule corpus; they are not inferred from its scorecard or from coverage alone.
+the source-rule corpus; they are not inferred from it or from coverage alone.
 The decisions and remaining boundaries are recorded in
 [ADR 0193](decisions/0193-security-boundaries-hold-across-operation-sequences.md).
 

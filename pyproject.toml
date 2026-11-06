@@ -91,9 +91,11 @@ dev = [
     # Validates every log line a production app writes against the terp-log/1 schema
     # (terp.core's log-record.schema.json, ADR 0188) with a full draft 2020-12 validator.
     "jsonschema>=4.26.0",
-    # The Terp Standard (ADR 0082): the certification tests locate the
-    # catalog/corpus through terp_spec.spec_dir(), never a repo path. Pinned to
-    # one exact release (ADR 0086) so the Python and npm pins can be compared.
+    # The contracts package (ADR 0082, ADR 0203): the tests locate the declaration
+    # schemas, the check-report and findings formats and the assurance profile
+    # through terp_spec.spec_dir(), never a repo path. The rules live in this
+    # repository. Pinned to one exact release (ADR 0086) so the Python and npm pins
+    # can be compared.
     "terp-spec==0.43.0",
 ]
 # CI-only generic backstops (NOT part of the `pytest --cov=terp` gate; they
@@ -137,8 +139,8 @@ terp_strict_isolation = true
 [tool.coverage.run]
 source_pkgs = ["terp"]
 # The scripts under tools/ decide gate verdicts too -- the workflow-job runner decides
-# whether template acceptance is green, the scorecard emitter is the backend's
-# certification evidence -- so they are held to the same bar as terp.* rather than
+# whether template acceptance is green, the rule-page generator decides what a reader
+# is told about every rule -- so they are held to the same bar as terp.* rather than
 # measured only by whoever remembers to.
 source = ["tools"]
 # Generated Alembic artifacts are not framework logic: the shared env/script
@@ -175,7 +177,15 @@ exclude_also = [
 [tool.ruff]
 # terp-arch (the gate) keeps full authority over terp-specific rules; vendored
 # core is byte-checked elsewhere and generated Alembic DDL is not framework logic.
-extend-exclude = [".venv", "vendor", "**/migrations/versions"]
+# The two rule corpora are deliberate violations, never imported or executed: each
+# violation case exists to carry the very form the baseline refuses (ADR 0080, ADR 0203).
+extend-exclude = [
+    ".venv",
+    "vendor",
+    "**/migrations/versions",
+    "packages/backend/arch/corpus",
+    "packages/frontend/eslint-boundaries/corpus",
+]
 
 [tool.ruff.lint]
 # Generic security backstop = bandit (`S`) layered ON TOP of terp-arch. The

@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/table_ownership_is_not_split",
+    "path": "modules/tasks/models.py",
+    "line": 6
+  }
+]

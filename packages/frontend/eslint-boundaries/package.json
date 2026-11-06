@@ -8,6 +8,11 @@
     "terp-boundaries-budget": "./src/budget.js",
     "terp-boundaries-lint": "./src/findings.js"
   },
+  "files": [
+    "src",
+    "catalog",
+    "restricted-surface.json"
+  ],
   "exports": {
     ".": "./src/index.js",
     "./spec": "./src/spec.js",

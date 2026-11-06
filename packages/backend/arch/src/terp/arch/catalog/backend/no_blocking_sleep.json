@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_blocking_sleep",
+  "surface": "backend",
+  "title": "Never block the thread with a synchronous sleep",
+  "intent": "A synchronous sleep parks the thread that is serving the request or running the job, so the whole worker sits idle and the pool starves under load. Waiting must yield the thread — poll with an awaitable, schedule a delayed job, or let the runtime back off — never freeze it.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_blocking_sleep"
+    }
+  ],
+  "reference": "A call to the standard library's time.sleep() is refused; use a non-blocking wait or a scheduled job.",
+  "opt_out": "# arch-allow-no-blocking-sleep: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The invariant is a property of the authored call. At execution time a blocking sleep is a normal function call on the stack, and by the time it runs the thread is already parked — no seam upstream can turn a blocking wait into a yielding one, so the only faithful check refuses the construct in source."
+  },
+  "guide_topic": "jobs",
+  "corpus": true
+}

@@ -1,0 +1,7 @@
+{
+  "sourceLocale": "nl",
+  "locales": {
+    "nl": { "label": "Nederlands" },
+    "en": { "label": "English", "messages": {} }
+  }
+}

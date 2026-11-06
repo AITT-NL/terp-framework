@@ -1,0 +1,22 @@
+{
+  "id": "frontend/router-links",
+  "surface": "frontend",
+  "title": "In-app links go through the router, never a raw anchor",
+  "intent": "A raw <a href=\"/...\"> forces a full reload and skips the role-aware route guard; in-app navigation uses the stack's router-integrated link. External https:// anchors stay allowed.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "@terpjs/eslint-boundaries",
+      "ref": "BOUNDARY_SPEC.restrictInAppAnchors",
+      "reported_as": "no-restricted-syntax"
+    }
+  ],
+  "reference": "Link from @terpjs/react-core (router-integrated, role-aware).",
+  "opt_out": "// terp-allow-router-links: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "In the rendered DOM the router's own Link IS an anchor -- raw-anchor authorship is only visible in source, so no DOM check can distinguish a sanctioned link from a hand-written one."
+  },
+  "corpus": true
+}
