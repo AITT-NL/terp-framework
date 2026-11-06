@@ -1,0 +1,27 @@
+{
+  "id": "backend/operations_reference_catalog",
+  "surface": "backend",
+  "title": "A route's declared operation is a typed catalog constant, never a bare value",
+  "intent": "A route can say what it does for the person calling it, but only by citing a typed definition from one shared catalog -- never a string literal or a value built inline at the call site. Without this, a route's stated purpose could drift from what the catalog documents, or two routes could describe the same action in two different words with no way to tell they were ever meant to agree.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_operations_reference_catalog"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "validate_declared_operations"
+    }
+  ],
+  "reference": "OperationDefinition constants from the control-plane operations catalog, cited via the operation(...) route-level marker and the *_operation= keywords a canonical CRUD factory accepts.",
+  "opt_out": "# arch-allow-operations-reference-catalog: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "Boot resolves every declared operation against the registered catalog by value (id and wording together), so an unknown id or a same-id entry with different wording fails closed before the app ever serves a request."
+  },
+  "guide_topic": "operations",
+  "corpus": true
+}

@@ -1,0 +1,21 @@
+{
+  "id": "frontend/escape-hatch",
+  "surface": "frontend",
+  "title": "Every opt-out marker is justified and governed by the budget ratchet",
+  "intent": "The one opt-out is a justified inline marker naming the rule; an unjustified marker is itself an error, and marker counts must exactly match the app's checked-in escape-hatch budget so opt-outs stay visible and can only shrink.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "@terpjs/eslint-boundaries",
+      "ref": "terp/escape-hatch",
+      "reported_as": "terp/escape-hatch"
+    }
+  ],
+  "reference": "// terp-allow-<rule>: <reason> markers reconciled against the app's checked-in escape-hatch-budget.json (ADR 0059). The rule carries no opt_out: governance cannot be waived by the mechanism it governs.",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "Markers and budgets are source/repository artifacts; the built bundle retains neither. The controls the markers opt out of keep their own runtime halves regardless."
+  },
+  "corpus": true
+}

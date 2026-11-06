@@ -1,0 +1,4 @@
+{
+  "_comment": "The corpus-coverage ratchet for this surface: every catalog rule still WITHOUT corpus cases, exactly. Seeding a rule's corpus removes it here (the list only shrinks); a new rule without corpus must be added here explicitly, so uncovered rules stay visible and reviewed. Held to the catalog by tests/architecture/test_rule_standard.py.",
+  "pending": []
+}

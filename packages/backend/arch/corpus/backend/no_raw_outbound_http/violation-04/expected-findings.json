@@ -1,0 +1,12 @@
+[
+  {
+    "rule": "backend/no_raw_outbound_http",
+    "path": "modules/notes/service.py",
+    "line": 3
+  },
+  {
+    "rule": "backend/no_raw_outbound_http",
+    "path": "modules/notes/service.py",
+    "line": 4
+  }
+]

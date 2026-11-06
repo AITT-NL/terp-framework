@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/errors_use_the_typed_envelope",
+    "path": "modules/notes/service.py",
+    "line": 12
+  }
+]

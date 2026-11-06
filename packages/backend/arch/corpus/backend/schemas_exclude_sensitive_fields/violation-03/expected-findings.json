@@ -1,0 +1,17 @@
+[
+  {
+    "rule": "backend/schemas_exclude_sensitive_fields",
+    "path": "modules/integrations/schemas.py",
+    "line": 5
+  },
+  {
+    "rule": "backend/schemas_exclude_sensitive_fields",
+    "path": "modules/integrations/schemas.py",
+    "line": 6
+  },
+  {
+    "rule": "backend/schemas_exclude_sensitive_fields",
+    "path": "modules/integrations/schemas.py",
+    "line": 7
+  }
+]

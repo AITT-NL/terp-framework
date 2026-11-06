@@ -1,0 +1,27 @@
+{
+  "id": "backend/no_adhoc_permission_literals",
+  "surface": "backend",
+  "title": "Modules reference typed authority objects, never bare permission strings",
+  "intent": "An authority named as a bare string is invisible to the control plane: it cannot be resolved against the app's declared registry, so a typo or a stale name silently grants nothing (or the wrong thing) instead of failing the build. Citing typed authority objects keeps every permission reference greppable and verifiable against the registry, and lets the runtime normalization chokepoint refuse anything unregistered.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_adhoc_permission_literals"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "requirement_from"
+    }
+  ],
+  "reference": "Role / Permission objects from the control-plane registry; requirement_from raises TypeError on a bare string.",
+  "opt_out": "# arch-allow-no-adhoc-permission-literals: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "The typed normalization chokepoint refuses a bare string outright (requirement_from raises TypeError for anything but Role / Permission / the legacy enum), and boot refuses a Policy citing an authority the control plane does not declare."
+  },
+  "guide_topic": "policy",
+  "corpus": true
+}

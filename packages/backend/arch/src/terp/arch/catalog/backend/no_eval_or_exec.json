@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_eval_or_exec",
+  "surface": "backend",
+  "title": "Never execute a string as code",
+  "intent": "Turning a runtime string into executed code is a code-injection hole: any value an attacker can influence on its way into the evaluator becomes arbitrary code the process runs. There is no safe in-app use — parse the data into a structure, dispatch on a lookup table, or import a real module instead of evaluating text.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_eval_or_exec"
+    }
+  ],
+  "reference": "Calls to the eval() and exec() builtins are refused. The scan covers the whole importable tree — including tests and migrations — because any Python that runs is in scope.",
+  "opt_out": "# arch-allow-no-eval-or-exec: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The invariant is a property of the authored source: whether a dynamic-execution builtin was written. By the time the process runs, an evaluated string is indistinguishable from ordinary control flow, and no runtime seam upstream can tell a vetted call from an injected one — the only faithful check is refusing the construct in source."
+  },
+  "guide_topic": "capability",
+  "corpus": true
+}

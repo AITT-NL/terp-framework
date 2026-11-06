@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_app_instantiation",
+  "surface": "backend",
+  "title": "App code never constructs the web application object directly",
+  "intent": "The framework's composer owns app composition (deny-by-default guards, the control plane, the error envelope). A hand-built application object is an application assembled outside the framework — it acquires none of those controls.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_app_instantiation"
+    }
+  ],
+  "reference": "terp.core.create_app composes the app; a bare FastAPI() constructor call is refused.",
+  "opt_out": "# arch-allow-no-app-instantiation: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "A raw FastAPI() is an ordinary object the framework never sees: it acquires no guard, middleware, or error envelope -- and offers no seam through which terp.core could refuse its construction. Only composition through create_app passes framework-owned surface; the rule keeps authorship inside it."
+  },
+  "guide_topic": "capability",
+  "corpus": true
+}

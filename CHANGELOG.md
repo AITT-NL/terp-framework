@@ -10,6 +10,46 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.38.0 — unreleased
+
+### Changed
+
+- **The rules live in this repository (ADR 0203).** The rule catalog, its corpus, the refused
+  surface, the rule pages and the runtime security cases moved here from terp-spec 0.43.0,
+  split by surface under one id namespace:
+  - the backend catalog ships inside `terp-arch` (`terp/arch/catalog/`), and the frontend
+    catalog with `restricted-surface.json` inside `@terpjs/eslint-boundaries` (`catalog/`), so
+    a toolchain carries the description of every rule it reports;
+  - each corpus sits beside its package and ships with neither, which is why
+    `@terpjs/eslint-boundaries` now declares a `files` list;
+  - the runtime security cases are in `tests/runtime_security/`, and `docs/rules/` is
+    generated here by `tools/generate_rule_docs.py`.
+
+  A rule now lands in one pull request with its check, its catalog entry, its corpus cases and
+  its page. The windows that let this repository run ahead of a spec release are gone, because
+  nothing waits for another repository: ADR 0116's two allowances, the corpus verdict
+  allowance and the runtime security case window.
+- `terp-spec` / `@terpjs/spec` stay pinned at 0.43.0 for the contracts more than one program
+  reads: the declarations, the check-report and findings formats, the assurance profile and
+  the conversation stream. A check report's `spec_version` names the check-report format it
+  follows; its rule ids resolve against the catalog the toolchain ships.
+- `backend/datetime_columns_are_timezone_aware` names `UtcDateTime` (ADR 0205) in its reference,
+  and its corpus gains a compliant case with both spellings, named and called.
+- The repo-wide ruff baseline and the secret scan each step aside for exactly the corpus cases
+  that must carry the form they refuse, and nothing else in the corpus. Ruff skips the
+  violation cases of `backend/no_dynamic_sql` and `backend/no_eval_or_exec`. gitleaks skips
+  the violation cases of `backend/no_hardcoded_credentials`, with the default ruleset kept in
+  full (`.gitleaks.toml`). Every other corpus case is still linted and scanned. A guardrail
+  parses each configuration and holds it to those paths, so widening either fails the build.
+
+### Removed
+
+- **The conformance scorecards (ADR 0203).** `tools/emit_backend_scorecard.py` and
+  `@terpjs/eslint-boundaries`' `src/scorecard.js` are gone, with their CI steps, and a GitHub
+  Release no longer attaches `scorecard-*.json`. A scorecard certified a checker against the
+  corpus, not an app; an app's evidence is its own release: the release gate document, the
+  assurance profile and the authority baseline.
+
 ## 0.37.0 — 2026-11-06
 
 ### Security

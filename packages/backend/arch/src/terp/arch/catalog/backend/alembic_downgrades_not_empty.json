@@ -1,0 +1,27 @@
+{
+  "id": "backend/alembic_downgrades_not_empty",
+  "surface": "backend",
+  "title": "A migration's downgrade must reverse the change, not be an empty stub",
+  "intent": "A migration that leaves its downgrade step empty (a bare no-op with no operations) cannot be rolled back: reversing the revision silently leaves the schema mismatched instead of restoring the previous state. Each migration's downgrade must either perform the reverse operations or, for a deliberately irreversible step, carry a comment explaining why the no-op is intentional.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_alembic_downgrades_not_empty"
+    },
+    {
+      "kind": "build-time",
+      "tool": "terp.migrations",
+      "ref": "assert_migrations_reverse_cleanly"
+    }
+  ],
+  "reference": "In each revision file under migrations/versions, a downgrade function whose body (after any docstring) is a lone pass / ellipsis or is empty, with no explanatory comment, is flagged; a reverse operation or an in-body '#' comment clears it. That source check sees only emptiness. The reference stack pairs it with an EXECUTED rehearsal a consuming project runs on a scratch database — upgrade to head, downgrade to base, check every history emptied and nothing was left behind, upgrade again, compare the schema read from the database's own catalogue — which is what catches a downgrade that cannot run and one that does not undo what it did.",
+  "opt_out": "# arch-allow-alembic-downgrades-not-empty: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "An empty downgrade is a property of the authored revision file, and a forward deploy never executes downgrade, so nothing is observable at runtime until a rollback is attempted: there is no fail-closed control a running system could carry. That is about the RUNTIME, not about the guarantee — reversibility is provable at build time, on a scratch database, by rehearsing the rollback, which is the second enforcement entry above. An earlier version of this rationale said the guarantee 'exists only in source', which was untrue and read as a reason not to look."
+  },
+  "guide_topic": "migrations",
+  "corpus": true
+}

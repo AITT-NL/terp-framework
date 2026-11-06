@@ -1,0 +1,22 @@
+{
+  "id": "backend/session_imported_from_sqlmodel",
+  "surface": "backend",
+  "title": "The ORM session type is imported from the framework's canonical source, never the underlying library",
+  "intent": "The framework standardises on one session type everywhere — the injected request session, the service layer, the write guard, and the migrations all speak the same type, re-exported from one canonical source. Importing the session type from the underlying ORM library instead quietly forks the app onto a second session type, so the rule names the one canonical import. (Constructing a session is separately banned by no_raw_session_construction — this only fixes the spelling.)",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_session_imported_from_sqlmodel"
+    }
+  ],
+  "reference": "from sqlmodel import Session is canonical (SQLModel re-exports SQLAlchemy's); imports from sqlalchemy / sqlalchemy.orm are refused.",
+  "opt_out": "# arch-allow-session-imported-from-sqlmodel: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "Which module a symbol was imported from is erased at runtime: sqlmodel's Session subclasses SQLAlchemy's, and the object in play is the framework-provided session either way. The typed exec/scoping benefits are carried by the session the framework hands out."
+  },
+  "guide_topic": "service",
+  "corpus": true
+}

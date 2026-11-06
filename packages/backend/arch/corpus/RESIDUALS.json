@@ -1,0 +1,48 @@
+{
+  "_comment": "The detector-residual ratchet for this surface: the statically-erased or renamed forms DELIBERATELY outside the corpus contract, per rule — known limits of precise, low-false-positive detection, recorded as data so a rule's page states where its detection ends instead of leaving it to guesswork. The list only shrinks: closing a residual means seeding the corpus case that contracts it and deleting the entry here, never silently. Every key is a catalog rule id of this surface, and the keys are sorted; held by tests/architecture/test_rule_standard.py.",
+  "residuals": {
+    "backend/errors_use_the_typed_envelope": [
+      "an error constructed under an alias (`from fastapi import HTTPException as ApiError`) is not required to be resolved back to the framework's HTTP error"
+    ],
+    "backend/expand_revisions_only_expand": [
+      "an operation made in a helper function that `upgrade()` calls, or through an alias of the operations handle under a method name no operation has, is not required to be seen: the reference stack's migration run refuses it as it executes, which is the half of the rule that sees every operation",
+      "the order of operations inside one revision is not required to be followed: an operation on a table, or over a column, that the same revision creates or adds is admitted wherever it sits in `upgrade()`, while the run admits it only after the creation"
+    ],
+    "backend/no_destructive_migrations": [
+      "a statement the source does not spell out (a variable, a value a helper returns, a query-builder construct such as `op.execute(notes.delete())`, a file read at run time) is not required to be read: only a statement written as a literal, an f-string or a concatenation of strings is",
+      "an operation whose name is computed (`getattr(op, name)(...)` with a name that is not a literal, source text run through `exec`) is not required to be read: an operation is read under its own name, under a name the revision imports it as at its top level, or through `getattr` with a literal name",
+      "a step the upgrade reaches other than by calling a top-level function of the same revision by its name (a helper imported from another module, a callable held in a variable, a method, a function passed as a value and called through it) is not required to be followed",
+      "an upgrade entry point bound to anything but a top-level function of the revision, directly or through a chain of top-level names (`upgrade = make_upgrade()`), is not required to be resolved",
+      "rows deleted through an object-relational session rather than by a statement or a schema operation (`session.delete(row)`, `session.query(Note).delete()`) are not required to be read as a drop",
+      "a revision file in a subdirectory of the versions directory, which the migration tool loads only when it is configured to search recursively, is not required to be read",
+      "a unique, foreign-key or unique-index constraint on a column the same upgrade adds nullable is not required to be reported when that upgrade fills the column before adding the constraint, which is the one order in which the existing rows can break it",
+      "a constraint written inline in a raw column addition (`ADD COLUMN slug text UNIQUE DEFAULT 'x'`, `ADD COLUMN rank int NOT NULL`) is not required to be read as a step the existing rows can break"
+    ],
+    "backend/no_dynamic_sql": [
+      "SQL built as a string and handed to a raw DB-API cursor (`cursor.execute(f\"SELECT ... FROM {table}\")`) is not required to be caught: the check matches the reference stack's `text(...)` construct, and a package that does not model the schema it talks to never writes one. The shape is not ungoverned — the reference stack delegates it to a stock analyzer's SQL-string-construction rule, in the platform repository and in every generated project as a blocking step — but that lane is outside the catalog, so the limit is recorded here rather than implied",
+      "an alias-renamed symbol import (`from sqlalchemy import text as sql_text`) is not required to be resolved to `text`"
+    ],
+    "backend/no_exception_text_in_responses": [
+      "an error built into a local name and raised on a later statement (`err = ValidationFailedError(str(exc))` then `raise err`) is not required to be connected to the handler that bound the exception",
+      "a helper called from the handler that takes the caught exception and returns a message string is not required to be followed across the call",
+      "exception text a handler persists instead of raising (`row.failure_reason = str(exc)`, on a column a read DTO later exposes) is not required to be followed to the response that eventually serves it: a write and a subsequent request separate the two, so no static check connects them"
+    ],
+    "backend/no_manual_actor_stamping": [
+      "a stamp written through the attribute API (`setattr(row, \"created_by_id\", ...)`) is not required to be seen as an assignment",
+      "a comparison expressed as a method call on the column (`.in_(...)`, `.is_(...)`) rather than as an operator is not required to be seen as a comparison"
+    ],
+    "backend/no_manual_lease_columns": [
+      "a holder/heartbeat pair under other column names (`worker_id` + `last_seen_at`) is not required to be recognised as a hand-rolled lease: the check matches a fixed set of column spellings on a table model, not the custody shape"
+    ],
+    "backend/no_manual_ownership_checks": [
+      "a ModuleSpec that omits `services=` is not required to be caught by the composition-time twin, which iterates the declared services"
+    ],
+    "backend/no_raw_outbound_http": [
+      "dynamic import (`importlib.import_module(\"httpx\")`) is not required to be seen as an import"
+    ],
+    "backend/personal_fields_are_declared": [
+      "a model whose base comes from another package under a name that is not one of the known model bases (a third-party base model) is not required to be recognised as a model, because the check resolves bases by name within the scanned tree",
+      "a model built at runtime (create_model, a class assembled by a factory) is not required to be read: its fields exist only once the code runs"
+    ]
+  }
+}

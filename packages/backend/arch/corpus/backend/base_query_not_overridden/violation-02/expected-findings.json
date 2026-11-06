@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/base_query_not_overridden",
+    "path": "modules/notes/service.py",
+    "line": 7
+  }
+]

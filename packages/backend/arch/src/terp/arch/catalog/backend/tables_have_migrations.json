@@ -1,0 +1,27 @@
+{
+  "id": "backend/tables_have_migrations",
+  "surface": "backend",
+  "title": "Every app module that defines a table model ships a packaged migration history",
+  "intent": "A deployed Terp app builds its schema from packaged migrations, never from dev-time schema auto-creation — so a module that declares a table model but ships no migration revision would deploy with that table missing, and the first request would fail on a nonexistent table. This rule fails the build first, and the running system's migration guard refuses the same violation at boot (the two halves of the migration control). Generate and commit the module's migration revision.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_tables_have_migrations"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.migrations",
+      "ref": "assert_no_missing_histories"
+    }
+  ],
+  "reference": "terp migrate make <name> generates the module's migrations/versions/ revision; assert_migrations_current is the production boot guard (it runs assert_no_missing_histories, so a table-owning package without any history refuses to boot), create_all the refused dev shortcut.",
+  "opt_out": "# arch-allow-tables-have-migrations: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "The boot guard refuses the standalone missing-history case this rule exists for: a declared package that defines table models but ships no migration history at all raises a MissingMigrationsError naming the packages -- fail closed at boot, before a request can hit a table that was never created. The pending-revisions half of the same guard keeps covering histories that exist but are behind head."
+  },
+  "guide_topic": "migrations",
+  "corpus": true
+}

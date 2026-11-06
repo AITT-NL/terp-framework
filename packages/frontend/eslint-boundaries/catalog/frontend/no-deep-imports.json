@@ -1,0 +1,25 @@
+{
+  "id": "frontend/no-deep-imports",
+  "surface": "frontend",
+  "title": "App modules import platform packages from the root only",
+  "intent": "A deep import into a platform package's internals couples the app to files that are free to move; the package root is the published, stable surface. The refused path segments are declared in restricted-surface.json (deepImportPathSegments).",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "@terpjs/eslint-boundaries",
+      "ref": "BOUNDARY_SPEC.internalImportPatterns",
+      "reported_as": "no-restricted-imports"
+    }
+  ],
+  "reference": "@terpjs/*/src/* and @terpjs/*/dist/* imports are refused; import from the @terpjs/* package root.",
+  "opt_out": "// terp-allow-no-deep-imports: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "Package-boundary form: the bundler resolves and inlines whatever was imported, and the built artifact retains no distinction between a root import and a deep one."
+  },
+  "restricted_surface": [
+    "deepImportPathSegments"
+  ],
+  "corpus": true
+}

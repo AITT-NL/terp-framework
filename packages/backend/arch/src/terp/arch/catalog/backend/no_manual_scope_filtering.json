@@ -1,0 +1,27 @@
+{
+  "id": "backend/no_manual_scope_filtering",
+  "surface": "backend",
+  "title": "Modules never touch the framework-managed scope columns",
+  "intent": "Soft-delete and tenant scoping are applied centrally: the composed base read query filters out soft-deleted rows and applies every registered row predicate (e.g. the tenant filter), and the audited delete chokepoint stamps the deletion. A module that references deleted_at / tenant_id \u2014 to filter, set, or compare \u2014 is re-implementing that scope predicate by hand, which can leak or destroy scoped rows. The composed scoped read is the only path; expose the column in a read DTO if you must surface it, but never filter or assign it in module code. Unlike the actor-stamp rule, a plain read of these columns is refused too, and deliberately: `if row.deleted_at is None` inside module code IS the hand-rolled scope predicate this rule exists to replace, and no static check can tell it from a read that only surfaces the value.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_manual_scope_filtering"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "apply_row_scope"
+    }
+  ],
+  "reference": "BaseService.base_query composes the scope (deleted_at IS NULL + registered predicates); deleted_at / tenant_id attribute access in module code is refused.",
+  "opt_out": "# arch-allow-no-manual-scope-filtering: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "Row scope is applied centrally and non-droppably: apply_row_scope composes the soft-delete filter and every registered predicate into each read (including raw selects, re-scoped by the request session), the delete chokepoint stamps deleted_at, and the managed scope columns are stripped from inbound payloads."
+  },
+  "guide_topic": "tenancy",
+  "corpus": true
+}

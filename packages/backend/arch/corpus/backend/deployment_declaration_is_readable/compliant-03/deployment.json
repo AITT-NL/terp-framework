@@ -1,0 +1,4 @@
+{
+  "unmanaged": true,
+  "reason": "Deployed by the operator's own cluster tooling, which reads its own manifests."
+}

@@ -1,0 +1,32 @@
+{
+  "id": "backend/update_schemas_inherit_base_update_schema",
+  "surface": "backend",
+  "title": "An update request contract must require the optimistic-concurrency token",
+  "intent": "Optimistic concurrency only protects a row when the client echoes the version it loaded and the update path checks it before writing. That guarantee hinges on the update request contract demanding the token as a required field: an update contract that omits it lets a client send a blind write, so the check has nothing to compare and a concurrent edit is silently overwritten (a lost update). Every update request contract must inherit the shared concurrency-bearing base that makes the token a required field, rather than an ordinary contract that leaves it out. The token is not redeclared on the contract — it is a managed field that arrives by inheritance.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_update_schemas_inherit_base_update_schema"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "BaseUpdateSchema"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "StaleDataError"
+    }
+  ],
+  "runtime": {
+    "applicability": "required",
+    "rationale": "Two runtime halves back the source contract: BaseUpdateSchema makes the version token a required field, so a client that omits it is rejected at request validation (422); and BaseService.update matches the echoed token against the loaded row and raises a conflict (409) when they diverge. The build-time rule is the early-warning half — it ensures every update DTO actually inherits that base so it opts into both runtime checks, since a source scan is where an off-base update DTO is visible before it ever reaches a request."
+  },
+  "opt_out": "# arch-allow-update-schemas-inherit-base-update-schema: <reason>",
+  "reference": "class NoteUpdate(BaseSchema) is refused; class NoteUpdate(BaseUpdateSchema) (directly or transitively) is compliant, as is a class wired as build_crud_router(update_schema=...). BaseUpdateSchema supplies the required version field; BaseService.update checks it.",
+  "guide_topic": "module",
+  "corpus": true
+}

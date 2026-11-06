@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/public_modules_are_read_only",
+    "path": "modules/notes/module.py",
+    "line": 6
+  }
+]

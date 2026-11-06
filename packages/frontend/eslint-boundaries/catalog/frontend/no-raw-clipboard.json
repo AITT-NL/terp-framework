@@ -1,0 +1,22 @@
+{
+  "id": "frontend/no-raw-clipboard",
+  "surface": "frontend",
+  "title": "Putting text on the clipboard goes through the stack's seam, not navigator.clipboard",
+  "intent": "navigator.clipboard is not the API its type describes. The DOM lib types it as always present, and it is absent outside a secure context — so on a plain-http origin that is not localhost, navigator.clipboard.writeText(...) is a property access on undefined. That throws a synchronous TypeError before any promise exists, which means a .catch on the call never runs and neither does a try wrapped around an await that was never reached. Nothing in the type system reports it, so the whole class is invisible to review and to a type check: the observable outcome is a control that does nothing and says nothing, found by a person clicking it in a deployment served over http. Every app that reaches for the API directly rediscovers this, which is what makes it a rule rather than a lesson. The rule is about the DEFECT, not about copying: the seam a conformant stack ships is expected to feature-detect the API, fall back where it is absent, and report a refusal rather than resolve as though it had worked.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "@terpjs/eslint-boundaries",
+      "ref": "BOUNDARY_SPEC.restrictRawClipboard",
+      "reported_as": "no-restricted-syntax"
+    }
+  ],
+  "reference": "Any access to `navigator.clipboard` in app code is refused — the member expression, not merely a call, because `const c = navigator.clipboard` is the same throw one line earlier; the `window.`/`globalThis.` prefixed and computed (`navigator[\"clipboard\"]`) spellings and the destructuring form (`const { clipboard } = navigator`) are refused with it, since each binds the same undefined under a different name. The reference stack ships `copyText` (the mechanism, callable anywhere) and `useCopyToClipboard` (adding the transient \"copied\" acknowledgement a control needs) from `@terpjs/react-core`; `copyText` resolves to `false` when the text did not reach the clipboard, so a caller that ignores a refusal has chosen to rather than never having been told.",
+  "opt_out": "// terp-allow-no-raw-clipboard: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The invariant is which API the source reached for, and that is only visible where the call is written. A runtime control would have to observe the TypeError it exists to prevent — by which point the copy has already silently failed for that viewer — and could not distinguish an app calling the API directly from the seam's own feature detection, which reads the very same property. The authored source is the only place the choice is still legible."
+  },
+  "corpus": true
+}

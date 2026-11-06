@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_manual_table_schema",
+  "surface": "backend",
+  "title": "Table models never hand-write a physical schema placement (the layout is managed)",
+  "intent": "The physical schema layout is a deployment decision: under the flat layout every table lives in the default schema, and under the per-module layout the migration runtime routes each package's tables into its own database schema — in both layouts the model metadata stays schema-free. A hand-written schema placement pins one table to a fixed schema, silently escaping the managed layout (and breaking lightweight dev/test databases that parse a schema prefix differently).",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_manual_table_schema"
+    }
+  ],
+  "reference": "DB_SCHEMA_LAYOUT (flat / per-module via search_path, ADR 0070) owns placement; __table_args__ = {\"schema\": ...} is refused.",
+  "opt_out": "# arch-allow-no-manual-table-schema: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "schema= placement is materialised into DDL by the packaged migrations; by the time the app serves, tables live where the migrations put them. The managed-layout guarantee is enforced where the DDL is authored, not against an already-created schema."
+  },
+  "guide_topic": "migrations",
+  "corpus": true
+}

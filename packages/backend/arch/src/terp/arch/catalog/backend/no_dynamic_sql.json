@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_dynamic_sql",
+  "surface": "backend",
+  "title": "Raw SQL text in app modules must be a static literal, never dynamically built",
+  "intent": "A raw-SQL construct built dynamically — through interpolation, concatenation, format calls, or a variable — is not statically reviewable and is easy to turn into SQL injection. Keep SQL as a literal and pass data through bound parameters / the query builder's typed expressions instead. As a security rule this also scans test and migration files inside a module — they are importable code, so they are application surface too.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_dynamic_sql"
+    }
+  ],
+  "reference": "text(...) / sqlalchemy.text(...) with an f-string, concatenation, .format, % formatting, or a variable is refused; SQLAlchemy bound parameters / ORM expressions are the compliant path.",
+  "opt_out": "# arch-allow-no-dynamic-sql: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The invariant is a property of the authored source: whether SQL text was written as a static, reviewable literal. At execution time every statement is just a string \u2014 how it was built is erased, so no runtime seam can distinguish a vetted literal from concatenated input. The adjacent runtime protections are different controls: the write guard refuses smuggled DML (mutations_emit_audit) and parameter binding is the compliant data path."
+  },
+  "guide_topic": "service",
+  "corpus": true
+}

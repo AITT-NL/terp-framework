@@ -1,0 +1,20 @@
+name: demo-prod
+
+services:
+  api:
+    image: demo-backend-prod
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    env_file:
+      - path: .app.env
+        required: false
+      - path: .app.api.env
+        required: false
+
+  worker:
+    image: demo-backend-prod
+    command: ["terp", "jobs", "worker"]
+    env_file:
+      - path: .app.env
+        required: false

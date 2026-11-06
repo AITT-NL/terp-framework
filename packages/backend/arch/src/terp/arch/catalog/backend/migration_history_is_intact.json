@@ -1,0 +1,22 @@
+{
+  "id": "backend/migration_history_is_intact",
+  "surface": "backend",
+  "title": "Each migration history is one unbroken chain from a single first revision",
+  "intent": "A revision whose parent is missing, or a second revision claiming to start the history, means an already-authored migration was deleted or replaced rather than built upon. Every database that applied the removed revision then becomes unupgradable, and no schema-drift check can see it: a database rebuilt from the rewritten history is perfectly consistent with the models, so the build stays green while every provisioned environment is stranded. New schema changes are added on top of the existing chain.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_migration_history_is_intact"
+    }
+  ],
+  "reference": "Within each non-empty migrations/versions directory, exactly one revision must declare no parent; every other revision's declared parent (one id, or each id of a merge revision's tuple) must name a revision defined in that same directory, and every revision must be reachable from that first revision (no cycles or disconnected chains).",
+  "opt_out": "# arch-allow-migration-history-is-intact: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "Chain integrity is a property of the authored revision files and is checked from source alone. The complementary runtime control (terp.migrations.assert_no_orphaned_revisions, which refuses a database holding a revision the code does not define unless the migration record proves it inside the schema window: one migration run ahead, every revision of it expand-only, applied on the same framework version, walking back to exactly the code head; a rewritten or deleted revision is never inside it) enforces a different invariant on a different input: it needs a live database and cannot be observed from the source tree."
+  },
+  "guide_topic": "migrations",
+  "corpus": true
+}

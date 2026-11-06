@@ -1,0 +1,5 @@
+{
+  "unmanaged": true,
+  "reason": "Deployed by the operator's own pipeline.",
+  "requiredApprovals": 0
+}

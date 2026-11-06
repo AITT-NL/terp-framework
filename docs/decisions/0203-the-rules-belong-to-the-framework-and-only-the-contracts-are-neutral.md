@@ -1,8 +1,10 @@
 # 0203 — The rules belong to the framework, and only the contracts are neutral
 
-- **Status:** Accepted on 2026-11-06 by the owner. It sets a direction; each move it describes
-  is a later change of its own, and the first one waits for terp-spec#52 released as 0.43.0 and
-  this repository repinned to it.
+- **Status:** Accepted on 2026-11-06 by the owner. Built in 0.38.0 (unreleased): the rules, the
+  corpus, the refused surface, the rule pages and the runtime security cases moved here from
+  terp-spec 0.43.0, and the scorecards are gone. Still open: decision 3's choice of where the
+  contracts package is published from, its rename, and the last `terp-spec` release that
+  points to it.
 - **Date:** 2026-11-05. 0194 to 0202 are taken.
 - **Amends:** [ADR 0080](0080-terp-standard-rule-catalog-and-violation-corpus.md),
   [ADR 0081](0081-terp-standard-consumable-findings-schema-and-layers.md),

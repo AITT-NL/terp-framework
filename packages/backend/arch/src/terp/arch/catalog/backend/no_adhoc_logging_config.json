@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_adhoc_logging_config",
+  "surface": "backend",
+  "title": "App code never configures logging globally; redaction is centralized",
+  "intent": "Structured logging plus its redaction is installed once, centrally, at composition: secrets, recognised by name and by shape, and personal data, recognised only where a model declares the field personal, since an undeclared address has no shape to find. A module that re-points the global logging configuration itself can silently bypass the central redaction filter.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_adhoc_logging_config"
+    }
+  ],
+  "reference": "configure_logging (called by create_app) installs the redacting handlers; logging.basicConfig / dictConfig / fileConfig calls in app modules are refused.",
+  "opt_out": "# arch-allow-no-adhoc-logging-config: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "Global logging mutation is ambient interpreter state with no framework chokepoint to refuse it. The paired protection is constructive rather than preventive: the framework installs redaction on every handler it configures, but cannot intercept a module calling logging.basicConfig at import time."
+  },
+  "guide_topic": "capability",
+  "corpus": true
+}

@@ -1,0 +1,22 @@
+{
+  "id": "backend/tenant_scoped_models_use_scoped_service",
+  "surface": "backend",
+  "title": "A tenant-scoped model's service extends the tenant-scoped service base",
+  "intent": "This makes tenant isolation structural on the write side: reads of a tenant-scoped model are already filtered centrally by the registered tenant scope predicate, but the tenant-scoped service base is what stamps the tenant on create — so a plain service (which would insert an unstamped, never-visible row) is rejected at build time.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_tenant_scoped_models_use_scoped_service"
+    }
+  ],
+  "reference": "A TenantScopedMixin model's service extends TenantScopedService (stamps tenant_id on create, ADR 0017); a plain BaseService is refused.",
+  "opt_out": "# arch-allow-tenant-scoped-models-use-scoped-service: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "Service lineage is an authoring-shape fact. The leak-relevant runtime control is the registered row-scope predicate (apply_row_scope, declared under the scoping rules), which filters reads for the mixin regardless of which service touched the row; extending TenantScopedService is what makes writes stamp tenant_id so rows stay reachable in their tenant."
+  },
+  "guide_topic": "tenancy",
+  "corpus": true
+}

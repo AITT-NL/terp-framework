@@ -1,0 +1,32 @@
+{
+  "id": "backend/list_routes_paginate",
+  "surface": "backend",
+  "title": "A list route returns a capped page envelope, never a bare unbounded collection",
+  "intent": "Pagination is a mandatory cross-cutting control: a route whose declared response type is a bare collection serializes an unbounded result — a resource-exhaustion and over-exposure footgun on a large table, and a page-envelope guarantee that was previously only a convention. Wrap the read DTO in the framework's capped page envelope so every list is bounded and uniformly shaped. A single-object response is unaffected; both decorator routes and imperative route registration are checked.",
+  "layer": "black-box",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_list_routes_paginate"
+    },
+    {
+      "kind": "black-box",
+      "tool": "@terpjs/conformance",
+      "ref": "standard: list routes return a capped Page envelope"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "validate_list_routes_paginate"
+    }
+  ],
+  "reference": "response_model=Page[ReadDTO] returned via Page.of(...) with PaginationDep (ADR 0006, Tier A); bare list[...] / Sequence[...] response models are refused.",
+  "opt_out": "# arch-allow-list-routes-paginate: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "At boot, the route scan on the composition seam (the same seam as _validate_router_response_models) walks every composed route — decorator, imperative add_api_route, and nested included routers alike — and raises a BootError naming this rule and the route when a route declares a bare list[...] / Sequence[...] response_model instead of Page[T]. PaginationDep's fail-closed skip/limit caps and the @terpjs/conformance Page-envelope probe remain in place on top of this in-app refusal."
+  },
+  "guide_topic": "service",
+  "corpus": true
+}

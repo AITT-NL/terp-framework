@@ -1,6 +1,9 @@
 # 0116 — A rule may run ahead of its published catalog entry, for one release
 
-- **Status:** Accepted
+- **Status:** Superseded by
+  [ADR 0203](0203-the-rules-belong-to-the-framework-and-only-the-contracts-are-neutral.md) in
+  0.38.0. The catalog lives in this repository, so a rule and its entry land in one pull
+  request and there is nothing to run ahead of.
 - **Date:** 2026-09-05
 - **Relates:** [ADR 0082](0082-repo-split-readiness-spec-as-a-package.md) (the spec is a pinned
   package, which is what makes "the standard" and "the installed catalog" two different

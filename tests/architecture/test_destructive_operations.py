@@ -19,7 +19,6 @@ import pathlib
 import textwrap
 
 import pytest
-from terp_spec import spec_dir
 
 from terp.arch import (
     DestructiveOperation,
@@ -28,6 +27,7 @@ from terp.arch import (
     destructive_operations,
 )
 from terp.arch.rules.destructive_migrations import _MESSAGES
+from tests.architecture.rule_layout import corpus_dir
 from tests.architecture.test_destructive_migrations import (
     _FOLLOWED,
     _LOOK_ALIKES,
@@ -158,7 +158,7 @@ def _revisions() -> list[tuple[str, str]]:
     found += [(name, _source(body)) for name, body in _LOOK_ALIKES]
     found += [(name, textwrap.dedent(source).lstrip("\n")) for name, source, _ in _FOLLOWED]
     found += [(name, textwrap.dedent(source).lstrip("\n")) for name, source in _NOT_FOLLOWED]
-    corpus = spec_dir() / "corpus" / "backend" / "no_destructive_migrations"
+    corpus = corpus_dir("backend") / "no_destructive_migrations"
     found += [
         (f"corpus {path.relative_to(corpus).as_posix()}", path.read_text(encoding="utf-8"))
         for path in sorted(corpus.rglob("*.py"))

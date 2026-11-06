@@ -1,6 +1,8 @@
 # 0080 — The Terp Standard: rule catalog and violation corpus
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by
+  [ADR 0203](0203-the-rules-belong-to-the-framework-and-only-the-contracts-are-neutral.md), whose
+  table says what is withdrawn and what is kept.
 - **Date:** 2026-07-07
 - **Relates:** [ADR 0006](0006-cross-cutting-controls-and-opinionation-policy.md)
   (the two-layer enforcement shape every rule keeps), [ADR 0059](0059-strict-frontend-boundary-and-escape-hatch-budget.md)

@@ -1,0 +1,19 @@
+{
+  "_comment": "The detector-residual ratchet for this surface: the statically-erased or renamed forms DELIBERATELY outside the corpus contract, per rule — known limits of precise, low-false-positive detection, recorded as data so a rule's page states where its detection ends instead of leaving it to guesswork. The list only shrinks: closing a residual means seeding the corpus case that contracts it and deleting the entry here, never silently. Every key is a catalog rule id of this surface, and the keys are sorted; held by tests/architecture/test_rule_standard.py.",
+  "residuals": {
+    "frontend/generated-client-only": [
+      "egress through receivers other than `window`/`globalThis` (`self.fetch`) is not required"
+    ],
+    "frontend/no-dom-html-injection": [
+      "a computed sink (`el[\"innerHTML\"] = ...`) is not required to be recognised"
+    ],
+    "frontend/no-eval": [
+      "`Function(\"...\")` called without `new` is not required",
+      "a computed global (`window[\"eval\"]`) is not required to be recognised"
+    ],
+    "frontend/no-framework-markers": [
+      "an attribute name that is not a literal (`element.setAttribute(name, value)`, a computed key `{ [name]: value }`) is not required to be resolved to a marker",
+      "a marker written by a route other than an attribute in markup, a properties-object key, an attribute-setting call or a data-attribute-map assignment (`Object.assign(element.dataset, { terp: \"card\" })`, an attribute node built with `document.createAttribute`) is not required to be recognised"
+    ]
+  }
+}

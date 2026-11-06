@@ -1,0 +1,10 @@
+{
+  "title": "Terp Standard - the refused raw frontend surface",
+  "description": "The normative declaration of the raw browser primitives an app module must not author directly. The prohibition is the portable part of the rules that cite this file (token-styled-elements, no-inline-styling, generated-client-only, no-style-imports, no-deep-imports); which sanctioned component or helper answers each primitive is per-stack configuration, recorded non-normatively in the catalog entry's 'reference' field. A checker realises this file for its language; the reference adapter's BOUNDARY_SPEC is parity-tested against it.",
+  "restrictedElements": ["button", "dialog", "form", "input", "meter", "select", "table", "textarea"],
+  "restrictedAttributes": ["className", "style"],
+  "restrictedGlobals": ["EventSource", "WebSocket", "XMLHttpRequest", "fetch"],
+  "restrictedMemberCalls": ["navigator.sendBeacon"],
+  "styleImportExtensions": [".css", ".less", ".sass", ".scss", ".styl"],
+  "deepImportPathSegments": ["dist", "src"]
+}

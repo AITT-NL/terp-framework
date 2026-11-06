@@ -1,0 +1,6 @@
+{
+  "$comment": "Opted out until the batch importer moves into the profile.",
+  "schemaVersion": 1,
+  "unmanaged": true,
+  "reason": "The batch importer runs on a schedule outside this profile."
+}

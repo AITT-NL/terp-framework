@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_oversized_python_files",
+  "surface": "backend",
+  "title": "No source file grows past the line-count cap",
+  "intent": "A file that keeps growing stops being reviewable: it hides more than one responsibility, is harder to reason about in one sitting, and is exactly what an automated author tends to produce when it appends to an existing file instead of factoring the work into a new one. Capping the line count of every hand-authored source file forces the cohesive-file discipline the rest of the layout assumes — a responsibility that outgrows its file is split into its own file, not piled onto the current one. Generated and machine-owned trees (dependency caches, database migration history, the test suite) are out of scope: their size is not an authoring decision the cap should second-guess.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_oversized_python_files"
+    }
+  ],
+  "reference": "Every scanned *.py file must stay at or under 500 physical lines; generated/vendored caches, the migration history and the test tree are excluded from the scan. Split a file that grows past the cap into smaller, cohesive modules (extract helpers or sub-services into their own files).",
+  "opt_out": "# arch-allow-no-oversized-python-files: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The invariant is a property of the authored source tree — how many physical lines a file has. By the time the app runs, each module has been imported as a code object that carries no memory of its file's length, so no runtime seam can observe or enforce the cap. The build-time line count is the only faithful control."
+  },
+  "guide_topic": "module",
+  "corpus": true
+}

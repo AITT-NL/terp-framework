@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_naive_datetime",
+  "surface": "backend",
+  "title": "Timestamps must be timezone-aware, never naive",
+  "intent": "A timestamp captured without a timezone silently assumes the process's local zone, so it cannot be stored, compared, or ordered correctly once more than one zone is involved — a classic source of off-by-hours bugs. Every timestamp the app produces must carry an explicit timezone (UTC), so the moment it names is unambiguous.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_naive_datetime"
+    }
+  ],
+  "reference": "datetime.utcnow() (deprecated, naive) and a bare datetime.now() (no tz) are refused; datetime.now(UTC) is the compliant, timezone-aware path.",
+  "opt_out": "# arch-allow-no-naive-datetime: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The invariant is a property of the authored source: which constructor was written. At execution time a naive and an aware timestamp are both just datetime values, and a naive one has already lost its zone at the point it was built — no runtime seam upstream of that call can reconstruct the intended zone or distinguish a vetted aware call from a naive one. The compliant path is the explicit-zone constructor itself."
+  },
+  "guide_topic": "service",
+  "corpus": true
+}

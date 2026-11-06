@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/_0002_hotfix.py",
+    "line": 2
+  }
+]

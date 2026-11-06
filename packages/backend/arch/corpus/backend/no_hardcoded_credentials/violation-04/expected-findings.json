@@ -1,0 +1,12 @@
+[
+  {
+    "rule": "backend/no_hardcoded_credentials",
+    "path": "modules/billing/service.py",
+    "line": 3
+  },
+  {
+    "rule": "backend/no_hardcoded_credentials",
+    "path": "modules/billing/service.py",
+    "line": 5
+  }
+]

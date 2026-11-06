@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_raw_session_construction",
+  "surface": "backend",
+  "title": "App code never constructs a database session or engine; it uses the injected request session",
+  "intent": "The injected request session is where the framework's runtime controls live — the write guard, row scoping, and the audit hooks all ride on the session the framework hands out. A hand-constructed session or engine sits outside every one of those chokepoints by definition: its reads are unscoped, its writes are unaudited and unguarded, and it silently forks the app onto a second connection lifecycle.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_raw_session_construction"
+    }
+  ],
+  "reference": "SessionDep injects the guarded request session; Session(...) / create_engine / sessionmaker construction in app code is refused.",
+  "opt_out": "# arch-allow-no-raw-session-construction: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "Nothing in Python lets the framework refuse construction of a third-party class: a hand-built Session or engine never passes through any framework seam -- which is exactly why it must be caught in source. The guarded request session (SessionDep) is the surface the framework does control; an app-constructed one sits outside every chokepoint by definition."
+  },
+  "guide_topic": "service",
+  "corpus": true
+}

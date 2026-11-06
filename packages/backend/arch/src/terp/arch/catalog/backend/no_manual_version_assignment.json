@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_manual_version_assignment",
+  "surface": "backend",
+  "title": "The optimistic-concurrency token is never assigned by hand",
+  "intent": "Every row carries an integer concurrency token that the persistence layer increments on each update and matches against the value the caller loaded, so two writers racing on the same row cannot silently clobber each other. Writing that token by hand does not fail — it overwrites the loaded value with the caller's own, so the concurrency check ends up comparing the row against itself and a lost update slips through undetected. Application code must never assign the token; the persistence layer owns it end to end.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_manual_version_assignment"
+    }
+  ],
+  "reference": "db_obj.version = data.version, row.version += 1, and setattr(db_obj, \"version\", ...) are refused; the update seam bumps and checks the token, so application code leaves it untouched.",
+  "opt_out": "# arch-allow-no-manual-version-assignment: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The concurrency control itself is a live runtime seam — the persistence layer appends the loaded token to every update's WHERE clause and raises a conflict when zero rows match. But this rule guards the inverse breach, and that breach is not runtime-observable: a hand-written token assignment is an ordinary attribute write that succeeds, then quietly defeats the check by making the loaded and compared values identical. Nothing downstream can distinguish a caller-supplied token from a genuinely loaded one, so the only place to catch it is the authored source that performs the assignment."
+  },
+  "guide_topic": "service",
+  "corpus": true
+}

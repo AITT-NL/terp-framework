@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "build": "own",
+  "compose": {
+    "file": "docker-compose.prod.yml"
+  },
+  "units": [
+    {
+      "id": "public-api",
+      "role": "api",
+      "instances": "many"
+    },
+    {
+      "id": "admin-api",
+      "role": "api"
+    },
+    {
+      "id": "partner-api",
+      "role": "api"
+    },
+    {
+      "id": "scanner",
+      "role": "virus-scanner"
+    },
+    {
+      "id": "archive",
+      "role": "database",
+      "stateful": true
+    }
+  ]
+}

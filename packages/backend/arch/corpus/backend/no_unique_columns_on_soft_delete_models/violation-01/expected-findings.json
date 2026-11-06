@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/no_unique_columns_on_soft_delete_models",
+    "path": "modules/notes/models.py",
+    "line": 6
+  }
+]

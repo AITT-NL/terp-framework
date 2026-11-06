@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_todo_fixme",
+  "surface": "backend",
+  "title": "No placeholder comments for deferred work",
+  "intent": "A TODO, FIXME, HACK, or XXX comment marks unfinished work that ships anyway and is almost never revisited, so the gap it names silently becomes permanent. Finish the behaviour or delete the dead branch — do not leave a note promising a fix that will not come.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_todo_fixme"
+    }
+  ],
+  "reference": "The markers TODO, FIXME, HACK, and XXX are refused when they appear in a real comment token; matching ignores identical text inside strings or docstrings.",
+  "opt_out": "# arch-allow-no-todo-fixme: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The invariant is a property of the authored comments, which the interpreter discards entirely — there is nothing at runtime to observe. Only a source-form check can see the placeholder."
+  },
+  "guide_topic": "module",
+  "corpus": true
+}

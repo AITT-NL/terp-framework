@@ -1,0 +1,26 @@
+{
+  "id": "backend/declared_read_only_routes_do_not_write",
+  "surface": "backend",
+  "title": "A route that declares itself read-only must not mutate",
+  "intent": "Write authority is derived from the HTTP method, which is right for almost every route and blind to one: the handler that uses an unsafe method because its input is a body, not because it writes — validating a candidate document, previewing an import, costing a plan. Undeclared, such a route is pure only by the absence of a write: a guarantee made of missing code, which holds until an edit adds a line and which no rule and no reviewer is prompted to check. Declaring the intent makes it enforceable in both layers: the build-time rule refuses a declared handler that calls a mutating service method, and the runtime binder marks the request read-only so the write chokepoint refuses a write the rule cannot see statically (through a helper, a subscriber, a capability). Fix a violation by removing the write — putting it behind its own route — or by removing the declaration, whichever the route was meant to be; never both, because a declared handler that writes leaves the platform holding two answers to the same promise. Authorization is deliberately unchanged: a declared route is still authorized at the write tier, because declaring purity narrows what the handler may do, never what the caller must hold.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_declared_read_only_routes_do_not_write"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "build_read_only_request_binder"
+    }
+  ],
+  "opt_out": "# arch-allow-declared-read-only-routes-do-not-write: <reason>",
+  "runtime": {
+    "applicability": "required"
+  },
+  "reference": "Mutating BaseService calls (create/update/delete/_save/_remove) inside a handler decorated with terp.core.read_only are flagged; create_app binds a declared route's request read-only (build_read_only_request_binder).",
+  "guide_topic": "module",
+  "corpus": true
+}

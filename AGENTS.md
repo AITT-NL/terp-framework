@@ -87,7 +87,7 @@ a guard to make a change pass:
 4. **Two‑layer enforcement where runtime can enforce** — a rule whose invariant
    the running system can observe pairs its build‑time check with a fail‑closed
    *runtime* control, and the test is never the only control for it. Which rules
-   that is, is not folklore: every Terp Standard entry carries a machine‑checked
+   that is, is not folklore: every rule catalog entry carries a machine‑checked
    `runtime.applicability` classification (`required` / `not-applicable` /
    `deferred`, ADR 0084) — a source‑form rule is build‑time‑only by recorded
    decision, with its rationale in the catalog.
@@ -228,28 +228,31 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   client that reads published content through the app's API at build time, and ADR 0197,
   proposed, defines the socket it plugs into.
 
-## The Terp Standard (terp-spec)
+## The rule catalog, and the contracts in terp-spec
 
-The specification of the enforced rules lives, for now, in its own
-repository — [AITT-NL/terp-spec](https://github.com/AITT-NL/terp-spec)
-(ADRs 0080/0081). It is not stack-neutral: the rules are written against this
-framework's architecture, and this repository is their only implementation.
-[ADR 0203](docs/decisions/0203-the-rules-belong-to-the-framework-and-only-the-contracts-are-neutral.md)
-(accepted) moves the rules here and keeps only the declaration contracts as a
-separate package. Until then: `catalog/` declares every backend + frontend rule as JSON,
-`corpus/` holds violation/compliant samples per rule (`corpus/PENDING.json`
-is the coverage ratchet — it only shrinks), and `findings.schema.json` is the
-finding format a conformant checker emits (attributed to catalog ids). A new
-rule must ship its catalog entry; new corpus cases flip the entry's `corpus`
-flag and drop the rule from the ratchet. Parity is enforced by
-`test_spec_catalog` / `test_spec_corpus` and `corpus.test.js`.
+The rules live here, beside the checkers that enforce them
+([ADR 0203](docs/decisions/0203-the-rules-belong-to-the-framework-and-only-the-contracts-are-neutral.md)),
+split by surface under one id namespace: the backend catalog in
+`packages/backend/arch/src/terp/arch/catalog/` (it ships with `terp-arch`), the frontend
+catalog and `restricted-surface.json` in `packages/frontend/eslint-boundaries/` (they ship with
+`@terpjs/eslint-boundaries`), and each surface's corpus beside its package (`corpus/`, which
+ships with neither). **A new rule lands in one pull request**: its check, its catalog entry,
+its violation and compliant corpus cases, and its regenerated rule page
+(`python tools/generate_rule_docs.py`, which writes `docs/rules/`). Each corpus keeps two
+shrink-only ratchets: `PENDING.json` (rules still without cases) and `RESIDUALS.json` (the forms
+a precise check deliberately does not catch). `test_rule_catalog` / `test_rule_corpus` /
+`corpus.test.js` hold the catalog to the checks, and `test_rule_standard` holds it to itself.
+The runtime security cases live in `tests/runtime_security/`, beside the tests that run them.
 
-The spec is consumed as a **package**, never a repo-relative path (ADR 0082):
-Python via `terp_spec.spec_dir()` (the `terp-spec` distribution on PyPI), JS via
-`@terpjs/spec` resolution (pinned in `packages/frontend/eslint-boundaries`).
-Both registries are fed by terp-spec's own release workflow (ADR 0086). Bump
-both pins together to adopt a new spec release; `test_repo_split_readiness` fails
-the build if the framework re-couples to `spec/` or `studio/` by path.
+What stays in [AITT-NL/terp-spec](https://github.com/AITT-NL/terp-spec) are the contracts more
+than one program reads: the deployment, workbench and layout declarations, the check-report and
+findings formats, the assurance profile and the conversation stream. They are consumed as a
+**package**, never a repo-relative path (ADR 0082): Python via `terp_spec.spec_dir()` (the
+`terp-spec` distribution on PyPI), JS via `@terpjs/spec` resolution (pinned in
+`packages/frontend/eslint-boundaries`). Both registries are fed by terp-spec's own release
+workflow (ADR 0086). Bump both pins together to adopt a new contracts release;
+`test_repo_split_readiness` fails the build if the framework re-couples to `spec/` or `studio/`
+by path.
 
 ## Run the gate
 

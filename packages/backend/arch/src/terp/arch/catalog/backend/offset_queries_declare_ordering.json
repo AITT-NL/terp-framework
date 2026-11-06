@@ -1,0 +1,22 @@
+{
+  "id": "backend/offset_queries_declare_ordering",
+  "surface": "backend",
+  "title": "An offset-paginated query must declare an explicit ordering",
+  "intent": "Row order without an explicit ordering clause is undefined, so paging a query by a numeric offset over an unordered result can silently skip or repeat rows between pages. A query that skips a number of rows must also declare a deterministic ordering so the page sequence is stable and every row is seen exactly once.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_offset_queries_declare_ordering"
+    }
+  ],
+  "reference": "A function that calls .offset(...) but no .order_by(...) is flagged at the offset call; add an explicit ordering, or page through the framework's ordered pagination helper.",
+  "opt_out": "# arch-allow-offset-queries-declare-ordering: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The unordered-offset defect is a property of the authored query expression; the database executes an unordered offset without error, so there is no fail-closed runtime signal, and the ordering guarantee exists only by constraining the source."
+  },
+  "guide_topic": "service",
+  "corpus": true
+}

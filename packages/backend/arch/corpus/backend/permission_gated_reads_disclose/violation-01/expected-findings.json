@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/permission_gated_reads_disclose",
+    "path": "modules/profiles/router.py",
+    "line": 1
+  }
+]

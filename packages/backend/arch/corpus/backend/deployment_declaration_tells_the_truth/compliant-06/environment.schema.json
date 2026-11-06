@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "SOME_API_BASE_URL": {
+      "type": "string",
+      "description": "Where the partner service is reached."
+    },
+    "REPORT_BUCKET": {
+      "type": "string",
+      "description": "Where generated reports are written.",
+      "services": ["api"]
+    }
+  },
+  "required": []
+}

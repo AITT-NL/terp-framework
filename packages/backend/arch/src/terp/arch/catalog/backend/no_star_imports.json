@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_star_imports",
+  "surface": "backend",
+  "title": "Import names explicitly, never with a wildcard",
+  "intent": "A wildcard import pulls an unknown, changeable set of names into a namespace, so the module's real dependency surface is invisible and one upstream rename can silently shadow a local name. Naming each import keeps the dependency graph legible to readers and to the boundary checks that police it.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_star_imports"
+    }
+  ],
+  "reference": "A 'from <module> import *' statement is refused; list the specific names the module uses instead.",
+  "opt_out": "# arch-allow-no-star-imports: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The invariant is a property of the authored import statement. Once the module is loaded the wildcard has already been expanded into concrete bindings, indistinguishable from explicit imports, so no runtime seam can reconstruct which spelling was written — the only faithful check reads the source."
+  },
+  "guide_topic": "module",
+  "corpus": true
+}

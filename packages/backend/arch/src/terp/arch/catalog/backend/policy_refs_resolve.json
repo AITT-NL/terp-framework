@@ -1,0 +1,27 @@
+{
+  "id": "backend/policy_refs_resolve",
+  "surface": "backend",
+  "title": "Every typed authority a policy cites resolves in the app's authority registry",
+  "intent": "The build-time half of control-plane registry resolution: boot validation already refuses an undeclared authority at runtime; this rule catches the same drift at the gate, before the app ever boots. Any reference that traces to the app's authority registry — via a module alias or a name imported from the registry — must name something the registry actually declares. References the scan cannot trace to the registry (kernel default roles, locally built objects) are left to the runtime check, so the rule stays precise, never heuristic.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_policy_refs_resolve"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "validation_errors"
+    }
+  ],
+  "reference": "control_plane/permissions.py is the registry; aliased references like perms.BILLING_READ must resolve there, kernel defaults like Roles.EDITOR are left to ControlPlane.validation_errors at boot.",
+  "opt_out": "# arch-allow-policy-refs-resolve: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "Boot validation refuses an undeclared authority before the app serves (ControlPlane.validation_errors -> BootError); the build-time rule catches the same drift earlier, at the gate."
+  },
+  "guide_topic": "policy",
+  "corpus": true
+}

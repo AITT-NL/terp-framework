@@ -1,0 +1,26 @@
+{
+  "id": "backend/module_dependency_graph_is_acyclic",
+  "surface": "backend",
+  "title": "Declared module dependency edges form a DAG",
+  "intent": "A cycle is the point at which two 'independent' modules have quietly become one: neither can be read, tested, deployed or removed without the other, and the direction that would say which owns the shared concept no longer exists. Refusing the cycle rather than the coupling keeps the available fixes the real ones — extract the shared concept into a module both depend on, or invert the weaker direction into an event subscription.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_module_dependency_graph_is_acyclic"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "validate_requires"
+    }
+  ],
+  "opt_out": "# arch-allow-module-dependency-graph-is-acyclic: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "The composition root receives every ModuleSpec, so the declared graph is fully observable at boot. create_app validates it and raises BootError on a cycle, fail closed — the build-time check is the earlier, better-located half of the same control, not its only one."
+  },
+  "guide_topic": "dependencies",
+  "corpus": true
+}

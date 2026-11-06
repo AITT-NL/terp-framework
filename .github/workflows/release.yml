@@ -155,18 +155,6 @@ jobs:
           npm run -w @terpjs-example/frontend typecheck
           npm run -w @terpjs-example/frontend lint
           npm run -w @terpjs-example/frontend build
-      # The verifiable certification artifacts for this release: both checkers'
-      # scorecards over the violation corpus (scorecard.schema.json), attached
-      # to the verified run the publish jobs depend on.
-      - name: Emit the conformance scorecards
-        run: |
-          set -eux
-          uv run python tools/emit_backend_scorecard.py --out scorecard-terp-arch.json
-          node packages/frontend/eslint-boundaries/src/scorecard.js --out scorecard-eslint-boundaries.json
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: conformance-scorecards
-          path: scorecard-*.json
 
   # Building executes package-controlled build backends and dependencies, so it
   # MUST stay outside the OIDC-privileged publisher job. The resulting immutable
@@ -352,8 +340,7 @@ jobs:
             ghcr.io/${{ steps.owner.outputs.lc }}/terp-example-frontend:latest
 
   # A version tag is a release someone can find: the PyPI/npm/GHCR publishes
-  # above plus a GitHub Release entry with generated notes (commits since the
-  # previous tag) and the conformance scorecards attached as evidence.
+  # above plus a GitHub Release entry carrying the authored notes for the tag.
   github-release:
     needs: [publish-pypi, publish-npm, publish-images]
     if: github.event_name == 'push'
@@ -364,9 +351,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: conformance-scorecards
       - name: Create the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -395,5 +379,4 @@ jobs:
           fi
           gh release create "$GITHUB_REF_NAME" \
             --title "Terp $GITHUB_REF_NAME" \
-            --notes-file release-notes.md --verify-tag \
-            scorecard-*.json
+            --notes-file release-notes.md --verify-tag

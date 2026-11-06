@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_print",
+  "surface": "backend",
+  "title": "Emit diagnostics through the logger, never a bare print",
+  "intent": "Printing straight to standard output bypasses log levels, structure, and routing, so the message escapes the platform's logging pipeline and cannot be filtered, correlated, or shipped to a sink. Every diagnostic must go through the structured logger so it carries a level and is captured.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_print"
+    }
+  ],
+  "reference": "A call to the print() builtin is refused; obtain a logger and call it at the appropriate level.",
+  "opt_out": "# arch-allow-no-print: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The invariant is a property of the authored call: which output function was written. Once the app runs, a print and a log call are both just function invocations, and the output has already left the structured pipeline — no runtime seam can retro-route it, so the only faithful check reads the source."
+  },
+  "guide_topic": "service",
+  "corpus": true
+}

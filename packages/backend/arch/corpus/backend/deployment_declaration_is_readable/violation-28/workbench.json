@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "compose": {
+    "file": "compose.dev.yml"
+  },
+  "services": [
+    {
+      "service": "api",
+      "role": "api"
+    }
+  ]
+}

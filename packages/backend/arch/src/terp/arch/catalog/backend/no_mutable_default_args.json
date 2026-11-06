@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_mutable_default_args",
+  "surface": "backend",
+  "title": "No mutable default argument values",
+  "intent": "A default argument value is evaluated once when the function is defined and then shared by every call that omits it, so a mutable default (a list, dict, or set) accumulates state across calls — a classic aliasing bug that leaks data between otherwise independent invocations. Default to a sentinel and build the container inside the body.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_mutable_default_args"
+    }
+  ],
+  "reference": "A list, dict, or set literal used as a parameter default (positional or keyword-only) is refused; default to None and construct the container in the body when the argument is omitted.",
+  "opt_out": "# arch-allow-no-mutable-default-args: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The invariant is a property of the authored signature. The shared default object is created at definition time, before any request runs, so by execution the aliasing is already baked in and no runtime seam can un-share it — the only faithful check reads the signature in source."
+  },
+  "guide_topic": "service",
+  "corpus": true
+}

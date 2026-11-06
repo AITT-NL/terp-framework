@@ -1,0 +1,27 @@
+{
+  "id": "backend/forwarded_filters_are_declared",
+  "surface": "backend",
+  "title": "Every filter name a read endpoint forwards must be a declared filter",
+  "intent": "An endpoint that narrows a read forwards its optional query parameters unchanged, so a filter name that matches no declaration carries no value on any request that omits that parameter. The narrowing appears to be applied while the read stays unnarrowed, and no test that omits the parameter can observe the difference. Each forwarded filter name must correspond to a filter the read layer declares, so a name that no declaration backs is rejected on the source rather than on the one request that happens to supply a value for it.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_forwarded_filters_are_declared"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "resolve_filters"
+    }
+  ],
+  "reference": "A literal filter name forwarded from an endpoint that matches no declared filter is flagged at that name, and the message lists the declared names so a misspelling is visible against its intended target. Names that are not statically knowable — a filter mapping built elsewhere, or a computed name — are not judged, because a guess there would reject correct code.",
+  "opt_out": "# arch-allow-forwarded-filters-are-declared: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "The read layer resolves each forwarded name against the declarations while serving the request, and rejects an undeclared name before the read is built, so the invariant is observable and enforced fail-closed at runtime. The name is resolved before an absent value is discarded — checking the value first would leave an undeclared name both unreachable and unreported for as long as callers omit it, which is the defect this rule exists for. The build-time check is the earlier half: it holds for endpoints no request has exercised."
+  },
+  "guide_topic": "service",
+  "corpus": true
+}

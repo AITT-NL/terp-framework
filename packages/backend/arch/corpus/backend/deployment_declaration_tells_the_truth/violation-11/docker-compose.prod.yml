@@ -1,0 +1,50 @@
+# The production profile this declaration describes.
+name: demo-prod
+
+services:
+  db:
+    image: postgres@sha256:5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e
+    restart: unless-stopped
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 30s
+
+  api:
+    image: demo-backend-prod
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    environment:
+      SOME_API_BASE_URL: ${SOME_API_BASE_URL}
+    volumes:
+      - files:/srv/files
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    image: vendor.example.invalid/worker:1.4
+    command: ["terp", "jobs", "worker"]
+    restart: unless-stopped
+    volumes:
+      - files:/srv/files
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    image: demo-frontend-prod
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.prod
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  db-data:
+  files:

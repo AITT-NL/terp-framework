@@ -1,7 +1,7 @@
 # 0204 — A statistic is declared on the service, like a filter
 
 - **Status:** Accepted on 2026-11-06 by the owner, who answered the three review questions as
-  recommended (decision 5, decision 6, the zone database). Built in 0.37.0 (unreleased). An
+  recommended (decision 5, decision 6, the zone database). Built in 0.37.0. An
   independent review of the proposed record before the build found that it leaked personal data
   through filters, missed Core reads and froze a context-dependent answer in a cache. It also
   found claims the code did not support. Each finding is either fixed below or recorded as an

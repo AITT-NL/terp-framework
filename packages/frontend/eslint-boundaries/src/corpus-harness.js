@@ -1,11 +1,9 @@
 /**
- * The frontend corpus harness: lint a Terp Standard corpus case into spec-shaped
- * findings, exactly as an app's own boundary lint would see it.
+ * The frontend corpus harness: lint a corpus case into findings, exactly as an app's own
+ * boundary lint would see it.
  *
- * Shared by the certification test (corpus.test.js) and the scorecard emitter
- * (scorecard.js), so the two can never apply different corpus semantics. The spec
- * is resolved as a declared dependency (@terpjs/spec, ADR 0082) by the CALLER —
- * this module takes paths, never resolves the spec itself.
+ * Used by the corpus test (corpus.test.js). It takes paths and never locates the corpus
+ * itself: the corpus lives beside this package's sources (ADR 0203), and the caller names it.
  */
 
 import fs from "node:fs";

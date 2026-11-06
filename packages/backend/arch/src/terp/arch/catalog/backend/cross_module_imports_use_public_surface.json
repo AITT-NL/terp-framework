@@ -1,0 +1,21 @@
+{
+  "id": "backend/cross_module_imports_use_public_surface",
+  "surface": "backend",
+  "title": "A declared module edge grants models / schemas / service / events only",
+  "intent": "A declared dependency buys the other module's domain vocabulary, not its delivery surface. Importing another module's router couples the two through HTTP shapes and lets an in-process call walk past the authorization policy that guards those routes; importing an underscore-prefixed submodule takes a dependency on something its owner never published; importing the bare package depends on whatever that package happens to re-export. The edge is therefore bounded to the published surface, so the dependency stays a contract rather than a keyhole into the other module's implementation.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_cross_module_imports_use_public_surface"
+    }
+  ],
+  "opt_out": "# arch-allow-cross-module-imports-use-public-surface: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "Which submodule an import names is a source-form property. Once composed, every module's objects are ordinary in-process references and the distinction between a published surface and an internal one no longer exists."
+  },
+  "guide_topic": "dependencies",
+  "corpus": true
+}

@@ -35,9 +35,17 @@ _TEMPLATE = _REPO_ROOT / "template" / "project"
 _SANCTIONED_IGNORES = {"S101", "S105", "S106"}
 _SANCTIONED_TEST_IGNORES = {"S311", "S603", "S607"}
 #: Paths a ruff exclude may carve out without weakening the baseline: virtualenvs,
-#: the byte-checked vendored mirror, and generated Alembic DDL. Excluding app or
-#: framework code is a silent-disable vector, so anything else fails.
-_SANCTIONED_ROOT_EXCLUDES = {".venv", "vendor", "**/migrations/versions"}
+#: the byte-checked vendored mirror, generated Alembic DDL, and the violation cases of the
+#: two rules whose cases must carry a form the `S` baseline refuses (dynamic SQL, eval).
+#: Those cases are never imported (ADR 0080, ADR 0203), and every other corpus case is
+#: linted. Excluding app or framework code is a silent-disable vector, so anything else fails.
+_SANCTIONED_ROOT_EXCLUDES = {
+    ".venv",
+    "vendor",
+    "**/migrations/versions",
+    "packages/backend/arch/corpus/backend/no_dynamic_sql/violation-*",
+    "packages/backend/arch/corpus/backend/no_eval_or_exec/violation-*",
+}
 _SANCTIONED_TEMPLATE_EXCLUDES = {".venv", "**/migrations/versions"}
 
 
@@ -211,4 +219,64 @@ def test_template_acceptance_proves_a_rendered_project_passes_the_baseline() -> 
     assert "uv run ruff check ." in ci, (
         "the template-acceptance job must run `uv run ruff check .` against the "
         "rendered project (ADR 0085)"
+    )
+
+
+#: The one place a credential-shaped literal is required: the violation cases of the rule
+#: that exists to flag one. Every other corpus case, and every other file, is still scanned.
+_SECRET_SCAN_ALLOWED_PATHS = frozenset(
+    {"^packages/backend/arch/corpus/backend/no_hardcoded_credentials/violation-"}
+)
+
+
+def test_the_secret_scan_is_narrowed_only_where_a_match_cannot_be_real() -> None:
+    """The credential rule's violation cases are the one place a credential-shaped literal is required.
+
+    A violation case for ``backend/no_hardcoded_credentials`` that holds no credential-shaped
+    literal is a broken case: the check it exists to hold would have nothing to flag. So the
+    scan finds some there today and would find one more with every case added, and a per-line
+    baseline would grow an entry each time until appending to it is the reflex.
+
+    Narrowing is only defensible while it stays that narrow, so this holds the parsed
+    configuration to one shape rather than searching its text: ``[extend]`` keeps the default
+    ruleset on and disables none of it, nothing else is declared at the top level (no
+    ``rules`` replacing or adding detectors, no singular ``allowlist``), and each allowlist
+    carries only a description and paths - nothing allowed by value, by commit or for a chosen
+    rule - whose paths are exactly that one tree.
+    """
+    config = _REPO_ROOT / ".gitleaks.toml"
+    assert config.is_file(), (
+        "the credential rule's violation cases carry credential-shaped literals by "
+        "construction; .gitleaks.toml is where that is recorded, scoped and reviewable"
+    )
+    parsed = tomllib.loads(config.read_text(encoding="utf-8"))
+    assert parsed.get("extend") == {"useDefault": True}, (
+        f".gitleaks.toml declares [extend] as {parsed.get('extend')!r}. It must be exactly "
+        "`useDefault = true`: without it the file REPLACES the default ruleset rather than "
+        "extending it, and `disabledRules`, `path` or `url` would switch detectors off or "
+        "swap them for others"
+    )
+    extra = sorted(set(parsed) - {"extend", "allowlists"})
+    assert not extra, (
+        f".gitleaks.toml declares {extra}. Only [extend] and [[allowlists]] belong here: "
+        "`rules` adds or overrides detectors, and a singular `allowlist` is a second, "
+        "unguarded place to narrow the scan"
+    )
+    allowlists = parsed.get("allowlists", [])
+    assert allowlists, "the file narrows nothing; delete it instead"
+    paths: set[str] = set()
+    for allowlist in allowlists:
+        widening = sorted(set(allowlist) - {"description", "paths"})
+        assert not widening, (
+            f"an allowlist declares {widening}. Allow by path alone: `regexes` and `stopwords` "
+            "allow a match by value, `commits` by commit, and either hides the same literal "
+            "anywhere in the repository; `targetRules` and `condition` change what a path "
+            "entry means"
+        )
+        paths.update(allowlist.get("paths", []))
+    assert paths == _SECRET_SCAN_ALLOWED_PATHS, (
+        f"the secret scan is taken off {sorted(paths)}; it may be taken off exactly "
+        f"{sorted(_SECRET_SCAN_ALLOWED_PATHS)}. Only that rule's violation cases are invented "
+        "by construction and required to hold a credential-shaped literal; anywhere else a "
+        "match may be a real credential, and the answer to one of those is to rotate it"
     )

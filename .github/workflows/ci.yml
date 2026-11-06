@@ -63,23 +63,11 @@ jobs:
           uv run coverage run -m pytest
           uv run coverage report
 
-      # The verifiable certification artifact (scorecard.schema.json): the
-      # terp-arch scorecard over the violation corpus, emitted by the same
-      # harness the gate just proved green. Self-validating — an invalid or
-      # failing scorecard fails this step, never uploads quietly.
-      - name: Emit the terp-arch conformance scorecard
-        run: uv run python tools/emit_backend_scorecard.py --out scorecard-terp-arch.json
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: scorecard-terp-arch
-          path: scorecard-terp-arch.json
-
   # The lower bound of `requires-python = ">=3.13"`, proved instead of claimed. The
   # gate runs the suite on the newest supported interpreter; this runs the same suite
   # on the oldest, so a 3.14-only construct cannot reach PyPI under a floor that still
   # says 3.13 — the kind of break an installer discovers, not a maintainer. Coverage
-  # and the scorecard stay on the gate alone: they measure the suite, not the
-  # interpreter, and the scorecard is one artifact per run by name.
+  # stays on the gate alone: it measures the suite, not the interpreter.
   lower-bound-interpreter:
     runs-on: ubuntu-latest
     steps:

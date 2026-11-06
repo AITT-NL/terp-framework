@@ -134,12 +134,14 @@ from terp.arch.rules import (
     ungoverned_marker_violations,
 )
 
-#: The Terp Standard version this harness is certified against â€” the ``spec_version``
-#: a check report (``app-check-report.schema.json``) carries. A constant rather than a
-#: runtime ``terp_spec`` read: the spec data package is a certification dependency of
-#: the platform repo, not of a generated app, and the version is a property of the
-#: toolchain build. Held equal to the pinned ``terp-spec`` release by the framework
-#: gate (``tests/architecture/test_check_json.py``), so it cannot drift silently.
+#: The contracts release whose check-report format this harness writes — the
+#: ``spec_version`` a check report (``app-check-report.schema.json``) carries. The rule
+#: ids in a report resolve against the catalog shipped in this package (ADR 0203); this
+#: names the format the report itself follows. A constant rather than a runtime
+#: ``terp_spec`` read: the contracts package is a dev dependency of the platform repo,
+#: not of a generated app, and the version is a property of the toolchain build. Held
+#: equal to the pinned ``terp-spec`` release by the framework gate
+#: (``tests/architecture/test_check_json.py``), so it cannot drift silently.
 SPEC_VERSION = "0.43.0"
 
 __all__ = [

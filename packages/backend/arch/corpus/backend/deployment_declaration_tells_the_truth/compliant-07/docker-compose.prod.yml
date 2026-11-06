@@ -1,0 +1,28 @@
+# Three APIs, no frontend, no scheduler, and a role nobody has heard of.
+name: demo-prod
+
+services:
+  public-api:
+    image: demo-backend-prod
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+
+  admin-api:
+    image: demo-backend-prod
+
+  partner-api:
+    image: demo-backend-prod
+
+  scanner:
+    build:
+      context: ./scanner
+
+  archive:
+    build:
+      context: ./archive
+    volumes:
+      - archive-data:/var/lib/archive
+
+volumes:
+  archive-data:

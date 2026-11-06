@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_unique_columns_on_soft_delete_models",
+  "surface": "backend",
+  "title": "Soft-delete models never declare a full-table unique constraint (dead rows block reuse)",
+  "intent": "A soft-deleted row stays in the table, so it keeps occupying every full-table unique index: the \"deleted\" value (an email, a slug, a code) can never be used again, surfacing as an inexplicable conflict long after the delete. Scope uniqueness to the live rows with a partial unique index that excludes soft-deleted rows — which this rule accepts — or deactivate instead of deleting.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_unique_columns_on_soft_delete_models"
+    }
+  ],
+  "reference": "A partial unique index in __table_args__ (unique=True with postgresql_where / sqlite_where on deleted_at IS NULL) is the accepted shape; the identity user table keeps email unique by deactivating instead of deleting.",
+  "opt_out": "# arch-allow-no-unique-columns-on-soft-delete-models: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The constraint is baked into migration-produced DDL; at runtime the schema already exists, and the failure mode (a dead row blocking reuse) surfaces as the database's own constraint error, mapped to the uniform 409 envelope -- handled, but only preventable when the model is authored."
+  },
+  "guide_topic": "module",
+  "corpus": true
+}

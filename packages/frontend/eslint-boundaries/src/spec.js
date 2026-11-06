@@ -12,13 +12,13 @@
  * boundary config.
  */
 /**
- * The Terp Standard version this adapter is certified against — the `spec_version` a
- * check report (`app-check-report.schema.json`) carries. A constant rather than a runtime
- * `@terpjs/spec` read: the spec data package is a dev/certification dependency of the platform
- * repo, not of a generated app, and the version is a property of the toolchain build. Held
- * equal to the pinned spec release by the framework gate (test_check_json.py — deliberately
- * NOT by this package's own suite, which certification runs against candidate spec releases
- * whose version is allowed to be newer).
+ * The contracts release whose check-report format this adapter writes — the `spec_version` a
+ * check report (`app-check-report.schema.json`) carries. The rule ids in a report resolve
+ * against the catalog shipped with this package (ADR 0203); this names the format the report
+ * itself follows. A constant rather than a runtime `@terpjs/spec` read: the contracts package is
+ * a dev dependency of the platform repo, not of a generated app, and the version is a property
+ * of the toolchain build. Held equal to the pinned release by the framework gate
+ * (test_check_json.py).
  */
 export const SPEC_VERSION = "0.43.0";
 
@@ -155,7 +155,7 @@ export const BOUNDARY_SPEC = {
    * The governed escape hatch (the frontend analog of the backend's `# arch-allow-*`): a
    * justified `// terp-allow-<rule>: <reason>` comment on (or immediately above) a violating
    * line suppresses that rule there. `<rule>` is the Terp Standard CATALOG rule name (the
-   * `opt_out` spelling in `spec/catalog/frontend/<rule>.json`), never a tool-internal ESLint
+   * `opt_out` spelling in `catalog/frontend/<rule>.json`), never a tool-internal ESLint
    * id — one marker covers every detection path of its rule and can never waive a sibling
    * rule sharing a core lint id. An unjustified marker is itself reported. Marker counts
    * must exactly match the app's checked-in `escape-hatch-budget.json` (the ratchet).

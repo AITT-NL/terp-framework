@@ -1,0 +1,4 @@
+# Runs the worker for a single batch.
+services:
+  worker:
+    command: ["terp", "jobs", "worker", "--once"]

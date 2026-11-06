@@ -1,0 +1,30 @@
+# A profile that runs no database: DATABASE_URL names one this deployment does not run.
+name: demo-prod
+
+services:
+  migrate:
+    image: demo-backend-prod
+    command: ["terp", "migrate", "upgrade", "--app-root", "/srv/app"]
+    restart: "no"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+
+  api:
+    image: demo-backend-prod
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    image: demo-frontend-prod
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.prod
+    depends_on:
+      api:
+        condition: service_healthy

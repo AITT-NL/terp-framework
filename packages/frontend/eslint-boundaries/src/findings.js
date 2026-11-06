@@ -25,7 +25,7 @@
  * rules listed under `not_applicable` — today `frontend/layout-contract` when the app
  * has no checked-in layout-contract.json, so a consumer never renders an unenforced
  * rule as passing). `findings` are the reported messages attributed to their
- * stack-neutral catalog ids through the adapter's published {@link catalogRuleId}
+ * catalog ids through the adapter's published {@link catalogRuleId}
  * mapping, plus any budget drift attributed to `frontend/escape-hatch`. A message
  * outside the boundary (another configured rule, a parse error) lands in
  * `unattributed` — surfaced, never dropped. The human-readable report goes to stderr,

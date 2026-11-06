@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/no_exception_text_in_responses",
+    "path": "modules/notes/service.py",
+    "line": 16
+  }
+]

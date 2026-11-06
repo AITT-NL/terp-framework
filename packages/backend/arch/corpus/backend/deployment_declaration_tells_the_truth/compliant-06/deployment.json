@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "build": "own",
+  "compose": {
+    "file": "docker-compose.prod.yml"
+  },
+  "units": [
+    {
+      "id": "api",
+      "role": "api",
+      "env": ["REPORT_BUCKET", "SOME_API_BASE_URL"]
+    },
+    {
+      "id": "worker",
+      "role": "worker",
+      "command": ["terp", "jobs", "worker"],
+      "env": ["SOME_API_BASE_URL"]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "id": "backend/ungoverned_escape_hatch",
+  "surface": "backend",
+  "title": "The fail-closed ungoverned-opt-out condition, as structured violations",
+  "intent": "An opt-out marker the governance contract does not honour is itself a violation, reported in-band as structured findings (one per marker line) rather than crashing the harness: a marker used with no escape-hatch budget governing it, and a marker whose missing justification means it never suppressed anything. Either way the fix is to govern the opt-out — add the budget and the reason — never to silently honour it.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "ungoverned_marker_violations"
+    }
+  ],
+  "reference": "assert_app_clean raises on an ungoverned # arch-allow-* marker; ungoverned_marker_violations projects the budget-less condition and _apply_suppressions re-reports an unjustified marker under the same rule, for terp check --format json. The rule carries no opt_out: governance cannot be waived by the mechanism it governs.",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "A justification marker is a source comment; compiled bytecode retains neither the marker nor its reason. The escape-hatch contract governs authored source at the gate."
+  },
+  "guide_topic": "rules",
+  "corpus": true
+}

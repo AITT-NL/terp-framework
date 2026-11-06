@@ -1,0 +1,27 @@
+{
+  "id": "backend/grantable_modules_are_named",
+  "surface": "backend",
+  "title": "A module that accepts a role of its own says what to call it",
+  "intent": "A module may opt into per-module roles, which lets an administrator give one person a higher tier inside that module and nowhere else. The screen that offers the choice renders one strip per such module, headed by the declared label — and that label is the only text about the module a reader ever sees there. Headed by an identifier instead, the strip asks someone to hand out authority over something the interface has not named. The declaration is required at the point of opting in rather than defaulted from the module's own name, because a name chosen to be imported is rarely a name chosen to be read.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_grantable_modules_are_named"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "ModuleAccess"
+    }
+  ],
+  "reference": "modules/<name>/module.py declares ModuleSpec(access=ModuleAccess(label=..., assignable=True)); ModuleAccess enforces the pairing as a constructor invariant.",
+  "opt_out": "# arch-allow-grantable-modules-are-named: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "ModuleAccess refuses to construct an assignable declaration without a label, so an app cannot compose one; the build-time check is the same invariant reported against a file and a line before the app is imported."
+  },
+  "guide_topic": "permissions",
+  "corpus": true
+}

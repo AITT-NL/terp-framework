@@ -1,0 +1,22 @@
+{
+  "id": "frontend/no-dom-html-injection",
+  "surface": "frontend",
+  "title": "DOM HTML-injection sinks are refused in app modules",
+  "intent": "dangerouslySetInnerHTML, innerHTML/outerHTML assignment, insertAdjacentHTML and document.write inject markup that bypasses the framework's output escaping — the canonical XSS sink. Rich text renders through the stack's sanctioned rich-text component instead.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "@terpjs/eslint-boundaries",
+      "ref": "terp/no-dom-html-injection",
+      "reported_as": "terp/no-dom-html-injection"
+    }
+  ],
+  "reference": "The Markdown component from @terpjs/react-core for rich text.",
+  "opt_out": "// terp-allow-no-dom-html-injection: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The sinks are platform primitives on every element; React's default output escaping is the ambient constructive protection and the sanctioned Markdown component sanitises rich text. A runtime hook over every element's HTML mutation is not a seam react-core owns or could make sound -- vendored code legitimately uses the same primitives."
+  },
+  "corpus": true
+}

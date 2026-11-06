@@ -157,6 +157,11 @@ _REFERENCE_ALLOWLIST: dict[str, str] = {
     # copyable, and a pytest function is named `test_*` — so the shape that makes the
     # recipe usable is the shape this check reads as a reference.
     "test_listing_invoices_does_not_scale_with_rows": "worked example in `terp guide testing`",
+    # Release notes are history: they say what was true when the release shipped, and
+    # `terp guide changelog` serves them as written. These tests were removed or renamed
+    # when the rules moved into this repository (ADR 0203), and older notes still cite them.
+    "test_no_rule_awaits_a_spec_release": "removed by ADR 0203; cited by older release notes",
+    "test_spec_corpus": "renamed test_rule_corpus by ADR 0203; cited by older release notes",
 }
 
 # A snake_case token presented as "<name> rule" in prose claims a real arch rule.

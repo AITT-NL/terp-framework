@@ -1,0 +1,20 @@
+{
+  "$comment": "Who may publish and how many approvals a deploy needs are set on each environment's record.",
+  "schemaVersion": 1,
+  "build": "own",
+  "compose": {
+    "file": "compose.production.yml"
+  },
+  "units": [
+    {
+      "id": "gate",
+      "role": "approvals",
+      "env": ["APPROVAL_WEBHOOK_URL", "PUBLISH_TOPIC"]
+    },
+    {
+      "id": "access",
+      "role": "api",
+      "healthPath": "/health/ready"
+    }
+  ]
+}

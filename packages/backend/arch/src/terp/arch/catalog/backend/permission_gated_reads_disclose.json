@@ -1,0 +1,23 @@
+{
+  "id": "backend/permission_gated_reads_disclose",
+  "surface": "backend",
+  "title": "A read gated by a named permission records that the data was disclosed",
+  "intent": "An audit trail emitted from the write chokepoint is unbypassable and, for the same reason, mutation-only: it answers who changed what and never who looked. For the data an application guards most closely — a credential reference, a salary, a case file, a customer list — reading is the whole of the harm, and a principal holding the grant can enumerate every row and leave nothing behind. Not every read warrants a record; one per read of everything buries the entry somebody will eventually need. The discriminator is already written in the source by the author: a route that carries a named-permission requirement is one where a role tier was judged unable to express the decision, which is the application saying this data is sensitive. Such a route, on a safe method, must record the disclosure before it answers — so the record is the precondition of the disclosure rather than a report on it, and a failing trail fails the request instead of quietly losing the entry. A mutating route behind the same grant is out of scope: the write chokepoint already records it, and a second record would blur what a disclosure means.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_permission_gated_reads_disclose"
+    }
+  ],
+  "reference": "The reference implementation supplies the disclosure emitter (terp.core.emit_disclosure, ADR 0118): it opens its own session because a read has no unit of work to ride and the request session is write-guarded during a safe method, and it emits before the data is returned. ADR 0149 adds the obligation to call it.",
+  "opt_out": "# arch-allow-permission-gated-reads-disclose: <reason>",
+  "runtime": {
+    "applicability": "deferred",
+    "rationale": "A running system can observe the invariant — the guard knows the requirement it applied, and a response-time control can see whether a disclosure was emitted during the request — and refusing there is fail-closed, because the response has not yet been sent. What it cannot do is write the record the rule asks for. The authorization layer knows the principal, the module and the requirement; it does not know what was disclosed, and a disclosure record carries the target's type and id. A control that emitted automatically would satisfy the rule while recording 'somebody read this endpoint' in place of 'somebody read this row', which is a weaker artifact than the one the rule exists to produce. Only the endpoint knows what it returned.",
+    "tracking": "docs/decisions/0149-a-read-behind-a-grant-records-that-it-happened.md in the reference implementation, the 'Why this is build-time only, on purpose' section: a response-time control that refuses when a permission-gated safe method produced no disclosure, paired with this rule rather than replacing it."
+  },
+  "guide_topic": "access",
+  "corpus": true
+}

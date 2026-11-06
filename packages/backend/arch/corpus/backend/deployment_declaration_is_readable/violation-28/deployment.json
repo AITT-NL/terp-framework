@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "build": "own",
+  "compose": {
+    "file": "docker-compose.prod.yml",
+    "overrides": ["compose.dev.yml"]
+  },
+  "units": [
+    {
+      "id": "db",
+      "role": "database",
+      "kind": "postgres",
+      "version": "17",
+      "stateful": true,
+      "backup": {
+        "every": "P1D",
+        "keep": "P30D"
+      }
+    },
+    {
+      "id": "migrate",
+      "role": "one-shot",
+      "dependsOn": ["db"]
+    },
+    {
+      "id": "api",
+      "role": "api",
+      "healthPath": "/health/ready",
+      "livenessPath": "/health/live",
+      "dependsOn": ["db", "migrate"]
+    },
+    {
+      "id": "web",
+      "role": "web",
+      "dependsOn": ["api"]
+    }
+  ]
+}

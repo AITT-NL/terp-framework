@@ -1,0 +1,56 @@
+# The production profile this declaration describes.
+name: demo-prod
+
+services:
+  db:
+    image: postgres@sha256:5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: app
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  migrate:
+    image: demo-backend-prod
+    command: ["terp", "migrate", "upgrade", "--app-root", "/srv/app"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    image: demo-backend-prod
+    build:
+      context: ../../../../../../../../../../../../../../../../../../../../../../../../srv/src
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://app:${POSTGRES_PASSWORD}@db:5432/app}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    image: demo-frontend-prod
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.prod
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-23100}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  db-data:

@@ -1,0 +1,32 @@
+[
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 6
+  },
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 7
+  },
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 8
+  },
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 9
+  },
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 10
+  },
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 11
+  }
+]

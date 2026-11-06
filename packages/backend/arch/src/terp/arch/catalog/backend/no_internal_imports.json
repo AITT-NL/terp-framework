@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_internal_imports",
+  "surface": "backend",
+  "title": "Modules import only the platform's public surface, never its internal namespaces",
+  "intent": "The public surface is the platform's contract: it is documented, versioned, and stable. An internal namespace is free to move or change shape at any release, and it exposes seams (raw session plumbing, guard internals) whose direct use bypasses the framework's controls — so a module that reaches into it is coupled to undocumented internals and can silently sidestep the secure defaults.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_internal_imports"
+    }
+  ],
+  "reference": "Import from the terp.core public surface; terp.core._internal imports are refused.",
+  "opt_out": "# arch-allow-no-internal-imports: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "Python has no enforced import visibility: at runtime _internal objects are ordinary attributes, reachable through the public modules that legitimately use them. The underscore contract is source-form; the runtime controls live in what _internal implements, not in refusing its import."
+  },
+  "guide_topic": "module",
+  "corpus": true
+}

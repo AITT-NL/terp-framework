@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/no_adhoc_permission_literals",
+    "path": "modules/notes/module.py",
+    "line": 1
+  }
+]

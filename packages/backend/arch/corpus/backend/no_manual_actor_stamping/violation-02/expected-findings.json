@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "backend/no_manual_actor_stamping",
+    "path": "modules/notes/service.py",
+    "line": 3
+  }
+]

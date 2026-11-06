@@ -1,0 +1,27 @@
+{
+  "id": "backend/no_raw_connection_access",
+  "surface": "backend",
+  "title": "Modules never reach the raw DB connection / engine behind the session",
+  "intent": "The runtime write guard covers the request session's own persistence methods, but the bound engine / connection the session exposes can issue data-modification statements directly, bypassing the audited chokepoint. A module must never reach for the session's underlying bind or connection; persist through the model's service so every write is audited. The escape is caught at the reach itself, and raw session / engine construction is separately banned by no_raw_session_construction — so an unrelated connect call on a domain object (a websocket / cache / search client) is deliberately not flagged.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_raw_connection_access"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "WriteGuardedSession"
+    }
+  ],
+  "reference": "session.get_bind() / session.connection() calls are refused (ADR 0015, F3); BaseService is the audited write path, and WriteGuardedSession gates session.connection() at runtime.",
+  "opt_out": "# arch-allow-no-raw-connection-access: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "The write-guarded request session gates session.connection() itself (WriteGuardedSession), closing the primary in-request escape to unaudited DML; the get_bind()/engine remainder has no construction hook, which is exactly the residual the build-time half covers."
+  },
+  "guide_topic": "service",
+  "corpus": true
+}

@@ -1,0 +1,52 @@
+[
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 5
+  },
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 6
+  },
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 7
+  },
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 8
+  },
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 9
+  },
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 10
+  },
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 11
+  },
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 12
+  },
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 14
+  },
+  {
+    "rule": "backend/no_destructive_migrations",
+    "path": "modules/notes/migrations/versions/0001_change.py",
+    "line": 17
+  }
+]
