@@ -25,10 +25,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, UniqueConstraint
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field
 
-from terp.core import BaseTable, Personal, Roles
+from terp.core import BaseTable, Personal, Roles, UtcDateTime
 
 
 class User(BaseTable, table=True):
@@ -59,10 +59,10 @@ class RefreshToken(BaseTable, table=True):
     token_version: int | None = Field(default=None, nullable=True)
     family_id: uuid.UUID = Field(index=True, nullable=False)
     token_hash: str = Field(max_length=128, index=True, unique=True, nullable=False)
-    expires_at: datetime = Field(sa_type=DateTime(timezone=True), nullable=False)  # type: ignore[call-overload]
-    family_expires_at: datetime = Field(sa_type=DateTime(timezone=True), nullable=False)  # type: ignore[call-overload]
-    used_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True), nullable=True)  # type: ignore[call-overload]
-    revoked_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True), nullable=True)  # type: ignore[call-overload]
+    expires_at: datetime = Field(sa_type=UtcDateTime(), nullable=False)  # type: ignore[call-overload]
+    family_expires_at: datetime = Field(sa_type=UtcDateTime(), nullable=False)  # type: ignore[call-overload]
+    used_at: datetime | None = Field(default=None, sa_type=UtcDateTime(), nullable=True)  # type: ignore[call-overload]
+    revoked_at: datetime | None = Field(default=None, sa_type=UtcDateTime(), nullable=True)  # type: ignore[call-overload]
 
 
 class AccountToken(BaseTable, table=True):
@@ -78,8 +78,8 @@ class AccountToken(BaseTable, table=True):
 
     purpose: str = Field(max_length=16, nullable=False)
     token_hash: str = Field(max_length=128, index=True, unique=True, nullable=False)
-    expires_at: datetime = Field(sa_type=DateTime(timezone=True), nullable=False)  # type: ignore[call-overload]
-    used_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True), nullable=True)  # type: ignore[call-overload]
+    expires_at: datetime = Field(sa_type=UtcDateTime(), nullable=False)  # type: ignore[call-overload]
+    used_at: datetime | None = Field(default=None, sa_type=UtcDateTime(), nullable=True)  # type: ignore[call-overload]
 
 
 class ServiceAccount(BaseTable, table=True):
@@ -110,8 +110,8 @@ class ServiceAccount(BaseTable, table=True):
     role: int = Field(default=int(Roles.VIEWER))
     is_active: bool = Field(default=True)
     token_version: int = Field(default=0, nullable=False)
-    expires_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True), nullable=True)  # type: ignore[call-overload]
-    last_used_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True), nullable=True)  # type: ignore[call-overload]
+    expires_at: datetime | None = Field(default=None, sa_type=UtcDateTime(), nullable=True)  # type: ignore[call-overload]
+    last_used_at: datetime | None = Field(default=None, sa_type=UtcDateTime(), nullable=True)  # type: ignore[call-overload]
 
 
 class FederatedIdentity(BaseTable, table=True):

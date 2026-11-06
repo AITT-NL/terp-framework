@@ -1874,13 +1874,19 @@ def test_datetime_columns_are_timezone_aware(tmp_path: pathlib.Path) -> None:
         }, fields
 
     # Pinning timezone=True is compliant, however the type is spelled or carried:
-    # sa_type=, sa_column=Column(...), a qualified name, and the TIMESTAMP alias.
+    # sa_type=, sa_column=Column(...), a qualified name, and the TIMESTAMP alias. Terp's
+    # UtcDateTime (ADR 0205) has no switch to get wrong, so naming it is enough,
+    # called or as the class SQLModel instantiates.
     aware_columns = (
         "    due_at: datetime = Field(sa_type=DateTime(timezone=True))\n",
         "    due_at: datetime | None = Field(sa_column=Column(DateTime(timezone=True)))\n",
         "    due_at: datetime = Field(sa_type=sa.DateTime(timezone=True))\n",
         "    due_at: datetime = Field(sa_type=TIMESTAMP(timezone=True))\n",
         "    due_at: datetime.datetime = Field(sa_type=DateTime(timezone=True))\n",
+        "    due_at: datetime = Field(sa_type=UtcDateTime())\n",
+        "    due_at: datetime | None = Field(default=None, sa_type=UtcDateTime)\n",
+        "    due_at: datetime = Field(sa_type=core.UtcDateTime())\n",
+        "    due_at: datetime = Field(sa_column=Column(UtcDateTime(), nullable=False))\n",
     )
     for fields in aware_columns:
         _write(app, "modules/notes/models.py", model(fields))

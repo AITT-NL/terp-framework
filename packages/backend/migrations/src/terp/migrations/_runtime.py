@@ -23,6 +23,7 @@ from typing import Any
 from sqlalchemy import MetaData, create_engine, pool, text
 from sqlmodel import SQLModel
 
+from terp.core import UtcDateTime
 from terp.core.migrations import (
     MigrationTree,
     resolve_all_migration_trees,
@@ -575,6 +576,7 @@ def run_migrations(context: Any) -> None:
             include_name=include_name,
             include_object=include_object,
             compare_type=True,
+            render_item=_render_item,
             literal_binds=True,
             on_version_apply=_record_versions(judge, label, script, applied_by, offline=True),
         )
@@ -604,6 +606,7 @@ def run_migrations(context: Any) -> None:
                 include_name=include_name,
                 include_object=include_object,
                 compare_type=True,
+                render_item=_render_item,
                 render_as_batch=_render_as_batch(connection),
                 on_version_apply=_record_versions(
                     judge, label, script, applied_by, offline=False
@@ -615,6 +618,19 @@ def run_migrations(context: Any) -> None:
                 context.run_migrations()
     finally:
         connectable.dispose()
+
+
+def _render_item(type_: str, obj: Any, autogen_context: Any) -> str | bool:
+    """Write Terp's column types into a revision as the SQLAlchemy type they store as.
+
+    A revision is a record of the schema, read long after the model that wrote it has
+    changed, so it stays plain SQLAlchemy. ``UtcDateTime`` stores exactly
+    ``DateTime(timezone=True)`` (ADR 0205); left to Alembic, it would be written as a
+    constructor call the type does not take, behind an import the revision lacks.
+    """
+    if type_ == "type" and isinstance(obj, UtcDateTime):
+        return "sa.DateTime(timezone=True)"
+    return False
 
 
 def search_path_statement(own_label: str, labels: Iterable[str]) -> str:

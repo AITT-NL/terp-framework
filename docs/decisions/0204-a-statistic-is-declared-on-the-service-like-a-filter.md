@@ -270,12 +270,12 @@ code path reads a row-scoped table through Core on a request session.
   delete through a base of its own, or an `OwnedMixin` model. For those, the runtime refusal is
   the only layer. Widening the rule moves with the rules (ADR 0203), where its corpus lands with
   it.
-- **SQLite keeps a timestamp's wall time and drops its offset.** A non-UTC instant written to
-  SQLite is stored as local time, so every comparison against it is off by the offset, this
-  seam's steps included. PostgreSQL stores the instant. The framework stamps every timestamp it
-  owns in UTC, so those compare correctly on both. A column type that normalises to UTC when it
-  binds removes the caveat for every comparison, not only this one, and is a follow-up of its
-  own.
+- **SQLite keeps a timestamp's wall time and drops its offset.** Closed by
+  [ADR 0205](0205-a-timestamp-column-stores-an-instant-as-utc.md) for every column declared
+  `UtcDateTime`, which every framework timestamp now is. A non-UTC instant written to SQLite
+  was stored as local time, so every comparison against it was off by the offset, this seam's
+  steps included. An app's own `DateTime(timezone=True)` column keeps that caveat until it
+  moves to the type, which needs no migration.
 - **Zone rules are the host's where it has them.** `tzdata` is now a dependency of `terp-core`,
   so every IANA name resolves on every host, Windows and a slim container included. But
   `zoneinfo` prefers the host's own zone database when there is one, so two hosts on different

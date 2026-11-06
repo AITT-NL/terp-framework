@@ -23,10 +23,10 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime
+from sqlalchemy import JSON
 from sqlmodel import Column, Field, SQLModel
 
-from terp.core import UUIDPrimaryKeyMixin
+from terp.core import UtcDateTime, UUIDPrimaryKeyMixin
 
 
 def _utc_now() -> datetime:
@@ -45,7 +45,7 @@ class AuditEvent(UUIDPrimaryKeyMixin, SQLModel, table=True):  # arch-allow-table
     payload: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     created_at: datetime = Field(
         default_factory=_utc_now,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=False,
         index=True,
     )

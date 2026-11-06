@@ -30,6 +30,7 @@ from terp.core.base_models import (
     OwnedMixin,
     SoftDeleteMixin,
     TimestampMixin,
+    UtcDateTime,
     UUIDPrimaryKeyMixin,
 )
 from terp.core.aggregation import (
@@ -394,6 +395,7 @@ __all__ = [
     "TimestampMixin",
     "UUIDPrimaryKeyMixin",
     "UndeclaredReferenceError",
+    "UtcDateTime",
     "VIEWER",
     "ValidationFailedError",
     "WeakPasswordError",

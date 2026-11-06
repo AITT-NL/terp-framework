@@ -79,25 +79,36 @@ def _is_datetime_annotation(annotation: ast.expr) -> bool:
 # zone when it is passed ``timezone=True``.
 _TIMESTAMP_COLUMN_TYPES = frozenset({"DateTime", "TIMESTAMP"})
 
+# Terp's own timestamp type (ADR 0205): it stores an instant as UTC on every dialect and
+# has no switch to get wrong, so naming it, as the class or a call, is the whole answer.
+_INSTANT_COLUMN_TYPES = frozenset({"UtcDateTime"})
+
 
 def _declares_timezone_aware_storage(value: ast.expr | None) -> bool:
-    """True when a field declaration pins a ``timezone=True`` column type.
+    """True when a field declaration pins a timezone-aware column type.
 
-    Matches both spellings that reach the column — ``Field(sa_type=DateTime(timezone=True))``
+    Matches both spellings that reach the column — ``Field(sa_type=UtcDateTime())``
     and ``Field(sa_column=Column(DateTime(timezone=True), ...))`` — by looking for the
-    typed call anywhere in the declaration, so the rule does not depend on which
-    keyword carried it.
+    type anywhere in the declaration, so the rule does not depend on which keyword
+    carried it. ``DateTime`` and ``TIMESTAMP`` count with ``timezone=True``;
+    ``UtcDateTime`` counts as named, called or not.
     """
     if value is None:
         return False
     return any(
-        isinstance(node, ast.Call)
-        and base_name(node.func) in _TIMESTAMP_COLUMN_TYPES
-        and any(
-            keyword.arg == "timezone"
-            and isinstance(keyword.value, ast.Constant)
-            and keyword.value.value is True
-            for keyword in node.keywords
+        (
+            isinstance(node, ast.Call)
+            and base_name(node.func) in _TIMESTAMP_COLUMN_TYPES
+            and any(
+                keyword.arg == "timezone"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value is True
+                for keyword in node.keywords
+            )
+        )
+        or (
+            isinstance(node, ast.Name | ast.Attribute)
+            and base_name(node) in _INSTANT_COLUMN_TYPES
         )
         for node in ast.walk(value)
     )
@@ -133,7 +144,8 @@ def check_datetime_columns_are_timezone_aware(
     and ordering or comparison across zones is silently wrong. This is the storage
     half of the hole whose in-memory half ``no_naive_datetime`` closes: capturing an
     aware value is not enough if the column cannot keep it. Declare the column type
-    explicitly (``Field(sa_type=DateTime(timezone=True))``). Columns a table inherits
+    explicitly: ``Field(sa_type=UtcDateTime())``, which also stores the instant as UTC
+    on SQLite, or ``Field(sa_type=DateTime(timezone=True))``. Columns a table inherits
     from a mixin declared beside it count as the table's own.
     """
     root = pathlib.Path(app_root)
@@ -162,7 +174,7 @@ def check_datetime_columns_are_timezone_aware(
                         stmt.lineno,
                         f"{node.name}.{field}: timestamp column declares no timezone, so the "
                         "database stores an ambiguous local-zone value; declare the column "
-                        "type explicitly (Field(sa_type=DateTime(timezone=True)))",
+                        "type explicitly (Field(sa_type=UtcDateTime()), from terp.core)",
                     )
                 )
     return violations

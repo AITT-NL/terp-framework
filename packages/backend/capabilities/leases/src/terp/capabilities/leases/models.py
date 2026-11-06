@@ -29,10 +29,16 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, UniqueConstraint
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
-from terp.core import LEASE_HOLDER_MAX, LEASE_KEY_MAX, LEASE_KIND_MAX, UUIDPrimaryKeyMixin
+from terp.core import (
+    LEASE_HOLDER_MAX,
+    LEASE_KEY_MAX,
+    LEASE_KIND_MAX,
+    UtcDateTime,
+    UUIDPrimaryKeyMixin,
+)
 
 
 def _utc_now() -> datetime:
@@ -52,24 +58,24 @@ class ResourceLease(UUIDPrimaryKeyMixin, SQLModel, table=True):  # arch-allow-ta
     epoch: int = Field(default=0)
     expires_at: datetime | None = Field(
         default=None,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=True,
         index=True,
     )
     acquired_at: datetime | None = Field(
         default=None,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=True,
     )
     touched_at: datetime = Field(
         default_factory=_utc_now,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=False,
         index=True,
     )
     created_at: datetime = Field(
         default_factory=_utc_now,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=False,
     )
 

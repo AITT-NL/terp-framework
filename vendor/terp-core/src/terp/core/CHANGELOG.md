@@ -61,6 +61,15 @@ decision, 0001 onwards.
   A read that is not a service's uses the same seam as
   `terp.core.aggregate(session, query, Statistics(...))`. `terp guide aggregates` walks through
   it.
+- **A timestamp column stores an instant, as UTC, on every dialect (ADR 0205).**
+  `terp.core.UtcDateTime` converts every value to UTC before it is bound, in a row and in a
+  comparison alike, and reads every value back aware, in UTC. `DateTime(timezone=True)` alone
+  keeps the instant on PostgreSQL, but on SQLite it stores the value's wall time and drops the
+  offset. So a value written in another zone, or a comparison bound in one, was off by its
+  offset there, and every value read back with no zone. A naive value is taken to be UTC.
+  Declare `Field(sa_type=UtcDateTime())`. The stored type is unchanged, so moving a column to it
+  needs no migration, and `terp migrate make` writes it into a revision as
+  `sa.DateTime(timezone=True)`.
 
 ### Changed
 
@@ -78,6 +87,15 @@ decision, 0001 onwards.
   ran ahead of 0.42.0: refresh rotation, the native-client browser refusal and eight
   self-service-account cases. `test_runtime_security_evidence`'s window is empty again, so the
   index now answers for every case the pinned standard packages.
+- **Every timestamp the framework declares is a `UtcDateTime`:** `BaseTable`'s `created_at`
+  and `updated_at`, `SoftDeleteMixin`'s `deleted_at`, the timestamps of the audit, identity,
+  leases, MFA, outbox, sync and webhooks capabilities, and the migration record's
+  `applied_at`. A test sweeps every model a framework package maps and fails on a timestamp
+  stored any other way. The statistics seam's day steps now count a late local instant on its
+  own day on SQLite too, which ADR 0204 recorded as a gap.
+- `datetime_columns_are_timezone_aware` accepts `UtcDateTime`, named or called, and names it in
+  its remedy. `DateTime(timezone=True)` stays accepted. `terp guide module` shows a timestamp
+  column declared with it.
 
 ### Upgrade notes
 
@@ -90,6 +108,14 @@ decision, 0001 onwards.
 - **A many-to-many whose link table is row-scoped now fails when it loads.** Its secondary table
   was never scoped, so a soft-deleted link still joined its rows. Map the link as an association
   object, a relationship to the link model, and its scope applies.
+- **On SQLite, a framework timestamp now compares and reads back as an instant.** A test that
+  compared one against a value in another zone, or that expected a value read back with no
+  zone, gets the instant's answer and an aware UTC value. A value an app earlier wrote into such
+  a column in another zone was stored as that zone's wall time and is not rewritten. It now
+  reads as UTC, off by its offset, as it always compared. The framework's own stamps were UTC
+  and are unaffected. PostgreSQL storage is unchanged, but its values now read back in UTC
+  rather than in the session's zone: a response that carried the session's offset carries UTC,
+  the same instant.
 
 ## 0.36.1 — 2026-11-05
 

@@ -23,10 +23,9 @@ import uuid
 from datetime import UTC, datetime
 from typing import Final
 
-from sqlalchemy import DateTime
 from sqlmodel import Field, SQLModel
 
-from terp.core import BaseTable, OwnedMixin, UUIDPrimaryKeyMixin
+from terp.core import BaseTable, OwnedMixin, UtcDateTime, UUIDPrimaryKeyMixin
 
 # Terminal delivery outcomes (a plain str column, never a higher-layer enum — this leaf
 # stays dependency-light, like ``AuditEvent.action`` / ``OutboxMessage.kind``).
@@ -79,7 +78,7 @@ class WebhookDelivery(UUIDPrimaryKeyMixin, SQLModel, table=True):  # arch-allow-
     last_error: str | None = Field(default=None, max_length=_ERROR_MAX)
     created_at: datetime = Field(
         default_factory=_utc_now,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=False,
         index=True,
     )
