@@ -58,6 +58,7 @@ from terp.arch.rules.deployment import (
 from terp.arch.rules.datetimes import (
     check_datetime_columns_are_timezone_aware,
     check_no_naive_datetime,
+    check_request_timestamps_carry_their_offset,
 )
 from terp.arch.rules.errors import (
     check_errors_use_the_typed_envelope,
@@ -210,6 +211,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "errors_use_the_typed_envelope": "service",
     "no_exception_text_in_responses": "service",
     "datetime_columns_are_timezone_aware": "module",
+    "request_timestamps_carry_their_offset": "service",
     "no_oversized_python_files": "module",
     "no_eval_or_exec": "capability",
     "no_star_imports": "module",
@@ -391,6 +393,7 @@ RULE_ROOT_KINDS: dict[str, frozenset[RootKind]] = {
     "forwarded_filters_are_declared": APP_ROOT_ONLY,
     "declared_read_controls_are_forwarded": APP_ROOT_ONLY,
     "datetime_columns_are_timezone_aware": APP_ROOT_ONLY,
+    "request_timestamps_carry_their_offset": APP_ROOT_ONLY,
     "errors_use_the_typed_envelope": APP_ROOT_ONLY,
     "no_exception_text_in_responses": APP_ROOT_ONLY,
     "mutations_emit_audit": APP_ROOT_ONLY,
@@ -505,6 +508,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_frozen_values_hold_no_mutable_collection,
     check_no_naive_datetime,
     check_datetime_columns_are_timezone_aware,
+    check_request_timestamps_carry_their_offset,
     check_errors_use_the_typed_envelope,
     check_no_exception_text_in_responses,
     check_no_oversized_python_files,
@@ -759,6 +763,7 @@ __all__ = [
     "check_errors_use_the_typed_envelope",
     "check_no_exception_text_in_responses",
     "check_datetime_columns_are_timezone_aware",
+    "check_request_timestamps_carry_their_offset",
     "check_deployment_declaration_is_readable",
     "check_deployment_declaration_tells_the_truth",
     "check_deployment_generated_files_match_their_render",

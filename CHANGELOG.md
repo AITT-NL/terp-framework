@@ -35,6 +35,30 @@ decision, 0001 onwards.
   follows; its rule ids resolve against the catalog the toolchain ships.
 - `backend/datetime_columns_are_timezone_aware` names `UtcDateTime` (ADR 0205) in its reference,
   and its corpus gains a compliant case with both spellings, named and called.
+- **A timestamp a client sends must carry its UTC offset (ADR 0206).** A value with no offset
+  names no instant, and a `UtcDateTime` column reads it as UTC. So a client one zone east of UTC
+  that sent `2026-11-06T10:00:00` was stored an hour off, and nothing reported it.
+  - A request body built on `BaseSchema` now refuses such text at the field: a 422 of type
+    `timestamp_offset_required`, whose message names the fix (`2026-11-06T10:00:00Z` or
+    `2026-11-06T11:00:00+01:00`).
+  - A declared filter refuses a bound without an offset with a 400 that names the filter.
+  - Only a client's text is judged. A value the server built, a row read back and a Unix time
+    validate as before.
+
+  The published contract does not change: `format: date-time` already requires the offset, so
+  the committed `openapi.json` stays byte-identical. `NaiveMeansUtc` reads a value without an
+  offset as UTC, for a sender known to send UTC without saying so. The new rule
+  `backend/request_timestamps_carry_their_offset` refuses each use of it unless its line carries
+  `# arch-allow-request-timestamps-carry-their-offset: <reason>`, which the app's escape-hatch
+  budget counts.
+- **`backend/datetime_columns_are_timezone_aware` accepts only `terp.core`'s `UtcDateTime`
+  (ADR 0205, open question B).** `DateTime(timezone=True)` and `TIMESTAMP(timezone=True)` keep
+  the zone on PostgreSQL but store the wall time on SQLite, so the instant a row recorded
+  depended on where it was written. They are now refused, with `Field(sa_type=UtcDateTime())`
+  named as the replacement. `UtcDateTime` also counts only when it resolves to `terp.core`. A
+  class of that name that the file defines, or imports from anywhere else, used to pass on its
+  name alone and is now refused. The corpus's old compliant case is now `violation-04`, beside a
+  case for the lookalike class.
 - The repo-wide ruff baseline and the secret scan each step aside for exactly the corpus cases
   that must carry the form they refuse, and nothing else in the corpus. Ruff skips the
   violation cases of `backend/no_dynamic_sql` and `backend/no_eval_or_exec`. gitleaks skips
@@ -49,6 +73,16 @@ decision, 0001 onwards.
   Release no longer attaches `scorecard-*.json`. A scorecard certified a checker against the
   corpus, not an app; an app's evidence is its own release: the release gate document, the
   assurance profile and the authority baseline.
+
+### Upgrade notes
+
+- **A client that sends a timestamp without its offset now gets a 422.** Send the offset (`Z`
+  for UTC); a client generated from the contract already does. For a sender known to send UTC
+  without saying so, type that one field or query parameter `NaiveMeansUtc`, and add the rule's
+  marker with its reason and the budget entry in the same change.
+- **A column declared `DateTime(timezone=True)` now turns the gate red.** Replace it with
+  `Field(sa_type=UtcDateTime())`, imported from `terp.core`. The stored type is the same, so the
+  change needs no migration (ADR 0205).
 
 ## 0.37.0 — 2026-11-06
 

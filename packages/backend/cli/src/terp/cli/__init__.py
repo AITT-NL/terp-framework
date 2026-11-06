@@ -89,6 +89,8 @@ Add a module (the "10-minute module")
          number: str = Field(max_length=50, index=True, unique=True)
          amount_cents: int
          issued_at: datetime = Field(sa_type=UtcDateTime())   # an instant, stored as UTC
+   Every timestamp column is UtcDateTime from terp.core: DateTime(timezone=True) stores the
+   wall time on SQLite and is refused, and swapping it in needs no migration.
 
 2) schemas.py  DTOs (cap every input string; the Read DTO is what the API returns)
      from terp.core import BaseSchema, BaseUpdateSchema
@@ -100,6 +102,10 @@ Add a module (the "10-minute module")
          amount_cents: int | None = None
      class InvoiceRead(BaseSchema):           # NOT the table model
          id: uuid.UUID; number: str; amount_cents: int; issued_at: datetime; version: int
+   A timestamp a client sends must carry its UTC offset: "2026-11-06T10:00:00" is a 422 at
+   the field, "2026-11-06T10:00:00Z" is taken (ADR 0206). For a sender known to send UTC
+   without one, type that field NaiveMeansUtc and mark it
+   (# arch-allow-request-timestamps-carry-their-offset: <reason>); never by default.
 
 3) service.py  business logic (CRUD is inherited and audited)
      from terp.core import BaseService
@@ -399,7 +405,9 @@ Services (BaseService)
                                  sort=sort)
   None values are dropped, so an absent optional parameter needs no branching. Filters
   compose ON TOP of base_query(), so row scope and business_filters() still apply —
-  they cannot widen a read. Don't write a list() override to do this by hand.
+  they cannot widen a read. Don't write a list() override to do this by hand. A
+  timestamp filter (taken_after: datetime | None = None) is refused with a 400 when the
+  caller sends no UTC offset, so the bound always names an instant (ADR 0206).
 - On a large table, prefer keyset pagination: a route takes CursorPaginationDep and
   returns CursorPage[ReadDTO] from self.list_by_cursor(session, pagination=...) —
   no OFFSET scan, and the exact COUNT runs only when the caller asks

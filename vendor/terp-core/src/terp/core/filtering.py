@@ -42,6 +42,9 @@ Three properties follow, and they are the point:
 ``None`` values are dropped **after** the name is checked, so an absent optional query
 parameter simply means "no filter" and the route needs no branching — without letting a
 typo in the forwarded dict hide behind that same allowance.
+
+A timestamp bound must carry its UTC offset (ADR 0206): one without names no instant, so it
+is refused, naming the filter and the fix, rather than compared as if it were UTC.
 """
 
 from __future__ import annotations
@@ -55,6 +58,7 @@ from sqlalchemy import ColumnElement
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from terp.core.errors import ValidationFailedError
+from terp.core.timestamps import require_offset
 
 FilterOp = Literal["eq", "ne", "lt", "lte", "gt", "gte", "in", "contains"]
 """The fixed comparison set. Declared per field by the service — never sent by a client."""
@@ -65,13 +69,15 @@ _LIKE_ESCAPE = "\\"
 def _in_range(name: str, value: object) -> object:
     """*value* as given, refused when it names no instant a timestamp can hold.
 
-    A caller's bound reaches the column's type at execution, where an offset that
-    carries it past the years a timestamp holds (``0001-01-01T00:00:00+14:00``)
-    raises inside the driver call and leaks as a 500. Found here, it is a 400 that
-    names the filter. The bound itself is left as it is: a ``UtcDateTime`` column
-    converts it, and a plain one compares it as it always did.
+    A bound with no UTC offset names no instant at all, so it is a 400 that names the
+    filter and the fix (ADR 0206). A caller's bound reaches the column's type at
+    execution, where an offset that carries it past the years a timestamp holds
+    (``0001-01-01T00:00:00+14:00``) raises inside the driver call and leaks as a 500.
+    Found here, it is a 400 that names the filter. The bound itself is left as it is: a
+    ``UtcDateTime`` column converts it, and a plain one compares it as it always did.
     """
-    if isinstance(value, datetime) and value.utcoffset() is not None:
+    if isinstance(value, datetime):
+        require_offset(name, value)
         try:
             value.astimezone(UTC)
         except OverflowError as exc:

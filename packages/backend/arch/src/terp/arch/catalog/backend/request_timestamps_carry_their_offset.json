@@ -1,0 +1,32 @@
+{
+  "id": "backend/request_timestamps_carry_their_offset",
+  "surface": "backend",
+  "title": "A timestamp a client sends carries its UTC offset",
+  "intent": "A date and time without a UTC offset names no instant: ten in the morning is a different moment in every zone. Stored as if it were UTC, it puts a sender in any other zone off by that zone's offset, and nothing reports it. The published API contract already rules such a value out, since a date-time there is the RFC 3339 form, whose offset is required. So the request boundary refuses one, in a request body and in a declared filter, and the refusal names the fix. Reading a value without an offset as UTC, for a sender known to send UTC without saying so, is the one way around it, and it is an escape a person decides and a reviewer sees.",
+  "layer": "static-bespoke",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_request_timestamps_carry_their_offset"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "refuse_timestamps_without_an_offset"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "require_offset"
+    }
+  ],
+  "reference": "Each reference to terp.core's NaiveMeansUtc is refused: by name under any alias, through the terp.core module (core.NaiveMeansUtc), or inside a quoted annotation. Taking it is the opt-out marker on that line. A plain datetime field on a BaseSchema needs nothing, and neither does a datetime query parameter forwarded to a declared filter: at run time the schema refuses a client's timestamp text without an offset as a 422 at the field, and the filter refuses a bound without one as a 400 that names it (ADR 0206). A NaiveMeansUtc the file defines itself is not the escape, since the boundary does not step aside for it.",
+  "opt_out": "# arch-allow-request-timestamps-carry-their-offset: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "The request boundary holds the invariant itself. A request body built on BaseSchema refuses a client's timestamp text without a UTC offset before any field is validated, as a 422 located at the field, and a declared filter refuses a bound without an offset as a 400 that names the filter. The build-time half governs the one way around both, so taking it is never quiet."
+  },
+  "guide_topic": "service",
+  "corpus": true
+}

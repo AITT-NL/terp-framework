@@ -25,13 +25,14 @@ import uuid
 from datetime import UTC, date, datetime, time
 from typing import Any
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, model_validator
 from sqlalchemy import DateTime, Dialect, MetaData
 from sqlalchemy.orm import declared_attr
 from sqlalchemy.types import TypeDecorator, TypeEngine
 from sqlmodel import Field, SQLModel
 
 from terp.core.personal import declare_model, mask_repr_args
+from terp.core.timestamps import refuse_timestamps_without_an_offset
 
 _NAMING_CONVENTION: dict[str, str] = {
     "ix": "ix_%(column_0_label)s",
@@ -305,7 +306,8 @@ class BaseSchema(SQLModel):
 
     A field declared with :func:`~terp.core.Personal` is masked when the schema is
     rendered and recorded for the log's and the audit trail's redaction, as on a table
-    (ADR 0190).
+    (ADR 0190). A timestamp a client sends as text must carry its UTC offset: one without
+    is a 422 at its field (ADR 0206, :mod:`terp.core.timestamps`).
     """
 
     model_config = ConfigDict(  # type: ignore[assignment]
@@ -313,6 +315,12 @@ class BaseSchema(SQLModel):
         populate_by_name=True,
         str_strip_whitespace=True,
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _timestamps_carry_their_offset(cls, data: Any) -> Any:
+        refuse_timestamps_without_an_offset(cls, data)
+        return data
 
     @classmethod
     def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:

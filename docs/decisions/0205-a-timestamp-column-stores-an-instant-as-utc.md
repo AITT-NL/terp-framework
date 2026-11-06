@@ -5,7 +5,9 @@
   choices below were made in the build and are the owner's to review, the two open questions
   first. Built in 0.37.0. An independent review of the first build found three
   runtime regressions and four claims the code did not support. Each is fixed below (see
-  *What the review changed*).
+  *What the review changed*). The owner decided both open questions on 2026-11-06, built in
+  0.38.0: A by [ADR 0206](0206-a-timestamp-a-client-sends-carries-its-offset.md), and B in the
+  rule's revision (see *Open questions*).
 - **Date:** 2026-11-06.
 - **Relates:** [ADR 0204](0204-a-statistic-is-declared-on-the-service-like-a-filter.md) (its
   known gap, which this closes), [ADR 0069](0069-verified-database-dialects-and-schema-direction.md)
@@ -26,7 +28,8 @@ it reads every value back aware, in UTC. Every timestamp the framework declares 
 
 An app declares its own the same way, `Field(sa_type=UtcDateTime())`. The stored type is
 unchanged, so adopting it needs no migration. `datetime_columns_are_timezone_aware` accepts it
-and names it in its remedy, and `DateTime(timezone=True)` stays accepted.
+and names it in its remedy, and `DateTime(timezone=True)` stays accepted. From 0.38.0 the rule
+accepts only `terp.core`'s `UtcDateTime` (open question B, decided).
 
 ## Context
 
@@ -84,7 +87,8 @@ refuses only `datetime.utcnow()` and a bare `datetime.now()`. A naive value buil
 reaches the column as it is, and two of those ways read the host's own clock:
 `datetime.fromtimestamp()` and `datetime.today()`. On a host whose zone is not UTC, that value
 is stored off by the host's offset. So is a naive value a client sends from another zone, off
-by the client's offset. Whether to refuse a naive value where it enters is open question A.
+by the client's offset. Whether to refuse a naive value where it enters is open question A,
+decided by ADR 0206: from 0.38.0 a request body and a declared filter refuse one.
 
 ### 2. A bound the type cannot hold is refused where it enters
 
@@ -146,24 +150,31 @@ compiled type is the same.
 
 | | Build time | Runtime |
 |---|---|---|
-| A timestamp column drops its zone | `datetime_columns_are_timezone_aware`, which accepts `UtcDateTime` and `DateTime(timezone=True)` | deferred (the catalog's boot check) |
-| An instant compares wrong on SQLite | none: the rule accepts the plain type, which keeps the defect | `UtcDateTime`, for a column declared with it |
+| A timestamp column drops its zone | `datetime_columns_are_timezone_aware`, which accepts `UtcDateTime` and, until 0.38.0, `DateTime(timezone=True)` | deferred (the catalog's boot check) |
+| An instant compares wrong on SQLite | until 0.38.0 none, because the rule accepted the plain type; from 0.38.0 the rule refuses it | `UtcDateTime`, for a column declared with it |
 | App code builds a naive value | `no_naive_datetime`, for `utcnow()` and a bare `now()` only | none: the type takes it as UTC, a default and not a control |
+| A client sends a naive value | from 0.38.0, `request_timestamps_carry_their_offset`, which governs the one way around | from 0.38.0, a `BaseSchema` body and a declared filter refuse it (ADR 0206) |
 | A caller's bound overflows the type | none | `decode_cursor`, `FilterField`, `_save` and the statistics window refuse it with a 400 |
 | A framework timestamp is declared the SQLite way | the sweep in `test_utc_datetime.py` | none |
 
 ## Open questions
 
-- **A. Should a naive value be refused where it enters?** A request schema typed aware-only
-  (Pydantic's `AwareDatetime`) answers a naive value with a 422 that names the remedy, before
-  anything is stored. It would also change every app's request contract at once, so it needs a
-  record of its own. Until then, a naive value from a client in another zone is stored off by
-  that client's offset, as it was on SQLite and on a UTC session before.
-- **B. Two compliant spellings, and a match on the name.** `DateTime(timezone=True)` stays
-  compliant though on SQLite it is the defect. Refusing it would turn every existing app's gate
-  red at once, for a change that needs no migration. The rule also accepts any name
-  `UtcDateTime`, so a local class of that name with a naive impl passes it. Both belong to the
-  rule's next revision, when the rules move under ADR 0203.
+Both were decided by the owner on 2026-11-06 and are built in 0.38.0.
+
+- **A. Should a naive value be refused where it enters?** Yes, in a record of its own:
+  [ADR 0206](0206-a-timestamp-a-client-sends-carries-its-offset.md). A request body built on
+  `BaseSchema` refuses a client's timestamp text without an offset, as a 422 at the field, and a
+  declared filter refuses a bound without one, as a 400. The contract does not change, because
+  `format: date-time` already requires the offset. `NaiveMeansUtc` is the one way around, and a
+  budgeted escape. As asked here, a naive value from a client in another zone was stored off by
+  that client's offset.
+- **B. Two compliant spellings, and a match on the name.** Both close in the rule's revision.
+  `datetime_columns_are_timezone_aware` refuses `DateTime(timezone=True)` and
+  `TIMESTAMP(timezone=True)`, naming `Field(sa_type=UtcDateTime())` as the replacement, which
+  needs no migration. `UtcDateTime` counts only when it resolves to `terp.core`, so a class of
+  that name that the file defines, or imports from anywhere else, is refused. As asked here,
+  `DateTime(timezone=True)` stayed compliant though on SQLite it is the defect, and any name
+  `UtcDateTime` passed.
 
 ## What the review changed
 
