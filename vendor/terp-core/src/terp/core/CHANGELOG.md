@@ -92,7 +92,9 @@ decision, 0001 onwards.
   leases, MFA, outbox, sync and webhooks capabilities, and the migration record's
   `applied_at`. A test sweeps every model a framework package maps and fails on a timestamp
   stored any other way. The statistics seam's day steps now count a late local instant on its
-  own day on SQLite too, which ADR 0204 recorded as a gap.
+  own day on SQLite too, which ADR 0204 recorded as a gap. The service-account expiry check and
+  the outbox backlog probe lose the branch that put UTC back on a value SQLite read without a
+  zone, which the type makes unreachable.
 - `datetime_columns_are_timezone_aware` accepts `UtcDateTime`, named or called, and names it in
   its remedy. `DateTime(timezone=True)` stays accepted. `terp guide module` shows a timestamp
   column declared with it.

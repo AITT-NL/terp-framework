@@ -176,19 +176,14 @@ class ServiceAccountService(
     def _is_expired(account: ServiceAccount) -> bool:
         """Whether the credential's end date has passed.
 
-        The stored value is normalised to UTC before comparing: a timezone-aware
-        column round-trips aware on PostgreSQL but **naive** on SQLite, and a naive /
-        aware comparison raises rather than answers. An expiry check that can throw is
-        an expiry check nobody can rely on, so the ambiguity is resolved here (a naive
-        stamp is UTC — it is the only thing this service ever writes) instead of being
-        left to the driver.
+        A naive / aware comparison raises rather than answers, and an expiry check that
+        can throw is one nobody can rely on. ``expires_at`` is a ``UtcDateTime``, so it
+        reads back aware in UTC on SQLite as on PostgreSQL (ADR 0205), and every account
+        this check sees has been read back: ``_save`` refreshes the row it writes.
         """
         if account.expires_at is None:
             return False
-        expires_at = account.expires_at
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=UTC)
-        return expires_at <= datetime.now(UTC)
+        return account.expires_at <= datetime.now(UTC)
 
     def _principal_from(self, account: ServiceAccount) -> Principal:
         return AuthenticatedPrincipal(

@@ -90,8 +90,10 @@ changed. A schema diff sees no change on either dialect, because the compiled ty
   the session's zone, so a reader sees the same offset on both dialects.
 - **The rule's runtime half stays deferred.** The catalog records a boot check over the mapped
   tables as `runtime.applicability: deferred`. This record does not ship it.
-- **The capabilities' own naive-read helpers stay.** They are no-ops on these columns now and
-  harmless.
+- **Most naive-read helpers stay.** The one-line helpers are no-ops on these columns now and
+  harmless. Two branches existed only for a value SQLite read back without a zone: the
+  service-account expiry check and the outbox backlog probe. The type makes them unreachable,
+  so they are removed.
 
 ## Two-layer enforcement
 
