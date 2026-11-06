@@ -14,6 +14,9 @@ dependencies = [
     "sqlmodel>=0.0.22",
     # 2.7 is the first with `NoDecode`, which the comma-separated key lists rely on.
     "pydantic-settings>=2.7",
+    # The zone database, so a statistic's calendar day resolves the same on every host:
+    # Windows has none of its own, and neither has a slim container (ADR 0204).
+    "tzdata>=2025.1",
 ]
 
 # Config sealing (design §5.4, terp.core.secrets) loads its cipher lazily from the

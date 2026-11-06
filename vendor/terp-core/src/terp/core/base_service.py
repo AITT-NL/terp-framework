@@ -34,6 +34,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, ClassVar, Generic, TypeVar
 
+from pydantic import BaseModel
 from sqlalchemy import JSON as SAJSON
 from sqlalchemy import ColumnElement, func
 from sqlalchemy import inspect as sa_inspect
@@ -50,6 +51,16 @@ from terp.core.base_models import (
     OwnedMixin,
     SoftDeleteMixin,
 )
+from terp.core import aggregation
+from terp.core.aggregation import (
+    AggregateGroup,
+    Dimension,
+    Measure,
+    Statistics,
+    StatisticsQuery,
+    TimeBucket,
+    Window,
+)
 from terp.core.errors import (
     ConflictError,
     NotFoundError,
@@ -63,7 +74,13 @@ from terp.core.filtering import (
     resolve_sort,
 )
 from terp.core.object_authz import apply_object_authz
-from terp.core.pagination import CursorPaginationParams, decode_cursor, encode_cursor
+from terp.core.pagination import (
+    CursorPaginationParams,
+    Page,
+    PaginationParams,
+    decode_cursor,
+    encode_cursor,
+)
 from terp.core.personal import withhold_personal_values
 from terp.core.scoping import apply_row_scope
 from terp.core._internal.session_guard import (
@@ -187,6 +204,11 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
                 "the declaration would be silently ignored — inherit the service "
                 "base that consumes it (e.g. EventEmittingService for 'event_map')"
             )
+        refusal = aggregation.declaration_refusal(
+            cls.measures, cls.dimensions, cls.time_buckets, owner=cls.__name__
+        )
+        if refusal:
+            raise TypeError(refusal)
 
     filterable: Sequence[FilterField] = ()
     """Columns a caller may narrow a read by — see :mod:`terp.core.filtering`.
@@ -202,6 +224,21 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
     default_sort: Sequence[str] = ()
     """Order applied when the caller asks for none. Empty means oldest-first by
     ``created_at`` — the framework default, which keeps pagination stable."""
+
+    measures: Sequence[Measure] = ()
+    """Figures a caller may ask :meth:`aggregate` for — see :mod:`terp.core.aggregation`."""
+
+    dimensions: Sequence[Dimension] = ()
+    """Columns a caller may group :meth:`aggregate`'s figures by."""
+
+    time_buckets: Sequence[TimeBucket] = ()
+    """Timestamps a caller may window :meth:`aggregate` by, and step through by calendar."""
+
+    max_groups: int = aggregation.DEFAULT_MAX_GROUPS
+    """The most groups one page of :meth:`aggregate` may hold."""
+
+    max_points: int = aggregation.DEFAULT_MAX_POINTS
+    """The most series points (groups times steps) one page of :meth:`aggregate` may carry."""
 
     append_only: ClassVar[bool] = False
     """Declare the model **immutable once written**: rows may be created, never changed.
@@ -382,6 +419,87 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
             last = rows[-1]
             next_cursor = encode_cursor(last.created_at, last.id)
         return rows, next_cursor, total
+
+    @classmethod
+    def statistics(cls) -> Statistics:
+        """This service's statistics declarations, as one value."""
+        return Statistics(
+            measures=cls.measures,
+            dimensions=cls.dimensions,
+            time_buckets=cls.time_buckets,
+            filterable=cls.filterable,
+            max_groups=cls.max_groups,
+            max_points=cls.max_points,
+        )
+
+    @classmethod
+    def statistics_model(cls) -> type[BaseModel]:
+        """The response model of one group, typed by this service's declarations.
+
+        For a route's ``response_model=Page[Service.statistics_model()]``, so the API contract
+        and the generated client know each figure's name and type. Built once per class.
+        """
+        model = cls.__dict__.get("_statistics_model")
+        if model is None:
+            name = cls.__name__.removesuffix("Service") or cls.__name__
+            model = aggregation.group_model(cls.statistics(), f"{name}Statistics")
+            cls._statistics_model = model  # type: ignore[attr-defined]
+        return model
+
+    def aggregate_page(
+        self,
+        session: Session,
+        query: StatisticsQuery,
+        *,
+        filters: Mapping[str, object] | None = None,
+    ) -> Page[AggregateGroup]:
+        """:meth:`aggregate` for a route: the capped query in, a page of groups out."""
+        groups, total = self.aggregate(
+            session,
+            measures=query.measures,
+            by=query.by,
+            window=query.window,
+            filters=filters,
+            sort=query.sort,
+            skip=query.skip,
+            limit=query.limit,
+        )
+        limit = query.limit if query.limit is not None else self.max_groups
+        return Page[AggregateGroup].of(groups, total, PaginationParams(skip=query.skip, limit=limit))
+
+    def aggregate(
+        self,
+        session: Session,
+        *,
+        measures: Sequence[str],
+        by: Sequence[str] = (),
+        window: Window | None = None,
+        filters: Mapping[str, object] | None = None,
+        sort: Sequence[str] | None = None,
+        skip: int = 0,
+        limit: int | None = None,
+    ) -> tuple[list[AggregateGroup], int]:
+        """A page of figures over this service's scoped rows, and how many groups there are.
+
+        ``measures`` and ``by`` name what the service declared on :attr:`measures` and
+        :attr:`dimensions`; ``window`` names one of :attr:`time_buckets`; ``filters`` are
+        :attr:`filterable`'s. Anything undeclared raises
+        :class:`~terp.core.errors.ValidationFailedError`. Everything composes on
+        :meth:`base_query`, inside a subquery, so row scope, soft delete and
+        :meth:`business_filters` still apply (ADR 0204).
+        """
+        return aggregation.aggregate(
+            session,
+            self.base_query(),
+            self.statistics(),
+            measures=measures,
+            by=by,
+            window=window,
+            filters=filters,
+            sort=sort,
+            skip=skip,
+            limit=limit,
+        )
 
     def _after_write(self, session: Session, entity: ModelT, action: AuditAction) -> None:
         """Hook for in-transaction side effects, after the write is staged, before commit.

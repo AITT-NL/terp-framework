@@ -4,18 +4,28 @@ The log is append-only (written by the sink), so this capability exposes only a
 read path: a single, bounded list used by the admin router, optionally narrowed to
 the one record a screen is about, and the counts a dashboard draws from. The list
 mirrors the kernel's pagination contract so the trail is browsed like any other
-``Page[T]``.
+``Page[T]``; the counts are the trail's declared statistics (ADR 0204), so the calendar
+days of a zone, the bound on a breakdown and the PostgreSQL grouping rule are the
+framework's, not this module's.
 """
 
 from __future__ import annotations
 
 import datetime
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import case
 from sqlmodel import Session, col, func, select
 
-from terp.core import PaginationParams, ValidationFailedError
+from terp.core import (
+    Dimension,
+    Measure,
+    PaginationParams,
+    Statistics,
+    TimeBucket,
+    Window,
+    aggregate,
+    resolve_time_zone,
+)
 
 from terp.capabilities.audit.models import AuditEvent
 from terp.capabilities.audit.schemas import (
@@ -31,6 +41,25 @@ ACTIVITY_MAX_DAYS = 90
 
 #: How many record types the activity read ranks. The rest are still in ``total``.
 ACTIVITY_TOP_TARGETS = 8
+
+#: What the activity read may count, and by what. The kinds of change are a closed set, so
+#: one page holds every one of them; the record types are ranked, so only the top ones show.
+ACTIVITY = Statistics(
+    measures=(Measure("events"),),
+    dimensions=(
+        Dimension("action", AuditEvent.action),  # type: ignore[arg-type]
+        Dimension("target_type", AuditEvent.target_type),  # type: ignore[arg-type]
+    ),
+    time_buckets=(
+        TimeBucket(
+            "created",
+            AuditEvent.created_at,  # type: ignore[arg-type]
+            steps=("day",),
+            max_buckets=2 * ACTIVITY_MAX_DAYS,
+        ),
+    ),
+    max_groups=32,
+)
 
 
 def list_audit_events(
@@ -62,21 +91,6 @@ def list_audit_events(
     return list(rows), int(total)
 
 
-def resolve_time_zone(name: str) -> ZoneInfo:
-    """The IANA time zone *name* names, or a validation failure that says which name it was.
-
-    The zone database is the ``tzdata`` package where the system has none (Windows), so
-    every IANA name resolves on every host. How strictly a name is matched is still the
-    host's: a case-insensitive filesystem also accepts ``utc``, and a system database may
-    know a few names ``tzdata`` does not (``posixrules``). The canonical spelling resolves
-    everywhere, and that is the one the hub sends.
-    """
-    try:
-        return ZoneInfo(name)
-    except (ZoneInfoNotFoundError, ValueError) as exc:
-        raise ValidationFailedError(f"{name!r} is not a time zone this server knows.") from exc
-
-
 def local_midnights(
     zone: ZoneInfo, *, days: int, now: datetime.datetime
 ) -> list[datetime.datetime]:
@@ -106,58 +120,65 @@ def audit_activity(
 ) -> AuditActivityRead:
     """Count the trail per calendar day of *zone*: the last *days* days and the *days* before.
 
-    One query counts every day at once, as one conditional aggregate per day over the
-    window's index range. It compares the timestamp column with bound instants only, which
-    reads the same on SQLite, where the column holds UTC wall time, and on PostgreSQL. The
-    days are not grouped: grouping by an expression that carries bound parameters is refused
-    by PostgreSQL once the parameters are bound on the server, because the select list and
-    the grouping no longer read as one expression. The kinds of change and the types of
-    record are grouped by their own columns, over the last *days* days only.
+    Three declared aggregates over the trail (:data:`ACTIVITY`): one series of ``2 * days``
+    calendar days ending today in *zone*, split into the current window and the one before
+    it, and the kinds of change and the types of record over the current window alone. Each
+    day is the zone's own, made from its local midnights, so a day that daylight saving
+    shortens keeps its real length, on SQLite and on PostgreSQL alike.
     """
     moment = now if now is not None else datetime.datetime.now(datetime.UTC)
-    bounds = local_midnights(zone, days=2 * days, now=moment)
-    created = col(AuditEvent.created_at)
-    counts = session.exec(
-        select(
-            *(
-                func.count(case(((created >= bounds[i]) & (created < bounds[i + 1]), 1)))
-                for i in range(2 * days)
-            )
-        ).where(created >= bounds[0], created < bounds[-1])
-    ).one()
+    today = moment.astimezone(zone).date()
+    query = select(AuditEvent)
+    series = Window(
+        "created", start=today - datetime.timedelta(days=2 * days - 1), end=today, zone=zone, step="day"
+    )
+    (trail,), _ = aggregate(session, query, ACTIVITY, measures=["events"], window=series)
     per_day = [
-        AuditDayCount(date=bounds[i].astimezone(zone).date(), count=int(counts[i]))
-        for i in range(2 * days)
+        AuditDayCount(date=point.start.date(), count=int(point.measures["events"] or 0))
+        for point in trail.series or []
     ]
-    window = (created >= bounds[days], created < bounds[-1])
-    by_action = session.exec(
-        select(col(AuditEvent.action), func.count())
-        .where(*window)
-        .group_by(col(AuditEvent.action))
-        .order_by(func.count().desc(), col(AuditEvent.action))
-    ).all()
-    by_target_type = session.exec(
-        select(col(AuditEvent.target_type), func.count())
-        .where(*window)
-        .group_by(col(AuditEvent.target_type))
-        .order_by(func.count().desc(), col(AuditEvent.target_type))
-        .limit(ACTIVITY_TOP_TARGETS)
-    ).all()
+    window = Window("created", start=today - datetime.timedelta(days=days - 1), end=today, zone=zone)
+    by_action, _ = aggregate(
+        session,
+        query,
+        ACTIVITY,
+        measures=["events"],
+        by=["action"],
+        window=window,
+        sort=["-events", "action"],
+    )
+    by_target_type, _ = aggregate(
+        session,
+        query,
+        ACTIVITY,
+        measures=["events"],
+        by=["target_type"],
+        window=window,
+        sort=["-events", "target_type"],
+        limit=ACTIVITY_TOP_TARGETS,
+    )
     current = per_day[days:]
     return AuditActivityRead(
         time_zone=zone.key,
         days=current,
         previous_days=per_day[:days],
-        by_action=[AuditActionCount(action=action, count=int(n)) for action, n in by_action],
+        by_action=[
+            AuditActionCount(action=str(group.dimensions["action"]), count=int(group.measures["events"] or 0))
+            for group in by_action
+        ],
         by_target_type=[
-            AuditTargetCount(target_type=target_type, count=int(n))
-            for target_type, n in by_target_type
+            AuditTargetCount(
+                target_type=str(group.dimensions["target_type"]),
+                count=int(group.measures["events"] or 0),
+            )
+            for group in by_target_type
         ],
         total=sum(day.count for day in current),
     )
 
 
 __all__ = [
+    "ACTIVITY",
     "ACTIVITY_MAX_DAYS",
     "ACTIVITY_TOP_TARGETS",
     "audit_activity",
