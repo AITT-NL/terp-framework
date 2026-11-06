@@ -52,15 +52,8 @@ from terp.core.base_models import (
     SoftDeleteMixin,
 )
 from terp.core import aggregation
-from terp.core.aggregation import (
-    AggregateGroup,
-    Dimension,
-    Measure,
-    Statistics,
-    StatisticsQuery,
-    TimeBucket,
-    Window,
-)
+from terp.core.aggregation import AggregateGroup, Dimension, Measure, Statistics, TimeBucket, Window
+from terp.core.aggregation_http import StatisticsQuery, group_model
 from terp.core.errors import (
     ConflictError,
     NotFoundError,
@@ -442,7 +435,7 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         model = cls.__dict__.get("_statistics_model")
         if model is None:
             name = cls.__name__.removesuffix("Service") or cls.__name__
-            model = aggregation.group_model(cls.statistics(), f"{name}Statistics")
+            model = group_model(cls.statistics(), f"{name}Statistics")
             cls._statistics_model = model  # type: ignore[attr-defined]
         return model
 

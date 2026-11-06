@@ -264,14 +264,14 @@ def test_a_bare_session_is_left_alone(engine) -> None:
 
 
 def test_the_table_lookup_is_rebuilt_when_a_mapper_is_constructed() -> None:
-    from terp.core._internal import session_guard
+    from terp.core import scoping
 
-    before, _ = session_guard._mapped_tables()
-    assert session_guard._mapped_tables()[0] is before  # kept while the schema stands still
+    before, _ = scoping._mapped_tables()
+    assert scoping._mapped_tables()[0] is before  # kept while the schema stands still
 
     class Late(SoftDeleteMixin, BaseTable, table=True):
         __tablename__ = "core_reads_late"
 
-    after, by_name = session_guard._mapped_tables()
+    after, by_name = scoping._mapped_tables()
     assert after is not before
     assert by_name[(None, "core_reads_late")] == [Late]

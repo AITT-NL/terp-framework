@@ -49,15 +49,10 @@ from sqlalchemy import Select, event
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import ORMExecuteState, with_loader_criteria
 from sqlalchemy.sql import visitors
-from sqlalchemy.orm import Mapper
-from sqlalchemy.sql.elements import TextClause
-from sqlalchemy.sql.expression import Alias, TableClause
-from sqlalchemy.sql.selectable import CTE, Exists, Join, ScalarSelect, SelectBase, Subquery
 from sqlalchemy.sql.util import ClauseAdapter
 from sqlmodel import Session, SQLModel, select
-from sqlmodel.main import default_registry
 
-from terp.core.scoping import apply_row_scope
+from terp.core.scoping import _core_only_reads, apply_row_scope
 
 # Dynamic-scope flag: True only while BaseService._save / _remove are persisting.
 # A ContextVar (not a session attribute) so the scope follows the call stack — the
@@ -376,107 +371,6 @@ class WriteGuardedSession(Session):
                     return super().get(entity, ident, *args, **kwargs)
                 return super().exec(scoped.where(pk_column == ident)).first()
         return super().get(entity, ident, *args, **kwargs)
-
-
-# Every mapped table, by Table and by (schema, name): static facts about the schema, so the
-# lookup is rebuilt only when a mapper is constructed. Whether a table carries row scope is
-# NOT cached here: a predicate can depend on the context (the owner scope needs an actor),
-# so that is asked of the table at the moment a read reaches it through Core.
-_mapped: dict[str, Any] = {}
-
-
-@event.listens_for(Mapper, "after_mapper_constructed")
-def _forget_mapped_tables(mapper: Mapper[Any], class_: type) -> None:
-    _mapped.clear()
-
-
-def _mapped_tables() -> tuple[dict[Any, list[type]], dict[tuple[str | None, str], list[type]]]:
-    """Each mapped table's models, by the Table itself and by its schema and name."""
-    if not _mapped:
-        by_table: dict[Any, list[type]] = {}
-        by_name: dict[tuple[str | None, str], list[type]] = {}
-        for mapper in default_registry.mappers:
-            for table in mapper.tables:
-                by_table.setdefault(table, []).append(mapper.class_)
-                by_name.setdefault((getattr(table, "schema", None), table.name), []).append(mapper.class_)
-        _mapped.update(by_table=by_table, by_name=by_name)
-    return _mapped["by_table"], _mapped["by_name"]
-
-
-def _models_of(table: Any) -> list[type]:
-    """The models mapped onto *table*; a ``table("name")`` matches the name in any schema."""
-    by_table, by_name = _mapped_tables()
-    if table in by_table:
-        return by_table[table]
-    name = getattr(table, "name", None)
-    schema = getattr(table, "schema", None)
-    return [
-        model
-        for (key_schema, key_name), models in by_name.items()
-        if key_name == name and (schema is None or key_schema == schema)
-        for model in models
-    ]
-
-
-def _row_scoped(models: list[type]) -> list[type]:
-    """The ones of *models* that carry row scope in the current context."""
-    return [model for model in models if apply_row_scope(model, select(model)).whereclause is not None]
-
-
-def _orm_named_tables(select_: Any) -> set[Any]:
-    """The tables *select_* names through a mapped entity, not looking into nested selects."""
-    named: set[Any] = set()
-    pending = list(select_.get_children())
-    while pending:
-        element = pending.pop()
-        if isinstance(element, (SelectBase, Subquery, ScalarSelect, Exists, CTE)):
-            continue
-        entity = getattr(element, "_annotations", {}).get("parententity")
-        if entity is not None:
-            # An ORM alias names its own selectable, which the hook scopes through its adapter.
-            named.update([entity.selectable] if entity.is_aliased_class else entity.mapper.tables)
-        pending.extend(element.get_children())
-    return named
-
-
-def _from_leaves(from_: Any) -> Iterator[Any]:
-    if isinstance(from_, Join):
-        yield from _from_leaves(from_.left)
-        yield from _from_leaves(from_.right)
-    else:
-        yield from_
-
-
-def _core_only_reads(statement: Any) -> list[str]:
-    """What *statement* reads through Core where the row scope cannot reach, by name.
-
-    Judged per SELECT, nested ones included: a row-scoped table in a SELECT's FROM list must
-    be named by a mapped entity **in that same SELECT**, which is what the loader criteria
-    attach to. A mapped entity elsewhere in the statement does not scope it: a parent's
-    relationship to a child reaches the child's mapper without covering a Core join to the
-    child's table. An alias counts only when an ORM alias names it in that SELECT (the hook
-    scopes those through its adapter); a Core alias, and literal SQL in a FROM, never can.
-    """
-    found: set[str] = set()
-    for select_ in visitors.iterate(statement):
-        if not isinstance(select_, Select):
-            continue
-        named: set[Any] | None = None
-        for from_ in select_.get_final_froms():
-            for leaf in _from_leaves(from_):
-                if isinstance(leaf, TextClause):
-                    found.add("a literal SQL FROM")
-                    continue
-                if "parententity" in getattr(leaf, "_annotations", {}):
-                    continue  # an ORM entity's own FROM (a joined eager load's alias, say)
-                base = leaf.element if isinstance(leaf, Alias) else leaf
-                if not isinstance(base, TableClause):
-                    continue
-                named = _orm_named_tables(select_) if named is None else named
-                if leaf in named:
-                    continue
-                found.update(model.__name__ for model in _row_scoped(_models_of(base)))
-    return sorted(found)
 
 
 @event.listens_for(WriteGuardedSession, "do_orm_execute")

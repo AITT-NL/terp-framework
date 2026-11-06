@@ -36,18 +36,13 @@ from terp.core.aggregation import (
     AggregateGroup,
     Dimension,
     Measure,
-    MeasureOp,
-    SeriesPoint,
     Statistics,
-    StatisticsQuery,
-    StatisticsQueryDep,
     TimeBucket,
-    TimeStep,
     Window,
     aggregate,
-    group_model,
     resolve_time_zone,
 )
+from terp.core.aggregation_http import StatisticsQueryDep, group_model
 from terp.core.base_service import BaseService
 from terp.core.filtering import FilterField, FilterOp, SortField
 from terp.core.cache import (
@@ -341,7 +336,6 @@ __all__ = [
     "LeaseResource",
     "LeaseStore",
     "Measure",
-    "MeasureOp",
     "MigrationDiscoveryError",
     "MigrationTree",
     "Misfire",
@@ -386,7 +380,6 @@ __all__ = [
     "SecretsError",
     "SecurityConfig",
     "SecurityHeaders",
-    "SeriesPoint",
     "SessionDep",
     "Settings",
     "Settled",
@@ -394,12 +387,10 @@ __all__ = [
     "SortField",
     "StaleDataError",
     "Statistics",
-    "StatisticsQuery",
     "StatisticsQueryDep",
     "StoredResponse",
     "ThrottleStore",
     "TimeBucket",
-    "TimeStep",
     "TimestampMixin",
     "UUIDPrimaryKeyMixin",
     "UndeclaredReferenceError",

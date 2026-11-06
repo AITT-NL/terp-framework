@@ -1,39 +1,20 @@
 """Declared statistics over a scoped read: measures, dimensions and time buckets (ADR 0204).
 
-A list screen narrows and orders rows the service declared it may (:mod:`terp.core.filtering`).
-A statistics screen counts and sums them, and until this module it had no sanctioned path: a
-hand-built ``select(func.count(...)).group_by(...)`` over a scope-trait model is what
-``reads_use_base_query`` flags, and the way to satisfy the rule — an aggregate over
-``base_query().subquery()`` — made every module rediscover calendar days in a zone, the
-PostgreSQL grouping trap and a bound on the result. So the allowance is declared on the
-service, beside ``filterable`` and ``sortable``::
+A list narrows and orders the rows its service declared it may (:mod:`terp.core.filtering`); a
+statistic counts and sums them, declared the same way, beside ``filterable`` and ``sortable``::
 
     class InvoiceService(BaseService[Invoice, InvoiceCreate, InvoiceUpdate]):
         model = Invoice
-        filterable = (FilterField("customer_id", Invoice.customer_id),)
         measures = (Measure("invoices"), Measure("revenue", Invoice.amount, op="sum"))
         dimensions = (Dimension("status", Invoice.status),)
         time_buckets = (TimeBucket("issued", Invoice.issued_at),)
 
-and a route takes the capped query and returns a page typed by the declaration::
-
-    @router.get("/statistics", response_model=Page[InvoiceService.statistics_model()])
-    def invoice_statistics(query: StatisticsQueryDep, session: SessionDep) -> Page:
-        return InvoiceService().aggregate_page(session, query)
-
-The properties are the filter seam's, and two more:
-
-* **Fail closed.** An undeclared measure, dimension, time bucket, step, sort key or filter is
-  a :class:`~terp.core.errors.ValidationFailedError` naming what is declared.
-* **Composed, never substituted.** The rows are the scoped query's, narrowed by the declared
-  filters first, inside a subquery; the grouping happens outside it, by plain columns, so row
-  scope, soft delete and ``business_filters`` cannot be dropped.
-* **Bounded.** The groups page like rows under the declaration's ``max_groups``; a series
-  longer than the time bucket's ``max_buckets``, or a page whose groups and steps together
-  pass ``max_points``, is refused before the query runs.
-* **Personal data stays personal.** A grouping, a time bucket or a value-derived figure over a
-  field declared personal is refused when the class is defined, and a statistic is never
-  narrowed by a filter over one: over a group of one each of them answers for one person.
+A route takes :data:`~terp.core.aggregation_http.StatisticsQueryDep` and returns
+``InvoiceService().aggregate_page(session, query)`` as ``Page[InvoiceService.statistics_model()]``.
+The rows are the scoped query's, narrowed by the declared filters inside a subquery and grouped
+by plain columns outside it, so row scope cannot be dropped. Everything undeclared is refused,
+every result is capped, and a statistic never answers for one person's personal data.
+``terp guide aggregates`` walks through it.
 """
 
 from __future__ import annotations
@@ -43,11 +24,10 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import Depends, Query
-from pydantic import BaseModel, ConfigDict, StringConstraints, create_model
+from pydantic import BaseModel
 from sqlalchemy import Integer, and_, distinct, func, literal, or_, union_all
 from sqlalchemy import select as sa_select
 from sqlalchemy.orm.attributes import InstrumentedAttribute
@@ -488,98 +468,6 @@ def _attach_series(session, rows, chosen, groups_by, keys, result, bounds, zone)
         ]
 
 
-def _python_type(column: InstrumentedAttribute) -> Any:
-    try:
-        return column.type.python_type
-    except NotImplementedError:
-        return Any
-
-
-def _measure_type(measure: Measure) -> Any:
-    if measure.op in ("count", "count_distinct"):
-        return int
-    if measure.op == "avg":
-        return float
-    return _python_type(measure.column)  # type: ignore[arg-type]
-
-
-def group_model(statistics: Statistics, name: str) -> type[BaseModel]:
-    """A response model for one group of *statistics*, typed by its declarations.
-
-    :class:`AggregateGroup` is the value :func:`aggregate` returns, and its maps are untyped:
-    in an OpenAPI document every service would share one shape of ``additionalProperties``.
-    This is the same group as the client should see it, one field per declared dimension and
-    measure, each typed by its column and its aggregate. A field the request did not ask for
-    is ``null``. Name it after the service, since the document needs the names unique.
-    """
-    dimensions = create_model(  # type: ignore[call-overload]
-        f"{name}Dimensions",
-        **{d.name: (_python_type(d.column) | None, None) for d in statistics.dimensions},
-    )
-    measures = create_model(  # type: ignore[call-overload]
-        f"{name}Measures", **{m.name: (_measure_type(m) | None, None) for m in statistics.measures}
-    )
-    point = create_model(  # type: ignore[call-overload]
-        f"{name}Point", start=(dt.datetime, ...), date=(dt.date, ...), measures=(measures, ...)
-    )
-    return create_model(  # type: ignore[call-overload,no-any-return]
-        f"{name}Group",
-        __config__=ConfigDict(from_attributes=True),
-        dimensions=(dimensions, ...),
-        measures=(measures, ...),
-        series=(list[point] | None, None),  # type: ignore[valid-type]
-    )
-
-
-_StatisticName = Annotated[str, StringConstraints(max_length=64, pattern=r"^[a-z][a-z0-9_]*$")]
-_SortKey = Annotated[str, StringConstraints(max_length=65, pattern=r"^-?[a-z][a-z0-9_]*$")]
-
-
-@dataclass(frozen=True)
-class StatisticsQuery:
-    """What a statistics route was asked, already capped: names, a window, a page."""
-
-    measures: tuple[str, ...]
-    by: tuple[str, ...] = ()
-    sort: tuple[str, ...] | None = None
-    window: Window | None = None
-    skip: int = 0
-    limit: int | None = None
-
-
-def _statistics_query(
-    measures: Annotated[list[_StatisticName], Query(min_length=1, max_length=16)],
-    by: Annotated[list[_StatisticName] | None, Query(max_length=8)] = None,
-    sort: Annotated[list[_SortKey] | None, Query(max_length=8)] = None,
-    bucket: Annotated[_StatisticName | None, Query(description="The time bucket to window by.")] = None,
-    start: Annotated[dt.date | None, Query(description="The window's first day, included.")] = None,
-    end: Annotated[dt.date | None, Query(description="The window's last day, included.")] = None,
-    zone: Annotated[str, Query(max_length=64, description="An IANA time zone.")] = "UTC",
-    step: Annotated[TimeStep | None, Query(description="A series per day, week or month.")] = None,
-    skip: Annotated[int, Query(ge=0)] = 0,
-    limit: Annotated[int | None, Query(ge=1, le=DEFAULT_MAX_POINTS)] = None,
-) -> StatisticsQuery:
-    window = None
-    if bucket is not None:
-        if start is None or end is None:
-            raise ValidationFailedError("A window names its first and its last day.")
-        window = Window(bucket, start=start, end=end, zone=zone, step=step)
-    elif start is not None or end is not None or step is not None:
-        raise ValidationFailedError("A window names the time bucket it is on.")
-    return StatisticsQuery(
-        measures=tuple(measures),
-        by=tuple(by or ()),
-        sort=tuple(sort) if sort else None,
-        window=window,
-        skip=skip,
-        limit=limit,
-    )
-
-
-StatisticsQueryDep = Annotated[StatisticsQuery, Depends(_statistics_query)]
-"""A statistics route's query, every list and string capped like :data:`PaginationDep`'s."""
-
-
 __all__ = [
     "aggregate",
     "AggregateGroup",
@@ -588,14 +476,11 @@ __all__ = [
     "DEFAULT_MAX_GROUPS",
     "DEFAULT_MAX_POINTS",
     "Dimension",
-    "group_model",
     "Measure",
     "MeasureOp",
     "resolve_time_zone",
     "SeriesPoint",
     "Statistics",
-    "StatisticsQuery",
-    "StatisticsQueryDep",
     "TimeBucket",
     "TimeStep",
     "VALUE_OPS",

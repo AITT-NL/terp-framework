@@ -524,7 +524,7 @@ def test_a_column_type_that_declares_no_python_type_is_typed_any() -> None:
     from types import SimpleNamespace
     from typing import Any
 
-    from terp.core.aggregation import _python_type
+    from terp.core.aggregation_http import _python_type
 
     class Undeclared:
         @property
