@@ -39,7 +39,7 @@ application items below have the same shape one level down.
 
 | Item | Still missing on 0.34.0 | Already beside it |
 |---|---|---|
-| R6 aggregation seam | A sanctioned scoped aggregate: `Measure` / `Dimension` / `TimeBucket` declared on the service like filters and sorts, composed on `base_query()` as a subquery, returned as `Page[Bucket]` under a cardinality cap. And a runtime backstop for aggregate selects | See the correction below |
+| R6 aggregation seam | Done in 0.37.0: [ADR 0204](../../decisions/0204-a-statistic-is-declared-on-the-service-like-a-filter.md) | The declared seam, its typed page and caps, and the runtime refusal of a SELECT that reads a scoped table through Core |
 | R8 search seam | `searchable = (SearchField(...),)` on the service and `service.search(q=...)` returning a ranked `Page[T]` on `base_query()`, with the framework owning the index and the dialect difference | Only the `contains` filter (`core/filtering.py`) |
 | R9 model calls and streaming | `kind="model"` defaults on egress (long read timeout, retries off), a `{ seq, delta, done }` chunk envelope over realtime, a token budget, prompt redaction in the audit record | The call goes through egress; slow work is a job; realtime has a shared broker (ADR 0176); ADR 0111 §4 declined a dedicated AI capability |
 | R11 data Terp does not own | `ExternalTable` and `ReadOnlyService` for a view or table another owner manages: no managed id, no migrations, no writes | Companion roots (ADR 0141) now gate the package a foreign connector lives in |
@@ -47,15 +47,8 @@ application items below have the same shape one level down.
 | R13 governed-zone map | `terp check --explain <path>`; a `terp guide zones` topic; `gate: "terp" \| "external"` on workbench and deploy units | Which rules apply where (ADR 0136, 0175); `RULE_ROOT_KINDS` and the per-root "held to" report (ADR 0141) |
 | R14 the consumer test | The amendment to ADR 0099 ("…or two independent applications asked for it") and a countable request ledger | The two-observation bar is applied in practice (ADR 0158, 0169, 0179), without a formal amendment or a ledger |
 
-**R6, a correction to the draft.** The draft argued that a hand-built sum over a
-tenant-scoped model slips past every control. On 0.34.0 that is half true. The build-time
-rule is not blind to it: `reads_use_base_query` walks the whole `select(...)` chain, so
-`select(func.sum(Invoice.amount))` over a scoped model is flagged
-(`terp/arch/rules/traits.py`). The runtime half is: the session guard re-scopes only a
-single-entity select and leaves a column or aggregate select untouched
-(`terp/core/_internal/session_guard.py`). So the gap is a missing sanctioned path plus a
-missing runtime backstop, not an invisible hole. ADR 0171 hand-writes one framework-owned
-aggregate in `terp-cap-audit`, which is the shape a seam would replace.
+**R6, a correction to the draft.** The runtime gap it described was smaller on 0.36.0 than
+the draft said, and ADR 0204 records what was measured and what was built.
 
 ## Refused in the draft, with the alternative
 
@@ -78,8 +71,8 @@ Recorded so they are argued once rather than re-proposed:
 ## Open questions that still stand
 
 - R2's broker: the first adapter should be the one the platform's own deployments run.
-- R6's cardinality probe: a sampled estimate, a `LIMIT` probe that fails on overflow, or a
-  declared-only cap; benchmark before choosing.
+- R6's cardinality probe: answered by ADR 0204 decision 4. The groups page like rows with an
+  exact count, and only the caller's window needs a refusal.
 - R11's dialect tier: whether the platform supports what an application certifies against
   its own dialect is a commercial question.
 - Where R14's ledger lives.

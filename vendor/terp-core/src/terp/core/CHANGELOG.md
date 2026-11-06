@@ -10,6 +10,80 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.37.0 — unreleased
+
+### Security
+
+- **A SELECT that reads a row-scoped table through Core is refused (ADR 0204 decision 6).** The
+  request session scopes a read by attaching soft-delete and the registered row predicates to
+  each mapped entity the statement reaches. Since 0.36.0 that covers aggregates: a `sum`, a
+  `count`, a `group_by`, a join through a scoped child, a subquery or CTE of the entity and an
+  ORM alias all leave a soft-deleted, another tenant's or another owner's row out, on SQLite and
+  on PostgreSQL. Tests now hold each of those shapes. What the session could not scope was a
+  SELECT naming the table through Core. Such a read returned every row:
+  - a column of `Model.__table__`, or `select_from(Model.__table__)`;
+  - a Core join or a Core scalar subquery over it, even beside a mapped parent;
+  - a Core alias, or `table("name")`;
+  - literal SQL in a FROM;
+  - the secondary table of a many-to-many, which showed a row whose only link was deleted.
+
+  The request session now refuses each of them before it runs, with `UnscopedReadError`, a 500
+  whose log line names the model and the remedy. It is judged per SELECT: a scoped table in a
+  SELECT's FROM list must be named by a mapped entity in that same SELECT, and whether the table
+  carries row scope is asked in the read's own context, so an owner scope with no actor is no
+  scope. A plain `Session` (a migration, the CLI, a test) is unaffected, and so is a Core read of
+  a table with no row scope.
+
+### Added
+
+- **A statistic is declared on the service, like a filter (ADR 0204).** A service declares
+  `measures` (`count`, `count_distinct`, `sum`, `avg`, `min`, `max`), `dimensions` and
+  `time_buckets` beside `filterable` and `sortable`. A route takes `StatisticsQueryDep` and
+  returns `service.aggregate_page(...)` as `Page[Service.statistics_model()]`: one group per
+  combination of the requested dimensions, its figures and, for a window with a step, its series
+  over the calendar days, weeks or months of the caller's time zone.
+  - **Scoped and exact.** The rows are the scoped query's, narrowed by the declared filters
+    inside a subquery, and each row joins the window's table of steps, so row scope, soft delete
+    and `business_filters` cannot be dropped. A day is the zone's own, so a day that daylight
+    saving shortens keeps its real length, and each step carries its local `date`.
+  - **Typed.** `statistics_model()` types every dimension and figure in the API contract, and a
+    `Numeric` sum stays a decimal.
+  - **Fail closed.** An undeclared measure, dimension, time bucket, step, sort key or filter is a
+    400 naming what is declared. The query's lists and names are capped like `PaginationDep`'s.
+  - **Capped.** A page holds at most `max_groups` (100), a series at most `max_buckets` (366)
+    steps, and a page at most `max_points` (10,000) series points. Each cap refuses, never
+    clamps.
+  - **Personal data stays personal.** A dimension or a time bucket over a field declared
+    `Personal(...)`, and a `sum`, `avg`, `min` or `max` over one, is refused when the class is
+    defined. A statistic is never narrowed by a filter over a personal field, because counts
+    under a `contains` filter recover an address one character at a time.
+
+  A read that is not a service's uses the same seam as
+  `terp.core.aggregate(session, query, Statistics(...))`. `terp guide aggregates` walks through
+  it.
+
+### Changed
+
+- The audit capability's activity read is the seam's first consumer: its per-day counts, its
+  previous window and its ranked record types are three declared aggregates, and its response
+  is unchanged.
+- `terp-core` depends on `tzdata`, so every IANA zone name resolves on every host, Windows and a
+  slim container included. `terp-cap-audit` no longer declares it itself.
+- `reads_use_base_query` names the seam in its remedy, and its docstring describes the runtime
+  backstop as it now is.
+
+### Upgrade notes
+
+- **A request-session read of a row-scoped table through Core now fails.** An app that reads
+  `Model.__table__` columns, joins or selects from it or a Core alias of it, names it with
+  `table("...")`, or writes a FROM in literal SQL on the request session gets `UnscopedReadError`
+  where it used to get unscoped rows. Read through the model instead: the service's
+  `base_query()`, or a statistic declared on the service. `terp check` already flags the shapes
+  that name the model (`reads_use_base_query`).
+- **A many-to-many whose link table is row-scoped now fails when it loads.** Its secondary table
+  was never scoped, so a soft-deleted link still joined its rows. Map the link as an association
+  object, a relationship to the link model, and its scope applies.
+
 ## 0.36.1 — 2026-11-05
 
 ### Security
