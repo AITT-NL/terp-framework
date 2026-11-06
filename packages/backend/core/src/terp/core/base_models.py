@@ -25,14 +25,15 @@ import uuid
 from datetime import UTC, date, datetime, time
 from typing import Any
 
-from pydantic import ConfigDict, model_validator
+from pydantic import ConfigDict, GetCoreSchemaHandler
+from pydantic_core import CoreSchema
 from sqlalchemy import DateTime, Dialect, MetaData
 from sqlalchemy.orm import declared_attr
 from sqlalchemy.types import TypeDecorator, TypeEngine
 from sqlmodel import Field, SQLModel
 
 from terp.core.personal import declare_model, mask_repr_args
-from terp.core.timestamps import refuse_timestamps_without_an_offset
+from terp.core.timestamps import hold_timestamps_to_their_offset
 
 _NAMING_CONVENTION: dict[str, str] = {
     "ix": "ix_%(column_0_label)s",
@@ -306,8 +307,8 @@ class BaseSchema(SQLModel):
 
     A field declared with :func:`~terp.core.Personal` is masked when the schema is
     rendered and recorded for the log's and the audit trail's redaction, as on a table
-    (ADR 0190). A timestamp a client sends as text must carry its UTC offset: one without
-    is a 422 at its field (ADR 0206, :mod:`terp.core.timestamps`).
+    (ADR 0190). A timestamp the schema reads as text must carry its UTC offset: one
+    without is a 422 at its place (ADR 0206, :mod:`terp.core.timestamps`).
     """
 
     model_config = ConfigDict(  # type: ignore[assignment]
@@ -316,15 +317,24 @@ class BaseSchema(SQLModel):
         str_strip_whitespace=True,
     )
 
-    @model_validator(mode="before")
     @classmethod
-    def _timestamps_carry_their_offset(cls, data: Any) -> Any:
-        refuse_timestamps_without_an_offset(cls, data)
-        return data
+    def __get_pydantic_core_schema__(
+        cls, source: Any, handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
+        # Every timestamp this schema reads as text must carry its UTC offset (ADR 0206).
+        return hold_timestamps_to_their_offset(handler(source))
 
     @classmethod
     def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
         super().__pydantic_init_subclass__(**kwargs)
+        hook = getattr(cls.__get_pydantic_core_schema__, "__func__", None)
+        if hook is not BaseSchema.__dict__["__get_pydantic_core_schema__"].__func__:
+            raise TypeError(
+                f"{cls.__name__} overrides __get_pydantic_core_schema__, the hook that holds "
+                "a timestamp read as text to its UTC offset (ADR 0206); remove the "
+                "override, and type a field NaiveMeansUtc where a sender sends UTC without "
+                "an offset"
+            )
         declare_model(cls)
 
     def __repr_args__(self) -> Any:

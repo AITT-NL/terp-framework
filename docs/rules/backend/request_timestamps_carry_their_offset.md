@@ -8,11 +8,11 @@
 
 ## Why this rule exists
 
-A date and time without a UTC offset names no instant: ten in the morning is a different moment in every zone. Stored as if it were UTC, it puts a sender in any other zone off by that zone's offset, and nothing reports it. The published API contract already rules such a value out, since a date-time there is the RFC 3339 form, whose offset is required. So the request boundary refuses one, in a request body and in a declared filter, and the refusal names the fix. Reading a value without an offset as UTC, for a sender known to send UTC without saying so, is the one way around it, and it is an escape a person decides and a reviewer sees.
+A date and time without a UTC offset names no instant: ten in the morning is a different moment in every zone. Stored as if it were UTC, it puts a writer in any other zone off by that zone's offset, and nothing reports it. The published API contract already asks for the offset, since a date-time there is the RFC 3339 form, whose offset is required. So timestamp text without one is refused wherever a request schema reads it, and a declared filter refuses a bound without one; the refusal names the fix. Reading a value without an offset as UTC, for a sender known to send UTC without saying so, is the framework's one way around it, and it is an escape a person decides and a reviewer sees.
 
 ## How Terp realises this
 
-Each reference to terp.core's NaiveMeansUtc is refused: by name under any alias, through the terp.core module (core.NaiveMeansUtc), or inside a quoted annotation. Taking it is the opt-out marker on that line. A plain datetime field on a BaseSchema needs nothing, and neither does a datetime query parameter forwarded to a declared filter: at run time the schema refuses a client's timestamp text without an offset as a 422 at the field, and the filter refuses a bound without one as a 400 that names it (ADR 0206). A NaiveMeansUtc the file defines itself is not the escape, since the boundary does not step aside for it.
+The rule fails closed by name. Every reference to NaiveMeansUtc is refused: as a name, as an attribute (core.NaiveMeansUtc, terp.core.NaiveMeansUtc), through getattr with that literal name, in a quoted annotation, and under every name the file binds to it by an import alias, an assignment or a type alias, at each use. So is a class or a re-export of that name from anywhere, and an import of terp.core.timestamps, the boundary's own machinery. A Literal value is text, not the escape. A plain datetime field needs nothing, and neither does a datetime query parameter forwarded to a declared filter: at run time BaseSchema refuses timestamp text without an offset wherever Pydantic reads a datetime, as a 422 at its place, and the filter refuses a bound without one as a 400 that names it (ADR 0206). The rule holds every root that ships Python, a worker as much as the app.
 
 ## If you really need an exception
 
@@ -26,9 +26,23 @@ in your app's escape-hatch budget:
 An unjustified marker is itself a violation, and marker counts must
 exactly match the checked-in budget (which can only shrink).
 
+## What the check is not required to catch
+
+A check precise enough to have no false positives has limits. This
+rule's limits are recorded as data (its corpus's `RESIDUALS.json`), so
+where detection ends is a statement rather than a guess:
+
+- an alias of the escape bound in one module and imported into another under a different name counts once, where it is bound, not at each use in the other module
+- a name reached through a computed attribute (getattr with a name that is not a literal, or an import made by importlib) is not resolved to the escape
+
+**These are not exemptions.** The rule governs those forms exactly as it
+governs any other — a checker is simply not required to find them, so
+review is the control there. The list only shrinks: closing one means
+adding the corpus case that contracts it.
+
 ## Enforcement
 
 - Checked while the app runs? Yes — the framework also enforces this while the app runs (fail closed).
 - `build-time`: `terp.arch` — `check_request_timestamps_carry_their_offset`
-- `runtime`: `terp.core` — `refuse_timestamps_without_an_offset`
+- `runtime`: `terp.core` — `refuse_timestamp_text_without_offset`
 - `runtime`: `terp.core` — `require_offset`

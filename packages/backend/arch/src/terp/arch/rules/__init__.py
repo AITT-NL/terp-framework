@@ -58,8 +58,8 @@ from terp.arch.rules.deployment import (
 from terp.arch.rules.datetimes import (
     check_datetime_columns_are_timezone_aware,
     check_no_naive_datetime,
-    check_request_timestamps_carry_their_offset,
 )
+from terp.arch.rules.request_timestamps import check_request_timestamps_carry_their_offset
 from terp.arch.rules.errors import (
     check_errors_use_the_typed_envelope,
     check_no_exception_text_in_responses,
@@ -211,7 +211,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "errors_use_the_typed_envelope": "service",
     "no_exception_text_in_responses": "service",
     "datetime_columns_are_timezone_aware": "module",
-    "request_timestamps_carry_their_offset": "service",
+    "request_timestamps_carry_their_offset": "module",
     "no_oversized_python_files": "module",
     "no_eval_or_exec": "capability",
     "no_star_imports": "module",
@@ -393,7 +393,7 @@ RULE_ROOT_KINDS: dict[str, frozenset[RootKind]] = {
     "forwarded_filters_are_declared": APP_ROOT_ONLY,
     "declared_read_controls_are_forwarded": APP_ROOT_ONLY,
     "datetime_columns_are_timezone_aware": APP_ROOT_ONLY,
-    "request_timestamps_carry_their_offset": APP_ROOT_ONLY,
+    "request_timestamps_carry_their_offset": EVERY_ROOT,
     "errors_use_the_typed_envelope": APP_ROOT_ONLY,
     "no_exception_text_in_responses": APP_ROOT_ONLY,
     "mutations_emit_audit": APP_ROOT_ONLY,

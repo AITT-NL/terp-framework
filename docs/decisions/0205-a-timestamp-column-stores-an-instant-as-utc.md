@@ -153,7 +153,7 @@ compiled type is the same.
 | A timestamp column drops its zone | `datetime_columns_are_timezone_aware`, which accepts `UtcDateTime` and, until 0.38.0, `DateTime(timezone=True)` | deferred (the catalog's boot check) |
 | An instant compares wrong on SQLite | until 0.38.0 none, because the rule accepted the plain type; from 0.38.0 the rule refuses it | `UtcDateTime`, for a column declared with it |
 | App code builds a naive value | `no_naive_datetime`, for `utcnow()` and a bare `now()` only | none: the type takes it as UTC, a default and not a control |
-| A client sends a naive value | from 0.38.0, `request_timestamps_carry_their_offset`, which governs the one way around | from 0.38.0, a `BaseSchema` body and a declared filter refuse it (ADR 0206) |
+| A client sends a naive value | from 0.38.0, `request_timestamps_carry_their_offset`, which governs the framework's way around | from 0.38.0, a `BaseSchema` reading timestamp text and a declared filter refuse it (ADR 0206) |
 | A caller's bound overflows the type | none | `decode_cursor`, `FilterField`, `_save` and the statistics window refuse it with a 400 |
 | A framework timestamp is declared the SQLite way | the sweep in `test_utc_datetime.py` | none |
 
@@ -162,17 +162,18 @@ compiled type is the same.
 Both were decided by the owner on 2026-11-06 and are built in 0.38.0.
 
 - **A. Should a naive value be refused where it enters?** Yes, in a record of its own:
-  [ADR 0206](0206-a-timestamp-a-client-sends-carries-its-offset.md). A request body built on
-  `BaseSchema` refuses a client's timestamp text without an offset, as a 422 at the field, and a
-  declared filter refuses a bound without one, as a 400. The contract does not change, because
-  `format: date-time` already requires the offset. `NaiveMeansUtc` is the one way around, and a
-  budgeted escape. As asked here, a naive value from a client in another zone was stored off by
+  [ADR 0206](0206-a-timestamp-a-client-sends-carries-its-offset.md). A `BaseSchema` refuses
+  timestamp text without an offset wherever Pydantic reads a timestamp for it, as a 422 at its
+  place, and a declared filter refuses a bound without one, as a 400. The contract does not
+  change, because `format: date-time` already asks for the offset. `NaiveMeansUtc` is the
+  framework's way around, and a budgeted escape. As asked here, a naive value from a client in another zone was stored off by
   that client's offset.
 - **B. Two compliant spellings, and a match on the name.** Both close in the rule's revision.
   `datetime_columns_are_timezone_aware` refuses `DateTime(timezone=True)` and
   `TIMESTAMP(timezone=True)`, naming `Field(sa_type=UtcDateTime())` as the replacement, which
-  needs no migration. `UtcDateTime` counts only when it resolves to `terp.core`, so a class of
-  that name that the file defines, or imports from anywhere else, is refused. As asked here,
+  needs no migration. `UtcDateTime` counts only when it is the type that reaches the column and
+  resolves to `terp.core` in the module's source order, so a class of that name that the file
+  defines, or imports from anywhere else, is refused. As asked here,
   `DateTime(timezone=True)` stayed compliant though on SQLite it is the defect, and any name
   `UtcDateTime` passed.
 

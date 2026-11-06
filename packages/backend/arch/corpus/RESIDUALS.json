@@ -43,6 +43,10 @@
     "backend/personal_fields_are_declared": [
       "a model whose base comes from another package under a name that is not one of the known model bases (a third-party base model) is not required to be recognised as a model, because the check resolves bases by name within the scanned tree",
       "a model built at runtime (create_model, a class assembled by a factory) is not required to be read: its fields exist only once the code runs"
+    ],
+    "backend/request_timestamps_carry_their_offset": [
+      "an alias of the escape bound in one module and imported into another under a different name counts once, where it is bound, not at each use in the other module",
+      "a name reached through a computed attribute (getattr with a name that is not a literal, or an import made by importlib) is not resolved to the escape"
     ]
   }
 }

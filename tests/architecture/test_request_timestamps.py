@@ -1,29 +1,51 @@
-"""A timestamp a client sends carries its UTC offset (ADR 0206).
+"""Timestamp text carries its UTC offset (ADR 0206).
 
-A value with no offset names no instant, and read as UTC it puts a sender in any other zone
-off by that zone's offset with no error anywhere. The published contract already requires
-the offset (``format: date-time`` is RFC 3339's production), so the request boundary holds a
-client to it: a ``BaseSchema`` body refuses such text at the field, and a declared filter
-refuses such a bound. These tests pin each refusal, what is left alone (a value the server
-built, a Unix time, the contract's text), and the one escape.
+A value with no offset names no instant, and read as UTC it puts a writer in any other zone off
+by that zone's offset with no error anywhere. The published contract already asks for the
+offset (``format: date-time`` is RFC 3339's production), so a ``BaseSchema`` refuses such text
+wherever Pydantic reads a timestamp for it, and a declared filter refuses such a bound. These
+tests pin each refusal and where it lands, what is left alone (an object the server built, a
+Unix time, the framework's own job text, the contract's text), and the escape.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any, Literal, NewType
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from pydantic import AfterValidator
+from pydantic import (
+    AfterValidator,
+    AliasChoices,
+    AliasPath,
+    FutureDatetime,
+    GetCoreSchemaHandler,
+    NaiveDatetime,
+)
 from pydantic import Field as PydanticField
 from pydantic import ValidationError
-from sqlmodel import Field
+from pydantic_core import CoreSchema
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Field, Session, create_engine
 
-from terp.core import BaseSchema, BaseTable, BaseUpdateSchema, FilterField, NaiveMeansUtc, UtcDateTime
+from terp.core import (
+    BaseSchema,
+    BaseTable,
+    BaseUpdateSchema,
+    FilterField,
+    InProcessJobQueue,
+    JobCatalog,
+    JobDefinition,
+    NaiveMeansUtc,
+    UtcDateTime,
+    enqueue,
+)
 from terp.core.errors import ValidationFailedError
+from terp.core.jobs import configure_jobs
 from terp.core.timestamps import OFFSET_REQUIRED
 
 NAIVE = "2026-11-06T10:00:00"
@@ -146,8 +168,8 @@ def test_an_update_body_is_held_to_it() -> None:
 
 
 def test_an_annotated_timestamp_of_the_apps_own_is_judged_like_a_plain_one() -> None:
-    """Only the escape steps around the refusal: a validator of the app's own that would
-    read the value as UTC never sees text without an offset."""
+    """An ``after`` validator of the app's own that would read the value as UTC never sees
+    text without an offset: the refusal runs at the timestamp type, before it."""
     assert _refusals(_SelfLenient, {"taken_at": NAIVE}) == [
         (("taken_at",), "timestamp_offset_required", OFFSET_REQUIRED)
     ]
@@ -215,9 +237,9 @@ def test_a_request_body_with_its_offset_is_taken() -> None:
 
 
 def test_the_published_contract_does_not_change() -> None:
-    """``format: date-time`` already requires the offset, so refusing a value without one
-    changes no schema: a client generated from the contract is unaffected, and the escape
-    publishes the same text as a plain field."""
+    """``format: date-time`` already asks for the offset, so refusing a value without one
+    changes no schema text: the committed contract stays as it is, and the escape publishes
+    the same text as a plain field."""
     schemas = _app().openapi()["components"]["schemas"]
     expected = {"type": "string", "format": "date-time"}
     assert {
@@ -270,3 +292,149 @@ def test_a_filter_list_is_refused_for_any_bound_without_an_offset() -> None:
 def test_a_filter_bound_with_its_offset_and_a_date_are_taken() -> None:
     assert FilterField("taken_after", _Reading.taken_at, op="gt").condition(INSTANT) is not None
     assert FilterField("taken_on", _Reading.taken_at, op="gte").condition(dt.date(2026, 11, 6)) is not None
+
+
+# --------------------------------------------------------------------------- #
+# judged wherever Pydantic validates a timestamp, at the place it reads it from
+# --------------------------------------------------------------------------- #
+
+_Stamp = NewType("_Stamp", datetime)
+
+
+class _Shapes(BaseSchema):
+    sequence: Sequence[datetime] = ()
+    mapping: dict[str, datetime] = {}
+    pair: tuple[datetime, int] | None = None
+    nested: list[list[datetime]] = []
+    stamp: _Stamp | None = None
+    future: FutureDatetime | None = None
+    either_day: datetime | dt.date | None = None
+    or_number: datetime | int | None = None
+    or_now: datetime | Literal["now"] | None = None
+    naive_on_purpose: NaiveDatetime | None = None
+    chosen: datetime | None = PydanticField(
+        default=None, validation_alias=AliasChoices("chosen", "pickedAt")
+    )
+    pathed: datetime | None = PydanticField(
+        default=None, validation_alias=AliasPath("window", "start")
+    )
+
+
+@pytest.mark.parametrize(
+    ("data", "loc"),
+    [
+        ({"sequence": [NAIVE]}, ("sequence", 0)),
+        ({"mapping": {"k": NAIVE}}, ("mapping", "k")),
+        ({"pair": [NAIVE, 1]}, ("pair", 0)),
+        ({"nested": [[AWARE, NAIVE]]}, ("nested", 0, 1)),
+        ({"stamp": NAIVE}, ("stamp",)),
+        ({"future": "2999-01-01T00:00:00"}, ("future",)),
+        ({"either_day": NAIVE}, ("either_day", "datetime")),
+        ({"or_number": NAIVE}, ("or_number", "datetime")),
+        ({"naive_on_purpose": NAIVE}, ("naive_on_purpose",)),
+        ({"pickedAt": NAIVE}, ("pickedAt",)),
+        ({"window": {"start": NAIVE}}, ("window", "start")),
+    ],
+)
+def test_every_shape_a_timestamp_is_read_through_is_judged(
+    data: dict[str, object], loc: tuple[str | int, ...]
+) -> None:
+    assert (loc, "timestamp_offset_required", OFFSET_REQUIRED) in _refusals(_Shapes, data)
+
+
+def test_a_member_beside_the_timestamp_still_takes_what_is_not_one() -> None:
+    shapes = _Shapes.model_validate({"either_day": "2026-11-06", "or_number": 7, "or_now": "now"})
+    assert (shapes.either_day, shapes.or_number, shapes.or_now) == (dt.date(2026, 11, 6), 7, "now")
+
+
+def test_the_input_pydantic_reads_is_the_one_judged() -> None:
+    """The alias wins over the field's own name, so the alias's text is the one judged."""
+    assert _refusals(_Aliased, {"starts_at": AWARE, "startsAt": NAIVE}) == [
+        (("startsAt",), "timestamp_offset_required", OFFSET_REQUIRED)
+    ]
+
+
+class _Booking(BaseSchema):
+    booked_at: datetime
+    window: _Window
+
+
+def test_a_nested_timestamp_is_named_with_its_parent_in_the_same_error() -> None:
+    assert [loc for loc, _, _ in _refusals(_Booking, {"booked_at": NAIVE, "window": {"starts_at": NAIVE}})] == [
+        ("booked_at",),
+        ("window", "starts_at"),
+    ]
+
+
+def test_a_schema_that_overrides_the_hook_is_refused_when_it_is_defined() -> None:
+    with pytest.raises(TypeError, match="overrides __get_pydantic_core_schema__"):
+
+        class _Sneaky(BaseSchema):
+            at: datetime
+
+            @classmethod
+            def __get_pydantic_core_schema__(
+                cls, source: Any, handler: GetCoreSchemaHandler
+            ) -> CoreSchema:
+                return handler(source)
+
+
+# --------------------------------------------------------------------------- #
+# the framework reads back the text it wrote itself
+# --------------------------------------------------------------------------- #
+
+
+class _ReminderPayload(BaseSchema):
+    remind_at: datetime
+
+
+def test_a_job_reads_back_the_payload_the_framework_wrote() -> None:
+    """A job's payload is written as text at enqueue and read back in the worker. A naive
+    value the server built (ADR 0205 reads one as UTC) is written without an offset, and the
+    read-back is the framework's own text, so it is not judged as a client's."""
+    seen: list[datetime] = []
+    job = JobDefinition(
+        name="timestamps.remind",
+        payload_schema=_ReminderPayload,
+        handler=lambda _context, payload: seen.append(payload.remind_at),
+    )
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    configure_jobs(JobCatalog([job]), queue=InProcessJobQueue(session_factory=lambda: Session(engine)))
+    built = datetime.combine(dt.date(2026, 11, 6), dt.time(9, 0))
+    with Session(engine) as session:
+        enqueue(session, job=job, payload=_ReminderPayload(remind_at=built))
+    assert seen == [built]
+
+
+def test_text_an_app_hands_a_job_is_judged_like_any_other() -> None:
+    job = JobDefinition(name="timestamps.text", payload_schema=_ReminderPayload, handler=lambda *_: None)
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    configure_jobs(JobCatalog([job]), queue=InProcessJobQueue(session_factory=lambda: Session(engine)))
+    with Session(engine) as session, pytest.raises(ValidationError, match="UTC offset"):
+        enqueue(session, job=job, payload={"remind_at": NAIVE})
+
+
+def test_a_refused_timestamp_is_named_beside_the_bodys_other_errors() -> None:
+    refusals = _refusals(_Booking, {"booked_at": NAIVE})
+    assert [(loc, kind) for loc, kind, _ in refusals] == [
+        (("booked_at",), "timestamp_offset_required"),
+        (("window",), "missing"),
+    ]
+
+
+def test_a_row_read_as_text_is_judged_like_any_other_text() -> None:
+    """SQLite's driver returns a timestamp read by literal SQL as text, with no offset when it
+    was stored without one, so a schema reading that row refuses it; the ORM's UtcDateTime
+    hands the schema an aware value instead."""
+    from sqlalchemy import text
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    with Session(engine) as session:
+        session.execute(text("CREATE TABLE visit (seen_at TEXT)"))
+        session.execute(text("INSERT INTO visit VALUES ('2026-11-06 10:00:00.000000')"))
+        row = session.execute(text("SELECT seen_at AS remind_at FROM visit")).mappings().one()
+    assert _refusals(_ReminderPayload, row) == [
+        (("remind_at",), "timestamp_offset_required", OFFSET_REQUIRED)
+    ]
