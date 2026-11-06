@@ -87,7 +87,7 @@ a guard to make a change pass:
 4. **Two‑layer enforcement where runtime can enforce** — a rule whose invariant
    the running system can observe pairs its build‑time check with a fail‑closed
    *runtime* control, and the test is never the only control for it. Which rules
-   that is, is not folklore: every Terp Standard entry carries a machine‑checked
+   that is, is not folklore: every rule catalog entry carries a machine‑checked
    `runtime.applicability` classification (`required` / `not-applicable` /
    `deferred`, ADR 0084) — a source‑form rule is build‑time‑only by recorded
    decision, with its rationale in the catalog.

@@ -70,3 +70,20 @@ def entries(surface: str) -> dict[str, dict]:
     # mapping would make each test that iterates it pass while checking nothing.
     assert found, f"no catalog entries found under {catalog_dir(surface)}"
     return found
+
+
+def blank_strings(value: object, where: str) -> list[str]:
+    """Every string in *value* that is empty or only whitespace, by where it sits.
+
+    The schema's ``minLength: 1`` counts characters, so ``"   "`` satisfies it. A blank
+    title, intent or runtime rationale is still a statement of nothing, and the catalog's
+    own suite refused it before the move by measuring length after stripping; this keeps
+    that refusal without changing what the shared schema reader means by ``minLength``.
+    """
+    if isinstance(value, str):
+        return [] if value.strip() else [where]
+    if isinstance(value, dict):
+        return [blank for key, item in value.items() for blank in blank_strings(item, f"{where}.{key}")]
+    if isinstance(value, list):
+        return [blank for index, item in enumerate(value) for blank in blank_strings(item, f"{where}[{index}]")]
+    return []

@@ -177,14 +177,15 @@ exclude_also = [
 [tool.ruff]
 # terp-arch (the gate) keeps full authority over terp-specific rules; vendored
 # core is byte-checked elsewhere and generated Alembic DDL is not framework logic.
-# The two rule corpora are deliberate violations, never imported or executed: each
-# violation case exists to carry the very form the baseline refuses (ADR 0080, ADR 0203).
+# Two rules' violation cases in the backend corpus carry the very form the `S` baseline
+# refuses (dynamic SQL, eval), because a case that did not would test nothing. They are
+# never imported or executed (ADR 0080, ADR 0203). Every other corpus case is linted.
 extend-exclude = [
     ".venv",
     "vendor",
     "**/migrations/versions",
-    "packages/backend/arch/corpus",
-    "packages/frontend/eslint-boundaries/corpus",
+    "packages/backend/arch/corpus/backend/no_dynamic_sql/violation-*",
+    "packages/backend/arch/corpus/backend/no_eval_or_exec/violation-*",
 ]
 
 [tool.ruff.lint]

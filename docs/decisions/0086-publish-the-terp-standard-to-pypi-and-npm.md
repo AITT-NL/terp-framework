@@ -1,6 +1,8 @@
 # 0086 — Publish the Terp Standard to PyPI and npm
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by
+  [ADR 0203](0203-the-rules-belong-to-the-framework-and-only-the-contracts-are-neutral.md), whose
+  table says what is withdrawn and what is kept.
 - **Date:** 2026-07-27
 - **Relates:** [ADR 0082](0082-repo-split-readiness-spec-as-a-package.md) (the
   package seam this completes) and

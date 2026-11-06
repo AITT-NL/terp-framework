@@ -7,7 +7,7 @@ properties. The tests below use real persistence and framework services, with lo
 transport servers where the transport itself is the boundary.
 
 Each row names the runtime security case it is evidence for (the `id` in
-[`tests/runtime_security/runtime-security.fixtures.json`](../tests/runtime_security/README.md)),
+[`tests/runtime_security/runtime-security.fixtures.json`](../tests/runtime_security/runtime-security.fixtures.json)),
 and each piece of evidence is a test file, or a test function in one, that runs it.
 `tests/architecture/test_runtime_security_evidence.py` holds the index to those cases: every
 case has a row, every case a row names is one the fixtures have, and every file and function

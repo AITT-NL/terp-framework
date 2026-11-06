@@ -6,20 +6,19 @@
 [extend]
 useDefault = true
 
-# The two rule corpora are catalogues of *invented* samples (ADR 0080, ADR 0203). A
+# The rule corpus is a catalogue of *invented* samples (ADR 0080, ADR 0203). A
 # violation case for `backend/no_hardcoded_credentials` has to carry a
 # credential-shaped literal, because a check that does not flag it is the failure the
-# case exists to catch. Scanning those trees for credentials is a guaranteed false
+# case exists to catch. Scanning those cases for credentials is a guaranteed false
 # positive, and a per-line baseline would grow an entry for every case added, which is
 # how a leak detector turns into a formality nobody reads.
 #
-# Everything outside the corpora is still scanned. tests/guardrails/test_appsec_baseline.py
-# holds this allowlist to those two paths alone, so widening it fails the build rather
-# than passing quietly. AGENTS.md already forbids what this could hide: a corpus case
-# copied from real code. Invent the case; never paste one.
+# Everything else is still scanned, every other corpus case included.
+# tests/guardrails/test_appsec_baseline.py holds this file to that one path, so widening
+# it fails the build rather than passing quietly. AGENTS.md already forbids what this
+# could hide: a corpus case copied from real code. Invent the case; never paste one.
 [[allowlists]]
-description = "rule corpus cases are invented by construction (AGENTS.md)"
+description = "credential-rule violation cases are invented by construction (AGENTS.md)"
 paths = [
-    '''^packages/backend/arch/corpus/''',
-    '''^packages/frontend/eslint-boundaries/corpus/''',
+    '''^packages/backend/arch/corpus/backend/no_hardcoded_credentials/violation-''',
 ]

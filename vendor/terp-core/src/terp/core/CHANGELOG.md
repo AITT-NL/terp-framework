@@ -35,9 +35,12 @@ decision, 0001 onwards.
   follows; its rule ids resolve against the catalog the toolchain ships.
 - `backend/datetime_columns_are_timezone_aware` names `UtcDateTime` (ADR 0205) in its reference,
   and its corpus gains a compliant case with both spellings, named and called.
-- The repo-wide ruff baseline and the secret scan each exclude exactly the two corpora, whose
-  violation cases carry the very forms those scans refuse. A guardrail holds each exclusion to
-  those two paths.
+- The repo-wide ruff baseline and the secret scan each step aside for exactly the corpus cases
+  that must carry the form they refuse, and nothing else in the corpus. Ruff skips the
+  violation cases of `backend/no_dynamic_sql` and `backend/no_eval_or_exec`. gitleaks skips
+  the violation cases of `backend/no_hardcoded_credentials`, with the default ruleset kept in
+  full (`.gitleaks.toml`). Every other corpus case is still linted and scanned. A guardrail
+  parses each configuration and holds it to those paths, so widening either fails the build.
 
 ### Removed
 

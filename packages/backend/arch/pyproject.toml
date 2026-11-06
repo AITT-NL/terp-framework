@@ -19,6 +19,12 @@ dependencies = [
 sources = ["src"]
 only-include = ["src/terp/arch"]
 
+# The rule corpus beside this package is test data: deliberate violations, some carrying
+# credential-shaped literals by construction (ADR 0203). It ships in neither the wheel
+# (which takes only src/terp/arch, the catalog included) nor the sdist.
+[tool.hatch.build.targets.sdist]
+exclude = ["/corpus"]
+
 # Where this package comes from. The shipped changelog (`terp guide changelog`)
 # ends at the installed version; the notes for a release you do not have yet
 # live at these URLs, which `pip show` and the index page both surface.

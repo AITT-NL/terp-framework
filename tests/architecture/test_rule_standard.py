@@ -24,6 +24,7 @@ from tests.architecture.rule_layout import (
     CATALOG_SCHEMA,
     RESTRICTED_SURFACE,
     SURFACES,
+    blank_strings,
     catalog_dir,
     corpus_dir,
     corpus_root,
@@ -44,6 +45,7 @@ def test_every_catalog_entry_validates_against_the_catalog_schema() -> None:
     for surface in SURFACES:
         for name, entry in entries(surface).items():
             assert _problems(entry, schema, f"{surface}/{name}") == []
+            assert blank_strings(entry, f"{surface}/{name}") == [], "a blank string states nothing"
             assert entry["surface"] == surface, f"{surface}/{name}: wrong surface"
             kinds = [enforcement["kind"] for enforcement in entry["enforcement"]]
             assert kinds[0] == "build-time", (

@@ -15,6 +15,10 @@ import { SPEC_VERSION } from "./spec.js";
 // the findings envelope publishes the evaluated-rule inventory + findings attributed to
 // catalog ids, humans keep stderr, and the exit code stays the verdict.
 
+// The frontend catalog ships with this package (ADR 0203). The finding and check-report
+// formats are contracts more than one program reads, so they stay in the shared contracts
+// package, resolved as a declared dependency, never a repo path.
+const CATALOG = fileURLToPath(new URL("../catalog/frontend", import.meta.url));
 const SPEC_ROOT = path.dirname(
   createRequire(import.meta.url).resolve("@terpjs/spec/package.json"),
 );
@@ -50,22 +54,18 @@ async function lintModule(text) {
 }
 
 describe("catalogRuleIds (the evaluated-rule inventory)", () => {
-  it("covers the pinned catalog and matches a substituted candidate exactly", () => {
-    // Framework main must land a reference implementation before the corresponding
-    // Standard candidate can certify. The last published (equal-version) pin may
-    // therefore be a subset during that staging window. Candidate CI substitutes a
-    // newer spec, where exactness is restored before release.
+  it("is exactly the frontend catalog shipped with this package", () => {
+    // The inventory is what every findings envelope and check report publishes as evaluated,
+    // so it names exactly the catalogued rules: a rule without an entry, or an entry this
+    // adapter never runs, would let a consumer render a verdict nobody can explain. The
+    // catalog lives beside this package (ADR 0203), so nothing waits for another release.
     const catalogued = fs
-      .readdirSync(path.join(SPEC_ROOT, "catalog", "frontend"))
+      .readdirSync(CATALOG)
       .filter((name) => name.endsWith(".json"))
       .map((name) => `frontend/${name.replace(/\.json$/, "")}`)
       .sort();
-    const consumedVersion = fs.readFileSync(path.join(SPEC_ROOT, "VERSION"), "utf8").trim();
-    if (consumedVersion === SPEC_VERSION) {
-      expect(catalogRuleIds()).toEqual(expect.arrayContaining(catalogued));
-    } else {
-      expect(catalogRuleIds()).toEqual(catalogued);
-    }
+    expect(catalogued.length).toBeGreaterThan(0);
+    expect(catalogRuleIds()).toEqual(catalogued);
   });
 });
 

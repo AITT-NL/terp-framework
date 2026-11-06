@@ -21,7 +21,7 @@ import re
 import pytest
 
 from terp.arch.deployment._jsonschema import check_schema, validate
-from tests.architecture.rule_layout import REPO_ROOT, RUNTIME_SECURITY, catalog_dir
+from tests.architecture.rule_layout import REPO_ROOT, RUNTIME_SECURITY, blank_strings, catalog_dir
 
 _INDEX = REPO_ROOT / "docs" / "security-boundaries.md"
 _FIXTURES = RUNTIME_SECURITY / "runtime-security.fixtures.json"
@@ -56,6 +56,7 @@ def test_the_cases_validate_and_name_real_catalog_rules() -> None:
     fixtures, schema = _artifacts()
     check_schema(schema)
     assert _problems_of(fixtures, schema) == []
+    assert blank_strings(fixtures, "runtime-security") == [], "a blank step or outcome states nothing"
     ids = [case["id"] for case in fixtures["cases"]]
     assert len(ids) == len(set(ids)), "a repeated id makes evidence ambiguous"
     for case in fixtures["cases"]:
@@ -74,6 +75,16 @@ def test_a_case_without_actions_outcomes_or_controls_is_not_a_requirement(field:
     assert _problems_of(invalid, schema)
     del invalid["cases"][0][field]
     assert _problems_of(invalid, schema)
+
+
+@pytest.mark.parametrize("field", ["setup", "exercise", "expected", "controls", "requirement"])
+def test_a_blank_step_or_outcome_is_refused(field: str) -> None:
+    """The schema's ``minLength`` counts characters; a blank string still states nothing."""
+    fixtures, _ = _artifacts()
+    invalid = copy.deepcopy(fixtures)
+    case = invalid["cases"][0]
+    case[field] = ["   "] if isinstance(case[field], list) else "   "
+    assert blank_strings(invalid, "runtime-security")
 
 
 @pytest.mark.parametrize("field", ["id", "capability"])

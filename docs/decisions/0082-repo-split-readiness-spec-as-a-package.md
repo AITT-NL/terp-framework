@@ -1,6 +1,8 @@
 # 0082 — Repo-split readiness: the spec becomes a package, coupling becomes dependencies
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by
+  [ADR 0203](0203-the-rules-belong-to-the-framework-and-only-the-contracts-are-neutral.md), whose
+  table says what is withdrawn and what is kept.
 - **Date:** 2026-07-08
 - **Relates:** [ADR 0080](0080-terp-standard-rule-catalog-and-violation-corpus.md) /
   [ADR 0081](0081-terp-standard-consumable-findings-schema-and-layers.md) (the

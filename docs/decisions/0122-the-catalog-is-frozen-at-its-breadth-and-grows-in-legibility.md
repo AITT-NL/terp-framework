@@ -1,6 +1,8 @@
 # 0122 — The catalog is frozen at its breadth, and grows in legibility instead
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by
+  [ADR 0203](0203-the-rules-belong-to-the-framework-and-only-the-contracts-are-neutral.md), whose
+  table says what is withdrawn and what is kept.
 - **Date:** 2026-09-07
 - **Relates:** [ADR 0080](0080-terp-standard-rule-catalog-and-violation-corpus.md) (the catalog
   and corpus this governs the growth of),
