@@ -59,6 +59,13 @@ def test_a_document_is_read_back_only_as_its_own_kind(tmp_path: pathlib.Path) ->
         _common.read_document(path, "other")
     with pytest.raises(ReleaseError, match="is not a kind document of version 2"):
         _common.read_document(path, "kind", 2)
+    assert _common.read_document(path, "kind", (1, 2)) == {"kind": 1, "x": "y"}
+    with pytest.raises(ReleaseError, match="is not a kind document of version 2 or 3"):
+        _common.read_document(path, "kind", (2, 3))
+    for exactly_not_1 in ('{"kind": true}', '{"kind": 1.0}'):
+        path.write_text(exactly_not_1, encoding="utf-8")
+        with pytest.raises(ReleaseError, match="is not a kind document of version 1"):
+            _common.read_document(path, "kind")
     path.write_text("not json", encoding="utf-8")
     with pytest.raises(ReleaseError, match="is not a readable JSON document"):
         _common.read_document(path, "kind")

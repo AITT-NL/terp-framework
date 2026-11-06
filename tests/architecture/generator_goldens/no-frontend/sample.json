@@ -1,5 +1,5 @@
 {
-  "about": "No web unit: no frontend Dockerfile, and nothing waits on a web tier.",
+  "about": "No web unit: no frontend Dockerfile, nothing waits on a web tier, and the api unit publishes its own port, being the only way in (ADR 0202).",
   "project": "demo",
   "frontendLock": false,
   "renders": [

@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 
 from terp.arch.deployment._generator_text import (
+    API_PORT,
     DEFAULT_COMMANDS,
     FRONTEND_LOCK,
     MIGRATION_STEP,
@@ -221,6 +222,27 @@ def _web_findings(declaration: Declaration, frontend: bool) -> list[Finding]:
     return found
 
 
+def _ingress_findings(declaration: Declaration) -> list[Finding]:
+    """Several api units and nothing in front of them: which one callers reach is undeclared.
+
+    With no web tier the one api unit is the deployment's way in and publishes its own port
+    (ADR 0202). Two would publish the same port, or one of them would be silently
+    unreachable; neither is a faithful render, so the shape is refused with what would be.
+    """
+    apis = [unit.id for unit in declaration.units if unit.kind is None and unit.role == "api"]
+    webs = [unit for unit in declaration.units if unit.kind is None and unit.role == "web"]
+    if webs or len(apis) < 2:
+        return []
+    return [
+        _finding(
+            f"units: {len(apis)} api units ({', '.join(apis)}) and no web unit in front of "
+            "them, so which one callers reach is undeclared and the generator cannot publish "
+            "a port for both (allowed: one api unit, which then publishes "
+            f"{API_PORT}, or a web unit that depends on the api it proxies to)"
+        )
+    ]
+
+
 def _upstream(web: Unit, apis: list[str]) -> str | None:
     """The one api the web tier proxies to: the one it depends on, or the only one."""
     depended = [ident for ident in (web.depends_on or ()) if ident in apis]
@@ -393,6 +415,7 @@ def refusals(
         *_kind_findings(declaration, tables),
         *_command_findings(declaration),
         *_web_findings(declaration, frontend_lock),
+        *_ingress_findings(declaration),
         *_health_findings(declaration),
         *_order_findings(declaration),
         *_volume_findings(declaration),

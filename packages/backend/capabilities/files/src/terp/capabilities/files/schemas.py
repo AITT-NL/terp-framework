@@ -32,6 +32,9 @@ _CONTENT_TYPE_MAX = 255
 _SHA256_MAX = 64
 _STORAGE_KEY_MAX = 512
 _STORAGE_PROFILE_MAX = 64
+# A store's signed URL carries a path, a signature and a few response-header parameters;
+# a sealed app token is a few hundred characters. Neither comes near this.
+_LINK_URL_MAX = 4096
 
 
 class FileCreate(BaseSchema):
@@ -78,4 +81,17 @@ class FileRead(BaseSchema):
     updated_at: datetime.datetime
 
 
-__all__ = ["FileCreate", "FileRead", "FileUpdate"]
+class FileLinkRead(BaseSchema):
+    """A short-lived link to a file's bytes (ADR 0201): the URL, and when it stops working.
+
+    ``url`` is absolute for a store's own signed URL and path-absolute for one the
+    capability signed itself; a client uses either as it is. A store's URL carries the
+    store's own address of the blob, which is the store's business and expires with the
+    link: ``storage_key`` itself still never leaves the API.
+    """
+
+    url: str = Field(max_length=_LINK_URL_MAX)
+    expires_at: datetime.datetime
+
+
+__all__ = ["FileCreate", "FileLinkRead", "FileRead", "FileUpdate"]

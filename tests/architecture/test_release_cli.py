@@ -52,12 +52,23 @@ def test_a_refused_job_prints_its_sentence_and_exits_1(monkeypatch, capsys) -> N
     assert "terp release refuses this commit\n  - .terp-dist/ is committed" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("ok", [True, False])
-def test_release_gate_exits_with_its_claim(tmp_path: pathlib.Path, monkeypatch, capsys, ok: bool) -> None:
+@pytest.mark.parametrize(
+    ("failed", "claim", "code"),
+    [((), True, 0), (("api-contract",), True, 1), (("backend-tests", "conformance"), True, 1), ((), False, 1)],
+)
+def test_release_gate_exits_with_its_profile_and_its_claim(
+    tmp_path: pathlib.Path, monkeypatch, capsys, failed: tuple[str, ...], claim: bool, code: int
+) -> None:
+    """ADR 0200: a red check fails the job although the claim holds, and the job names it."""
+    checks = [{"id": "architecture", "ok": True}, *({"id": check, "ok": False} for check in failed)]
     monkeypatch.setattr(gate, "gate", lambda repo, sha, document, pull_credentials=None: {
-        "terpReleaseGate": 1, "schedules": [], "image": "x@sha256:1", "assurance": {"ok": ok}})
-    assert _exit(["release", "gate", "--sha", SHA, "--build", "b.json", "--out", str(tmp_path / "g.json")]) == (0 if ok else 1)
-    assert ("holds" if ok else "does NOT hold") in capsys.readouterr().out
+        "terpReleaseGate": 2, "schedules": [], "image": "x@sha256:1",
+        "profile": {"name": "release", "ok": not failed, "checks": checks}, "assurance": {"ok": claim}})
+    assert _exit(["release", "gate", "--sha", SHA, "--build", "b.json", "--out", str(tmp_path / "g.json")]) == code
+    out = capsys.readouterr().out
+    assert ("holds" if claim else "does NOT hold") in out
+    assert (f"the release profile is RED: {', '.join(failed)}" if failed else "the release profile is green") in out
+    assert json.loads((tmp_path / "g.json").read_text())["terpReleaseGate"] == 2, "written whatever it says"
 
 
 def test_release_sign_passes_its_options_through(monkeypatch, capsys) -> None:

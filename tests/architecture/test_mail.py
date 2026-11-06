@@ -337,9 +337,9 @@ def test_the_text_is_sent_exactly_as_written() -> None:
     text = "    Order 1042\n\nKind regards,\nThe team\n\n"
     message = _message(text=text)
     assert message.text == text
-    # ... and survives the job payload's round trip through the outbox's JSON.
+    # ... and survives the job payload's round trip through its seal and the outbox's JSON.
     payload = MailJobPayload(**message.model_dump(), message_id="<x@example.test>")
-    assert MailJobPayload.model_validate(payload.model_dump(mode="json")).text == text
+    assert MailJobPayload.model_validate(payload.model_dump(mode="json")).message().text == text
 
 
 def test_a_message_at_the_recipient_bound_is_accepted() -> None:
@@ -958,7 +958,7 @@ def test_send_mail_enqueues_the_job_with_a_stable_identity() -> None:
     assert envelope.name == MAIL_SEND.name  # type: ignore[attr-defined]
     assert envelope.idempotency_key == message_id  # type: ignore[attr-defined]
     assert envelope.payload["message_id"] == message_id  # type: ignore[attr-defined]
-    assert envelope.payload["to"] == ["customer@example.test"]  # type: ignore[attr-defined]
+    assert set(envelope.payload) == {"message_id", "sealed"}  # type: ignore[attr-defined]
     assert message_id.startswith("<") and message_id.endswith("@example.test>")
 
 

@@ -141,6 +141,18 @@ def _iter_search_files():
 #: ``test_serving_shutdown`` uses, for the same reason and with the same limit: a
 #: port declared INSIDE a conditional is invisible to the YAML half. That is what
 #: the grep half is for, and it reads the raw text.
+#: The frontend answer (ADR 0202), resolved as copier resolves it before the other blocks
+#: are stripped: the default render HAS a web service, and a strip that removed it would
+#: judge an API-only app's compose as the default's.
+_FRONTEND_BLOCK = re.compile(
+    r"\s*\{%- if (?P<negated>not )?frontend %\}(?P<body>.*?)\s*\{%- endif %\}", re.DOTALL
+)
+
+
+def _with_frontend(text: str) -> str:
+    return _FRONTEND_BLOCK.sub(lambda m: "" if m.group("negated") else m.group("body"), text)
+
+
 _JINJA_IF_BLOCK = re.compile(r"\{%-?\s*if\b.*?%\}.*?\{%-?\s*endif\s*-?%\}", re.DOTALL)
 
 
@@ -150,7 +162,7 @@ def _jinja_free(text: str) -> str:
     Every ``{{ ... }}`` in these files is a name (a project slug, an image), so a
     placeholder keeps the document well-formed.
     """
-    text = _JINJA_IF_BLOCK.sub("", text)
+    text = _JINJA_IF_BLOCK.sub("", _with_frontend(text))
     assert "{%" not in text, "unstripped Jinja block"
     return re.sub(r"\{\{.*?\}\}", "x", text)
 

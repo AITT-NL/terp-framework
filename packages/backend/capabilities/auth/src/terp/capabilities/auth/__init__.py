@@ -21,10 +21,18 @@ from terp.capabilities.auth.hashing import (
     verify_password,
     verify_password_dummy,
 )
+from terp.capabilities.auth.native import (
+    BrowserOnNativeRouteError,
+    NativeClients,
+    refuse_browser,
+)
 from terp.capabilities.auth.operations import (
     AUTH_LOGIN,
     AUTH_LOGOUT,
     AUTH_ME,
+    AUTH_NATIVE_LOGIN,
+    AUTH_NATIVE_LOGOUT,
+    AUTH_NATIVE_REFRESH,
     AUTH_OPERATIONS,
     AUTH_REFRESH,
     AUTH_TOKEN,
@@ -59,6 +67,8 @@ from terp.capabilities.auth.schemas import (
     ClientCredentialsRequest,
     CurrentUser,
     LoginRequest,
+    NativeRefreshRequest,
+    NativeSession,
 )
 from terp.capabilities.auth.second_factor import MfaRequiredError, SecondFactor
 from terp.capabilities.auth.snapshot import AuthenticatedPrincipal, resolve_token_version
@@ -81,6 +91,9 @@ __all__ = [
     "AUTH_LOGIN",
     "AUTH_LOGOUT",
     "AUTH_ME",
+    "AUTH_NATIVE_LOGIN",
+    "AUTH_NATIVE_LOGOUT",
+    "AUTH_NATIVE_REFRESH",
     "AUTH_OPERATIONS",
     "AUTH_REFRESH",
     "AUTH_TOKEN",
@@ -89,6 +102,7 @@ __all__ = [
     "AccountLockedError",
     "Authenticator",
     "AuthenticatedPrincipal",
+    "BrowserOnNativeRouteError",
     "ClientAuthenticator",
     "ClientCredentialsRequest",
     "CurrentUser",
@@ -98,6 +112,9 @@ __all__ = [
     "LoginTenantResolver",
     "LoginThrottle",
     "MfaRequiredError",
+    "NativeClients",
+    "NativeRefreshRequest",
+    "NativeSession",
     "SecondFactor",
     "PrincipalResolver",
     "RefreshIssuer",
@@ -126,6 +143,7 @@ __all__ = [
     "hash_password",
     "refresh_token_digest",
     "refresh_token_digests",
+    "refuse_browser",
     "resolve_token_version",
     "set_refresh_cookie",
     "tenant_from_bearer",

@@ -29,6 +29,7 @@ from __future__ import annotations
 import abc
 import pathlib
 import shutil
+from datetime import timedelta
 from typing import BinaryIO, Final
 
 from terp.core import AppError
@@ -63,6 +64,22 @@ class UnknownStorageProfileError(FileStorageError):
     default_message = "No storage backend is registered for the requested profile."
 
 
+class StorageSdkMissingError(FileStorageError):
+    """500 — a storage adapter was built without the provider SDK its extra installs.
+
+    Raised by the constructor of an adapter that imports its SDK itself (the Azure Blob
+    adapter, ``terp-cap-files[azure]``), so a composition root that registers it without
+    the extra fails at boot with the install line, never at the first upload. The S3
+    adapter takes the SDK's own client and imports nothing, so there the missing extra
+    surfaces where the client is built. A wiring error, like
+    :class:`UnknownStorageProfileError`: nothing a client did or can see.
+    """
+
+    status_code = 500
+    code = "storage_sdk_missing"
+    default_message = "A storage adapter's provider SDK is not installed."
+
+
 class StorageBackend(abc.ABC):
     """The byte-store port: stream opaque blobs addressed by a server-generated key.
 
@@ -87,6 +104,20 @@ class StorageBackend(abc.ABC):
     @abc.abstractmethod
     def delete(self, key: str) -> None:
         """Remove *key*'s bytes if present (idempotent: an unknown key is a no-op)."""
+
+    def link(
+        self, key: str, *, ttl: timedelta, content_type: str, disposition: str
+    ) -> str | None:
+        """A URL a client reads *key*'s bytes from for *ttl*, or ``None`` (ADR 0201).
+
+        A store that signs URLs returns one that serves the bytes with *content_type* and
+        the *disposition* header the download would carry, so a client is told the same by
+        either path. The default, ``None``, leaves the bytes to the API: the service then
+        signs a link of its own and serves them itself, with ``Range`` support. The service
+        asks only after the checks a download passes, so an adapter never decides who may
+        read; it decides where the bytes come from.
+        """
+        return None
 
 
 class LocalFilesystemStorage(StorageBackend):
@@ -186,6 +217,7 @@ __all__ = [
     "FileStorageError",
     "LocalFilesystemStorage",
     "StorageBackend",
+    "StorageSdkMissingError",
     "UnknownStorageProfileError",
     "active_storage_backend",
     "register_storage_backend",

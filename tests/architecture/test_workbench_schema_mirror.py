@@ -188,5 +188,13 @@ def test_a_later_version_says_the_toolchain_is_behind() -> None:
     ["template/project/workbench.json", "apps/example/workbench.json", "apps/reference/overlay/workbench.json"],
 )
 def test_every_shipped_declaration_reads_cleanly(path) -> None:
+    if path.startswith("template/"):
+        from tests.architecture.test_workbench_declaration import template_workbench
+
+        # The seed is Jinja on one answer (ADR 0202): both renders read cleanly.
+        for frontend in (True, False):
+            declared, findings = workbench.read(json.loads(template_workbench(frontend=frontend)))
+            assert findings == [] and declared is not None, (frontend, findings)
+        return
     declared, findings = workbench.read(json.loads((_REPO / path).read_text(encoding="utf-8")))
     assert findings == [] and declared is not None, findings

@@ -584,6 +584,27 @@
         "title": "CurrentUser",
         "type": "object"
       },
+      "FileLinkRead": {
+        "description": "A short-lived link to a file's bytes (ADR 0201): the URL, and when it stops working.\n\n``url`` is absolute for a store's own signed URL and path-absolute for one the\ncapability signed itself; a client uses either as it is. A store's URL carries the\nstore's own address of the blob, which is the store's business and expires with the\nlink: ``storage_key`` itself still never leaves the API.",
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 4096,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expires_at"
+        ],
+        "title": "FileLinkRead",
+        "type": "object"
+      },
       "FileRead": {
         "description": "The file metadata as returned by the API \u2014 **without** ``storage_key`` / ``storage_profile``.",
         "properties": {
@@ -1268,6 +1289,46 @@
           "updated_at"
         ],
         "title": "ModuleRoleRead",
+        "type": "object"
+      },
+      "NativeRefreshRequest": {
+        "description": "The ``/native/refresh`` and ``/native/logout`` body: the client's refresh token (ADR 0195).\n\nA token is 43 URL-safe characters (256 bits); the cap bounds the input with room to\nspare and refuses nothing a real token can be.",
+        "properties": {
+          "refresh_token": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Refresh Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "refresh_token"
+        ],
+        "title": "NativeRefreshRequest",
+        "type": "object"
+      },
+      "NativeSession": {
+        "description": "What ``/native/login`` and ``/native/refresh`` answer (ADR 0195).\n\nThe access token as ``/login`` returns it, plus the refresh token in the body, because a\nnative client has no browser to hold an ``HttpOnly`` cookie for it. The client keeps the\nrefresh token in the operating system's keychain or keystore and presents it once: every\nrefresh rotates it, and replaying a rotated one past ``REFRESH_ROTATION_GRACE_SECONDS``\nrevokes the whole session family (inside it, the replay is honoured as a retried request,\nas it is for a cookie).",
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "refresh_token": {
+            "title": "Refresh Token",
+            "type": "string"
+          },
+          "token_type": {
+            "default": "bearer",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token",
+          "refresh_token"
+        ],
+        "title": "NativeSession",
         "type": "object"
       },
       "NoteCreate": {
@@ -3078,6 +3139,122 @@
         ]
       }
     },
+    "/api/v1/auth/native/login": {
+      "post": {
+        "operationId": "auth.native_login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sign in from a mobile app with an email and password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/native/logout": {
+      "post": {
+        "operationId": "auth.native_logout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sign a mobile app out with its refresh token",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/native/refresh": {
+      "post": {
+        "operationId": "auth.native_refresh",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Keep a mobile app signed in without entering a password again",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/auth/refresh": {
       "post": {
         "operationId": "auth.refresh",
@@ -3173,6 +3350,48 @@
           }
         },
         "summary": "Upload a new file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/files/link/{token}": {
+      "get": {
+        "operationId": "files.read_link",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read a file's contents through a short-lived link",
         "tags": [
           "files"
         ]
@@ -3342,6 +3561,77 @@
           }
         },
         "summary": "Download a file's contents",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/files/{file_id}/link": {
+      "get": {
+        "operationId": "files.link_file",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ttl_seconds",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 86400,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ttl Seconds"
+            }
+          },
+          {
+            "in": "query",
+            "name": "inline",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Inline",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileLinkRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get a short-lived link to a file's contents",
         "tags": [
           "files"
         ]

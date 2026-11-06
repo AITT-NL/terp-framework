@@ -34,11 +34,13 @@
     "file": "docker-compose.yml"
   },
   "services": [
+{%- if frontend %}
     {
       "role": "web",
       "service": "web",
       "hostPortEnv": "WEB_PORT"
     },
+{%- endif %}
     {
       "role": "api",
       "service": "api",
@@ -59,7 +61,8 @@
     }
   ],
   "env": {
-    "sourceRoot": "TERP_DEV_HOST_ROOT",
+    "sourceRoot": "TERP_DEV_HOST_ROOT"{%- if frontend %},
     "frameAncestors": "TERP_DEV_FRAME_ANCESTORS"
+{%- endif %}
   }
 }

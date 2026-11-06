@@ -64,6 +64,7 @@ from terp.arch.deployment._generator_text import (
     PROFILE_FILE,
     RELEASE_TAG_SEAM,
     RELEASE_TAG_VARIABLE,
+    API_PORT,
     WEB_PORT,
     heartbeat_role,
 )
@@ -119,8 +120,9 @@ def fixed_interpolations(tables: Tables) -> tuple[tuple[str, re.Pattern[str]], .
     A place is the last two steps of the path to a mapping value - its key and the key
     above it, ``environment.SECRET_KEY`` - or, for an item of a list, the list's own key,
     ``ports[]``; ``*.image`` is an ``image`` under any key, a service or ``x-backend``. The
-    closed list an executor carries, which a framework release only extends: this one
-    added the per-release tag of ADR 0185 on the two image names.
+    closed list an executor carries, which a framework release only extends: 0.35 added
+    the per-release tag of ADR 0185 on the two image names, and 0.36.1 the api unit's own
+    host port, published when no web tier fronts it (ADR 0202).
     """
     places = [
         ("environment.DATABASE_URL", re.escape(EXTERNAL_DATABASE_URL)),
@@ -128,6 +130,7 @@ def fixed_interpolations(tables: Tables) -> tuple[tuple[str, re.Pattern[str]], .
         ("environment.SECRET_KEY", re.escape(KEY_SEAM)),
         ("environment.BACKEND_CORS_ORIGINS", re.escape(CORS_ORIGINS)),
         ("ports[]", re.escape(WEB_PORT)),
+        ("ports[]", re.escape(API_PORT)),
         ("*.image", rf"{_PROJECT}-(?:backend|frontend)-prod:{re.escape(RELEASE_TAG_SEAM)}"),
     ]
     for recipe in tables.recipes:

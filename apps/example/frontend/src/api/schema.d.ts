@@ -192,6 +192,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/native/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sign in from a mobile app with an email and password */
+        post: operations["auth.native_login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/native/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sign a mobile app out with its refresh token */
+        post: operations["auth.native_logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/native/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Keep a mobile app signed in without entering a password again */
+        post: operations["auth.native_refresh"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/refresh": {
         parameters: {
             query?: never;
@@ -227,6 +278,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/files/link/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a file's contents through a short-lived link */
+        get: operations["files.read_link"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/files/{file_id}": {
         parameters: {
             query?: never;
@@ -255,6 +323,23 @@ export interface paths {
         };
         /** Download a file's contents */
         get: operations["files.download_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/{file_id}/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a short-lived link to a file's contents */
+        get: operations["files.link_file"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1004,6 +1089,24 @@ export interface components {
             role_rank: number;
         };
         /**
+         * FileLinkRead
+         * @description A short-lived link to a file's bytes (ADR 0201): the URL, and when it stops working.
+         *
+         *     ``url`` is absolute for a store's own signed URL and path-absolute for one the
+         *     capability signed itself; a client uses either as it is. A store's URL carries the
+         *     store's own address of the blob, which is the store's business and expires with the
+         *     link: ``storage_key`` itself still never leaves the API.
+         */
+        FileLinkRead: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Url */
+            url: string;
+        };
+        /**
          * FileRead
          * @description The file metadata as returned by the API — **without** ``storage_key`` / ``storage_profile``.
          */
@@ -1328,6 +1431,39 @@ export interface components {
             updated_at: string;
             /** Version */
             version: number;
+        };
+        /**
+         * NativeRefreshRequest
+         * @description The ``/native/refresh`` and ``/native/logout`` body: the client's refresh token (ADR 0195).
+         *
+         *     A token is 43 URL-safe characters (256 bits); the cap bounds the input with room to
+         *     spare and refuses nothing a real token can be.
+         */
+        NativeRefreshRequest: {
+            /** Refresh Token */
+            refresh_token: string;
+        };
+        /**
+         * NativeSession
+         * @description What ``/native/login`` and ``/native/refresh`` answer (ADR 0195).
+         *
+         *     The access token as ``/login`` returns it, plus the refresh token in the body, because a
+         *     native client has no browser to hold an ``HttpOnly`` cookie for it. The client keeps the
+         *     refresh token in the operating system's keychain or keystore and presents it once: every
+         *     refresh rotates it, and replaying a rotated one past ``REFRESH_ROTATION_GRACE_SECONDS``
+         *     revokes the whole session family (inside it, the replay is honoured as a retried request,
+         *     as it is for a cookie).
+         */
+        NativeSession: {
+            /** Access Token */
+            access_token: string;
+            /** Refresh Token */
+            refresh_token: string;
+            /**
+             * Token Type
+             * @default bearer
+             */
+            token_type: string;
         };
         /** NoteCreate */
         NoteCreate: {
@@ -2221,6 +2357,103 @@ export interface operations {
             };
         };
     };
+    "auth.native_login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeSession"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    "auth.native_logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NativeRefreshRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    "auth.native_refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NativeRefreshRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NativeSession"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     "auth.refresh": {
         parameters: {
             query?: never;
@@ -2291,6 +2524,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FileRead"];
+                };
+            };
+        };
+    };
+    "files.read_link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2408,6 +2672,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    "files.link_file": {
+        parameters: {
+            query?: {
+                ttl_seconds?: number | null;
+                inline?: boolean;
+            };
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileLinkRead"];
                 };
             };
             /** @description Validation Error */

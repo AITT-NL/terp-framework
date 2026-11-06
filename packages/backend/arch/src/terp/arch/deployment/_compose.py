@@ -27,6 +27,7 @@ from terp.arch.deployment._generator_text import (
     MOUNT_PATH,
     NO_DATABASE_URL,
     RELEASE_TAG_SEAM,
+    API_PORT,
     WEB_PORT,
     heartbeat_role,
 )
@@ -259,6 +260,16 @@ def _backend_service(plan: _Plan, unit: Unit) -> list[str]:
     if kind not in ("api", "one-shot"):
         lines.append("    init: true")
     lines.append('    restart: "no"' if kind == "one-shot" else "    restart: unless-stopped")
+    if kind == "api" and plan.upstream is None:
+        lines += [
+            "    ports:",
+            "      # 23200, not 8000: no web tier fronts this api, so it is the deployment's",
+            "      # only way in (ADR 0202), one range step past the web tier's 23100. A",
+            "      # deployment sets API_PORT explicitly -- this default only decides what a",
+            "      # first `docker compose -f docker-compose.prod.yml up` grabs on a machine",
+            "      # that is also running the developer's own things.",
+            f"      - {fixed(API_PORT)}",
+        ]
     mounts = [
         volume.id
         for volume in plan.declaration.volumes

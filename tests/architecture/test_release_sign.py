@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import sys
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
+from terp.arch import SPEC_VERSION
 from terp.cli.release import _render, dsse, sign
 from terp.cli.release._common import ReleaseError, canonical, write_document
 from terp.cli.release._git import Tree
@@ -114,7 +116,7 @@ def test_sign_signs_a_release_whose_app_fails_on_import_and_runs_none_of_it(tmp_
     assert given["projectRoot"] == "." and given["developmentProfile"] == "docker-compose.yml"
     assert given["releaseTag"] == "r1" and given["build"] == "generated" and given["platform"] == "linux/amd64"
     assert given["toolchain"] == {"signer": given["toolchain"]["signer"], "terpCli": TOOLCHAIN, "terpArch": TOOLCHAIN}
-    assert given["spec"]["release"] == "0.40.0" and len(given["spec"]["schemaSha256"]) == 64
+    assert given["spec"]["release"] == SPEC_VERSION and len(given["spec"]["schemaSha256"]) == 64
     assert given["generator"]["version"] == TOOLCHAIN and given["generator"]["project"] == PROJECT
     assert sorted(given["generator"]["files"]) == ["Dockerfile.prod", "docker-compose.prod.yml"]
     assert given["declaration"]["content"] == app_files()["deployment.json"].decode()
@@ -277,7 +279,7 @@ def test_a_declaration_the_pinned_generator_refuses_is_refused(tmp_path: pathlib
 def test_a_declaration_written_against_a_newer_standard_is_refused(tmp_path: pathlib.Path, monkeypatch) -> None:
     release = Release(tmp_path, monkeypatch)
     monkeypatch.setattr(sign, "SPEC_RELEASE", "0.39.0")
-    with pytest.raises(ReleaseError, match="Terp Standard 0.40.0, newer than 0.39.0"):
+    with pytest.raises(ReleaseError, match=f"Terp Standard {re.escape(SPEC_VERSION)}, newer than 0.39.0"):
         release.sign()
 
 

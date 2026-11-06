@@ -963,6 +963,60 @@
         "units[4].role: a second web unit"
       ]
     },
+    "two-api-units-with-nothing-in-front": {
+      "declaration": {
+        "schemaVersion": 1,
+        "build": "generated",
+        "compose": {
+          "file": "docker-compose.prod.yml"
+        },
+        "units": [
+          {
+            "id": "db",
+            "role": "database",
+            "kind": "postgres",
+            "version": "17",
+            "stateful": true,
+            "backup": {
+              "every": "P1D",
+              "keep": "P30D"
+            }
+          },
+          {
+            "id": "migrate",
+            "role": "one-shot",
+            "dependsOn": [
+              "db"
+            ]
+          },
+          {
+            "id": "api",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          },
+          {
+            "id": "reports",
+            "role": "api",
+            "healthPath": "/health/ready",
+            "livenessPath": "/health/live",
+            "dependsOn": [
+              "db",
+              "migrate"
+            ]
+          }
+        ]
+      },
+      "project": "demo",
+      "frontendLock": false,
+      "refused": [
+        "units: 2 api units (api, reports) and no web unit in front of them, so which one callers reach is undeclared and the generator cannot publish a port for both (allowed: one api unit, which then publishes ${API_PORT:-23200}:8000, or a web unit that depends on the api it proxies to)"
+      ]
+    },
     "an-api-without-its-liveness-path": {
       "declaration": {
         "schemaVersion": 1,

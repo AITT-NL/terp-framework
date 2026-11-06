@@ -71,10 +71,34 @@ def test_copier_declares_the_layout_presets_and_capability_toggles() -> None:
         assert toggle in config
 
 
+def test_copier_asks_whether_the_app_has_a_frontend_and_excludes_both_workspaces_without() -> None:
+    """ADR 0202: one boolean, yes by default; no renders an API-only app, with the two Node
+    workspaces excluded whole and the layout question, a frontend's shape, not asked."""
+    import yaml
+
+    config = yaml.safe_load((_TEMPLATE / "copier.yml").read_text(encoding="utf-8"))
+    question = config["frontend"]
+    assert question["type"] == "bool" and question["default"] is True
+    assert "API-only" in question["help"]
+    assert config["layout"]["when"] == "{{ frontend }}"
+    assert config["_exclude"][1:3] == [
+        "{% if not frontend %}/frontend{% endif %}",
+        "{% if not frontend %}/conformance{% endif %}",
+    ]
+    # Every file the negative answer leaves out of a rendered file says so with the same
+    # conditional the toggles use, and the web service goes with it in both profiles.
+    for name in ("docker-compose.yml.jinja", "docker-compose.prod.yml.jinja"):
+        text = (_PROJECT / name).read_text(encoding="utf-8")
+        web = text.split("\n  web:\n", 1)[0]
+        assert web.rstrip().endswith("{%- if frontend %}"), f"{name}: the web service is unconditional"
+    for name in ("workbench.json.jinja", "deployment.json.jinja", ".github/dependabot.yml.jinja"):
+        assert "{%- if frontend %}" in (_PROJECT / name).read_text(encoding="utf-8"), name
+
+
 def test_runnable_app_skeleton_present() -> None:
     main = (_PROJECT / "app" / "main.py.jinja").read_text()
     assert "create_app(" in main
-    assert (_PROJECT / "control_plane" / "__init__.py").exists()
+    assert (_PROJECT / "control_plane" / "__init__.py.jinja").exists()
     assert (_PROJECT / "pyproject.toml.jinja").exists()
     assert (_PROJECT / "AGENTS.md.jinja").exists()
 
@@ -1288,11 +1312,28 @@ def test_the_openapi_typescript_override_lasts_only_as_long_as_its_reason() -> N
 # a default that is right for production is not automatically right for the dev
 # stack the template also ships (ADR 0143)
 # --------------------------------------------------------------------------- #
-def _control_plane_security_kwarg(name: str) -> ast.expr:
+#: The frontend answer's blocks in the control plane seed (ADR 0202): the one place the
+#: seed is Jinja, resolved here the way copier resolves it so the rest parses as Python.
+_FRONTEND_BLOCK = re.compile(
+    r"\s*\{%- if (?P<negated>not )?frontend %\}(?P<body>.*?)\s*\{%- endif %\}", re.DOTALL
+)
+
+
+def _control_plane_source(*, frontend: bool = True) -> str:
+    """The template's control plane as copier renders it for the *frontend* answer."""
+    text = (_PROJECT / "control_plane" / "__init__.py.jinja").read_text(encoding="utf-8")
+    resolved = _FRONTEND_BLOCK.sub(
+        lambda m: m.group("body") if frontend != bool(m.group("negated")) else "", text
+    )
+    assert "{%" not in resolved, "a Jinja construct other than a frontend block"
+    return resolved
+
+
+def _control_plane_security_kwarg(name: str, *, frontend: bool = True) -> ast.expr:
     """The `SecurityConfig(...)` keyword *name* as declared by the template, as an AST."""
     import ast as _ast
 
-    source = (_PROJECT / "control_plane" / "__init__.py").read_text(encoding="utf-8")
+    source = _control_plane_source(frontend=frontend)
     found = [
         keyword.value
         for node in _ast.walk(_ast.parse(source))
@@ -1338,7 +1379,11 @@ def test_template_trusts_a_proxy_hop_only_where_a_proxy_is_the_only_way_in() -> 
     )
 
     # The premise the production side rests on: `api` really does publish no port there.
-    prod = (_PROJECT / "docker-compose.prod.yml.jinja").read_text(encoding="utf-8")
+    # Read through the frontend answer (ADR 0202): the api-only render publishes it, and
+    # that render trusts no hop at all, which the next test holds.
+    from tests.architecture.deployment_fixtures import template_profile
+
+    prod = template_profile()
     api_block = prod.split("\n  api:", 1)[1].split("\n  web:", 1)[0]
     assert "ports:" not in api_block, (
         "docker-compose.prod.yml now publishes the API directly, so nginx is no longer "
@@ -1352,6 +1397,21 @@ def test_template_trusts_a_proxy_hop_only_where_a_proxy_is_the_only_way_in() -> 
         "hop count can be simplified — but check the reasoning above first"
     )
 
+
+
+def test_an_api_only_app_trusts_no_proxy_hop_because_nothing_in_its_profile_proxies() -> None:
+    """ADR 0202 decision 3: the api-only render publishes `api` directly in production too,
+    so a trusted hop there would let any caller write their own `X-Forwarded-For`."""
+    import ast as _ast
+
+    from tests.architecture.deployment_fixtures import template_profile
+
+    hops = _control_plane_security_kwarg("trusted_proxy_hops", frontend=False)
+    assert _ast.unparse(hops) == "0", "an api-only app has no proxy of its own to trust"
+    prod = template_profile(frontend=False)
+    assert "\n  web:" not in prod
+    api_block = prod.split("\n  api:", 1)[1].split("\nvolumes:", 1)[0]
+    assert '- "${API_PORT:-23200}:8000"' in api_block, "the api is the only way in"
 
 def test_template_gives_the_credential_family_a_bucket_its_own_suite_can_finish_in() -> None:
     """The shipped conformance helper signs in for real, once per spec.
@@ -1396,7 +1456,7 @@ def test_template_gives_the_credential_family_a_bucket_its_own_suite_can_finish_
     )
     assert "NON_PRODUCTION_CREDENTIAL_RATE_LIMIT" in rendered
 
-    source = (_PROJECT / "control_plane" / "__init__.py").read_text(encoding="utf-8")
+    source = _control_plane_source()
     limit = [
         node
         for node in _ast.walk(_ast.parse(source))
@@ -1462,7 +1522,7 @@ def test_the_generated_app_ships_an_updater_for_those_pins() -> None:
     """Pinning without an updater trades a live supply-chain risk for a stale one, and
     a generated app is long-lived by definition — nobody hand-bumps a digest they have
     never looked at."""
-    config = _PROJECT / ".github/dependabot.yml"
+    config = _PROJECT / ".github/dependabot.yml.jinja"
     assert config.is_file(), (
         "the template pins every action by digest and ships nothing to move those pins "
         "forward — every generated app would freeze its actions at the day it was rendered"
@@ -1499,7 +1559,7 @@ def test_the_generated_app_s_updater_holds_back_the_typescript_major_the_framewo
         "this test mirrors the framework's own TypeScript ignore; if that was lifted, "
         "lift the template's with it and retire this test"
     )
-    assert ignore in (_PROJECT / ".github" / "dependabot.yml").read_text(encoding="utf-8"), (
+    assert ignore in (_PROJECT / ".github" / "dependabot.yml.jinja").read_text(encoding="utf-8"), (
         "a generated app's grouped frontend update would carry a TypeScript major its "
         "boundary linter cannot install, and fail every week with everything in it"
     )
@@ -1623,7 +1683,7 @@ def test_the_template_asks_who_writes_the_build_files() -> None:
     assert question["default"] == "own" and question["type"] == "str"
     assert sorted(question["choices"].values()) == ["generated", "own"]
     assert "validator" not in question and "validator" not in config["project_slug"]
-    assert config["_exclude"][1:] == [
+    assert config["_exclude"][3:] == [
         f"{{% if deploy_build == 'generated' %}}/{path}{{% endif %}}" for path in OWNED_PATHS
     ]
     seed = (_PROJECT / "deployment.json.jinja").read_text(encoding="utf-8")

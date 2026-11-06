@@ -62,6 +62,13 @@ _OUTPUT_TAIL_CHARS = 20_000
 #: only in `--format json`: an opt-in nobody is told about does not get adopted.
 NOTE_PREFIX = "note: "
 
+#: The words a check's first line carries when it has nothing to judge: the seam it checks
+#: is one this app never has (an API-only app's frontend, ADR 0202). Such a check passes
+#: without a verdict: the JSON record says `applicable: false`, and an assurance lane
+#: composed only of such checks is `not-run`, never `passed`. A red check is always a
+#: verdict, whatever its words.
+NOT_APPLICABLE = "not applicable"
+
 #: The issue categories a driving tool (Terp Studio's issue tabs) understands.
 #: Built-in checks are held to it by the gate; an app-declared check is held to
 #: it here, because a category outside this set is a check whose findings the
@@ -190,7 +197,7 @@ class VerifyCheck:
     # "subprocess" | "architecture" | "api-docs-drift" | "routes-drift"
     # | "platform-install" | "env-seams" | "api-client" | "package-boundaries"
     # | "dependency-hygiene" | "workbench" | "deployment" | "locks" | "generated"
-    # | "deploy-safety"
+    # | "deploy-safety" | "api-contract"
     # | "production-readiness" | "conformance"
     runner: str = "subprocess"
 
@@ -512,8 +519,21 @@ _API_CLIENT = VerifyCheck(
     id="api-client",
     category="build",
     command="terp verify --only api-client",
-    scope=("app/**", "control_plane/**", "frontend/package.json"),
+    scope=("app/**", "control_plane/**", "frontend/package.json", "openapi.json"),
     runner="api-client",
+)
+
+# The app's committed API contract against the API it serves (ADR 0194). A native client
+# already installed on a phone, or a site built in another repository, runs against
+# whatever the app serves next, and the production profile hides the schema, so the shape
+# travels as a committed `openapi.json`. Opt-in by tracking the file, like `authz-surface`;
+# ordered before `api-client`, which generates the typed client from that same file.
+_API_CONTRACT = VerifyCheck(
+    id="api-contract",
+    category="build",
+    command="terp verify --only api-contract",
+    scope=("app/**", "control_plane/**", "openapi.json"),
+    runner="api-contract",
 )
 
 _FRONTEND_TYPECHECK = VerifyCheck(
@@ -666,6 +686,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _PACKAGE_BOUNDARIES,
         _FRONTEND_BOUNDARIES,
         _ROUTES_DRIFT,
+        _API_CONTRACT,
         _API_CLIENT,
         _FRONTEND_TYPECHECK,
     ),
@@ -688,6 +709,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _DEPENDENCY_AUDIT_NPM,
         _FRONTEND_BOUNDARIES,
         _ROUTES_DRIFT,
+        _API_CONTRACT,
         _API_CLIENT,
         _FRONTEND_TYPECHECK,
         _FRONTEND_TESTS,
@@ -713,6 +735,7 @@ PROFILES: dict[str, tuple[VerifyCheck, ...]] = {
         _SECRET_SCAN,
         _FRONTEND_BOUNDARIES,
         _ROUTES_DRIFT,
+        _API_CONTRACT,
         _API_CLIENT,
         _FRONTEND_TYPECHECK,
         _FRONTEND_TESTS,
@@ -1220,6 +1243,20 @@ def _run_argv(
         )
 
 
+def _workspace_absent(root: pathlib.Path, workspace: str, check_id: str) -> str | None:
+    """Why *check_id* is not applicable: the npm *workspace* is not there at all.
+
+    The directory decides, never one file in it. An app rendered API-only has no
+    ``frontend/`` and no ``conformance/`` (ADR 0202), so there is nothing to run and
+    nothing to fail; a ``frontend/`` that exists without its ``package.json`` is a
+    frontend that cannot be built, and that stays the red the command itself reports.
+    The project root is never absent, so a root-level manifest command is never skipped.
+    """
+    if workspace in ("", ".") or (root / workspace).is_dir():
+        return None
+    return f"no {workspace}/ - {check_id} {NOT_APPLICABLE}"
+
+
 def _run_subprocess(
     check: VerifyCheck, root: pathlib.Path, *, env: dict[str, str] | None = None
 ) -> tuple[int, str]:
@@ -1236,7 +1273,11 @@ def _run_subprocess(
     """
     argv = shlex.split(check.command)
     if argv and argv[0] == "npm":
-        problem = _node_modules_problem(root, _npm_workspace(argv))
+        workspace = _npm_workspace(argv)
+        absent = _workspace_absent(root, workspace, check.id)
+        if absent is not None:
+            return 0, absent
+        problem = _node_modules_problem(root, workspace)
         if problem is not None:
             return 1, problem
     completed = _run_argv(argv, root, env=env)
@@ -2005,7 +2046,17 @@ def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
     file — makes it permanent. The fix is to stop tracking it. Skips with a note
     rather than a red for an app with no frontend or no ``generate`` script:
     upgrading the framework must not fail a gate for a seam the app never wired.
+
+    The contract the client is generated from is the one exception, and the reason is
+    the same rule. Once an app tracks ``openapi.json`` it is the committed API contract
+    (ADR 0194), so exporting over it would make this check write a tracked file — and
+    turn a drift the ``api-contract`` check reports into one that a second run silently
+    fixes. A tracked contract is therefore read, not rewritten: the app's own frontend is
+    typed against the contract a reviewer accepted, and ``api-contract`` holds that file
+    to the app. Where git cannot say whether it is tracked, nothing is exported over it.
     """
+    from terp.cli.api_contract import CONTRACT_ARTIFACT
+    from terp.cli.api_contract_check import contract_tracking
     from terp.cli.openapi import export_openapi
 
     frontend = root / "frontend"
@@ -2029,17 +2080,26 @@ def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
     problem = _node_modules_problem(root, "frontend")
     if problem is not None:
         return 1, problem
-    previous = pathlib.Path.cwd()
-    try:
-        # export_openapi resolves the app package relative to its app_root.
-        os.chdir(root)
-        written = export_openapi(out="openapi.json", app_root=".")
-    except SystemExit as refusal:  # an app ref that resolves to no FastAPI app
-        return 1, f"could not export the OpenAPI document: {refusal}"
-    finally:
-        os.chdir(previous)
+    tracking = contract_tracking(root)
+    if tracking.state == "unknown":
+        return tracking.exit_code, tracking.refusal(
+            "the API client is not generated: a tracked contract is never exported over (ADR 0194)"
+        )
+    if tracking.state == "tracked":
+        source = f"read the committed {CONTRACT_ARTIFACT} (api-contract holds it to the app)"
+    else:
+        previous = pathlib.Path.cwd()
+        try:
+            # export_openapi resolves the app package relative to its app_root.
+            os.chdir(root)
+            written = export_openapi(out=CONTRACT_ARTIFACT, app_root=".")
+        except SystemExit as refusal:  # an app ref that resolves to no FastAPI app
+            return 1, f"could not export the OpenAPI document: {refusal}"
+        finally:
+            os.chdir(previous)
+        source = f"wrote {written.name}"
     completed = _run_argv(["npm", "--prefix", "frontend", "run", "generate"], root)
-    output = f"wrote {written.name}\n{completed.stdout}{completed.stderr}"
+    output = f"{source}\n{completed.stdout}{completed.stderr}"
     if completed.returncode != 0:
         output += (
             "\nthe API client could not be generated - the frontend typecheck "
@@ -2115,6 +2175,11 @@ def _run_conformance(root: pathlib.Path) -> tuple[int, str]:
     """
     from terp.cli.dev import DEFAULT_WEB_PORT
 
+    absent = _workspace_absent(root, "conformance", _CONFORMANCE.id)
+    if absent is not None:
+        # No suite to drive at all (an API-only app renders none, ADR 0202): the same
+        # seam every npm check answers through, before the stack is looked for.
+        return 0, absent
     url, source = conformance_address(root)
     if url is None:
         return 1, (
@@ -2132,16 +2197,30 @@ def _run_conformance(root: pathlib.Path) -> tuple[int, str]:
     return exit_code, f"conformance: driving {url} ({source})\n{output}"
 
 
+def _applicable(ok: bool, output: str) -> bool:
+    """Whether a green check's output is a verdict, or a statement that it had nothing to judge.
+
+    Read off the first line only, where every runner that skips says so; a red check is a
+    verdict whatever its words, so a failure that happens to mention the phrase is never
+    read as a skip.
+    """
+    return not (ok and NOT_APPLICABLE in output.split("\n", 1)[0])
+
+
 def assurance_document(results: list[dict[str, object]]) -> dict[str, object]:
     """The release-assurance claim (``assurance-profile.schema.json``) from a
     release-profile run's per-check *results*.
 
     Lane verdicts compose from the named checks' verdicts: every composing
     check green ⇒ ``passed``, otherwise ``failed``; a lane this toolchain does
-    not realise (``a11y``) is ``not-run``, never dropped. The claim (``ok``)
-    follows the REQUIRED lanes only — the requirement mapping is the spec's,
-    mirrored in :data:`ASSURANCE_LANES` — so a red recommended lane informs
-    the reader without carrying the claim.
+    not realise (``a11y``) is ``not-run``, never dropped. A check that was not
+    applicable (``applicable: false`` on its record: the seam it checks is one
+    this app never has, ADR 0202) gives no verdict: a lane composed only of
+    such checks is ``not-run`` with no checks named, the schema's word for an
+    unmet precondition and never a pass, and a lane with others composes from
+    the ones that ran. The claim (``ok``) follows the REQUIRED lanes only — the
+    requirement mapping is the spec's, mirrored in :data:`ASSURANCE_LANES` —
+    so a red recommended lane informs the reader without carrying the claim.
     """
     import importlib.metadata
 
@@ -2151,19 +2230,27 @@ def assurance_document(results: list[dict[str, object]]) -> dict[str, object]:
     # check contributes to no lane by construction: the lane vocabulary is the
     # spec's, and an app extending its own gate may not restate a normative
     # claim. Its verdict still carries the run's exit code in text/json.
-    verdicts = {str(result["id"]): bool(result["ok"]) for result in results}
+    verdicts = {
+        str(result["id"]): bool(result["ok"])
+        for result in results
+        if result.get("applicable", True)
+    }
+    inapplicable = {
+        str(result["id"]) for result in results if not result.get("applicable", True)
+    }
     lanes: list[dict[str, object]] = []
     ok = True
     for lane_id, requirement, check_ids in ASSURANCE_LANES:
-        if not check_ids:
+        judged = [check_id for check_id in check_ids if check_id not in inapplicable]
+        if not judged:
             status = "not-run"
-        elif all(verdicts.get(check_id, False) for check_id in check_ids):
+        elif all(verdicts.get(check_id, False) for check_id in judged):
             status = "passed"
         else:
             status = "failed"
         if requirement == "required" and status != "passed":
             ok = False
-        lanes.append({"id": lane_id, "status": status, "checks": list(check_ids)})
+        lanes.append({"id": lane_id, "status": status, "checks": judged})
     try:
         version = importlib.metadata.version("terp-cli")
     except (
@@ -2296,6 +2383,10 @@ def run_verify_command(
             exit_code, output = _run_production_readiness(project_root)
         elif check.runner == "authz-surface":
             exit_code, output = _run_authz_surface(project_root)
+        elif check.runner == "api-contract":
+            from terp.cli.api_contract_check import run_api_contract_check
+
+            exit_code, output = run_api_contract_check(project_root)
         elif check.runner == "conformance":
             exit_code, output = _run_conformance(project_root)
         else:
@@ -2303,8 +2394,10 @@ def run_verify_command(
             reports = _reports_in(output)
         ok = exit_code == 0
         all_ok = all_ok and ok
+        applicable = _applicable(ok, output)
         print(
-            f"verify: {check.id} {'ok' if ok else f'FAILED (exit {exit_code})'}",
+            f"verify: {check.id} {'ok' if ok else f'FAILED (exit {exit_code})'}"
+            + ("" if applicable else f" ({NOT_APPLICABLE})"),
             file=sys.stderr,
         )
         if fmt == "text" and (not ok or output.startswith(NOTE_PREFIX)):
@@ -2316,6 +2409,7 @@ def run_verify_command(
                 "command": check.command,
                 "scope": list(check.scope),
                 "ok": ok,
+                "applicable": applicable,
                 "exit_code": exit_code,
                 "output_tail": output[-_OUTPUT_TAIL_CHARS:],
                 "reports": reports,

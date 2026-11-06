@@ -5,7 +5,9 @@
   §2: `SECRET_KEY_FALLBACKS` stays verify-only, and a decrypt-only `SECRET_KEY_DECRYPT_FALLBACKS`
   joins it. Held by `tests/architecture/test_key_rotation.py` (both lists, the derivations, the
   verification window, the production refusals) and `tests/architecture/test_cli_reseal.py`
-  (`terp secrets reseal`).
+  (`terp secrets reseal`). §5, the table of §1 and the consequence on the re-seal's reach are
+  extended by [ADR 0199](0199-a-queued-mail-is-sealed-at-rest.md) (proposed 2026-11-04): the
+  re-seal walks JSON columns too, and a queued mail is a sealed value of its own domain.
 - **Date:** 2026-10-22
 - **Relates:** [ADR 0055](0055-secrets-sealing.md) (sealed config, whose "a re-seal step
   accompanies a key rotation" this supplies), [ADR 0054](0054-refresh-token-sessions.md) (the

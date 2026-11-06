@@ -340,3 +340,6 @@ NO_DATABASE_URL = "${DATABASE_URL:?DATABASE_URL is required (no database unit)}"
 KEY_SEAM = "${SECRET_KEY:?SECRET_KEY is required (>= 32 chars)}"
 CORS_ORIGINS = "${BACKEND_CORS_ORIGINS:-[]}"
 WEB_PORT = "${WEB_PORT:-23100}:8080"
+#: The api unit's host port when no web tier fronts it (ADR 0202): then it is the
+#: deployment's only way in, one range step past the web tier's.
+API_PORT = "${API_PORT:-23200}:8000"

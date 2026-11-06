@@ -934,7 +934,13 @@ frontend design-system track below.
       deadline per outbound call, webhook signatures over the event's identity, a redacted log
       line that keeps its credential label), a job's audited mutations in one transaction,
       newer production bases, and TypeScript 6.0 in the workspace and the generated app.
-- [ ] Owed: the Studio's pin to 0.36.0. It pins 0.35.0.
+- [x] Released as 0.36.1 (2026-11-05), on terp-spec 0.42.0: an app's API contract as a
+      committed file, native clients' refresh token in the body, self-service accounts,
+      queued mail sealed at rest, a release signed only over a green release profile,
+      short-lived links to a file's bytes with S3 and Azure Blob adapters and `Range`, and
+      an API-only choice in the template. The ten runtime security cases of terp-spec#52
+      stay in the evidence window for 0.43.0.
+- [ ] Owed: the Studio's pin to 0.36.1. It pins 0.35.0.
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
       every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
       the template's two `AGENTS.md` files, the repository's own and the react-core README.

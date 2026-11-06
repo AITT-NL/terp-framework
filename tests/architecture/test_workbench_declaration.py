@@ -9,6 +9,7 @@ Every "never red" case below is a shape a real app can legitimately have.
 from __future__ import annotations
 
 import json
+import re
 import pathlib
 
 import yaml
@@ -23,6 +24,25 @@ from terp.cli.workbench import (
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
+
+
+#: The frontend answer's blocks in the seeded declaration (ADR 0202): the web role and the
+#: framing seam go with the web service. Resolved as copier resolves them, no engine.
+_FRONTEND_BLOCK = re.compile(
+    r"\s*\{%- if (?P<negated>not )?frontend %\}(?P<body>.*?)\s*\{%- endif %\}", re.DOTALL
+)
+
+
+def template_workbench(*, frontend: bool = True) -> str:
+    """The template's seeded workbench.json as copier renders it for the *frontend* answer."""
+    text = (_REPO_ROOT / "template" / "project" / f"{WORKBENCH_FILE}.jinja").read_text(
+        encoding="utf-8"
+    )
+    resolved = _FRONTEND_BLOCK.sub(
+        lambda m: m.group("body") if frontend != bool(m.group("negated")) else "", text
+    )
+    assert "{%" not in resolved, "a Jinja construct other than a frontend block"
+    return resolved
 
 def _app(tmp_path: pathlib.Path, declaration: dict | None, compose: dict) -> pathlib.Path:
     root = tmp_path / "app"
@@ -309,7 +329,7 @@ def test_the_example_app_declares_a_topology_that_matches_its_compose() -> None:
 
 def test_the_template_seeds_a_declaration_the_app_then_owns() -> None:
     """Overwriting it on upgrade would make it describe the template, not the app."""
-    seeded = _REPO_ROOT / "template" / "project" / WORKBENCH_FILE
+    seeded = _REPO_ROOT / "template" / "project" / f"{WORKBENCH_FILE}.jinja"
     copier = yaml.safe_load(
         (_REPO_ROOT / "template" / "copier.yml").read_text(encoding="utf-8")
     )
@@ -325,11 +345,7 @@ def test_the_declaration_never_TARGETS_the_production_profile() -> None:
     production profile precisely in order to forbid it, and a substring test
     would fail on the sentence that states the rule.
     """
-    seeded = json.loads(
-        (_REPO_ROOT / "template" / "project" / WORKBENCH_FILE).read_text(
-            encoding="utf-8"
-        )
-    )
+    seeded = json.loads(template_workbench())
 
     assert "prod" not in seeded["compose"]["file"]
 

@@ -27,7 +27,12 @@
   it was built*. Amended 2026-10-22 by
   [ADR 0191](0191-readiness-asks-the-stores-a-deployment-requires-and-a-worker-reports-a-heartbeat.md):
   a worker and a scheduler are checked on the heartbeat their own loop writes (decision 5, and
-  decision 9's open item on their health, which it settles).
+  decision 9's open item on their health, which it settles). Amended 2026-11-04 by
+  [ADR 0200](0200-a-release-is-signed-only-over-a-green-release-profile.md), proposed and built
+  in 0.36.1: the gate records
+  every check of the release profile beside its assurance document, and `sign` signs only over
+  a green profile whose claim holds, reading the gate's document in the version the commit's
+  pinned `terp-cli` writes (decision 6).
 - **Date:** 2026-10-21
 - **Relates:** amends [ADR 0062](0062-production-deployment-profile.md) decisions 1 to 4, on top
   of its 2026-10-21 amendment; amends [ADR 0184](0184-a-deployment-declares-its-units.md)
@@ -389,7 +394,9 @@ no check, because a check of a heartbeat nobody writes could only ever fail.
   without a command.
 - **The web tier** proxies to the one `api` it depends on, or the only one; `API_UPSTREAM` is
   rendered only when that id is not `api`. It publishes `${WEB_PORT:-23100}:8080` and loads no
-  environment file.
+  environment file. Amended by ADR 0202: a declaration with no web tier and one `api` unit
+  publishes that unit on `${API_PORT:-23200}:8000`, since it is then the only way in;
+  several api units with nothing in front of them are refused.
 - **Environment:** `.app.env` and the four platform values from `x-backend`; `.app.env` then
   `.app.<id>.env` listed on each backend unit. A file a variable names (`SMTP_CA_FILE`, say) is the
   environment's to mount; the generator renders none.

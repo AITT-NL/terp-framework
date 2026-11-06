@@ -47,6 +47,18 @@ _APPS = (
     ),
 )
 
+#: The frontend answer (ADR 0202), resolved as copier resolves it before the other blocks
+#: are stripped: the default render HAS a web service, and a strip that removed it would
+#: judge an API-only app's compose as the default's.
+_FRONTEND_BLOCK = re.compile(
+    r"\s*\{%- if (?P<negated>not )?frontend %\}(?P<body>.*?)\s*\{%- endif %\}", re.DOTALL
+)
+
+
+def _with_frontend(text: str) -> str:
+    return _FRONTEND_BLOCK.sub(lambda m: "" if m.group("negated") else m.group("body"), text)
+
+
 _JINJA_IF_BLOCK = re.compile(r"\{%-?\s*if\b.*?%\}.*?\{%-?\s*endif\s*-?%\}", re.DOTALL)
 
 #: A relative import that climbs out of the directory it is written in.
@@ -67,7 +79,7 @@ _INTERPOLATION = re.compile(r"\$\{(?P<name>\w+):-(?P<default>[^}]*)\}")
 
 
 def _compose(path: pathlib.Path) -> dict:
-    text = _JINJA_IF_BLOCK.sub("", path.read_text(encoding="utf-8"))
+    text = _JINJA_IF_BLOCK.sub("", _with_frontend(path.read_text(encoding="utf-8")))
     assert "{%" not in text, f"{path.name}: unstripped Jinja block"
     return yaml.safe_load(re.sub(r"\{\{.*?\}\}", "x", text))
 
