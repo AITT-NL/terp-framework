@@ -25,10 +25,13 @@ rule forbids importing ``terp.core._internal`` from a module — the second laye
 protecting the guard itself).
 
 Reads stay unguarded for *writes* but are **row-scoped**. The ORM execution hook applies
-criteria to each entity, including aliases and relationship loaders. Only a column
-refresh of an already-loaded instance is exempt, so the write chokepoint can refresh a
-just-soft-deleted row without granting the exemption to relationship reads. ``get`` also
-checks visibility before its identity-map fast path. ``flush`` is
+criteria to each entity, including aliases and relationship loaders, and to every mapped
+entity an aggregate reaches. Only a column refresh of an already-loaded instance is
+exempt, so the write chokepoint can refresh a just-soft-deleted row without granting the
+exemption to relationship reads. ``get`` also checks visibility before its identity-map
+fast path. A read that reaches a row-scoped table only through its Core ``Table`` names no
+mapped entity to take that criteria, so the hook refuses it with
+:class:`UnscopedReadError` instead of running it unscoped (ADR 0204 decision 6). ``flush`` is
 intentionally **not** write-guarded so SQLAlchemy autoflush keeps working — nothing a
 guarded session flushes is durable without the guarded ``commit`` (the request session is
 rolled back on close), and ``add`` / ``delete`` are already refused outside the scope, so
@@ -46,8 +49,13 @@ from sqlalchemy import Select, event
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import ORMExecuteState, with_loader_criteria
 from sqlalchemy.sql import visitors
+from sqlalchemy.orm import Mapper
+from sqlalchemy.sql.elements import TextClause
+from sqlalchemy.sql.expression import Alias, TableClause
+from sqlalchemy.sql.selectable import CTE, Exists, Join, ScalarSelect, SelectBase, Subquery
 from sqlalchemy.sql.util import ClauseAdapter
 from sqlmodel import Session, SQLModel, select
+from sqlmodel.main import default_registry
 
 from terp.core.scoping import apply_row_scope
 
@@ -105,6 +113,19 @@ class ReadOnlyRequestError(RuntimeError):
     500. Move the write behind a ``POST`` / ``PUT`` / ``PATCH`` / ``DELETE`` route so
     it is authorized at the write tier (and audited). This is the runtime half of the
     build-time ``safe_methods_are_read_only`` rule.
+    """
+
+
+class UnscopedReadError(RuntimeError):
+    """A read reached a row-scoped table only through its Core ``Table`` (ADR 0204 decision 6).
+
+    The request session scopes a read by attaching soft-delete and the registered row
+    predicates to each **mapped entity** the statement reaches. ``Model.__table__.c.amount``,
+    ``select_from(Model.__table__)``, a Core alias of that table or a ``table("name")``
+    reference reaches the rows without one, so there is nothing to attach the scope to and
+    the read would return soft-deleted or another tenant's rows. Refused before it runs. Like
+    :class:`UnauditedWriteError` it is a *programming* error and surfaces as a generic 500:
+    read through the model, on the service's ``base_query()`` or a declared aggregate.
     """
 
 
@@ -357,6 +378,107 @@ class WriteGuardedSession(Session):
         return super().get(entity, ident, *args, **kwargs)
 
 
+# Every mapped table, by Table and by (schema, name): static facts about the schema, so the
+# lookup is rebuilt only when a mapper is constructed. Whether a table carries row scope is
+# NOT cached here: a predicate can depend on the context (the owner scope needs an actor),
+# so that is asked of the table at the moment a read reaches it through Core.
+_mapped: dict[str, Any] = {}
+
+
+@event.listens_for(Mapper, "after_mapper_constructed")
+def _forget_mapped_tables(mapper: Mapper[Any], class_: type) -> None:
+    _mapped.clear()
+
+
+def _mapped_tables() -> tuple[dict[Any, list[type]], dict[tuple[str | None, str], list[type]]]:
+    """Each mapped table's models, by the Table itself and by its schema and name."""
+    if not _mapped:
+        by_table: dict[Any, list[type]] = {}
+        by_name: dict[tuple[str | None, str], list[type]] = {}
+        for mapper in default_registry.mappers:
+            for table in mapper.tables:
+                by_table.setdefault(table, []).append(mapper.class_)
+                by_name.setdefault((getattr(table, "schema", None), table.name), []).append(mapper.class_)
+        _mapped.update(by_table=by_table, by_name=by_name)
+    return _mapped["by_table"], _mapped["by_name"]
+
+
+def _models_of(table: Any) -> list[type]:
+    """The models mapped onto *table*; a ``table("name")`` matches the name in any schema."""
+    by_table, by_name = _mapped_tables()
+    if table in by_table:
+        return by_table[table]
+    name = getattr(table, "name", None)
+    schema = getattr(table, "schema", None)
+    return [
+        model
+        for (key_schema, key_name), models in by_name.items()
+        if key_name == name and (schema is None or key_schema == schema)
+        for model in models
+    ]
+
+
+def _row_scoped(models: list[type]) -> list[type]:
+    """The ones of *models* that carry row scope in the current context."""
+    return [model for model in models if apply_row_scope(model, select(model)).whereclause is not None]
+
+
+def _orm_named_tables(select_: Any) -> set[Any]:
+    """The tables *select_* names through a mapped entity, not looking into nested selects."""
+    named: set[Any] = set()
+    pending = list(select_.get_children())
+    while pending:
+        element = pending.pop()
+        if isinstance(element, (SelectBase, Subquery, ScalarSelect, Exists, CTE)):
+            continue
+        entity = getattr(element, "_annotations", {}).get("parententity")
+        if entity is not None:
+            # An ORM alias names its own selectable, which the hook scopes through its adapter.
+            named.update([entity.selectable] if entity.is_aliased_class else entity.mapper.tables)
+        pending.extend(element.get_children())
+    return named
+
+
+def _from_leaves(from_: Any) -> Iterator[Any]:
+    if isinstance(from_, Join):
+        yield from _from_leaves(from_.left)
+        yield from _from_leaves(from_.right)
+    else:
+        yield from_
+
+
+def _core_only_reads(statement: Any) -> list[str]:
+    """What *statement* reads through Core where the row scope cannot reach, by name.
+
+    Judged per SELECT, nested ones included: a row-scoped table in a SELECT's FROM list must
+    be named by a mapped entity **in that same SELECT**, which is what the loader criteria
+    attach to. A mapped entity elsewhere in the statement does not scope it: a parent's
+    relationship to a child reaches the child's mapper without covering a Core join to the
+    child's table. An alias counts only when an ORM alias names it in that SELECT (the hook
+    scopes those through its adapter); a Core alias, and literal SQL in a FROM, never can.
+    """
+    found: set[str] = set()
+    for select_ in visitors.iterate(statement):
+        if not isinstance(select_, Select):
+            continue
+        named: set[Any] | None = None
+        for from_ in select_.get_final_froms():
+            for leaf in _from_leaves(from_):
+                if isinstance(leaf, TextClause):
+                    found.add("a literal SQL FROM")
+                    continue
+                if "parententity" in getattr(leaf, "_annotations", {}):
+                    continue  # an ORM entity's own FROM (a joined eager load's alias, say)
+                base = leaf.element if isinstance(leaf, Alias) else leaf
+                if not isinstance(base, TableClause):
+                    continue
+                named = _orm_named_tables(select_) if named is None else named
+                if leaf in named:
+                    continue
+                found.update(model.__name__ for model in _row_scoped(_models_of(base)))
+    return sorted(found)
+
+
 @event.listens_for(WriteGuardedSession, "do_orm_execute")
 def _scope_orm_read(state: ORMExecuteState) -> None:
     """Apply the current row scope to roots and every reachable relationship entity.
@@ -396,6 +518,15 @@ def _scope_orm_read(state: ORMExecuteState) -> None:
             state.statement = state.statement.options(
                 with_loader_criteria(model, scoped.whereclause)
             )
+    unscoped = _core_only_reads(state.statement)
+    if unscoped:
+        raise UnscopedReadError(
+            f"A read reached {', '.join(unscoped)} through Core, where the request session "
+            "cannot apply soft-delete, tenant or owner scope. Read it through the model: the "
+            "service's base_query(), or a declared aggregate (terp guide aggregates), never "
+            "Model.__table__ or literal SQL. A many-to-many whose link table is row-scoped "
+            "maps the link as an association object instead of a secondary table."
+        )
     # An explicit alias in an explicit JOIN needs criteria referring to that
     # selectable, rather than columns from the original table. Implicit aliases
     # used by joinedload are adapted by the ORM itself.
@@ -414,6 +545,7 @@ def _scope_orm_read(state: ORMExecuteState) -> None:
 __all__ = [
     "ReadOnlyRequestError",
     "UnauditedWriteError",
+    "UnscopedReadError",
     "WriteGuardedSession",
     "allow_session_writes",
     "enter_write_unit",
