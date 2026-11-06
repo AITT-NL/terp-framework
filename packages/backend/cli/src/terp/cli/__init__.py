@@ -890,12 +890,14 @@ Boundaries for a second top-level package (an ungated worker)
   `no_raw_outbound_http`, `no_adhoc_config_decrypt`, `no_internal_imports`, `no_print`,
   `no_naive_datetime`, `no_eval_or_exec`, `no_star_imports`, `no_blocking_sleep`,
   `no_mutable_default_args`, `no_todo_fixme`, `no_oversized_python_files`,
-  `no_empty_tests`, `no_manual_table_schema`, `frozen_values_hold_no_mutable_collection`.
+  `no_empty_tests`, `no_manual_table_schema`, `frozen_values_hold_no_mutable_collection`,
+  and `request_timestamps_carry_their_offset`, since a worker that reads another system's
+  timestamps through a schema is held to their offset just as the app is.
   It does NOT get the rules that are properties of being a mounted app: a route's response
   model, a module's policy, a table's migration, the guarded session (ADR 0141). The check
   report says which, per root, under `roots` — so a green over the companion names the
   rules it is green about, and is a claim you can publish.
-  Expect the first declared run to be red. Sixteen rules arriving at once over a package
+  Expect the first declared run to be red. Seventeen rules arriving at once over a package
   nothing has ever scanned will find things; they were violations all along.
 - WHAT A HAND-WRITTEN TEST IS STILL FOR. Not `no_dynamic_sql` or `no_print` — those now
   reach the second package, and a bespoke AST scan beside them is a weaker copy that has

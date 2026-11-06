@@ -1998,6 +1998,31 @@ def test_datetime_columns_are_timezone_aware(tmp_path: pathlib.Path) -> None:
         (message,) = messages(check_datetime_columns_are_timezone_aware(app))
         assert expected in message, (imports, fields)
 
+    # Imports inside a module-level try or with block count in source order: a fallback in
+    # the except branch is the binding the file may run with, so it wins.
+    _write(
+        app,
+        "modules/notes/models.py",
+        model(
+            named,
+            "try:\n    from terp.core import BaseTable, UtcDateTime\n"
+            "except ImportError:\n    from app.fallback import UtcDateTime\n"
+            "else:\n    pass\nfinally:\n    pass\n\n\n",
+        ),
+    )
+    (message,) = messages(check_datetime_columns_are_timezone_aware(app))
+    assert "is not terp.core's" in message
+    _write(
+        app,
+        "modules/notes/models.py",
+        model(named, "with suppress(ImportError):\n    from terp.core import BaseTable, UtcDateTime\n\n\n"),
+    )
+    assert check_datetime_columns_are_timezone_aware(app) == []
+
+    # A quoted annotation that does not parse names no timestamp, so it is not a column here.
+    _write(app, "modules/notes/models.py", model("    due_at: 'datetime |' = Field(default=None)\n"))
+    assert check_datetime_columns_are_timezone_aware(app) == []
+
     # A class defined inside a function is read against the module as it stands at its end.
     _write(
         app,
@@ -2135,6 +2160,13 @@ def test_request_timestamps_carry_their_offset(tmp_path: pathlib.Path) -> None:
     ) == [7, 11]
     assert lines("import terp.core as core\n\nLenient = getattr(core, 'NaiveMeansUtc')\n") == [3]
 
+    # A PEP 695 type alias of the escape is the escape at its statement and at each use.
+    assert lines(
+        "from terp.core import NaiveMeansUtc\n\n"
+        "type Lenient = NaiveMeansUtc\n\n\n"
+        "class ReadingCreate(BaseSchema):\n    taken_at: Lenient\n"
+    ) == [3, 7]
+
     # Two uses on one line are one escape; a quoted parameter or return annotation is one.
     assert lines(
         "from terp.core import NaiveMeansUtc\n\n"
@@ -2164,6 +2196,10 @@ def test_request_timestamps_carry_their_offset(tmp_path: pathlib.Path) -> None:
         "from datetime import datetime\n\nfrom terp.core import BaseSchema\n\n\n"
         "class ReadingCreate(BaseSchema):\n    taken_at: datetime\n"
     ) == []
+
+    # terp.core, which defines the boundary and its escape, is neither's user.
+    _write(app, "modules/notes/schemas.py", "from terp.core.timestamps import require_offset\n")
+    assert check_request_timestamps_carry_their_offset(app, package="terp.core") == []
 
     # A plain timestamp field passes, and the message names the marker and the budget.
     (( _, message),) = findings(

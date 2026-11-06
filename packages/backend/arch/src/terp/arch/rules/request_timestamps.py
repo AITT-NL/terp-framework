@@ -22,6 +22,9 @@ _NAIVE_MEANS_UTC = "NaiveMeansUtc"
 #: The boundary's own machinery; an app takes the escape from ``terp.core``.
 _TIMESTAMPS_MODULE = "terp.core.timestamps"
 
+#: The package that defines the boundary and the escape, which the framework scans as one.
+_ESCAPE_PACKAGE = "terp.core"
+
 _ESCAPE_MESSAGE = (
     "NaiveMeansUtc reads a timestamp with no UTC offset as UTC, so a sender in any other "
     "zone is stored off by its offset; take the timestamp with its offset (a plain datetime "
@@ -84,8 +87,7 @@ def _assignment(node: ast.AST) -> tuple[list[str], ast.expr | None]:
         return [name for target in node.targets for name in _bound_names(target)], node.value
     if isinstance(node, ast.AnnAssign) and node.value is not None:
         return _bound_names(node.target), node.value
-    type_alias = getattr(ast, "TypeAlias", None)
-    if type_alias is not None and isinstance(node, type_alias):
+    if isinstance(node, ast.TypeAlias) and isinstance(node.name, ast.Name):
         return [node.name.id], node.value
     return [], None
 
@@ -170,6 +172,8 @@ def check_request_timestamps_carry_their_offset(
     counts. The rule fails closed by name: every reference to ``NaiveMeansUtc``, or to a name
     the file binds to it, is the escape, and so is reaching for the boundary's own module.
     """
+    if package == _ESCAPE_PACKAGE:
+        return []  # the package that defines the boundary and its escape is neither's user
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
     for path in iter_python_files(root):
