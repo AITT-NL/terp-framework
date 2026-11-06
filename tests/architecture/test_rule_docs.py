@@ -34,3 +34,18 @@ def test_no_orphan_rule_docs() -> None:
     on_disk = set(_DOCS.rglob("*.md"))
     orphans = sorted(p.relative_to(_ROOT) for p in on_disk - expected)
     assert orphans == [], f"rule pages without a catalog entry: {orphans}"
+
+
+def test_the_generator_writes_exactly_the_pages_it_describes(tmp_path, monkeypatch) -> None:
+    """``main()`` is what a person runs; it writes every page ``generate()`` describes, and
+    nothing else, so regenerating can never leave the checked-in pages half-written."""
+    import generate_rule_docs
+
+    pages = {path.relative_to(_DOCS): content for path, content in generate().items()}
+    monkeypatch.setattr(generate_rule_docs, "_DOCS", tmp_path / "docs" / "rules")
+    generate_rule_docs.main()
+    written = {
+        path.relative_to(tmp_path / "docs" / "rules"): path.read_text(encoding="utf-8")
+        for path in (tmp_path / "docs" / "rules").rglob("*.md")
+    }
+    assert written == pages

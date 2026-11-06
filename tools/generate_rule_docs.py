@@ -15,6 +15,7 @@ Usage: python tools/generate_rule_docs.py   (from the repository root; stdlib on
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -177,8 +178,8 @@ def main() -> None:
     for path, content in pages.items():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-    print(f"wrote {len(pages)} rule pages under {_DOCS.relative_to(_ROOT)}/")
+    print(f"wrote {len(pages)} rule pages under {os.path.relpath(_DOCS, _ROOT)}/")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - entry point
     main()
