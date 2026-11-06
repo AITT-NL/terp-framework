@@ -97,12 +97,12 @@ def create_service_account_command(
 
 
 def _as_utc(moment: datetime.datetime) -> datetime.datetime:
-    """A stored timestamp as aware UTC.
+    """A timestamp as aware UTC; a naive one is taken as UTC.
 
-    PostgreSQL round-trips a timezone-aware column aware; SQLite returns it NAIVE, and a
-    naive/aware comparison raises rather than answers. The service resolves the same
-    ambiguity the same way for its expiry check — a naive stamp is UTC, because UTC is
-    the only thing this capability ever writes.
+    A naive/aware comparison raises rather than answers. The account's timestamps are
+    ``UtcDateTime`` columns (ADR 0205), so a value read back from them is aware already
+    and this changes nothing for it; it keeps a naive value from anywhere else from
+    raising.
     """
     return moment if moment.tzinfo is not None else moment.replace(tzinfo=datetime.UTC)
 

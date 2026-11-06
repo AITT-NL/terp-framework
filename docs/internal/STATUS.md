@@ -945,6 +945,8 @@ frontend design-system track below.
 - [ ] 0.37.0, unreleased: a statistic declared on the service, like a filter, and the
       request session refusing every SELECT it cannot scope (ADR 0204), on terp-spec 0.43.0.
       The runtime security evidence window is empty again: 0.43.0 packages its ten cases.
+      Every framework timestamp is a `UtcDateTime`, which stores an instant as UTC on SQLite
+      too, closing ADR 0204's SQLite gap (ADR 0205).
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
       every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
       the template's two `AGENTS.md` files, the repository's own and the react-core README.

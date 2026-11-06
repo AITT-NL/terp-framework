@@ -355,12 +355,12 @@ def _as_lease(row: Row) -> Lease:
 
 
 def _aware(value: datetime | None) -> datetime | None:
-    """Re-attach UTC to a timestamp a backend handed back naive (SQLite does).
+    """Re-attach UTC to a naive timestamp.
 
-    Every stored expiry is written from the seam's UTC clock, but SQLite has nowhere to keep
-    the offset and returns the value naive — which raises the moment it is compared with an
-    aware ``now``, and that comparison is what every expiry check is. Normalising on the way
-    out keeps the store's behaviour identical on both backends.
+    Every stored expiry is written from the seam's UTC clock, and a naive value raises the
+    moment it is compared with an aware ``now``, which is what every expiry check is. The
+    lease columns are ``UtcDateTime`` (ADR 0205), so a value read back from them is aware
+    already and this changes nothing for it.
     """
     if value is None:
         return None

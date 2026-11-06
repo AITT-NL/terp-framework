@@ -82,21 +82,24 @@ _GUIDE_TOPICS: dict[str, str] = {
 Add a module (the "10-minute module")
 
 1) models.py   table model (inherit BaseTable; never redeclare id/created_at/version)
-     from terp.core import BaseTable
+     from datetime import datetime
+     from terp.core import BaseTable, UtcDateTime
      from sqlmodel import Field
      class Invoice(BaseTable, table=True):
          number: str = Field(max_length=50, index=True, unique=True)
          amount_cents: int
+         issued_at: datetime = Field(sa_type=UtcDateTime())   # an instant, stored as UTC
 
 2) schemas.py  DTOs (cap every input string; the Read DTO is what the API returns)
      from terp.core import BaseSchema, BaseUpdateSchema
      class InvoiceCreate(BaseSchema):
          number: str = Field(max_length=50)
          amount_cents: int
+         issued_at: datetime
      class InvoiceUpdate(BaseUpdateSchema):   # `version` is required (optimistic concurrency)
          amount_cents: int | None = None
      class InvoiceRead(BaseSchema):           # NOT the table model
-         id: uuid.UUID; number: str; amount_cents: int; version: int
+         id: uuid.UUID; number: str; amount_cents: int; issued_at: datetime; version: int
 
 3) service.py  business logic (CRUD is inherited and audited)
      from terp.core import BaseService

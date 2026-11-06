@@ -342,7 +342,10 @@ def aggregate(
                 f"Time bucket {bucket.name!r} steps by {', '.join(bucket.steps)}, not {window.step!r}."
             )
         zone = resolve_time_zone(window.zone)
-        bounds = window_bounds(window, zone)
+        try:
+            bounds = window_bounds(window, zone)
+        except OverflowError as exc:
+            raise ValidationFailedError("That window reaches past the years a timestamp holds.") from exc
         steps = len(bounds) - 1
         if window.step is not None and steps > bucket.max_buckets:
             raise ValidationFailedError(

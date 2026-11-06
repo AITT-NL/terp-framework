@@ -38,7 +38,7 @@ from pydantic import BaseModel
 from sqlalchemy import JSON as SAJSON
 from sqlalchemy import ColumnElement, func
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.orm.exc import StaleDataError as ORMStaleDataError
 from sqlmodel import Session, SQLModel, select
 from sqlmodel.sql.expression import SelectOfScalar
@@ -59,6 +59,7 @@ from terp.core.errors import (
     NotFoundError,
     PermissionDeniedError,
     StaleDataError,
+    ValidationFailedError,
 )
 from terp.core.filtering import (
     FilterField,
@@ -616,9 +617,17 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
                 if outermost:
                     session.rollback()
                 raise StaleDataError() from exc
-            except Exception:
+            except Exception as exc:
                 if outermost:
                     session.rollback()
+                if isinstance(exc, StatementError) and isinstance(exc.orig, OverflowError):
+                    # An aware value whose instant falls outside year 1 to 9999 in UTC has
+                    # no UTC to be stored as (ADR 0205). The column type finds that at the
+                    # bind, which would otherwise leak from the driver call as a 500.
+                    raise ValidationFailedError(
+                        "A date and time in this write is outside the years a timestamp holds.",
+                        log_context={"overflow": str(exc.orig)},
+                    ) from exc
                 raise
             session.refresh(entity)
         return entity

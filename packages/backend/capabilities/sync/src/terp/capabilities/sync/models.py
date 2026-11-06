@@ -23,10 +23,10 @@ import uuid
 from datetime import UTC, datetime
 from typing import Final
 
-from sqlalchemy import DateTime, UniqueConstraint
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
-from terp.core import BaseTable, UUIDPrimaryKeyMixin
+from terp.core import BaseTable, UtcDateTime, UUIDPrimaryKeyMixin
 
 # Mapping/run status + record-log actions (plain str columns, dependency-light leaves like
 # ``AuditEvent.action`` — never a higher-layer enum on the table).
@@ -93,7 +93,7 @@ class SyncMapping(BaseTable, table=True):
     status: str = Field(default=STATUS_SYNCED, max_length=_STATUS_MAX, index=True)
     last_synced_at: datetime = Field(
         default_factory=_utc_now,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=False,
     )
 
@@ -114,13 +114,13 @@ class SyncRun(BaseTable, table=True):
     status: str = Field(default=STATUS_RUNNING, max_length=_STATUS_MAX, index=True)
     started_at: datetime = Field(
         default_factory=_utc_now,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=False,
         index=True,
     )
     finished_at: datetime | None = Field(
         default=None,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=True,
     )
     processed_count: int = Field(default=0)
@@ -143,7 +143,7 @@ class SyncRecordLog(UUIDPrimaryKeyMixin, SQLModel, table=True):  # arch-allow-ta
     message: str | None = Field(default=None, max_length=_MESSAGE_MAX)
     created_at: datetime = Field(
         default_factory=_utc_now,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=False,
         index=True,
     )

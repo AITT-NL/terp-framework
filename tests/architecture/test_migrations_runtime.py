@@ -91,6 +91,11 @@ def test_make_autogenerates_only_owned_tables(
     assert "create_table('audit_event'" in body
     # identity_user is registered in the shared metadata but not owned by audit.
     assert "identity_user" not in body
+    # audit_event.created_at is a UtcDateTime (ADR 0205). The revision records the type
+    # it stores as, in plain SQLAlchemy, and never the framework class: Alembic alone
+    # would write terp.core.base_models.UtcDateTime(), a name the revision never imports.
+    assert "sa.Column('created_at', sa.DateTime(timezone=True)" in body
+    assert "UtcDateTime" not in body
 
 
 def test_render_as_batch_is_gated_to_sqlite() -> None:

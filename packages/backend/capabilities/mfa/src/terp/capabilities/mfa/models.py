@@ -26,10 +26,9 @@ import datetime
 import uuid
 from typing import Final
 
-from sqlalchemy import DateTime
 from sqlmodel import Field
 
-from terp.core import BaseTable, OnDelete, Ref
+from terp.core import BaseTable, OnDelete, Ref, UtcDateTime
 
 from terp.capabilities.mfa.recovery import CODE_HASH_LENGTH
 
@@ -55,7 +54,7 @@ class MfaEnrolment(BaseTable, table=True):
     #: gates nothing; see the module docstring for why that is not an oversight.
     confirmed_at: datetime.datetime | None = Field(  # type: ignore[call-overload]
         default=None,
-        sa_type=DateTime(timezone=True),
+        sa_type=UtcDateTime(),
         nullable=True,
         index=True,
     )
@@ -78,7 +77,7 @@ class MfaRecoveryCode(BaseTable, table=True):
     code_hash: str = Field(max_length=CODE_HASH_LENGTH, index=True)
     used_at: datetime.datetime | None = Field(  # type: ignore[call-overload]
         default=None,
-        sa_type=DateTime(timezone=True),
+        sa_type=UtcDateTime(),
         nullable=True,
     )
 

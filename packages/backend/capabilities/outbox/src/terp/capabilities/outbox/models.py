@@ -40,10 +40,10 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Final
 
-from sqlalchemy import JSON, DateTime
+from sqlalchemy import JSON
 from sqlmodel import Column, Field, SQLModel
 
-from terp.core import UUIDPrimaryKeyMixin
+from terp.core import UtcDateTime, UUIDPrimaryKeyMixin
 
 # The two kinds of work the outbox carries (a plain str column, never a higher-layer
 # enum — this leaf stays dependency-light, like AuditEvent.action).
@@ -79,30 +79,30 @@ class OutboxMessage(UUIDPrimaryKeyMixin, SQLModel, table=True):  # arch-allow-ta
     attempts: int = Field(default=0)
     available_at: datetime = Field(
         default_factory=_utc_now,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=False,
         index=True,
     )
     locked_by: str | None = Field(default=None, max_length=_LOCK_MAX, index=True)  # arch-allow-no-manual-lease-columns: the outbox leases a BATCH of delivery rows in one UPDATE for throughput, and a lapsed one needs no reaper (the next worker simply reclaims it) - the lease seam grants one resource per statement and exists for DOMAIN rows whose status a crash strands
     locked_until: datetime | None = Field(  # arch-allow-no-manual-lease-columns: the outbox leases a BATCH of delivery rows in one UPDATE for throughput, and a lapsed one needs no reaper (the next worker simply reclaims it) - the lease seam grants one resource per statement and exists for DOMAIN rows whose status a crash strands
         default=None,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=True,
     )
     created_at: datetime = Field(
         default_factory=_utc_now,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=False,
         index=True,
     )
     dispatched_at: datetime | None = Field(
         default=None,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=True,
     )
     dead_lettered_at: datetime | None = Field(
         default=None,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=True,
     )
     last_error: str | None = Field(default=None, max_length=_ERROR_MAX)
@@ -143,14 +143,14 @@ class ScheduleFire(SQLModel, table=True):  # arch-allow-table-models-use-base-ta
 
     name: str = Field(primary_key=True, max_length=_NAME_MAX)
     slot: datetime = Field(
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=False,
     )
     outcome: str = Field(max_length=16)
     fires: int = Field(default=1)
     recorded_at: datetime = Field(
         default_factory=_utc_now,
-        sa_type=DateTime(timezone=True),  # type: ignore[call-overload]
+        sa_type=UtcDateTime(),  # type: ignore[call-overload]
         nullable=False,
     )
 

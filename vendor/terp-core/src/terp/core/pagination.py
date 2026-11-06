@@ -27,7 +27,7 @@ import base64
 import binascii
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Generic, TypeVar
 
 from fastapi import Depends, Query
@@ -116,13 +116,25 @@ def decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
 
     A garbled / tampered cursor raises the typed
     :class:`~terp.core.errors.ValidationFailedError` (a uniform 400 envelope),
-    never a leaked 500.
+    never a leaked 500. That includes a position whose offset puts it outside the
+    years a timestamp can hold (``0001-01-01T00:00:00+14:00``): it is moved to UTC
+    here, where the overflow can still be a 400, and not first at the bind, where
+    it would be a 500.
     """
     try:
         raw = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
         created_at_text, _, id_text = raw.partition(_CURSOR_SEPARATOR)
-        return datetime.fromisoformat(created_at_text), uuid.UUID(id_text)
-    except (ValueError, binascii.Error, UnicodeDecodeError, UnicodeEncodeError) as exc:
+        created_at = datetime.fromisoformat(created_at_text)
+        if created_at.utcoffset() is not None:
+            created_at = created_at.astimezone(UTC)
+        return created_at, uuid.UUID(id_text)
+    except (
+        ValueError,
+        OverflowError,
+        binascii.Error,
+        UnicodeDecodeError,
+        UnicodeEncodeError,
+    ) as exc:
         raise ValidationFailedError("The pagination cursor is invalid.") from exc
 
 

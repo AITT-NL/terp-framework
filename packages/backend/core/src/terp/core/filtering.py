@@ -48,6 +48,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Literal
 
 from sqlalchemy import ColumnElement
@@ -59,6 +60,25 @@ FilterOp = Literal["eq", "ne", "lt", "lte", "gt", "gte", "in", "contains"]
 """The fixed comparison set. Declared per field by the service — never sent by a client."""
 
 _LIKE_ESCAPE = "\\"
+
+
+def _in_range(name: str, value: object) -> object:
+    """*value* as given, refused when it names no instant a timestamp can hold.
+
+    A caller's bound reaches the column's type at execution, where an offset that
+    carries it past the years a timestamp holds (``0001-01-01T00:00:00+14:00``)
+    raises inside the driver call and leaks as a 500. Found here, it is a 400 that
+    names the filter. The bound itself is left as it is: a ``UtcDateTime`` column
+    converts it, and a plain one compares it as it always did.
+    """
+    if isinstance(value, datetime) and value.utcoffset() is not None:
+        try:
+            value.astimezone(UTC)
+        except OverflowError as exc:
+            raise ValidationFailedError(
+                f"Filter {name!r} is outside the range of a timestamp."
+            ) from exc
+    return value
 
 
 def _escape_like(value: str) -> str:
@@ -83,6 +103,7 @@ class FilterField:
 
     def condition(self, value: object) -> ColumnElement[bool]:
         """Build this field's SQL condition for *value*."""
+        value = _in_range(self.name, value)
         if self.op == "eq":
             return self.column == value
         if self.op == "ne":
@@ -100,7 +121,7 @@ class FilterField:
                 raise ValidationFailedError(
                     f"Filter {self.name!r} expects a list of values."
                 )
-            return self.column.in_(list(value))
+            return self.column.in_([_in_range(self.name, item) for item in value])
         if not isinstance(value, str):
             raise ValidationFailedError(f"Filter {self.name!r} expects text.")
         return self.column.ilike(f"%{_escape_like(value)}%", escape=_LIKE_ESCAPE)

@@ -45,7 +45,6 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import (
     BigInteger,
     Column,
-    DateTime,
     MetaData,
     PrimaryKeyConstraint,
     String,
@@ -56,6 +55,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from terp.core import UtcDateTime
 from terp.migrations.errors import OrphanedRevisionsError, RetiredMigrationsError
 
 #: The record's table name. It lives in ``public`` on PostgreSQL under either layout,
@@ -91,7 +91,7 @@ def record_table(dialect_name: str) -> Table:
         Column("applied_by", String(64), nullable=False),
         Column("applied_terp", String(64), nullable=False),
         Column("seq", BigInteger, nullable=False),
-        Column("applied_at", DateTime(timezone=True), nullable=False),
+        Column("applied_at", UtcDateTime(), nullable=False),
         PrimaryKeyConstraint("label", "revision", name=f"{RECORD_TABLE}_pkey"),
         schema=record_schema(dialect_name),
     )

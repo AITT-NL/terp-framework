@@ -304,11 +304,8 @@ def backlog(session: Session, *, now: datetime | None = None) -> OutboxBacklog:
             ),
         )
     ).one()
-    if oldest_due is not None and oldest_due.tzinfo is None:
-        # SQLite hands back a naive value for a timezone-aware column, and the
-        # subtraction below would raise on it. A health probe must never be the thing
-        # that breaks; the column is written in UTC, so that is what it is.
-        oldest_due = oldest_due.replace(tzinfo=UTC)
+    # The minimum takes the column's type, a UtcDateTime, so it reads back aware in UTC
+    # on SQLite too (ADR 0205) and the subtraction below cannot raise on a naive value.
     return OutboxBacklog(
         pending=int(pending or 0),
         due=int(due_count or 0),
@@ -404,10 +401,10 @@ def dead_letters(
 
 
 def _as_utc(moment: datetime) -> datetime:
-    """A stored timestamp as aware UTC.
+    """A timestamp as aware UTC; a naive one is taken as UTC.
 
-    SQLite hands back a naive value for a timezone-aware column and PostgreSQL does not,
-    so a caller comparing or formatting these would get two different answers from the
-    same code. The column is written in UTC, so that is what a naive stamp is.
+    A caller comparing or formatting these must get one answer from the same code on both
+    dialects. The outbox's columns are ``UtcDateTime`` (ADR 0205), so a value read back
+    from them is aware already and this changes nothing for it.
     """
     return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)

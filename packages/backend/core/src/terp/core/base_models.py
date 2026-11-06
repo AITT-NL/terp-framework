@@ -12,6 +12,7 @@ Public exports (re-exported from :mod:`terp.core`):
 * :class:`BaseTable` — UUID PK + timestamps + optimistic-concurrency ``version``
 * :class:`BaseSchema` — DTO base (``from_attributes``)
 * :class:`BaseUpdateSchema` — update DTO that requires the OCC ``version``
+* :class:`UtcDateTime` — the timestamp column type: an instant, stored as UTC
 
 A deterministic Alembic naming convention is attached to the shared
 ``SQLModel.metadata`` at import time so constraint names are generated
@@ -21,12 +22,13 @@ identically across environments.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from typing import Any
 
 from pydantic import ConfigDict
-from sqlalchemy import DateTime, MetaData
+from sqlalchemy import DateTime, Dialect, MetaData
 from sqlalchemy.orm import declared_attr
+from sqlalchemy.types import TypeDecorator, TypeEngine
 from sqlmodel import Field, SQLModel
 
 from terp.core.personal import declare_model, mask_repr_args
@@ -55,6 +57,67 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _as_utc(value: datetime) -> datetime:
+    """*value* as the same instant in UTC; a naive value is taken to be UTC already."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+class UtcDateTime(TypeDecorator[datetime]):
+    """A timestamp column that stores an instant as UTC, on every dialect (ADR 0205).
+
+    ``DateTime(timezone=True)`` keeps the instant on PostgreSQL, whose
+    ``TIMESTAMP WITH TIME ZONE`` converts on the way in. SQLite has no such type: it
+    keeps the value's wall time and drops its offset, so an instant written in another
+    zone compares wrong against every other value by that offset, and reads back
+    without a zone. This type converts every datetime to UTC before it is bound, in a
+    row and in a comparison alike, and reads every value back aware, in UTC.
+
+    - **A naive datetime** is taken to be UTC, on PostgreSQL too, where the session's
+      zone used to decide. ``no_naive_datetime`` refuses only ``utcnow()`` and a bare
+      ``now()``; a naive value from anywhere else, such as a parsed parameter or
+      ``datetime.fromtimestamp()``, is stored as UTC as it stands.
+    - **A plain date** is its midnight in UTC, in a row and in a comparison.
+    - **Anything else** is the impl's, as before this type existed: the impl types the
+      ``timedelta`` in ``created_at + timedelta(days=30)`` as an interval.
+
+    The stored type is the impl's, so adopting it on an existing column changes no
+    schema and needs no migration; ``terp migrate make`` writes it into a migration as
+    ``sa.DateTime(timezone=True)``.
+    """
+
+    impl = DateTime
+    cache_ok = True
+
+    def __init__(self) -> None:
+        super().__init__(timezone=True)
+
+    @property
+    def python_type(self) -> type[datetime]:
+        """``datetime``, which a decorator does not answer on its own (it says ``object``)."""
+        return datetime
+
+    def coerce_compared_value(self, op: Any, value: Any) -> TypeEngine[Any]:
+        """A date or a datetime compares through this type; anything else as the impl would."""
+        if isinstance(value, date):
+            return self
+        return self.impl_instance.coerce_compared_value(op, value)
+
+    def process_bind_param(self, value: Any, dialect: Dialect) -> Any:
+        if isinstance(value, datetime):
+            return _as_utc(value)
+        if isinstance(value, date):
+            return datetime.combine(value, time(), tzinfo=UTC)
+        return value
+
+    def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
+        return None if value is None else _as_utc(value)
+
+    def __repr__(self) -> str:
+        return "UtcDateTime()"
+
+
 class UUIDPrimaryKeyMixin(SQLModel):
     """Adds a UUID v4 primary key column called ``id``."""
 
@@ -73,12 +136,12 @@ class TimestampMixin(SQLModel):
 
     created_at: datetime | None = Field(  # type: ignore[call-overload]
         default_factory=_utc_now,
-        sa_type=DateTime(timezone=True),
+        sa_type=UtcDateTime(),
         nullable=False,
     )
     updated_at: datetime | None = Field(  # type: ignore[call-overload]
         default_factory=_utc_now,
-        sa_type=DateTime(timezone=True),
+        sa_type=UtcDateTime(),
         sa_column_kwargs={"onupdate": _utc_now},
         nullable=False,
     )
@@ -115,7 +178,7 @@ class SoftDeleteMixin(SQLModel):
 
     deleted_at: datetime | None = Field(  # type: ignore[call-overload]
         default=None,
-        sa_type=DateTime(timezone=True),
+        sa_type=UtcDateTime(),
         nullable=True,
         index=True,
     )
@@ -297,4 +360,5 @@ __all__ = [
     "SoftDeleteMixin",
     "TimestampMixin",
     "UUIDPrimaryKeyMixin",
+    "UtcDateTime",
 ]
