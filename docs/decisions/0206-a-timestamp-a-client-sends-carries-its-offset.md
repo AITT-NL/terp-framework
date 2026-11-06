@@ -3,9 +3,9 @@
 - **Status:** Accepted on 2026-11-06. The owner decided
   [ADR 0205](0205-a-timestamp-column-stores-an-instant-as-utc.md)'s open question A on the
   recommendation this records: refuse a timestamp without an offset where it enters, in a
-  record of its own. Built in 0.38.0. An independent review of the first build found the
-  refusal judged by guessing at field shapes and keys, and a job's own payload refused. The
-  refusal now sits at the timestamp type (see *What the review changed*).
+  record of its own. Built in 0.38.0. Two rounds of independent review changed the build: the
+  refusal now sits at the timestamp type, follows every definition a schema refers to, and
+  trusts only marks no app can forge (see *What the review changed*).
 - **Date:** 2026-11-06.
 - **Relates:** [ADR 0205](0205-a-timestamp-column-stores-an-instant-as-utc.md) (its open
   question A, and the `UtcDateTime` that reads a naive value as UTC),
@@ -47,23 +47,35 @@ app's request contract. Two facts settled it:
 ### 1. Timestamp text without an offset is refused, at the timestamp type
 
 `BaseSchema`'s schema hook puts the refusal in front of every `datetime` in the schema Pydantic
-builds for a subclass. So it runs wherever Pydantic validates a timestamp: a field, an item of
-a list or a tuple, a value of a mapping, a member of a union, a `NewType` over one, a nested
-model, and under whatever name Pydantic reads the value by, an alias, a choice of aliases or a
-path. Text that reads as a date and time with no offset, such as `2026-11-06T10:00:00` or a bare
-date `2026-11-06`, is refused with the error type `timestamp_offset_required` and this message:
+builds for a subclass, following every definition that schema refers to. So it runs wherever
+Pydantic validates a timestamp for it: a field, an item of a list or a tuple, a value of a
+mapping, a member of a union, a `NewType` or a type alias over one, a stdlib dataclass, a
+`TypedDict`, a nested or recursive `BaseSchema`, and under whatever name Pydantic reads the
+value by, an alias, a choice of aliases or a path. Text that reads as a date and time with no
+offset, such as `2026-11-06T10:00:00` or a bare date `2026-11-06`, is refused with the error
+type `timestamp_offset_required` and this message:
 
 > A date and time needs its UTC offset, for example 2026-11-06T10:00:00Z or
 > 2026-11-06T11:00:00+01:00
 
 FastAPI renders it as its usual 422, with `loc` `["body", "<field>"]` and deeper for an item or
-a nested model, so a form maps it to its input. Every such value in a body is named in the same
-error, beside the body's other errors.
+a nested model, so a form maps it to its input. A member of a union is named as Pydantic names
+it (`list[datetime]`). Every such value in a body is named in the same error, beside the body's
+other errors.
+
+A nested model that brings its own complete Pydantic validator, a plain `BaseModel` or a
+Pydantic dataclass, is validated by that validator whatever schema surrounds it, and that
+validator does not judge. So a `BaseSchema` that nests one holding a timestamp is refused when
+it is defined, naming both classes: derive the nested model from `BaseSchema`, or type that
+timestamp `NaiveMeansUtc`. A plain model elsewhere is left exactly as it was.
 
 A member of a union that is not a timestamp still takes what it takes: `datetime | str` keeps
 the text, and `datetime | date` reads a bare date as a date. A field typed `NaiveDatetime` takes
 no timestamp text at all, since the refusal stops the naive kind and the type stops the aware
-kind. A subclass that replaces the schema hook is refused when it is defined.
+kind. `BaseSchema`'s metaclass refuses, when a class is defined, any subclass that defines the
+schema hook or the subclass hook, `__get_pydantic_core_schema__` or
+`__pydantic_init_subclass__`, at any depth: a class that defined either would decide for itself
+and every class below it whether the refusal runs.
 
 ### 2. Only text is judged, and the framework trusts the text it wrote itself
 
@@ -75,7 +87,12 @@ from rows validates exactly as before, and so does a schema constructed in code 
 The framework writes a job's payload as text when it is enqueued and reads it back in the
 worker. A naive value the server built is written without an offset (ADR 0205 reads one as
 UTC), so the worker's read passes a validation context the refusal trusts, and the handler gets
-the value as it was built. That is the one round trip the framework makes through text.
+the value as it was built. The context's key is an object compared by identity, so no string an
+app writes is it, and reaching it means importing `terp.core.timestamps`, which the rule
+refuses to an app (decision 5).
+That is the one read of an app's own schema the framework trusts. Mail delivery also reads back
+the message it sealed; that schema holds no timestamp, so nothing in it is judged, and a
+timestamp added to it would be refused until its read is trusted too.
 
 Any other text a schema reads is judged as a client's: a realtime message a client sends, a
 mapping the app's own code hands a schema, a payload passed to `enqueue` as a mapping, and a
@@ -103,9 +120,10 @@ The value arrives aware, so a declared filter takes it too.
 
 The `request_timestamps_carry_their_offset` rule fails closed by name. It refuses every
 reference to `NaiveMeansUtc`: as a name, as an attribute, through `getattr` with that literal
-name, in a quoted annotation, and under every name the file binds to it, at each use. A
-re-export of it, and a class of that name the file defines, count as the escape too, and so
-does an import of `terp.core.timestamps`, the boundary's own machinery. A use stands only when
+name, and in a quoted annotation. It refuses every name the file binds to it, at each use where
+that binding is the one in scope, and a class attribute bound to it at each use through its
+class. A re-export of it, and a class of that name the file defines, count as the escape too,
+and so does reaching `terp.core.timestamps`, the boundary's own module, however it is spelled. A use stands only when
 its line carries `# arch-allow-request-timestamps-carry-their-offset: <reason>`, which the
 app's `escape-hatch-budget.json` counts (ADR 0059). So taking it is a person's decision, made in
 review, and never a default. The rule holds every root that ships Python, a worker as much as
@@ -134,11 +152,14 @@ framework's way around them. The rule's catalog entry classifies its runtime hal
 - **A timestamp route parameter that is not a declared filter.** FastAPI parses it, and nothing
   judges it unless it reaches a filter. Until a check covers it, take it through a declared
   filter, or type it with Pydantic's `AwareDatetime`, whose 422 does not name the fix.
-- **A validator of the app's own that runs first.** A model or field validator in `before` mode
-  sees the text before the timestamp type does, so it can read a naive value with a zone of its
-  choosing. That is also how a "wall time plus a named zone" input is read. It is the app's own
-  code, which a reviewer reads, and the rule does not count it. Whether the rule should govern
-  it is the owner's question.
+- **A validator of the app's own that runs first.** A model validator in `before` or `wrap`
+  mode, and a field validator in `before`, `wrap` or `plain` mode (`BeforeValidator`,
+  `WrapValidator`, `PlainValidator`, `@field_validator`), sees the text before the timestamp
+  type does, so it can read a naive value with a zone of its choosing. That is also how a "wall
+  time plus a named zone" input is read. Moving the refusal to the timestamp type widened this:
+  the first build's refusal ran before a field validator, and refused the naive text a
+  `BeforeValidator` would have read. It is the app's own code, which a reviewer reads, and the
+  rule does not count it. Whether the rule should govern it is the owner's question.
 - **A `date` bound on a timestamp column.** A declared filter still takes a bare date as UTC
   midnight, the reading `UtcDateTime` gives one. For a caller in another zone, that day starts
   off by the zone's offset, the same outcome this ADR refuses for a naive date and time. Whether
@@ -147,14 +168,15 @@ framework's way around them. The rule's catalog entry classifies its runtime hal
   and time into an instant. A form that sends the value of a `datetime-local` input sends a time
   without an offset, which this ADR now refuses. Whether the frontend gets that primitive, or a
   lint rule for the raw value, is the owner's question.
-- **An alias across modules.** A name bound to `NaiveMeansUtc` in one module and imported into
-  another under a different name counts once, where it is bound. The corpus records it as a
-  residual.
+- **An alias the rule counts once.** A name bound to `NaiveMeansUtc` in one module and imported
+  into another under a different name, or bound by a `for` loop, a `with` statement or an
+  assignment expression, counts where the escape is named, not at each use. The corpus records
+  each as a residual.
 
 ## What the review changed
 
-The first build was reviewed independently before its pull request. Each finding is fixed in
-the build:
+The build was reviewed independently twice before its pull request. Each finding is fixed in
+the build, except the three recorded as open above. The first round:
 
 - **The refusal guessed.** It was a model validator that judged a body's raw keys against the
   field shapes it recognised. It missed a timestamp under `Sequence`, `dict`, a tuple, a nested
@@ -170,6 +192,31 @@ the build:
 - **Prose that claimed more than the code.** It said a generated client already sends the
   offset, that the nested errors came in the same response, and that `NaiveMeansUtc` was the
   only way around. Each is corrected above.
+
+The second round, of the rework:
+
+- **A definition was never judged.** The hook saw a nested plain model, a dataclass, a
+  `TypedDict` or a type alias as a reference to a definition, and could not see into it. It now
+  follows each reference into a held copy of the definition. A nested model whose own complete
+  validator Pydantic reuses is refused when the schema is defined, decision 1.
+- **A field named like a schema setting was never judged.** The walk skipped keys such as
+  `default` and `expected` at every level, including in a model's mapping of field names. It
+  now reads a mapping of names by every key.
+- **The trust and the escape's mark could be forged.** Both were strings an app could write
+  into a context or a schema's metadata. They are now an object and the escape's own validator,
+  each compared by identity, decision 2. The rule also refuses
+  `terp.core.timestamps` however it is reached: `from terp.core import timestamps`, or an
+  attribute of the `terp.core` package.
+- **A class between could swallow the check.** A subclass that defined the subclass hook
+  without passing it on spared every class below it. The check moved to `BaseSchema`'s
+  metaclass, which runs for every class, decision 1.
+- **The column rule refused declarations it should take.** `Annotated[datetime,
+  Field(sa_type=UtcDateTime())]`, a column given a name in a variable, and `Column` imported
+  under another name. Each is read now.
+- **Smaller ones.** A union member's location carried the refusal's function name; it now
+  carries the member's own name. The rule now follows a function's own local of the same name
+  as that local, and a class attribute bound to the escape at each use. A machinery import is
+  now told to recognise a refusal by its error type.
 
 ## Consequences
 

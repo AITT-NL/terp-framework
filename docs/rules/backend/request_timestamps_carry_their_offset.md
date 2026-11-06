@@ -12,7 +12,7 @@ A date and time without a UTC offset names no instant: ten in the morning is a d
 
 ## How Terp realises this
 
-The rule fails closed by name. Every reference to NaiveMeansUtc is refused: as a name, as an attribute (core.NaiveMeansUtc, terp.core.NaiveMeansUtc), through getattr with that literal name, in a quoted annotation, and under every name the file binds to it by an import alias, an assignment or a type alias, at each use. So is a class or a re-export of that name from anywhere, and an import of terp.core.timestamps, the boundary's own machinery. A Literal value is text, not the escape. A plain datetime field needs nothing, and neither does a datetime query parameter forwarded to a declared filter: at run time BaseSchema refuses timestamp text without an offset wherever Pydantic reads a datetime, as a 422 at its place, and the filter refuses a bound without one as a 400 that names it (ADR 0206). The rule holds every root that ships Python, a worker as much as the app; terp.core, which defines the boundary and its escape, is neither's user.
+The rule fails closed by name. Every reference to NaiveMeansUtc is refused: as a name, as an attribute (core.NaiveMeansUtc, terp.core.NaiveMeansUtc), through getattr with that literal name, and in a quoted annotation. So is every name the file binds to it by an import alias, an assignment or a type alias, at each use where that binding is the one in scope, and a class attribute bound to it at each use through its class. A class or a re-export of that name from anywhere counts too, and so does reaching terp.core.timestamps, the boundary's own module, however it is spelled (an import of it, from terp.core import timestamps, or an attribute of the terp.core package). A Literal value is text, not the escape. A plain datetime field needs nothing, and neither does a datetime query parameter forwarded to a declared filter: at run time BaseSchema refuses timestamp text without an offset wherever Pydantic reads a datetime for it, as a 422 at its place, and the filter refuses a bound without one as a 400 that names it (ADR 0206). The rule holds every root that ships Python, a worker as much as the app; terp.core, which defines the boundary and its escape, is neither's user.
 
 ## If you really need an exception
 
@@ -34,6 +34,7 @@ where detection ends is a statement rather than a guess:
 
 - an alias of the escape bound in one module and imported into another under a different name counts once, where it is bound, not at each use in the other module
 - a name reached through a computed attribute (getattr with a name that is not a literal, or an import made by importlib) is not resolved to the escape
+- a name bound to the escape by a for loop, a with statement or an assignment expression counts where the escape is named, not at each use of that name
 
 **These are not exemptions.** The rule governs those forms exactly as it
 governs any other — a checker is simply not required to find them, so

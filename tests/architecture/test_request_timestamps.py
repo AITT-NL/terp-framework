@@ -10,10 +10,11 @@ Unix time, the framework's own job text, the contract's text), and the escape.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Annotated, Any, Literal, NewType
+from typing import Annotated, Any, Literal, NewType, TypeAliasType, TypedDict, Union
 
 import pytest
 from fastapi import FastAPI
@@ -22,9 +23,12 @@ from pydantic import (
     AfterValidator,
     AliasChoices,
     AliasPath,
+    BaseModel,
+    Discriminator,
     FutureDatetime,
     GetCoreSchemaHandler,
     NaiveDatetime,
+    Tag,
 )
 from pydantic import Field as PydanticField
 from pydantic import ValidationError
@@ -367,7 +371,7 @@ def test_a_nested_timestamp_is_named_with_its_parent_in_the_same_error() -> None
 
 
 def test_a_schema_that_overrides_the_hook_is_refused_when_it_is_defined() -> None:
-    with pytest.raises(TypeError, match="overrides __get_pydantic_core_schema__"):
+    with pytest.raises(TypeError, match="defines __get_pydantic_core_schema__"):
 
         class _Sneaky(BaseSchema):
             at: datetime
@@ -438,3 +442,138 @@ def test_a_row_read_as_text_is_judged_like_any_other_text() -> None:
     assert _refusals(_ReminderPayload, row) == [
         (("remind_at",), "timestamp_offset_required", OFFSET_REQUIRED)
     ]
+
+
+# --------------------------------------------------------------------------- #
+# through every definition the schema refers to, and nothing outside it
+# --------------------------------------------------------------------------- #
+
+
+@dataclasses.dataclass
+class _Span:
+    start: datetime
+
+
+class _SpanDict(TypedDict):
+    start: datetime
+
+
+type _Stamp695 = datetime
+_Stamps = TypeAliasType("_Stamps", list[datetime])
+
+
+class _Tree(BaseSchema):
+    at: datetime
+    child: _Tree | None = None
+
+
+class _Defined(BaseSchema):
+    span: _Span | None = None
+    span_dict: _SpanDict | None = None
+    stamp: _Stamp695 | None = None
+    stamps: _Stamps | None = None
+    tree: _Tree | None = None
+
+
+@pytest.mark.parametrize(
+    ("data", "loc"),
+    [
+        ({"span": {"start": NAIVE}}, ("span", "start")),
+        ({"span_dict": {"start": NAIVE}}, ("span_dict", "start")),
+        ({"stamp": NAIVE}, ("stamp",)),
+        ({"stamps": [NAIVE]}, ("stamps", 0)),
+        ({"tree": {"at": AWARE, "child": {"at": NAIVE}}}, ("tree", "child", "at")),
+    ],
+)
+def test_a_timestamp_inside_a_definition_is_judged(data: dict[str, object], loc: tuple[str | int, ...]) -> None:
+    assert _refusals(_Defined, data) == [(loc, "timestamp_offset_required", OFFSET_REQUIRED)]
+
+
+class _SettingNames(BaseSchema):
+    default: datetime | None = None
+    expected: datetime | None = None
+    metadata_: datetime | None = PydanticField(default=None, alias="metadata")
+    ref: datetime | None = None
+    cls: datetime | None = None
+    serialization: datetime | None = None
+
+
+@pytest.mark.parametrize("name", ["default", "expected", "metadata", "ref", "cls", "serialization"])
+def test_a_field_named_like_a_schema_setting_is_judged(name: str) -> None:
+    assert _refusals(_SettingNames, {name: NAIVE}) == [((name,), "timestamp_offset_required", OFFSET_REQUIRED)]
+
+
+class _Kept(BaseSchema):
+    kind: Literal["kept"] = "kept"
+    at: datetime
+
+
+class _Moved(BaseSchema):
+    kind: Literal["moved"] = "moved"
+    at: datetime
+
+
+def _which(value: object) -> str:
+    kind = value.get("kind") if isinstance(value, dict) else getattr(value, "kind", None)
+    return "default" if kind == "kept" else "moved"
+
+
+class _Tagged(BaseSchema):
+    either: Annotated[
+        Union[Annotated[_Kept, Tag("default")], Annotated[_Moved, Tag("moved")]], Discriminator(_which)
+    ]
+    listed: list[datetime] | str | None = None
+
+
+def test_a_tagged_member_is_judged_under_its_tag_whatever_the_tag_is_called() -> None:
+    assert _refusals(_Tagged, {"either": {"kind": "kept", "at": NAIVE}}) == [
+        (("either", "default", "at"), "timestamp_offset_required", OFFSET_REQUIRED)
+    ]
+
+
+def test_a_union_member_is_located_by_the_name_pydantic_gives_it() -> None:
+    (loc, kind, _), *_ = _refusals(_Tagged, {"either": {"kind": "moved", "at": AWARE}, "listed": [NAIVE]})
+    assert (loc, kind) == (("listed", "list[datetime]", 0), "timestamp_offset_required")
+
+
+class _PlainSpan(BaseModel):
+    start: datetime
+
+
+class _PlainLenientSpan(BaseModel):
+    start: NaiveMeansUtc
+
+
+def test_a_nested_model_that_brings_its_own_validator_is_refused_when_defined() -> None:
+    """Pydantic validates such a model with its own complete validator, which does not judge,
+    so the schema around it would let its timestamp through; it is refused instead."""
+    with pytest.raises(TypeError, match="nests _PlainSpan, which brings its own Pydantic validator"):
+
+        class _Nests(BaseSchema):
+            span: _PlainSpan
+
+    class _NestsLenient(BaseSchema):
+        span: _PlainLenientSpan
+
+    assert _NestsLenient.model_validate({"span": {"start": NAIVE}}).span.start == INSTANT
+
+
+def test_a_plain_model_around_the_same_type_stays_as_it_was() -> None:
+    class _PlainParent(BaseModel):
+        span: _Span
+
+    assert _PlainParent.model_validate({"span": {"start": NAIVE}}).span.start.tzinfo is None
+
+
+def test_a_class_between_that_defines_a_hook_is_refused_when_defined() -> None:
+    with pytest.raises(TypeError, match="defines __pydantic_init_subclass__"):
+
+        class _Quiet(BaseSchema):
+            @classmethod
+            def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+                return None
+
+
+def test_a_context_spelled_like_the_frameworks_own_is_not_trusted() -> None:
+    with pytest.raises(ValidationError, match="UTC offset"):
+        _ReminderPayload.model_validate({"remind_at": NAIVE}, context={"terp.timestamps.server-text": True})

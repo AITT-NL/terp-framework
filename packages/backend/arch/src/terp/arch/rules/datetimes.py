@@ -228,12 +228,14 @@ _COLUMN_MESSAGES = {
 }
 
 
-def _declared_column_types(value: ast.expr | None) -> list[ast.expr] | None:
+def _declared_column_types(
+    value: ast.expr | None, column_names: set[str]
+) -> list[ast.expr] | None:
     """The column types a field declaration names, or ``None`` when one cannot be read.
 
-    Only the places a type reaches the column count: ``sa_type=``, and the type argument of
-    ``sa_column=Column(...)`` (``type_=``, or its first positional argument that is not the
-    column's name). A type named anywhere else in the call does not reach the column.
+    Only the places a type reaches the column count: ``sa_type=``, and the type of
+    ``sa_column=Column(...)`` (``type_=``, or its positional arguments, the column's name
+    aside). A type named anywhere else in the call does not reach the column.
     """
     if not isinstance(value, ast.Call):
         return []
@@ -243,7 +245,7 @@ def _declared_column_types(value: ast.expr | None) -> list[ast.expr] | None:
             found.append(keyword.value)
         elif keyword.arg == "sa_column":
             column = keyword.value
-            if not isinstance(column, ast.Call) or base_name(column.func) != "Column":
+            if not isinstance(column, ast.Call) or base_name(column.func) not in column_names:
                 return None
             typed = [k.value for k in column.keywords if k.arg == "type_"]
             positional = [
@@ -251,8 +253,32 @@ def _declared_column_types(value: ast.expr | None) -> list[ast.expr] | None:
                 for argument in column.args
                 if not (isinstance(argument, ast.Constant) and isinstance(argument.value, str))
             ]
-            found.extend(typed or positional[:1])
+            found.extend(typed or positional)
     return found
+
+
+def _annotated_fields(annotation: ast.expr) -> list[ast.expr]:
+    """The ``Field(...)`` calls an ``Annotated`` annotation carries, however it is wrapped."""
+    found: list[ast.expr] = []
+    for node in ast.walk(annotation):
+        if isinstance(node, ast.Subscript) and base_name(node.value) == "Annotated":
+            inner = node.slice
+            elements = list(inner.elts) if isinstance(inner, ast.Tuple) else [inner]
+            found.extend(
+                element
+                for element in elements[1:]
+                if isinstance(element, ast.Call) and base_name(element.func) == "Field"
+            )
+    return found
+
+
+def _column_names(tree: ast.Module) -> set[str]:
+    """The names this file calls ``Column`` by: its own, and any import alias of it."""
+    names = {"Column"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            names.update(alias.asname for alias in node.names if alias.name == "Column" and alias.asname)
+    return names
 
 
 def _type_verdict(node: ast.expr, scope: _Scope) -> tuple[str, str]:
@@ -275,19 +301,27 @@ def _type_verdict(node: ast.expr, scope: _Scope) -> tuple[str, str]:
     return "naive", ""
 
 
-def _column_storage(value: ast.expr | None, scope: _Scope) -> tuple[str, str]:
-    """How a field declaration stores its timestamp: ``utc`` only for terp.core's type."""
-    types = _declared_column_types(value)
-    if types is None:
-        return "unreadable", ""
-    if not types:
-        return "naive", ""
+def _column_storage(
+    declarations: list[ast.expr | None], scope: _Scope, column_names: set[str]
+) -> tuple[str, str]:
+    """How a field's declarations store its timestamp: ``utc`` only for terp.core's type.
+
+    A type that is not terp.core's, or one that stores the wall time, decides it whatever else
+    is named. Otherwise terp.core's type decides it, so the name a column is given beside it
+    does not; with neither, the column is naive.
+    """
+    types: list[ast.expr] = []
+    for declaration in declarations:
+        declared = _declared_column_types(declaration, column_names)
+        if declared is None:
+            return "unreadable", ""
+        types.extend(declared)
     verdicts = [_type_verdict(node, scope) for node in types]
-    for kind in ("foreign", "wall-time", "naive"):
+    for kind in ("foreign", "wall-time", "utc"):
         for verdict in verdicts:
             if verdict[0] == kind:
                 return verdict
-    return "utc", ""
+    return "naive", ""
 
 
 def _table_mixin_names(tree: ast.Module) -> set[str | None]:
@@ -309,12 +343,15 @@ def _table_mixin_names(tree: ast.Module) -> set[str | None]:
     }
 
 
-def _column_violations(cls: ast.ClassDef, scope: _Scope, rel: str) -> list[ArchViolation]:
+def _column_violations(
+    cls: ast.ClassDef, scope: _Scope, rel: str, column_names: set[str]
+) -> list[ArchViolation]:
     violations: list[ArchViolation] = []
     for stmt in cls.body:
         if not isinstance(stmt, ast.AnnAssign) or not _is_datetime_annotation(stmt.annotation):
             continue
-        verdict, spelling = _column_storage(stmt.value, scope)
+        declarations = [stmt.value, *_annotated_fields(stmt.annotation)]
+        verdict, spelling = _column_storage(declarations, scope, column_names)
         if verdict == "utc":
             continue
         name = stmt.target.id if isinstance(stmt.target, ast.Name) else "<field>"
@@ -351,6 +388,7 @@ def check_datetime_columns_are_timezone_aware(
         tree = parse(path)
         rel = _rel(path, root)
         mixins = _table_mixin_names(tree)
+        column_names = _column_names(tree)
         scope = _Scope()
         checked: set[int] = set()
         for stmt in _module_statements(tree.body):
@@ -358,7 +396,7 @@ def check_datetime_columns_are_timezone_aware(
                 _is_table_model_class(stmt) or stmt.name in mixins
             ):
                 checked.add(id(stmt))
-                violations.extend(_column_violations(stmt, scope, rel))
+                violations.extend(_column_violations(stmt, scope, rel, column_names))
             _bind(scope, stmt)
         # A class defined inside a function is read when the function runs: after the module.
         for node in ast.walk(tree):
@@ -367,7 +405,7 @@ def check_datetime_columns_are_timezone_aware(
                 and id(node) not in checked
                 and (_is_table_model_class(node) or node.name in mixins)
             ):
-                violations.extend(_column_violations(node, scope, rel))
+                violations.extend(_column_violations(node, scope, rel, column_names))
     return violations
 
 

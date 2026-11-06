@@ -1959,6 +1959,12 @@ def test_datetime_columns_are_timezone_aware(tmp_path: pathlib.Path) -> None:
         (core_import, "    due_at: datetime = Field(sa_column=Column(type_=UtcDateTime()))\n"),
         (core_import, "    due_at: Optional[datetime] = Field(default=None, sa_type=UtcDateTime())\n"),
         ("import terp\n\n\n", "    due_at: datetime = Field(sa_type=terp.core.UtcDateTime())\n"),
+        (core_import, "    due_at: Annotated[datetime, Field(sa_type=UtcDateTime())]\n"),
+        (core_import, "    due_at: datetime = Field(sa_column=Column(NAME, UtcDateTime()))\n"),
+        (
+            core_import + "from sqlalchemy import Column as Col\n\n\n",
+            "    due_at: datetime = Field(sa_column=Col(UtcDateTime()))\n",
+        ),
         (
             core_import + "def unrelated():\n    UtcDateTime = None\n    return UtcDateTime\n\n\n",
             "    due_at: datetime = Field(sa_type=UtcDateTime())\n",
@@ -1993,6 +1999,12 @@ def test_datetime_columns_are_timezone_aware(tmp_path: pathlib.Path) -> None:
         (core_import, "    due_at: Annotated[datetime, 'x'] = Field(default=None)\n", "declares no timezone"),
         (core_import, "    due_at: 'datetime | None' = Field(default=None)\n", "declares no timezone"),
         (core_import, "    due_at: datetime = Field(sa_column=make_column())\n", "cannot read its type"),
+        (
+            core_import,
+            "    due_at: datetime = Field(sa_column=Column(NAME, DateTime(timezone=True)))\n",
+            "keeps the zone on PostgreSQL",
+        ),
+        (core_import, "    due_at: Annotated[datetime, Field(sa_type=DateTime())]\n", "declares no timezone"),
     ):
         _write(app, "modules/notes/models.py", model(fields, imports))
         (message,) = messages(check_datetime_columns_are_timezone_aware(app))
@@ -2178,10 +2190,32 @@ def test_request_timestamps_carry_their_offset(tmp_path: pathlib.Path) -> None:
         "    return at\n"
     ) == [4]
 
-    # The boundary's own module is the escape's machinery, which no app imports.
+    # The boundary's own module is the escape's machinery, which no app reaches, however it
+    # is spelled; the message says to recognise a refusal by its error type instead.
     ((line, message),) = findings("from terp.core.timestamps import OFFSET_REQUIRED\n")
-    assert line == 1 and "boundary's own machinery" in message
+    assert line == 1 and "timestamp boundary's own module" in message
+    assert "timestamp_offset_required" in message
     assert lines("import terp.core.timestamps\n") == [1]
+    assert lines("from terp.core import timestamps\n") == [1]
+    assert lines("import terp.core as core\n\nMARK = core.timestamps.OFFSET_REQUIRED\n") == [3]
+    assert lines("import terp\n\nMARK = terp.core.timestamps.OFFSET_REQUIRED\n") == [3]
+
+    # A name bound to the escape counts where that binding is the one in scope: a function's
+    # own local of the same name is not it, and a class attribute counts at each use through
+    # the class.
+    assert lines(
+        "from terp.core import NaiveMeansUtc\n\n"
+        "Stamp = NaiveMeansUtc\n\n\n"
+        "class ReadingCreate(BaseSchema):\n    taken_at: Stamp\n\n\n"
+        "def unrelated(row):\n    Stamp = row.created_at\n    return Stamp\n"
+    ) == [3, 7]
+    assert lines(
+        "from terp.core import NaiveMeansUtc\n\n\n"
+        "class Types:\n    Lenient = NaiveMeansUtc\n\n\n"
+        "class ReadingCreate(BaseSchema):\n"
+        "    taken_at: Types.Lenient\n"
+        "    checked_at: Types.Lenient | None = None\n"
+    ) == [5, 9, 10]
 
     # Importing it takes nothing; a Literal value, a docstring, a string that is no
     # annotation, and a plain timestamp field are not the escape.

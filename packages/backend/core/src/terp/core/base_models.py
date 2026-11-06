@@ -31,6 +31,7 @@ from sqlalchemy import DateTime, Dialect, MetaData
 from sqlalchemy.orm import declared_attr
 from sqlalchemy.types import TypeDecorator, TypeEngine
 from sqlmodel import Field, SQLModel
+from sqlmodel.main import SQLModelMetaclass
 
 from terp.core.personal import declare_model, mask_repr_args
 from terp.core.timestamps import hold_timestamps_to_their_offset
@@ -302,7 +303,36 @@ class BaseTable(UUIDPrimaryKeyMixin, TimestampMixin, SQLModel):
         return mask_repr_args(self, super().__repr_args__())
 
 
-class BaseSchema(SQLModel):
+class _BaseSchemaMeta(SQLModelMetaclass):
+    """Every ``BaseSchema`` subclass keeps the two hooks the base relies on.
+
+    The schema hook holds a timestamp read as text to its UTC offset (ADR 0206), and the
+    subclass hook declares a schema's personal fields (ADR 0190). A class that defined either
+    would decide, for itself and every class below it, whether those run at all, so a
+    subclass that defines either is refused when it is defined. A metaclass, unlike a hook,
+    runs for every class whatever its bases define.
+    """
+
+    def __new__(
+        mcs, name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
+    ) -> Any:
+        if any(isinstance(base, _BaseSchemaMeta) for base in bases):
+            defined = sorted(
+                hook
+                for hook in ("__get_pydantic_core_schema__", "__pydantic_init_subclass__")
+                if hook in namespace
+            )
+            if defined:
+                raise TypeError(
+                    f"{name} defines {', '.join(defined)}, which BaseSchema relies on to hold "
+                    "a timestamp read as text to its UTC offset (ADR 0206) and to declare "
+                    "personal fields (ADR 0190); remove it, and type a field NaiveMeansUtc "
+                    "where a sender sends UTC without an offset"
+                )
+        return super().__new__(mcs, name, bases, namespace, **kwargs)
+
+
+class BaseSchema(SQLModel, metaclass=_BaseSchemaMeta):
     """Base for non-table DTOs (request bodies and response models).
 
     A field declared with :func:`~terp.core.Personal` is masked when the schema is
@@ -322,19 +352,13 @@ class BaseSchema(SQLModel):
         cls, source: Any, handler: GetCoreSchemaHandler
     ) -> CoreSchema:
         # Every timestamp this schema reads as text must carry its UTC offset (ADR 0206).
-        return hold_timestamps_to_their_offset(handler(source))
+        return hold_timestamps_to_their_offset(
+            handler(source), handler, owner=cls, judged=_BaseSchemaMeta
+        )
 
     @classmethod
     def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
         super().__pydantic_init_subclass__(**kwargs)
-        hook = getattr(cls.__get_pydantic_core_schema__, "__func__", None)
-        if hook is not BaseSchema.__dict__["__get_pydantic_core_schema__"].__func__:
-            raise TypeError(
-                f"{cls.__name__} overrides __get_pydantic_core_schema__, the hook that holds "
-                "a timestamp read as text to its UTC offset (ADR 0206); remove the "
-                "override, and type a field NaiveMeansUtc where a sender sends UTC without "
-                "an offset"
-            )
         declare_model(cls)
 
     def __repr_args__(self) -> Any:

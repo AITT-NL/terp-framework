@@ -39,9 +39,11 @@ decision, 0001 onwards.
   instant, and a `UtcDateTime` column reads it as UTC. So a client one zone east of UTC that sent
   `2026-11-06T10:00:00` was stored an hour off, and nothing reported it.
   - A `BaseSchema` now refuses timestamp text without an offset wherever Pydantic reads a
-    timestamp for it: a field, an item of a list or mapping, a member of a union, a nested model,
-    under the alias it reads. It is a 422 of type `timestamp_offset_required` at that place,
-    whose message names the fix (`2026-11-06T10:00:00Z` or `2026-11-06T11:00:00+01:00`).
+    timestamp for it, following every definition the schema refers to: a field, an item of a
+    list or mapping, a member of a union, a type alias, a dataclass, a `TypedDict`, a nested
+    `BaseSchema`, under the alias it reads. It is a 422 of type `timestamp_offset_required` at
+    that place, whose message names the fix (`2026-11-06T10:00:00Z` or
+    `2026-11-06T11:00:00+01:00`).
   - A declared filter refuses a bound without an offset with a 400 that names the filter.
   - Only text is judged. An object the server built, a row read back through the ORM and a
     Unix time validate as before, and a job's payload, written as text when it is enqueued, is
@@ -52,8 +54,11 @@ decision, 0001 onwards.
   offset as UTC, for a sender known to send UTC without saying so. The new rule
   `backend/request_timestamps_carry_their_offset` refuses each use of it, by name wherever it
   appears, unless its line carries `# arch-allow-request-timestamps-carry-their-offset:
-  <reason>`, which the app's escape-hatch budget counts. A `BaseSchema` subclass that overrides
-  `__get_pydantic_core_schema__` is refused when it is defined.
+  <reason>`, which the app's escape-hatch budget counts. `BaseSchema`'s metaclass refuses a
+  subclass, at any depth, that defines `__get_pydantic_core_schema__` or
+  `__pydantic_init_subclass__`. A `BaseSchema` that nests a model bringing its own complete
+  Pydantic validator (a plain `BaseModel`, a Pydantic dataclass) that holds a timestamp is
+  refused when it is defined, since that validator would read the timestamp unjudged.
 - **`backend/datetime_columns_are_timezone_aware` accepts only `terp.core`'s `UtcDateTime`
   (ADR 0205, open question B).** `DateTime(timezone=True)` and `TIMESTAMP(timezone=True)` keep
   the zone on PostgreSQL but store the wall time on SQLite, so the instant a row recorded
@@ -88,6 +93,10 @@ decision, 0001 onwards.
   sender known to send UTC without saying so, type that one field or query parameter
   `NaiveMeansUtc`, and add the rule's marker with its reason and the budget entry in the same
   change.
+- **A `BaseSchema` can now be refused when it is defined.** One that nests a plain `BaseModel` or
+  a Pydantic dataclass holding a timestamp raises a `TypeError` naming both: derive the nested
+  model from `BaseSchema`, or type that timestamp `NaiveMeansUtc`. So does a subclass that
+  defines `__get_pydantic_core_schema__` or `__pydantic_init_subclass__`.
 - **A naive bound passed to `filters=` is now a 400,** from the app's own code as from a client.
   Pass an aware value: `datetime.now(UTC)`, or `.replace(tzinfo=UTC)` for a value known to be UTC.
 - **A column declared `DateTime(timezone=True)` now turns the gate red.** Replace it with
