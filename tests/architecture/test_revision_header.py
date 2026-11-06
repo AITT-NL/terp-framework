@@ -15,6 +15,7 @@ import runpy
 import pytest
 
 from terp.arch import RevisionHeader, revision_header
+from tests.architecture.rule_layout import corpus_root
 
 _REPO = pathlib.Path(__file__).resolve().parents[2]
 
@@ -127,11 +128,14 @@ def test_the_revision_is_never_executed(tmp_path: pathlib.Path) -> None:
 
 
 def _framework_revisions() -> list[pathlib.Path]:
+    # The backend corpus beside terp-arch holds sample app trees, some with deliberately
+    # broken revisions; they are a rule's test data, not a history this framework ships.
+    corpus = corpus_root("backend")
     return [
         path
         for root in ("packages/backend", "apps/example/app")
         for path in sorted((_REPO / root).rglob("migrations/versions/*.py"))
-        if not path.name.startswith("_")
+        if not path.name.startswith("_") and not path.is_relative_to(corpus)
     ]
 
 
