@@ -42,7 +42,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated, Any, cast
 
 from pydantic import BaseModel, GetCoreSchemaHandler, TypeAdapter, ValidationError, ValidationInfo
@@ -338,25 +338,27 @@ refused by the ``request_timestamps_carry_their_offset`` rule unless its line ca
 """
 
 
-def require_offset(name: str, value: datetime | str | bytes | bytearray) -> datetime:
+def _names_no_instant(name: str) -> ValidationFailedError:
+    return ValidationFailedError(
+        f"Filter {name!r} needs a date and time with its UTC offset, for example "
+        "2026-11-06T10:00:00Z."
+    )
+
+
+def require_offset(name: str, value: datetime | date | str | bytes | bytearray) -> datetime:
     """A declared filter's bound as the instant it names, refused, naming the filter, if none.
 
     A bound the app's own code gives as text is read as a date and time first, as a request's
-    would be, so text that is none, and text without a UTC offset, are refused alike.
+    would be, so text that is none, and text without a UTC offset, are refused alike. So is a
+    calendar day, which names no instant until it names the zone whose day it is.
     """
     if isinstance(value, str | bytes | bytearray):
         try:
             value = _DATETIME.validate_python(value)
         except ValidationError as exc:
-            raise ValidationFailedError(
-                f"Filter {name!r} needs a date and time with its UTC offset, for example "
-                "2026-11-06T10:00:00Z."
-            ) from exc
-    if value.utcoffset() is None:
-        raise ValidationFailedError(
-            f"Filter {name!r} needs a date and time with its UTC offset, for example "
-            "2026-11-06T10:00:00Z."
-        )
+            raise _names_no_instant(name) from exc
+    if not isinstance(value, datetime) or value.utcoffset() is None:
+        raise _names_no_instant(name)
     return value
 
 

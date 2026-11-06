@@ -44,13 +44,14 @@ from pydantic import ValidationError
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pydantic_core import CoreSchema
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Field, Session, SQLModel, create_engine
+from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 from terp.core import (
     BaseSchema,
     BaseTable,
     BaseUpdateSchema,
     FilterField,
+    FilterOp,
     InProcessJobQueue,
     JobCatalog,
     JobDefinition,
@@ -107,6 +108,12 @@ class _Reading(BaseTable, table=True):
     __tablename__ = "request_timestamp_reading"
 
     taken_at: datetime = Field(sa_type=UtcDateTime())
+
+
+class _Diary(BaseTable, table=True):
+    __tablename__ = "request_timestamp_diary"
+
+    on: dt.date
 
 
 def _refusals(model: type[BaseSchema], data: object) -> list[tuple[tuple[str | int, ...], str, str]]:
@@ -460,9 +467,89 @@ def test_a_filter_bound_given_as_text_elsewhere_is_left_as_it_is() -> None:
     assert FilterField("opaque", _Opaque(), op="eq").condition(NAIVE) == ("eq", NAIVE)  # type: ignore[arg-type]
 
 
-def test_a_filter_bound_with_its_offset_and_a_date_are_taken() -> None:
+def test_a_filter_bound_with_its_offset_is_taken() -> None:
     assert FilterField("taken_after", _Reading.taken_at, op="gt").condition(INSTANT) is not None
-    assert FilterField("taken_on", _Reading.taken_at, op="gte").condition(dt.date(2026, 11, 6)) is not None
+
+
+@pytest.mark.parametrize("op", ["eq", "gte", "lt"])
+def test_a_calendar_day_on_a_timestamp_filter_without_a_zone_is_refused(op: FilterOp) -> None:
+    """A day names no instant until it names the zone whose day it is, so a filter that
+    declares none refuses it, as a request body refuses a bare date for a timestamp."""
+    with pytest.raises(ValidationFailedError, match="'taken_on' needs a date and time with its UTC offset"):
+        FilterField("taken_on", _Reading.taken_at, op=op).condition(dt.date(2026, 11, 6))
+    with pytest.raises(ValidationFailedError, match="UTC offset"):
+        FilterField("taken_on", _Reading.taken_at, op="in").condition([dt.date(2026, 11, 6)])
+
+
+def test_a_calendar_day_on_a_column_of_days_is_compared_as_it_always_was() -> None:
+    assert FilterField("on", _Diary.on, op="gte").condition(dt.date(2026, 11, 6)).right.value == dt.date(2026, 11, 6)  # type: ignore[attr-defined]
+
+
+#: Four readings around 6 November in Amsterdam (UTC+1): the minute before it starts, its
+#: first minute, its last minute, and the first minute after it.
+_AROUND_THE_DAY = {
+    "before": datetime(2026, 11, 5, 22, 59, tzinfo=UTC),
+    "first": datetime(2026, 11, 5, 23, 0, tzinfo=UTC),
+    "last": datetime(2026, 11, 6, 22, 59, tzinfo=UTC),
+    "after": datetime(2026, 11, 6, 23, 0, tzinfo=UTC),
+}
+
+
+def _matching(condition: Any) -> set[str]:
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(engine, tables=[_Reading.__table__])  # type: ignore[list-item]
+    names = {instant: name for name, instant in _AROUND_THE_DAY.items()}
+    with Session(engine) as session:
+        session.add_all(_Reading(taken_at=instant) for instant in _AROUND_THE_DAY.values())
+        session.commit()
+        rows = session.exec(select(_Reading).where(condition)).all()
+        return {names[row.taken_at] for row in rows}
+
+
+@pytest.mark.parametrize(
+    ("op", "matched"),
+    [
+        ("eq", {"first", "last"}),
+        ("ne", {"before", "after"}),
+        ("lt", {"before"}),
+        ("lte", {"before", "first", "last"}),
+        ("gt", {"after"}),
+        ("gte", {"first", "last", "after"}),
+    ],
+)
+def test_a_filter_that_declares_a_zone_compares_a_day_as_the_whole_of_it(op: FilterOp, matched: set[str]) -> None:
+    field = FilterField("taken_on", _Reading.taken_at, op=op, zone="Europe/Amsterdam")
+    assert _matching(field.condition(dt.date(2026, 11, 6))) == matched
+
+
+def test_a_filter_that_declares_a_zone_takes_a_list_of_days_and_an_instant_as_one() -> None:
+    days = FilterField("taken_on", _Reading.taken_at, op="in", zone="Europe/Amsterdam")
+    assert _matching(days.condition([dt.date(2026, 11, 5), dt.date(2026, 11, 7)])) == {"before", "after"}
+    assert _matching(days.condition([_AROUND_THE_DAY["last"]])) == {"last"}
+    since = FilterField("taken_since", _Reading.taken_at, op="gte", zone="Europe/Amsterdam")
+    assert _matching(since.condition(_AROUND_THE_DAY["last"])) == {"last", "after"}
+    with pytest.raises(ValidationFailedError, match="UTC offset"):
+        since.condition(datetime(2026, 11, 6, 10, 0))
+
+
+def test_a_day_the_clocks_go_back_on_is_twenty_five_hours_long() -> None:
+    field = FilterField("taken_on", _Reading.taken_at, op="eq", zone="Europe/Amsterdam")
+    start, end = (clause.right.value for clause in field.condition(dt.date(2026, 10, 25)).clauses)  # type: ignore[attr-defined]
+    assert (start, end - start) == (datetime(2026, 10, 24, 22, 0, tzinfo=UTC), dt.timedelta(hours=25))
+
+
+@pytest.mark.parametrize(
+    ("declared", "message"),
+    [
+        ({"op": "like"}, "declares op 'like'; choose one of eq, ne"),
+        ({"zone": "Mars/Olympus"}, "is not a time zone this server knows"),
+        ({"zone": "Europe/Amsterdam", "column": "on"}, "on a column that holds none; remove the zone"),
+    ],
+)
+def test_a_filter_declared_wrongly_is_refused_when_it_is_declared(declared: dict[str, str], message: str) -> None:
+    column = _Diary.on if declared.pop("column", None) else _Reading.taken_at
+    with pytest.raises(ValueError, match=message):
+        FilterField("taken_on", column, **declared)  # type: ignore[arg-type]
 
 
 # --------------------------------------------------------------------------- #
