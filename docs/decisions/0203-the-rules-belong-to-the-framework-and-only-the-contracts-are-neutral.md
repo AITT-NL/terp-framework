@@ -2,9 +2,8 @@
 
 - **Status:** Proposed (awaiting review). Nothing is built on this record until it is accepted.
   It sets a direction; each move it describes is a later change of its own, and the first one
-  waits for PR #204 released as 0.36.1 and terp-spec#52 released as 0.43.0.
-- **Date:** 2026-11-05. 0194 to 0200 are on PR #204, and 0201 and 0202 are claimed by work in
-  progress elsewhere.
+  waits for terp-spec#52 released as 0.43.0 and this repository repinned to it.
+- **Date:** 2026-11-05. 0194 to 0202 are taken.
 - **Amends:** [ADR 0080](0080-terp-standard-rule-catalog-and-violation-corpus.md),
   [ADR 0081](0081-terp-standard-consumable-findings-schema-and-layers.md),
   [ADR 0082](0082-repo-split-readiness-spec-as-a-package.md),
@@ -18,7 +17,8 @@
   alone is a linter); leaves [ADR 0116](0116-a-rule-may-run-ahead-of-its-published-catalog-entry.md)
   and ADR 0084's two-stage certification nothing to govern once the rules move; names
   [ADR 0139](0139-who-can-reach-what-is-pinned-not-merely-reportable.md) (the authority baseline)
-  and ADR 0200 (proposed on PR #204: the release gate document) as an app's evidence.
+  and [ADR 0200](0200-a-release-is-signed-only-over-a-green-release-profile.md) (proposed: the
+  release gate document) as an app's evidence.
 
 ---
 
@@ -106,10 +106,10 @@ observe a rule, a fail-closed runtime control sees what the check misses. 38 rul
 
 ## Consequences
 
-- Nothing moves until this record is accepted, PR #204 is released as 0.36.1, and terp-spec#52
-  is released as 0.43.0 with this repository repinned to it. #204 brings the runtime security
-  tests and their evidence index; #52 brings the ten cases those tests already run ahead of
-  the pin. The fixtures and those cases move with the rules.
+- Nothing moves until this record is accepted and terp-spec#52 is released as 0.43.0 with
+  this repository repinned to it. Release 0.36.1 (PR #204) brought the runtime security tests
+  and their evidence index; #52 brings the ten cases those tests already run ahead of the
+  pin. The fixtures and those cases move with the rules.
 - The wording changes now. The spec's README, its schema descriptions, its packages'
   descriptions, and both repositories' `AGENTS.md` stop calling the rules stack-neutral.
 - The generated rule pages still end their reference text with "another stack ships its own
