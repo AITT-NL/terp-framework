@@ -8,28 +8,27 @@ published contract already rules such a value out: a ``datetime`` field is publi
 
 So every timestamp a ``BaseSchema`` reads *as text* must carry its offset. The schema's hook
 runs :func:`hold_timestamps_to_their_offset` over the schema Pydantic builds, which puts
-:func:`refuse_timestamp_text_without_offset` in front of every ``datetime`` in it, following
-every definition the schema refers to. That covers wherever Pydantic validates one for the
-schema: a field, an item of a list or tuple, a value of a mapping, a member of a union, a type
-alias, a ``NewType``, a stdlib dataclass, a ``TypedDict``, and a nested ``BaseSchema``, under
-whatever name Pydantic reads the value by. A nested class that brings its own complete
-Pydantic validator (a plain ``BaseModel``, a Pydantic dataclass, a model the framework builds)
-is validated by that validator whatever schema is handed to it, so the text it is given is
-judged first, against a copy of its fields held the same way and read under its own config,
-and then handed to it unchanged. A request body is refused with a 422 at the value's place,
-and so is a realtime message a client sends, and text the app's own code hands a schema. Every
-such value is named in one error.
+:func:`refuse_timestamp_text_without_offset` in front of every ``datetime`` the schema reads
+itself, following every definition it refers to: a field, an item of a list or tuple, a value
+of a mapping, a member of a union, a type alias, a ``NewType``, a stdlib dataclass and a
+``TypedDict``, under whatever name Pydantic reads the value by. A nested ``BaseSchema`` holds
+its own the same way. A class that brings its own Pydantic validator (a plain ``BaseModel``, a
+Pydantic dataclass, a table, a root model) reads its fields with that validator, which Pydantic
+uses whatever schema surrounds the class, so it is left to it, as a request model that is not
+a ``BaseSchema`` is. A request body is refused with a 422 at the value's place, and so is a
+realtime message a client sends, and text the app's own code hands a schema. Every such value
+is named in one error.
 
 What is not text is not judged. A ``datetime`` object reaching a schema was built by the
 server, read back from a row or computed in code, and a number is a Unix time, which is UTC.
 So a response model built from rows validates exactly as before. The job worker reads back the
-payload text the framework wrote at enqueue under a validation context the refusal trusts. That
-context, like the escape's mark, is an object compared by identity, so no string an app writes
-is it, and reaching it means importing this module, which the rule refuses to an app.
+payload text the framework wrote at enqueue while :func:`_reading_server_text` is in force,
+which every schema the read reaches trusts, a nested one included. Reaching it means
+importing this module, which the rule refuses to an app.
 
 A declared filter is the other door (:mod:`terp.core.filtering`). FastAPI has parsed its
 parameter into a ``datetime`` before it gets there, so :func:`require_offset` refuses a naive
-bound, a 400 that names the filter.
+bound, a 400 that names the filter, and reads a bound the app's own code gives as text first.
 
 The framework's one way around both is :data:`NaiveMeansUtc`, a type that reads a value with
 no offset as UTC, for a sender known to send UTC without saying so. The
@@ -41,18 +40,14 @@ reviewer sees.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Annotated, Any, cast
 
-from pydantic import GetCoreSchemaHandler, TypeAdapter, ValidationError, ValidationInfo
-from pydantic_core import (
-    CoreSchema,
-    InitErrorDetails,
-    PydanticCustomError,
-    SchemaError,
-    SchemaValidator,
-    core_schema,
-)
+from pydantic import BaseModel, GetCoreSchemaHandler, TypeAdapter, ValidationError, ValidationInfo
+from pydantic.dataclasses import is_pydantic_dataclass
+from pydantic_core import CoreSchema, PydanticCustomError, SchemaError, SchemaValidator, core_schema
 
 from terp.core.errors import ValidationFailedError
 
@@ -62,39 +57,32 @@ OFFSET_REQUIRED = (
     "2026-11-06T11:00:00+01:00"
 )
 
-#: The error type of a refusal, which is how a refusal is recognised.
-_REFUSED = "timestamp_offset_required"
-
 #: Keys of a schema node whose values are data or settings, never a schema to walk into.
 _NOT_SCHEMAS = frozenset(
     {"metadata", "serialization", "default", "expected", "ref", "cls", "config", "custom_error_context"}
 )
 
-#: The node kinds pydantic-core validates with a class's own prebuilt validator, when the
-#: class is complete, whatever schema it is handed for them.
-_PREBUILT = frozenset({"model", "dataclass"})
-
-#: What a stand-in for such a class leaves out of the class's node: the hooks the class has and
-#: the stand-in does not, and what names or serialises the class rather than validating it.
-_CLASS_ONLY = frozenset({"custom_init", "post_init", "generic_origin", "ref", "metadata", "serialization"})
-
-#: Where Pydantic keeps a union's discriminator until the definitions its members need exist.
-_DEFERRED_DISCRIMINATOR = "pydantic_internal_union_discriminator"
-
-#: What a held copy of a definition is referred to by: the original's reference and this.
-_HELD = ":offsets-held"
+#: What a held copy of a definition is referred to by: the original's reference and this. It
+#: has no colon, so Pydantic, which drops what follows a reference's last colon when it names
+#: a definition in a JSON schema, names the copy as it names the original.
+_HELD = "-offsets-held"
 
 _DATETIME: TypeAdapter[datetime] = TypeAdapter(datetime)
 
-#: The validation-context key under which the framework reads back text it wrote itself. An
-#: object compared by identity, so no string an app writes is it, and reaching it means
-#: importing this module, which the rule refuses to an app however it is spelled.
-_SERVER_TEXT = object()
+#: Whether the framework is reading back text it wrote itself. A context variable, so every
+#: schema the read reaches sees it, a nested one that SQLModel validates afresh included, and
+#: nothing else does; reaching it means importing this module, which the rule refuses to an app.
+_SERVER_TEXT: ContextVar[bool] = ContextVar("terp_server_text", default=False)
 
 
-def _server_text_context() -> dict[object, bool]:
-    """The validation context that marks text the framework wrote itself (a job's payload)."""
-    return {_SERVER_TEXT: True}
+@contextmanager
+def _reading_server_text() -> Iterator[None]:
+    """Trust the text read while this is in force: the framework wrote it (a job's payload)."""
+    token = _SERVER_TEXT.set(True)
+    try:
+        yield
+    finally:
+        _SERVER_TEXT.reset(token)
 
 
 def _as_utc_when_naive(value: datetime) -> datetime:
@@ -110,55 +98,15 @@ def refuse_timestamp_text_without_offset(value: object, info: ValidationInfo) ->
     that is no timestamp at all goes on to the type, whose own error says so. An object and a
     number go on unjudged, and so does text the framework wrote itself.
     """
-    if not isinstance(value, str | bytes | bytearray):
-        return value
-    context = info.context
-    if isinstance(context, dict) and context.get(_SERVER_TEXT) is True:
+    if not isinstance(value, str | bytes | bytearray) or _SERVER_TEXT.get():
         return value
     try:
         parsed = _DATETIME.validate_python(value)
     except ValidationError:
         return value
     if parsed.utcoffset() is None:
-        raise PydanticCustomError(_REFUSED, OFFSET_REQUIRED)
+        raise PydanticCustomError("timestamp_offset_required", OFFSET_REQUIRED)
     return value
-
-
-class _JudgedFirst:
-    """Judge what a class with its own validator is given, then hand it on unchanged.
-
-    It wraps a stand-in for the class, whose fields are held like a schema's own, so validating
-    the value against the stand-in raises a refusal wherever the class would read timestamp
-    text without an offset. Only the refusals are kept: every other error is the class's own
-    validator's to report, so each comes once. An instance of the class was built already, and
-    its values are objects, so it goes straight on.
-    """
-
-    __slots__ = ("cls",)
-
-    def __init__(self, cls: type) -> None:
-        self.cls = cls
-
-    def __call__(self, value: object, handler: core_schema.ValidatorFunctionWrapHandler) -> object:
-        if isinstance(value, self.cls):
-            return value
-        try:
-            handler(value)
-        except ValidationError as exc:
-            refused = [error for error in exc.errors() if error["type"] == _REFUSED]
-            if refused:
-                raise ValidationError.from_exception_data(
-                    exc.title,
-                    [
-                        InitErrorDetails(
-                            type=PydanticCustomError(_REFUSED, OFFSET_REQUIRED),
-                            loc=tuple(error["loc"]),
-                            input=error["input"],
-                        )
-                        for error in refused
-                    ],
-                ) from None
-        return value
 
 
 def _function_of(schema: dict[str, Any]) -> object:
@@ -166,28 +114,37 @@ def _function_of(schema: dict[str, Any]) -> object:
     return function.get("function") if isinstance(function, dict) else None
 
 
+def _around_a_timestamp(schema: dict[str, Any]) -> bool:
+    inner = schema.get("schema")
+    return isinstance(inner, dict) and inner.get("type") == "datetime"
+
+
 def _is_judged(schema: dict[str, Any]) -> bool:
+    """The refusal's own node: the refusal in front of a timestamp, and nothing else."""
     return (
         schema.get("type") == "function-before"
         and _function_of(schema) is refuse_timestamp_text_without_offset
+        and _around_a_timestamp(schema)
     )
 
 
 def _is_escape(schema: dict[str, Any]) -> bool:
-    return schema.get("type") == "function-after" and _function_of(schema) is _as_utc_when_naive
+    """The escape's own node: its validator behind a timestamp, and nothing else."""
+    return (
+        schema.get("type") == "function-after"
+        and _function_of(schema) is _as_utc_when_naive
+        and _around_a_timestamp(schema)
+    )
 
 
-def _judged_first(schema: dict[str, Any]) -> type | None:
-    """The class *schema* judges what it is given for, when it is the wrapper ``_nested`` builds."""
-    if schema.get("type") != "chain":
-        return None
-    function = _function_of(schema["steps"][0])
-    return function.cls if isinstance(function, _JudgedFirst) else None
+def _reads_its_own_fields(cls: object) -> bool:
+    """Whether *cls* brings its own Pydantic validator: a model, or a Pydantic dataclass.
 
-
-def _is_complete(cls: object) -> bool:
-    """Whether pydantic-core reuses *cls*'s own validator for its node, whatever the node holds."""
-    return isinstance(cls, type) and cls.__dict__.get("__pydantic_complete__") is True
+    Pydantic validates such a class with that validator whatever schema surrounds it. A
+    ``BaseSchema`` is one, and its validator is held already; a stdlib dataclass is not, and
+    the schema around it validates it.
+    """
+    return isinstance(cls, type) and (issubclass(cls, BaseModel) or is_pydantic_dataclass(cls))
 
 
 def _schemas_in(schema: dict[str, Any]) -> Iterator[tuple[str, Any]]:
@@ -202,23 +159,6 @@ def _schemas_in(schema: dict[str, Any]) -> Iterator[tuple[str, Any]]:
     return ((key, value) for key, value in schema.items() if not (node and key in _NOT_SCHEMAS))
 
 
-def _unheld(schema: Any) -> Any:
-    """*schema* as Pydantic built it, before it was held, which is what Pydantic names.
-
-    A class judged first never sits in it inline: a schema Pydantic builds afresh, the only kind
-    whose members are held a second time, refers to every class by a definition of its own.
-    """
-    if isinstance(schema, list | tuple):
-        return type(schema)(_unheld(item) for item in schema)
-    if not isinstance(schema, dict):
-        return schema
-    if _is_judged(schema):
-        return _unheld(schema["schema"])
-    if schema.get("type") == "definition-ref":
-        return {**schema, "schema_ref": schema["schema_ref"].split(_HELD)[0]}
-    return {**schema, **{key: _unheld(value) for key, value in _schemas_in(schema)}}
-
-
 def _own_metadata(node: dict[str, Any]) -> dict[str, Any]:
     """*node*, a held copy, with metadata of its own.
 
@@ -231,26 +171,15 @@ def _own_metadata(node: dict[str, Any]) -> dict[str, Any]:
     return node
 
 
-def _stand_in(held: dict[str, Any]) -> dict[str, Any]:
-    """*held*, a held class node, validated for a stand-in pydantic-core has no validator for.
-
-    pydantic-core builds a stand-in's validator from the node it is handed, so it reads the
-    held fields, under the class's own config. What it makes is thrown away.
-    """
-    cls = held["cls"]
-    stand_in = type(cls.__name__, (), {"__module__": cls.__module__, "__qualname__": cls.__qualname__})
-    return {**{key: value for key, value in held.items() if key not in _CLASS_ONLY}, "cls": stand_in}
-
-
 class _Holding:
-    """One walk over a schema: the held copies of its definitions, and what judges first."""
+    """One walk over a schema: the held copies of the definitions it reads itself."""
 
-    def __init__(self, handler: GetCoreSchemaHandler, owner: type, judged: type) -> None:
+    def __init__(self, handler: GetCoreSchemaHandler, owner: type, owner_ref: object) -> None:
         self.handler = handler
         self.owner = owner
-        self.judged = judged
+        self.owner_ref = owner_ref
         self.refs: dict[str, str] = {}
-        self.judged_first: dict[str, type] = {}
+        self.configs: list[dict[str, Any]] = []
         self.definitions: list[CoreSchema] = []
 
     def walk(self, schema: Any) -> Any:
@@ -264,7 +193,7 @@ class _Holding:
         kind = schema.get("type")
         if not isinstance(kind, str):
             return self._node(schema)  # a mapping of names to schemas, every value walked
-        if _is_judged(schema) or _is_escape(schema) or _judged_first(schema) is not None:
+        if _is_judged(schema) or _is_escape(schema):
             return schema
         if kind == "datetime":
             return core_schema.with_info_before_validator_function(
@@ -274,18 +203,28 @@ class _Holding:
             return self._reference(schema)
         if kind == "union":
             return self._union(schema)
-        if kind in _PREBUILT:
-            return self._nested(schema)
+        if kind in ("model", "dataclass") and schema.get("cls") is not self.owner:
+            if _reads_its_own_fields(schema.get("cls")):
+                return schema  # a BaseSchema holds its own; any other such class reads its own
         return self._node(schema)
 
     def _node(self, schema: dict[str, Any]) -> dict[str, Any]:
-        held_values = {key: self.walk(value) for key, value in _schemas_in(schema)}
+        config = schema.get("config") if isinstance(schema.get("type"), str) else None
+        if isinstance(config, dict):
+            self.configs.append(config)
+        try:
+            held_values = {key: self.walk(value) for key, value in _schemas_in(schema)}
+        finally:
+            if isinstance(config, dict):
+                self.configs.pop()
         if all(held is schema[key] for key, held in held_values.items()):
             return schema
         return _own_metadata({**schema, **held_values})
 
     def _reference(self, schema: dict[str, Any]) -> dict[str, Any]:
         ref = schema["schema_ref"]
+        if ref == self.owner_ref:
+            return schema  # Pydantic keeps the held schema under the owner's own reference
         if ref not in self.refs:
             try:
                 target = self.handler.resolve_ref_schema(
@@ -301,16 +240,11 @@ class _Holding:
             if held is target:
                 self.refs[ref] = ref
             else:
-                cls = _judged_first(held)
-                if cls is not None:
-                    self.judged_first[self.refs[ref]] = cls
                 self.definitions.append({**held, "ref": self.refs[ref]})
         held_ref = self.refs[ref]
         return schema if held_ref == ref else {**schema, "schema_ref": held_ref}
 
     def _union(self, schema: dict[str, Any]) -> dict[str, Any]:
-        metadata = schema.get("metadata")
-        deferred = isinstance(metadata, dict) and _DEFERRED_DISCRIMINATOR in metadata
         choices: list[Any] = []
         changed = False
         for choice in schema["choices"]:
@@ -319,18 +253,17 @@ class _Holding:
             if held is not member:
                 changed = True
                 label = label or self._label(member)
-                if deferred and held.get("schema_ref") in self.judged_first:
-                    raise self._untaggable(self.judged_first[held["schema_ref"]])
             choices.append((held, label) if label else held)
         return _own_metadata({**schema, "choices": choices}) if changed else schema
 
     def _label(self, member: Any) -> str | None:
         """The name a union gives *member* in an error's location, as Pydantic names it.
 
-        Pydantic names a member by the validator it builds for it, so the member is built on its
-        own, as Pydantic built it, with every definition it refers to.
+        Pydantic names a member by the validator it builds for it, so the member, as Pydantic
+        built it, is built on its own, under the config it is read with and with every definition
+        it refers to. Where a member refers back to the schema it is in, Pydantic writes ``...``
+        for that schema; built on its own, the member names it by its name.
         """
-        member = _unheld(member)
         try:
             definitions = self._definitions_of(member)
             if member.get("type") == "definition-ref":
@@ -338,7 +271,10 @@ class _Holding:
             standalone = core_schema.definitions_schema(
                 member, [{**target, "ref": ref} for ref, target in definitions.items()]
             )
-            return SchemaValidator(standalone).title
+            # The config a member is read under shapes its name (a stripped ``str`` is a
+            # ``constrained-str``); its title would name the member after the class instead.
+            config = {key: value for key, value in (self.configs[-1] if self.configs else {}).items() if key != "title"}
+            return SchemaValidator(standalone, cast("core_schema.CoreConfig", config)).title
         except (LookupError, SchemaError):  # it refers to a definition still being built
             return None
 
@@ -360,50 +296,18 @@ class _Holding:
                 pending.extend(value for _, value in _schemas_in(node))
         return found
 
-    def _nested(self, schema: dict[str, Any]) -> dict[str, Any]:
-        cls = schema.get("cls")
-        if cls is self.owner or not _is_complete(cls):
-            return self._node(schema)  # pydantic-core validates it by the schema it is handed
-        if isinstance(cls, self.judged):
-            return schema  # a complete BaseSchema: the validator it brings is held already
-        held = self._node(schema)
-        if held is schema:
-            return schema
-        # pydantic-core validates this node with the class's own validator, whatever schema it is
-        # handed, and that validator does not judge: what it is given is judged first.
-        return cast(
-            "dict[str, Any]",
-            core_schema.chain_schema(
-                [
-                    core_schema.no_info_wrap_validator_function(
-                        _JudgedFirst(cast("type", cls)), cast("CoreSchema", _stand_in(held))
-                    ),
-                    cast("CoreSchema", {key: value for key, value in schema.items() if key != "ref"}),
-                ]
-            ),
-        )
-
-    def _untaggable(self, cls: type) -> TypeError:
-        return TypeError(
-            f"{self.owner.__name__} has {cls.__qualname__} as a choice of a discriminated union "
-            "that refers back to a schema still being defined; Pydantic picks such a choice by "
-            f"its tag only from the choice's own fields, and {cls.__qualname__} brings its own "
-            "Pydantic validator, which reads a timestamp in it without judging its UTC offset "
-            f"(ADR 0206); derive {cls.__qualname__} from BaseSchema"
-        )
-
 
 def hold_timestamps_to_their_offset(
-    schema: CoreSchema, handler: GetCoreSchemaHandler, *, owner: type, judged: type
+    schema: CoreSchema, handler: GetCoreSchemaHandler, *, owner: type
 ) -> CoreSchema:
-    """*schema* with every ``datetime`` it validates judged by the refusal.
+    """*schema* with every ``datetime`` it reads itself judged by the refusal.
 
     ``BaseSchema``'s schema hook runs this over the schema Pydantic builds for each subclass
     (*owner*), following each definition the schema refers to into a held copy, so the refusal
-    sits wherever Pydantic validates a timestamp for it. A class whose metaclass is *judged* is
-    a ``BaseSchema``, whose own schema is held already. The escape's node is left as it is.
+    sits wherever the schema validates a timestamp itself. A class that brings its own Pydantic
+    validator is left as it is, and so is the escape's node.
     """
-    holding = _Holding(handler, owner, judged)
+    holding = _Holding(handler, owner, schema.get("ref"))
     held: CoreSchema = holding.walk(schema)
     if holding.definitions:
         return core_schema.definitions_schema(held, holding.definitions)
@@ -434,13 +338,26 @@ refused by the ``request_timestamps_carry_their_offset`` rule unless its line ca
 """
 
 
-def require_offset(name: str, value: datetime) -> None:
-    """Refuse a declared filter's bound that carries no UTC offset, naming the filter."""
+def require_offset(name: str, value: datetime | str | bytes | bytearray) -> datetime:
+    """A declared filter's bound as the instant it names, refused, naming the filter, if none.
+
+    A bound the app's own code gives as text is read as a date and time first, as a request's
+    would be, so text that is none, and text without a UTC offset, are refused alike.
+    """
+    if isinstance(value, str | bytes | bytearray):
+        try:
+            value = _DATETIME.validate_python(value)
+        except ValidationError as exc:
+            raise ValidationFailedError(
+                f"Filter {name!r} needs a date and time with its UTC offset, for example "
+                "2026-11-06T10:00:00Z."
+            ) from exc
     if value.utcoffset() is None:
         raise ValidationFailedError(
             f"Filter {name!r} needs a date and time with its UTC offset, for example "
             "2026-11-06T10:00:00Z."
         )
+    return value
 
 
 __all__ = [

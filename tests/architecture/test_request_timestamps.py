@@ -12,7 +12,11 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import importlib.util
+import sys
+import types
 from collections.abc import Sequence
+from decimal import Decimal
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, NewType, TypeAliasType, TypedDict, Union
 
@@ -24,6 +28,7 @@ from pydantic import (
     AliasChoices,
     AliasPath,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Discriminator,
     FutureDatetime,
@@ -39,7 +44,7 @@ from pydantic import ValidationError
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pydantic_core import CoreSchema
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Field, Session, create_engine
+from sqlmodel import Field, Session, SQLModel, create_engine
 
 from terp.core import (
     BaseSchema,
@@ -55,7 +60,11 @@ from terp.core import (
 )
 from terp.core.errors import ValidationFailedError
 from terp.core.jobs import configure_jobs
-from terp.core.timestamps import OFFSET_REQUIRED
+from terp.core.timestamps import (
+    OFFSET_REQUIRED,
+    _reading_server_text,
+    refuse_timestamp_text_without_offset,
+)
 
 NAIVE = "2026-11-06T10:00:00"
 AWARE = "2026-11-06T10:00:00Z"
@@ -259,6 +268,129 @@ def test_the_published_contract_does_not_change() -> None:
     } == expected
 
 
+_CONTRACT = '''
+import dataclasses
+from datetime import datetime
+from typing import Annotated, Literal, TypedDict, TypeAliasType, Union
+
+from pydantic import BaseModel, Field
+
+
+class Span(BaseModel):
+    start: datetime
+
+
+@dataclasses.dataclass
+class Window:
+    """A stdlib dataclass, which the schema around it validates."""
+
+    start: datetime
+
+
+class Mark(TypedDict):
+    at: datetime
+
+
+Marks = TypeAliasType("Marks", list[datetime])
+
+
+class Leaf(Base):
+    kind: Literal["leaf"] = "leaf"
+    at: datetime
+
+
+class Branch(Base):
+    kind: Literal["branch"] = "branch"
+    child: Annotated[Union[Leaf, Branch], Field(discriminator="kind")] | None = None
+
+
+class Ping(Base):
+    at: datetime
+    pong: Pong | None = None
+
+
+class Pong(Base):
+    at: datetime | None = None
+    ping: Ping | None = None
+
+
+class Holder(Base):
+    span: Span
+    window: Window
+    mark: Mark
+    marks: Marks = []
+    keyed: dict[str, datetime] | int = 0
+    branch: Branch | None = None
+    ping: Ping | None = None
+'''
+
+
+class _Twin(SQLModel):
+    """What a BaseSchema is without its hook: an SQLModel with BaseSchema's config."""
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True, str_strip_whitespace=True)
+
+
+#: The base each copy of the contract's schemas is declared over: BaseSchema, and its twin.
+_CONTRACT_BASES = {
+    "_contract_held": "from terp.core import BaseSchema as Base\n",
+    "_contract_twin": (
+        "from pydantic import ConfigDict\nfrom sqlmodel import SQLModel\n\n\n"
+        "class Base(SQLModel):\n"
+        "    model_config = ConfigDict(from_attributes=True, populate_by_name=True, str_strip_whitespace=True)\n"
+    ),
+}
+
+
+@pytest.fixture(scope="module")
+def contract(tmp_path_factory: pytest.TempPathFactory) -> dict[str, types.ModuleType]:
+    """The contract's schemas twice, as modules of their own so their names are the same."""
+    root = tmp_path_factory.mktemp("contract")
+    modules: dict[str, types.ModuleType] = {}
+    for name, base in _CONTRACT_BASES.items():
+        path = root / f"{name}.py"
+        path.write_text(f"from __future__ import annotations\n\n{base}{_CONTRACT}", encoding="utf-8")
+        spec = importlib.util.spec_from_file_location(name, path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+        modules[name] = module
+    return modules
+
+
+def _contract_app(module: types.ModuleType) -> FastAPI:
+    holder = module.__dict__["Holder"]
+
+    def create(body: Any) -> Any:
+        return body
+
+    create.__annotations__ = {"body": holder, "return": holder}  # this file's own are strings
+    app = FastAPI()
+    app.post("/holders")(create)
+    return app
+
+
+@pytest.mark.parametrize("mode", ["validation", "serialization"])
+def test_the_published_contract_is_the_plain_schemas_own(
+    contract: dict[str, types.ModuleType], mode: Literal["validation", "serialization"]
+) -> None:
+    """The refusal is no part of a JSON schema, and a held copy of a definition is named as
+    Pydantic names the original, so a schema publishes exactly what it would without its hook:
+    with a nested plain model, a stdlib dataclass, a TypedDict, a type alias, a recursive union
+    and schemas that refer to each other."""
+    held, twin = (contract[name].__dict__["Holder"] for name in ("_contract_held", "_contract_twin"))
+    assert held.model_json_schema(mode=mode) == twin.model_json_schema(mode=mode)
+
+
+def test_the_published_api_contract_is_the_plain_schemas_own(contract: dict[str, types.ModuleType]) -> None:
+    held = _contract_app(contract["_contract_held"]).openapi()
+    assert held == _contract_app(contract["_contract_twin"]).openapi()
+    assert {"Span", "Window", "Mark", "Marks", "Leaf", "Holder-Input", "Ping-Input"} <= set(
+        held["components"]["schemas"]
+    )
+
+
 # --------------------------------------------------------------------------- #
 # the escape: a value without an offset is read as UTC, and arrives aware
 # --------------------------------------------------------------------------- #
@@ -296,6 +428,36 @@ def test_a_filter_list_is_refused_for_any_bound_without_an_offset() -> None:
     with pytest.raises(ValidationFailedError, match="UTC offset"):
         field.condition([INSTANT, datetime(2026, 11, 6, 10, 0)])
     assert field.condition([INSTANT]) is not None
+
+
+def test_a_filter_bound_given_as_text_is_read_as_a_timestamp_first() -> None:
+    """A route's parameter arrives parsed, but the app's own code can hand a filter text; on a
+    timestamp column it is read as a request's would be, and the bound is the instant it names."""
+    field = FilterField("taken_after", _Reading.taken_at, op="gt")
+    for text in (NAIVE, "soon"):
+        with pytest.raises(ValidationFailedError, match="'taken_after' needs a date and time with its UTC offset"):
+            field.condition(text)
+    assert field.condition(AMSTERDAM).right.value == INSTANT  # type: ignore[attr-defined]
+    assert FilterField("taken_at", _Reading.taken_at, op="in").condition([AWARE]) is not None
+
+
+def test_a_filter_bound_given_as_text_elsewhere_is_left_as_it_is() -> None:
+    assert FilterField("id", _Reading.id, op="eq").condition(NAIVE).right.value == NAIVE  # type: ignore[attr-defined]
+
+    class _NamesNoType:
+        @property
+        def python_type(self) -> type:
+            raise NotImplementedError
+
+    class _Opaque:
+        type = _NamesNoType()
+
+        def __eq__(self, other: object) -> Any:
+            return ("eq", other)
+
+        __hash__ = object.__hash__
+
+    assert FilterField("opaque", _Opaque(), op="eq").condition(NAIVE) == ("eq", NAIVE)  # type: ignore[arg-type]
 
 
 def test_a_filter_bound_with_its_offset_and_a_date_are_taken() -> None:
@@ -414,6 +576,31 @@ def test_a_job_reads_back_the_payload_the_framework_wrote() -> None:
     built = datetime.combine(dt.date(2026, 11, 6), dt.time(9, 0))
     with Session(engine) as session:
         enqueue(session, job=job, payload=_ReminderPayload(remind_at=built))
+    assert seen == [built]
+
+
+class _Slot(BaseSchema):
+    at: datetime
+
+
+class _SlotsPayload(BaseSchema):
+    slots: list[_Slot]
+
+
+def test_a_job_reads_back_a_nested_payload_the_framework_wrote() -> None:
+    """SQLModel validates a nested schema afresh, with no validation context, so the worker's
+    trust is a context variable, which every schema its read reaches sees."""
+    seen: list[datetime] = []
+    job = JobDefinition(
+        name="timestamps.slots",
+        payload_schema=_SlotsPayload,
+        handler=lambda _context, payload: seen.append(payload.slots[0].at),
+    )
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    configure_jobs(JobCatalog([job]), queue=InProcessJobQueue(session_factory=lambda: Session(engine)))
+    built = datetime(2026, 11, 6, 9, 0)
+    with Session(engine) as session:
+        enqueue(session, job=job, payload=_SlotsPayload(slots=[_Slot(at=built)]))
     assert seen == [built]
 
 
@@ -538,6 +725,8 @@ class _Tagged(BaseSchema):
         Union[Annotated[_Kept, Tag("default")], Annotated[_Moved, Tag("moved")]], Discriminator(_which)
     ]
     listed: list[datetime] | str | None = None
+    keyed: dict[str, datetime] | int | None = None
+    spanned: _SpanDict | int | None = None
 
 
 def test_a_tagged_member_is_judged_under_its_tag_whatever_the_tag_is_called() -> None:
@@ -551,8 +740,19 @@ def test_a_union_member_is_located_by_the_name_pydantic_gives_it() -> None:
     assert (loc, kind) == (("listed", "list[datetime]", 0), "timestamp_offset_required")
 
 
+def test_a_union_member_held_as_a_definition_is_named_as_the_original() -> None:
+    (loc, kind, _), *_ = _refusals(_Tagged, {"either": {"kind": "moved", "at": AWARE}, "spanned": {"start": NAIVE}})
+    assert (loc, kind) == (("spanned", "_SpanDict", "start"), "timestamp_offset_required")
+
+
+def test_a_union_member_is_named_under_the_config_it_is_read_with() -> None:
+    """BaseSchema strips its strings, so Pydantic names a str inside a member a constrained one."""
+    (loc, kind, _), *_ = _refusals(_Tagged, {"either": {"kind": "moved", "at": AWARE}, "keyed": {"k": NAIVE}})
+    assert (loc, kind) == (("keyed", "dict[constrained-str,datetime]", "k"), "timestamp_offset_required")
+
+
 # --------------------------------------------------------------------------- #
-# a nested class with its own validator is judged in front of it
+# a nested class with its own validator reads its own fields
 # --------------------------------------------------------------------------- #
 
 
@@ -560,28 +760,18 @@ class _PlainSpan(BaseModel):
     start: datetime
 
 
-class _PlainLenientSpan(BaseModel):
-    start: NaiveMeansUtc
+class _Charge(BaseModel):
+    """A model whose own before validator rewrites what it is given, as many do."""
 
+    at: datetime
+    amount: Decimal
 
-class _AliasOnlySpan(BaseModel):
-    """Its own config reads the alias only, unlike a ``BaseSchema``, which reads both."""
-
-    start: datetime = PydanticField(alias="startsAt")
-
-
-class _StrictSpan(BaseModel):
-    model_config = ConfigDict(strict=True)
-
-    start: datetime
-
-
-class _CheckedSpan(BaseModel):
-    start: datetime
-
-    @model_validator(mode="after")
-    def _kept(self) -> _CheckedSpan:
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def _from_cents(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            data["amount"] = Decimal(data["amount"]) / 100
+        return data
 
 
 class _Stamped(RootModel[datetime]):
@@ -593,11 +783,6 @@ class _PydanticSpan:
     start: datetime
 
 
-class _PlainTree(BaseModel):
-    at: datetime
-    kids: list[_PlainTree] = []
-
-
 class _Visit(BaseTable, table=True):
     __tablename__ = "request_timestamp_visit"
 
@@ -605,91 +790,61 @@ class _Visit(BaseTable, table=True):
 
 
 _FrameworkPoint = create_model("_FrameworkPoint", start=(datetime, ...))
-_FrameworkGroup = create_model("_FrameworkGroup", series=(list[_FrameworkPoint], ...))
+
+
+class _StampedChoice(BaseModel):
+    x: int
+    at: datetime | None = None
+
+
+class _BareChoice(BaseModel):
+    x: int
+    y: str = ""
 
 
 class _Nests(BaseSchema):
     span: _PlainSpan | None = None
-    spans: list[_PlainSpan] = []
-    either: _PlainSpan | int | None = None
-    aliased: _AliasOnlySpan | None = None
-    strict: _StrictSpan | None = None
-    checked: _CheckedSpan | None = None
+    charge: _Charge | None = None
     stamp: _Stamped | None = None
     dataclass_span: _PydanticSpan | None = None
-    tree: _PlainTree | None = None
     visits: list[_Visit] = []
-    group: _FrameworkGroup | None = None
-    lenient: _PlainLenientSpan | None = None
+    point: _FrameworkPoint | None = None  # type: ignore[valid-type]
+    either: _StampedChoice | _BareChoice | None = None
 
 
-@pytest.mark.parametrize(
-    ("data", "loc"),
-    [
-        ({"span": {"start": NAIVE}}, ("span", "start")),
-        ({"spans": [{"start": AWARE}, {"start": NAIVE}]}, ("spans", 1, "start")),
-        ({"either": {"start": NAIVE}}, ("either", "_PlainSpan", "start")),
-        ({"aliased": {"startsAt": NAIVE}}, ("aliased", "startsAt")),
-        ({"strict": {"start": NAIVE}}, ("strict", "start")),
-        ({"checked": {"start": NAIVE}}, ("checked", "start")),
-        ({"stamp": NAIVE}, ("stamp",)),
-        ({"dataclass_span": {"start": NAIVE}}, ("dataclass_span", "start")),
-        ({"tree": {"at": AWARE, "kids": [{"at": AWARE, "kids": [{"at": NAIVE}]}]}}, ("tree", "kids", 0, "kids", 0, "at")),
-        ({"visits": [{"seen_at": NAIVE}]}, ("visits", 0, "seen_at")),
-        ({"group": {"series": [{"start": NAIVE}]}}, ("group", "series", 0, "start")),
-    ],
-)
-def test_a_nested_class_with_its_own_validator_is_judged_in_front_of_it(
-    data: dict[str, object], loc: tuple[str | int, ...]
-) -> None:
-    """Pydantic validates a complete plain model, a Pydantic dataclass, a root model, a table and
-    a model the framework builds with its own validator, whatever schema surrounds it, so what
-    it is given is judged first, wherever it sits."""
-    assert (loc, "timestamp_offset_required", OFFSET_REQUIRED) in _refusals(_Nests, data)
+class _VisitsTwin(_Twin):
+    visits: list[_Visit] = []
 
 
-def test_a_nested_class_with_its_offsets_validates_as_its_own_validator_does() -> None:
+def test_a_nested_class_with_its_own_validator_reads_its_own_fields() -> None:
+    """Pydantic validates a plain model, a root model, a Pydantic dataclass, a table and a model
+    the framework builds with the class's own validator, whatever schema surrounds it. Such a
+    class is left to that validator, as a request model that is not a BaseSchema is (ADR 0206,
+    Open): derive it from BaseSchema to hold its timestamps."""
+    naive = datetime(2026, 11, 6, 10, 0)
     nests = _Nests.model_validate(
-        {"span": {"start": AWARE}, "stamp": AMSTERDAM, "dataclass_span": {"start": AWARE}, "lenient": {"start": NAIVE}}
+        {
+            "span": {"start": NAIVE},
+            "stamp": NAIVE,
+            "dataclass_span": {"start": NAIVE},
+            "visits": [{"seen_at": NAIVE}],
+            "point": {"start": NAIVE},
+        }
     )
-    assert (type(nests.span), nests.span.start) == (_PlainSpan, INSTANT)
-    assert (type(nests.stamp), nests.stamp.root) == (_Stamped, INSTANT)
-    assert type(nests.dataclass_span) is _PydanticSpan
-    assert nests.lenient is not None and nests.lenient.start == INSTANT
+    assert nests.span is not None and nests.span.start == naive
+    assert nests.stamp is not None and nests.stamp.root == naive
+    assert nests.dataclass_span is not None and nests.dataclass_span.start == naive
+    assert nests.point is not None and nests.point.start == naive
+    # A table does not validate what it is constructed from, nested or not.
+    assert nests.visits[0].seen_at == _VisitsTwin.model_validate({"visits": [{"seen_at": NAIVE}]}).visits[0].seen_at
 
 
-def test_a_nested_class_the_server_built_goes_straight_on() -> None:
-    """An instance was built already, and a row's values are objects: neither is text."""
-    built = datetime(2026, 11, 6, 10, 0)
-    span, visit = _PlainSpan(start=built), _Visit(seen_at=INSTANT)
-
-    class _Row:
-        at = built
-        kids: list[object] = []
-
-    nests = _Nests.model_validate({"span": span, "visits": [visit], "stamp": _Stamped(built)})
-    assert nests.span is span and nests.visits == [visit] and nests.stamp is not None
-    assert _Nests.model_validate({"tree": _Row()}, from_attributes=True).tree == _PlainTree(at=built)
-
-
-def test_a_nested_class_is_judged_under_its_own_config() -> None:
-    """A model that reads only an alias leaves a value under its field name unread, so that
-    value is not judged; its own error says the alias is missing."""
-    assert _refusals(_Nests, {"aliased": {"start": NAIVE}}) == [
-        (("aliased", "startsAt"), "missing", "Field required")
-    ]
-
-
-def test_a_nested_class_reports_its_own_errors_once() -> None:
-    """A refusal comes beside the outer schema's own errors; the nested class's other errors
-    are its own validator's, which reads its input once the timestamps in it are taken."""
-    assert [(loc, kind) for loc, kind, _ in _refusals(_Nests, {"span": {"start": NAIVE}, "spans": "x"})] == [
-        (("span", "start"), "timestamp_offset_required"),
-        (("spans",), "list_type"),
-    ]
-    assert [(loc, kind) for loc, kind, _ in _refusals(_Nests, {"span": {"start": "soon"}})] == [
-        (("span", "start"), "datetime_from_date_parsing")
-    ]
+def test_a_nested_class_validates_exactly_as_its_own_validator_does() -> None:
+    """Its own validators run once, on what it is given, and a union picks among such classes as
+    it would with no schema around them."""
+    nests = _Nests.model_validate({"charge": {"at": AWARE, "amount": 1250}, "either": {"x": 1, "y": "a"}})
+    assert nests.charge is not None and nests.charge.amount == Decimal("12.5")
+    assert nests.either == _BareChoice(x=1, y="a")
 
 
 # --------------------------------------------------------------------------- #
@@ -721,16 +876,11 @@ def test_schemas_that_refer_to_each_other_are_each_judged() -> None:
     ]
 
 
-@pytest.mark.parametrize(
-    ("pair", "place"), [([{}, NAIVE, {"start": AWARE}], (1,)), ([{}, AWARE, {"start": NAIVE}], (2, "start"))]
-)
-def test_a_member_that_refers_back_is_named_as_pydantic_names_it(
-    pair: list[object], place: tuple[str | int, ...]
-) -> None:
+def test_a_member_that_refers_back_is_named_as_pydantic_names_it() -> None:
     """The member is named as Pydantic built it, before its timestamps were held, even where it
     was first held while the schema it refers to was still being built."""
-    (loc, kind, _), *_ = _refusals(_Pong, {"ping": {"at": AWARE, "pair": pair}})
-    assert (loc, kind) == (("ping", "pair", "tuple[_Pong, datetime, _PlainSpan]", *place), "timestamp_offset_required")
+    (loc, kind, _), *_ = _refusals(_Pong, {"ping": {"at": AWARE, "pair": [{}, NAIVE, {"start": AWARE}]}})
+    assert (loc, kind) == (("ping", "pair", "tuple[_Pong, datetime, _PlainSpan]", 1), "timestamp_offset_required")
 
 
 class _Leaf(BaseSchema):
@@ -752,10 +902,8 @@ def test_a_recursive_union_still_picks_its_member_by_its_tag() -> None:
     ]
 
 
-def test_a_plain_choice_of_a_recursive_union_is_refused_when_its_schema_is_built() -> None:
-    """Pydantic picks a choice of such a union by the tag in the choice's own fields, which a
-    choice judged in front of its own validator no longer shows, so it is refused, naming why.
-    A class that refers to itself in a function is built at its first use, here a rebuild."""
+def test_a_plain_choice_of_a_recursive_union_keeps_its_tag_and_its_own_validator() -> None:
+    """A class that refers to itself in a function is built at its first use, here a rebuild."""
 
     class _PlainLeaf(BaseModel):
         kind: Literal["plain"] = "plain"
@@ -765,8 +913,10 @@ def test_a_plain_choice_of_a_recursive_union_is_refused_when_its_schema_is_built
         kind: Literal["tangle"] = "tangle"
         child: Annotated[Union[_PlainLeaf, _Tangle], PydanticField(discriminator="kind")] | None = None
 
-    with pytest.raises(TypeError, match=r"_PlainLeaf as a choice of a discriminated union .* derive"):
-        _Tangle.model_rebuild()
+    _Tangle.model_rebuild()
+    assert _refusals(_Tangle, {"child": {"kind": "twig"}})[0][:2] == (("child",), "union_tag_invalid")
+    tangle = _Tangle.model_validate({"child": {"kind": "plain", "at": NAIVE}})
+    assert isinstance(tangle.child, _PlainLeaf) and tangle.child.at.tzinfo is None
 
 
 def test_a_plain_model_around_the_same_type_stays_as_it_was() -> None:
@@ -774,6 +924,26 @@ def test_a_plain_model_around_the_same_type_stays_as_it_was() -> None:
         span: _Span
 
     assert _PlainParent.model_validate({"span": {"start": NAIVE}}).span.start.tzinfo is None
+
+
+def test_a_hook_taken_from_a_base_ahead_of_base_schema_is_refused_when_defined() -> None:
+    """A metaclass sees the class's own resolution: a mixin listed ahead of BaseSchema would
+    supply the hook. One listed behind it supplies nothing BaseSchema does not already."""
+
+    class _Mixin:
+        @classmethod
+        def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
+            return handler(source)
+
+    with pytest.raises(TypeError, match=r"takes __get_pydantic_core_schema__ from .*_Mixin"):
+
+        class _Body(_Mixin, BaseSchema):
+            at: datetime
+
+    class _Behind(BaseSchema, _Mixin):
+        at: datetime
+
+    assert _refusals(_Behind, {"at": NAIVE})[0][1] == "timestamp_offset_required"
 
 
 def test_a_class_between_that_defines_a_hook_is_refused_when_defined() -> None:
@@ -788,3 +958,20 @@ def test_a_class_between_that_defines_a_hook_is_refused_when_defined() -> None:
 def test_a_context_spelled_like_the_frameworks_own_is_not_trusted() -> None:
     with pytest.raises(ValidationError, match="UTC offset"):
         _ReminderPayload.model_validate({"remind_at": NAIVE}, context={"terp.timestamps.server-text": True})
+
+
+def test_the_frameworks_trust_ends_with_its_read() -> None:
+    with _reading_server_text():
+        assert _ReminderPayload.model_validate({"remind_at": NAIVE}).remind_at == datetime(2026, 11, 6, 10, 0)
+    with pytest.raises(ValidationError, match="UTC offset"):
+        _ReminderPayload.model_validate({"remind_at": NAIVE})
+
+
+def test_a_lifted_refusal_spares_nothing_it_does_not_stand_in_front_of() -> None:
+    """The refusal's node is the refusal in front of a timestamp. The same function declared in
+    front of anything else is the app's own validator, and what it stands in front of is held."""
+
+    class _Lifted(BaseSchema):
+        mark: Annotated[_SpanDict, BeforeValidator(refuse_timestamp_text_without_offset)]
+
+    assert _refusals(_Lifted, {"mark": {"start": NAIVE}})[0][:2] == (("mark", "start"), "timestamp_offset_required")

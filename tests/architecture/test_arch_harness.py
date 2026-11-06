@@ -2172,6 +2172,18 @@ def test_request_timestamps_carry_their_offset(tmp_path: pathlib.Path) -> None:
     ) == [7, 11]
     assert lines("import terp.core as core\n\nLenient = getattr(core, 'NaiveMeansUtc')\n") == [3]
 
+    # A string Pydantic evaluates as a type names the escape as surely as a name does: a forward
+    # reference bound to a name, and a field handed to create_model.
+    assert lines(
+        "from typing import Optional\n\nfrom terp.core import NaiveMeansUtc\n\n"
+        "Lenient = Optional['NaiveMeansUtc']\n\n\n"
+        "class ReadingCreate(BaseSchema):\n    taken_at: Lenient\n"
+    ) == [5, 9]
+    assert lines(
+        "from pydantic import create_model\n\nfrom terp.core import BaseSchema, NaiveMeansUtc\n\n"
+        "ReadingCreate = create_model('ReadingCreate', __base__=BaseSchema, taken_at=('NaiveMeansUtc', ...))\n"
+    ) == [5]
+
     # A PEP 695 type alias of the escape is the escape at its statement and at each use.
     assert lines(
         "from terp.core import NaiveMeansUtc\n\n"
@@ -2213,6 +2225,9 @@ def test_request_timestamps_carry_their_offset(tmp_path: pathlib.Path) -> None:
         "        return self.core.timestamps, getattr(self.core, 'timestamps')\n"
     ) == []
     assert lines("def latest(app):\n    return app.core.timestamps\n") == []
+    # A name the file binds to terp.core means it only where no local of that name shadows it.
+    assert lines("from terp import core\n\n\ndef newest(core):\n    return core.timestamps\n") == []
+    assert lines("from terp import core\n\n\ndef newest(row):\n    return core.timestamps\n") == [5]
     assert lines("import terp.core\n\n\ndef latest(rows):\n    return rows[0].timestamps, rows.core().timestamps\n") == []
 
     # A name bound to the escape counts where that binding is the one in scope: a function's
@@ -2231,6 +2246,15 @@ def test_request_timestamps_carry_their_offset(tmp_path: pathlib.Path) -> None:
         "    taken_at: Types.Lenient\n"
         "    checked_at: Types.Lenient | None = None\n"
     ) == [5, 9, 10]
+    # ... and through a subclass or an instance, since it counts by the attribute's name.
+    assert lines(
+        "from terp.core import NaiveMeansUtc\n\n\n"
+        "class Types:\n    Lenient = NaiveMeansUtc\n\n\n"
+        "class More(Types):\n    pass\n\n\n"
+        "class ReadingCreate(BaseSchema):\n"
+        "    taken_at: More.Lenient\n"
+        "    checked_at: Types().Lenient | None = None\n"
+    ) == [5, 13, 14]
 
     # Importing it takes nothing; a Literal value, a docstring, a string that is no
     # annotation, and a plain timestamp field are not the escape.
@@ -2246,9 +2270,12 @@ def test_request_timestamps_carry_their_offset(tmp_path: pathlib.Path) -> None:
         "class ReadingCreate(BaseSchema):\n    taken_at: datetime\n"
     ) == []
 
-    # terp.core, which defines the boundary and its escape, is neither's user.
+    # terp.core, which defines the boundary and its escape, and terp.arch, which defines this
+    # rule and names both as the data it matches, are neither's user.
     _write(app, "modules/notes/schemas.py", "from terp.core.timestamps import require_offset\n")
     assert check_request_timestamps_carry_their_offset(app, package="terp.core") == []
+    _write(app, "modules/notes/schemas.py", "ESCAPE = 'NaiveMeansUtc'\nMODULE = 'terp.core.timestamps'\n")
+    assert check_request_timestamps_carry_their_offset(app, package="terp.arch") == []
 
     # A plain timestamp field passes, and the message names the marker and the budget.
     (( _, message),) = findings(

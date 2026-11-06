@@ -303,33 +303,49 @@ class BaseTable(UUIDPrimaryKeyMixin, TimestampMixin, SQLModel):
         return mask_repr_args(self, super().__repr_args__())
 
 
+_BASE_SCHEMA_HOOKS = ("__get_pydantic_core_schema__", "__pydantic_init_subclass__")
+
+
+def _refuse_hooks(name: str, taken: list[str]) -> TypeError:
+    return TypeError(
+        f"{name} {', '.join(taken)}, which BaseSchema relies on to hold a timestamp read as "
+        "text to its UTC offset (ADR 0206) and to declare personal fields (ADR 0190); remove "
+        "it, and type a field NaiveMeansUtc where a sender sends UTC without an offset"
+    )
+
+
 class _BaseSchemaMeta(SQLModelMetaclass):
     """Every ``BaseSchema`` subclass keeps the two hooks the base relies on.
 
     The schema hook holds a timestamp read as text to its UTC offset (ADR 0206), and the
-    subclass hook declares a schema's personal fields (ADR 0190). A class that defined either
-    would decide, for itself and every class below it, whether those run at all, so a
-    subclass that defines either is refused when it is defined. A metaclass, unlike a hook,
-    runs for every class whatever its bases define.
+    subclass hook declares a schema's personal fields (ADR 0190). A class that took either
+    from anywhere but ``BaseSchema``, by defining it or from a base ahead of ``BaseSchema``,
+    would decide, for itself and every class below it, whether those run at all, so it is
+    refused when it is defined. A metaclass, unlike a hook, runs for every class whatever its
+    bases define.
     """
 
     def __new__(
         mcs, name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
     ) -> Any:
-        if any(isinstance(base, _BaseSchemaMeta) for base in bases):
-            defined = sorted(
-                hook
-                for hook in ("__get_pydantic_core_schema__", "__pydantic_init_subclass__")
-                if hook in namespace
-            )
-            if defined:
-                raise TypeError(
-                    f"{name} defines {', '.join(defined)}, which BaseSchema relies on to hold "
-                    "a timestamp read as text to its UTC offset (ADR 0206) and to declare "
-                    "personal fields (ADR 0190); remove it, and type a field NaiveMeansUtc "
-                    "where a sender sends UTC without an offset"
-                )
-        return super().__new__(mcs, name, bases, namespace, **kwargs)
+        below_base = any(isinstance(base, _BaseSchemaMeta) for base in bases)
+        defined = [f"defines {hook}" for hook in _BASE_SCHEMA_HOOKS if hook in namespace]
+        if below_base and defined:
+            raise _refuse_hooks(name, defined)
+        cls = super().__new__(mcs, name, bases, namespace, **kwargs)
+        if below_base:
+            definers = {
+                hook: next(klass for klass in cls.__mro__ if hook in klass.__dict__)
+                for hook in _BASE_SCHEMA_HOOKS
+            }
+            taken = [
+                f"takes {hook} from {definer.__qualname__}"
+                for hook, definer in definers.items()
+                if definer is not BaseSchema
+            ]
+            if taken:
+                raise _refuse_hooks(name, taken)
+        return cls
 
 
 class BaseSchema(SQLModel, metaclass=_BaseSchemaMeta):
@@ -352,9 +368,7 @@ class BaseSchema(SQLModel, metaclass=_BaseSchemaMeta):
         cls, source: Any, handler: GetCoreSchemaHandler
     ) -> CoreSchema:
         # Every timestamp this schema reads as text must carry its UTC offset (ADR 0206).
-        return hold_timestamps_to_their_offset(
-            handler(source), handler, owner=cls, judged=_BaseSchemaMeta
-        )
+        return hold_timestamps_to_their_offset(handler(source), handler, owner=cls)
 
     @classmethod
     def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:

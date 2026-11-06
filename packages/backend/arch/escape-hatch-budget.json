@@ -1,5 +1,4 @@
 {
   "arch-allow-no-exception-text-in-responses": 1,
-  "arch-allow-no-oversized-python-files": 6,
-  "arch-allow-request-timestamps-carry-their-offset": 1
+  "arch-allow-no-oversized-python-files": 6
 }
