@@ -271,6 +271,7 @@ from terp.core.throttling import (
     is_shared_throttle_store,
     mark_shared_throttle_store,
 )
+from terp.core.timestamps import NaiveMeansUtc
 
 __all__ = [
     "ADMIN",
@@ -342,6 +343,7 @@ __all__ = [
     "Misfire",
     "ModuleAccess",
     "ModuleSpec",
+    "NaiveMeansUtc",
     "NotFoundError",
     "ObjectAuthzPredicate",
     "OnDelete",

@@ -25,13 +25,16 @@ import uuid
 from datetime import UTC, date, datetime, time
 from typing import Any
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, GetCoreSchemaHandler
+from pydantic_core import CoreSchema
 from sqlalchemy import DateTime, Dialect, MetaData
 from sqlalchemy.orm import declared_attr
 from sqlalchemy.types import TypeDecorator, TypeEngine
 from sqlmodel import Field, SQLModel
+from sqlmodel.main import SQLModelMetaclass
 
 from terp.core.personal import declare_model, mask_repr_args
+from terp.core.timestamps import hold_timestamps_to_their_offset
 
 _NAMING_CONVENTION: dict[str, str] = {
     "ix": "ix_%(column_0_label)s",
@@ -300,12 +303,58 @@ class BaseTable(UUIDPrimaryKeyMixin, TimestampMixin, SQLModel):
         return mask_repr_args(self, super().__repr_args__())
 
 
-class BaseSchema(SQLModel):
+_BASE_SCHEMA_HOOKS = ("__get_pydantic_core_schema__", "__pydantic_init_subclass__")
+
+
+def _refuse_hooks(name: str, taken: list[str]) -> TypeError:
+    return TypeError(
+        f"{name} {', '.join(taken)}, which BaseSchema relies on to hold a timestamp read as "
+        "text to its UTC offset (ADR 0206) and to declare personal fields (ADR 0190); remove "
+        "it, and type a field NaiveMeansUtc where a sender sends UTC without an offset"
+    )
+
+
+class _BaseSchemaMeta(SQLModelMetaclass):
+    """Every ``BaseSchema`` subclass keeps the two hooks the base relies on.
+
+    The schema hook holds a timestamp read as text to its UTC offset (ADR 0206), and the
+    subclass hook declares a schema's personal fields (ADR 0190). A class that took either
+    from anywhere but ``BaseSchema``, by defining it or from a base ahead of ``BaseSchema``,
+    would decide, for itself and every class below it, whether those run at all, so it is
+    refused when it is defined. A metaclass, unlike a hook, runs for every class whatever its
+    bases define.
+    """
+
+    def __new__(
+        mcs, name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
+    ) -> Any:
+        below_base = any(isinstance(base, _BaseSchemaMeta) for base in bases)
+        defined = [f"defines {hook}" for hook in _BASE_SCHEMA_HOOKS if hook in namespace]
+        if below_base and defined:
+            raise _refuse_hooks(name, defined)
+        cls = super().__new__(mcs, name, bases, namespace, **kwargs)
+        if below_base:
+            definers = {
+                hook: next(klass for klass in cls.__mro__ if hook in klass.__dict__)
+                for hook in _BASE_SCHEMA_HOOKS
+            }
+            taken = [
+                f"takes {hook} from {definer.__qualname__}"
+                for hook, definer in definers.items()
+                if definer is not BaseSchema
+            ]
+            if taken:
+                raise _refuse_hooks(name, taken)
+        return cls
+
+
+class BaseSchema(SQLModel, metaclass=_BaseSchemaMeta):
     """Base for non-table DTOs (request bodies and response models).
 
     A field declared with :func:`~terp.core.Personal` is masked when the schema is
     rendered and recorded for the log's and the audit trail's redaction, as on a table
-    (ADR 0190).
+    (ADR 0190). A timestamp the schema reads as text must carry its UTC offset: one
+    without is a 422 at its place (ADR 0206, :mod:`terp.core.timestamps`).
     """
 
     model_config = ConfigDict(  # type: ignore[assignment]
@@ -313,6 +362,13 @@ class BaseSchema(SQLModel):
         populate_by_name=True,
         str_strip_whitespace=True,
     )
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source: Any, handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
+        # Every timestamp this schema reads as text must carry its UTC offset (ADR 0206).
+        return hold_timestamps_to_their_offset(handler(source), handler, owner=cls)
 
     @classmethod
     def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:

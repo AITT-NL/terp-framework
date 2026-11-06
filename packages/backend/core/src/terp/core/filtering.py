@@ -42,6 +42,9 @@ Three properties follow, and they are the point:
 ``None`` values are dropped **after** the name is checked, so an absent optional query
 parameter simply means "no filter" and the route needs no branching — without letting a
 typo in the forwarded dict hide behind that same allowance.
+
+A timestamp bound must carry its UTC offset (ADR 0206): one without names no instant, so it
+is refused, naming the filter and the fix, rather than compared as if it were UTC.
 """
 
 from __future__ import annotations
@@ -55,6 +58,7 @@ from sqlalchemy import ColumnElement
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from terp.core.errors import ValidationFailedError
+from terp.core.timestamps import require_offset
 
 FilterOp = Literal["eq", "ne", "lt", "lte", "gt", "gte", "in", "contains"]
 """The fixed comparison set. Declared per field by the service — never sent by a client."""
@@ -62,16 +66,29 @@ FilterOp = Literal["eq", "ne", "lt", "lte", "gt", "gte", "in", "contains"]
 _LIKE_ESCAPE = "\\"
 
 
-def _in_range(name: str, value: object) -> object:
-    """*value* as given, refused when it names no instant a timestamp can hold.
+def _holds_timestamps(column: InstrumentedAttribute) -> bool:
+    try:
+        return issubclass(column.type.python_type, datetime)
+    except NotImplementedError:  # a column type that names no Python type holds none
+        return False
 
-    A caller's bound reaches the column's type at execution, where an offset that
-    carries it past the years a timestamp holds (``0001-01-01T00:00:00+14:00``)
-    raises inside the driver call and leaks as a 500. Found here, it is a 400 that
-    names the filter. The bound itself is left as it is: a ``UtcDateTime`` column
-    converts it, and a plain one compares it as it always did.
+
+def _in_range(name: str, value: object, column: InstrumentedAttribute) -> object:
+    """*value*, refused when it names no instant a timestamp can hold.
+
+    A bound with no UTC offset names no instant at all, so it is a 400 that names the
+    filter and the fix (ADR 0206). A bound the app's own code gives a timestamp column as
+    text is read as a date and time first, as a request's would be. A caller's bound
+    reaches the column's type at execution, where an offset that carries it past the years
+    a timestamp holds (``0001-01-01T00:00:00+14:00``) raises inside the driver call and
+    leaks as a 500. Found here, it is a 400 that names the filter. A bound that is a date
+    and time is otherwise left as it is: a ``UtcDateTime`` column converts it, and a plain
+    one compares it as it always did.
     """
-    if isinstance(value, datetime) and value.utcoffset() is not None:
+    if isinstance(value, str | bytes | bytearray) and _holds_timestamps(column):
+        value = require_offset(name, value)
+    if isinstance(value, datetime):
+        require_offset(name, value)
         try:
             value.astimezone(UTC)
         except OverflowError as exc:
@@ -103,7 +120,8 @@ class FilterField:
 
     def condition(self, value: object) -> ColumnElement[bool]:
         """Build this field's SQL condition for *value*."""
-        value = _in_range(self.name, value)
+        if self.op != "contains":
+            value = _in_range(self.name, value, self.column)
         if self.op == "eq":
             return self.column == value
         if self.op == "ne":
@@ -121,7 +139,7 @@ class FilterField:
                 raise ValidationFailedError(
                     f"Filter {self.name!r} expects a list of values."
                 )
-            return self.column.in_([_in_range(self.name, item) for item in value])
+            return self.column.in_([_in_range(self.name, item, self.column) for item in value])
         if not isinstance(value, str):
             raise ValidationFailedError(f"Filter {self.name!r} expects text.")
         return self.column.ilike(f"%{_escape_like(value)}%", escape=_LIKE_ESCAPE)

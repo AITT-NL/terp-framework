@@ -35,6 +35,41 @@ decision, 0001 onwards.
   follows; its rule ids resolve against the catalog the toolchain ships.
 - `backend/datetime_columns_are_timezone_aware` names `UtcDateTime` (ADR 0205) in its reference,
   and its corpus gains a compliant case with both spellings, named and called.
+- **Timestamp text must carry its UTC offset (ADR 0206).** A value with no offset names no
+  instant, and a `UtcDateTime` column reads it as UTC. So a client one zone east of UTC that sent
+  `2026-11-06T10:00:00` was stored an hour off, and nothing reported it.
+  - A `BaseSchema` now refuses timestamp text without an offset wherever it reads a timestamp
+    itself, following every definition the schema refers to: a field, an item of a list or
+    mapping, a member of a union, a type alias, a stdlib dataclass and a `TypedDict`, under the
+    alias it reads. A nested `BaseSchema`, a recursive one and schemas that refer to each other
+    hold their own. It is a 422 of type `timestamp_offset_required` at that place, whose message
+    names the fix (`2026-11-06T10:00:00Z` or `2026-11-06T11:00:00+01:00`).
+  - A declared filter refuses a bound without an offset with a 400 that names the filter, and
+    reads a bound the app's own code gives as text as a date and time first.
+  - Only text is judged. An object the server built, a row read back through the ORM and a
+    Unix time validate as before, and a job's payload, written as text when it is enqueued, is
+    read back in the worker as it was written, a nested schema's included.
+
+  The published contract does not change: `format: date-time` already asks for the offset, so
+  the committed `openapi.json` stays byte-identical. `NaiveMeansUtc` reads a value without an
+  offset as UTC, for a sender known to send UTC without saying so. The new rule
+  `backend/request_timestamps_carry_their_offset` refuses each use of it, by name wherever it
+  appears, unless its line carries `# arch-allow-request-timestamps-carry-their-offset:
+  <reason>`, which the app's escape-hatch budget counts. `BaseSchema`'s metaclass refuses a
+  subclass that takes `__get_pydantic_core_schema__` or `__pydantic_init_subclass__` from
+  anywhere but `BaseSchema`. A class that brings its own Pydantic validator (a plain
+  `BaseModel`, a Pydantic dataclass, a root model, a table, a model the framework builds) reads
+  its own fields and validates exactly as before, as a request model that is not a `BaseSchema`
+  does: derive it from `BaseSchema` to hold its timestamps.
+- **`backend/datetime_columns_are_timezone_aware` accepts only `terp.core`'s `UtcDateTime`
+  (ADR 0205, open question B).** `DateTime(timezone=True)` and `TIMESTAMP(timezone=True)` keep
+  the zone on PostgreSQL but store the wall time on SQLite, so the instant a row recorded
+  depended on where it was written. They are now refused, with `Field(sa_type=UtcDateTime())`
+  named as the replacement. `UtcDateTime` also counts only when it is the type that reaches the
+  column, `sa_type` or `sa_column`'s type argument, and resolves to `terp.core` in the module's
+  source order. A class of that name that the file defines, or imports from anywhere else, used
+  to pass on its name alone and is now refused. A column annotated `Optional[datetime]`, which
+  the rule did not see before, is now held to it as well.
 - The repo-wide ruff baseline and the secret scan each step aside for exactly the corpus cases
   that must carry the form they refuse, and nothing else in the corpus. Ruff skips the
   violation cases of `backend/no_dynamic_sql` and `backend/no_eval_or_exec`. gitleaks skips
@@ -49,6 +84,27 @@ decision, 0001 onwards.
   Release no longer attaches `scorecard-*.json`. A scorecard certified a checker against the
   corpus, not an app; an app's evidence is its own release: the release gate document, the
   assurance profile and the authority baseline.
+
+### Upgrade notes
+
+- **Timestamp text without an offset is now a 422.** Send the offset (`Z` for UTC). A client
+  generated from the contract is typed with a string and sends what the app gives it, so a form
+  that sends a `datetime-local` input's value sends no offset and gets the 422. The same
+  refusal reads every other text a schema reads: a realtime message, a mapping passed to
+  `enqueue`, a mapping the app hands a schema, and a row read by literal SQL on SQLite. For a
+  sender known to send UTC without saying so, type that one field or query parameter
+  `NaiveMeansUtc`, and add the rule's marker with its reason and the budget entry in the same
+  change.
+- **A `BaseSchema` can now be refused when it is defined.** A subclass that takes
+  `__get_pydantic_core_schema__` or `__pydantic_init_subclass__` from anywhere but `BaseSchema`,
+  by defining it or from a base listed ahead of `BaseSchema`, raises a `TypeError`.
+- **A naive bound passed to `filters=` is now a 400,** from the app's own code as from a client,
+  and so is text on a timestamp column without an offset; text with one becomes the instant it
+  names. Pass an aware value: `datetime.now(UTC)`, or `.replace(tzinfo=UTC)` for a value known
+  to be UTC.
+- **A column declared `DateTime(timezone=True)` now turns the gate red.** Replace it with
+  `Field(sa_type=UtcDateTime())`, imported from `terp.core`. The stored type is the same, so the
+  change needs no migration (ADR 0205).
 
 ## 0.37.0 — 2026-11-06
 

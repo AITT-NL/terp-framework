@@ -42,6 +42,7 @@ from terp.core.jobs import (
     active_job_tenant_binder,
 )
 from terp.core.logging import request_id_ctx
+from terp.core.timestamps import _reading_server_text
 from terp.core._internal.engine import get_engine
 from terp.core._internal.session_guard import (
     WriteGuardedSession,
@@ -126,7 +127,11 @@ def run_job(
             f"job {envelope.name!r} is not registered in the active JobCatalog; "
             "a worker cannot resolve a handler for it (was it removed by a deploy?)"
         )
-    payload = job.payload_schema.model_validate(dict(envelope.payload))
+    # The payload is text this framework wrote from a validated model at enqueue, so a
+    # timestamp in it, a nested schema's too, is read back as written, never judged as a
+    # client's (ADR 0206).
+    with _reading_server_text():
+        payload = job.payload_schema.model_validate(dict(envelope.payload))
     actor_id = envelope.actor_id if envelope.actor_id is not None else active_job_system_actor()
     tenant_binder = active_job_tenant_binder()
     factory = session_factory if session_factory is not None else _default_session_factory

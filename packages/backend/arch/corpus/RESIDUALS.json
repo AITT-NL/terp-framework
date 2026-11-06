@@ -43,6 +43,13 @@
     "backend/personal_fields_are_declared": [
       "a model whose base comes from another package under a name that is not one of the known model bases (a third-party base model) is not required to be recognised as a model, because the check resolves bases by name within the scanned tree",
       "a model built at runtime (create_model, a class assembled by a factory) is not required to be read: its fields exist only once the code runs"
+    ],
+    "backend/request_timestamps_carry_their_offset": [
+      "an alias of the escape bound in one module and imported into another under a different name counts once, where it is bound, not at each use in the other module",
+      "a name reached through a computed attribute (getattr with a name that is not a literal, or an import made by importlib) is not resolved to the escape",
+      "a name bound to the escape by a for loop, a with statement or an assignment expression counts where the escape is named, not at each use of that name",
+      "the boundary's own module reached through a package's namespace (`vars(terp.core)` or its `__dict__`), or by a module name that is not a literal, is not resolved to that module",
+      "the escape's own validator taken out of a schema that declares the escape, and declared on another field by hand, is not resolved to the escape: the rule sees the escape where it is named, and only there"
     ]
   }
 }

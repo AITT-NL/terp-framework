@@ -60,6 +60,7 @@ from terp.arch import (
     check_no_manual_version_assignment,
     check_no_naive_datetime,
     check_datetime_columns_are_timezone_aware,
+    check_request_timestamps_carry_their_offset,
     check_errors_use_the_typed_envelope,
     check_no_exception_text_in_responses,
     check_no_oversized_python_files,
@@ -1853,9 +1854,14 @@ def test_no_naive_datetime(tmp_path: pathlib.Path) -> None:
 
 def test_datetime_columns_are_timezone_aware(tmp_path: pathlib.Path) -> None:
     app = tmp_path / "app"
+    core_import = "from terp.core import BaseTable, UtcDateTime\n\n\n"
 
-    def model(fields: str) -> str:
-        return f"class Note(BaseTable, table=True):\n{fields}"
+    def model(fields: str, imports: str = core_import) -> str:
+        return f"{imports}class Note(BaseTable, table=True):\n{fields}"
+
+    def messages(violations: list) -> list[str]:
+        assert _rule_names(violations) == {"datetime_columns_are_timezone_aware"}
+        return [violation.message for violation in violations]
 
     # Every way of declaring a timestamp column WITHOUT pinning the zone: a bare
     # annotation, a Field() that never names the column type, an optional column,
@@ -1869,28 +1875,178 @@ def test_datetime_columns_are_timezone_aware(tmp_path: pathlib.Path) -> None:
     )
     for fields in naive_columns:
         _write(app, "modules/notes/models.py", model(fields))
-        assert _rule_names(check_datetime_columns_are_timezone_aware(app)) == {
-            "datetime_columns_are_timezone_aware"
-        }, fields
+        (message,) = messages(check_datetime_columns_are_timezone_aware(app))
+        assert "declares no timezone" in message, fields
 
-    # Pinning timezone=True is compliant, however the type is spelled or carried:
-    # sa_type=, sa_column=Column(...), a qualified name, and the TIMESTAMP alias. Terp's
-    # UtcDateTime (ADR 0205) has no switch to get wrong, so naming it is enough,
-    # called or as the class SQLModel instantiates.
-    aware_columns = (
-        "    due_at: datetime = Field(sa_type=DateTime(timezone=True))\n",
-        "    due_at: datetime | None = Field(sa_column=Column(DateTime(timezone=True)))\n",
-        "    due_at: datetime = Field(sa_type=sa.DateTime(timezone=True))\n",
-        "    due_at: datetime = Field(sa_type=TIMESTAMP(timezone=True))\n",
-        "    due_at: datetime.datetime = Field(sa_type=DateTime(timezone=True))\n",
-        "    due_at: datetime = Field(sa_type=UtcDateTime())\n",
-        "    due_at: datetime | None = Field(default=None, sa_type=UtcDateTime)\n",
-        "    due_at: datetime = Field(sa_type=core.UtcDateTime())\n",
-        "    due_at: datetime = Field(sa_column=Column(UtcDateTime(), nullable=False))\n",
+    # timezone=True keeps the zone on PostgreSQL and stores the wall time on SQLite (ADR
+    # 0205), so it is refused however it is spelled or carried, and the message names the
+    # replacement and that it needs no migration.
+    wall_time_columns = (
+        ("    due_at: datetime = Field(sa_type=DateTime(timezone=True))\n", "DateTime"),
+        (
+            "    due_at: datetime | None = Field(sa_column=Column(DateTime(timezone=True)))\n",
+            "DateTime",
+        ),
+        ("    due_at: datetime = Field(sa_type=sa.DateTime(timezone=True))\n", "DateTime"),
+        ("    due_at: datetime = Field(sa_type=TIMESTAMP(timezone=True))\n", "TIMESTAMP"),
+        ("    due_at: datetime.datetime = Field(sa_type=DateTime(timezone=True))\n", "DateTime"),
     )
-    for fields in aware_columns:
+    for fields, spelling in wall_time_columns:
         _write(app, "modules/notes/models.py", model(fields))
-        assert check_datetime_columns_are_timezone_aware(app) == [], fields
+        (message,) = messages(check_datetime_columns_are_timezone_aware(app))
+        assert f"{spelling}(timezone=True) keeps the zone on PostgreSQL" in message, fields
+        assert "Field(sa_type=UtcDateTime())" in message and "no migration" in message
+
+    # terp.core's UtcDateTime is the answer however the file reaches it: imported by name
+    # or under an alias, or through the terp.core module, called or as the class
+    # SQLModel instantiates, through sa_type or sa_column.
+    utc_columns = (
+        (core_import, "    due_at: datetime = Field(sa_type=UtcDateTime())\n"),
+        (core_import, "    due_at: datetime | None = Field(default=None, sa_type=UtcDateTime)\n"),
+        (
+            core_import,
+            "    due_at: datetime = Field(sa_column=Column(UtcDateTime(), nullable=False))\n",
+        ),
+        (
+            "from terp.core import BaseTable\nfrom terp.core import UtcDateTime as Instant\n\n\n",
+            "    due_at: datetime = Field(sa_type=Instant())\n",
+        ),
+        (
+            "from terp.core.base_models import UtcDateTime\n\n\n",
+            "    due_at: datetime = Field(sa_type=UtcDateTime())\n",
+        ),
+        ("import terp.core as core\n\n\n", "    due_at: datetime = Field(sa_type=core.UtcDateTime())\n"),
+        ("from terp import core\n\n\n", "    due_at: datetime = Field(sa_type=core.UtcDateTime())\n"),
+        ("import terp.core\n\n\n", "    due_at: datetime = Field(sa_type=terp.core.UtcDateTime())\n"),
+        (
+            "import terp.core.base_models\n\n\n",
+            "    due_at: datetime = Field(sa_type=terp.core.base_models.UtcDateTime())\n",
+        ),
+    )
+    for imports, fields in utc_columns:
+        _write(app, "modules/notes/models.py", model(fields, imports))
+        assert check_datetime_columns_are_timezone_aware(app) == [], (imports, fields)
+
+    # A UtcDateTime that is not terp.core's is held to nothing: defined in the file, imported
+    # from elsewhere, never imported at all, or named on a module that is not terp.core. A
+    # local definition shadows even an import of the real one.
+    named = "    due_at: datetime = Field(sa_type=UtcDateTime())\n"
+    foreign = (
+        ("class UtcDateTime(TypeDecorator):\n    impl = DateTime\n\n\n", named),
+        ("from app.common.types import UtcDateTime\n\n\n", named),
+        ("", named),
+        (
+            "import app.common.types as core\n\n\n",
+            "    due_at: datetime = Field(sa_type=core.UtcDateTime())\n",
+        ),
+        ("from terp.core import UtcDateTime\n\nUtcDateTime = make_naive_type()\n\n\n", named),
+        # Reached through a call's result, it is whatever that call returns.
+        (
+            "import terp.core as core\n\n\n",
+            "    due_at: datetime = Field(sa_type=core.registry().UtcDateTime())\n",
+        ),
+    )
+    for imports, fields in foreign:
+        _write(app, "modules/notes/models.py", model(fields, imports))
+        (message,) = messages(check_datetime_columns_are_timezone_aware(app))
+        assert "is not terp.core's" in message and "import UtcDateTime from terp.core" in message
+
+    # Only the type that reaches the column counts: sa_type, or sa_column's type argument
+    # (type_=, or the first positional argument after the column's name). UtcDateTime named
+    # anywhere else in the call does not store the column.
+    for imports, fields in (
+        (core_import, "    due_at: datetime = Field(sa_column=Column(\"due\", UtcDateTime()))\n"),
+        (core_import, "    due_at: datetime = Field(sa_column=Column(type_=UtcDateTime()))\n"),
+        (core_import, "    due_at: Optional[datetime] = Field(default=None, sa_type=UtcDateTime())\n"),
+        ("import terp\n\n\n", "    due_at: datetime = Field(sa_type=terp.core.UtcDateTime())\n"),
+        (core_import, "    due_at: Annotated[datetime, Field(sa_type=UtcDateTime())]\n"),
+        (core_import, "    due_at: datetime = Field(sa_column=Column(NAME, UtcDateTime()))\n"),
+        (
+            core_import + "from sqlalchemy import Column as Col\n\n\n",
+            "    due_at: datetime = Field(sa_column=Col(UtcDateTime()))\n",
+        ),
+        (
+            core_import + "def unrelated():\n    UtcDateTime = None\n    return UtcDateTime\n\n\n",
+            "    due_at: datetime = Field(sa_type=UtcDateTime())\n",
+        ),
+    ):
+        _write(app, "modules/notes/models.py", model(fields, imports))
+        assert check_datetime_columns_are_timezone_aware(app) == [], (imports, fields)
+    for imports, fields, expected in (
+        (
+            core_import,
+            "    due_at: datetime = Field(sa_column=Column(DateTime(timezone=True)), "
+            "schema_extra={'x': UtcDateTime})\n",
+            "keeps the zone on PostgreSQL",
+        ),
+        (
+            core_import,
+            "    due_at: datetime = Field(sa_type=DateTime(), description=UtcDateTime.__doc__)\n",
+            "declares no timezone",
+        ),
+        (
+            "from terp.core import UtcDateTime\nfrom app.common.types import UtcDateTime\n\n\n",
+            "    due_at: datetime = Field(sa_type=UtcDateTime())\n",
+            "is not terp.core's",
+        ),
+        (
+            "from terp.core import UtcDateTime\n\nUtcDateTime: type = DateTime\n\n\n",
+            "    due_at: datetime = Field(sa_type=UtcDateTime())\n",
+            "is not terp.core's",
+        ),
+        (core_import, "    due_at: Optional[datetime] = Field(default=None)\n", "declares no timezone"),
+        (core_import, "    due_at: Union[datetime, None] = Field(default=None)\n", "declares no timezone"),
+        (core_import, "    due_at: Annotated[datetime, 'x'] = Field(default=None)\n", "declares no timezone"),
+        (core_import, "    due_at: 'datetime | None' = Field(default=None)\n", "declares no timezone"),
+        (core_import, "    due_at: datetime = Field(sa_column=make_column())\n", "cannot read its type"),
+        (
+            core_import,
+            "    due_at: datetime = Field(sa_column=Column(NAME, DateTime(timezone=True)))\n",
+            "keeps the zone on PostgreSQL",
+        ),
+        (core_import, "    due_at: Annotated[datetime, Field(sa_type=DateTime())]\n", "declares no timezone"),
+    ):
+        _write(app, "modules/notes/models.py", model(fields, imports))
+        (message,) = messages(check_datetime_columns_are_timezone_aware(app))
+        assert expected in message, (imports, fields)
+
+    # Imports inside a module-level try or with block count in source order: a fallback in
+    # the except branch is the binding the file may run with, so it wins.
+    _write(
+        app,
+        "modules/notes/models.py",
+        model(
+            named,
+            "try:\n    from terp.core import BaseTable, UtcDateTime\n"
+            "except ImportError:\n    from app.fallback import UtcDateTime\n"
+            "else:\n    pass\nfinally:\n    pass\n\n\n",
+        ),
+    )
+    (message,) = messages(check_datetime_columns_are_timezone_aware(app))
+    assert "is not terp.core's" in message
+    _write(
+        app,
+        "modules/notes/models.py",
+        model(named, "with suppress(ImportError):\n    from terp.core import BaseTable, UtcDateTime\n\n\n"),
+    )
+    assert check_datetime_columns_are_timezone_aware(app) == []
+
+    # A quoted annotation that does not parse names no timestamp, so it is not a column here.
+    _write(app, "modules/notes/models.py", model("    due_at: 'datetime |' = Field(default=None)\n"))
+    assert check_datetime_columns_are_timezone_aware(app) == []
+
+    # A class defined inside a function is read against the module as it stands at its end.
+    _write(
+        app,
+        "modules/notes/models.py",
+        core_import
+        + "def make_table():\n"
+        + "    class Note(BaseTable, table=True):\n"
+        + "        due_at: datetime = Field(sa_type=DateTime(timezone=True))\n"
+        + "    return Note\n",
+    )
+    (message,) = messages(check_datetime_columns_are_timezone_aware(app))
+    assert "keeps the zone on PostgreSQL" in message
 
     # Non-timestamp columns are none of this rule's business.
     _write(app, "modules/notes/models.py", model("    title: str = Field(max_length=200)\n"))
@@ -1912,9 +2068,8 @@ def test_datetime_columns_are_timezone_aware(tmp_path: pathlib.Path) -> None:
         "modules/notes/models.py",
         "class Note(BaseTable, table=True):\n    obj.due_at: datetime = Field(default=None)\n",
     )
-    assert _rule_names(check_datetime_columns_are_timezone_aware(app)) == {
-        "datetime_columns_are_timezone_aware"
-    }
+    (message,) = messages(check_datetime_columns_are_timezone_aware(app))
+    assert message.startswith("Note.<field>:")
 
     # A column inherited from a mixin lands on the table just the same, so a naive
     # timestamp cannot be hidden by declaring it one class up.
@@ -1930,12 +2085,12 @@ def test_datetime_columns_are_timezone_aware(tmp_path: pathlib.Path) -> None:
         "datetime_columns_are_timezone_aware"
     }
 
-    # The same mixin with a timezone-aware column is clean.
+    # The same mixin with terp.core's UtcDateTime is clean.
     _write(
         app,
         "modules/notes/models.py",
-        "class ArchivedMixin:\n"
-        "    archived_at: datetime | None = Field(sa_type=DateTime(timezone=True))\n\n\n"
+        core_import + "class ArchivedMixin:\n"
+        "    archived_at: datetime | None = Field(sa_type=UtcDateTime())\n\n\n"
         "class Note(ArchivedMixin, BaseTable, table=True):\n"
         "    title: str = Field(max_length=200)\n",
     )
@@ -1963,6 +2118,171 @@ def test_datetime_columns_are_timezone_aware(tmp_path: pathlib.Path) -> None:
     assert _rule_names(check_datetime_columns_are_timezone_aware(app)) == {
         "datetime_columns_are_timezone_aware"
     }
+
+
+def test_request_timestamps_carry_their_offset(tmp_path: pathlib.Path) -> None:
+    app = tmp_path / "app"
+
+    def findings(source: str) -> list[tuple[int, str]]:
+        _write(app, "modules/notes/schemas.py", source)
+        violations = check_request_timestamps_carry_their_offset(app)
+        assert _rule_names(violations) <= {"request_timestamps_carry_their_offset"}
+        return [(violation.line, violation.message) for violation in violations]
+
+    def lines(source: str) -> list[int]:
+        return [line for line, _ in findings(source)]
+
+    # Each use of the escape is refused at its line, however the file reaches it: by name,
+    # as an attribute of the module, through the terp package, or in a quoted annotation.
+    assert lines(
+        "from terp.core import BaseSchema, NaiveMeansUtc\n\n\n"
+        "class ReadingCreate(BaseSchema):\n"
+        "    taken_at: NaiveMeansUtc\n"
+        "    checked_at: NaiveMeansUtc | None = None\n"
+    ) == [5, 6]
+    assert lines(
+        "import terp\nimport terp.core as core\nfrom terp import core as tc\n\n\n"
+        "class ReadingCreate(BaseSchema):\n"
+        "    taken_at: core.NaiveMeansUtc\n"
+        "    checked_at: tc.NaiveMeansUtc\n"
+        "    seen_at: terp.core.NaiveMeansUtc\n"
+        '    noted_at: "core.NaiveMeansUtc | None" = None\n'
+    ) == [7, 8, 9, 10]
+
+    # Every name the file binds to it counts at each use: an import alias (whose import is
+    # itself the escape under another name), an assignment, a chain of them, a type alias.
+    assert lines(
+        "from terp.core import NaiveMeansUtc as Lenient\n\n"
+        "Looser = Lenient\n\n\n"
+        "class ReadingCreate(BaseSchema):\n"
+        "    taken_at: Lenient\n"
+        "    checked_at: Looser\n"
+    ) == [1, 3, 7, 8]
+
+    # It fails closed by name: a re-export, a class of that name the file defines, and a
+    # shadowing name in some function all still read as the escape, and so does getattr.
+    assert lines(
+        "from app.common.types import NaiveMeansUtc\n\n\n"
+        "class ReadingCreate(BaseSchema):\n    taken_at: NaiveMeansUtc\n"
+    ) == [5]
+    assert lines(
+        "class NaiveMeansUtc:\n    pass\n\n\n"
+        "def unrelated():\n    NaiveMeansUtc = None\n    return NaiveMeansUtc\n\n\n"
+        "class ReadingCreate(BaseSchema):\n    taken_at: NaiveMeansUtc\n"
+    ) == [7, 11]
+    assert lines("import terp.core as core\n\nLenient = getattr(core, 'NaiveMeansUtc')\n") == [3]
+
+    # A string Pydantic evaluates as a type names the escape as surely as a name does: a forward
+    # reference bound to a name, and a field handed to create_model.
+    assert lines(
+        "from typing import Optional\n\nfrom terp.core import NaiveMeansUtc\n\n"
+        "Lenient = Optional['NaiveMeansUtc']\n\n\n"
+        "class ReadingCreate(BaseSchema):\n    taken_at: Lenient\n"
+    ) == [5, 9]
+    assert lines(
+        "from pydantic import create_model\n\nfrom terp.core import BaseSchema, NaiveMeansUtc\n\n"
+        "ReadingCreate = create_model('ReadingCreate', __base__=BaseSchema, taken_at=('NaiveMeansUtc', ...))\n"
+    ) == [5]
+
+    # A PEP 695 type alias of the escape is the escape at its statement and at each use.
+    assert lines(
+        "from terp.core import NaiveMeansUtc\n\n"
+        "type Lenient = NaiveMeansUtc\n\n\n"
+        "class ReadingCreate(BaseSchema):\n    taken_at: Lenient\n"
+    ) == [3, 7]
+
+    # Two uses on one line are one escape; a quoted parameter or return annotation is one.
+    assert lines(
+        "from terp.core import NaiveMeansUtc\n\n"
+        "window: tuple[NaiveMeansUtc, NaiveMeansUtc] | None = None\n"
+    ) == [3]
+    assert lines(
+        "from terp.core import NaiveMeansUtc\n\n\n"
+        'def parse(at: "NaiveMeansUtc") -> "NaiveMeansUtc | None":\n'
+        "    return at\n"
+    ) == [4]
+
+    # The boundary's own module is the escape's machinery, which no app reaches, however it
+    # is spelled; the message says to recognise a refusal by its error type instead.
+    ((line, message),) = findings("from terp.core.timestamps import OFFSET_REQUIRED\n")
+    assert line == 1 and "timestamp boundary's own module" in message
+    assert "timestamp_offset_required" in message
+    assert lines("import terp.core.timestamps\n") == [1]
+    assert lines("from terp.core import timestamps\n") == [1]
+    assert lines("import terp.core as core\n\nMARK = core.timestamps.OFFSET_REQUIRED\n") == [3]
+    assert lines("import terp\n\nMARK = terp.core.timestamps.OFFSET_REQUIRED\n") == [3]
+    assert lines("from terp import core\n\nBOUNDARY = getattr(core, 'timestamps')\n") == [3]
+    assert lines(
+        "import importlib\nimport sys\n\n"
+        "BOUNDARY = importlib.import_module('terp.core.timestamps')\n"
+        "LOADED = sys.modules['terp.core.timestamps']\n"
+    ) == [4, 5]
+
+    # An attribute called timestamps on anything that is not terp.core is the app's own.
+    assert lines(
+        "import terp.core\n\n\nclass Clock:\n"
+        "    def latest(self):\n"
+        "        return self.core.timestamps, getattr(self.core, 'timestamps')\n"
+    ) == []
+    assert lines("def latest(app):\n    return app.core.timestamps\n") == []
+    # A name the file binds to terp.core means it only where no local of that name shadows it.
+    assert lines("from terp import core\n\n\ndef newest(core):\n    return core.timestamps\n") == []
+    assert lines("from terp import core\n\n\ndef newest(row):\n    return core.timestamps\n") == [5]
+    assert lines("import terp.core\n\n\ndef latest(rows):\n    return rows[0].timestamps, rows.core().timestamps\n") == []
+
+    # A name bound to the escape counts where that binding is the one in scope: a function's
+    # own local of the same name is not it, and a class attribute counts at each use through
+    # the class.
+    assert lines(
+        "from terp.core import NaiveMeansUtc\n\n"
+        "Stamp = NaiveMeansUtc\n\n\n"
+        "class ReadingCreate(BaseSchema):\n    taken_at: Stamp\n\n\n"
+        "def unrelated(row, *rest, **options):\n    Stamp = row.created_at\n    return Stamp\n"
+    ) == [3, 7]
+    assert lines(
+        "from terp.core import NaiveMeansUtc\n\n\n"
+        "class Types:\n    Lenient = NaiveMeansUtc\n\n\n"
+        "class ReadingCreate(BaseSchema):\n"
+        "    taken_at: Types.Lenient\n"
+        "    checked_at: Types.Lenient | None = None\n"
+    ) == [5, 9, 10]
+    # ... and through a subclass or an instance, since it counts by the attribute's name.
+    assert lines(
+        "from terp.core import NaiveMeansUtc\n\n\n"
+        "class Types:\n    Lenient = NaiveMeansUtc\n\n\n"
+        "class More(Types):\n    pass\n\n\n"
+        "class ReadingCreate(BaseSchema):\n"
+        "    taken_at: More.Lenient\n"
+        "    checked_at: Types().Lenient | None = None\n"
+    ) == [5, 13, 14]
+
+    # Importing it takes nothing; a Literal value, a docstring, a string that is no
+    # annotation, and a plain timestamp field are not the escape.
+    assert lines("from terp.core import NaiveMeansUtc  # noqa: F401\n") == []
+    assert lines(
+        "from typing import Literal\n\nfrom terp.core import NaiveMeansUtc\n\n"
+        'HELP = "NaiveMeansUtc reads a value with no offset as UTC (see the guide)"\n'
+        'KIND: Literal["NaiveMeansUtc", "aware"] = "aware"\n'
+        'BROKEN: "NaiveMeansUtc |" = None\n'
+    ) == []
+    assert lines(
+        "from datetime import datetime\n\nfrom terp.core import BaseSchema\n\n\n"
+        "class ReadingCreate(BaseSchema):\n    taken_at: datetime\n"
+    ) == []
+
+    # terp.core, which defines the boundary and its escape, and terp.arch, which defines this
+    # rule and names both as the data it matches, are neither's user.
+    _write(app, "modules/notes/schemas.py", "from terp.core.timestamps import require_offset\n")
+    assert check_request_timestamps_carry_their_offset(app, package="terp.core") == []
+    _write(app, "modules/notes/schemas.py", "ESCAPE = 'NaiveMeansUtc'\nMODULE = 'terp.core.timestamps'\n")
+    assert check_request_timestamps_carry_their_offset(app, package="terp.arch") == []
+
+    # A plain timestamp field passes, and the message names the marker and the budget.
+    (( _, message),) = findings(
+        "from terp.core import NaiveMeansUtc\n\n\nclass R(BaseSchema):\n    at: NaiveMeansUtc\n"
+    )
+    assert "arch-allow-request-timestamps-carry-their-offset" in message
+    assert "escape-hatch-budget.json" in message
 
 
 def test_no_oversized_python_files(tmp_path: pathlib.Path) -> None:
