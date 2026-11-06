@@ -33,21 +33,10 @@ _REPO = pathlib.Path(__file__).resolve().parents[2]
 _INDEX = _REPO / "docs" / "security-boundaries.md"
 
 #: The cases the evidence runs ahead of the pinned standard, and the release that is to carry them.
-_AHEAD_RELEASE = "0.43.0"
-_AHEAD = frozenset(
-    {
-        "sessions.rotation",
-        "native.browser-refused",
-        "accounts.enumeration",
-        "accounts.proof-of-address",
-        "accounts.single-use",
-        "accounts.sealed-tokens",
-        "accounts.expiry",
-        "accounts.backoff",
-        "accounts.lowest-rank",
-        "accounts.close",
-    }
-)
+#: Empty: terp-spec 0.43.0 packages the ten cases that ran ahead of 0.42.0, and the pin is there.
+#: A case written before the next release ships goes here again, beside that release.
+_AHEAD_RELEASE = "0.44.0"
+_AHEAD: frozenset[str] = frozenset()
 
 _CASE = re.compile(r"`([a-z][a-z0-9-]*\.[a-z][a-z0-9-]*)`")
 _EVIDENCE = re.compile(r"`([^`]+)`")
