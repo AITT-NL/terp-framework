@@ -580,19 +580,17 @@ def test_the_enrolment_row_never_holds_the_plaintext_secret(session: Session) ->
 def test_confirming_stamps_when_it_happened(session: Session) -> None:
     """The stamp is what separates a started enrolment from a live one.
 
-    Asserted as a value rather than as a timezone: the column is declared
-    ``DateTime(timezone=True)`` and the platform has a rule holding it that way, but
-    SQLite does not preserve an offset, so a tzinfo assertion here would be testing the
-    test database rather than the service.
+    ``confirmed_at`` is a ``UtcDateTime`` (ADR 0205), so it reads back aware in UTC on
+    SQLite as on PostgreSQL, and the stamp is asserted as that instant.
     """
-    before = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+    before = datetime.datetime.now(datetime.UTC)
     service = MfaService()
     user, _ = _live(session, service)
 
     row = service.enrolment_for(session, user)
     assert row is not None and row.confirmed_at is not None
-    stamped = row.confirmed_at.replace(tzinfo=None)
-    assert before <= stamped <= datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+    assert row.confirmed_at.tzinfo is datetime.UTC
+    assert before <= row.confirmed_at <= datetime.datetime.now(datetime.UTC)
 
 
 def test_confirming_without_an_enrolment_is_refused(session: Session) -> None:

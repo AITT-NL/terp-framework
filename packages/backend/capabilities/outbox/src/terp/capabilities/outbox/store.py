@@ -401,10 +401,10 @@ def dead_letters(
 
 
 def _as_utc(moment: datetime) -> datetime:
-    """A stored timestamp as aware UTC.
+    """A timestamp as aware UTC; a naive one is taken as UTC.
 
-    SQLite hands back a naive value for a timezone-aware column and PostgreSQL does not,
-    so a caller comparing or formatting these would get two different answers from the
-    same code. The column is written in UTC, so that is what a naive stamp is.
+    A caller comparing or formatting these must get one answer from the same code on both
+    dialects. The outbox's columns are ``UtcDateTime`` (ADR 0205), so a value read back
+    from them is aware already and this changes nothing for it.
     """
     return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)

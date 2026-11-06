@@ -625,8 +625,8 @@ def _render_item(type_: str, obj: Any, autogen_context: Any) -> str | bool:
 
     A revision is a record of the schema, read long after the model that wrote it has
     changed, so it stays plain SQLAlchemy. ``UtcDateTime`` stores exactly
-    ``DateTime(timezone=True)`` (ADR 0205); left to Alembic, it would be written as a
-    constructor call the type does not take, behind an import the revision lacks.
+    ``DateTime(timezone=True)`` (ADR 0205); left to Alembic, it would be written as
+    ``terp.core.base_models.UtcDateTime()``, a name the revision never imports.
     """
     if type_ == "type" and isinstance(obj, UtcDateTime):
         return "sa.DateTime(timezone=True)"

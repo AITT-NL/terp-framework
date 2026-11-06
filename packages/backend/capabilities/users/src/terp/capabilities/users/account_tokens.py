@@ -53,7 +53,11 @@ def _utc_now() -> datetime:
 
 
 def _as_utc(value: datetime) -> datetime:
-    """A stored datetime as timezone-aware UTC (SQLite may hand it back naive)."""
+    """A datetime as timezone-aware UTC; a naive one is taken as UTC.
+
+    The token's columns are ``UtcDateTime`` (ADR 0205), so a value read back from them is
+    aware already and this changes nothing for it.
+    """
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 

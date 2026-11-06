@@ -22,13 +22,13 @@ identically across environments.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from typing import Any
 
 from pydantic import ConfigDict
 from sqlalchemy import DateTime, Dialect, MetaData
 from sqlalchemy.orm import declared_attr
-from sqlalchemy.types import TypeDecorator
+from sqlalchemy.types import TypeDecorator, TypeEngine
 from sqlmodel import Field, SQLModel
 
 from terp.core.personal import declare_model, mask_repr_args
@@ -71,11 +71,16 @@ class UtcDateTime(TypeDecorator[datetime]):
     ``TIMESTAMP WITH TIME ZONE`` converts on the way in. SQLite has no such type: it
     keeps the value's wall time and drops its offset, so an instant written in another
     zone compares wrong against every other value by that offset, and reads back
-    without a zone. This type converts every value to UTC before it is bound, in a
+    without a zone. This type converts every datetime to UTC before it is bound, in a
     row and in a comparison alike, and reads every value back aware, in UTC.
 
-    A naive value is taken to be UTC, which is what the framework's own helpers and a
-    UTC session already assume. ``no_naive_datetime`` refuses building one in app code.
+    - **A naive datetime** is taken to be UTC, on PostgreSQL too, where the session's
+      zone used to decide. ``no_naive_datetime`` refuses only ``utcnow()`` and a bare
+      ``now()``; a naive value from anywhere else, such as a parsed parameter or
+      ``datetime.fromtimestamp()``, is stored as UTC as it stands.
+    - **A plain date** is its midnight in UTC, in a row and in a comparison.
+    - **Anything else** is the impl's, as before this type existed: the impl types the
+      ``timedelta`` in ``created_at + timedelta(days=30)`` as an interval.
 
     The stored type is the impl's, so adopting it on an existing column changes no
     schema and needs no migration; ``terp migrate make`` writes it into a migration as
@@ -88,8 +93,23 @@ class UtcDateTime(TypeDecorator[datetime]):
     def __init__(self) -> None:
         super().__init__(timezone=True)
 
-    def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
-        return None if value is None else _as_utc(value)
+    @property
+    def python_type(self) -> type[datetime]:
+        """``datetime``, which a decorator does not answer on its own (it says ``object``)."""
+        return datetime
+
+    def coerce_compared_value(self, op: Any, value: Any) -> TypeEngine[Any]:
+        """A date or a datetime compares through this type; anything else as the impl would."""
+        if isinstance(value, date):
+            return self
+        return self.impl_instance.coerce_compared_value(op, value)
+
+    def process_bind_param(self, value: Any, dialect: Dialect) -> Any:
+        if isinstance(value, datetime):
+            return _as_utc(value)
+        if isinstance(value, date):
+            return datetime.combine(value, time(), tzinfo=UTC)
+        return value
 
     def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
         return None if value is None else _as_utc(value)

@@ -519,8 +519,9 @@ def test_a_statistics_route_refuses_what_it_cannot_answer(client, params: dict, 
 
 
 def test_a_column_type_that_declares_no_python_type_is_typed_any() -> None:
-    # TypeEngine.python_type raises NotImplementedError for a type that does not know its
-    # Python type; the response model then accepts any value for that figure.
+    # TypeEngine's own python_type raises NotImplementedError for a type that does not know
+    # its Python type (a decorator or NullType answers ``object`` instead, which types the
+    # figure just as loosely); the response model then accepts any value for that figure.
     from types import SimpleNamespace
     from typing import Any
 

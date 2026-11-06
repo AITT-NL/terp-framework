@@ -95,10 +95,11 @@ Add a module (the "10-minute module")
      class InvoiceCreate(BaseSchema):
          number: str = Field(max_length=50)
          amount_cents: int
+         issued_at: datetime
      class InvoiceUpdate(BaseUpdateSchema):   # `version` is required (optimistic concurrency)
          amount_cents: int | None = None
      class InvoiceRead(BaseSchema):           # NOT the table model
-         id: uuid.UUID; number: str; amount_cents: int; version: int
+         id: uuid.UUID; number: str; amount_cents: int; issued_at: datetime; version: int
 
 3) service.py  business logic (CRUD is inherited and audited)
      from terp.core import BaseService

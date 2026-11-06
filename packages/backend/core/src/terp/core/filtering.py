@@ -48,6 +48,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Literal
 
 from sqlalchemy import ColumnElement
@@ -59,6 +60,24 @@ FilterOp = Literal["eq", "ne", "lt", "lte", "gt", "gte", "in", "contains"]
 """The fixed comparison set. Declared per field by the service — never sent by a client."""
 
 _LIKE_ESCAPE = "\\"
+
+
+def _instant(name: str, value: object) -> object:
+    """An aware *value* as the same instant in UTC; anything else as it is.
+
+    A caller's bound reaches the column's type at execution, where an offset that
+    carries it past the years a timestamp can hold (``0001-01-01T00:00:00+14:00``)
+    would raise inside the driver call and leak as a 500. Moved to UTC here, it is
+    a 400 that names the filter instead.
+    """
+    if not isinstance(value, datetime) or value.utcoffset() is None:
+        return value
+    try:
+        return value.astimezone(UTC)
+    except OverflowError as exc:
+        raise ValidationFailedError(
+            f"Filter {name!r} is outside the range of a timestamp."
+        ) from exc
 
 
 def _escape_like(value: str) -> str:
@@ -83,6 +102,7 @@ class FilterField:
 
     def condition(self, value: object) -> ColumnElement[bool]:
         """Build this field's SQL condition for *value*."""
+        value = _instant(self.name, value)
         if self.op == "eq":
             return self.column == value
         if self.op == "ne":
@@ -100,7 +120,7 @@ class FilterField:
                 raise ValidationFailedError(
                     f"Filter {self.name!r} expects a list of values."
                 )
-            return self.column.in_(list(value))
+            return self.column.in_([_instant(self.name, item) for item in value])
         if not isinstance(value, str):
             raise ValidationFailedError(f"Filter {self.name!r} expects text.")
         return self.column.ilike(f"%{_escape_like(value)}%", escape=_LIKE_ESCAPE)

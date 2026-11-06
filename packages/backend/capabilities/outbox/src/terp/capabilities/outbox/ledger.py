@@ -34,7 +34,11 @@ from terp.capabilities.outbox.store import settle_slot
 
 
 def _as_utc(moment: datetime) -> datetime:
-    """A stored timestamp as aware UTC (SQLite hands back a naive one; it was written UTC)."""
+    """A timestamp as aware UTC; a naive one is taken as UTC.
+
+    The outbox's columns are ``UtcDateTime`` (ADR 0205), so a value read back from them is
+    aware already and this changes nothing for it.
+    """
     return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
 
 

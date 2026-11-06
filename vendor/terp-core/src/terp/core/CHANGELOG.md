@@ -62,11 +62,17 @@ decision, 0001 onwards.
   `terp.core.aggregate(session, query, Statistics(...))`. `terp guide aggregates` walks through
   it.
 - **A timestamp column stores an instant, as UTC, on every dialect (ADR 0205).**
-  `terp.core.UtcDateTime` converts every value to UTC before it is bound, in a row and in a
+  `terp.core.UtcDateTime` converts every datetime to UTC before it is bound, in a row and in a
   comparison alike, and reads every value back aware, in UTC. `DateTime(timezone=True)` alone
   keeps the instant on PostgreSQL, but on SQLite it stores the value's wall time and drops the
   offset. So a value written in another zone, or a comparison bound in one, was off by its
-  offset there, and every value read back with no zone. A naive value is taken to be UTC.
+  offset there, and every value read back with no zone.
+  - **A naive datetime** is taken to be UTC, and a plain date is UTC's midnight.
+  - **Anything else** is bound as the plain type would bind it, so `created_at + timedelta(...)`
+    is still an interval sum.
+  - **Its Python type is `datetime`**, so a statistic over such a column is typed in the API
+    contract.
+
   Declare `Field(sa_type=UtcDateTime())`. The stored type is unchanged, so moving a column to it
   needs no migration, and `terp migrate make` writes it into a revision as
   `sa.DateTime(timezone=True)`.
@@ -98,6 +104,9 @@ decision, 0001 onwards.
 - `datetime_columns_are_timezone_aware` accepts `UtcDateTime`, named or called, and names it in
   its remedy. `DateTime(timezone=True)` stays accepted. `terp guide module` shows a timestamp
   column declared with it.
+- A keyset cursor or a declared filter whose datetime bound an offset carries past year 1 or
+  year 9999 is refused with a 400 where it enters. Converted to UTC at the bind, it would have
+  overflowed inside the driver call, a 500.
 
 ### Upgrade notes
 
@@ -115,9 +124,15 @@ decision, 0001 onwards.
   zone, gets the instant's answer and an aware UTC value. A value an app earlier wrote into such
   a column in another zone was stored as that zone's wall time and is not rewritten. It now
   reads as UTC, off by its offset, as it always compared. The framework's own stamps were UTC
-  and are unaffected. PostgreSQL storage is unchanged, but its values now read back in UTC
-  rather than in the session's zone: a response that carried the session's offset carries UTC,
-  the same instant.
+  and are unaffected.
+- **On PostgreSQL, a naive value no longer takes the session's zone.** An aware value is
+  stored as before, and every value now reads back in UTC rather than in the session's zone: a
+  response that carried the session's offset carries UTC, the same instant. But on a server
+  whose session is not in UTC, a naive value or a plain date written to a framework timestamp
+  is now stored as UTC, where it used to be read in the session's zone. `no_naive_datetime`
+  refuses only `utcnow()` and a bare `now()`, so a naive value from a parsed parameter,
+  `fromtimestamp()` or `today()` still reaches the column. Make those aware before they are
+  written.
 
 ## 0.36.1 — 2026-11-05
 

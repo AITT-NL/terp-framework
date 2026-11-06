@@ -37,7 +37,11 @@ _logger = logging.getLogger("terp.capabilities.identity.refresh")
 
 
 def _as_utc(value: datetime) -> datetime:
-    """Normalize a stored datetime to timezone-aware UTC (SQLite may return it naive)."""
+    """A datetime as timezone-aware UTC; a naive one is taken as UTC.
+
+    The token's columns are ``UtcDateTime`` (ADR 0205), so a value read back from them is
+    aware already and this changes nothing for it.
+    """
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 

@@ -376,10 +376,10 @@ def test_worker_retries_a_failing_job_with_backoff(engine: object) -> None:
     assert row.status == STATUS_PENDING
     assert row.attempts == 1
     assert row.last_error.startswith("RuntimeError: nope")
-    # backoff for attempt 1 = backoff_seconds * multiplier**0 = 10s (compared tz-naively:
-    # SQLite returns DateTime(timezone=True) columns as naive, while PostgreSQL keeps them
-    # aware — the claim comparison happens in SQL either way, so only this assertion normalizes).
-    assert row.available_at.replace(tzinfo=None) == (_T0 + timedelta(seconds=10)).replace(tzinfo=None)
+    # backoff for attempt 1 = backoff_seconds * multiplier**0 = 10s. available_at is a
+    # UtcDateTime (ADR 0205), so it reads back aware in UTC on SQLite as on PostgreSQL.
+    assert row.available_at == _T0 + timedelta(seconds=10)
+    assert row.available_at.tzinfo is UTC
     assert row.locked_by is None
 
 
