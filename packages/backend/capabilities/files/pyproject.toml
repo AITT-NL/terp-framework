@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-files"
-version = "0.36.1"
+version = "0.37.0"
 description = "Terp files capability — owner-scoped file objects with metadata in the platform database and bytes behind a pluggable storage backend."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.36.1",
+    "terp-core==0.37.0",
     # The sealing cipher terp-core[secrets] names: an app-signed file link is a sealed
     # token (ADR 0201). Pinned here as its own line, because the lockstep pin above is
     # rewritten by every release and carries no extra.
