@@ -617,21 +617,17 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
                 if outermost:
                     session.rollback()
                 raise StaleDataError() from exc
-            except StatementError as exc:
+            except Exception as exc:
                 if outermost:
                     session.rollback()
-                if not isinstance(exc.orig, OverflowError):
-                    raise
-                # An aware value whose instant falls outside year 1 to 9999 in UTC has no
-                # UTC to be stored as (ADR 0205). The column type finds that at the bind,
-                # which would otherwise leak from the driver call as a 500.
-                raise ValidationFailedError(
-                    "A date and time in this write is outside the years a timestamp holds.",
-                    log_context={"overflow": str(exc.orig)},
-                ) from exc
-            except Exception:
-                if outermost:
-                    session.rollback()
+                if isinstance(exc, StatementError) and isinstance(exc.orig, OverflowError):
+                    # An aware value whose instant falls outside year 1 to 9999 in UTC has
+                    # no UTC to be stored as (ADR 0205). The column type finds that at the
+                    # bind, which would otherwise leak from the driver call as a 500.
+                    raise ValidationFailedError(
+                        "A date and time in this write is outside the years a timestamp holds.",
+                        log_context={"overflow": str(exc.orig)},
+                    ) from exc
                 raise
             session.refresh(entity)
         return entity
