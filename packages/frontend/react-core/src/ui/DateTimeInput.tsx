@@ -77,9 +77,13 @@ export function DateTimeInput({
   );
 }
 
-/** The zone the browser runs in, which is the person's own unless they set it otherwise. */
+/**
+ * The zone the browser runs in, which is the person's own unless they set it otherwise. The
+ * locale is named only because the constructor asks for one: the zone it resolves does not
+ * depend on it, and the parts read below are numbers, which this locale writes in plain digits.
+ */
 function browserZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+  return new Intl.DateTimeFormat("en-US").resolvedOptions().timeZone ?? "UTC";
 }
 
 const MINUTE = 60_000;
