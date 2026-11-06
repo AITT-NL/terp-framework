@@ -12,6 +12,21 @@ decision, 0001 onwards.
 
 ## 0.38.0 — unreleased
 
+### Added
+
+- **`DateTimeInput` in `@terpjs/react-core`: a form sends an instant (ADR 0206, decision 7).**
+  A browser's `datetime-local` control hands the page a wall time with no UTC offset, which
+  0.38.0 refuses with a 422. `DateTimeInput` shows an RFC 3339 instant as wall time in a zone,
+  the browser's own or `zone="Europe/Amsterdam"`. It sends what is picked as an RFC 3339 instant
+  with that zone's offset (`2026-11-06T10:00:00+01:00`), the string the generated client sends.
+  A wall time the clocks skip moves forward past the gap, and one they repeat is the earlier. It
+  takes `Field`'s label, hint and error like every control.
+- **A declared filter can name the zone whose day it is (ADR 0206, decision 3).**
+  `FilterField("taken_on", Reading.taken_at, zone="Europe/Amsterdam")` compares a calendar day
+  as the whole of it in that zone: `eq` is that day, `gte` from its start, `lte` through its end,
+  `gt` after it, `lt` before it, `ne` outside it, and `in` any of the days. A day the clocks
+  change on keeps its 23 or 25 hours.
+
 ### Changed
 
 - **The rules live in this repository (ADR 0203).** The rule catalog, its corpus, the refused
@@ -61,6 +76,15 @@ decision, 0001 onwards.
   `BaseModel`, a Pydantic dataclass, a root model, a table, a model the framework builds) reads
   its own fields and validates exactly as before, as a request model that is not a `BaseSchema`
   does: derive it from `BaseSchema` to hold its timestamps.
+- **The new rule `frontend/timestamp-inputs-carry-their-offset` refuses a `datetime-local`
+  input**, a JSX `type` of `datetime-local` on any element in any letter case, and names
+  `DateTimeInput`. Its runtime half is the server's 422.
+- **A calendar day on a timestamp filter needs a zone.** A filter read a bare date on a timestamp
+  column as UTC midnight, so for a caller in another zone the day started off by the zone's
+  offset. Without a declared zone it is now refused like a naive bound, a 400 that names the
+  filter. A filter declared wrongly is refused when it is declared: an op outside `FilterOp`,
+  which used to fall through to a `contains` match, an unknown zone, or a zone on a column that
+  holds no timestamps.
 - **`backend/datetime_columns_are_timezone_aware` accepts only `terp.core`'s `UtcDateTime`
   (ADR 0205, open question B).** `DateTime(timezone=True)` and `TIMESTAMP(timezone=True)` keep
   the zone on PostgreSQL but store the wall time on SQLite, so the instant a row recorded
@@ -102,6 +126,13 @@ decision, 0001 onwards.
   and so is text on a timestamp column without an offset; text with one becomes the instant it
   names. Pass an aware value: `datetime.now(UTC)`, or `.replace(tzinfo=UTC)` for a value known
   to be UTC.
+- **A `date` bound on a timestamp filter is now a 400.** A route that forwards a `date` query
+  parameter to a filter on a timestamp column declares the zone whose day it is on that filter
+  (`zone="Europe/Amsterdam"`); the day is then compared as the whole of it.
+- **A `datetime-local` input now turns the lint red.** Replace it with `DateTimeInput` from
+  `@terpjs/react-core`, whose value is the instant the API takes. A field that truly holds a
+  wall time with a named zone, read by the API as text, keeps the control with
+  `// terp-allow-timestamp-inputs-carry-their-offset: <reason>` and a budget entry.
 - **A column declared `DateTime(timezone=True)` now turns the gate red.** Replace it with
   `Field(sa_type=UtcDateTime())`, imported from `terp.core`. The stored type is the same, so the
   change needs no migration (ADR 0205).

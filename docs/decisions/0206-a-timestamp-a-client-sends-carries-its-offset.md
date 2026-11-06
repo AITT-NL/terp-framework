@@ -7,6 +7,11 @@
   refusal now sits at the timestamp type, follows every definition a schema reads itself, leaves
   a class with its own validator to that validator, and trusts only what an app reaches by
   importing the boundary's own module, which the rule refuses (see *What the review changed*).
+  Later on 2026-11-06 the owner decided its open questions on the recommendations recorded
+  here. A calendar day on a timestamp filter names its zone or is refused, and a form sends an
+  instant (decisions 3 and 7, both in 0.38.0). An app's own validator that reads timestamp text
+  first, a model that is not a `BaseSchema` and a plain timestamp route parameter are each
+  decided for 0.39.0 (see *Open*).
 - **Date:** 2026-11-06.
 - **Relates:** [ADR 0205](0205-a-timestamp-column-stores-an-instant-as-utc.md) (its open
   question A, and the `UtcDateTime` that reads a naive value as UTC),
@@ -18,12 +23,14 @@
 ## Decision
 
 A timestamp read as text must carry its UTC offset. A `BaseSchema` refuses timestamp text
-without one wherever Pydantic reads a timestamp for it, as a 422 at its place. A declared filter
-refuses a bound without one, as a 400 that names the filter. Both say what to send. The
-published contract does not change, because it already asks for the offset. The framework's one
-way around is `NaiveMeansUtc`, which reads a value without an offset as UTC. The
-`request_timestamps_carry_their_offset` rule refuses each use of it unless the line carries the
-rule's marker, which the app's escape-hatch budget counts.
+without one wherever it reads a timestamp itself, as a 422 at its place. A declared filter
+refuses a bound without one, as a 400 that names the filter, and a calendar day unless the
+filter declares the zone whose day it is. Both say what to send. A form sends an instant:
+`DateTimeInput` sends what is picked with its zone's offset, and a raw `datetime-local` control
+is lint-refused. The published contract does not change, because it already asks for the
+offset. The framework's one way around is `NaiveMeansUtc`, which reads a value without an offset
+as UTC. The `request_timestamps_carry_their_offset` rule refuses each use of it unless the line
+carries the rule's marker, which the app's escape-hatch budget counts.
 
 ## Context
 
@@ -118,6 +125,18 @@ text, which only the app's own code can give, is read as a date and time on a ti
 first, as a request's would be: text without an offset, and text that is none, are the same
 400, and text with one becomes the instant it names.
 
+A calendar day names no instant either, until it names the zone whose day it is. A filter on a
+timestamp column used to read a bare date as UTC midnight, so for a caller in another zone the
+day started off by the zone's offset: the error this ADR refuses, only on reads. A day on a
+timestamp column is now the same 400, unless the filter declares its zone:
+`FilterField("taken_on", Reading.taken_at, zone="Europe/Amsterdam")`. With one, a day is
+compared as the whole of it in that zone, from its midnight to the next. `eq` is that day,
+`gte` from its start, `lte` through its end, `gt` after it, `lt` before it, `ne` outside it, and
+`in` any of the days. A day the clocks change on keeps its length, 23 or 25 hours. A zone is
+declared on the filter, not sent by the caller, so a report's days are the business's own. A
+filter declared wrongly is refused when it is declared: an op outside the fixed set, a zone the
+server does not know, or a zone on a column that holds no timestamps.
+
 ### 4. The contract does not change
 
 Decision 1 refuses at validation, not in the schema, so a field's schema text is unchanged. The
@@ -152,6 +171,23 @@ The runtime refusals in decisions 1 and 3 hold the invariant, and the rule gover
 framework's way around them. The rule's catalog entry classifies its runtime half as
 `required` and cites both controls.
 
+### 7. A form sends an instant
+
+A browser's `datetime-local` control hands the page a wall time with no offset, which decision
+1 refuses. So `@terpjs/react-core` ships `DateTimeInput`. It shows an RFC 3339 instant as wall
+time in a zone, the browser's own or one it is given (`zone="Europe/Amsterdam"`), and sends
+what is picked as an RFC 3339 instant with that zone's offset. Its value is the API's own
+string, so a form's state holds what the generated client sends. A wall time the clocks skip
+moves forward past the gap, and one they repeat is the earlier of the two, the choice
+JavaScript's dates and Temporal make. A value without an offset shows as empty rather than
+guessed at.
+
+The new rule `frontend/timestamp-inputs-carry-their-offset` refuses a JSX `type` of
+`datetime-local` on any element, in any letter case, and names `DateTimeInput`. Its runtime half
+is decision 1's refusal, which a wall time sent anyway meets at the server. `Input` itself does
+not refuse the type at render, because then the rule's marker could not keep a field that truly
+holds a wall time with a named zone, read by the API as text.
+
 ## What does not change
 
 - **What is stored.** `UtcDateTime` still reads a naive value the server hands it as UTC
@@ -169,30 +205,27 @@ framework's way around them. The rule's catalog entry classifies its runtime hal
 
 - **A model that is not a `BaseSchema`, as a request body or nested in one.** A plain Pydantic
   model, a Pydantic dataclass, a root model or a table reads its own fields, so it is not held to
-  decision 1, whether it is the body or a field of one. The convention already makes every DTO a
-  `BaseSchema`, but no rule refuses the plain model yet. A rule for it is a later revision. The
-  third round tried judging a nested one in front of its own validator, and the fourth found
-  that it runs that class's validators twice, changes which member a union picks, and breaks
-  the published JSON schema (see *What the review changed*).
+  decision 1, whether it is the body or a field of one. The third round tried judging a nested
+  one in front of its own validator, and the fourth found that it runs that class's validators
+  twice, changes which member a union picks, and breaks the published JSON schema (see *What the
+  review changed*). Decided on 2026-11-06, for 0.39.0: `create_app` checks every route when the
+  app starts. It refuses a request body that is, or nests, such a class holding a timestamp the
+  escape does not mark, naming the route and the fix. Response models are left alone.
 - **A timestamp route parameter that is not a declared filter.** FastAPI parses it, and nothing
-  judges it unless it reaches a filter. Until a check covers it, take it through a declared
-  filter, or type it with Pydantic's `AwareDatetime`, whose 422 does not name the fix.
+  judges it unless it reaches a filter. Decided on 2026-11-06, for 0.39.0: the same startup
+  check refuses a plain `datetime` query or path parameter, and the framework ships a parameter
+  type that refuses one without an offset. Until then, take it through a declared filter.
 - **A validator of the app's own that runs first.** A model validator in `before` or `wrap`
   mode, and a field validator in `before`, `wrap` or `plain` mode (`BeforeValidator`,
   `WrapValidator`, `PlainValidator`, `@field_validator`), sees the text before the timestamp
   type does, so it can read a naive value with a zone of its choosing. That is also how a "wall
   time plus a named zone" input is read. Moving the refusal to the timestamp type widened this:
   the first build's refusal ran before a field validator, and refused the naive text a
-  `BeforeValidator` would have read. It is the app's own code, which a reviewer reads, and the
-  rule does not count it. Whether the rule should govern it is the owner's question.
-- **A `date` bound on a timestamp column.** A declared filter still takes a bare date as UTC
-  midnight, the reading `UtcDateTime` gives one. For a caller in another zone, that day starts
-  off by the zone's offset, the same outcome this ADR refuses for a naive date and time. Whether
-  to refuse a date bound on a timestamp column, or to name its zone, is the owner's question.
-- **The frontend half.** `@terpjs/react-core` has no primitive that turns a picked local date
-  and time into an instant. A form that sends the value of a `datetime-local` input sends a time
-  without an offset, which this ADR now refuses. Whether the frontend gets that primitive, or a
-  lint rule for the raw value, is the owner's question.
+  `BeforeValidator` would have read. Decided on 2026-11-06, for 0.39.0: the framework ships a
+  type for a local time in a named zone, which arrives as an instant and refuses a time the
+  clocks skip or repeat. The rule then counts a `before`, `wrap` or `plain` validator on a
+  timestamp field as the escape, with its marker and budget. A model-level validator sees the
+  whole body, so flagging it would mostly be noise; it stays out, and stays recorded here.
 - **What the rule sees only where the escape is named.** A name bound to `NaiveMeansUtc` in one
   module and imported into another under a different name, or bound by a `for` loop, a `with`
   statement or an assignment expression, counts where the escape is named, not at each use. The
@@ -307,3 +340,8 @@ The fourth round, of the third rework:
   CHANGELOG's upgrade notes say so, with the other text the refusal now judges.
 - **An app with a sender that truly sends UTC without an offset** declares the escape on that one
   field, with the reason, in the same change.
+- **A filter that took a calendar day on a timestamp column refuses it** until the filter
+  declares its zone. That is a breaking change for its callers, in the same release as decision
+  1's.
+- **A form with a `datetime-local` control turns the lint red.** `DateTimeInput` replaces it,
+  and sends what the API takes.
