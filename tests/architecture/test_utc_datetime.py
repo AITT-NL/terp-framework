@@ -23,7 +23,10 @@ import uuid
 
 import terp.capabilities
 from terp.core import (
+    BaseSchema,
+    BaseService,
     BaseTable,
+    BaseUpdateSchema,
     FilterField,
     Measure,
     Statistics,
@@ -49,6 +52,22 @@ class Stamped(BaseTable, table=True):
     __tablename__ = "utc_datetime_stamped"
     note: str = Field(default="", max_length=20)
     happened_at: dt.datetime = Field(sa_type=UtcDateTime())  # type: ignore[call-overload]
+
+
+class StampedCreate(BaseSchema):
+    happened_at: dt.datetime
+
+
+class StampedUpdate(BaseUpdateSchema):
+    note: str | None = Field(default=None, max_length=20)
+
+
+class Stamps(BaseService[Stamped, StampedCreate, StampedUpdate]):
+    model = Stamped
+
+
+#: The first moment of year 1 in a zone 14 hours ahead: valid ISO, but before year 1 in UTC.
+BEFORE_YEAR_ONE = dt.datetime(1, 1, 1, tzinfo=dt.timezone(dt.timedelta(hours=14)))
 
 
 @pytest.fixture
@@ -126,6 +145,11 @@ def test_an_interval_still_adds_to_a_timestamp(engine: sa.Engine) -> None:
 
 def test_a_plain_date_is_its_midnight_in_utc(engine: sa.Engine) -> None:
     day = dt.date(2026, 11, 6)
+    # On SQLite and on a UTC session the impl would land on the same midnight; the bind
+    # itself is what says this is UTC's, whatever the session's zone.
+    assert UtcDateTime().process_bind_param(day, engine.dialect) == dt.datetime(
+        2026, 11, 6, tzinfo=UTC
+    )
     table = _written(engine, UtcDateTime(), day)
     with engine.connect() as connection:
         assert connection.execute(sa.select(table.c.at)).scalar_one() == dt.datetime(
@@ -136,20 +160,21 @@ def test_a_plain_date_is_its_midnight_in_utc(engine: sa.Engine) -> None:
 
 
 def test_a_bound_outside_the_years_a_timestamp_holds_is_a_400_not_a_500() -> None:
-    """An offset can carry a valid ISO string past year 1 or year 9999. Moved to UTC at the
-    edge, it is a ``ValidationFailedError`` there, never an overflow inside the driver call."""
-    far = dt.datetime(1, 1, 1, tzinfo=dt.timezone(dt.timedelta(hours=14)))
-    raw = f"{far.isoformat()}|{uuid.uuid4()}"
+    """An offset can carry a valid ISO string past year 1 or year 9999. Found where it enters,
+    it is a ``ValidationFailedError`` there, never an overflow inside the driver call."""
+    raw = f"{BEFORE_YEAR_ONE.isoformat()}|{uuid.uuid4()}"
     with pytest.raises(ValidationFailedError):
         decode_cursor(base64.urlsafe_b64encode(raw.encode()).decode())
     since = FilterField("since", Stamped.happened_at, op="gte")
     with pytest.raises(ValidationFailedError, match="'since'"):
-        since.condition(far)
+        since.condition(BEFORE_YEAR_ONE)
     with pytest.raises(ValidationFailedError, match="'any'"):
-        FilterField("any", Stamped.happened_at, op="in").condition([INSTANT, far])
+        FilterField("any", Stamped.happened_at, op="in").condition([INSTANT, BEFORE_YEAR_ONE])
 
 
-def test_a_cursor_and_a_filter_move_an_aware_bound_to_utc() -> None:
+def test_a_cursor_moves_its_position_to_utc_and_a_filter_leaves_its_bound_alone() -> None:
+    """The cursor's position only ever meets ``created_at``, a ``UtcDateTime``. A filter's bound
+    can meet an app's own plain column, where moving it to UTC would change the answer."""
     position = f"{LOCAL.isoformat()}|{uuid.uuid4()}"
     at, _ = decode_cursor(base64.urlsafe_b64encode(position.encode()).decode())
     assert (at, at.tzinfo) == (INSTANT, UTC)
@@ -157,8 +182,38 @@ def test_a_cursor_and_a_filter_move_an_aware_bound_to_utc() -> None:
     at, _ = decode_cursor(base64.urlsafe_b64encode(naive.encode()).decode())
     assert at.tzinfo is None  # left to the column's type, which takes it as UTC
     condition = FilterField("since", Stamped.happened_at, op="gte").condition(LOCAL)
-    bound = condition.right.value  # type: ignore[attr-defined]
-    assert (bound, bound.tzinfo) == (INSTANT, UTC)
+    assert condition.right.value.tzinfo is AMSTERDAM  # type: ignore[attr-defined]
+
+
+def test_a_write_whose_instant_is_outside_the_years_is_a_400_not_a_500(
+    engine: sa.Engine,
+) -> None:
+    """A create DTO can carry the same bound into a row. ``_save`` maps the bind's overflow
+    to the typed error, and the transaction is rolled back."""
+    SQLModel.metadata.create_all(engine, tables=[Stamped.__table__])  # type: ignore[attr-defined]
+    with Session(engine) as session:
+        with pytest.raises(ValidationFailedError, match="outside the years"):
+            Stamps().create(session, StampedCreate(happened_at=BEFORE_YEAR_ONE))
+        assert session.exec(select(Stamped)).all() == []
+        Stamps().create(session, StampedCreate(happened_at=LOCAL))  # the session still works
+
+
+def test_a_statistics_window_outside_the_years_is_a_400_not_a_500(engine: sa.Engine) -> None:
+    """Year 1's first midnight in Tokyo is before year 1 in UTC, and the step after
+    31 December 9999 is no date at all."""
+    SQLModel.metadata.create_all(engine, tables=[Stamped.__table__])  # type: ignore[attr-defined]
+    statistics = Statistics(
+        measures=(Measure("stamps"),),
+        time_buckets=(TimeBucket("happened", Stamped.happened_at, steps=("day",)),),
+    )
+    windows = (
+        Window("happened", start=dt.date(1, 1, 1), end=dt.date(1, 1, 2), zone="Asia/Tokyo"),
+        Window("happened", start=dt.date(9999, 12, 30), end=dt.date(9999, 12, 31), zone="UTC"),
+    )
+    with Session(engine) as session:
+        for window in windows:
+            with pytest.raises(ValidationFailedError, match="years a timestamp holds"):
+                aggregate(session, select(Stamped), statistics, measures=["stamps"], window=window)
 
 
 def test_a_statistic_over_it_is_typed_as_a_timestamp() -> None:

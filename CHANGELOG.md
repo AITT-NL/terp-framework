@@ -104,9 +104,10 @@ decision, 0001 onwards.
 - `datetime_columns_are_timezone_aware` accepts `UtcDateTime`, named or called, and names it in
   its remedy. `DateTime(timezone=True)` stays accepted. `terp guide module` shows a timestamp
   column declared with it.
-- A keyset cursor or a declared filter whose datetime bound an offset carries past year 1 or
-  year 9999 is refused with a 400 where it enters. Converted to UTC at the bind, it would have
-  overflowed inside the driver call, a 500.
+- A datetime that an offset carries past year 1 or year 9999 in UTC is refused with a 400 where
+  the framework takes it from a caller: a keyset cursor, a declared filter, a write through
+  `BaseService`, and a statistics window. Converted to UTC at the bind, it would overflow inside
+  the driver call, a 500. A filter's bound is otherwise left as given.
 
 ### Upgrade notes
 
@@ -129,10 +130,13 @@ decision, 0001 onwards.
   stored as before, and every value now reads back in UTC rather than in the session's zone: a
   response that carried the session's offset carries UTC, the same instant. But on a server
   whose session is not in UTC, a naive value or a plain date written to a framework timestamp
-  is now stored as UTC, where it used to be read in the session's zone. `no_naive_datetime`
-  refuses only `utcnow()` and a bare `now()`, so a naive value from a parsed parameter,
-  `fromtimestamp()` or `today()` still reaches the column. Make those aware before they are
-  written.
+  is now stored as UTC, where it used to be read in the session's zone, and a comparison
+  against one shifts the same way. `no_naive_datetime` refuses only `utcnow()` and a bare
+  `now()`, so a naive value from a parsed parameter, `fromtimestamp()` or `today()` still
+  reaches the column. Make those aware before they are written.
+- **A datetime past year 1 or year 9999 in UTC is a 400.** A cursor, filter, write or
+  statistics window carrying one used to answer as its wall time: a `>` bound before year 1
+  matched every row. It is now refused where it enters.
 
 ## 0.36.1 — 2026-11-05
 

@@ -62,22 +62,23 @@ FilterOp = Literal["eq", "ne", "lt", "lte", "gt", "gte", "in", "contains"]
 _LIKE_ESCAPE = "\\"
 
 
-def _instant(name: str, value: object) -> object:
-    """An aware *value* as the same instant in UTC; anything else as it is.
+def _in_range(name: str, value: object) -> object:
+    """*value* as given, refused when it names no instant a timestamp can hold.
 
     A caller's bound reaches the column's type at execution, where an offset that
-    carries it past the years a timestamp can hold (``0001-01-01T00:00:00+14:00``)
-    would raise inside the driver call and leak as a 500. Moved to UTC here, it is
-    a 400 that names the filter instead.
+    carries it past the years a timestamp holds (``0001-01-01T00:00:00+14:00``)
+    raises inside the driver call and leaks as a 500. Found here, it is a 400 that
+    names the filter. The bound itself is left as it is: a ``UtcDateTime`` column
+    converts it, and a plain one compares it as it always did.
     """
-    if not isinstance(value, datetime) or value.utcoffset() is None:
-        return value
-    try:
-        return value.astimezone(UTC)
-    except OverflowError as exc:
-        raise ValidationFailedError(
-            f"Filter {name!r} is outside the range of a timestamp."
-        ) from exc
+    if isinstance(value, datetime) and value.utcoffset() is not None:
+        try:
+            value.astimezone(UTC)
+        except OverflowError as exc:
+            raise ValidationFailedError(
+                f"Filter {name!r} is outside the range of a timestamp."
+            ) from exc
+    return value
 
 
 def _escape_like(value: str) -> str:
@@ -102,7 +103,7 @@ class FilterField:
 
     def condition(self, value: object) -> ColumnElement[bool]:
         """Build this field's SQL condition for *value*."""
-        value = _instant(self.name, value)
+        value = _in_range(self.name, value)
         if self.op == "eq":
             return self.column == value
         if self.op == "ne":
@@ -120,7 +121,7 @@ class FilterField:
                 raise ValidationFailedError(
                     f"Filter {self.name!r} expects a list of values."
                 )
-            return self.column.in_([_instant(self.name, item) for item in value])
+            return self.column.in_([_in_range(self.name, item) for item in value])
         if not isinstance(value, str):
             raise ValidationFailedError(f"Filter {self.name!r} expects text.")
         return self.column.ilike(f"%{_escape_like(value)}%", escape=_LIKE_ESCAPE)

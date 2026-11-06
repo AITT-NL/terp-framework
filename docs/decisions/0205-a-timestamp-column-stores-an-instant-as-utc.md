@@ -76,7 +76,7 @@ decorator does not answer on its own.
 session's time zone, which on a server whose zone is not UTC is an offset away from UTC.
 Measured on a session in `Europe/Amsterdam`: the plain type stored a naive 10:00 as 09:00 UTC,
 and this type stores it as 10:00 UTC, the meaning it already had on SQLite. A plain date moves
-the same way, from the session's midnight to UTC's.
+the same way, from the session's midnight to UTC's, and so does a comparison against either.
 
 **A naive value is taken, not refused.** Refusing it at bind would be a 500 a client can cause,
 because a bind cannot raise a typed error. `no_naive_datetime` does not prevent one either. It
@@ -89,15 +89,23 @@ by the client's offset. Whether to refuse a naive value where it enters is open 
 ### 2. A bound the type cannot hold is refused where it enters
 
 An offset can carry a valid ISO string past the years a timestamp holds:
-`0001-01-01T00:00:00+14:00` is a moment before year 1 in UTC. Converted at the bind, it raised
-an overflow inside the driver call, a 500. Two edges take a caller's bound and now move it to
-UTC first:
+`0001-01-01T00:00:00+14:00` is a moment before year 1 in UTC. Converted at the bind, it raises
+an overflow inside the driver call, a 500. Where the framework takes such a value from a caller,
+it now refuses it with a 400 first:
 
-- **The keyset cursor.** `decode_cursor` converts there and refuses the overflow with the 400 it
-  gives any malformed cursor.
-- **The declared filters.** `FilterField.condition` does the same, naming the filter.
+- **The keyset cursor.** `decode_cursor` converts the position to UTC and refuses the overflow
+  with the 400 it gives any malformed cursor. The position only ever meets `created_at`.
+- **The declared filters.** `FilterField.condition` checks the bound and names the filter. It
+  leaves the bound as given: a `UtcDateTime` column converts it, and an app's own plain column
+  compares it as it always did.
+- **A write.** `_save` maps the bind's overflow to a 400 and rolls the write back, so a create
+  DTO carrying such a value is refused, not a 500.
+- **A statistics window.** Year 1's first midnight in a zone east of UTC, and the step after
+  31 December 9999, have no UTC instant. `aggregate` refuses the window.
 
-Before this type, the same bound ran and matched no rows.
+Before this type, such a bound compared as its wall time. A `>` bound before year 1 matched
+every row, so a request that answered 200 now answers 400. An app's own query that binds such
+a value without going through these edges still gets a 500.
 
 ### 3. Every timestamp the framework declares, and any an app declares
 
@@ -141,7 +149,7 @@ compiled type is the same.
 | A timestamp column drops its zone | `datetime_columns_are_timezone_aware`, which accepts `UtcDateTime` and `DateTime(timezone=True)` | deferred (the catalog's boot check) |
 | An instant compares wrong on SQLite | none: the rule accepts the plain type, which keeps the defect | `UtcDateTime`, for a column declared with it |
 | App code builds a naive value | `no_naive_datetime`, for `utcnow()` and a bare `now()` only | none: the type takes it as UTC, a default and not a control |
-| A caller's bound overflows the type | none | `decode_cursor` and `FilterField` refuse it with a 400 |
+| A caller's bound overflows the type | none | `decode_cursor`, `FilterField`, `_save` and the statistics window refuse it with a 400 |
 | A framework timestamp is declared the SQLite way | the sweep in `test_utc_datetime.py` | none |
 
 ## Open questions
@@ -167,7 +175,10 @@ findings are folded in above:
   A date and a datetime now compare through the type, and anything else as the impl would.
 - **Dates.** A plain date written into a column raised the same way. It is now UTC's midnight.
 - **Overflow.** A crafted cursor or filter bound past year 1 or year 9999 was a 500. It is a 400
-  at the edge (decision 2).
+  at the edge (decision 2). A second pass found the same overflow in a write and in a statistics
+  window, which were 500s too, and now also answer 400.
+- **The filter's bound.** The first fix moved every aware filter bound to UTC. That changed the
+  answer on an app's own plain column on SQLite, so the filter now only checks the range.
 - **The API type.** A statistic over a `UtcDateTime` column was typed as anything in the API
   contract, because a decorator answers `object` for its Python type. It is `datetime` now, and
   a test types a figure over one.
@@ -176,7 +187,10 @@ findings are folded in above:
   - that storage on PostgreSQL is unchanged for a naive value;
   - what Alembic would write without the hook;
   - the runtime column of the enforcement table;
-  - the module guide's example, whose create DTO lacked the column it added.
+  - the module guide's example, whose create DTO lacked the column it added;
+  - that the overflowing bound had matched no rows. With rows present, it matched every one.
+- **A test that could not fail offline.** The date test passed with the date branch removed on
+  SQLite and on a UTC session. It now asserts the bind itself.
 
 ## Consequences
 
@@ -192,4 +206,7 @@ findings are folded in above:
   - An app that compared a framework timestamp on SQLite against a value in another zone now
     gets the instant's answer, which changes a test that encoded the old one.
   - On a PostgreSQL server whose session is not in UTC, a naive value or a plain date written to
-    a framework timestamp is stored as UTC, not in the session's zone.
+    a framework timestamp is stored as UTC, not in the session's zone. A comparison against one
+    shifts the same way.
+  - A cursor, filter, write or statistics window whose datetime falls before year 1 or after
+    year 9999 in UTC is a 400, where it used to answer as its wall time.
