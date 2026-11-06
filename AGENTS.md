@@ -235,7 +235,7 @@ repository — [AITT-NL/terp-spec](https://github.com/AITT-NL/terp-spec)
 (ADRs 0080/0081). It is not stack-neutral: the rules are written against this
 framework's architecture, and this repository is their only implementation.
 [ADR 0203](docs/decisions/0203-the-rules-belong-to-the-framework-and-only-the-contracts-are-neutral.md)
-(proposed) moves the rules here and keeps only the declaration contracts as a
+(accepted) moves the rules here and keeps only the declaration contracts as a
 separate package. Until then: `catalog/` declares every backend + frontend rule as JSON,
 `corpus/` holds violation/compliant samples per rule (`corpus/PENDING.json`
 is the coverage ratchet — it only shrinks), and `findings.schema.json` is the

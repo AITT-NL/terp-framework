@@ -88,7 +88,7 @@ the same change instead of weakening either guard.
 Source of truth: [AGENTIC_PLATFORM_DESIGN.md](../AGENTIC_PLATFORM_DESIGN.md);
 decisions in [docs/decisions/](../docs/decisions/). The rule catalog +
 violation corpus (the Terp Standard, ADRs 0080/0081) — written against this
-framework, not stack-neutral; ADR 0203 (proposed) moves it here — lives in
+framework, not stack-neutral; ADR 0203 (accepted) moves it here — lives in
 [AITT-NL/terp-spec](https://github.com/AITT-NL/terp-spec) — a new rule ships
 with a catalog entry there, and corpus cases shrink its `corpus/PENDING.json`.
 The spec is consumed as a package (`terp-spec` / `@terpjs/spec`, published from
