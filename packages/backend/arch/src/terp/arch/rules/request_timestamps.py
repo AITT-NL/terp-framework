@@ -20,6 +20,7 @@ from terp.arch.rules.datetimes import _bound_names
 _NAIVE_MEANS_UTC = "NaiveMeansUtc"
 
 #: The boundary's own machinery; an app takes the escape from ``terp.core``.
+# arch-allow-request-timestamps-carry-their-offset: the checker names the module it refuses, as the data it matches
 _TIMESTAMPS_MODULE = "terp.core.timestamps"
 
 #: The package that defines the boundary and the escape, which the framework scans as one.
