@@ -1180,6 +1180,11 @@ const randomUuidMessage =
   + "TypeError that type-checks cleanly and never fires on localhost, so no test sees it. "
   + "Use randomUuid from @terpjs/react-core, which falls back to crypto.getRandomValues "
   + "(not secure-context-gated) for the same entropy.";
+const localDateTimeMessage =
+  'A type="datetime-local" input sends a wall time with no UTC offset, which names no instant, ' +
+  "and the API refuses one for a timestamp with a 422 (ADR 0206). Use DateTimeInput from " +
+  "@terpjs/react-core, which shows the time in the person's zone and sends the instant it " +
+  "names with that zone's offset.";
 const deepImportMessage =
   "Import from the package root (@terpjs/react-core, @terpjs/contract), not its internals.";
 const styleImportMessage =
@@ -1304,6 +1309,22 @@ function restrictedSyntaxWithCatalogIds() {
         },
       ]
     : [];
+  const localDateTime = BOUNDARY_SPEC.restrictLocalDateTimeInput
+    ? [
+        {
+          // The attribute on any element: `Input`, a raw `input` (refused on its own as well)
+          // or a wrapper that passes it through. Any letter case, since the browser reads the
+          // type case-insensitively, and as a string, an expression or a plain template.
+          catalogId: "frontend/timestamp-inputs-carry-their-offset",
+          selector:
+            "JSXAttribute[name.name='type'][value.value=/^datetime-local$/i], " +
+            "JSXAttribute[name.name='type'] > JSXExpressionContainer > Literal[value=/^datetime-local$/i], " +
+            "JSXAttribute[name.name='type'] > JSXExpressionContainer > " +
+            "TemplateLiteral[expressions.length=0][quasis.0.value.raw=/^datetime-local$/i]",
+          message: localDateTimeMessage,
+        },
+      ]
+    : [];
   // A stylesheet reached without an import declaration, which no-restricted-imports never
   // sees: `import("lib/style.css")`, `import(`./themes/${name}.css`)`, and a Vite
   // `import.meta.glob` whose pattern names a stylesheet (a string, or a string in the array
@@ -1337,6 +1358,7 @@ function restrictedSyntaxWithCatalogIds() {
     ...inAppAnchors,
     ...rawClipboard,
     ...rawRandomUuid,
+    ...localDateTime,
     ...dynamicStyleImports,
     {
       catalogId: "frontend/no-dom-html-injection",

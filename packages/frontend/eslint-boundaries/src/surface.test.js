@@ -204,6 +204,8 @@ const VIOLATION_SNIPPETS = {
     'export const W = ({label}) => <a href="https://example.com" target="_blank">{label}</a>;',
   "frontend/no-untranslated-ui":
     'export const W = () => <Text>Untranslated copy</Text>;',
+  "frontend/timestamp-inputs-carry-their-offset":
+    'export const W = () => <Input type="datetime-local" />;',
 };
 
 describe(

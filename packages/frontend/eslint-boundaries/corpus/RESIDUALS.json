@@ -14,6 +14,9 @@
     "frontend/no-framework-markers": [
       "an attribute name that is not a literal (`element.setAttribute(name, value)`, a computed key `{ [name]: value }`) is not required to be resolved to a marker",
       "a marker written by a route other than an attribute in markup, a properties-object key, an attribute-setting call or a data-attribute-map assignment (`Object.assign(element.dataset, { terp: \"card\" })`, an attribute node built with `document.createAttribute`) is not required to be recognised"
+    ],
+    "frontend/timestamp-inputs-carry-their-offset": [
+      "a type reached through a spread or a variable (`type={kind}`), and an input whose type is set through the DOM rather than in JSX, are not resolved to the local date-and-time control"
     ]
   }
 }

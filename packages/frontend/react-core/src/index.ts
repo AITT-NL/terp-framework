@@ -129,6 +129,8 @@ export { Button } from "./ui/Button";
 export type { ButtonProps, ButtonSize, ButtonVariant } from "./ui/Button";
 export { Input } from "./ui/Input";
 export type { InputProps } from "./ui/Input";
+export { DateTimeInput } from "./ui/DateTimeInput";
+export type { DateTimeInputProps } from "./ui/DateTimeInput";
 export { Select } from "./ui/Select";
 export type { SelectProps, SelectOption } from "./ui/Select";
 export { Textarea } from "./ui/Textarea";
