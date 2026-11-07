@@ -269,7 +269,7 @@ from terp.core.throttling import (
     is_shared_throttle_store,
     mark_shared_throttle_store,
 )
-from terp.core.timestamps import NaiveMeansUtc
+from terp.core.timestamps import Instant, NaiveMeansUtc
 
 __all__ = [
     "ADMIN",
@@ -314,6 +314,7 @@ __all__ = [
     "InMemoryScheduleLedger",
     "InMemoryThrottleStore",
     "InProcessJobQueue",
+    "Instant",
     "InvalidTokenError",
     "JobCatalog",
     "JobContext",
