@@ -79,8 +79,8 @@ _skip_if_exists:
 #
 # The two Node workspaces of an app that has no frontend (ADR 0202): excluded whole when
 # the `frontend` answer below is no, so an API-only app never holds a package.json it does
-# not use -- and `terp verify`'s npm checks, which look for exactly that file, report
-# themselves not applicable instead of failing on it.
+# not use -- and `terp verify`'s npm checks, which find neither workspace nor a manifest of
+# one anywhere else, report themselves not applicable instead of failing on it.
 _exclude:
   - "{% if _copier_operation == 'update' %}deployment.json{% endif %}"
   - "{% if not frontend %}/frontend{% endif %}"

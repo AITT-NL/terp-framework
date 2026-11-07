@@ -3,9 +3,11 @@
 The gate records every check of the release profile beside the release-assurance claim, and
 ``sign`` reads its document in the version the commit's pinned ``terp-cli`` writes: version 1,
 the claim alone, below :data:`gate.STRICT_SINCE`; version 2 from it up, where every check must
-have passed. The first cases hold :func:`gate.require_passed` to each refusal; the rest run the
-whole of ``sign`` on a commit that pins the first release whose gate writes version 2, and show
-that a refusal comes before the registry, the index or the sandbox is asked anything.
+have passed; version 3 from :data:`gate.APPLICABLE_SINCE`, where every check also says whether it
+had anything to judge, so a lane composed only of such checks is never signed as passed. The
+first cases hold :func:`gate.require_passed` to each refusal; the rest run the whole of ``sign``
+on a commit that pins the first release whose gate writes version 2, and show that a refusal
+comes before the registry, the index or the sandbox is asked anything.
 """
 
 from __future__ import annotations
@@ -25,6 +27,13 @@ from tests.architecture.test_release_compare import SCRIPT, SITE, install
 from tests.architecture.test_release_sign import Release
 
 STRICT = gate.STRICT_SINCE
+APPLICABLE = gate.APPLICABLE_SINCE
+
+#: The checks an API-only app has nothing to judge in (ADR 0202): its frontend and its suite.
+API_ONLY = (
+    "dependency-audit-npm", "frontend-boundaries", "routes-drift", "api-client", "frontend-typecheck",
+    "frontend-tests", "frontend-build", "conformance",
+)
 
 #: A version 1 document's verdict: the claim, and nothing of the checks.
 CLAIM_ONLY = {"terpReleaseGate": 1, "assurance": {"terp_assurance": 1, "ok": True, "lanes": []}}
@@ -42,11 +51,65 @@ def _strict(red: tuple[str, ...] = (), *, app: tuple[str, ...] = (), ok: bool | 
     }
 
 
+def _judged(red: tuple[str, ...] = (), *, inapplicable: tuple[str, ...] = (), app: tuple[str, ...] = ()) -> dict:
+    """A version 3 document, as the gate writes it from one run: every check, green unless *red*
+    names it, and with nothing to judge where *inapplicable* names it."""
+    checks = [
+        {"id": check, "ok": check not in red, "applicable": check not in inapplicable}
+        for check in [*(c.id for c in PROFILES["release"]), *app]
+    ]
+    return {
+        "terpReleaseGate": 3,
+        "profile": {"name": "release", "ok": all(check["ok"] for check in checks), "checks": checks},
+        "assurance": assurance_document(checks),
+    }
+
+
 # --------------------------------------------------------------------------- what sign holds a gate to
 def test_a_green_profile_whose_claim_holds_passes() -> None:
     gate.require_passed(_strict(), STRICT)
-    gate.require_passed(_strict(app=("domain-invariants",)), "1.0")
+    gate.require_passed(_judged(), APPLICABLE)
+    gate.require_passed(_judged(app=("domain-invariants",)), "1.0")
     gate.require_passed(CLAIM_ONLY, TOOLCHAIN)
+
+
+def test_an_api_only_app_s_claim_names_no_lane_passed_that_judged_nothing() -> None:
+    """ADR 0202 decision 4. The suite and the frontend checks had nothing to judge, so the lane
+    the suite alone composes is not-run, and a lane with a backend half composes from that half,
+    naming only the check that ran: the claim sign reads is the one ``terp verify`` composes."""
+    document = _judged(inapplicable=API_ONLY)
+    gate.require_passed(document, APPLICABLE)
+    lanes = {lane["id"]: lane for lane in document["assurance"]["lanes"]}
+    assert lanes["blackbox-conformance"] == {"id": "blackbox-conformance", "status": "not-run", "checks": []}
+    assert lanes["terp-standard"] == {"id": "terp-standard", "status": "passed", "checks": ["architecture"]}
+    assert lanes["dependency-audit"]["checks"] == ["dependency-audit-python"]
+
+
+def test_a_claim_composed_as_if_a_check_had_judged_contradicts_its_checks() -> None:
+    """What a version 2 gate signed: the suite had nothing to judge, and the claim it composed,
+    having dropped that, called its lane passed. Over checks that say so, that claim is not theirs."""
+    document = _judged(inapplicable=("conformance",))
+    as_if_run = [{**check, "applicable": True} for check in document["profile"]["checks"]]
+    document["assurance"] = assurance_document(as_if_run)
+    lanes = {lane["id"]: lane["status"] for lane in document["assurance"]["lanes"]}
+    assert lanes["blackbox-conformance"] == "passed", "the claim a version 2 gate wrote"
+    with pytest.raises(ReleaseError, match="is not the one its checks compose"):
+        gate.require_passed(document, APPLICABLE)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda check: check.pop("applicable"),
+        lambda check: check.update(applicable="no"),
+        lambda check: check.update(applicable=None),
+    ],
+)
+def test_a_version_3_check_that_does_not_say_whether_it_judged_is_refused(change) -> None:  # type: ignore[no-untyped-def]
+    document = _judged()
+    change(document["profile"]["checks"][-1])
+    with pytest.raises(ReleaseError, match="the gate document holds no verdict of the release profile's checks"):
+        gate.require_passed(document, APPLICABLE)
 
 
 @pytest.mark.parametrize(
@@ -115,28 +178,33 @@ def test_a_claim_that_does_not_hold_is_refused_in_either_version(document: dict,
 
 @pytest.mark.parametrize(
     ("pin", "writes"),
-    [(TOOLCHAIN, 1), ("0.36.0", 1), ("0.36.0.9", 1), (STRICT, 2), ("0.36.2", 2), ("0.37.0", 2), ("1.0", 2)],
+    [
+        (TOOLCHAIN, 1), ("0.36.0", 1), ("0.36.0.9", 1),
+        (STRICT, 2), ("0.36.2", 2), ("0.37.0", 2), ("0.38.9", 2),
+        (APPLICABLE, 3), ("0.39.1", 3), ("1.0", 3),
+    ],
 )
 def test_the_commit_s_pin_says_which_version_its_gate_writes(pin: str, writes: int) -> None:
-    """Version 1 below STRICT_SINCE and version 2 from it up, and never the other way round: a
-    claim-only document for a newer pin would skip the checks, and a version 2 document for an
-    older one is another toolchain's gate."""
-    documents = {1: CLAIM_ONLY, 2: _strict()}
+    """Version 1 below STRICT_SINCE, version 2 from it up and version 3 from APPLICABLE_SINCE, and
+    never another: an older document for a newer pin would skip what the newer gate records, and
+    a newer document for an older pin is another toolchain's gate."""
+    documents = {1: CLAIM_ONLY, 2: _strict(), 3: _judged()}
     gate.require_passed(documents[writes], pin)
-    other = 3 - writes
-    with pytest.raises(ReleaseError, match=re.escape(
-        f"the gate document is version {other}, and the commit pins terp-cli {pin}, whose gate writes "
-        f"version {writes}: sign reads a commit's gate only as its own toolchain wrote it. Run "
-        "`uv run terp release gate` in the commit's checkout"
-    )):
-        gate.require_passed(documents[other], pin)
+    for other in sorted(set(documents) - {writes}):
+        with pytest.raises(ReleaseError, match=re.escape(
+            f"the gate document is version {other}, and the commit pins terp-cli {pin}, whose gate "
+            f"writes version {writes}: sign reads a commit's gate only as its own toolchain wrote it. "
+            "Run `uv run terp release gate` in the commit's checkout"
+        )):
+            gate.require_passed(documents[other], pin)
 
 
-def test_the_first_release_whose_gate_writes_version_2_is_one_the_release_notes_open() -> None:
+@pytest.mark.parametrize("first", [STRICT, APPLICABLE])
+def test_the_first_release_whose_gate_writes_a_version_is_one_the_release_notes_open(first: str) -> None:
     """A typo, or a release renumbered before it ships, would put every commit of it on the wrong
     side of the line: sign would read its gate as a version it never writes."""
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert re.search(rf"^## {re.escape(STRICT)} ", changelog, re.MULTILINE), STRICT
+    assert re.search(rf"^## {re.escape(first)} ", changelog, re.MULTILINE), first
 
 
 # --------------------------------------------------------------------------- the whole of sign

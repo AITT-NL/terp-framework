@@ -69,8 +69,31 @@ decision, 0001 onwards.
   records four residuals. The rule's walks no longer recurse, so no file the parser takes can
   exhaust its stack.
 
+### Fixed
+
+- **A signed release no longer calls a lane passed that judged nothing (ADRs 0200, 0202).** The
+  release gate kept each check's id and verdict and dropped whether it had anything to judge.
+  So for an app with no conformance suite, an API-only app among them, the claim `sign` signed
+  said `blackbox-conformance: passed`, where `terp verify --format assurance` says `not-run`.
+  The gate document is version 3 from this release: every check records `applicable`, and the
+  gate's log says why a check had nothing to judge. `sign` reads version 3 from a commit
+  pinning `terp-cli` 0.39.0 or later, refuses a check that does not say, and refuses a claim its
+  checks do not compose. A commit pinning 0.36.1 to 0.38.x is still read as version 2.
+- **`terp verify` no longer skips a check because a directory is missing (ADR 0202).** A
+  framework npm check was "not applicable" whenever its workspace directory was absent. So a
+  Terp frontend kept outside `frontend/` turned the security lint, the typecheck, the build and
+  the npm audit green, and an app's own `[[tool.terp.verify.checks]]` entry with a mistyped
+  `--prefix` passed too. Now a check is not applicable only when no manifest anywhere depends
+  on the package that marks its workspace (`@terpjs/react-core`, `@terpjs/conformance`).
+  Otherwise it is red and names where the workspace is. An app's own check is never not
+  applicable: a missing workspace is red, naming the path. A `frontend/` without its
+  `package.json` is red for `frontend-tests` too, as it already was for the other checks.
+
 ### Upgrade notes
 
+- **A Terp frontend or conformance suite kept outside `frontend/` or `conformance/` now turns
+  `terp verify` red** where it was skipped. Move it into place. An app's own declared npm
+  check whose `--prefix` names a missing directory is red too: correct the path.
 - **A plain `datetime` route parameter, or a request body that is or nests a class that is not
   a `BaseSchema` holding one, now stops the app from starting.** A declared filter's timestamp
   parameter is the common case: type it `Instant`. Type the wall time of a place

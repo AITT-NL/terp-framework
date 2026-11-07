@@ -340,7 +340,7 @@ def test_every_adoptable_skip_is_readable_in_text_mode(tmp_path: pathlib.Path) -
     Asserted per check rather than as a single case, because the failure mode is a new
     skipping check added without the prefix — which no test of one existing check can
     see. The distinction being held is *adoptable* versus *inapplicable*: `no frontend/
-    - route types not applicable` stays plain on purpose, because a backend-only app
+    - routes-drift not applicable` stays plain on purpose, because a backend-only app
     has nothing to turn on and a hint there would be noise.
     """
     from terp.cli.verify import (
@@ -2981,9 +2981,83 @@ def test_an_npm_check_is_not_applicable_without_its_workspace_and_runs_nothing(
     exit_code, output = _run_subprocess(_FRONTEND_BUILD, tmp_path)
     assert exit_code == 1 and NOT_APPLICABLE not in output and ran[1:] == []
     # A root-level manifest command of the app's own is never skipped: the root exists.
-    from terp.cli.verify import _workspace_absent
+    from terp.cli.verify import _missing_workspace
 
-    assert _workspace_absent(tmp_path, ".", "own") is None
+    assert _missing_workspace(tmp_path, ".", "own") is None
+
+
+def _manifest(path: pathlib.Path, depends_on: str) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "package.json").write_text(json.dumps({"dependencies": {depends_on: "^0.39.0"}}), encoding="utf-8")
+
+
+def test_a_terp_frontend_kept_elsewhere_is_red_and_never_skipped(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing frontend/ is not applicable only where the app has no Terp frontend at all. A
+    frontend kept anywhere else is one these checks would never read: renaming the directory
+    must not switch the security lint off, so each frontend check is red and names where it is."""
+    from terp.cli import verify as verify_module
+    from terp.cli.verify import (
+        _FRONTEND_BOUNDARIES,
+        _FRONTEND_BUILD,
+        _FRONTEND_TYPECHECK,
+        NOT_APPLICABLE,
+        _run_api_client,
+        _run_conformance,
+        _run_frontend_tests,
+        _run_routes_drift,
+    )
+
+    def never(*args: object, **kwargs: object) -> None:
+        raise AssertionError("npm ran for a workspace the app does not have")
+
+    monkeypatch.setattr(verify_module, "_run_argv", never)
+    _manifest(tmp_path / "client", "@terpjs/react-core")
+    for check_id, run in [
+        (_FRONTEND_BOUNDARIES.id, lambda: _run_subprocess(_FRONTEND_BOUNDARIES, tmp_path)),
+        (_FRONTEND_TYPECHECK.id, lambda: _run_subprocess(_FRONTEND_TYPECHECK, tmp_path)),
+        (_FRONTEND_BUILD.id, lambda: _run_subprocess(_FRONTEND_BUILD, tmp_path)),
+        ("routes-drift", lambda: _run_routes_drift(tmp_path)),
+        ("frontend-tests", lambda: _run_frontend_tests(tmp_path)),
+        ("api-client", lambda: _run_api_client(tmp_path)),
+    ]:
+        assert run() == (1, (
+            f"no frontend/, but client/package.json depends on @terpjs/react-core: {check_id} reads "
+            "that workspace at frontend/ only, so it would judge nothing. Move it to frontend/"
+        ))
+    # The suite has a mark of its own: a frontend elsewhere says nothing about a missing suite.
+    exit_code, output = _run_conformance(tmp_path)
+    assert (exit_code, output) == (0, f"no conformance/ - conformance {NOT_APPLICABLE}")
+    _manifest(tmp_path / "e2e", "@terpjs/conformance")
+    assert _run_conformance(tmp_path)[0] == 1
+
+
+def test_an_app_s_own_npm_check_is_never_not_applicable(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An app's declared check names its workspace itself, so a missing one is a mistyped path,
+    and a gate that turned it green would be green over a check that never ran."""
+    from terp.cli import verify as verify_module
+
+    def never(*args: object, **kwargs: object) -> None:
+        raise AssertionError("npm ran for a workspace that does not exist")
+
+    monkeypatch.setattr(verify_module, "_run_argv", never)
+    own = VerifyCheck(id="own-lint", category="build", command="npm --prefix tolos run lint")
+    assert _run_subprocess(own, tmp_path) == (1, (
+        "own-lint runs npm in tolos/, which does not exist: correct the path in its "
+        "[[tool.terp.verify.checks]] entry in pyproject.toml, or remove the entry"
+    ))
+
+
+def test_a_frontend_without_its_manifest_cannot_run_its_tests(tmp_path: pathlib.Path) -> None:
+    from terp.cli.verify import _run_frontend_tests
+
+    (tmp_path / "frontend").mkdir()
+    assert _run_frontend_tests(tmp_path) == (
+        1, "frontend/ holds no package.json, so its tests cannot run: restore the manifest"
+    )
 
 
 def test_the_conformance_runner_is_not_applicable_before_it_looks_for_a_stack(

@@ -69,15 +69,23 @@ count it. The template's test of this premise reads the rendered answer, not the
 
 ### 4. A check is not applicable where its workspace does not exist
 
-Every `npm` check runs through one seam; that seam now answers *not applicable* (exit 0,
-with the note) when the workspace's `package.json` is absent, so `frontend-boundaries`,
-`frontend-typecheck`, `frontend-build`, `dependency-audit-npm` and `conformance` join
-`frontend-tests`, `routes-drift` and `api-client`, which already did. A check's result
-records that it was not applicable, and the assurance document composes a lane from the
-checks that ran: all not applicable is `not-run` with no checks named (the schema's word for
-an unmet precondition, never a pass), some is a verdict on the rest. The required lanes are
-unchanged in shape; for an API-only app `terp-standard` and `dependency-audit` carry the
-backend halves, and `blackbox-conformance` is `not-run`.
+Every `npm` check of the framework's runs through one seam. That seam answers *not
+applicable* (exit 0, with the note) when the workspace directory is missing and no manifest
+anywhere in the app depends on the package that marks that workspace: `@terpjs/react-core`
+for `frontend/`, `@terpjs/conformance` for `conformance/`. So `frontend-boundaries`,
+`frontend-typecheck`, `frontend-build`, `dependency-audit-npm`, `conformance`,
+`frontend-tests`, `routes-drift` and `api-client` all answer through it. A workspace kept
+anywhere else is one these checks would never read, so the check is red and names where it
+is: renaming a directory must not switch the security lint off. An app's own declared check
+names its workspace itself, so for it a missing workspace is always red, never not applicable.
+(The first build decided on the directory alone; a review found both holes, fixed in 0.39.0.)
+
+A check's result records that it was not applicable, and the assurance document composes a
+lane from the checks that ran: all not applicable is `not-run` with no checks named (the
+schema's word for an unmet precondition, never a pass), some is a verdict on the rest. The
+release gate records it too, so the claim it signs is the same (ADR 0200, version 3). The
+required lanes are unchanged in shape; for an API-only app `terp-standard` and
+`dependency-audit` carry the backend halves, and `blackbox-conformance` is `not-run`.
 
 ### 5. Studio offers it where the starting screen is chosen; its deploy path is the deployment record's
 

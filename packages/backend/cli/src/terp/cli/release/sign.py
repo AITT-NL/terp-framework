@@ -192,7 +192,7 @@ def sign(
     if hosts not in HOSTS:
         raise ReleaseError(f"--hosts is {hosts!r} (allowed: {', '.join(HOSTS)})")
     build = read_document(build_document, BUILD_DOCUMENT)
-    gate = read_document(gate_document, GATE_DOCUMENT, (1, GATE_VERSION))  # the pin says which
+    gate = read_document(gate_document, GATE_DOCUMENT, tuple(range(1, GATE_VERSION + 1)))  # the pin says which
     for name, document in (("build", build), ("gate", gate)):
         if document["commit"] != sha:
             raise ReleaseError(f"the {name} document is of {document['commit']}, not of {sha}")
