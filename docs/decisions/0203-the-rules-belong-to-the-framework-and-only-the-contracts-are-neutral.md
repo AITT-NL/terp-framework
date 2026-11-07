@@ -1,6 +1,6 @@
 # 0203 — The rules belong to the framework, and only the contracts are neutral
 
-- **Status:** Accepted on 2026-11-06 by the owner. Built in 0.38.0 (unreleased): the rules, the
+- **Status:** Accepted on 2026-11-06 by the owner. Built in 0.38.0: the rules, the
   corpus, the refused surface, the rule pages and the runtime security cases moved here from
   terp-spec 0.43.0, and the scorecards are gone. Still open: decision 3's choice of where the
   contracts package is published from, its rename, and the last `terp-spec` release that
