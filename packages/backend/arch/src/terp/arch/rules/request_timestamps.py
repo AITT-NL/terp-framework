@@ -5,6 +5,12 @@ refuses a bound with none: such a value names no instant, and read as UTC it put
 another zone off by its offset. ``NaiveMeansUtc`` from ``terp.core`` is the framework's way
 around both, for a sender known to send UTC without saying so, and this rule refuses each use
 of it, so taking it is the rule's opt-out marker, which the app's escape-hatch budget counts.
+
+An app's own validator that runs before a timestamp's type is the other way around (ADR 0207):
+a ``before``, ``wrap`` or ``plain`` validator sees the text first, so it can read a wall time
+in a zone of its choosing. A wall time in a named place is ``LocalTimeIn``'s, which names the
+instant, so the rule counts such a validator on a timestamp field as the escape too. That half,
+and the reading of types both halves share, is in :mod:`terp.arch.rules._timestamp_types`.
 """
 
 from __future__ import annotations
@@ -15,7 +21,7 @@ from collections.abc import Iterator
 
 from terp.arch._ast import base_name, iter_python_files, parse
 from terp.arch.rules._support import ArchViolation, _rel
-from terp.arch.rules.datetimes import _bound_names
+from terp.arch.rules._timestamp_types import _assignment, _early_validator_findings, _quoted_nodes
 
 _NAIVE_MEANS_UTC = "NaiveMeansUtc"
 
@@ -41,47 +47,6 @@ _MACHINERY_MESSAGE = (
 )
 
 
-def _strings_outside_literals(expr: ast.AST) -> Iterator[ast.Constant]:
-    if isinstance(expr, ast.Subscript) and base_name(expr.value) == "Literal":
-        return
-    if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
-        yield expr
-        return
-    for child in ast.iter_child_nodes(expr):
-        yield from _strings_outside_literals(child)
-
-
-def _quoted_nodes(expr: ast.AST) -> list[ast.AST]:
-    """The nodes of every string in *expr* that reads as an expression, parsed, at its line.
-
-    Pydantic evaluates a string as a type wherever it stands for one: a quoted annotation
-    (``"NaiveMeansUtc | None"``), a forward reference in ``Optional["NaiveMeansUtc"]``, a field
-    ``create_model`` is given. So a string that names the escape takes it as surely as a name
-    does. Prose does not read as an expression, and a ``Literal`` value is text, not a type.
-    """
-    found: list[ast.AST] = []
-    for quote in _strings_outside_literals(expr):
-        try:
-            parsed = ast.parse(quote.value, mode="eval")
-        except SyntaxError:
-            continue
-        for node in ast.walk(parsed):
-            if isinstance(node, ast.expr):
-                ast.copy_location(node, quote)
-            found.append(node)
-    return found
-
-
-def _assignment(node: ast.AST) -> tuple[list[str], ast.expr | None]:
-    if isinstance(node, ast.Assign):
-        return [name for target in node.targets for name in _bound_names(target)], node.value
-    if isinstance(node, ast.AnnAssign) and node.value is not None:
-        return _bound_names(node.target), node.value
-    if isinstance(node, ast.TypeAlias) and isinstance(node.name, ast.Name):
-        return [node.name.id], node.value
-    return [], None
-
-
 def _mentions(value: ast.expr, names: set[str]) -> bool:
     return any(
         (isinstance(inner, ast.Name) and inner.id in names)
@@ -90,13 +55,17 @@ def _mentions(value: ast.expr, names: set[str]) -> bool:
     )
 
 
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+
 def _bodies(scope: ast.AST) -> Iterator[ast.AST]:
     """The nodes of *scope* that run in it: not inside a nested function or class."""
-    for child in ast.iter_child_nodes(scope):
-        if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda | ast.ClassDef):
-            continue
-        yield child
-        yield from _bodies(child)
+    pending = list(ast.iter_child_nodes(scope))
+    while pending:
+        child = pending.pop()
+        if not isinstance(child, _SCOPES):
+            yield child
+            pending.extend(ast.iter_child_nodes(child))
 
 
 def _aliases_in(scope: ast.AST, visible: set[str]) -> set[str]:
@@ -123,11 +92,13 @@ def _aliases_in(scope: ast.AST, visible: set[str]) -> set[str]:
 
 def _nested_scopes(scope: ast.AST) -> Iterator[ast.AST]:
     """The functions, lambdas and classes nearest inside *scope*, not looking into them."""
-    for child in ast.iter_child_nodes(scope):
-        if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda | ast.ClassDef):
+    pending = list(ast.iter_child_nodes(scope))
+    while pending:
+        child = pending.pop()
+        if isinstance(child, _SCOPES):
             yield child
         else:
-            yield from _nested_scopes(child)
+            pending.extend(ast.iter_child_nodes(child))
 
 
 def _locals(scope: ast.AST) -> set[str]:
@@ -291,7 +262,9 @@ def check_request_timestamps_carry_their_offset(
     here, so taking it is this rule's opt-out marker, which the app's escape-hatch budget
     counts. The rule fails closed by name: every reference to ``NaiveMeansUtc``, or to a name
     the file binds to it, and every string that names one, is the escape, and so is reaching
-    for the boundary's own module.
+    for the boundary's own module. So is an app's own ``before``, ``wrap`` or ``plain``
+    validator on a timestamp field (ADR 0207), which reads the text before the type does: a
+    wall time in a named zone is ``LocalTimeIn``'s, which names the instant.
     """
     if package in _IMPLEMENTING_PACKAGES:
         return []  # the boundary's own implementation, and this rule's, is neither's user
@@ -301,6 +274,8 @@ def check_request_timestamps_carry_their_offset(
         tree = parse(path)
         rel = _rel(path, root)
         findings = _escape_findings(tree)
+        for line, message in _early_validator_findings(tree).items():
+            findings.setdefault(line, message)
         violations.extend(
             ArchViolation("request_timestamps_carry_their_offset", rel, line, message)
             for line, message in sorted(findings.items())
