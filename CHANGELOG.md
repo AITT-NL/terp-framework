@@ -124,6 +124,11 @@ decision, 0001 onwards.
   reached the app the same way. The lists the app reads requests through now refuse a change
   themselves: every router's routes, FastAPI's frontend routes, the lifecycle hooks and the
   middleware.
+- **Requests about an address never hold up its owner's sign-in (ADR 0196).** A sign-up or a
+  password-reset request counted in the throttle under the bare address, the key sign-in's
+  backstop reads, and an app commonly shares one store between them. So fifty callers asking
+  once each about an address locked its owner out of signing in for five minutes, as often as
+  they liked. Such a request now counts under a namespace of its own.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the

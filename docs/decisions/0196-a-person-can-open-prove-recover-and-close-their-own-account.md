@@ -142,6 +142,12 @@ every redemption would be one counter that everyone spends, and enough bad token
 anywhere would hold up everyone's good one, a lockout by another name. Per caller, bad
 tokens slow only the caller that sent them.
 
+A request counts under `accounts:request:` and its address, never the bare address. Sign-in
+counts under the bare address, and the store is commonly the same one, so until 0.39.0 fifty
+callers asking once each about an address reached the backstop sign-in reads, and its owner
+could not sign in for five minutes, again and again: the lockout ADR 0147 refuses, reached
+from the side.
+
 ### 6. Closing an account takes the password again, and ends every session
 
 `POST /me/close` is the one authenticated route, open to any signed-in rank. It requires the

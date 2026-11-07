@@ -48,6 +48,11 @@ from terp.capabilities.users.self_service import AccountDeletion, SelfService
 
 _logger = logging.getLogger("terp.capabilities.users.accounts")
 
+#: The prefix of the counter a request about an address spends. Sign-in counts under the bare
+#: address, and a store is commonly shared, so these count apart: enough requests about someone's
+#: address from enough callers back off those callers, never that person's sign-in (ADR 0147).
+_REQUEST = "accounts:request"
+
 #: The prefix of the counter a failed redemption spends. A failed redemption is a guess at a
 #: token, which names no account, so the caller is the whole key (see _redemption_key).
 _REDEEM = "accounts:redeem"
@@ -147,7 +152,7 @@ def build_accounts_router(declaration: SelfService) -> APIRouter:
     @route_policy(Policy.public_write(reason="a person with no account asks for one"))
     @operation(ACCOUNTS_SIGN_UP)
     def sign_up(request: Request, body: SignUpRequest, session: SessionDep) -> AccountRequestAccepted:
-        _counted(throttle, body.email, request)
+        _counted(throttle, f"{_REQUEST}:{body.email}", request)
         accounts.request_sign_up(session, body.email)
         return AccountRequestAccepted()
 
@@ -170,7 +175,7 @@ def build_accounts_router(declaration: SelfService) -> APIRouter:
     def request_password_reset(
         request: Request, body: PasswordResetRequest, session: SessionDep
     ) -> AccountRequestAccepted:
-        _counted(throttle, body.email, request)
+        _counted(throttle, f"{_REQUEST}:{body.email}", request)
         accounts.request_password_reset(session, body.email)
         return AccountRequestAccepted()
 

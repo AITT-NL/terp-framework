@@ -37,7 +37,7 @@ from terp.core.app import register_error_handlers
 from terp.core.db import get_session
 from terp.core.jobs import configure_jobs, reset_jobs_runtime
 
-from terp.capabilities.auth import hash_password, verify_password
+from terp.capabilities.auth import LoginThrottle, hash_password, verify_password
 from terp.capabilities.identity import AccountToken, IdentityService, RefreshToken, RefreshTokenService, User
 from terp.capabilities.mail import MAIL_SEND, CapturingMailTransport, MailMessage, MailSettings, configure_mail, reset_mail
 from terp.capabilities.users import (
@@ -510,6 +510,19 @@ def test_repeated_requests_and_failed_redemptions_back_off(engine: Any, mail: Ca
     closing = _client(engine, principal=Principal(id=_user(engine, "c@example.test"), role=Roles.VIEWER))
     attempts = [closing.post(_CLOSE, json={"password": "wrong"}).status_code for _ in range(8)]
     assert attempts[0] == 401 and 429 in attempts, attempts
+
+
+@pytest.mark.parametrize("path", [_SIGN_UP, _RESET])
+def test_requests_about_an_address_never_hold_up_its_sign_in(engine: Any, mail: CapturingMailTransport, path: str) -> None:
+    # A shared store is the common deployment. Requests about an address counted under the
+    # address itself, the key sign-in's backstop reads, so enough callers asking once each
+    # locked its owner out of signing in. They count in a namespace of their own now.
+    store = InMemoryThrottleStore()
+    client = _client(engine, throttle_store=store)
+    for caller in range(50):
+        asker = TestClient(client.app, client=(f"10.2.0.{caller}", 50000))
+        assert asker.post(path, json={"email": "owner@example.test"}).status_code == 202
+    LoginThrottle(store=store).check("owner@example.test", source="10.9.9.9")  # not backed off
 
 
 def test_bad_tokens_from_many_callers_never_hold_up_an_honest_one(engine: Any, mail: CapturingMailTransport) -> None:
