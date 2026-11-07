@@ -46,7 +46,8 @@ from terp.core import (
     create_app,
     resolve_time_zone,
 )
-from terp.core.aggregation import declaration_refusal, window_bounds
+from terp.core import aggregation
+from terp.core.aggregation import declaration_refusal, window_bounds, window_steps
 from terp.core.db import get_session
 from terp.core._internal.session_guard import WriteGuardedSession
 
@@ -312,6 +313,29 @@ def test_window_bounds_cut_a_window_into_its_steps() -> None:
     assert len(window_bounds(Window("sold", dt.date(2026, 1, 1), dt.date(2026, 1, 1), zone), zone)) == 2
 
 
+@pytest.mark.parametrize("step", ["day", "week", "month"])
+def test_a_window_s_steps_are_counted_as_they_are_built(step: str) -> None:
+    # The caps are judged on the count, before a bound exists, so it must be the bounds' own.
+    zone = resolve_time_zone("UTC")
+    first = dt.date(2026, 1, 1)
+    for start in (first + dt.timedelta(days=offset) for offset in range(0, 40, 3)):
+        for length in (0, 1, 6, 7, 8, 27, 31, 59, 60, 400):
+            window = Window("sold", start, start + dt.timedelta(days=length), zone, step)
+            assert window_steps(window) == len(window_bounds(window, zone)) - 1, (start, length)
+
+
+def test_a_window_of_millennia_is_refused_before_a_bound_is_built(engine, monkeypatch) -> None:
+    # Building every day from year 1 to 9999 took seconds and hundreds of megabytes before the
+    # cap refused it; the count is arithmetic now, and no bound is built for a refused window.
+    def built(*_args: object) -> None:  # pragma: no cover - the test fails if it is reached
+        raise AssertionError("a bound was built for a window the caps refuse")
+
+    monkeypatch.setattr(aggregation, "window_bounds", built)
+    window = Window("sold", dt.date(1, 1, 1), dt.date(9999, 12, 30), "UTC", "day")
+    with WriteGuardedSession(engine) as session, pytest.raises(ValidationFailedError, match="holds 3652058 days"):
+        Sales().aggregate(session, measures=["sales"], window=window)
+
+
 # ---- refusals at the request ------------------------------------------------------------
 
 
@@ -565,6 +589,7 @@ def test_a_statistics_route_answers_a_typed_page(client) -> None:
         ({"measures": ["sales"] * 17}, 422, "measures"),
         ({"measures": "Sales;drop"}, 422, "measures"),
         ({"measures": "sales", "zone": "x" * 65}, 422, "zone"),
+        ({"measures": "sales", "skip": str(10**20)}, 400, "starts at row 9223372036854775807 at the latest"),
     ],
 )
 def test_a_statistics_route_refuses_what_it_cannot_answer(client, params: dict, status: int, words: str) -> None:

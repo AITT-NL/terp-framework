@@ -10,12 +10,13 @@ import logging
 import uuid
 
 import pytest
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 from starlette.middleware import Middleware
 from starlette.routing import Route
 
-from terp.core.app import build_guard
+from terp.core.app import build_guard, register_error_handlers
+from terp.core.pagination import MAX_SKIP, PaginationDep
 from terp.core import (
     ADMIN,
     AuditPolicy,
@@ -295,6 +296,22 @@ def test_dependency_overrides_freeze_outside_the_local_environment(
 def test_page_of_builds_envelope() -> None:
     page = Page[int].of([1, 2, 3], total=3, pagination=PaginationParams(skip=0, limit=10))
     assert page.model_dump() == {"items": [1, 2, 3], "total": 3, "skip": 0, "limit": 10}
+
+
+def test_a_skip_no_database_takes_is_a_400_not_a_driver_error() -> None:
+    router = APIRouter()
+
+    @router.get("/rows", response_model=dict[str, int])
+    def rows(pagination: PaginationDep) -> dict[str, int]:
+        return {"skip": pagination.skip}
+
+    app = FastAPI()
+    register_error_handlers(app)
+    app.include_router(router)
+    client = TestClient(app)
+    assert client.get("/rows", params={"skip": MAX_SKIP}).json() == {"skip": MAX_SKIP}
+    refused = client.get("/rows", params={"skip": MAX_SKIP + 1})
+    assert refused.status_code == 400 and "at the latest" in refused.text
 
 
 # --------------------------------------------------------------------------- #

@@ -36,6 +36,8 @@ from sqlmodel.sql.expression import SelectOfScalar
 
 from terp.core.errors import ValidationFailedError
 from terp.core.filtering import FilterField, resolve_filters
+from terp.core.aggregation_window import _steps_table, window_bounds, window_steps
+from terp.core.pagination import refuse_skip_past_any_table
 from terp.core.personal_reads import personal_reads
 
 MeasureOp = Literal["count", "count_distinct", "sum", "avg", "min", "max"]
@@ -216,51 +218,6 @@ def resolve_time_zone(name: str | ZoneInfo) -> ZoneInfo:
         raise ValidationFailedError(f"{name!r} is not a time zone this server knows.") from exc
 
 
-def _next_step(day: dt.date, step: TimeStep) -> dt.date:
-    if step == "day":
-        return day + dt.timedelta(days=1)
-    if step == "week":
-        return day + dt.timedelta(days=7 - day.weekday())
-    return (day.replace(day=1) + dt.timedelta(days=32)).replace(day=1)
-
-
-def _midnight(day: dt.date, zone: ZoneInfo) -> dt.datetime:
-    """Local midnight of *day* in *zone*, as a UTC instant (a short day keeps its length)."""
-    return dt.datetime.combine(day, dt.time(), tzinfo=zone).astimezone(dt.UTC)
-
-
-def window_bounds(window: Window, zone: ZoneInfo) -> list[dt.datetime]:
-    """The UTC instants that cut the window into its steps; the whole window without one."""
-    if window.end < window.start:
-        raise ValidationFailedError("A window's end is on or after its start.")
-    last = window.end + dt.timedelta(days=1)
-    if window.step is None:
-        return [_midnight(window.start, zone), _midnight(last, zone)]
-    days = [window.start]
-    while days[-1] < last:
-        days.append(min(_next_step(days[-1], window.step), last))
-    return [_midnight(day, zone) for day in days]
-
-
-def _steps_table(bounds: Sequence[dt.datetime], column_type: Any) -> Any:
-    """The window's steps as rows ``(i, lo, hi)``, to join a row to the step it falls in.
-
-    A join to a small table of bound instants groups by a plain column and is the cheapest
-    form measured on both dialects (a few times faster than a balanced ``CASE``, an order of
-    magnitude faster than one ``WHEN`` per step). Each bound is bound with the bucket column's
-    own type, so it is stored-form compatible on SQLite and a ``timestamptz`` on PostgreSQL.
-    """
-    rows = [
-        sa_select(
-            literal(index, Integer).label("i"),
-            literal(bounds[index], column_type).label("lo"),
-            literal(bounds[index + 1], column_type).label("hi"),
-        )
-        for index in range(len(bounds) - 1)
-    ]
-    return (union_all(*rows) if len(rows) > 1 else rows[0]).subquery("steps")
-
-
 def _by_name(declared: Sequence[Any], requested: Sequence[str], kind: str) -> list[Any]:
     known = {item.name: item for item in declared}
     twice = sorted({name for name in requested if list(requested).count(name) > 1})
@@ -322,6 +279,7 @@ def aggregate(
     limit = statistics.max_groups if limit is None else limit
     if skip < 0:
         raise ValidationFailedError(f"A page of groups starts at 0 or later; {skip} was asked.")
+    refuse_skip_past_any_table(skip)
     if limit < 1 or limit > statistics.max_groups:
         raise ValidationFailedError(
             f"A page of groups holds 1 to {statistics.max_groups}; {limit} was asked."
@@ -337,10 +295,9 @@ def aggregate(
             )
         zone = resolve_time_zone(window.zone)
         try:
-            bounds = window_bounds(window, zone)
+            steps = window_steps(window)
         except OverflowError as exc:
             raise ValidationFailedError("That window reaches past the years a timestamp holds.") from exc
-        steps = len(bounds) - 1
         if window.step is not None and steps > bucket.max_buckets:
             raise ValidationFailedError(
                 f"That window holds {steps} {window.step}s; a series holds at most "
@@ -352,6 +309,10 @@ def aggregate(
                 f"page carries at most {statistics.max_points}. Ask for fewer groups, a "
                 "shorter window or a longer step."
             )
+        try:
+            bounds = window_bounds(window, zone)
+        except OverflowError as exc:
+            raise ValidationFailedError("That window reaches past the years a timestamp holds.") from exc
 
     declared_filters = {field.name: field for field in statistics.filterable}
     for name, value in (filters or {}).items():

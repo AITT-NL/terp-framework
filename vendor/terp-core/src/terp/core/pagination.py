@@ -39,6 +39,17 @@ from terp.core.errors import ValidationFailedError
 _T = TypeVar("_T")
 
 
+#: The largest row offset a database takes: a signed 64-bit integer, on SQLite and PostgreSQL
+#: alike. A larger ``skip`` is refused as a 400, where the driver would fail it as a 500.
+MAX_SKIP = 2**63 - 1
+
+
+def refuse_skip_past_any_table(skip: int) -> None:
+    """Refuse a *skip* no database takes, before it reaches one."""
+    if skip > MAX_SKIP:
+        raise ValidationFailedError(f"A page starts at row {MAX_SKIP} at the latest.")
+
+
 @dataclass(frozen=True)
 class PaginationParams:
     """A validated ``skip`` + ``limit`` pair."""
@@ -56,6 +67,7 @@ def _pagination_dep(
         description="Maximum rows to return.",
     ),
 ) -> PaginationParams:
+    refuse_skip_past_any_table(skip)
     return PaginationParams(skip=skip, limit=limit)
 
 

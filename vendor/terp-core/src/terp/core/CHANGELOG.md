@@ -136,6 +136,12 @@ decision, 0001 onwards.
   detail, on SQLite in the statement's parameters and on PostgreSQL in its own
   `Key (email)=(...)`. The values are read before the flush now, and withheld in any case the
   database repeats them.
+- **A statistic's caps are judged before its work is done, and a `skip` no database takes is a
+  400 (ADR 0204).** A series counted its steps by building every bound first, so a window of
+  every day from year 1 to 9999 took seconds and hundreds of megabytes before the cap refused
+  it. The steps are counted arithmetically now, and no bound is built for a window the caps
+  refuse. A `skip` past the largest offset a database takes, 2^63 - 1, on a list or a
+  statistic, failed in the driver as a 500 and is a 400 now.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
