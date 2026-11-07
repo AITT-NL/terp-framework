@@ -85,7 +85,10 @@ A router `create_app` mounts takes no route once the app is composed, as the app
 none. FastAPI serves an included router live, so a route added to one afterwards would be served
 without this check, or any other `create_app` runs on every route it reads. Every registration
 method of every router it mounted, at any depth, raises a `BootError` that names the method and
-the remedy: declare every route before `create_app` runs.
+the remedy: declare every route before `create_app` runs. A method nobody named, or one called on
+its class with the router passed in, still ends in a change to a list the app reads, so those
+lists refuse a change themselves: every router's routes, FastAPI's frontend routes, the
+lifecycle hooks and the middleware.
 
 ### 3. One refusal names every timestamp and the fix
 
@@ -170,4 +173,11 @@ An independent review of the first build found:
   fields now.
 - **The remedy assumed the class was the app's to change.** It names a `BaseSchema` of the app's
   own in its place (decision 3).
+
+A second review, of 0.39.0 before its release, found that the freeze refused registration
+methods by name and so missed `host` and `frontend` (FastAPI's), a method called on its class
+with the router passed in, and the route list itself. A route added any of those ways was served
+without the module guard, on the app as on a mounted router. The lists now refuse a change
+themselves (decision 2), and so do the lifecycle hooks and the middleware, which the same
+spellings reached.
 - **A path convertor of the app's own** is recorded as a limit (decision 4).

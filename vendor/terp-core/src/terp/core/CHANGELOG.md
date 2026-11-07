@@ -115,6 +115,14 @@ decision, 0001 onwards.
   with a 415 of code `content_type_malformed` before any byte lands. The inline rule and the
   served type judge the parsed value, so a row stored earlier with a list is served as
   `application/octet-stream`, as an attachment.
+- **Nothing reaches a composed app by a spelling the freeze did not list.** The composition
+  freeze refused registration methods by name, so `router.host(...)`, FastAPI's
+  `router.frontend(...)`, `APIRouter.add_api_route(router, ...)` called on the class, and a
+  route appended to `router.routes` were each served after `create_app` returned, without the
+  module guard, on the app and on every router it mounted. A startup hook and middleware
+  reached the app the same way. The lists the app reads requests through now refuse a change
+  themselves: every router's routes, FastAPI's frontend routes, the lifecycle hooks and the
+  middleware.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
@@ -131,8 +139,9 @@ decision, 0001 onwards.
   `Annotated[datetime, LocalTimeIn("<zone>")]`, and keep `NaiveMeansUtc` with the rule's marker
   for a sender known to send UTC without saying so. Make a class that holds a timestamp a
   `BaseSchema`, or type its field `Instant`.
-- **A route added to a router after `create_app` mounted it is refused.** Declare every route
-  before `create_app` runs.
+- **A route added to a router after `create_app` mounted it is refused,** by any spelling, and
+  so is a startup or shutdown hook or middleware added to the composed app. Declare every route
+  before `create_app` runs, and pass middleware to `create_app(middleware=[...])`.
 - **A read on the request session that writes literal SQL, reads a row-scoped table through Core
   in any of the shapes above, or reads a FROM element the session does not know now fails with
   `UnscopedReadError`** where it ran unscoped. Write it with SQLAlchemy's constructs on the
