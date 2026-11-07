@@ -62,7 +62,7 @@ from pydantic.dataclasses import is_pydantic_dataclass
 from pydantic_core import CoreSchema, PydanticCustomError, SchemaError, SchemaValidator, core_schema
 
 from terp.core.errors import ValidationFailedError
-from terp.core.local_time import LocalTimeIn
+from terp.core.local_time import LocalTimeIn, _reads_its_place
 
 #: What a refusal tells the writer, in a body and in a filter alike.
 OFFSET_REQUIRED = (
@@ -160,6 +160,8 @@ def _is_local_time(schema: dict[str, Any]) -> bool:
     Known by the reader's own function, bound to an instance of the type itself, as the
     escape's node is known by its function: the type cannot be subclassed, and no other
     method of any object, nor a function put on the class after it was loaded, is the reader.
+    And the instance must still read in the place it names: a zone swapped behind its back is
+    not trusted.
     """
     reader = _function_of(schema)
     return (
@@ -167,6 +169,7 @@ def _is_local_time(schema: dict[str, Any]) -> bool:
         and type(getattr(reader, "__self__", None)) is LocalTimeIn
         and getattr(reader, "__func__", None) is _LOCAL_TIME_READER
         and _around_a_timestamp(schema)
+        and _reads_its_place(reader.__self__)
     )
 
 

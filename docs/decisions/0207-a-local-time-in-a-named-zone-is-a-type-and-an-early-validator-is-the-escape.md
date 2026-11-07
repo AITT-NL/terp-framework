@@ -20,7 +20,7 @@ a local time in that zone, and one with an offset is the instant it names. Eithe
 arrives as an instant, aware and in UTC. A wall time the clocks skip in the zone, or repeat, is
 refused, since it names no instant or two. A place names the instant, so the type is no escape,
 and it is held to that: a zone that names no place, such as UTC under any name, is refused when
-declared, and the type cannot be subclassed or changed.
+declared, the type cannot be subclassed, and an instance refuses a change.
 
 What is the escape is an app's own validator that reads a timestamp's text before its type
 does. The `request_timestamps_carry_their_offset` rule now counts a `before`, `wrap` or `plain`
@@ -104,9 +104,14 @@ The type's reader runs behind the timestamp, as `NaiveMeansUtc`'s does. A `BaseS
 that node as the type built it, and knows it by the reader's own function, bound to an instance
 of the type itself, as it knows the escape's node by its function. Any other function, bound to
 anything, is not trusted, and the timestamp in front of it is judged as before. The type cannot
-be subclassed, and an instance cannot be changed once declared, so the reader the walk trusts is
-the one the type defines. The walk takes that reader when the framework loads, before any app
-code runs, so a function put on the class afterwards is not it either. The fields beside it are
+be subclassed, and an instance refuses a change through its attributes, so the reader the walk
+trusts is the one the type defines. The walk takes that reader when the framework loads, before
+any app code runs, so a function put on the class afterwards is not it either. Python lets
+`object.__setattr__` reach past an instance's refusal, so the walk also reads the zone again: the
+zone the reader uses must give the offsets of the zone its name gives, and that zone must be a
+place's, or the reader is not trusted. That holds when a schema is built and when `create_app`
+reads every route, so a zone swapped before the app starts is refused. Code that rewrites the
+framework's own functions while the app runs is beyond any check of this kind. The fields beside it are
 judged as before, and the rule does not count it.
 
 Its JSON schema is a `datetime`'s, `format: date-time`, as `NaiveMeansUtc`'s is. The contract
@@ -208,3 +213,8 @@ An independent review of the first build found:
   file the parser takes. Its walks now keep their own lists.
 - **The remedy in `BaseSchema`'s refusal of a taken hook** named the type as if it were a type,
   and now spells the declaration.
+
+A second review, of 0.39.0 before its release, found that `object.__setattr__` swapped a declared
+instance's zone past its refusal of a change, for UTC say, and the walk still trusted its reader,
+which then read a time without an offset as UTC. The walk now reads the zone again (decision 3),
+and this record no longer says an instance cannot be changed.

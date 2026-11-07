@@ -32,8 +32,9 @@ decision, 0001 onwards.
   years 1 to 9999 as UTC is `timestamp_out_of_range`. The zone is declared on the field. One the
   server does not know is refused when declared, and so is one that names no place: UTC under
   any name, a fixed offset, or the host's own setting. Reading a time as UTC stays
-  `NaiveMeansUtc`'s. The type cannot be subclassed or changed once declared, and the timestamp
-  boundary trusts only the reader the type had when the framework loaded. Its published
+  `NaiveMeansUtc`'s. The type cannot be subclassed and refuses a change, and the timestamp
+  boundary trusts only the reader the type had when the framework loaded, reading its zone again
+  so that one swapped with `object.__setattr__` before the app starts is refused. Its published
   contract is a `datetime`'s. It is no escape: a `BaseSchema` leaves it to its own reader, and
   judges the fields beside it as before.
 

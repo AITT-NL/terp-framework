@@ -17,11 +17,11 @@ from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
 import pytest
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
-from pydantic import AfterValidator, BaseModel, ConfigDict, NaiveDatetime, TypeAdapter, ValidationError
+from pydantic import AfterValidator, BaseModel, ConfigDict, NaiveDatetime, TypeAdapter, ValidationError, create_model
 
-from terp.core import BaseSchema, LocalTimeIn
+from terp.core import BaseSchema, BootError, LocalTimeIn, ModuleSpec, Policy, create_app
 from terp.core.local_time import _instant_in
 
 Amsterdam = Annotated[datetime, LocalTimeIn("Europe/Amsterdam")]
@@ -158,6 +158,45 @@ def test_a_reader_put_on_the_class_afterwards_is_not_trusted(monkeypatch: pytest
     with pytest.raises(ValidationError) as caught:
         _Patched.model_validate({"at": "2026-11-06T10:00:00"})
     assert caught.value.errors()[0]["type"] == "timestamp_offset_required"
+
+
+def _swapped(**fields: object) -> LocalTimeIn:
+    """A local time declared in Amsterdam, then changed behind the type's back."""
+    marker = LocalTimeIn("Europe/Amsterdam")
+    for name, value in fields.items():
+        object.__setattr__(marker, name, value)
+    return marker
+
+
+SWAPS = {
+    "its zone for UTC": {"_zone": ZoneInfo("UTC")},
+    "its zone for another place": {"_zone": ZoneInfo("Europe/London")},
+    "both for UTC": {"zone": "UTC", "_zone": ZoneInfo("UTC")},
+    "its name for none": {"zone": None},
+    "its zone for text": {"_zone": "Europe/Amsterdam"},
+}
+
+
+@pytest.mark.parametrize("swap", sorted(SWAPS))
+def test_a_zone_swapped_behind_the_types_back_is_not_trusted(swap: str) -> None:
+    # object.__setattr__ reaches past the type's refusal of a change, and the swapped reader
+    # would read a time without an offset as UTC. The walk reads the zone again, so the
+    # timestamp in front of that reader is judged like any other.
+    swapped = create_model("_Swapped", __base__=BaseSchema, at=(Annotated[datetime, _swapped(**SWAPS[swap])], ...))
+    with pytest.raises(ValidationError) as caught:
+        swapped.model_validate({"at": "2026-11-06T10:00:00"})
+    assert caught.value.errors()[0]["type"] == "timestamp_offset_required"
+
+
+def test_create_app_refuses_a_route_whose_zone_was_swapped() -> None:
+    def slots(starts_after: datetime) -> dict[str, str]:  # pragma: no cover - never served
+        return {}
+
+    slots.__annotations__["starts_after"] = Annotated[datetime, _swapped(_zone=ZoneInfo("UTC"))]
+    router = APIRouter()
+    router.add_api_route("/slots", slots, response_model=dict[str, str])
+    with pytest.raises(BootError, match="'starts_after'"):
+        create_app([ModuleSpec(name="slots", router=router, policy=Policy.default())])
 
 
 def test_it_reads_each_item_of_a_list_and_an_optional_value() -> None:

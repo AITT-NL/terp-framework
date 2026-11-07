@@ -27,6 +27,11 @@ from pydantic_core import CoreSchema, PydanticCustomError, core_schema
 _HOST_KEYS = frozenset({"localtime", "posixrules"})
 
 
+#: Instants across a zone's history, twice a year: enough to tell a place from a fixed offset,
+#: and one zone from another.
+_MOMENTS = tuple(datetime(year, month, 1, tzinfo=UTC) for year in range(1800, 2101, 25) for month in (1, 7))
+
+
 def _keeps_one_offset(zone: ZoneInfo) -> bool:
     """Whether *zone* has kept one UTC offset through all of its history.
 
@@ -34,8 +39,31 @@ def _keeps_one_offset(zone: ZoneInfo) -> bool:
     ``EST``) have. A place has not: its local time began as its own mean solar time and has
     moved since, so it reads one offset in 1800 and another now, and most read two a year.
     """
-    seen = {datetime(year, month, 1, tzinfo=zone).utcoffset() for year in range(1800, 2101, 25) for month in (1, 7)}
-    return len(seen) == 1
+    return len({moment.astimezone(zone).utcoffset() for moment in _MOMENTS}) == 1
+
+
+def _names_a_place(zone: str) -> ZoneInfo | None:
+    """The zone *zone* names, when it is a place's; ``None`` for UTC, a fixed offset or the host."""
+    place = ZoneInfo(zone)
+    return None if zone.casefold() in _HOST_KEYS or _keeps_one_offset(place) else place
+
+
+def _reads_its_place(marker: LocalTimeIn) -> bool:
+    """Whether *marker* still reads in a place's zone, the one its name gives.
+
+    The type refuses a change through its attributes, but ``object.__setattr__`` reaches past
+    that. So the timestamp boundary asks this of each one it trusts: the zone the reader uses
+    must give the offsets the named zone gives, at every moment sampled, and that zone must be
+    a place's. Anything else, a zone swapped for UTC or a name swapped with it, is refused.
+    """
+    try:
+        place = _names_a_place(object.__getattribute__(marker, "zone"))
+        zone = object.__getattribute__(marker, "_zone")
+        return place is not None and all(
+            moment.astimezone(zone).utcoffset() == moment.astimezone(place).utcoffset() for moment in _MOMENTS
+        )
+    except (ZoneInfoNotFoundError, ValueError, TypeError, AttributeError):
+        return False
 
 
 def _reads_back(candidate: datetime, zone: ZoneInfo, local: datetime) -> bool:
@@ -90,9 +118,11 @@ class LocalTimeIn:
     The zone names the instant, so this is no escape, and it is held to that. A key that names
     no place, which is UTC under any name, a fixed offset, or the host's own setting, is
     refused when declared: reading a time in UTC is ``NaiveMeansUtc``'s, which the
-    ``request_timestamps_carry_their_offset`` rule counts. The type cannot be subclassed or
-    changed once declared, since the timestamp boundary trusts its reader by its own function.
-    The published contract is the one a ``datetime`` has.
+    ``request_timestamps_carry_their_offset`` rule counts. The type cannot be subclassed and
+    refuses a change through its attributes, since the timestamp boundary trusts its reader by
+    its own function; it reads the zone again too, so one swapped behind the type's back with
+    ``object.__setattr__`` before the app starts is refused. The published contract is the one a
+    ``datetime`` has.
     """
 
     __slots__ = ("_zone", "zone")
@@ -105,7 +135,7 @@ class LocalTimeIn:
                 f"LocalTimeIn({zone!r}) names no time zone this server knows; name an IANA "
                 "zone, for example 'Europe/Amsterdam'"
             ) from exc
-        if zone.casefold() in _HOST_KEYS or _keeps_one_offset(place):
+        if _names_a_place(zone) is None:
             raise ValueError(
                 f"LocalTimeIn({zone!r}) names no place's wall time, but UTC, a fixed offset or "
                 "the host's own setting; name the zone of a place, for example "
