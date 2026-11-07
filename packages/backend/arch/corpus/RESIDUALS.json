@@ -49,7 +49,11 @@
       "a name reached through a computed attribute (getattr with a name that is not a literal, or an import made by importlib) is not resolved to the escape",
       "a name bound to the escape by a for loop, a with statement or an assignment expression counts where the escape is named, not at each use of that name",
       "the boundary's own module reached through a package's namespace (`vars(terp.core)` or its `__dict__`), or by a module name that is not a literal, is not resolved to that module",
-      "the escape's own validator taken out of a schema that declares the escape, and declared on another field by hand, is not resolved to the escape: the rule sees the escape where it is named, and only there"
+      "the escape's own validator taken out of a schema that declares the escape, and declared on another field by hand, is not resolved to the escape: the rule sees the escape where it is named, and only there",
+      "an early validator on a timestamp field is not resolved where the field, or the validator, belongs to a base from another module, because the check resolves a base by its name within the file",
+      "a timestamp alias imported from another module (from app.types import Stamp) is not resolved to a timestamp, so an early validator on it, or on a field typed with it, is not counted",
+      "a validator of the whole model (model_validator in before or wrap mode, Pydantic 1's root_validator with pre=True) is not counted: it sees the body rather than a field, so counting it would mostly be noise (ADR 0206, Open)",
+      "a validator a schema gets only at run time is not resolved: create_model's __validators__, validators unpacked into the metadata (Annotated[datetime, *EARLY]), returned by a function of the app's own, or built with GetPydanticSchema, and a type whose own __get_pydantic_core_schema__ reads the text"
     ]
   }
 }

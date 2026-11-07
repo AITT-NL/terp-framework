@@ -226,6 +226,9 @@ holds a wall time with a named zone, read by the API as text.
   clocks skip or repeat. The rule then counts a `before`, `wrap` or `plain` validator on a
   timestamp field as the escape, with its marker and budget. A model-level validator sees the
   whole body, so flagging it would mostly be noise; it stays out, and stays recorded here.
+  Built in 0.39.0 as
+  [ADR 0207](0207-a-local-time-in-a-named-zone-is-a-type-and-an-early-validator-is-the-escape.md):
+  `LocalTimeIn`, and the rule's count of such a validator.
 - **What the rule sees only where the escape is named.** A name bound to `NaiveMeansUtc` in one
   module and imported into another under a different name, or bound by a `for` loop, a `with`
   statement or an assignment expression, counts where the escape is named, not at each use. The

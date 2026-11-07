@@ -131,6 +131,7 @@ from terp.core.leases import (
     release_lease,
     renew_lease,
 )
+from terp.core.local_time import LocalTimeIn
 from terp.core.logging import (
     LOG_SCHEMA,
     configure_logging,
@@ -156,10 +157,7 @@ from terp.core.module_spec import (
     decide,
     decide_requirement,
 )
-from terp.core.object_authz import (
-    ObjectAuthzPredicate,
-    register_object_authz_predicate,
-)
+from terp.core.object_authz import ObjectAuthzPredicate, register_object_authz_predicate
 from terp.core.pagination import (
     CursorPage,
     CursorPaginationDep,
@@ -337,6 +335,7 @@ __all__ = [
     "LeaseReaper",
     "LeaseResource",
     "LeaseStore",
+    "LocalTimeIn",
     "Measure",
     "MigrationDiscoveryError",
     "MigrationTree",

@@ -35,6 +35,12 @@ no offset as UTC, for a sender known to send UTC without saying so. The
 ``request_timestamps_carry_their_offset`` rule refuses each use of it unless the line carries
 the rule's marker, which the app's escape-hatch budget counts, so taking it is a decision a
 reviewer sees.
+
+The wall time of a named place does name an instant, so it is no escape: ``LocalTimeIn``
+(:mod:`terp.core.local_time`, ADR 0207) reads a value without an offset as a local time in the
+zone it declares. The walk leaves its node as the type built it, knowing it by the reader the
+type defined when this module was loaded, so a reader put on the class afterwards is judged
+like any other function.
 """
 
 from __future__ import annotations
@@ -50,6 +56,7 @@ from pydantic.dataclasses import is_pydantic_dataclass
 from pydantic_core import CoreSchema, PydanticCustomError, SchemaError, SchemaValidator, core_schema
 
 from terp.core.errors import ValidationFailedError
+from terp.core.local_time import LocalTimeIn
 
 #: What a refusal tells the writer, in a body and in a filter alike.
 OFFSET_REQUIRED = (
@@ -68,6 +75,10 @@ _NOT_SCHEMAS = frozenset(
 _HELD = "-offsets-held"
 
 _DATETIME: TypeAdapter[datetime] = TypeAdapter(datetime)
+
+#: The reader ``LocalTimeIn`` defines, taken when the framework loads, before any app code runs:
+#: a function put on the class later is not it, so the node it builds is judged.
+_LOCAL_TIME_READER = LocalTimeIn._read
 
 #: Whether the framework is reading back text it wrote itself. A context variable, so every
 #: schema the read reaches sees it, a nested one that SQLModel validates afresh included, and
@@ -137,6 +148,22 @@ def _is_escape(schema: dict[str, Any]) -> bool:
     )
 
 
+def _is_local_time(schema: dict[str, Any]) -> bool:
+    """A local time's own node: its reader behind a timestamp, and nothing else.
+
+    Known by the reader's own function, bound to an instance of the type itself, as the
+    escape's node is known by its function: the type cannot be subclassed, and no other
+    method of any object, nor a function put on the class after it was loaded, is the reader.
+    """
+    reader = _function_of(schema)
+    return (
+        schema.get("type") == "function-after"
+        and type(getattr(reader, "__self__", None)) is LocalTimeIn
+        and getattr(reader, "__func__", None) is _LOCAL_TIME_READER
+        and _around_a_timestamp(schema)
+    )
+
+
 def _reads_its_own_fields(cls: object) -> bool:
     """Whether *cls* brings its own Pydantic validator: a model, or a Pydantic dataclass.
 
@@ -193,7 +220,7 @@ class _Holding:
         kind = schema.get("type")
         if not isinstance(kind, str):
             return self._node(schema)  # a mapping of names to schemas, every value walked
-        if _is_judged(schema) or _is_escape(schema):
+        if _is_judged(schema) or _is_escape(schema) or _is_local_time(schema):
             return schema
         if kind == "datetime":
             return core_schema.with_info_before_validator_function(

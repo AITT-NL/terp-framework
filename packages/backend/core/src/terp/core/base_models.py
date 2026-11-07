@@ -310,7 +310,8 @@ def _refuse_hooks(name: str, taken: list[str]) -> TypeError:
     return TypeError(
         f"{name} {', '.join(taken)}, which BaseSchema relies on to hold a timestamp read as "
         "text to its UTC offset (ADR 0206) and to declare personal fields (ADR 0190); remove "
-        "it, and type a field NaiveMeansUtc where a sender sends UTC without an offset"
+        "it, and type a field Annotated[datetime, LocalTimeIn('<zone>')] where a sender sends "
+        "the wall time of a place, or NaiveMeansUtc where it sends UTC without an offset"
     )
 
 

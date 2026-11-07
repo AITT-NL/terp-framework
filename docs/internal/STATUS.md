@@ -953,7 +953,11 @@ frontend design-system track below.
       a client sends carries its UTC offset, a timestamp column is `terp.core`'s
       `UtcDateTime`, a calendar day on a timestamp filter names its zone, and a form sends an
       instant through `DateTimeInput` (ADRs 0205 and 0206).
-- [ ] Owed: the Studio's pin to 0.38.0. It pins 0.37.0.
+- [x] The Studio pins 0.38.0 (terp-studio#167).
+- [ ] 0.39.0, unreleased: the wall time of a named zone arrives as the instant it names through
+      `LocalTimeIn`, and an app's own early validator on a timestamp field is the escape the
+      rule counts (ADR 0207). Next: the startup check of a request body that is not a
+      `BaseSchema` and of a plain timestamp route parameter (ADR 0206, Open).
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
       every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
       the template's two `AGENTS.md` files, the repository's own and the react-core README.
