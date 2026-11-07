@@ -14,13 +14,18 @@ decision, 0001 onwards.
 
 ### Added
 
-- **`LocalTimeIn`: the wall time of a named zone arrives as the instant it names (ADR 0207).**
+- **`LocalTimeIn`: the wall time of a place arrives as the instant it names (ADR 0207).**
   `Annotated[datetime, LocalTimeIn("Europe/Amsterdam")]` reads a timestamp sent without a UTC
   offset as a local time in that zone, and one with an offset as the instant it names. Either
   arrives aware and in UTC, so a declared filter takes it and `UtcDateTime` stores it as it is.
-  A wall time the clocks skip in the zone is a 422 of type `local_time_skipped`. One they repeat
-  is `local_time_repeated`, whose message names both instants it could be. The zone is declared
-  on the field, and one the server does not know is refused when it is declared. The published
+  The field's own `datetime` reads the value first, with the field's settings. Three times are a
+  422: a wall time the clocks skip in the zone is `local_time_skipped`, one they repeat is
+  `local_time_repeated`, whose message names both instants it could be, and one outside the
+  years 1 to 9999 as UTC is `timestamp_out_of_range`. The zone is declared on the field. One the
+  server does not know is refused when declared, and so is one that names no place: UTC under
+  any name, a fixed offset, or the host's own setting. Reading a time as UTC stays
+  `NaiveMeansUtc`'s. The type cannot be subclassed or changed once declared, and the timestamp
+  boundary trusts only the reader the type had when the framework loaded. Its published
   contract is a `datetime`'s. It is no escape: a `BaseSchema` leaves it to its own reader, and
   judges the fields beside it as before.
 
@@ -28,18 +33,23 @@ decision, 0001 onwards.
 
 - **`backend/request_timestamps_carry_their_offset` counts an app's own early validator on a
   timestamp field (ADR 0207).** Such a validator reads the text before the type does, so it can
-  read a time with no offset in a zone of its own choosing. That covers a `BeforeValidator`,
-  `WrapValidator` or `PlainValidator` in an `Annotated` type that reads a timestamp, and a
-  `field_validator` in `before`, `wrap` or `plain` mode (or Pydantic 1's `validator` with
-  `pre=True`) on a timestamp field. Each is now the escape where it is declared, with the rule's
-  marker and budget. An after validator, a validator on a field that is no timestamp, and a
-  model validator are not. The corpus gains two violation cases and a compliant one, and records
-  three residuals.
+  read a time with no offset in a zone of its own choosing. The rule counts:
+  - a `BeforeValidator`, `WrapValidator` or `PlainValidator` in an `Annotated` type that reads a
+    timestamp, where the type is spelled and at each use of a type alias that carries it;
+  - a `field_validator` in `before`, `wrap` or `plain` mode, or Pydantic 1's `validator` with
+    `pre=True`, written as a decorator or a call in the body of a class or of a base in the same
+    file, on a timestamp field.
+
+  Names are followed through the file's imports and assignments. Each is the escape, with the
+  rule's marker and budget. An after validator, a validator on a field that is no timestamp, and
+  a model validator are not. The corpus gains two violation cases and a compliant one, and
+  records four residuals. The rule's walks no longer recurse, so no file the parser takes can
+  exhaust its stack.
 
 ### Upgrade notes
 
 - **An early validator of your own on a timestamp field now turns the gate red.** Where it read
-  the wall time of a known zone, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.
+  the wall time of a known place, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.
   Where it only checked the instant, make it an after validator. Where it must keep reading the
   text, keep it with `# arch-allow-request-timestamps-carry-their-offset: <reason>` and an entry
   in `escape-hatch-budget.json`.

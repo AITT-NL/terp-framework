@@ -78,9 +78,91 @@ def test_it_is_counted_through_an_import_alias_a_bound_validator_and_a_type_alia
         "\n"
         "class Meeting(BaseSchema):\n"  # 4
         "    starts_at: Annotated[Moment, AMSTERDAM]\n"  # 5
-        "    ends_at: Lenient\n"  # 6: the alias was counted at line 1
+        "    ends_at: Lenient\n"  # 6: and at each use, as NaiveMeansUtc's aliases are
     )
-    assert _lines(tmp_path, body, header=header) == [1, 5]
+    assert _lines(tmp_path, body, header=header) == [1, 5, 6]
+
+
+def test_a_type_that_carries_one_counts_at_each_use_however_it_is_reached(tmp_path: pathlib.Path) -> None:
+    body = (
+        "Lenient = Annotated[datetime, BeforeValidator(read)]\n"  # 1
+        "Optionally = Lenient | None\n"  # 2: bound to a type that carries it
+        "\n"
+        "\n"
+        "class Meeting(BaseSchema):\n"  # 5
+        "    starts_at: Lenient\n"  # 6
+        "    ends_at: Optionally\n"  # 7
+        "    noted_at: 'Lenient | None' = None\n"  # 8
+    )
+    assert _lines(tmp_path, body) == [1, 2, 6, 7, 8]
+
+
+def test_annotated_and_the_validators_are_followed_through_every_alias(tmp_path: pathlib.Path) -> None:
+    header = _HEADER + (
+        "import typing\n"  # +1
+        "from typing import Annotated as Typed\n"  # +2
+        "\n"  # +3
+        "Meta = typing.Annotated\n"  # +4
+        "Early = BeforeValidator\n"  # +5
+        "Choose = pydantic.field_validator\n"  # +6
+    )
+    body = (
+        "class Meeting(BaseSchema):\n"  # 1
+        "    starts_at: Typed[datetime, BeforeValidator(read)]\n"  # 2
+        "    ends_at: Meta[datetime, Early(read)]\n"  # 3
+        "    noted_at: datetime\n"  # 4
+        "\n"  # 5
+        '    @Choose("noted_at", mode="before")\n'  # 6
+        "    @classmethod\n"
+        "    def read_it(cls, value):\n"
+        "        return value\n"
+    )
+    assert _lines(tmp_path, body, header=header) == [2, 3, 6]
+
+
+def test_a_field_validator_written_as_a_call_in_the_class_body_counts(tmp_path: pathlib.Path) -> None:
+    body = (
+        "class Meeting(BaseSchema):\n"  # 1
+        "    starts_at: datetime\n"  # 2
+        '    read_it = field_validator("starts_at", mode="before")(classmethod(read))\n'  # 3
+    )
+    assert _lines(tmp_path, body) == [3]
+
+
+def test_a_validator_a_base_declares_counts_for_a_subclass_s_timestamp_field(tmp_path: pathlib.Path) -> None:
+    body = (
+        "class AppSchema(BaseSchema):\n"  # 1
+        '    @field_validator("*", mode="before")\n'  # 2: applies to every subclass's fields
+        "    @classmethod\n"
+        "    def read_local(cls, value):\n"
+        "        return value\n"
+        "\n"  # 6
+        '    @field_validator("starts_at", mode="before", check_fields=False)\n'  # 7
+        "    @classmethod\n"
+        "    def read_start(cls, value):\n"
+        "        return value\n"
+        "\n"
+        "\n"
+        "class Meeting(AppSchema):\n"  # 13
+        "    starts_at: datetime\n"  # 14
+        "\n"
+        "\n"
+        "class Note(AppSchema):\n"  # 17: no timestamp, and the base alone has none either
+        "    title: str\n"
+    )
+    assert _lines(tmp_path, body) == [2, 7]
+
+
+def test_a_file_the_parser_takes_never_crashes_the_rule(tmp_path: pathlib.Path) -> None:
+    chain = " + ".join(['"s"'] * 1500)
+    deeper = " + ".join(['"s"'] * 100_000)
+    body = (
+        f"MESSAGE = {chain}\n"  # 1: a long chain of concatenations, walked without recursing
+        f"QUOTED = {deeper!r}\n"  # 2: a string the parser cannot build, too deep
+        'NULL = "\\x00"\n'  # 3: a string the parser refuses
+        "Lenient = Annotated[datetime, BeforeValidator(read)]\n"  # 4: still seen
+    )
+    assert _lines(tmp_path, body) == [4]
 
 
 @pytest.mark.parametrize(
@@ -195,6 +277,11 @@ def test_what_is_not_an_early_validator_on_a_timestamp_is_not_counted(tmp_path: 
         '    @field_validator("title", mode="before")\n'  # not a timestamp field
         "    @classmethod\n"
         "    def strip(cls, value):\n"
+        "        return value\n"
+        "\n"
+        '    @field_validator("kind", mode="before")\n'  # a Literal value is text, not a type
+        "    @classmethod\n"
+        "    def lower(cls, value):\n"
         "        return value\n"
         "\n"
         '    @validator("ends_at", pre=False)\n'

@@ -103,7 +103,7 @@ Add a module (the "10-minute module")
      class InvoiceRead(BaseSchema):           # NOT the table model
          id: uuid.UUID; number: str; amount_cents: int; issued_at: datetime; version: int
    A timestamp a client sends must carry its UTC offset: "2026-11-06T10:00:00" is a 422 at
-   the field, "2026-11-06T10:00:00Z" is taken (ADR 0206). For the wall time of a zone the
+   the field, "2026-11-06T10:00:00Z" is taken (ADR 0206). For the wall time of a place the
    app knows, type it Annotated[datetime, LocalTimeIn("Europe/Amsterdam")]: it arrives as
    the instant, in UTC, and a time the clocks skip or repeat there is a 422 (ADR 0207). Read
    the text in a before, wrap or plain validator of your own and the rule counts it. For a

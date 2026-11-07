@@ -131,6 +131,7 @@ from terp.core.leases import (
     release_lease,
     renew_lease,
 )
+from terp.core.local_time import LocalTimeIn
 from terp.core.logging import (
     LOG_SCHEMA,
     configure_logging,
@@ -268,7 +269,7 @@ from terp.core.throttling import (
     is_shared_throttle_store,
     mark_shared_throttle_store,
 )
-from terp.core.timestamps import LocalTimeIn, NaiveMeansUtc
+from terp.core.timestamps import NaiveMeansUtc
 
 __all__ = [
     "ADMIN",
