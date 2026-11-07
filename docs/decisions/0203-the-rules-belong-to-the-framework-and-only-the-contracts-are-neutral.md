@@ -2,9 +2,12 @@
 
 - **Status:** Accepted on 2026-11-06 by the owner. Built in 0.38.0: the rules, the
   corpus, the refused surface, the rule pages and the runtime security cases moved here from
-  terp-spec 0.43.0, and the scorecards are gone. Still open: decision 3's choice of where the
-  contracts package is published from, its rename, and the last `terp-spec` release that
-  points to it.
+  terp-spec 0.43.0, and the scorecards are gone. On 2026-11-07 the owner settled the two
+  open points. Decision 3: the contracts are published from their own repository,
+  `terp-spec`. The rename is dropped: the package keeps `terp-spec` / `@terpjs/spec`,
+  because `@terpjs/contracts` sits one letter from this framework's `@terpjs/contract`. So
+  no release points to a new name; terp-spec 0.44.0 is the contracts-only release every
+  reader repins to once.
 - **Date:** 2026-11-05. 0194 to 0202 are taken.
 - **Amends:** [ADR 0080](0080-terp-standard-rule-catalog-and-violation-corpus.md),
   [ADR 0081](0081-terp-standard-consumable-findings-schema-and-layers.md),
@@ -33,7 +36,8 @@ applicability. Only the contracts stay a separate package: the documents that mo
 program reads (the deployment, workbench and layout declarations, the check-report and
 findings formats, and the conversation event stream), and the assurance profile, which ADR
 0111 decision 5 places with them. That package has no dependencies, is
-versioned outside the lockstep, and is renamed `terp-contracts` / `@terpjs/contracts`. Another
+versioned outside the lockstep, and is renamed `terp-contracts` / `@terpjs/contracts`
+*(dropped on 2026-11-07: it keeps `terp-spec`; see Status)*. Another
 language or client joins at the edges, as a client of an app's HTTP API or as a declared unit
 of its deployment, never as a second kind of Terp app. Terp certifies no app built without it:
 scorecards, conformance levels and certification against a pinned reference commit are
@@ -122,7 +126,8 @@ observe a rule, a fail-closed runtime control sees what the check misses. 38 rul
   (`release.yml`, `docs/RELEASING.md`).
 - With the rules here, no CI job checks out another repository, and a rule, its check and its
   corpus land in one pull request.
-- The rename costs one migration: a last `terp-spec` release points to `terp-contracts`, and
+- *(Dropped with the rename on 2026-11-07; see Status.)* The rename costs one migration: a
+  last `terp-spec` release points to `terp-contracts`, and
   every reader repins once.
 
 ## Alternatives considered
