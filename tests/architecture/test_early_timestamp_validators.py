@@ -252,6 +252,33 @@ def test_a_field_its_base_declares_in_the_same_file_is_a_timestamp_too(tmp_path:
     assert _lines(tmp_path, body) == [6]
 
 
+def test_a_class_written_inside_another_is_a_class_of_its_own(tmp_path: pathlib.Path) -> None:
+    # An inner class's validator applies to the inner class's fields: a text field that shares
+    # the outer timestamp's name is text, and an inner timestamp counts where the inner class
+    # declares the validator.
+    body = (
+        "class Booking(BaseSchema):\n"  # 1
+        "    at: datetime\n"  # 2
+        "\n"  # 3
+        "    class Note(BaseSchema):\n"  # 4
+        "        at: str\n"  # 5
+        "\n"  # 6
+        '        @field_validator("at", mode="before")\n'  # 7, the note's own text
+        "        @classmethod\n"  # 8
+        "        def strip(cls, value):\n"  # 9
+        "            return value\n"  # 10
+        "\n"  # 11
+        "    class Window(BaseSchema):\n"  # 12
+        "        opens_at: datetime\n"  # 13
+        "\n"  # 14
+        '        @field_validator("opens_at", mode="before")\n'  # 15
+        "        @classmethod\n"
+        "        def read_it(cls, value):\n"
+        "            return value\n"
+    )
+    assert _lines(tmp_path, body) == [15]
+
+
 def test_what_is_not_an_early_validator_on_a_timestamp_is_not_counted(tmp_path: pathlib.Path) -> None:
     body = (
         "class Meeting(BaseSchema):\n"

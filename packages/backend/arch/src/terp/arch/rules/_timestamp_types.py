@@ -276,20 +276,18 @@ def _calls_in_body(cls: ast.ClassDef, callees: frozenset[str]) -> Iterator[ast.C
         pending.extend(ast.iter_child_nodes(node))
 
 
-def _validates_early(call: ast.Call, field_validators: frozenset[str], pydantic_v1: frozenset[str]) -> bool:
-    """Whether *call* declares a field validator that sees a value before its type does.
+def _validates_early(call: ast.Call, field_validators: frozenset[str]) -> bool:
+    """Whether *call*, a field validator, declares one that sees a value before its type does.
 
-    ``field_validator``'s ``mode`` decides, ``after`` unless given; Pydantic 1's ``validator``
-    runs first with ``pre=True``. A mode the file computes, or passes in a ``**`` mapping,
-    cannot be read here, so it counts.
+    ``field_validator``'s ``mode`` decides, ``after`` unless given. The class body yields no
+    other call but Pydantic 1's ``validator``, which runs first with ``pre=True``. A mode the
+    file computes, or passes in a ``**`` mapping, cannot be read here, so it counts.
     """
     keywords = {keyword.arg: keyword.value for keyword in call.keywords}
     if base_name(call.func) in field_validators:
         flag, early = keywords.get("mode"), _EARLY_MODES
-    elif base_name(call.func) in pydantic_v1:
-        flag, early = keywords.get("pre"), frozenset({True})
     else:
-        return False
+        flag, early = keywords.get("pre"), frozenset({True})
     if None in keywords:
         return True
     return flag is not None and not (isinstance(flag, ast.Constant) and flag.value not in early)
@@ -346,7 +344,7 @@ def _early_validator_findings(tree: ast.Module) -> dict[int, str]:
         fields = {field for owner in lineage for field in _own_timestamp_fields(owner, spelling)}
         for owner in lineage if fields else ():
             for call in _calls_in_body(owner, field_validators | pydantic_v1):
-                if _validates_early(call, field_validators, pydantic_v1) and _covers_a_timestamp(call, fields):
+                if _validates_early(call, field_validators) and _covers_a_timestamp(call, fields):
                     early(call)
     return findings
 
