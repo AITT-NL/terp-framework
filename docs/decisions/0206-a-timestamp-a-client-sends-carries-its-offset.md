@@ -211,10 +211,14 @@ holds a wall time with a named zone, read by the API as text.
   review changed*). Decided on 2026-11-06, for 0.39.0: `create_app` checks every route when the
   app starts. It refuses a request body that is, or nests, such a class holding a timestamp the
   escape does not mark, naming the route and the fix. Response models are left alone.
+  Built in 0.39.0 as
+  [ADR 0208](0208-a-route-holds-every-timestamp-it-reads-to-its-offset.md).
 - **A timestamp route parameter that is not a declared filter.** FastAPI parses it, and nothing
   judges it unless it reaches a filter. Decided on 2026-11-06, for 0.39.0: the same startup
   check refuses a plain `datetime` query or path parameter, and the framework ships a parameter
-  type that refuses one without an offset. Until then, take it through a declared filter.
+  type that refuses one without an offset. Built in 0.39.0 as
+  [ADR 0208](0208-a-route-holds-every-timestamp-it-reads-to-its-offset.md): the check, and
+  `Instant`, which a declared filter's timestamp parameter now takes.
 - **A validator of the app's own that runs first.** A model validator in `before` or `wrap`
   mode, and a field validator in `before`, `wrap` or `plain` mode (`BeforeValidator`,
   `WrapValidator`, `PlainValidator`, `@field_validator`), sees the text before the timestamp

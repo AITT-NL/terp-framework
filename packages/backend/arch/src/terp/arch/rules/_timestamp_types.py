@@ -27,7 +27,11 @@ _EARLY_VALIDATOR_MESSAGE = (
 )
 
 #: The types a timestamp is read through: a value of any of them is timestamp text first.
-_TIMESTAMP_TYPES = frozenset({"datetime", "AwareDatetime", "NaiveDatetime", "PastDatetime", "FutureDatetime"})
+#: ``Instant`` refuses text without an offset, but a validator in front of it reads the text
+#: before it does (ADR 0208).
+_TIMESTAMP_TYPES = frozenset(
+    {"datetime", "AwareDatetime", "NaiveDatetime", "PastDatetime", "FutureDatetime", "Instant"}
+)
 
 #: Pydantic's validators that see a value before its type does, as ``Annotated`` metadata.
 _EARLY_VALIDATORS = frozenset({"BeforeValidator", "WrapValidator", "PlainValidator"})

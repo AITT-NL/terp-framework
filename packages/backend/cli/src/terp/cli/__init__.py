@@ -109,6 +109,9 @@ Add a module (the "10-minute module")
    the text in a before, wrap or plain validator of your own and the rule counts it. For a
    sender known to send UTC without one, type that field NaiveMeansUtc and mark it
    (# arch-allow-request-timestamps-carry-their-offset: <reason>); never by default.
+   A route parameter, and a field of a class that is not a BaseSchema, is typed Instant
+   (since: Instant | None = None), which refuses a time without its offset with a 422:
+   the app does not start while a route reads a plain datetime (ADR 0208).
 
 3) service.py  business logic (CRUD is inherited and audited)
      from terp.core import BaseService
@@ -409,8 +412,9 @@ Services (BaseService)
   None values are dropped, so an absent optional parameter needs no branching. Filters
   compose ON TOP of base_query(), so row scope and business_filters() still apply —
   they cannot widen a read. Don't write a list() override to do this by hand. A
-  timestamp filter (taken_after: datetime | None = None) is refused with a 400 when the
-  caller sends no UTC offset, so the bound always names an instant (ADR 0206). A calendar
+  timestamp filter's parameter is typed Instant (taken_after: Instant | None = None), so a
+  bound without a UTC offset is a 422 at the parameter, and one your own code hands the
+  filter is a 400, so the bound always names an instant (ADRs 0206, 0208). A calendar
   day on a timestamp column needs the zone whose day it is: declare it,
   FilterField("taken_on", Reading.taken_at, zone="Europe/Amsterdam"), with a route
   parameter taken_on: date | None = None, and the day is compared as the whole of it

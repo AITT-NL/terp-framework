@@ -35,9 +35,10 @@ _IMPLEMENTING_PACKAGES = frozenset({"terp.core", "terp.arch"})
 
 _ESCAPE_MESSAGE = (
     "NaiveMeansUtc reads a timestamp with no UTC offset as UTC, so a sender in any other "
-    "zone is stored off by its offset; take the timestamp with its offset (a plain datetime "
-    "field or filter refuses one without it), or, for a sender known to send UTC without "
-    "saying so, keep it with '# arch-allow-request-timestamps-carry-their-offset: <reason>' "
+    "zone is stored off by its offset; take the timestamp with its offset (a BaseSchema "
+    "field and an Instant parameter refuse one without it), or, for a sender known to send "
+    "UTC without saying so, keep it with "
+    "'# arch-allow-request-timestamps-carry-their-offset: <reason>' "
     "(budgeted by the app's escape-hatch-budget.json)"
 )
 _MACHINERY_MESSAGE = (

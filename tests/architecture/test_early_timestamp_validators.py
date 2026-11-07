@@ -23,7 +23,7 @@ _HEADER = (
     "import pydantic\n"  # 5
     "from pydantic import AfterValidator, BeforeValidator, Field, PlainValidator, WrapValidator\n"  # 6
     "from pydantic import field_validator, model_validator, validator\n"  # 7
-    "from terp.core import BaseSchema, LocalTimeIn\n"  # 8
+    "from terp.core import BaseSchema, Instant, LocalTimeIn\n"  # 8
     "\n"  # 9
     "\n"  # 10
     "def read(value):\n"  # 11
@@ -118,6 +118,32 @@ def test_annotated_and_the_validators_are_followed_through_every_alias(tmp_path:
         "        return value\n"
     )
     assert _lines(tmp_path, body, header=header) == [2, 3, 6]
+
+
+def test_one_in_front_of_instant_counts_as_one_in_front_of_a_datetime(tmp_path: pathlib.Path) -> None:
+    # Instant refuses text without an offset, but a validator in front of it reads the text
+    # first and can hand it an instant read in a zone of its choosing (ADR 0208).
+    body = (
+        "import terp.core as core\n"  # 1
+        "from terp.core import Instant as Stamp\n"  # 2
+        "\n"  # 3
+        "\n"  # 4
+        "class Meeting(pydantic.BaseModel):\n"  # 5
+        "    starts_at: Annotated[Instant, BeforeValidator(read)]\n"  # 6
+        "    ends_at: Annotated[core.Instant | None, PlainValidator(read)] = None\n"  # 7
+        "    moved_at: Annotated[Stamp, WrapValidator(lambda v, h: h(v))] | None = None\n"  # 8
+        "    seen_at: Instant | None = None\n"  # 9, held by its own type
+        "\n"  # 10
+        '    @field_validator("seen_at", mode="before")\n'  # 11
+        "    @classmethod\n"
+        "    def read_it(cls, value):\n"
+        "        return value\n"
+        "\n"
+        "\n"
+        "def since(after: Annotated[Instant, BeforeValidator(read)] | None = None, before: Instant | None = None):\n"  # 17
+        "    return after\n"
+    )
+    assert _lines(tmp_path, body) == [6, 7, 8, 11, 17]
 
 
 def test_a_field_validator_written_as_a_call_in_the_class_body_counts(tmp_path: pathlib.Path) -> None:

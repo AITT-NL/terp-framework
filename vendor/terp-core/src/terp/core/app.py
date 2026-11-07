@@ -92,6 +92,7 @@ from terp.core.request_authorization import (
 )
 from terp.core.passwords import configure_password_policy
 from terp.core.operations import OperationCatalog, OperationCoverage
+from terp.core.route_timestamps import request_timestamps_refusal
 from terp.core.routing import (
     declared_route_policy,
     MUTATING_METHODS,
@@ -461,6 +462,18 @@ def _refuse_route_mutation(name: str) -> Callable[..., None]:
     return refused
 
 
+def _refuse_late_route(method: str) -> Callable[..., None]:
+    def refused(*_args: object, **_kwargs: object) -> None:
+        raise BootError(
+            f"registration via router.{method}(...) on a router create_app() mounted is refused "
+            "once the app is composed: FastAPI would serve the route without the checks "
+            "create_app() ran on every route it read; declare every route on the router "
+            "before create_app() runs"
+        )
+
+    return refused
+
+
 # Middleware registration spellings on the composed app. Post-composition middleware
 # wraps the central security stack from outside every declared control, so both the
 # imperative call and the decorator fail closed once the app is composed.
@@ -525,6 +538,15 @@ def freeze_dependency_overrides(app: FastAPI) -> None:
     app.dependency_overrides = _FrozenDependencyOverrides(app.dependency_overrides)
 
 
+def _mounted_routers(routes: Sequence[object]) -> Iterator[object]:
+    """Every router *routes* include, at any depth: a module's, and one it includes itself."""
+    for route in routes:
+        nested = getattr(route, "original_router", None)
+        if nested is not None:
+            yield nested
+            yield from _mounted_routers(nested.routes)
+
+
 def freeze_app_route_registration(app: FastAPI) -> None:
     """The composition freeze: no post-composition registration surface, fail closed.
 
@@ -532,8 +554,11 @@ def freeze_app_route_registration(app: FastAPI) -> None:
     ``no_adhoc_middleware`` and ``no_dependency_overrides``). ``create_app`` is the
     only code path allowed to mount routers because it injects the module policy
     guard at mount time. Once the app is composed, route mutation on the app or its
-    underlying router is a guard bypass, so every registration spelling fails closed;
-    middleware registration is refused on the same footing. The dependency-override
+    underlying router is a guard bypass, so every registration spelling fails closed.
+    So is one on a router the app mounted: FastAPI serves an included router live, so a
+    route added to it afterwards would be served without one of the checks ``create_app``
+    ran on every route it read (ADR 0208). Middleware registration is refused on the same
+    footing. The dependency-override
     map is frozen only outside the ``local`` environment: overrides are the
     sanctioned *test* seam (a local test suite overrides ``get_session`` against a
     scratch engine), while a deployed app must never rebind its auth / session seams
@@ -543,6 +568,10 @@ def freeze_app_route_registration(app: FastAPI) -> None:
         for method in _APP_ROUTE_MUTATORS:
             if hasattr(target, method):
                 setattr(target, method, _refuse_route_mutation(f"{target_name}.{method}"))
+    for router in _mounted_routers(app.router.routes):
+        for method in _APP_ROUTE_MUTATORS:
+            if hasattr(router, method):
+                setattr(router, method, _refuse_late_route(method))
     freeze_app_middleware_registration(app)
     if get_settings().ENVIRONMENT != "local":
         freeze_dependency_overrides(app)
@@ -2447,6 +2476,10 @@ def create_app(
     # The contract-shape gate runs against the finished document — after every
     # module router, capability router, and the health router are mounted — so
     # nothing that serialises into the contract can arrive after it looked.
+    # Once every router is mounted, the framework's own included (ADR 0208).
+    timestamps_refusal = request_timestamps_refusal(app.routes)
+    if timestamps_refusal is not None:
+        raise BootError(timestamps_refusal)
     reject_positional_tuple_schemas(app)
     # Introspection seam (a view, never a control — ADR 0011): record the specs this
     # app actually mounted (client modules AND every discovered capability router) and

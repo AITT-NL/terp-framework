@@ -14,6 +14,14 @@ decision, 0001 onwards.
 
 ### Added
 
+- **`Instant`: a timestamp whose text must carry its UTC offset, wherever it is read (ADR
+  0208).** `since: Instant | None = None` refuses text without an offset with a 422 of type
+  `timestamp_offset_required`, as a `BaseSchema` field does, and reads text with one, a
+  `datetime` object and a Unix time as a plain `datetime` does. Declare it on a route
+  parameter, on a field of a class that is not a `BaseSchema`, and on a declared filter's
+  parameter. In a `BaseSchema` it is the schema's own refusal, once. Its published contract is
+  a `datetime`'s.
+
 - **`LocalTimeIn`: the wall time of a place arrives as the instant it names (ADR 0207).**
   `Annotated[datetime, LocalTimeIn("Europe/Amsterdam")]` reads a timestamp sent without a UTC
   offset as a local time in that zone, and one with an offset as the instant it names. Either
@@ -31,6 +39,21 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **`create_app` refuses to start while a route reads a timestamp nothing holds to its offset
+  (ADR 0208).** Once every router is mounted, the framework's own included, it walks the schema
+  each route reads each parameter with: path, query, header and cookie parameters, body and
+  form fields, parameter models, and those of every dependency the route resolves. A timestamp
+  is held behind the refusal (`Instant`, or a `BaseSchema`'s own field), `LocalTimeIn` or
+  `NaiveMeansUtc`, or as an aware-only `datetime`. One `BootError` names every other: the
+  route, the parameter, and the class and field that declare it, with the fix. A response
+  model, a computed field and a `date` are left alone. The rule's catalog entry cites the check
+  as a runtime half. Every router `create_app` mounts now refuses registration once the app is
+  composed, as the app does: FastAPI serves an included router live, so a route added afterwards
+  would be served without the check.
+- **`backend/request_timestamps_carry_their_offset` reads `Instant` as a timestamp type (ADR
+  0208).** A before, wrap or plain validator in front of it reads the text first, as one in front
+  of a `datetime` does, so it is counted the same way.
+
 - **`backend/request_timestamps_carry_their_offset` counts an app's own early validator on a
   timestamp field (ADR 0207).** Such a validator reads the text before the type does, so it can
   read a time with no offset in a zone of its own choosing. The rule counts:
@@ -47,6 +70,15 @@ decision, 0001 onwards.
   exhaust its stack.
 
 ### Upgrade notes
+
+- **A plain `datetime` route parameter, or a request body that is or nests a class that is not
+  a `BaseSchema` holding one, now stops the app from starting.** A declared filter's timestamp
+  parameter is the common case: type it `Instant`. Type the wall time of a place
+  `Annotated[datetime, LocalTimeIn("<zone>")]`, and keep `NaiveMeansUtc` with the rule's marker
+  for a sender known to send UTC without saying so. Make a class that holds a timestamp a
+  `BaseSchema`, or type its field `Instant`.
+- **A route added to a router after `create_app` mounted it is refused.** Declare every route
+  before `create_app` runs.
 
 - **An early validator of your own on a timestamp field now turns the gate red.** Where it read
   the wall time of a known place, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.
