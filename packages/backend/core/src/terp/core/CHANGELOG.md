@@ -100,6 +100,13 @@ decision, 0001 onwards.
   a name, a number or `*`. A table is matched to its models by name, case folded and in any
   schema. A FROM element of a kind the session does not know is refused. A `VALUES` list and a
   function's rows pass.
+- **A statistic refuses a field declared personal however its declaration reads it (ADR
+  0204).** The check read only the attribute a dimension, a time bucket, a value-derived measure
+  or a filter names, so `func.lower(User.email)`, a `cast`, a label, an alias,
+  `User.__table__.c.email` and a subquery's column over the address each passed it: a statistic
+  could be grouped by an address, a group per person, or narrowed by one under a function. Each
+  is now walked down to the columns it stands for and matched to the models that map them, by
+  name. Literal SQL or a bare column name in one is refused as possibly personal.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
@@ -126,6 +133,10 @@ decision, 0001 onwards.
   scoped, so a count or sum it computed leaves soft-deleted and other tenants' rows out. A view
   or a function in the database is still read like any table or function, so it scopes the rows
   it reads in its own SQL.
+- **A statistic declared over an expression that reads a field declared personal, or over
+  literal SQL or a bare column name, is refused when its class is defined**, and a filter whose
+  column reads one is refused when it narrows a statistic. Group, bucket or sum by a field that
+  is not personal, or count it.
 - **An early validator of your own on a timestamp field now turns the gate red.** Where it read
   the wall time of a known place, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.
   Where it only checked the instant, make it an after validator. Where it must keep reading the

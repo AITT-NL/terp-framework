@@ -36,7 +36,7 @@ from sqlmodel.sql.expression import SelectOfScalar
 
 from terp.core.errors import ValidationFailedError
 from terp.core.filtering import FilterField, resolve_filters
-from terp.core.personal import personal_fields
+from terp.core.personal_reads import personal_reads
 
 MeasureOp = Literal["count", "count_distinct", "sum", "avg", "min", "max"]
 """The fixed aggregate set. Declared per measure by the service — never sent by a client."""
@@ -62,15 +62,6 @@ _NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 MeasureValue = int | float | Decimal | dt.date | dt.datetime | None
 DimensionValue = str | int | float | bool | Decimal | dt.date | dt.datetime | None
-
-
-def _column_key(column: InstrumentedAttribute) -> str:
-    return str(column.key)
-
-
-def _is_personal(column: InstrumentedAttribute) -> bool:
-    owner = getattr(column, "class_", None)
-    return owner is not None and _column_key(column) in personal_fields(owner)
 
 
 @dataclass(frozen=True)
@@ -191,23 +182,26 @@ def declaration_refusal(
     if doubled:
         return f"{owner} declares {', '.join(map(repr, doubled))} more than once among its statistics."
     for dimension in dimensions:
-        if _is_personal(dimension.column):
+        reads = personal_reads(dimension.column)
+        if reads:
             return (
-                f"{owner} groups by {dimension.name!r}, a field declared personal: a group of one "
-                "is that person's value. A breakdown per person is a list route, not a statistic."
+                f"{owner} groups by {dimension.name!r}, {reads}: a group of one is that person's "
+                "value. A breakdown per person is a list route, not a statistic."
             )
     for bucket in time_buckets:
-        if _is_personal(bucket.column):
+        reads = personal_reads(bucket.column)
+        if reads:
             return (
-                f"{owner} buckets by {bucket.name!r}, a field declared personal: a bucket of one "
-                "is that person's value. Count it, or list it, but do not bucket it."
+                f"{owner} buckets by {bucket.name!r}, {reads}: a bucket of one is that person's "
+                "value. Count it, or list it, but do not bucket it."
             )
     for measure in measures:
-        if measure.op in VALUE_OPS and measure.column is not None and _is_personal(measure.column):
+        reads = personal_reads(measure.column) if measure.op in VALUE_OPS and measure.column is not None else ""
+        if reads:
             return (
-                f"{owner} declares {measure.name!r} as {measure.op} over a field declared personal: "
-                "over a group of one it is that person's value. Only count and count_distinct may "
-                "run over personal data."
+                f"{owner} declares {measure.name!r} as {measure.op} over {reads}: over a group of "
+                "one it is that person's value. Only count and count_distinct may run over "
+                "personal data."
             )
     return ""
 
@@ -362,10 +356,11 @@ def aggregate(
     declared_filters = {field.name: field for field in statistics.filterable}
     for name, value in (filters or {}).items():
         field = declared_filters.get(name)
-        if value is not None and field is not None and _is_personal(field.column):
+        reads = personal_reads(field.column) if value is not None and field is not None else ""
+        if reads:
             raise ValidationFailedError(
-                f"Filter {name!r} narrows by a field declared personal, and a statistic is "
-                "never narrowed by one: its counts would answer for one person."
+                f"Filter {name!r} narrows by {reads}, and a statistic is never narrowed by one: "
+                "its counts would answer for one person."
             )
     scoped = query
     conditions = resolve_filters(statistics.filterable, filters)

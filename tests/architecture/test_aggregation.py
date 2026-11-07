@@ -15,7 +15,8 @@ from decimal import Decimal
 import pytest
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
-from sqlalchemy import DateTime, Numeric
+from sqlalchemy import DateTime, MetaData, Numeric, String, cast, column, func, literal_column, text
+from sqlalchemy.orm import aliased
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 from terp.core import (
@@ -377,6 +378,45 @@ def test_a_service_that_would_hand_back_a_persons_value_is_refused_when_defined(
             measures = (Measure("spend", Sale.birth_date, op="sum"),)
 
 
+PERSONAL_EXPRESSIONS = {
+    "under a function": lambda: func.lower(Sale.buyer_email),
+    "under a cast": lambda: cast(Sale.buyer_email, String),
+    "under a label": lambda: Sale.buyer_email.label("who"),
+    "through the Core table": lambda: Sale.__table__.c.buyer_email,  # type: ignore[attr-defined]
+    "through a copy of the table": lambda: Sale.__table__.to_metadata(MetaData()).c.buyer_email,  # type: ignore[attr-defined]
+    "through an ORM alias": lambda: aliased(Sale).buyer_email,
+    "through a Core alias": lambda: Sale.__table__.alias().c.buyer_email,  # type: ignore[attr-defined]
+    "in a subquery's column": lambda: select(func.lower(Sale.buyer_email).label("who")).subquery().c.who,
+}
+
+
+@pytest.mark.parametrize("shape", sorted(PERSONAL_EXPRESSIONS))
+def test_a_personal_field_is_refused_wherever_an_expression_reads_it(shape: str) -> None:
+    # Each of these grouped by the buyer's address, a group per person, until it was refused.
+    expression = PERSONAL_EXPRESSIONS[shape]()
+    with pytest.raises(TypeError, match=r"groups by 'who', a field declared personal \(Sale\.buyer_email\)"):
+        Statistics(measures=(Measure("x"),), dimensions=(Dimension("who", expression),))
+    with pytest.raises(TypeError, match=r"buckets by 'when', a field declared personal \(Sale\.buyer_email\)"):
+        Statistics(measures=(Measure("x"),), time_buckets=(TimeBucket("when", expression),))
+    with pytest.raises(TypeError, match=r"as max over a field declared personal \(Sale\.buyer_email\)"):
+        Statistics(measures=(Measure("latest", expression, op="max"),))
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [literal_column("buyer_email"), column("buyer_email"), text("buyer_email")],
+    ids=["literal column", "bare name", "text"],
+)
+def test_sql_that_names_no_model_column_is_refused_as_possibly_personal(expression) -> None:
+    with pytest.raises(TypeError, match="groups by 'who', SQL that names no model column"):
+        Statistics(measures=(Measure("x"),), dimensions=(Dimension("who", expression),))
+
+
+def test_an_expression_over_fields_that_are_not_personal_is_declared() -> None:
+    lowered = Statistics(measures=(Measure("x"),), dimensions=(Dimension("region", func.lower(Sale.region)),))
+    assert lowered.dimensions[0].name == "region"
+
+
 def test_only_counts_may_run_over_personal_data() -> None:
     assert (
         declaration_refusal(
@@ -420,6 +460,21 @@ def test_a_statistic_is_never_narrowed_by_a_personal_filter(engine) -> None:
         rows, total = BuyerSales().list(session, skip=0, limit=10, filters={"buyer": "a@"})
     assert groups[0].measures == {"sales": 6}
     assert total == 3 and len(rows) == 3
+
+
+class LoweredBuyerSales(Sales):
+    """The list may filter by the buyer's address under a function; a statistic still may not."""
+
+    filterable = (*Sales.filterable, FilterField("buyer", func.lower(Sale.buyer_email), op="contains"))
+
+
+def test_a_statistic_is_never_narrowed_by_an_expression_of_a_personal_field(engine) -> None:
+    with WriteGuardedSession(engine) as session:
+        refused = r"Filter 'buyer' narrows by a field declared personal \(Sale\.buyer_email\)"
+        with pytest.raises(ValidationFailedError, match=refused):
+            LoweredBuyerSales().aggregate(session, measures=["sales"], filters={"buyer": "a@"})
+        _, total = LoweredBuyerSales().list(session, skip=0, limit=10, filters={"buyer": "a@"})
+    assert total == 3
 
 
 def test_a_page_of_series_is_capped_by_its_points(engine) -> None:

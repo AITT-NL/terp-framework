@@ -1062,9 +1062,12 @@ Aggregates: counts and sums declared on the service, like filters (ADR 0204)
   groups times steps. Each cap refuses, never clamps, and names what would fit.
 - Personal data stays personal. A Dimension or a TimeBucket over a field declared
   Personal(...), and a sum, avg, min or max over one, is refused when the class is defined:
-  over a group of one each is that person's value. count and count_distinct may run over
-  personal data. A statistic is never narrowed by a filter over a personal field (counts
-  under a contains filter would spell out an address); the list keeps its filter.
+  over a group of one each is that person's value. That holds wherever the declared column
+  reads it, under a function, a cast, a label, an alias, the Core table or a subquery's
+  column, and literal SQL or a bare column name is refused as possibly personal. count and
+  count_distinct may run over personal data. A statistic is never narrowed by a filter over
+  a personal field, however its column reads it (counts under a contains filter would spell
+  out an address); the list keeps its filter.
 - A read that is not a service's (a capability's own table) uses the same seam directly:
       from terp.core import Statistics, aggregate, group_model
       STATS = Statistics(measures=(Measure("events"),), dimensions=(...,), time_buckets=(...,))

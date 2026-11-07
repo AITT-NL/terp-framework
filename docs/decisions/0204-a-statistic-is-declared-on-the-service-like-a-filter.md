@@ -1,8 +1,8 @@
 # 0204 — A statistic is declared on the service, like a filter
 
 - **Status:** Accepted on 2026-11-06 by the owner, who answered the three review questions as
-  recommended (decision 5, decision 6, the zone database). Built in 0.37.0. Decision 6 amended
-  in 0.39.0, after a review of the build (see there). An independent review of the proposed
+  recommended (decision 5, decision 6, the zone database). Built in 0.37.0. Decisions 5 and 6
+  amended in 0.39.0, after a review of the build (see there). An independent review of the proposed
   record before the build found that it leaked personal data through filters, missed Core reads
   and froze a context-dependent answer in a cache. It also found claims the code did not
   support. Each finding is either fixed below or recorded as an open gap with its follow-up (see
@@ -208,6 +208,14 @@ filter, so a route may still forward the list's filters unbranched. The list kee
 This guards fields *declared* personal, not every breakdown by person. A dimension over
 `customer_id` is a per-customer figure, and whether that is a statistic or a list is the
 service's call.
+
+**Amended in 0.39.0.** A review found that the check read only the attribute a declaration
+names, so `func.lower(User.email)`, a `cast`, a label, an alias, `User.__table__.c.email` and a
+subquery's column over the address each passed it, and so did a filter under a function. Every
+declared column and every filter that narrows a statistic is now walked down to the columns it
+stands for, and each is matched to the models that map it, by its table's and its own name. SQL
+that names no model column, literal SQL or a bare column name, is refused too: nothing can tell
+it apart from a personal field.
 
 A minimum group size, so that a group of one cannot be read off a narrowed count, is **not**
 decided here. It is a real threat for a small population, and it is a policy with a number in
