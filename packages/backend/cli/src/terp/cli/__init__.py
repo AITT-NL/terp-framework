@@ -407,7 +407,11 @@ Services (BaseService)
   compose ON TOP of base_query(), so row scope and business_filters() still apply —
   they cannot widen a read. Don't write a list() override to do this by hand. A
   timestamp filter (taken_after: datetime | None = None) is refused with a 400 when the
-  caller sends no UTC offset, so the bound always names an instant (ADR 0206).
+  caller sends no UTC offset, so the bound always names an instant (ADR 0206). A calendar
+  day on a timestamp column needs the zone whose day it is: declare it,
+  FilterField("taken_on", Reading.taken_at, zone="Europe/Amsterdam"), with a route
+  parameter taken_on: date | None = None, and the day is compared as the whole of it
+  (eq that day, gte from its start, lte through its end); without a zone a day is a 400.
 - On a large table, prefer keyset pagination: a route takes CursorPaginationDep and
   returns CursorPage[ReadDTO] from self.list_by_cursor(session, pagination=...) —
   no OFFSET scan, and the exact COUNT runs only when the caller asks

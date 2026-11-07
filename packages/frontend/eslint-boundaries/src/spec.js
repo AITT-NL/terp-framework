@@ -152,6 +152,13 @@ export const BOUNDARY_SPEC = {
   restrictRawClipboard: true,
   restrictRawRandomUuid: true,
   /**
+   * Refuse a `datetime-local` input in app code (ADR 0206). Its value is a wall time with no UTC
+   * offset, which names no instant, and the API refuses one for a timestamp. A flag rather than
+   * a list for the reason the two above are: one input type, one defect. The stack's
+   * `DateTimeInput` sends what is picked as an instant with its zone's offset.
+   */
+  restrictLocalDateTimeInput: true,
+  /**
    * The governed escape hatch (the frontend analog of the backend's `# arch-allow-*`): a
    * justified `// terp-allow-<rule>: <reason>` comment on (or immediately above) a violating
    * line suppresses that rule there. `<rule>` is the Terp Standard CATALOG rule name (the
