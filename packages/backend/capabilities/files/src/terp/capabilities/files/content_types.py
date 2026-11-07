@@ -42,13 +42,13 @@ class ContentTypeMismatchError(AppError):
     default_message = "The uploaded bytes do not match the declared content type."
 
 
-_TOKEN = r"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
+_TCHARS = r"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
 
 #: One media type (RFC 9110, section 8.3.1): a type and a subtype, then parameters, each a token
 #: or a quoted string. Never a list of types: a browser handed ``image/png, text/html`` takes the
 #: last of them, so the type a check judged would not be the one the browser renders. No comma at
 #: all, then, not even quoted, where one reader of the header could split on it.
-_ONE_MEDIA_TYPE = re.compile(rf'{_TOKEN}/{_TOKEN}(?:[ \t]*;[ \t]*(?:{_TOKEN}=(?:{_TOKEN}|"[^"\\,\r\n]*"))?)*')
+_ONE_MEDIA_TYPE = re.compile(rf'{_TCHARS}/{_TCHARS}(?:[ \t]*;[ \t]*(?:{_TCHARS}=(?:{_TCHARS}|"[^"\\,\r\n]*"))?)*')
 
 
 def _one_media_type(value: str) -> str | None:
