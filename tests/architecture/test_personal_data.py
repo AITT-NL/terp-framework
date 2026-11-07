@@ -73,9 +73,15 @@ from terp.core._internal.engine import get_engine, maintenance_engine, reset_eng
 from terp.core._redaction import LoggedModel
 from terp.core.logging import RedactingFilter, StructuredFormatter, _protect_handler
 from terp.core.audit import emit_audit
-from terp.core.base_service import _integrity_detail
+from terp.core.base_service import _integrity_detail, _personal_in_flight
 from terp.core.jobs import JobDefinition, JobVisibility
-from terp.core.personal import MaskedModel, is_personal_name, withhold_personal_values
+from terp.core.personal import (
+    MaskedModel,
+    held_personal_values,
+    is_personal_name,
+    withhold_personal_values,
+    withhold_values,
+)
 
 _EMAIL = f"p-{secrets.token_hex(5)}@example.test"
 _OTHER_EMAIL = f"q-{secrets.token_hex(5)}@example.test"
@@ -505,13 +511,49 @@ def session() -> Iterator[Session]:
         engine.dispose()
 
 
-def test_a_refused_duplicate_does_not_log_the_address(session: Session) -> None:
-    _Customers().create(session, _CustomerCreate(email=_EMAIL, phone=_PHONE))
+@pytest.fixture
+def lane_session(terp_db_url: str) -> Iterator[Session]:
+    """A session on SQLite, and on PostgreSQL wherever ``TERP_TEST_POSTGRES_URL`` names one."""
+    engine = create_engine(terp_db_url)
+    SQLModel.metadata.create_all(engine, tables=[_Customer.__table__])  # type: ignore[attr-defined]
+    try:
+        with Session(engine) as active:
+            yield active
+    finally:
+        engine.dispose()
+
+
+def test_a_refused_duplicate_does_not_log_the_address(lane_session: Session) -> None:
+    # PostgreSQL repeats the conflicting key in its own detail, Key (email)=(...), and the
+    # refused flush expires the row that held it, which left nothing to withhold: the values
+    # are read before the flush now, so the key goes with them.
+    _Customers().create(lane_session, _CustomerCreate(email=_EMAIL, phone=_PHONE))
     with pytest.raises(ConflictError) as refused:
-        _Customers().create(session, _CustomerCreate(email=_EMAIL, phone=_PHONE))
+        _Customers().create(lane_session, _CustomerCreate(email=_EMAIL, phone=_PHONE))
     detail = refused.value.log_context["integrity_error"]
-    assert "UNIQUE" in detail and PERSONAL in detail
+    assert "unique" in detail.lower() and PERSONAL in detail
     _no_personal_value_in(detail)
+
+
+def test_a_refused_change_to_a_stored_row_does_not_log_the_address(lane_session: Session) -> None:
+    # A stored row is expired by its refused flush while the session waits for the rollback,
+    # so read afterwards it held nothing to withhold, and PostgreSQL's detail kept the address.
+    # The chokepoint reads the values before it flushes.
+    service = _Customers()
+    service.create(lane_session, _CustomerCreate(email=_EMAIL))
+    other = service.create(lane_session, _CustomerCreate(email=_OTHER_EMAIL, phone=_PHONE))
+    other.email = _EMAIL
+    with pytest.raises(ConflictError) as refused:
+        service._save(lane_session, other, AuditAction.UPDATED)
+    detail = refused.value.log_context["integrity_error"]
+    assert PERSONAL in detail
+    _no_personal_value_in(detail)
+
+
+def test_a_value_is_withheld_in_any_case_the_database_repeats_it() -> None:
+    held = held_personal_values(_Customer(email="Owner@Example.test", phone=_PHONE))
+    text = "Key (lower(email))=(owner@example.test) and (OWNER@EXAMPLE.TEST)"
+    assert withhold_values(text, held) == f"Key (lower(email))=({PERSONAL}) and ({PERSONAL})"
 
 
 @pytest.fixture
@@ -606,7 +648,7 @@ def test_every_row_in_flight_loses_its_values(session: Session) -> None:
     session.add(first)
     session.add(second)
     exc = IntegrityError("INSERT", {"a": _EMAIL, "b": _OTHER_EMAIL, "c": _PHONE}, Exception("dup"))
-    _no_personal_value_in(_integrity_detail(exc, session, first))
+    _no_personal_value_in(_integrity_detail(exc, _personal_in_flight(session, first)))
     session.expunge_all()
 
 

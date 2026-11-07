@@ -129,6 +129,13 @@ decision, 0001 onwards.
   backstop reads, and an app commonly shares one store between them. So fifty callers asking
   once each about an address locked its owner out of signing in for five minutes, as often as
   they liked. Such a request now counts under a namespace of its own.
+- **A refused change to a stored row no longer logs the personal values it carried (ADR
+  0190).** The write chokepoint withheld a row's declared personal values from the database's
+  refusal, but read them after the refused flush, which had expired a stored row by then. So a
+  change that collided with another row's unique address logged that address in the 409's
+  detail, on SQLite in the statement's parameters and on PostgreSQL in its own
+  `Key (email)=(...)`. The values are read before the flush now, and withheld in any case the
+  database repeats them.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
