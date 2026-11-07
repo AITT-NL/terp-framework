@@ -10,6 +10,40 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.39.0 — unreleased
+
+### Added
+
+- **`LocalTimeIn`: the wall time of a named zone arrives as the instant it names (ADR 0207).**
+  `Annotated[datetime, LocalTimeIn("Europe/Amsterdam")]` reads a timestamp sent without a UTC
+  offset as a local time in that zone, and one with an offset as the instant it names. Either
+  arrives aware and in UTC, so a declared filter takes it and `UtcDateTime` stores it as it is.
+  A wall time the clocks skip in the zone is a 422 of type `local_time_skipped`. One they repeat
+  is `local_time_repeated`, whose message names both instants it could be. The zone is declared
+  on the field, and one the server does not know is refused when it is declared. The published
+  contract is a `datetime`'s. It is no escape: a `BaseSchema` leaves it to its own reader, and
+  judges the fields beside it as before.
+
+### Changed
+
+- **`backend/request_timestamps_carry_their_offset` counts an app's own early validator on a
+  timestamp field (ADR 0207).** Such a validator reads the text before the type does, so it can
+  read a time with no offset in a zone of its own choosing. That covers a `BeforeValidator`,
+  `WrapValidator` or `PlainValidator` in an `Annotated` type that reads a timestamp, and a
+  `field_validator` in `before`, `wrap` or `plain` mode (or Pydantic 1's `validator` with
+  `pre=True`) on a timestamp field. Each is now the escape where it is declared, with the rule's
+  marker and budget. An after validator, a validator on a field that is no timestamp, and a
+  model validator are not. The corpus gains two violation cases and a compliant one, and records
+  three residuals.
+
+### Upgrade notes
+
+- **An early validator of your own on a timestamp field now turns the gate red.** Where it read
+  the wall time of a known zone, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.
+  Where it only checked the instant, make it an after validator. Where it must keep reading the
+  text, keep it with `# arch-allow-request-timestamps-carry-their-offset: <reason>` and an entry
+  in `escape-hatch-budget.json`.
+
 ## 0.38.0 — 2026-11-07
 
 ### Added

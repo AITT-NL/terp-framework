@@ -271,7 +271,7 @@ from terp.core.throttling import (
     is_shared_throttle_store,
     mark_shared_throttle_store,
 )
-from terp.core.timestamps import NaiveMeansUtc
+from terp.core.timestamps import LocalTimeIn, NaiveMeansUtc
 
 __all__ = [
     "ADMIN",
@@ -337,6 +337,7 @@ __all__ = [
     "LeaseReaper",
     "LeaseResource",
     "LeaseStore",
+    "LocalTimeIn",
     "Measure",
     "MigrationDiscoveryError",
     "MigrationTree",

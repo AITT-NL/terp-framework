@@ -35,6 +35,10 @@ no offset as UTC, for a sender known to send UTC without saying so. The
 ``request_timestamps_carry_their_offset`` rule refuses each use of it unless the line carries
 the rule's marker, which the app's escape-hatch budget counts, so taking it is a decision a
 reviewer sees.
+
+A wall time with a named zone does name an instant, so it is no escape: :class:`LocalTimeIn`
+reads a value without an offset as a local time in the zone it declares (ADR 0207), and
+refuses one the clocks skip or repeat there, since that names no instant or two.
 """
 
 from __future__ import annotations
@@ -44,6 +48,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, date, datetime
 from typing import Annotated, Any, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, GetCoreSchemaHandler, TypeAdapter, ValidationError, ValidationInfo
 from pydantic.dataclasses import is_pydantic_dataclass
@@ -137,6 +142,15 @@ def _is_escape(schema: dict[str, Any]) -> bool:
     )
 
 
+def _is_local_time(schema: dict[str, Any]) -> bool:
+    """A local time's own node: its reader in front of a timestamp, and nothing else."""
+    return (
+        schema.get("type") == "function-before"
+        and isinstance(getattr(_function_of(schema), "__self__", None), LocalTimeIn)
+        and _around_a_timestamp(schema)
+    )
+
+
 def _reads_its_own_fields(cls: object) -> bool:
     """Whether *cls* brings its own Pydantic validator: a model, or a Pydantic dataclass.
 
@@ -193,7 +207,7 @@ class _Holding:
         kind = schema.get("type")
         if not isinstance(kind, str):
             return self._node(schema)  # a mapping of names to schemas, every value walked
-        if _is_judged(schema) or _is_escape(schema):
+        if _is_judged(schema) or _is_escape(schema) or _is_local_time(schema):
             return schema
         if kind == "datetime":
             return core_schema.with_info_before_validator_function(
@@ -338,6 +352,97 @@ refused by the ``request_timestamps_carry_their_offset`` rule unless its line ca
 """
 
 
+def _reads_back(candidate: datetime, zone: ZoneInfo, local: datetime) -> bool:
+    """Whether *candidate*, as an instant, reads in *zone* as the wall time *local*."""
+    return candidate.astimezone(UTC).astimezone(zone).replace(tzinfo=None) == local
+
+
+def _instant_in(local: datetime, zone: ZoneInfo, name: str) -> datetime:
+    """The instant the wall time *local* names in *zone*, in UTC.
+
+    A wall time the clocks skip there names no instant, and one they repeat names two, so
+    both are refused, each saying what to send instead.
+    """
+    earlier = local.replace(tzinfo=zone, fold=0)
+    later = local.replace(tzinfo=zone, fold=1)
+    if earlier.utcoffset() == later.utcoffset():
+        return earlier.astimezone(UTC)
+    if _reads_back(earlier, zone, local) and _reads_back(later, zone, local):
+        raise PydanticCustomError(
+            "local_time_repeated",
+            "{local} happens twice in {zone}, where the clocks repeat it; send it with its UTC "
+            "offset, {earlier} or {later}",
+            {
+                "local": local.isoformat(),
+                "zone": name,
+                "earlier": earlier.isoformat(),
+                "later": later.isoformat(),
+            },
+        )
+    raise PydanticCustomError(
+        "local_time_skipped",
+        "{local} does not happen in {zone}, where the clocks skip it; send a time that "
+        "happens there, or one with its UTC offset",
+        {"local": local.isoformat(), "zone": name},
+    )
+
+
+class LocalTimeIn:
+    """A timestamp sent as the wall time of a named zone: ``LocalTimeIn("Europe/Amsterdam")``.
+
+    Declare it on a field or a query parameter whose sender sends the local time of a zone
+    the app knows, as ``Annotated[datetime, LocalTimeIn("Europe/Amsterdam")]`` (ADR 0207). A
+    value without a UTC offset is read as a local time in that zone, and one with an offset
+    is the instant it names, so the value arrives as an instant, aware and in UTC, and a
+    declared filter takes it too. A wall time the clocks skip in the zone is refused, error
+    type ``local_time_skipped``, and one they repeat, ``local_time_repeated``, whose message
+    names both instants it could be. A zone names the instant, so this is no escape: the
+    ``request_timestamps_carry_their_offset`` rule counts ``NaiveMeansUtc`` and an app's own
+    early validator, never this. The published contract is the one a ``datetime`` has.
+    """
+
+    __slots__ = ("_zone", "zone")
+
+    def __init__(self, zone: str) -> None:
+        try:
+            self._zone = ZoneInfo(zone)
+        except (ZoneInfoNotFoundError, ValueError, TypeError) as exc:
+            raise ValueError(
+                f"LocalTimeIn({zone!r}) names no time zone this server knows; name an IANA "
+                "zone, for example 'Europe/Amsterdam'"
+            ) from exc
+        self.zone = zone
+
+    def __get_pydantic_core_schema__(
+        self, source: Any, handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
+        schema = handler(source)
+        if schema.get("type") != "datetime":
+            raise TypeError(
+                f"LocalTimeIn({self.zone!r}) reads a datetime, not {source!r}: declare it as "
+                f"Annotated[datetime, LocalTimeIn({self.zone!r})]"
+            )
+        return core_schema.no_info_before_validator_function(self._read, schema)
+
+    def _read(self, value: object) -> object:
+        """The instant *value* names, in UTC: as it is with an offset, as a local time without.
+
+        Text and a Unix time are read as a ``datetime`` reads them, a Unix time being UTC by
+        definition; anything that reads as none goes on to the type, whose own error says so.
+        """
+        if not isinstance(value, datetime):
+            try:
+                value = _DATETIME.validate_python(value)
+            except ValidationError:
+                return value
+        if value.utcoffset() is not None:
+            return value.astimezone(UTC)
+        return _instant_in(value, self._zone, self.zone)
+
+    def __repr__(self) -> str:
+        return f"LocalTimeIn({self.zone!r})"
+
+
 def _names_no_instant(name: str) -> ValidationFailedError:
     return ValidationFailedError(
         f"Filter {name!r} needs a date and time with its UTC offset, for example "
@@ -364,6 +469,7 @@ def require_offset(name: str, value: datetime | date | str | bytes | bytearray) 
 
 __all__ = [
     "OFFSET_REQUIRED",
+    "LocalTimeIn",
     "NaiveMeansUtc",
     "hold_timestamps_to_their_offset",
     "refuse_timestamp_text_without_offset",
