@@ -1,11 +1,12 @@
 # 0204 — A statistic is declared on the service, like a filter
 
 - **Status:** Accepted on 2026-11-06 by the owner, who answered the three review questions as
-  recommended (decision 5, decision 6, the zone database). Built in 0.37.0. An
-  independent review of the proposed record before the build found that it leaked personal data
-  through filters, missed Core reads and froze a context-dependent answer in a cache. It also
-  found claims the code did not support. Each finding is either fixed below or recorded as an
-  open gap with its follow-up (see *What the review changed*).
+  recommended (decision 5, decision 6, the zone database). Built in 0.37.0. Decision 6 amended
+  in 0.39.0, after a review of the build (see there). An independent review of the proposed
+  record before the build found that it leaked personal data through filters, missed Core reads
+  and froze a context-dependent answer in a cache. It also found claims the code did not
+  support. Each finding is either fixed below or recorded as an open gap with its follow-up (see
+  *What the review changed*).
 - **Date:** 2026-11-06.
 - **Relates:** [ADR 0017](0017-non-overridable-scope-predicate-and-registry.md) (the row scope
   every read composes, and the `reads_use_base_query` rule that warns about a read that skips
@@ -215,15 +216,26 @@ it. It needs its own record when an application asks for it.
 ### 6. The runtime refuses every SELECT it cannot scope
 
 The ORM execution hook stays, and tests now pin each aggregate shape it scopes, for soft-delete,
-tenant and owner scope, on both dialects. Beside it, the same hook refuses a SELECT that reads a
-row-scoped table through Core. The rule is judged **per SELECT**, nested ones included:
+tenant and owner scope, on both dialects. Beside it, the same hook refuses a read it cannot
+scope. Only the shapes it can scope pass, so a shape nobody listed is refused rather than read.
+The rule is judged **per SELECT**, nested ones included:
 - **Named:** a scoped table in a SELECT's FROM list must be named by a mapped entity in that
   same SELECT, which is what the loader criteria attach to. A mapped entity elsewhere in the
   statement does not count: a parent's relationship to a child reaches the child's mapper
   without covering a Core join to the child's table.
+- **Tables:** a table is matched to its models by name alone, case folded and in any schema. A
+  `table("NAME")`, a copy of the Table in another `MetaData` and a sample of it are the model's
+  table, and so is one inside a parenthesised join.
 - **Aliases:** an ORM alias counts when it is named in that SELECT. A Core alias never does.
-- **Literal SQL:** a FROM written as literal SQL is refused outright, since nothing can scope
-  it.
+- **Wherever a read names an entity:** the session attaches the criteria to every mapped entity
+  a read names, in its own clauses, a loader option, a `VALUES` row, or a column property of a
+  model it loads, whose SQL every load of the model carries. Each is held to the rules above,
+  and a refusal says where it stands.
+- **Literal SQL:** refused wherever the statement writes it, unless it is a name, a number or
+  `*`: `text()`, a `text()` subquery, a literal column, a prefix, a suffix and a hint. Nothing
+  can read it, let alone scope it.
+- **What reads no table:** a `VALUES` list and a function's rows pass, and what they hold is
+  walked with the rest of the statement. A FROM element of any other kind is refused.
 - **Many-to-many:** one whose secondary table is row-scoped is refused when it loads. Map the
   link as an association object instead.
 
@@ -236,6 +248,20 @@ alone. A Core read of a table with no row scope is allowed.
 
 The audit the owner asked for ran the framework's whole suite with the refusal on. No framework
 code path reads a row-scoped table through Core on a request session.
+
+**Amended in 0.39.0.** A review found that the first build refused the shapes it recognised and
+let every other one through. A literal column holding a subquery, a `text()` subquery, a
+`table()` in another case or schema, a copy or a sample of the table, and a table inside a
+parenthesised join each read soft-deleted rows on both dialects. So did the parts SQLAlchemy's
+own walk of a statement skips, though each is written into the SQL: a prefix, a suffix and a
+hint. A model named only in a column property, a loader option or a `VALUES` row was read
+unscoped even through its entity, since the session looked for entities in the statement's own
+clauses only and attached no criteria. Measured on both dialects, the criteria apply in each of
+those places once attached, so the session now finds the entity there and scopes it. The check
+now passes only the shapes above. The same review found that a SELECT carrying an `INSERT`,
+`UPDATE` or `DELETE` in a CTE ran it outside the audited write chokepoint
+([ADR 0015](0015-runtime-write-guarded-session.md)). The session now treats such a SELECT as a
+write.
 
 ## What does not change
 
@@ -265,6 +291,10 @@ code path reads a row-scoped table through Core on a request session.
 `reads_use_base_query` stays `runtime.applicability: required`.
 
 ## Known gaps, recorded
+
+- **The database's own SQL.** A view or a function that reads a scoped table is read like any
+  other table or function: the session sees its name, not the SQL behind it. It scopes the
+  rows it reads in its own SQL, or a view is mapped to a model that carries the scope traits.
 
 - **The build-time rule sees direct mixins only.** It does not see a model that inherits soft
   delete through a base of its own, or an `OwnedMixin` model. For those, the runtime refusal is

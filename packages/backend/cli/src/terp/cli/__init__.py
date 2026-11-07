@@ -449,10 +449,13 @@ Services (BaseService)
   datetime / Enum inside the document is encoded rather than dying at flush with
   "Object of type UUID is not JSON serializable". Non-JSON columns still receive their
   native Python value.
-- Dropping to raw SQL? Keep the text(...) argument a STATIC literal and pass data
-  through bound parameters — a dynamically built statement (f-string, concatenation,
-  .format, %, or a variable) is refused by the no_dynamic_sql rule (SQL injection):
-      session.exec(text("SELECT ... WHERE status = :status"), {"status": status})
+- Dropping to raw SQL? Not for a read on the request session: it refuses a raw text(...)
+  statement outside the write chokepoint and literal SQL in a SELECT, since it can scope
+  neither (ADR 0204). Where raw SQL belongs (a migration), keep the text(...) argument a
+  STATIC literal and pass data through bound parameters — a dynamically built statement
+  (f-string, concatenation, .format, %, or a variable) is refused by the no_dynamic_sql
+  rule (SQL injection):
+      op.execute(text("UPDATE ... SET status = :status").bindparams(status="active"))
 - A pure validator that needs a fact from ANOTHER module's table does not get a
   session of its own. Keep the validator pure — it takes facts, not a database — and
   let the calling service look the fact up before it runs. Thread the dependency in
@@ -1066,12 +1069,15 @@ Aggregates: counts and sums declared on the service, like filters (ADR 0204)
       from terp.core import Statistics, aggregate, group_model
       STATS = Statistics(measures=(Measure("events"),), dimensions=(...,), time_buckets=(...,))
       groups, total = aggregate(session, select(AuditEvent), STATS, measures=["events"], ...)
-- The runtime half: the request session scopes every ORM read, aggregates included, and
-  refuses with UnscopedReadError (a 500) a SELECT that reads a row-scoped table through Core
-  - Model.__table__.c.x, a Core join or subquery over it, a Core alias, table("name"),
-  literal SQL in a FROM - because there is no mapped entity in that SELECT to attach the
-  scope to. A many-to-many whose link table is row-scoped is refused the same way: map the
-  link as an association object.
+- The runtime half: the request session scopes every ORM read, aggregates included, wherever
+  it names an entity (a loader option, a VALUES row and a column property too), and refuses
+  with UnscopedReadError (a 500) every read it cannot scope. That is a SELECT that reads a
+  row-scoped table through Core (Model.__table__.c.x, a Core join, subquery, alias or sample
+  of it, table("name") in any case or schema), because there is no mapped entity in that
+  SELECT to attach the scope to. It is literal SQL wherever it is written (text(), a literal
+  column, a prefix, a suffix or a hint, unless it is only a name), and a FROM element the
+  session does not know. A many-to-many whose link table is row-scoped is refused too: map
+  the link as an association object.
 - On SQLite a timestamp is stored as its wall time without its offset: write instants in UTC
   (every timestamp the framework stamps already is) and the steps are exact on both dialects.
 """,

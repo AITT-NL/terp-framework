@@ -88,6 +88,22 @@ decision, 0001 onwards.
   Otherwise it is red and names where the workspace is. An app's own check is never not
   applicable: a missing workspace is red, naming the path. A `frontend/` without its
   `package.json` is red for `frontend-tests` too, as it already was for the other checks.
+- **The request session scopes or refuses every read, not only the shapes it knew (ADR
+  0204).** The Core-read refusal recognised a column or FROM of `Model.__table__`, a Core alias
+  and `table("name")`, and let every other shape through. A literal column holding a subquery, a
+  `text()` subquery, a `table()` in another case or schema, a copy or a sample of the table, a
+  table inside a parenthesised join, a prefix, a suffix and a hint each read soft-deleted rows,
+  on both dialects. So did a model named only in a column property, a loader option or a
+  `VALUES` row, even through its entity: the session never looked there, so it attached no
+  scope. Now it finds an entity wherever a read names it and scopes it there, and it passes only
+  the shapes it can scope. Literal SQL is refused wherever the statement writes it, unless it is
+  a name, a number or `*`. A table is matched to its models by name, case folded and in any
+  schema. A FROM element of a kind the session does not know is refused. A `VALUES` list and a
+  function's rows pass.
+- **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
+  session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
+  PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
+  write scope, as the statement it carries does.
 
 ### Upgrade notes
 
@@ -102,7 +118,14 @@ decision, 0001 onwards.
   `BaseSchema`, or type its field `Instant`.
 - **A route added to a router after `create_app` mounted it is refused.** Declare every route
   before `create_app` runs.
-
+- **A read on the request session that writes literal SQL, reads a row-scoped table through Core
+  in any of the shapes above, or reads a FROM element the session does not know now fails with
+  `UnscopedReadError`** where it ran unscoped. Write it with SQLAlchemy's constructs on the
+  service's `base_query()`, or as a declared aggregate (`terp guide aggregates`). A column
+  property, a loader option or a `VALUES` row that names a model through its entity is now
+  scoped, so a count or sum it computed leaves soft-deleted and other tenants' rows out. A view
+  or a function in the database is still read like any table or function, so it scopes the rows
+  it reads in its own SQL.
 - **An early validator of your own on a timestamp field now turns the gate red.** Where it read
   the wall time of a known place, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.
   Where it only checked the instant, make it an after validator. Where it must keep reading the
