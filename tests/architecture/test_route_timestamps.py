@@ -22,6 +22,8 @@ from starlette.requests import HTTPConnection
 from pydantic import (
     AwareDatetime,
     BaseModel,
+    BeforeValidator,
+    GetCoreSchemaHandler,
     Field,
     NaiveDatetime,
     PastDatetime,
@@ -31,6 +33,7 @@ from pydantic import (
     computed_field,
 )
 from pydantic.dataclasses import dataclass as pydantic_dataclass
+from pydantic_core import CoreSchema, core_schema
 
 from terp.core import (
     EDITOR,
@@ -341,6 +344,44 @@ def test_a_plain_validator_leaves_no_timestamp_for_the_walk_to_see() -> None:
     assert _found(app) == []
 
 
+def _aware(value: object) -> datetime:
+    return TypeAdapter(AwareDatetime).validate_python(value)
+
+
+def test_a_validators_json_schema_input_only_shapes_the_contract() -> None:
+    # json_schema_input_type publishes date-time for the validator; it reads nothing.
+    app = FastAPI()
+
+    @app.get("/published")
+    def published(
+        at: Annotated[datetime, PlainValidator(_aware, json_schema_input_type=datetime)],
+        until: Annotated[Instant, BeforeValidator(lambda value: value, json_schema_input_type=datetime)],
+    ) -> dict[str, str]:
+        return {}
+
+    assert _found(app) == []
+
+
+class _Bare:
+    """A type of its own whose schema is a TypedDict with no class behind it."""
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: object, handler: GetCoreSchemaHandler) -> CoreSchema:
+        return core_schema.typed_dict_schema(
+            {"at": core_schema.typed_dict_field(core_schema.datetime_schema())}
+        )
+
+
+def test_a_schema_without_a_class_is_read_by_its_fields() -> None:
+    app = FastAPI()
+
+    @app.get("/bare")
+    def bare(bare: _Bare) -> dict[str, str]:
+        return {}
+
+    assert _found(app) == ["GET /bare reads a timestamp in the query parameter 'bare', in at"]
+
+
 # --------------------------------------------------------------------------- #
 # the refusal, and create_app
 # --------------------------------------------------------------------------- #
@@ -361,7 +402,14 @@ def test_the_refusal_names_every_finding_once_and_the_fix() -> None:
     assert refusal is not None
     assert refusal.count("GET /one reads a timestamp in the query parameter 'since'") == 1
     assert refusal.count("GET /two reads a timestamp in the query parameter 'since'") == 1
-    for fix in ("Instant, from terp.core", "LocalTimeIn('<zone>')", "NaiveMeansUtc", "BaseSchema", "ADR 0208"):
+    for fix in (
+        "Instant, from terp.core",
+        "LocalTimeIn('<zone>')",
+        "NaiveMeansUtc",
+        "become a BaseSchema",
+        "give way to a BaseSchema of the app's own",
+        "ADR 0208",
+    ):
         assert fix in refusal
     assert request_timestamps_refusal(FastAPI().routes) is None
 
@@ -409,3 +457,31 @@ def test_with_every_timestamp_held_the_app_starts_and_refuses_one_without_its_of
     assert (detail["loc"], detail["type"]) == (["query", "after"], "timestamp_offset_required")
     taken = client.get("/api/v1/events/", params={"after": AWARE}, headers=_AUTH)
     assert (taken.status_code, taken.json()) == (200, {"after": AWARE})
+
+
+def test_a_router_create_app_mounted_takes_no_route_afterwards() -> None:
+    # FastAPI serves an included router live, so a route added after composition would be
+    # served without the check create_app ran on every route it read.
+    inner = APIRouter()
+
+    @inner.get("/deep", response_model=dict[str, str])
+    def deep(until: Instant | None = None) -> dict[str, str]:
+        return {}
+
+    router = APIRouter()
+    router.include_router(inner, prefix="/inner")
+    create_app(
+        [ModuleSpec(name="events", router=router, policy=Policy.default())],
+        principal_provider=_principal,
+    )
+
+    def late(since: datetime) -> dict[str, str]:
+        return {}
+
+    for mounted in (router, inner):
+        with pytest.raises(BootError) as caught:
+            mounted.get("/late", response_model=dict[str, str])(late)
+        assert "router.get(...) on a router create_app() mounted is refused" in str(caught.value)
+        assert "declare every route on the router before create_app() runs" in str(caught.value)
+        with pytest.raises(BootError):
+            mounted.add_api_route("/late", late)

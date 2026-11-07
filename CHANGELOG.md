@@ -47,7 +47,12 @@ decision, 0001 onwards.
   `NaiveMeansUtc`, or as an aware-only `datetime`. One `BootError` names every other: the
   route, the parameter, and the class and field that declare it, with the fix. A response
   model, a computed field and a `date` are left alone. The rule's catalog entry cites the check
-  as a runtime half.
+  as a runtime half. Every router `create_app` mounts now refuses registration once the app is
+  composed, as the app does: FastAPI serves an included router live, so a route added afterwards
+  would be served without the check.
+- **`backend/request_timestamps_carry_their_offset` reads `Instant` as a timestamp type (ADR
+  0208).** A before, wrap or plain validator in front of it reads the text first, as one in front
+  of a `datetime` does, so it is counted the same way.
 
 - **`backend/request_timestamps_carry_their_offset` counts an app's own early validator on a
   timestamp field (ADR 0207).** Such a validator reads the text before the type does, so it can
@@ -72,6 +77,8 @@ decision, 0001 onwards.
   `Annotated[datetime, LocalTimeIn("<zone>")]`, and keep `NaiveMeansUtc` with the rule's marker
   for a sender known to send UTC without saying so. Make a class that holds a timestamp a
   `BaseSchema`, or type its field `Instant`.
+- **A route added to a router after `create_app` mounted it is refused.** Declare every route
+  before `create_app` runs.
 
 - **An early validator of your own on a timestamp field now turns the gate red.** Where it read
   the wall time of a known place, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.

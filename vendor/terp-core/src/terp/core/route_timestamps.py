@@ -34,9 +34,9 @@ from starlette.routing import BaseRoute
 
 from terp.core.timestamps import _is_escape, _is_judged, _is_local_time, _schemas_in
 
-#: The key of a model's schema whose fields are only written: a computed field is never read
-#: from a request.
-_WRITTEN_ONLY = frozenset({"computed_fields"})
+#: Keys of a schema node that no request is read through: a model's computed fields are only
+#: written, and a validator's JSON schema input only shapes the published contract.
+_NOT_READ = frozenset({"computed_fields", "json_schema_input_schema"})
 
 #: Where a parameter is read from, as a reader of the refusal names it.
 _PLACES = (
@@ -52,8 +52,9 @@ _REMEDY = (
     "with a 422. Where its sender sends the wall time of a place, type it "
     "Annotated[datetime, LocalTimeIn('<zone>')], and where the sender is known to send UTC "
     "without saying so, NaiveMeansUtc, which the request_timestamps_carry_their_offset rule "
-    "counts. A class that holds one can instead become a BaseSchema, which holds every "
-    "timestamp it reads to its offset"
+    "counts. A class that holds one can instead become a BaseSchema, or give way to a "
+    "BaseSchema of the app's own where the class is not the app's to change; a BaseSchema "
+    "holds every timestamp it reads to its offset"
 )
 
 
@@ -121,7 +122,7 @@ def _unjudged(schema: CoreSchema) -> list[str]:
         kind = node.get("type")
         if not isinstance(kind, str):  # a mapping of names to schemas: a class's fields
             owner = place.partition(".")[0]
-            pending.extend((value, f"{owner}.{name}") for name, value in node.items())
+            pending.extend((value, f"{owner}.{name}" if owner else name) for name, value in node.items())
             continue
         if _is_judged(node) or _is_escape(node) or _is_local_time(node):
             continue
@@ -138,11 +139,11 @@ def _unjudged(schema: CoreSchema) -> list[str]:
         if kind == "definitions":  # read where they are referred to, not where they are listed
             pending.append((node["schema"], place))
             continue
-        if kind in ("model", "dataclass", "typed-dict"):  # each names the class it reads
-            place = node["cls"].__name__
+        if kind in ("model", "dataclass", "typed-dict"):  # each names the class it reads, if any
+            place = getattr(node.get("cls"), "__name__", place)
         if kind == "dataclass-field":
             place = f"{place.partition('.')[0]}.{node['name']}"
-        pending.extend((value, place) for key, value in _schemas_in(node) if key not in _WRITTEN_ONLY)
+        pending.extend((value, place) for key, value in _schemas_in(node) if key not in _NOT_READ)
     return found
 
 

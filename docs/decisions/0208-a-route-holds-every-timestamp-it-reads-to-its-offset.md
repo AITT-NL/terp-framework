@@ -4,7 +4,8 @@
   questions of [ADR 0206](0206-a-timestamp-a-client-sends-carries-its-offset.md): a model that
   is not a `BaseSchema`, as a request body or nested in one, and a timestamp route parameter
   that is not a declared filter. It follows the recommendation that record keeps under *Open*.
-  Built in 0.39.0 (unreleased).
+  Built in 0.39.0 (unreleased). An independent review of the first build changed it (see *What
+  the review changed*).
 - **Date:** 2026-11-07.
 - **Relates:** [ADR 0206](0206-a-timestamp-a-client-sends-carries-its-offset.md) (the refusal,
   the escape and the declared filter's refusal),
@@ -53,7 +54,9 @@ is not a `BaseSchema`, and on the parameter of a declared filter. In a `BaseSche
 schema's own refusal, once, since the walk knows the node by its function. Its JSON schema is a
 `datetime`'s, so a parameter that moves from `datetime` to `Instant` publishes what it did.
 
-It is no escape: it refuses what the escape takes, and the rule does not count it.
+It is no escape: it refuses what the escape takes, so the rule does not count it. An app's own
+early validator in front of it reads the text first, as one in front of a `datetime` does, and
+the rule counts that one the same way (ADR 0207, decision 4).
 
 ### 2. The check walks what each route reads
 
@@ -78,6 +81,12 @@ without an offset itself. Anything else is not held: a plain `datetime`, a `Naiv
 A `BaseSchema` needs no exception. Its own fields are held already, and a class inside it that
 reads its own fields is walked like any other.
 
+A router `create_app` mounts takes no route once the app is composed, as the app itself takes
+none. FastAPI serves an included router live, so a route added to one afterwards would be served
+without this check, or any other `create_app` runs on every route it reads. Every registration
+method of every router it mounted, at any depth, raises a `BootError` that names the method and
+the remedy: declare every route before `create_app` runs.
+
 ### 3. One refusal names every timestamp and the fix
 
 `create_app` raises one `BootError` that names, for every timestamp not held:
@@ -90,15 +99,22 @@ reads its own fields is walked like any other.
 For example: *POST /api/v1/bookings/ reads a timestamp in the body field 'booking', in
 Window.opens_at*. The fix it names is `Instant`; `LocalTimeIn` for the wall time of a place;
 `NaiveMeansUtc` for a sender known to send UTC without saying so; or turning the class into a
-`BaseSchema`.
+`BaseSchema`, or, where the class is not the app's to change, a `BaseSchema` of the app's own in
+its place.
 
 ### 4. What the check leaves alone
 
 - **A response model and a computed field.** They are written, never read from a request.
 - **A `date`.** A day is not a timestamp.
 - **A validator that replaces the type** (`PlainValidator`). It leaves no timestamp for the walk
-  to see. It is an app's own early validator, which the rule counts at build time (ADR 0207,
-  decision 5).
+  to see. It is an app's own early validator, which the rule counts at build time where the type
+  under it is spelled as a timestamp, `Instant` included (ADR 0207, decision 5).
+- **A validator's JSON schema input** (`json_schema_input_type`). Pydantic uses it only to
+  publish the contract, so nothing is read through it.
+- **A path convertor of the app's own.** Starlette converts a path segment before FastAPI
+  validates it, so a convertor that builds a `datetime` hands `Instant` an object, which it does
+  not judge. Such a convertor is the app's own parser, as an early validator is. Starlette's own
+  convertors hand a timestamp parameter text.
 - **A dependency put in place through `dependency_overrides`,** the principal provider
   `create_app` installs that way included. FastAPI reads its parameters only at request time,
   and a provider reads credentials, not timestamps. The `no_dependency_overrides` rule refuses
@@ -134,4 +150,24 @@ module.
   nests a class with its own validator holding one. The refusal names each one and its fix. A
   declared filter's timestamp parameter is the common case: type it `Instant`.
 - Startup builds a validator for every parameter of every route once, as FastAPI already did.
+- A route can no longer be added to a router `create_app` mounted, once it has run.
 - The items ADR 0206 decided for 0.39.0 are built: this record, and ADR 0207.
+
+## What the review changed
+
+An independent review of the first build found:
+
+- **`Instant` hid an app's own early validator from both halves.** The walk stops at its refusal,
+  and the rule did not know its name, so `Annotated[Instant, BeforeValidator(f)]` and a `before`
+  field validator on an `Instant` field read text unseen. The rule now reads `Instant` as a
+  timestamp type (decision 1), and the corpus holds both forms.
+- **A route added to a mounted router after `create_app` returned was served unchecked,** since
+  FastAPI serves an included router live. Every router `create_app` mounts now refuses
+  registration (decision 2).
+- **The walk read a validator's JSON schema input,** and so refused a validator that only
+  publishes `date-time` (decision 4).
+- **A schema with no class behind it crashed the walk** with a `KeyError`. It is read by its
+  fields now.
+- **The remedy assumed the class was the app's to change.** It names a `BaseSchema` of the app's
+  own in its place (decision 3).
+- **A path convertor of the app's own** is recorded as a limit (decision 4).
