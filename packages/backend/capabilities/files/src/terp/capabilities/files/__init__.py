@@ -43,6 +43,7 @@ from __future__ import annotations
 
 from terp.capabilities.files.azure_blob import AzureBlobStorage
 from terp.capabilities.files.content_types import (
+    ContentTypeMalformedError,
     ContentTypeMismatchError,
     UnsupportedContentTypeError,
     active_allowed_content_types,
@@ -111,6 +112,7 @@ from terp.capabilities.files.storage import (
 
 __all__ = [
     "AzureBlobStorage",
+    "ContentTypeMalformedError",
     "ContentTypeMismatchError",
     "DEFAULT_LINK_TTL",
     "DEFAULT_STORAGE_PROFILE",

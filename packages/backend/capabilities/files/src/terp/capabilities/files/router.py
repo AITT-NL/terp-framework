@@ -58,6 +58,7 @@ from terp.core import (
     route_policy,
 )
 
+from terp.capabilities.files.content_types import _served_media_type
 from terp.capabilities.files.links import LINK_TTL_MAX, content_disposition
 from terp.capabilities.files.models import CONTENT_TYPE_MAX, FILENAME_MAX, File
 from terp.capabilities.files.operations import (
@@ -224,7 +225,9 @@ def _serve(row: File, stream: BinaryIO, request: Request, *, inline: bool = Fals
         )
     if part is None:
         headers["Content-Length"] = str(row.size)
-        return StreamingResponse(_iter_blob(stream), media_type=row.content_type, headers=headers)
+        return StreamingResponse(
+            _iter_blob(stream), media_type=_served_media_type(row.content_type), headers=headers
+        )
     first, last = part
     _skip_to(stream, first)
     headers["Content-Length"] = str(last - first + 1)
@@ -232,7 +235,7 @@ def _serve(row: File, stream: BinaryIO, request: Request, *, inline: bool = Fals
     return StreamingResponse(
         _iter_blob(stream, last - first + 1),
         status_code=206,
-        media_type=row.content_type,
+        media_type=_served_media_type(row.content_type),
         headers=headers,
     )
 

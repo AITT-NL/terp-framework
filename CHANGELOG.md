@@ -107,6 +107,14 @@ decision, 0001 onwards.
   could be grouped by an address, a group per person, or narrowed by one under a function. Each
   is now walked down to the columns it stands for and matched to the models that map them, by
   name. Literal SQL or a bare column name in one is refused as possibly personal.
+- **An upload's content type must be one media type (ADR 0201).** The files capability judged a
+  content type by what came before its first `;`, so `image/png, text/html` passed an `image/*`
+  allowlist, met no signature check and was shown inline as an image, and was served back raw
+  as the `Content-Type`, where a browser takes the last type of a list and renders HTML on the
+  API's origin. Upload now refuses anything but one media type, with parameters and without a comma,
+  with a 415 of code `content_type_malformed` before any byte lands. The inline rule and the
+  served type judge the parsed value, so a row stored earlier with a list is served as
+  `application/octet-stream`, as an attachment.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
@@ -137,6 +145,9 @@ decision, 0001 onwards.
   literal SQL or a bare column name, is refused when its class is defined**, and a filter whose
   column reads one is refused when it narrows a statistic. Group, bucket or sum by a field that
   is not personal, or count it.
+- **An upload whose content type is not one media type is refused with a 415**
+  (`content_type_malformed`), where it was stored. A file stored earlier with such a type is
+  served as `application/octet-stream`.
 - **An early validator of your own on a timestamp field now turns the gate red.** Where it read
   the wall time of a known place, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.
   Where it only checked the instant, make it an after validator. Where it must keep reading the

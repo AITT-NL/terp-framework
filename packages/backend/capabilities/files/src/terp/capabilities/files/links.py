@@ -25,6 +25,8 @@ from typing import Final
 
 from terp.core import SealingDomain
 
+from terp.capabilities.files.content_types import _one_media_type
+
 #: The lifetime a link gets when nothing selects one: long enough for a listening session.
 DEFAULT_LINK_TTL: Final[timedelta] = timedelta(hours=1)
 
@@ -74,9 +76,9 @@ def link_ttl(ttl: timedelta | None) -> timedelta:
 
 def inline_allowed(content_type: str) -> bool:
     """Whether a link to a file of *content_type* may ask to be shown inline."""
-    media_type = content_type.split(";", 1)[0].strip().lower()
-    if media_type.endswith(_INLINE_REFUSED_SUFFIXES):
-        return False
+    media_type = _one_media_type(content_type)
+    if media_type is None or media_type.endswith(_INLINE_REFUSED_SUFFIXES):
+        return False  # a list of types, or a row stored before 0.39.0 refused one, is not shown
     return any(media_type.startswith(prefix) for prefix in _INLINE_TYPES)
 
 

@@ -20,7 +20,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, update
 
 from terp.core import NotFoundError, RateLimit, encrypt_config
 from terp.core._internal.session_guard import WriteGuardedSession
@@ -148,6 +148,9 @@ def test_inline_is_allowed_only_for_a_type_a_browser_renders_without_running_it(
     # it really are: refused however the image family is admitted.
     assert not inline_allowed("image/svg+xml") and not inline_allowed("IMAGE/SVG+XML; charset=utf-8")
     assert not inline_allowed("application/xml") and not inline_allowed("image/x-thing+xml")
+    # Judged on the one type a browser would render: a list renders its last, so it is none.
+    assert not inline_allowed("image/png, text/html") and not inline_allowed("image/png,text/html")
+    assert inline_allowed("image/png;")
 
 
 def test_the_disposition_is_inline_or_attachment_and_never_carries_a_raw_name() -> None:
@@ -347,6 +350,24 @@ def test_an_inline_link_to_an_image_is_shown_inline_by_the_route(engine: Any, se
     url = client.get(f"/api/v1/files/{image.id}/link", params={"inline": "true"}).json()["url"]
     shown = client.get(url)
     assert shown.status_code == 200 and shown.headers["content-disposition"].startswith("inline; ")
+
+
+def test_a_row_stored_with_a_list_of_types_is_served_as_bytes_and_never_inline(
+    engine: Any, session: Session, storage_root: Path
+) -> None:
+    # Upload refuses such a type from 0.39.0; a row an earlier release stored is still served.
+    image = _store(FileService(), session, filename="a.png", content_type="image/png", source=io.BytesIO(_PNG))
+    with Session(engine) as raw:
+        raw.exec(update(File).where(File.id == image.id).values(content_type="image/png, text/html"))
+        raw.commit()
+    client = _client(engine)
+    url = client.get(f"/api/v1/files/{image.id}/link", params={"inline": "true"}).json()["url"]
+    served = client.get(url)
+    assert served.status_code == 200
+    assert served.headers["content-type"] == "application/octet-stream"
+    assert served.headers["content-disposition"].startswith("attachment; ")
+    ranged = client.get(url, headers={"Range": "bytes=0-3"})
+    assert ranged.status_code == 206 and ranged.headers["content-type"] == "application/octet-stream"
 
 
 class _NonSeekableStorage(_LinkingStorage):

@@ -1,6 +1,6 @@
 # 0201 — A file's bytes are handed out from where they rest
 
-- **Status:** Accepted; built in 0.36.1.
+- **Status:** Accepted; built in 0.36.1. Decision 3 amended in 0.39.0 (see there).
 - **Date:** 2026-11-05.
 - **Relates:** [ADR 0056](0056-files-capability.md) (the capability), [ADR 0057](0057-files-storage-profiles-and-references.md)
   (named profiles, `FileRef` and the serve-through read this extends),
@@ -94,6 +94,16 @@ link is not single-use, and its expiry is the control. `inline` asks for the byt
 rather than saved, and is honoured only for a type a browser renders without running anything
 in it (image, audio, video, PDF): a stored HTML page is an attachment whatever was asked, so
 nothing a user uploaded is ever rendered on the API's own origin.
+
+**Amended in 0.39.0.** A review found that a content type was judged by what came before its
+first `;`. So `image/png, text/html` passed an `image/*` allowlist, met no signature check, since
+none is listed for it, was shown inline as an image, and was served back raw as the
+`Content-Type`, where a browser takes the last type of a list and renders HTML. An upload's
+content type must now be one media type, a type and a subtype with parameters (RFC 9110) and no
+comma anywhere, or it is refused with a 415, `content_type_malformed`, before any byte lands. The
+inline rule and the served `Content-Type` judge the parsed type: a row an earlier release stored
+with a list is served as `application/octet-stream`, as an attachment, and handed to a store's
+own link the same way.
 
 ### 4. Where the backend cannot link, the capability signs one
 

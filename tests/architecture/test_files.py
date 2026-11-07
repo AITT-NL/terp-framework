@@ -30,6 +30,7 @@ from terp.capabilities.files import (
     SCAN_CLEAN,
     SCAN_NOT_SCANNED,
     SCAN_REJECTED,
+    ContentTypeMalformedError,
     ContentTypeMismatchError,
     File,
     FileQuarantinedError,
@@ -721,6 +722,42 @@ def test_upload_defaults_a_missing_filename_and_content_type(
     read = asyncio.run(upload_file(request, session))
     assert read.filename == "upload"
     assert read.content_type == "application/octet-stream"
+
+
+@pytest.mark.parametrize(
+    "declared",
+    [
+        "image/png, text/html",
+        "image/png,text/html",
+        "text/html;image/png",
+        "image",
+        "image/png extra",
+        'image/png; name="a,b"',
+        "image/png\r\nX-Injected: 1",
+    ],
+)
+def test_a_content_type_that_is_not_one_media_type_is_refused(
+    session: Session, storage_root: Path, declared: str
+) -> None:
+    # Stored, it is served back as the Content-Type; a browser handed a list of types renders
+    # the last of them, which neither the allowlist, the signature check nor the inline rule
+    # judged.
+    with pytest.raises(ContentTypeMalformedError) as excinfo:
+        _store(FileService(), session, content_type=declared, source=io.BytesIO(_PNG))
+    assert (excinfo.value.status_code, excinfo.value.code) == (415, "content_type_malformed")
+    assert not any(p for p in storage_root.rglob("*") if p.is_file())  # nothing stored
+
+
+def test_one_media_type_with_its_parameters_is_stored(session: Session, storage_root: Path) -> None:
+    for declared in ("image/png;", 'image/png; name="a.png"'):
+        stored = _store(FileService(), session, content_type=declared, source=io.BytesIO(_PNG))
+        assert stored.content_type == declared
+
+
+def test_the_upload_route_refuses_a_list_of_types(session: Session, storage_root: Path) -> None:
+    request = _multipart_request(_PNG, filename="a.png", content_type="image/png, text/html")
+    with pytest.raises(ContentTypeMalformedError):
+        asyncio.run(upload_file(request, session))
 
 
 def test_upload_requires_a_file_part_named_file(

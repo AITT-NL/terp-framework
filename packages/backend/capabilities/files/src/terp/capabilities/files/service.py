@@ -61,6 +61,7 @@ from terp.core import (
 )
 
 from terp.capabilities.files.content_types import (
+    ContentTypeMalformedError,
     ContentTypeMismatchError,
     UnsupportedContentTypeError,
     active_allowed_content_types,
@@ -69,6 +70,8 @@ from terp.capabilities.files.content_types import (
     _SNIFF_LEN,
     _ensure_bytes_match_declared_type,
     _ensure_content_type_allowed,
+    _ensure_one_media_type,
+    _served_media_type,
 )
 from terp.capabilities.files.links import (
     SIGNED_LINK_PATH,
@@ -204,6 +207,7 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
         told by ``scan_state`` on the response. With no scanner registered the verdict
         is ``not_scanned`` and nothing about this path changes.
         """
+        _ensure_one_media_type(content_type)
         _ensure_content_type_allowed(content_type)
         selected = profile if profile is not None else type(self).storage_profile
         backend = resolve_storage_backend(selected)
@@ -346,7 +350,7 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
         url = resolve_storage_backend(row.storage_profile).link(
             row.storage_key,
             ttl=lifetime,
-            content_type=row.content_type,
+            content_type=_served_media_type(row.content_type),
             disposition=content_disposition(row.filename, inline=shown_inline),
         )
         if url is None:
@@ -436,6 +440,7 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
 
 
 __all__ = [
+    "ContentTypeMalformedError",
     "ContentTypeMismatchError",
     "FileService",
     "UnsupportedContentTypeError",
