@@ -26,9 +26,15 @@ payload text the framework wrote at enqueue while :func:`_reading_server_text` i
 which every schema the read reaches trusts, a nested one included. Reaching it means
 importing this module, which the rule refuses to an app.
 
-A declared filter is the other door (:mod:`terp.core.filtering`). FastAPI has parsed its
-parameter into a ``datetime`` before it gets there, so :func:`require_offset` refuses a naive
-bound, a 400 that names the filter, and reads a bound the app's own code gives as text first.
+A route parameter, and a field of a class that is not a ``BaseSchema``, is no field of one, so
+nothing puts the refusal in front of it unless its type does. :data:`Instant` is that type: a
+``datetime`` with the refusal in front of it, the node the schema's walk puts there, so a
+``BaseSchema`` leaves it as it is. ``create_app`` refuses a route that reads a timestamp with
+nothing in front of it, when the app starts (:mod:`terp.core.route_timestamps`, ADR 0208).
+
+A declared filter is the last door (:mod:`terp.core.filtering`). A bound the app's own code
+gives it never passed a parameter, so :func:`require_offset` refuses a naive bound, a 400 that
+names the filter, and reads a bound given as text first.
 
 The framework's one way around both is :data:`NaiveMeansUtc`, a type that reads a value with
 no offset as UTC, for a sender known to send UTC without saying so. The
@@ -365,6 +371,34 @@ refused by the ``request_timestamps_carry_their_offset`` rule unless its line ca
 """
 
 
+class _Instant:
+    """Instant's mark: the refusal in front of a ``datetime``, as a ``BaseSchema`` puts it."""
+
+    __slots__ = ()
+
+    def __get_pydantic_core_schema__(
+        self, source: Any, handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
+        return core_schema.with_info_before_validator_function(
+            refuse_timestamp_text_without_offset, handler(source)
+        )
+
+    def __repr__(self) -> str:
+        return "Instant"
+
+
+Instant = Annotated[datetime, _Instant()]
+"""A timestamp whose text must carry its UTC offset, wherever it is read (ADR 0208).
+
+Declare it on a route parameter, ``since: Instant | None = None``, or on a field of a class
+that is not a ``BaseSchema``. Text without an offset is a 422 of type
+``timestamp_offset_required``, as it is in a ``BaseSchema``, and text with one, a ``datetime``
+object and a Unix time are read as a plain ``datetime`` reads them. Its published contract is a
+``datetime``'s. A ``BaseSchema`` field needs no such type: the schema puts the same refusal
+in front of every timestamp it reads.
+"""
+
+
 def _names_no_instant(name: str) -> ValidationFailedError:
     return ValidationFailedError(
         f"Filter {name!r} needs a date and time with its UTC offset, for example "
@@ -391,6 +425,7 @@ def require_offset(name: str, value: datetime | date | str | bytes | bytearray) 
 
 __all__ = [
     "OFFSET_REQUIRED",
+    "Instant",
     "NaiveMeansUtc",
     "hold_timestamps_to_their_offset",
     "refuse_timestamp_text_without_offset",

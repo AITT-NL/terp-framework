@@ -27,16 +27,16 @@ from collections.abc import Iterator, Sequence
 from typing import Annotated, Any
 
 from fastapi.dependencies.models import Dependant
-from fastapi.routing import APIWebSocketRoute
+from fastapi.routing import APIRoute, APIWebSocketRoute, RouteContext, iter_route_contexts
 from pydantic import TypeAdapter
 from pydantic_core import CoreSchema
+from starlette.routing import BaseRoute
 
-from terp.core.routing import iter_declaring_routes
 from terp.core.timestamps import _is_escape, _is_judged, _is_local_time, _schemas_in
 
-#: Keys of a schema node that only serialise a value: a computed field and a call's result are
-#: never read from a request.
-_WRITTEN_ONLY = frozenset({"computed_fields", "return_schema"})
+#: The key of a model's schema whose fields are only written: a computed field is never read
+#: from a request.
+_WRITTEN_ONLY = frozenset({"computed_fields"})
 
 #: Where a parameter is read from, as a reader of the refusal names it.
 _PLACES = (
@@ -57,22 +57,21 @@ _REMEDY = (
 )
 
 
-def _route_name(route: object) -> str:
-    if isinstance(route, APIWebSocketRoute):
+def _route_name(route: RouteContext) -> str:
+    if isinstance(route.original_route, APIWebSocketRoute):
         return f"WebSocket {route.path}"
-    methods = ",".join(sorted(getattr(route, "methods", None) or ()))
-    return f"{methods} {getattr(route, 'path', '?')}"
+    return f"{','.join(sorted(route.methods or ()))} {route.path}"
 
 
 def _parameters(dependant: Dependant) -> Iterator[tuple[str, Any]]:
-    """Each parameter FastAPI reads for *dependant* and every dependency it resolves, once."""
+    """Each parameter FastAPI reads for *dependant* and every dependency it resolves.
+
+    A dependency's parameters are its own: FastAPI builds a dependant for each place a
+    dependency is declared, so the tree has no cycle, and one declared twice is read twice.
+    """
     pending = [dependant]
-    seen: set[int] = set()
     while pending:
         current = pending.pop()
-        if id(current) in seen:
-            continue
-        seen.add(id(current))
         for place, attribute in _PLACES:
             for field in getattr(current, attribute):
                 yield place, field
@@ -84,11 +83,6 @@ def _schema_of(field: Any) -> CoreSchema:
     info = field.field_info
     annotation = Annotated[(info.annotation, *info.metadata)] if info.metadata else info.annotation
     return TypeAdapter(annotation).core_schema
-
-
-def _owner_of(node: dict[str, Any], place: str) -> str:
-    cls = node.get("cls")
-    return getattr(cls, "__name__", place) if isinstance(cls, type) else place
 
 
 def _definitions_in(schema: CoreSchema) -> dict[str, Any]:
@@ -127,12 +121,10 @@ def _unjudged(schema: CoreSchema) -> list[str]:
         kind = node.get("type")
         if not isinstance(kind, str):  # a mapping of names to schemas: a class's fields
             owner = place.partition(".")[0]
-            pending.extend((value, f"{owner}.{name}" if owner else name) for name, value in node.items())
+            pending.extend((value, f"{owner}.{name}") for name, value in node.items())
             continue
         if _is_judged(node) or _is_escape(node) or _is_local_time(node):
             continue
-        if isinstance(node.get("ref"), str):
-            followed.add(node["ref"])
         if kind == "datetime":
             if node.get("tz_constraint") != "aware" and place not in found:
                 found.append(place)
@@ -146,27 +138,30 @@ def _unjudged(schema: CoreSchema) -> list[str]:
         if kind == "definitions":  # read where they are referred to, not where they are listed
             pending.append((node["schema"], place))
             continue
-        if kind in ("model", "dataclass", "typed-dict"):
-            place = _owner_of(node, place)
+        if kind in ("model", "dataclass", "typed-dict"):  # each names the class it reads
+            place = node["cls"].__name__
         if kind == "dataclass-field":
-            owner = place.partition(".")[0]
-            place = f"{owner}.{node['name']}" if owner else node["name"]
-        if kind == "tagged-union":
-            pending.extend((choice, place) for choice in node["choices"].values())
-            continue
+            place = f"{place.partition('.')[0]}.{node['name']}"
         pending.extend((value, place) for key, value in _schemas_in(node) if key not in _WRITTEN_ONLY)
     return found
 
 
-def _findings(routes: Sequence[object]) -> Iterator[str]:
-    for route in iter_declaring_routes(routes):
+def _findings(routes: Sequence[BaseRoute]) -> Iterator[str]:
+    """One line for each timestamp a route reads that nothing holds to its offset.
+
+    Each route as it is served: its path with every prefix it is mounted under, and every
+    dependency the routers that include it add, as FastAPI's own contract reads it.
+    """
+    for route in iter_route_contexts(routes):
+        if not isinstance(route.original_route, APIRoute | APIWebSocketRoute):
+            continue  # a plain Starlette route or mount: FastAPI reads no parameter for it
         for place, field in _parameters(route.dependant):
             for where in _unjudged(_schema_of(field)):
                 held = f", in {where}" if where else ""
                 yield f"{_route_name(route)} reads a timestamp in the {place} {field.alias!r}{held}"
 
 
-def request_timestamps_refusal(routes: Sequence[object]) -> str | None:
+def request_timestamps_refusal(routes: Sequence[BaseRoute]) -> str | None:
     """Why *routes* may not be served, or ``None``: each timestamp a route reads unjudged.
 
     ``create_app`` raises it as a ``BootError`` once every router is mounted, the runtime half

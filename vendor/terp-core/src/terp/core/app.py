@@ -92,6 +92,7 @@ from terp.core.request_authorization import (
 )
 from terp.core.passwords import configure_password_policy
 from terp.core.operations import OperationCatalog, OperationCoverage
+from terp.core.route_timestamps import request_timestamps_refusal
 from terp.core.routing import (
     declared_route_policy,
     MUTATING_METHODS,
@@ -2447,6 +2448,10 @@ def create_app(
     # The contract-shape gate runs against the finished document — after every
     # module router, capability router, and the health router are mounted — so
     # nothing that serialises into the contract can arrive after it looked.
+    # Once every router is mounted, the framework's own included (ADR 0208).
+    timestamps_refusal = request_timestamps_refusal(app.routes)
+    if timestamps_refusal is not None:
+        raise BootError(timestamps_refusal)
     reject_positional_tuple_schemas(app)
     # Introspection seam (a view, never a control — ADR 0011): record the specs this
     # app actually mounted (client modules AND every discovered capability router) and
