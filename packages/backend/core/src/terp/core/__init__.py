@@ -156,10 +156,7 @@ from terp.core.module_spec import (
     decide,
     decide_requirement,
 )
-from terp.core.object_authz import (
-    ObjectAuthzPredicate,
-    register_object_authz_predicate,
-)
+from terp.core.object_authz import ObjectAuthzPredicate, register_object_authz_predicate
 from terp.core.pagination import (
     CursorPage,
     CursorPaginationDep,
