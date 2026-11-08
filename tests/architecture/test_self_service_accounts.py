@@ -393,7 +393,10 @@ def test_closing_an_account_takes_the_password_scrubs_it_and_ends_every_session(
     with WriteGuardedSession(engine) as session:
         RefreshTokenService().issue(session, user_id)
     client = _client(engine, principal=Principal(id=user_id, role=Roles.VIEWER))
-    assert client.post(_CLOSE, json={"password": "not the password"}).status_code == 401
+    mistyped = client.post(_CLOSE, json={"password": "not the password"})
+    # A 403 that names the fix, never a 401: a client takes a 401 for an expired session,
+    # refreshes, replays and signs the person out for a mistyped password.
+    assert (mistyped.status_code, mistyped.json()["code"]) == (403, "password_not_confirmed")
     assert client.post(_CLOSE, json={"password": _PASSWORD}).status_code == 204
     (user,) = _rows(engine, User)
     assert (user.is_active, user.hashed_password, user.token_version) == (False, None, 1)
@@ -509,7 +512,7 @@ def test_repeated_requests_and_failed_redemptions_back_off(engine: Any, mail: Ca
     assert guesses[0] == 400 and 429 in guesses, guesses
     closing = _client(engine, principal=Principal(id=_user(engine, "c@example.test"), role=Roles.VIEWER))
     attempts = [closing.post(_CLOSE, json={"password": "wrong"}).status_code for _ in range(8)]
-    assert attempts[0] == 401 and 429 in attempts, attempts
+    assert attempts[0] == 403 and 429 in attempts, attempts
 
 
 @pytest.mark.parametrize("path", [_SIGN_UP, _RESET])

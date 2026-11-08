@@ -159,6 +159,11 @@ decision, 0001 onwards.
   (Monrovia until 1972, at -0:44:30) was sent 30 seconds off. A year is now set on its own, the
   offset is exact, and where it has seconds, which RFC 3339 cannot write, the instant is sent in
   UTC.
+- **A mistyped password at `/me/close` no longer signs a web user out (ADR 0196).** The route
+  answered a wrong password with a 401, which `createAuthClient` reads as an expired session: it
+  refreshed, replayed the request, a second counted failure, and signed the person out. A wrong
+  password is now a 403 of code `password_not_confirmed` that names the fix, and still counts
+  toward the route's backoff.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
@@ -197,6 +202,8 @@ decision, 0001 onwards.
   fails its `BaseSchema` when it is read back.** Rewrite those values with their offset (`Z` for
   UTC) in a data migration, or read them through `NaiveMeansUtc` in the schema that reads the
   document, with the rule's marker, until they are rewritten.
+- **`POST /accounts/me/close` answers a wrong password with a 403, `password_not_confirmed`,**
+  where it answered a 401. A client that branched on the 401 reads the new code.
 - **An early validator of your own on a timestamp field now turns the gate red.** Where it read
   the wall time of a known place, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.
   Where it only checked the instant, make it an after validator. Where it must keep reading the

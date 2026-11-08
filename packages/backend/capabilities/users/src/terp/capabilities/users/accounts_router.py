@@ -36,7 +36,7 @@ from terp.core import (
 from terp.capabilities.auth import LoginThrottle
 from terp.capabilities.identity import User
 from terp.capabilities.mail import MAIL_SEND, mail_is_configured, parse_address
-from terp.capabilities.users.accounts import AccountsService
+from terp.capabilities.users.accounts import AccountsService, PasswordNotConfirmedError
 from terp.capabilities.users.operations import (
     ACCOUNTS_CLOSE,
     ACCOUNTS_REQUEST_PASSWORD_RESET,
@@ -209,7 +209,7 @@ def build_accounts_router(declaration: SelfService) -> APIRouter:
         throttle.check(identifier, source=source)
         try:
             accounts.close(session, principal, body.password)
-        except AuthenticationError:
+        except PasswordNotConfirmedError:
             throttle.record_failure(identifier, source=source)
             raise
         return Response(status_code=204)

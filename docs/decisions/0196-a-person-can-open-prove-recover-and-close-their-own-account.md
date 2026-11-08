@@ -151,7 +151,9 @@ from the side.
 ### 6. Closing an account takes the password again, and ends every session
 
 `POST /me/close` is the one authenticated route, open to any signed-in rank. It requires the
-current password, so a stolen access token cannot close the account, and refuses an account
+current password, so a stolen access token cannot close the account. A wrong one is a 403,
+`password_not_confirmed`, and not a 401, which a client takes for an expired session and signs
+the person out over (corrected in 0.39.0). It refuses an account
 that signs in only through a provider, which an administrator closes instead. It refuses the
 last active administrator. Then it revokes every session, through the token epoch and the
 refresh families, and does what the app declared, in one audited write:
