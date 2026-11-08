@@ -3,8 +3,8 @@
 - **Status:** Accepted on 2026-11-07. The owner decided it on 2026-11-06, as the open question
   of [ADR 0206](0206-a-timestamp-a-client-sends-carries-its-offset.md) on an app's own
   validator that runs first, on the recommendation that record keeps under *Open*. Built in
-  0.39.0 (unreleased). An independent review of the first build changed it (see *What the
-  review changed*).
+  0.39.0. An independent review of the first build changed it (see *What the review
+  changed*).
 - **Date:** 2026-11-07.
 - **Relates:** [ADR 0206](0206-a-timestamp-a-client-sends-carries-its-offset.md) (the refusal
   of timestamp text without an offset, `NaiveMeansUtc`, and the rule this extends),

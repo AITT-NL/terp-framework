@@ -4,8 +4,8 @@
   questions of [ADR 0206](0206-a-timestamp-a-client-sends-carries-its-offset.md): a model that
   is not a `BaseSchema`, as a request body or nested in one, and a timestamp route parameter
   that is not a declared filter. It follows the recommendation that record keeps under *Open*.
-  Built in 0.39.0 (unreleased). An independent review of the first build changed it (see *What
-  the review changed*).
+  Built in 0.39.0. An independent review of the first build changed it (see *What the review
+  changed*).
 - **Date:** 2026-11-07.
 - **Relates:** [ADR 0206](0206-a-timestamp-a-client-sends-carries-its-offset.md) (the refusal,
   the escape and the declared filter's refusal),
