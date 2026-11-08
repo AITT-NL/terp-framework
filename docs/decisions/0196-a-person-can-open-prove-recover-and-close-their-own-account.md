@@ -97,7 +97,12 @@ are compared without regard to case, so two spellings of one mailbox are one add
 never two accounts: a self-service account is stored with its address lower-cased, and a
 sign-in reaches it in any spelling, because the identity capability's lookup tries the
 address as written and then lower-cased. An account provisioned with capitals keeps signing
-in as it was written.
+in as it was written. From 0.39.0 provisioning holds to it too: creating an account, or
+changing one's address, for an address another account holds in any spelling is a 409,
+`address_taken` (until then an administrator could open the second account). The database's
+unique index is still on the exact spelling, so two writes racing with two spellings of one
+new address could both pass; a case-folded index is a migration of an app's own data, and is
+left open.
 
 ### 3. A request about an address answers the same way, and does the same work, whether or not an account exists
 

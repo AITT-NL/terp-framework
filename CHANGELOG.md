@@ -169,6 +169,12 @@ decision, 0001 onwards.
   precision came back as the nearest float: on PostgreSQL, `1234567890.123456789012` became
   `1234567890.1234567`. It now rewrites only the sealed string tokens in the document's own
   text, as a key or a value, and writes that text back as JSON, every other byte as it was.
+- **One mailbox is one account in any spelling, for an administrator too (ADR 0196).**
+  Self-service compared addresses without regard to case, but provisioning did not, and the
+  database's unique index is on the exact spelling: an administrator could open
+  `member@example.test` beside a self-service `Member@Example.test`. Creating an account, or
+  changing one's address, for an address another account holds in any spelling is now a 409,
+  `address_taken`, and `ensure_user` and `terp user create` find the account in any spelling.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
@@ -209,6 +215,9 @@ decision, 0001 onwards.
   document, with the rule's marker, until they are rewritten.
 - **`POST /accounts/me/close` answers a wrong password with a 403, `password_not_confirmed`,**
   where it answered a 401. A client that branched on the 401 reads the new code.
+- **Provisioning refuses an address another account holds in another spelling** with a 409,
+  `address_taken`. Accounts already open under two spellings of one address stay as they are;
+  find them with a query that groups `identity_user.email` by `lower(email)`.
 - **An early validator of your own on a timestamp field now turns the gate red.** Where it read
   the wall time of a known place, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.
   Where it only checked the instant, make it an after validator. Where it must keep reading the
