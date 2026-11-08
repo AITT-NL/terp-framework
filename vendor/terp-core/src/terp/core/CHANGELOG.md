@@ -279,6 +279,9 @@ decision, 0001 onwards.
   row in the plaintext form fails with `MailPlaintextRetiredError` (`mail_plaintext_retired`),
   naming the remedy, and dead-letters with nothing sent. A caller that enqueues the message's
   fields still queues it sealed.
+- **`local_midnights` from the audit capability.** Nothing has called it since the trail's
+  activity was counted through `aggregate` (ADR 0204), and `window_bounds` in
+  `terp.core.aggregation` cuts the same days.
 
 ### Upgrade notes
 
@@ -334,6 +337,8 @@ decision, 0001 onwards.
   values, instead.
 - **A `Measure` that names a column under the default `count` is refused when declared.** Drop
   the column to count rows, or declare `op="count_distinct"` to count the column's values.
+- **`terp.capabilities.audit.service.local_midnights` is removed.** Cut the days with
+  `window_bounds(Window(name, start, end, zone, "day"), zone)` from `terp.core.aggregation`.
 - **From 0.36.0 or earlier, let the outbox drain before you upgrade.** A mail a release before
   0.36.1 queued in plaintext is no longer read: its job fails with `mail_plaintext_retired`, and
   it dead-letters with nothing sent. Run `terp outbox backlog` on the old release until it shows
