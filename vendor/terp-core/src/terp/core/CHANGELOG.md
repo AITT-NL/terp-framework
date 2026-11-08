@@ -78,6 +78,13 @@ decision, 0001 onwards.
   records four residuals. The rule's walks no longer recurse, so no file the parser takes can
   exhaust its stack.
 
+- **`refuse_timestamp_text_without_offset` takes the value alone.** It was declared with a
+  `ValidationInfo` it never read, so Pydantic handed it every caller's validation context. No
+  context ever spared a value, and now none reaches the refusal: what spares text the framework
+  wrote itself is a context variable only its own module sets.
+  `BeforeValidator(refuse_timestamp_text_without_offset)` works as before; a direct call that
+  passes a second argument does not.
+
 ### Fixed
 
 - **A signed release no longer calls a lane passed that judged nothing (ADRs 0200, 0202).** The
