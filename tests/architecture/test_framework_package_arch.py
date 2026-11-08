@@ -1,9 +1,10 @@
 """The framework is held to the harness it ships — as far as it currently is.
 
 `_MAX_FILE_LINES = 500` applies to every file of every consuming app. Thirty
-non-test framework source files exceed it, and `core`, `arch`, `cli` and
+non-test framework source files exceeded it, and `core`, `arch`, `cli` and
 `migrations` were not self-scanned at all — roughly 38,000 lines outside the gate
-this repository sells.
+this repository sells. `OVERSIZED.json` records the files still over it, and holds
+each to the lines it has.
 
 Two costs, and the second is the expensive one. A consumer who hits the cap and looks
 at the framework finds a 3,818-line file, so the rule reads as arbitrary rather than
@@ -47,10 +48,13 @@ import pathlib
 import pytest
 
 from terp.arch import assert_app_clean, check_app, check_escape_hatch_budget
+from terp.arch._ast import iter_python_files
+from terp.arch.rules.size import _MAX_FILE_LINES
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _BACKEND = _REPO_ROOT / "packages" / "backend"
 _UNSCANNED = _BACKEND / "UNSCANNED.json"
+_OVERSIZED = _BACKEND / "OVERSIZED.json"
 
 #: package -> (source root relative to the repo, dotted package name).
 _PACKAGES = {
@@ -151,6 +155,48 @@ def test_the_unscanned_record_only_shrinks(name: str) -> None:
     assert settled == [], (
         f"{name} has fewer findings than recorded ({settled}) — lower the counts in "
         "UNSCANNED.json in the same change, so the ratchet keeps its teeth"
+    )
+
+
+def _oversized_now() -> dict[str, int]:
+    """Every framework source file over the cap, by its path under packages/backend, and the
+    lines it holds: the rule's own walk and its own count, in every package it could scan."""
+    patterns = ("*/src/terp/*", "capabilities/*/src/terp/capabilities/*")
+    roots = [path for pattern in patterns for path in sorted(_BACKEND.glob(pattern)) if path.is_dir()]
+    lines = {
+        path.relative_to(_BACKEND).as_posix(): len(path.read_text(encoding="utf-8").splitlines())
+        for root in roots
+        for path in iter_python_files(root)
+    }
+    return {path: count for path, count in lines.items() if count > _MAX_FILE_LINES}
+
+
+def test_an_oversized_framework_file_never_grows() -> None:
+    """The size rule finds one violation per file however long it grows, so neither the
+    count above nor an escape-hatch budget sees a long file grow longer. OVERSIZED.json
+    holds each one's lines: shrink-only, and exact, as the count is."""
+    recorded = json.loads(_OVERSIZED.read_text(encoding="utf-8"))["files"]
+    actual = _oversized_now()
+
+    joined = sorted(set(actual) - set(recorded))
+    assert joined == [], (
+        f"over the {_MAX_FILE_LINES}-line cap and not recorded: {joined} — split the file; "
+        "nothing new joins OVERSIZED.json"
+    )
+    grown = sorted(
+        f"{path}: recorded {recorded[path]}, now {count}"
+        for path, count in actual.items()
+        if count > recorded[path]
+    )
+    assert grown == [], f"recorded files grew: {grown} — split before adding, or move lines out to make room"
+    settled = sorted(
+        f"{path}: recorded {count}, now {actual.get(path, 'at or under the cap')}"
+        for path, count in recorded.items()
+        if actual.get(path, 0) < count
+    )
+    assert settled == [], (
+        f"recorded files shrank or came back under the cap: {settled} — lower each number in "
+        "OVERSIZED.json, or drop the file from it, in the same change"
     )
 
 

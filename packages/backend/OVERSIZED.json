@@ -1,0 +1,24 @@
+{
+  "$comment": "Framework source files already over the 500-line cap of no_oversized_python_files, and the lines each holds. A RATCHET, because the rule's finding is one per file however long it grows: a recorded file may shrink and never grow, and one that shrinks lowers its number in the same change. A file back under the cap leaves the record, and nothing new may join: split a file before it reaches the cap. Held by tests/architecture/test_framework_package_arch.py.",
+  "files": {
+    "arch/src/terp/arch/rules/__init__.py": 813,
+    "arch/src/terp/arch/rules/_support.py": 742,
+    "arch/src/terp/arch/rules/http.py": 946,
+    "arch/src/terp/arch/rules/migrations.py": 556,
+    "arch/src/terp/arch/rules/persistence.py": 970,
+    "arch/src/terp/arch/rules/traits.py": 685,
+    "cli/src/terp/cli/__init__.py": 5585,
+    "cli/src/terp/cli/envfile.py": 581,
+    "cli/src/terp/cli/envseams.py": 760,
+    "cli/src/terp/cli/ports.py": 1009,
+    "cli/src/terp/cli/smoke.py": 513,
+    "cli/src/terp/cli/verify.py": 2483,
+    "cli/src/terp/cli/version.py": 751,
+    "cli/src/terp/cli/workbench.py": 527,
+    "core/src/terp/core/_internal/middleware.py": 968,
+    "core/src/terp/core/app.py": 2563,
+    "core/src/terp/core/base_service.py": 788,
+    "core/src/terp/core/jobs.py": 524,
+    "core/src/terp/core/leases.py": 784
+  }
+}
