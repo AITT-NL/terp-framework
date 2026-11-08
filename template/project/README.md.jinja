@@ -201,6 +201,8 @@ committed copy to the live app. A browser client on another origin needs its ori
 `control_plane/__init__.py`, as `cors=CorsPolicy.allow(["https://app.your-domain.example"])` in
 place of `CorsPolicy.disabled(...)` (never `*`, which production refuses); a native app or a
 server needs nothing. `BACKEND_CORS_ORIGINS` allows nothing: it is read only to refuse `*`. In production the `api` unit is the deployment's only way in and publishes
-`API_PORT` (23200 unless the deployment says otherwise); whatever you put in front of it is
-counted in `trusted_proxy_hops` (`control_plane/__init__.py`).
+`API_PORT` (23200 unless the deployment says otherwise). That port is uvicorn itself, which
+neither terminates TLS nor times out a client that sends its request slowly, so production puts
+a reverse proxy, a load balancer or an ingress in front of it (ADR 0202), counted in
+`trusted_proxy_hops` (`control_plane/__init__.py`).
 {%- endif %}

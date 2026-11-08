@@ -235,8 +235,9 @@ jobs:
         # while only SQLite ever ran them. So does readiness following the database away
         # and back (ADR 0191), which only a server can show, and so do the declared
         # statistics and the row scope of every aggregate shape (ADR 0204), a timestamp
-        # that must compare as the same instant on both dialects (ADR 0205), and a refused
-        # write's detail, which only PostgreSQL repeats the conflicting key in (ADR 0190).
+        # that must compare as the same instant on both dialects (ADR 0205), a refused
+        # write's detail, which only PostgreSQL repeats the conflicting key in (ADR 0190),
+        # and a re-seal passing over a row another transaction holds (ADR 0189).
         run: >-
           uv run pytest -q
           tests/architecture/test_migrations_conformance.py
@@ -252,6 +253,7 @@ jobs:
           tests/architecture/test_refresh_concurrency_postgres.py
           tests/architecture/test_sync_custody.py
           tests/architecture/test_cli_reseal_json.py
+          tests/architecture/test_cli_reseal_batches.py
 
   # The signer image (ADR 0187 decision 6): the operator's own toolchain `terp release sign`
   # runs from, built from this commit's wheels and the lock's hashes, and run. Nothing here

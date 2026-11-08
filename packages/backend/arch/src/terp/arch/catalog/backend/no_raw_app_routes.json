@@ -2,7 +2,7 @@
   "id": "backend/no_raw_app_routes",
   "surface": "backend",
   "title": "App code never registers HTTP surface on the composed app object",
-  "intent": "Composition mounts every module router behind the deny-by-default policy guard. Surface registered on the composed app itself — a mount, an included router, a directly added route, a verb decorator on the composed app, or a lifecycle hook — is served or executed WITHOUT that guard and is invisible to the module permission model. Modules declare one flat router in their manifest; composition mounts it.",
+  "intent": "Composition mounts every module router behind the deny-by-default policy guard. Surface registered on the composed app itself — a mount, an included router, a directly added route, a verb decorator on the composed app, or a lifecycle hook — is served or executed WITHOUT that guard and is invisible to the module permission model. An exception handler on the composed app answers for every route in place of the uniform error envelope. Modules declare one flat router in their manifest; composition mounts it.",
   "layer": "static-portable",
   "enforcement": [
     {
@@ -16,7 +16,7 @@
       "ref": "freeze_app_route_registration"
     }
   ],
-  "reference": "app.mount / app.include_router / app.add_route / verb decorators / app.on_event / app.add_event_handler on the create_app-produced app are refused; modules declare one router on their ModuleSpec.",
+  "reference": "app.mount / app.include_router / app.add_route / verb decorators / app.on_event / app.add_event_handler / app.exception_handler / app.add_exception_handler on the create_app-produced app are refused; modules declare one router on their ModuleSpec, and an error a module raises is a typed AppError.",
   "opt_out": "# arch-allow-no-raw-app-routes: <reason>",
   "runtime": {
     "applicability": "required"

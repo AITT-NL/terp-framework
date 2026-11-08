@@ -323,27 +323,34 @@ class BaseTable(UUIDPrimaryKeyMixin, TimestampMixin, SQLModel):
         return mask_repr_args(self, super().__repr_args__())
 
 
-_BASE_SCHEMA_HOOKS = ("__get_pydantic_core_schema__", "__pydantic_init_subclass__")
+#: What a subclass may neither define nor take from a class ahead of ``BaseSchema``: the base's
+#: two hooks, and ``__init__``, which would read what a caller passes before the schema does.
+_BASE_SCHEMA_HOOKS = ("__get_pydantic_core_schema__", "__pydantic_init_subclass__", "__init__")
 
 
 def _refuse_hooks(name: str, taken: list[str]) -> TypeError:
     return TypeError(
-        f"{name} {', '.join(taken)}, which BaseSchema relies on to hold a timestamp read as "
-        "text to its UTC offset (ADR 0206) and to declare personal fields (ADR 0190); remove "
-        "it, and type a field Annotated[datetime, LocalTimeIn('<zone>')] where a sender sends "
-        "the wall time of a place, or NaiveMeansUtc where it sends UTC without an offset"
+        f"{name} {', '.join(taken)}, which BaseSchema relies on: its hooks hold a timestamp read "
+        "as text to its UTC offset (ADR 0206) and declare personal fields (ADR 0190), and "
+        "Pydantic's own __init__ validates what a caller passes before anything else reads it. "
+        "Remove it; do work on the values in a model_validator(mode='after'), and type a field "
+        "Annotated[datetime, LocalTimeIn('<zone>')] where a sender sends the wall time of a "
+        "place, or NaiveMeansUtc where it sends UTC without an offset"
     )
 
 
 class _BaseSchemaMeta(SQLModelMetaclass):
-    """Every ``BaseSchema`` subclass keeps the two hooks the base relies on.
+    """Every ``BaseSchema`` subclass keeps the two hooks the base relies on, and Pydantic's ``__init__``.
 
     The schema hook holds a timestamp read as text to its UTC offset (ADR 0206), and the
     subclass hook declares a schema's personal fields (ADR 0190). A class that took either
     from anywhere but ``BaseSchema``, by defining it or from a base ahead of ``BaseSchema``,
     would decide, for itself and every class below it, whether those run at all, so it is
-    refused when it is defined. A metaclass, unlike a hook, runs for every class whatever its
-    bases define.
+    refused when it is defined. An ``__init__`` of its own reads what a caller passes before
+    the schema validates it, so it could turn timestamp text without an offset into a value
+    the refusal never sees: it is refused the same way, and the one ``BaseSchema`` inherits
+    from above it is the one that runs. A metaclass, unlike a hook, runs for every class
+    whatever its bases define.
     """
 
     def __new__(
@@ -355,14 +362,12 @@ class _BaseSchemaMeta(SQLModelMetaclass):
             raise _refuse_hooks(name, defined)
         cls = super().__new__(mcs, name, bases, namespace, **kwargs)
         if below_base:
-            definers = {
-                hook: next(klass for klass in cls.__mro__ if hook in klass.__dict__)
-                for hook in _BASE_SCHEMA_HOOKS
-            }
+            mro = cls.__mro__
+            definers = {hook: next(klass for klass in mro if hook in klass.__dict__) for hook in _BASE_SCHEMA_HOOKS}
             taken = [
                 f"takes {hook} from {definer.__qualname__}"
                 for hook, definer in definers.items()
-                if definer is not BaseSchema
+                if mro.index(definer) < mro.index(BaseSchema)
             ]
             if taken:
                 raise _refuse_hooks(name, taken)

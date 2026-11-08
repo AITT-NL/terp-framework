@@ -402,14 +402,19 @@ def test_one_line_that_takes_both_escapes_is_one_finding(tmp_path: pathlib.Path)
     assert _lines(tmp_path, body, header=header) == [2]
 
 
-def test_the_boundarys_own_packages_are_not_its_users(tmp_path: pathlib.Path) -> None:
-    app = tmp_path / "app"
-    path = app / "schemas.py"
-    path.parent.mkdir(parents=True)
-    path.write_text(_HEADER + "Lenient = Annotated[datetime, BeforeValidator(read)]\n", encoding="utf-8")
-    assert len(check_request_timestamps_carry_their_offset(app)) == 1
-    assert check_request_timestamps_carry_their_offset(app, package="terp.core") == []
-    assert check_request_timestamps_carry_their_offset(app, package="terp.arch") == []
+def test_only_the_files_that_implement_the_boundary_are_exempt(tmp_path: pathlib.Path) -> None:
+    """terp.core's own boundary modules, and this rule's module in terp.arch, are not its users.
+    Every other module of either package is held like an app's: the rule skipped both packages
+    whole, so a new module of either that read timestamp text early went uncounted."""
+    lenient = _HEADER + "Lenient = Annotated[datetime, BeforeValidator(read)]\n"
+    for package, implementing in (("terp.core", "timestamps.py"), ("terp.arch", "rules/request_timestamps.py")):
+        root = tmp_path / package.removeprefix("terp.")
+        for name in (implementing, "elsewhere.py"):
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text(lenient, encoding="utf-8")
+        found = check_request_timestamps_carry_their_offset(root, package=package)
+        assert [pathlib.PurePath(v.path).as_posix() for v in found] == [f"{root.name}/elsewhere.py"], package
+        assert len(check_request_timestamps_carry_their_offset(root)) == 2  # an app's own files are held
 
 
 def _write(app: pathlib.Path, files: dict[str, str]) -> dict[str, list[int]]:

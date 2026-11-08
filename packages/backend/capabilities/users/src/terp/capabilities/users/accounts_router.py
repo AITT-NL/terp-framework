@@ -36,7 +36,7 @@ from terp.core import (
 from terp.capabilities.auth import LoginThrottle
 from terp.capabilities.identity import User
 from terp.capabilities.mail import MAIL_SEND, mail_is_configured, parse_address
-from terp.capabilities.users.accounts import AccountsService, PasswordNotConfirmedError
+from terp.capabilities.users.accounts import AccountsService, PasswordNotConfirmedError, SecondFactorNotConfirmedError
 from terp.capabilities.users.operations import (
     ACCOUNTS_CLOSE,
     ACCOUNTS_REQUEST_PASSWORD_RESET,
@@ -121,6 +121,8 @@ class PasswordResetConfirmation(BaseSchema):
 
 class CloseAccountRequest(BaseSchema):
     password: str = Field(max_length=256)
+    #: A code from the account's second factor, where one is enrolled and wired (as at login).
+    mfa_code: str | None = Field(default=None, max_length=32)
 
 
 class AccountRequestAccepted(BaseSchema):
@@ -208,8 +210,8 @@ def build_accounts_router(declaration: SelfService) -> APIRouter:
         identifier, source = f"accounts:close:{principal.id}", client_ip(request)
         throttle.check(identifier, source=source)
         try:
-            accounts.close(session, principal, body.password)
-        except PasswordNotConfirmedError:
+            accounts.close(session, principal, body.password, body.mfa_code)
+        except (PasswordNotConfirmedError, SecondFactorNotConfirmedError):
             throttle.record_failure(identifier, source=source)
             raise
         return Response(status_code=204)

@@ -90,6 +90,14 @@ its class with the router passed in, still ends in a change to a list the app re
 lists refuse a change themselves: every router's routes, FastAPI's frontend routes, the
 lifecycle hooks and the middleware.
 
+The app's exception handlers are frozen on the same footing (the owner decided it on
+2026-11-08). A handler added once the app is composed answers for every route in place of the
+error envelope, which keeps an `AppError`'s status and code and never repeats an unexpected
+exception's text. Every way to add one writes the app's handler map, so the map refuses it with
+a `BootError` that names the remedy: raise a typed `AppError` subclass, which the envelope
+renders. `backend/no_raw_app_routes` refuses `exception_handler` and `add_exception_handler` on
+the composed app at build time too.
+
 ### 3. One refusal names every timestamp and the fix
 
 `create_app` raises one `BootError` that names, for every timestamp not held:

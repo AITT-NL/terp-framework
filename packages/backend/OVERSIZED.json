@@ -3,11 +3,11 @@
   "files": {
     "arch/src/terp/arch/rules/__init__.py": 813,
     "arch/src/terp/arch/rules/_support.py": 742,
-    "arch/src/terp/arch/rules/http.py": 946,
+    "arch/src/terp/arch/rules/http.py": 943,
     "arch/src/terp/arch/rules/migrations.py": 556,
     "arch/src/terp/arch/rules/persistence.py": 970,
     "arch/src/terp/arch/rules/traits.py": 685,
-    "cli/src/terp/cli/__init__.py": 5585,
+    "cli/src/terp/cli/__init__.py": 5555,
     "cli/src/terp/cli/envfile.py": 581,
     "cli/src/terp/cli/envseams.py": 760,
     "cli/src/terp/cli/ports.py": 1009,
@@ -16,7 +16,7 @@
     "cli/src/terp/cli/version.py": 751,
     "cli/src/terp/cli/workbench.py": 527,
     "core/src/terp/core/_internal/middleware.py": 968,
-    "core/src/terp/core/app.py": 2563,
+    "core/src/terp/core/app.py": 2359,
     "core/src/terp/core/base_service.py": 788,
     "core/src/terp/core/jobs.py": 524,
     "core/src/terp/core/leases.py": 784

@@ -106,7 +106,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         name="mfa",
         summary="A TOTP second factor with recovery codes, wired into login through the second_factor seam.",
         kind="library",
-        wiring="build_login_module(..., second_factor=MfaService()) + specs=[mfa.module]",
+        wiring="build_login_module(..., second_factor=MfaService()) + SelfService(..., second_factor=MfaService()) + specs=[mfa.module]",
         guide="passwords",
     ),
     Capability(

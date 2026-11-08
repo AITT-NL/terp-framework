@@ -11,6 +11,7 @@ import uuid
 
 import pytest
 from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from starlette.middleware import Middleware
 from starlette.routing import Route
@@ -173,6 +174,39 @@ def test_create_app_middleware_parameter_remains_the_sanctioned_seam() -> None:
     response = TestClient(app).get("/health/live")
     assert response.status_code == 200
     assert response.headers["x-composed"] == "yes"
+
+
+def test_an_exception_handler_added_after_composition_is_refused() -> None:
+    """A handler answers for every route in place of the error envelope: one for ``Exception``
+    could repeat an unexpected exception's text, one for an ``AppError`` could drop its code.
+    Every spelling writes the app's handler map, so the map refuses each of them."""
+    router = APIRouter()
+
+    @router.get("/fails", response_model=dict[str, bool])
+    @route_policy(Policy.public(reason="a fixture that probes this route without a token"))
+    def fails() -> dict[str, bool]:
+        raise RuntimeError("the connection string held a password")
+
+    public = Policy.public(reason="a fixture that probes this route without a token")
+    app = create_app([ModuleSpec(name="probe", router=router, policy=public)])
+
+    def leaky(_request: Request, exc: Exception) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=500)
+
+    for attempt in (
+        lambda: app.add_exception_handler(Exception, leaky),
+        lambda: app.exception_handler(Exception)(leaky),
+        lambda: FastAPI.add_exception_handler(app, Exception, leaky),
+        lambda: app.exception_handlers.update({Exception: leaky}),
+        lambda: app.exception_handlers.__setitem__(PermissionDeniedError, leaky),
+        lambda: app.exception_handlers.pop(Exception),
+    ):
+        with pytest.raises(BootError, match=r"an exception handler added after create_app\(\) composed"):
+            attempt()
+    # What composition installed still answers, and never repeats the exception's text.
+    response = TestClient(app, raise_server_exceptions=False).get("/api/v1/probe/fails")
+    assert response.status_code == 500 and response.json()["code"] == "internal_error"
+    assert "password" not in response.text
 
 
 # --- the API root is a signpost, not a dead end ------------------------------

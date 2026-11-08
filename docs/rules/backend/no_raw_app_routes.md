@@ -8,11 +8,11 @@
 
 ## Why this rule exists
 
-Composition mounts every module router behind the deny-by-default policy guard. Surface registered on the composed app itself — a mount, an included router, a directly added route, a verb decorator on the composed app, or a lifecycle hook — is served or executed WITHOUT that guard and is invisible to the module permission model. Modules declare one flat router in their manifest; composition mounts it.
+Composition mounts every module router behind the deny-by-default policy guard. Surface registered on the composed app itself — a mount, an included router, a directly added route, a verb decorator on the composed app, or a lifecycle hook — is served or executed WITHOUT that guard and is invisible to the module permission model. An exception handler on the composed app answers for every route in place of the uniform error envelope. Modules declare one flat router in their manifest; composition mounts it.
 
 ## How Terp realises this
 
-app.mount / app.include_router / app.add_route / verb decorators / app.on_event / app.add_event_handler on the create_app-produced app are refused; modules declare one router on their ModuleSpec.
+app.mount / app.include_router / app.add_route / verb decorators / app.on_event / app.add_event_handler / app.exception_handler / app.add_exception_handler on the create_app-produced app are refused; modules declare one router on their ModuleSpec, and an error a module raises is a typed AppError.
 
 ## If you really need an exception
 

@@ -85,6 +85,59 @@ decision, 0001 onwards.
   `BeforeValidator(refuse_timestamp_text_without_offset)` works as before; a direct call that
   passes a second argument does not.
 
+- **A `BaseSchema` that defines `__init__`, or takes it from a class ahead of `BaseSchema`, is
+  refused when the class is defined (ADR 0206).** An `__init__` of its own reads what a caller
+  passes before the schema validates it, so it could turn timestamp text without an offset into a
+  value the refusal never sees. The metaclass refuses it as it refuses the two hooks, and the
+  `TypeError` names where that work goes instead: a `model_validator(mode="after")`.
+
+- **`backend/request_timestamps_carry_their_offset` exempts only the files that implement the
+  boundary.** It skipped `terp.core` and `terp.arch` whole, so a new module of either that read
+  timestamp text early, or reached `terp.core.timestamps`, went uncounted. It now exempts the six
+  files of `terp.core` that define the refusal and its escape or put the refusal in place, and this
+  rule's own module in `terp.arch`; every other module of both is held like an app's.
+
+- **Closing an account asks for its second factor too, where one is enrolled and wired (ADR
+  0196).** `POST /me/close` asked only for the password, so a password and a session taken
+  together closed an account its owner had protected with a second factor. `SelfService` takes
+  the `second_factor` the app's login consults (`SelfService(..., second_factor=MfaService())`);
+  closing an account that enrolled one then asks for a code from it in `mfa_code`. Without one the
+  route answers a 403, `second_factor_required`; a wrong one is a 403,
+  `second_factor_not_confirmed`, and counts toward the backoff as a wrong password does.
+
+- **A loosened response bound is a breaking change to the API contract (ADR 0194).** The check
+  read bounds on the request side only, and named a response bound that moved without the label.
+  A generated client that validates what it receives holds a response to the bounds it was built
+  with, so a `maxLength`, `maxItems` or `maximum` that rises, a `minLength`, `minItems` or
+  `minimum` that falls, an OpenAPI 3.0 exclusive bound turned off, and a `pattern` dropped or
+  changed are now breaking on a response, as a new `enum` value is. A bound that tightens a
+  response is named without the label.
+
+- **`terp secrets reseal` works a batch of rows at a time, and passes over a row another
+  transaction holds (ADR 0189).** It ran one transaction per table, so every row it re-sealed
+  stayed locked until the whole table was done, and a worker settling a queued mail in the
+  outbox waited for the run, however large the table. A table is now read in primary-key order,
+  500 rows at a time, and each batch commits on its own. The rows a batch re-seals are locked
+  with `FOR UPDATE SKIP LOCKED` just before they are written, so a row a worker or the running
+  app holds is never waited for: its values under a fallback are counted in a new `held` column
+  (`held` in `--format json`), the run exits 1, and the next run re-seals them. A batch that
+  cannot be written rolls back alone; the batches before it keep their re-seal and are counted.
+
+- **An exception handler added after `create_app` is refused, at startup and at build time (ADR
+  0208).** A handler registered on the composed app answered for every route in place of the
+  uniform error envelope, so one for `Exception` could repeat an unexpected exception's text and
+  one for an `AppError` could drop its code. Every way to add one writes the app's handler map,
+  which now raises a `BootError` that names the remedy: raise a typed `AppError` subclass, which
+  the envelope renders. `backend/no_raw_app_routes` refuses `exception_handler` and
+  `add_exception_handler` on the composed app too. The freeze moves from `terp.core.app` to
+  `terp.core.composition_freeze`, under the names the catalog cites.
+
+- **The template says an API-only app expects a proxy in front of it in production (ADR 0202).**
+  Its profile publishes uvicorn itself, which neither terminates TLS nor times out a client that
+  sends its request slowly, as the web tier's nginx does. The README and the comment on
+  `trusted_proxy_hops` say to put a reverse proxy, a load balancer or an ingress in front of the
+  `api` unit, and to count it there.
+
 ### Fixed
 
 - **A signed release no longer calls a lane passed that judged nothing (ADRs 0200, 0202).** The
@@ -353,6 +406,16 @@ decision, 0001 onwards.
   Where it only checked the instant, make it an after validator. Where it must keep reading the
   text, keep it with `# arch-allow-request-timestamps-carry-their-offset: <reason>` and an entry
   in `escape-hatch-budget.json`.
+- **A `BaseSchema` with an `__init__` of its own is refused when the class is defined.** Move what
+  it does into a `model_validator(mode="after")`.
+- **Where your login consults a second factor, wire the same one into `SelfService`**
+  (`second_factor=MfaService()`), and send the code as `mfa_code` from your close-account page.
+  Closing an account that enrolled one then answers a 403, `second_factor_required`, until the
+  code comes with the password. An app that leaves `second_factor` unset closes accounts with the
+  password alone, as before.
+- **An exception handler registered on the app `create_app` returned is refused.** Raise a typed
+  `AppError` subclass with its own `status_code`, `code` and `default_message` instead; the
+  envelope renders it.
 
 ## 0.38.0 — 2026-11-07
 
