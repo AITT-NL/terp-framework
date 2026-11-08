@@ -10,7 +10,9 @@ the adapter under a profile::
 The adapter imports nothing from the SDK: every error it maps is a class the client carries,
 so the module loads without the ``terp-cap-files[s3]`` extra, and the extra is what makes a
 client. ``put`` streams through the SDK's managed upload, ``open`` returns the SDK's response
-body (a readable, non-seekable stream the router reads forward), ``delete`` is the provider's
+body (a readable, non-seekable stream the router reads forward), ``open_range`` asks the store
+for the one range a ``Range`` request names, so a seek far into a large object reads only the
+bytes it serves, ``delete`` is the provider's
 own idempotent delete, and ``link`` is a presigned ``GET`` carrying the download's media type
 and disposition as response-header parameters, so the store tells a client the same thing the
 API would. Nothing here decides who may read: the service asks for a link only after the
@@ -66,8 +68,15 @@ class S3Storage(StorageBackend):
             raise self._failed("put", key, exc) from exc
 
     def open(self, key: str) -> BinaryIO:
+        return self._get(key)
+
+    def open_range(self, key: str, *, offset: int, length: int) -> BinaryIO:
+        """*length* bytes of *key* from *offset*, read by the store: one ranged ``GET``."""
+        return self._get(key, Range=f"bytes={offset}-{offset + length - 1}")
+
+    def _get(self, key: str, **part: str) -> BinaryIO:
         try:
-            return self._client.get_object(Bucket=self._bucket, Key=key)["Body"]
+            return self._client.get_object(Bucket=self._bucket, Key=key, **part)["Body"]
         except self._not_found as exc:
             raise FileNotFoundError(key) from exc
         except self._client_error as exc:

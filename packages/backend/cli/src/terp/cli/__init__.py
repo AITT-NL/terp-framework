@@ -1838,7 +1838,8 @@ File objects (files capability, ADR 0056/0057)
 - Upload/download/list/rename/delete ride the admin-only discovered router at
   /api/v1/files; File composes OwnedMixin, so rename/delete are owner-gated centrally.
 - Bytes live behind the StorageBackend port (put/open/delete, streamed via file-like
-  objects) in a NAMED-PROFILE registry;
+  objects, and open_range for a Range request: its default reads forward to the offset, so an
+  adapter whose store reads a range overrides it) in a NAMED-PROFILE registry;
   metadata (name, type, size, sha256, storage_key, storage_profile) lives in the platform
   DB. storage_key/storage_profile never leave the boundary (FileRead omits both).
 - Any provider is an adapter subclass (local ships; a NAS mount is the local adapter on

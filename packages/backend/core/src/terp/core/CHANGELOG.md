@@ -186,6 +186,15 @@ decision, 0001 onwards.
   path where the contract should be. The check is now red for a link, and for anything else that
   is not a regular file, and names how to commit the file itself; `sign` refuses a commit whose
   contract is a link.
+- **A `Range` request on S3 or Azure asks the store for that range, and Azure never reads its
+  first 32 MiB at once (ADR 0201).** The content route opened the whole blob and read forward to
+  the range, so a seek far into a large object on either store fetched every byte before it, and
+  Azure's own downloader fetched the first 32 MiB of a blob on every open before it returned. The
+  storage port has a second method with a default, `open_range(key, *, offset, length)`: S3
+  reads a range with one ranged `GET`, and Azure reads every blob in windows of at most 4 MiB as
+  the stream is read, each window after the first naming the blob's ETag. `FileService` gains
+  `servable`, `open_content` and `linked`, the two halves of `open_stream` and
+  `open_link_stream`, which keep their behaviour.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
@@ -229,6 +238,10 @@ decision, 0001 onwards.
 - **Provisioning refuses an address another account holds in another spelling** with a 409,
   `address_taken`. Accounts already open under two spellings of one address stay as they are;
   find them with a query that groups `identity_user.email` by `lower(email)`.
+- **A storage adapter of your own can read a range itself.** `StorageBackend.open_range(key, *,
+  offset, length)` has a default that opens the whole blob and moves to the offset, so an adapter
+  written against 0.38 keeps working unchanged. Where your store can read a range, override it:
+  a seek into a large file then costs the bytes it serves.
 - **An early validator of your own on a timestamp field now turns the gate red.** Where it read
   the wall time of a known place, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.
   Where it only checked the instant, make it an after validator. Where it must keep reading the

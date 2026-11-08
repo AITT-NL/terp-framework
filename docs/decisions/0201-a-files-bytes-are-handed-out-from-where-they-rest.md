@@ -126,6 +126,18 @@ satisfy, and a multi-range request answered whole with `200`, as RFC 9110 allows
 adapter's stream seeks; a stream that cannot seek is read and discarded up to the offset, which
 only an adapter that neither links nor seeks would pay.
 
+**Amended in 0.39.0: the store reads the range.** The last sentence was wrong. The
+authenticated content route serves the bytes of every profile, a store that links included, and
+both shipped adapters return a stream that cannot seek: a seek far into a large object fetched
+every byte before it, and Azure's own downloader fetched its first 32 MiB on every open before
+it returned at all. The route now reads the range before it opens the bytes, and the port has a
+second method with a default, `open_range(key, *, offset, length)`. The default opens the whole
+blob and moves to the offset, as before; the S3 adapter overrides it with one ranged `GET`, and
+the Azure adapter reads every blob in windows of at most 4 MiB, one request each as the stream
+is read, every window after the first naming the blob's ETag so two versions never splice into
+one body. An adapter of an app's own keeps working unchanged, and overrides `open_range` when its
+store can read a range.
+
 ### 6. What does not change
 
 `storage_key` never leaves the API: a provider's link embeds the blob's address as the provider's

@@ -55,7 +55,8 @@ from terp.capabilities.files.links import (
     open_link,
     seal_link,
 )
-from terp.capabilities.files.router import _byte_range, _skip_to, _UnsatisfiableRange, module, read_link, router
+from terp.capabilities.files.router import _byte_range, _UnsatisfiableRange, module, read_link, router
+from terp.capabilities.files.storage import _skip_to
 
 _CONTENT = b"0123456789abcdefghijklmnopqrstuvwxyz"
 _PNG = b"\x89PNG\r\n\x1a\n" + _CONTENT
@@ -402,6 +403,77 @@ def test_a_range_on_a_stream_that_cannot_seek_is_read_up_to_and_discarded(engine
         assert part.status_code == 206 and part.content == _CONTENT[10:13]
     finally:
         reset_storage_backend()
+
+
+class _RangingStorage(_NonSeekableStorage):
+    """A store that reads a range itself, recording each open it is asked for."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.opened: list[tuple[int, int] | None] = []
+
+    def open(self, key: str) -> BinaryIO:
+        self.opened.append(None)
+        return super().open(key)
+
+    def open_range(self, key: str, *, offset: int, length: int) -> BinaryIO:
+        self.opened.append((offset, length))
+        if key not in self.blobs:
+            raise FileNotFoundError(key)
+        return io.BytesIO(self.blobs[key][offset : offset + length])
+
+
+def test_a_range_is_asked_of_the_store_alone_on_both_routes(engine: Any, session: Session) -> None:
+    """The route reads the range before it opens the bytes, so the store is asked for it.
+
+    It opened the whole blob first and read forward to the range, which on an object store
+    meant fetching every byte before a seek far into a large file, on every seek.
+    """
+    store = _RangingStorage()
+    register_storage_backend("ranging", store)
+    try:
+        row = _store(FileService(), session, profile="ranging")
+        client = _client(engine)
+        url = client.get(f"/api/v1/files/{row.id}/link").json()["url"]
+        for path in (url, f"/api/v1/files/{row.id}/content"):
+            part = client.get(path, headers={"Range": "bytes=30-"})
+            assert part.status_code == 206 and part.content == _CONTENT[30:]
+        assert store.opened == [(30, 6), (30, 6)]
+        assert client.get(url, headers={"Range": "bytes=99-"}).status_code == 416
+        assert store.opened == [(30, 6), (30, 6)], "an unsatisfiable range opens nothing"
+        assert client.get(url).content == _CONTENT and store.opened[-1] is None
+        store.blobs.clear()
+        gone = client.get(url, headers={"Range": "bytes=0-1"})
+        assert gone.status_code == 404 and store.opened[-1] == (0, 2)
+    finally:
+        reset_storage_backend()
+
+
+def test_a_part_runs_forward_from_a_byte_of_the_file(session: Session, storage_root: Path) -> None:
+    service = FileService()
+    row = _store(service, session)
+    for backwards in ((-1, 3), (5, 4)):
+        with pytest.raises(ValueError, match="first byte to its last"):
+            service.open_content(row, backwards)
+    with service.open_content(row, (2, 4)) as stream:
+        assert stream.read(3) == _CONTENT[2:5]
+
+
+def test_the_default_range_closes_a_stream_it_could_not_position() -> None:
+    class _Unpositionable(io.BytesIO):
+        def seek(self, *_args: Any) -> int:
+            raise OSError("the device went away")
+
+    opened: list[_Unpositionable] = []
+
+    class _Store(_LinkingStorage):
+        def open(self, key: str) -> BinaryIO:
+            opened.append(_Unpositionable(_CONTENT))
+            return opened[-1]
+
+    with pytest.raises(OSError, match="went away"):
+        _Store().open_range("k", offset=1, length=1)
+    assert opened[0].closed
 
 
 def test_skipping_forward_stops_at_the_end_of_a_stream_that_cannot_seek() -> None:
