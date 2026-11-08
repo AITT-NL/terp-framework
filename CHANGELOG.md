@@ -152,6 +152,13 @@ decision, 0001 onwards.
   0206).** A filter that reads a day in a declared zone overflowed into a 500 for 1 January of
   year 1 east of UTC, whose midnight is in year 0, and for 31 December 9999, whose next day is
   in no year. Both are refused as a bound outside the range of a timestamp, naming the filter.
+- **`DateTimeInput` keeps a year below 100 in its own century, and never moves an instant
+  (react-core).** It built instants with `Date.UTC`, which reads a year from 0 to 99 as 1900
+  plus it, so while someone retyped the year of 2026 the field sent 1902 and 1920. And it
+  rounded a zone's offset to whole minutes, so a time picked where the zone then ran by seconds
+  (Monrovia until 1972, at -0:44:30) was sent 30 seconds off. A year is now set on its own, the
+  offset is exact, and where it has seconds, which RFC 3339 cannot write, the instant is sent in
+  UTC.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the

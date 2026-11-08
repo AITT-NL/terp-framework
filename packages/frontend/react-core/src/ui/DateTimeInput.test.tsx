@@ -66,6 +66,24 @@ describe("DateTimeInput", () => {
     expect(onChange).toHaveBeenLastCalledWith("2026-11-06T10:00:00-03:30");
   });
 
+  it("keeps a year below 100 in its own century, as one is retyped", () => {
+    // Retyping 2026 passes through 0002 and 0020; Date.UTC read those as 1902 and 1920.
+    const onChange = vi.fn();
+    render(<DateTimeInput aria-label="Starts" value={null} onChange={onChange} zone="UTC" />);
+    pick(screen.getByLabelText("Starts"), "0020-11-06T10:00");
+    expect(onChange).toHaveBeenLastCalledWith("0020-11-06T10:00:00Z");
+    pick(screen.getByLabelText("Starts"), "0002-03-01T00:00");
+    expect(onChange).toHaveBeenLastCalledWith("0002-03-01T00:00:00Z");
+  });
+
+  it("writes an instant in UTC where the zone then ran by seconds, never moving it", () => {
+    // Monrovia ran at -0:44:30 until 1972, which an RFC 3339 offset cannot write.
+    const onChange = vi.fn();
+    render(<DateTimeInput aria-label="Starts" value={null} onChange={onChange} zone="Africa/Monrovia" />);
+    pick(screen.getByLabelText("Starts"), "1971-06-01T12:00");
+    expect(onChange).toHaveBeenLastCalledWith("1971-06-01T12:44:30Z");
+  });
+
   it("reads in the browser's own zone when it is given none", () => {
     // The same instant the browser's own dates name for that wall time, whatever zone this
     // test runs in.
