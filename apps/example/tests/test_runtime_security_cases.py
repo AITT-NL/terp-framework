@@ -647,7 +647,8 @@ def test_case_accounts_close(db_engine: Engine, make_user) -> None:
         assert accepted() == [200] * 4
 
         wrong = browser.post(_CLOSE, json={"password": "not the password"}, headers=_bearer(access[0]))
-        assert wrong.status_code == 401
+        # A 403, not a 401: the session is valid, and a client reads a 401 as one that is not.
+        assert (wrong.status_code, wrong.json()["code"]) == (403, "password_not_confirmed")
         assert accepted() == [200] * 4, "a wrong password changes nothing"
         refresh_both()
 
