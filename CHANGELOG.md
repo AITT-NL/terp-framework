@@ -164,6 +164,11 @@ decision, 0001 onwards.
   refreshed, replayed the request, a second counted failure, and signed the person out. A wrong
   password is now a 403 of code `password_not_confirmed` that names the fix, and still counts
   toward the route's backoff.
+- **`terp secrets reseal` changes nothing in a JSON document but the values it re-seals (ADR
+  0199).** It read a document as an object and wrote it back, so a number beyond a float's
+  precision came back as the nearest float: on PostgreSQL, `1234567890.123456789012` became
+  `1234567890.1234567`. It now rewrites only the sealed string tokens in the document's own
+  text, as a key or a value, and writes that text back as JSON, every other byte as it was.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
