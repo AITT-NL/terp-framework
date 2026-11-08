@@ -21,6 +21,7 @@ from collections.abc import Iterator
 
 from terp.arch._ast import base_name, iter_python_files, parse
 from terp.arch.rules._support import ArchViolation, _rel
+from terp.arch.rules._early_imports import imports_of_early_validators
 from terp.arch.rules._timestamp_types import _assignment, _early_validator_findings, _quoted_nodes
 
 _NAIVE_MEANS_UTC = "NaiveMeansUtc"
@@ -271,11 +272,13 @@ def check_request_timestamps_carry_their_offset(
         return []  # the boundary's own implementation, and this rule's, is neither's user
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
-    for path in iter_python_files(root):
-        tree = parse(path)
+    files = [(path, parse(path)) for path in iter_python_files(root)]
+    # A type that carries an early validator counts at each use, in whichever module uses it.
+    imported = imports_of_early_validators(files, root)
+    for path, tree in files:
         rel = _rel(path, root)
         findings = _escape_findings(tree)
-        for line, message in _early_validator_findings(tree).items():
+        for line, message in _early_validator_findings(tree, imported[path]).items():
             findings.setdefault(line, message)
         violations.extend(
             ArchViolation("request_timestamps_carry_their_offset", rel, line, message)

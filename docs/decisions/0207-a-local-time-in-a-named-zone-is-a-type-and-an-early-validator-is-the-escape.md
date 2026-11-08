@@ -136,7 +136,11 @@ The rule counts each of these:
   `datetime`, `AwareDatetime` and Pydantic's other datetime types, in a union, a list or a
   quoted annotation;
 - each use of a name bound to such a type, as each use of a name bound to `NaiveMeansUtc`
-  counts, so one marker never covers more than one field;
+  counts, so one marker never covers more than one field. That holds across the app's
+  modules: a type, or a validator, one module declares is counted at each use in every module
+  that imports it, by name, under another name, as a module's attribute or through a re-export
+  (amended in 0.39.0, before release: the rule read one file at a time and counted such a type
+  once, where it was declared, so one marker there covered every field that imported it);
 - a `field_validator` in `before`, `wrap` or `plain` mode, or Pydantic 1's `validator` with
   `pre=True`, written as a decorator or a call in the body of a class or of a base the same file
   defines, on a field that class or one of those bases declares as a timestamp. The field may be

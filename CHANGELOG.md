@@ -65,7 +65,9 @@ decision, 0001 onwards.
   timestamp field (ADR 0207).** Such a validator reads the text before the type does, so it can
   read a time with no offset in a zone of its own choosing. The rule counts:
   - a `BeforeValidator`, `WrapValidator` or `PlainValidator` in an `Annotated` type that reads a
-    timestamp, where the type is spelled and at each use of a type alias that carries it;
+    timestamp, where the type is spelled and at each use of a type alias that carries it, in the
+    module that declares it and in every module of the app that imports it, by name, under
+    another name, as a module's attribute or through a re-export;
   - a `field_validator` in `before`, `wrap` or `plain` mode, or Pydantic 1's `validator` with
     `pre=True`, written as a decorator or a call in the body of a class or of a base in the same
     file, on a timestamp field.
