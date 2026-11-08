@@ -190,6 +190,24 @@ def test_a_row_deleted_between_the_read_and_the_write_is_counted_changed(
     assert _states(engine, table) == [SealState.CURRENT] * 2
 
 
+def test_a_table_the_app_maps_and_the_database_does_not_hold_is_passed_over(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A mapped table that was never created (a capability installed and not wired) has no
+    value to judge: it is neither counted nor a failure."""
+    mapping = MetaData()
+    table = _single(mapping)
+    Table("cli_reseal_never_created", mapping, Column("id", Integer, primary_key=True), Column("token", String(512)))
+    table.create(engine)
+    _seed(engine, table, [{"id": 1}])
+    _rotate(monkeypatch)
+
+    report = survey(engine, write=True, metadata=mapping)
+    assert not report.failed and report.clean
+    assert [tally.table for tally in report.columns] == [_TABLE]
+    assert _counts(report) == {"resealed": 1}
+
+
 def test_a_row_another_transaction_holds_is_passed_over_and_counted_held(
     terp_pg_url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
