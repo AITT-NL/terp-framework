@@ -1043,6 +1043,10 @@ Aggregates: counts and sums declared on the service, like filters (ADR 0204)
           time_buckets = (TimeBucket("issued", Invoice.issued_at, steps=("day", "month")),)
   op is one of count, count_distinct, sum, avg, min, max. A dimension groups by a
   column's own values; an expression is a column the model declares, or a database view.
+  sum and avg add numbers; min and max order numbers, text and times; a dimension is text,
+  a number, a date, an enum or an id. Anything else (a sum of text, a max of a UUID or a
+  boolean, a group keyed by JSON) is refused when the class is defined: the database could
+  not answer it on any request.
 - The route takes the capped query and returns a page typed by the declarations:
       from terp.core import Page, SessionDep, StatisticsQueryDep
       @router.get("/statistics", response_model=Page[InvoiceService.statistics_model()])

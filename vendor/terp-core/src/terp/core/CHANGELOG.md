@@ -214,6 +214,15 @@ decision, 0001 onwards.
   application that set its general limit to 60 left that one public route at 240, while the
   comment beside it said it followed the general limit. `RateLimit.general()` now declares the
   application's general limit counted in a bucket of its own, and the route declares that.
+- **Statistics a service could declare and never answer now answer, or are refused when declared
+  (ADR 0204).** A dimension over a UUID column, though every Terp id is one, and `max` over a text
+  column were each a 500 on every request: the group refused the value the database returned. A
+  series of more than 500 steps failed on SQLite, which reads at most 500 terms of one compound
+  `SELECT`. The points cap counted the page size asked even with no dimension, so a year of days
+  over the whole scope was refused at the default page size. And a day the zone skipped entirely
+  (Samoa, 30 December 2011) was labelled as the next one. Each now answers. A declaration the
+  database cannot answer at all (a `sum` of text, a `max` of a UUID or a boolean, a group keyed by
+  JSON) is refused when the class is defined, naming what to count instead.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
@@ -265,6 +274,11 @@ decision, 0001 onwards.
   credentials expire before a link would, the link is now the app-signed one the API serves
   rather than a presigned URL that stops working early. To keep the bytes on S3, give the role a
   session longer than your longest link (24 hours at most).
+- **A statistic over a column type the database cannot aggregate is refused when declared.** A
+  `sum` or `avg` over anything but numbers, a `min` or `max` over a UUID, a boolean or JSON, and a
+  dimension over JSON or bytes now raise `TypeError` when the service class is defined. Each of
+  them failed on every request on PostgreSQL before; count the column, or count its distinct
+  values, instead.
 - **An early validator of your own on a timestamp field now turns the gate red.** Where it read
   the wall time of a known place, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.
   Where it only checked the instant, make it an after validator. Where it must keep reading the

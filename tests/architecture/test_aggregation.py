@@ -15,7 +15,8 @@ from decimal import Decimal
 import pytest
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
-from sqlalchemy import DateTime, MetaData, Numeric, String, cast, column, func, literal_column, text
+from sqlalchemy import JSON, Boolean, DateTime, MetaData, Numeric, String, cast, column, func, literal_column, text, type_coerce
+from sqlalchemy.types import NullType
 from sqlalchemy.orm import aliased
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
@@ -389,11 +390,33 @@ def test_a_step_the_bucket_does_not_offer_is_refused(engine) -> None:
         (lambda: Statistics(measures=(Measure("x"),), time_buckets=(TimeBucket("born", Sale.birth_date),)), "buckets by 'born', a field declared personal"),
         (lambda: Statistics(measures=(Measure("latest_email", Sale.buyer_email, op="max"),)), "max over a field declared personal"),
         (lambda: Statistics(measures=(Measure("born", Sale.birth_date, op="min"),)), "min over a field declared personal"),
+        # Each of these failed on every request on PostgreSQL, and a sum of text read 0 on SQLite.
+        (lambda: Statistics(measures=(Measure("regions", Sale.region, op="sum"),)), "sum over a str column, and sum adds up numbers only"),
+        (lambda: Statistics(measures=(Measure("latest", Sale.id, op="max"),)), "max over a UUID column, and max orders numbers, text and times only"),
+        (lambda: Statistics(measures=(Measure("any", cast(Sale.units, Boolean), op="max"),)), "max over a bool column"),
+        (lambda: Statistics(measures=(Measure("mean", cast(Sale.units, Boolean), op="avg"),)), "avg over a bool column"),
+        (lambda: Statistics(measures=(Measure("x"),), dimensions=(Dimension("payload", cast(Sale.region, JSON)),)), "groups by 'payload', a dict column"),
     ],
 )
 def test_a_declaration_that_could_not_be_honoured_is_refused_when_made(declare, words: str) -> None:
     with pytest.raises(TypeError, match=words):
         declare()
+
+
+def test_a_type_the_statistic_cannot_read_is_left_to_the_database() -> None:
+    from types import SimpleNamespace
+
+    from terp.core.aggregation_types import value_type
+
+    class Undeclared:
+        @property
+        def python_type(self) -> type:
+            raise NotImplementedError
+
+    assert value_type(SimpleNamespace(type=Undeclared())) is None
+    assert value_type(type_coerce(Sale.units, NullType())) is None
+    assert value_type(Sale.region) is str, "a decorator is read as the type it stores"
+    Statistics(measures=(Measure("odd", type_coerce(Sale.units, NullType()), op="sum"),))
 
 
 def test_a_service_that_would_hand_back_a_persons_value_is_refused_when_defined() -> None:
@@ -516,6 +539,70 @@ def test_a_page_of_series_is_capped_by_its_points(engine) -> None:
             aggregate(session, select(Sale), statistics, measures=["sales"], by=["region"], window=window, limit=3)
         groups, _ = aggregate(session, select(Sale), statistics, measures=["sales"], by=["region"], window=window, limit=1)
     assert len(groups[0].series or []) == 31
+
+
+class IdSales(Sales):
+    """Grouped by the id every Terp row has, with a maximum over text."""
+
+    measures = (Measure("sales"), Measure("last_region", Sale.region, op="max"))
+    dimensions = (Dimension("sale", Sale.id),)
+
+
+def test_a_group_by_an_id_and_a_maximum_of_text_answer(engine) -> None:
+    """Each was a 500 on every request: the values came back as a UUID and as text, which the
+    group refused, though every Terp id is a UUID."""
+    with WriteGuardedSession(engine) as session:
+        groups, total = IdSales().aggregate(session, measures=["sales"], by=["sale"], limit=5)
+        whole, _ = IdSales().aggregate(session, measures=["last_region"])
+    assert total == 6 and all(isinstance(group.dimensions["sale"], uuid.UUID) for group in groups)
+    assert whole[0].measures == {"last_region": "south"}
+
+
+def test_a_series_without_a_dimension_is_one_group_to_the_points_cap(engine) -> None:
+    """Without a dimension there is one group, but the cap counted the page size asked for, so
+    a year of days over the whole scope was refused at the default page size."""
+    statistics = Statistics(
+        measures=(Measure("sales"),),
+        dimensions=(Dimension("region", Sale.region),),
+        time_buckets=(TimeBucket("sold", Sale.sold_at, steps=("day",)),),
+        max_points=60,
+    )
+    window = Window("sold", dt.date(2026, 10, 1), dt.date(2026, 10, 31), AMSTERDAM, "day")
+    with WriteGuardedSession(engine) as session:
+        groups, _ = aggregate(session, select(Sale), statistics, measures=["sales"], window=window, limit=3)
+    assert len(groups) == 1 and len(groups[0].series or []) == 31
+
+
+class LongSales(Sales):
+    time_buckets = (TimeBucket("sold", Sale.sold_at, steps=("day",), max_buckets=800),)
+
+
+def test_a_series_longer_than_one_compound_select_of_sqlite_answers(engine) -> None:
+    """SQLite reads at most 500 terms of one compound SELECT, and the steps were one."""
+    window = Window("sold", dt.date(2025, 1, 1), dt.date(2026, 12, 31), "UTC", "day")
+    with WriteGuardedSession(engine) as session:
+        groups, _ = LongSales().aggregate(session, measures=["sales"], window=window, limit=1)
+    series = groups[0].series or []
+    assert len(series) == 730
+    counted = {point.date.isoformat(): point.measures["sales"] for point in series if point.measures["sales"]}
+    assert counted == {"2026-10-01": 1, "2026-10-15": 2, "2026-10-25": 1, "2026-11-02": 1, "2026-11-03": 1}
+
+
+def test_a_day_the_zone_skipped_is_labelled_by_its_own_date(engine) -> None:
+    """Samoa skipped 30 December 2011. Its step began where the 31st did and was labelled the
+    31st, so the series named one day twice and the 30th not at all."""
+    window = Window("sold", dt.date(2011, 12, 28), dt.date(2012, 1, 1), "Pacific/Apia", "day")
+    with WriteGuardedSession(engine) as session:
+        groups, _ = Sales().aggregate(session, measures=["sales"], window=window)
+    series = groups[0].series or []
+    assert [point.date.isoformat() for point in series] == [
+        "2011-12-28",
+        "2011-12-29",
+        "2011-12-30",
+        "2011-12-31",
+        "2012-01-01",
+    ]
+    assert series[2].start == series[3].start, "a skipped day has no instant of its own"
 
 
 def test_the_response_model_is_typed_by_the_declarations() -> None:

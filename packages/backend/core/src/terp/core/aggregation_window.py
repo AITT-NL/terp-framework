@@ -54,17 +54,31 @@ def window_steps(window: Window) -> int:
     return months + (1 if last.day > 1 else 0)
 
 
-def window_bounds(window: Window, zone: ZoneInfo) -> list[dt.datetime]:
-    """The UTC instants that cut the window into its steps; the whole window without one."""
+#: The most terms SQLite reads in one compound ``SELECT``: a longer series is joined in groups.
+_COMPOUND_TERMS = 500
+
+
+def window_days(window: Window) -> list[dt.date]:
+    """The calendar dates that open the window's steps, and the day after its end, in order.
+
+    Each step is labelled by the date that opens it, never by its start read back in the zone:
+    a day the zone skipped entirely (Samoa's 30 December 2011) has no instant of its own, and
+    its start is the next day's.
+    """
     if window.end < window.start:
         raise ValidationFailedError("A window's end is on or after its start.")
     last = window.end + dt.timedelta(days=1)
     if window.step is None:
-        return [_midnight(window.start, zone), _midnight(last, zone)]
+        return [window.start, last]
     days = [window.start]
     while days[-1] < last:
         days.append(min(_next_step(days[-1], window.step), last))
-    return [_midnight(day, zone) for day in days]
+    return days
+
+
+def window_bounds(window: Window, zone: ZoneInfo) -> list[dt.datetime]:
+    """The UTC instants that cut the window into its steps; the whole window without one."""
+    return [_midnight(day, zone) for day in window_days(window)]
 
 
 def _steps_table(bounds: Sequence[dt.datetime], column_type: Any) -> Any:
@@ -74,8 +88,10 @@ def _steps_table(bounds: Sequence[dt.datetime], column_type: Any) -> Any:
     form measured on both dialects (a few times faster than a balanced ``CASE``, an order of
     magnitude faster than one ``WHEN`` per step). Each bound is bound with the bucket column's
     own type, so it is stored-form compatible on SQLite and a ``timestamptz`` on PostgreSQL.
+    SQLite reads at most 500 terms in one compound ``SELECT``, so a longer series is joined in
+    groups of that many, each group one term of the next.
     """
-    rows = [
+    terms: list[Any] = [
         sa_select(
             literal(index, Integer).label("i"),
             literal(bounds[index], column_type).label("lo"),
@@ -83,7 +99,12 @@ def _steps_table(bounds: Sequence[dt.datetime], column_type: Any) -> Any:
         )
         for index in range(len(bounds) - 1)
     ]
-    return (union_all(*rows) if len(rows) > 1 else rows[0]).subquery("steps")
+    while len(terms) > _COMPOUND_TERMS:
+        terms = [
+            union_all(*terms[at : at + _COMPOUND_TERMS]).subquery().select()
+            for at in range(0, len(terms), _COMPOUND_TERMS)
+        ]
+    return (union_all(*terms) if len(terms) > 1 else terms[0]).subquery("steps")
 
 
-__all__ = ["window_bounds", "window_steps"]
+__all__ = ["window_bounds", "window_days", "window_steps"]

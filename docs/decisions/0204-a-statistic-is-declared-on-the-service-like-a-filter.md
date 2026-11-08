@@ -341,6 +341,26 @@ are folded in above:
   - the build-time half of the personal-data row;
   - where the catalog corrections land.
 
+### Amended in 0.39.0: declarations that failed on every request
+
+A review after 0.38.0 found statistics a service could declare and never answer:
+- A dimension over a UUID column, though every Terp id is one, and `min` or `max` over a text
+  column were each a 500: the group refused the value the database returned. A group now carries
+  a UUID, an enum and a time of day as a dimension, and text, a time of day and a duration as a
+  figure.
+- PostgreSQL has no `sum` of text or of a boolean, no `min` or `max` of a UUID, a boolean or a
+  JSON value, and cannot key a group by JSON; SQLite answers a sum of text with `0.0`. Such a
+  declaration is now refused when the class is defined, after the personal-data refusals, judged
+  on the column's Python type read through a `TypeDecorator`. A type that names none is left to
+  the database.
+- SQLite reads at most 500 terms of one compound `SELECT`, and the step join was one, so a series
+  of more than 500 steps failed there. The steps are joined in groups of 500.
+- The points cap counted the page size asked even with no dimension, where there is one group,
+  so a year of days over the whole scope was refused at the default page size.
+- A step was labelled by its start read back in the zone. A day the zone skipped entirely
+  (Samoa's 30 December 2011) starts where the next day does, so the series named one day twice.
+  A step is now labelled by the date that opens it.
+
 ## Consequences
 
 - A statistics screen has a sanctioned path: declare, take `StatisticsQueryDep`, return
