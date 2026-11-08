@@ -382,6 +382,7 @@ def test_a_step_the_bucket_does_not_offer_is_refused(engine) -> None:
     [
         (lambda: Measure("Revenue", Sale.amount, op="sum"), "lower_snake_case"),
         (lambda: Measure("revenue", op="sum"), "needs the column it aggregates"),
+        (lambda: Measure("with_email", Sale.buyer_email), "counts rows, so it takes no column"),
         (lambda: Dimension("Region", Sale.region), "lower_snake_case"),
         (lambda: TimeBucket("Sold", Sale.sold_at), "lower_snake_case"),
         (lambda: TimeBucket("sold", Sale.sold_at, steps=()), "declares no step"),

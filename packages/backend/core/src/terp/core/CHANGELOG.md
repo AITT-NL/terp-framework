@@ -235,6 +235,11 @@ decision, 0001 onwards.
   (Samoa, 30 December 2011) was labelled as the next one. Each now answers. A declaration the
   database cannot answer at all (a `sum` of text, a `max` of a UUID or a boolean, a group keyed by
   JSON) is refused when the class is defined, naming what to count instead.
+- **A `count` that names a column is refused when declared (ADR 0204).** The ADR says `count`
+  alone takes no column, but one given to it was dropped without a word, so
+  `Measure("paid", Invoice.paid_at)` counted every invoice, not the paid ones. It now raises
+  `TypeError` naming the two declarations that mean something: `Measure(name)` counts rows, and
+  `op="count_distinct"` counts a column's values.
 - **`frontend/timestamp-inputs-carry-their-offset` follows a `type` however it is spelled
   inline (ADR 0206).** The rule read only a string or a plain template as the attribute's direct
   value, so `type={withTime ? "datetime-local" : "date"}`, `?? "datetime-local"`,
@@ -327,6 +332,8 @@ decision, 0001 onwards.
   dimension over JSON or bytes now raise `TypeError` when the service class is defined. Each of
   them failed on every request on PostgreSQL before; count the column, or count its distinct
   values, instead.
+- **A `Measure` that names a column under the default `count` is refused when declared.** Drop
+  the column to count rows, or declare `op="count_distinct"` to count the column's values.
 - **From 0.36.0 or earlier, let the outbox drain before you upgrade.** A mail a release before
   0.36.1 queued in plaintext is no longer read: its job fails with `mail_plaintext_retired`, and
   it dead-letters with nothing sent. Run `terp outbox backlog` on the old release until it shows

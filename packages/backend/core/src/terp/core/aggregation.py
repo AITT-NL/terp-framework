@@ -80,6 +80,11 @@ class Measure:
             raise TypeError(f"Measure name {self.name!r} must be lower_snake_case.")
         if self.op != "count" and self.column is None:
             raise TypeError(f"Measure {self.name!r} ({self.op}) needs the column it aggregates.")
+        if self.op == "count" and self.column is not None:
+            raise TypeError(
+                f"Measure {self.name!r} counts rows, so it takes no column: declare "
+                f"Measure({self.name!r}) to count rows, or op='count_distinct' to count a column's values."
+            )
 
 
 @dataclass(frozen=True)
