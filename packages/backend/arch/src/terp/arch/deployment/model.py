@@ -93,11 +93,18 @@ class Declaration:
     #: ``generator.systemPackages``: what only a generator reads (ADR 0187), valid only
     #: beside ``generated`` and each name one the system-package table carries.
     system_packages: tuple[str, ...] = ()
+    #: ``generator.recipes``: the recipe each named web unit's image is built from (ADR
+    #: 0198), as ``(unit id, recipe)`` in the file's order. Each names a declared web unit.
+    recipes: tuple[tuple[str, str], ...] = ()
 
     @property
     def profile_files(self) -> tuple[str, ...]:
         """The base profile and its overrides, in the order they are merged."""
         return (self.compose_file, *self.compose_overrides)
+
+    def recipe(self, unit: str) -> str | None:
+        """The recipe *unit*'s image is built from, or ``None`` for the app's own web tier."""
+        return dict(self.recipes).get(unit)
 
 
 @dataclass(frozen=True)

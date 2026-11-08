@@ -505,6 +505,25 @@
           }
         },
         "properties": {
+          "recipes": {
+            "type": "object",
+            "additionalProperties": false,
+            "default": {},
+            "description": "The recipe each named web unit's image is built from, keyed by the unit's id. A recipe is a name and nothing else: everything its build takes and how its image serves the result is fixed by the name, so two apps that name the same recipe get the same build. A key must be the id of a declared unit whose role is 'web': a reader refuses one that names no unit, or a unit of another role, and names the web units declared. A web unit with no entry is built as the stack builds an app's own web tier.",
+            "patternProperties": {
+              "^\\$": {
+                "type": "string",
+                "maxLength": 4000,
+                "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+                "description": "An annotation: carries no behaviour and is never read as part of the declaration."
+              },
+              "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}(?![\\s\\S])": {
+                "type": "string",
+                "enum": ["static-site"],
+                "description": "The recipe. 'static-site': a static site the unit serves, built from its own source with nothing from the app's environment, with no route to the app and under a policy its image build enforces. What the build takes and how the image serves it is the stack's to fix (framework ADR 0198)."
+              }
+            }
+          },
           "systemPackages": {
             "type": "array",
             "maxItems": 64,
