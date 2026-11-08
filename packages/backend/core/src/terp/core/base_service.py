@@ -50,6 +50,7 @@ from terp.core.base_models import (
     BaseUpdateSchema,
     OwnedMixin,
     SoftDeleteMixin,
+    _with_offsets,
 )
 from terp.core import aggregation
 from terp.core.aggregation import AggregateGroup, Dimension, Measure, Statistics, TimeBucket, Window
@@ -705,13 +706,15 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         serializer of a JSON column cannot encode — so a typed document died at flush
         with a ``TypeError`` naming neither the field nor the fix. Fields backed by a
         JSON column are dumped in ``json`` mode instead; everything else is unchanged,
-        so a plain column still receives its native Python value.
+        so a plain column still receives its native Python value. A naive ``datetime``
+        in such a document is written as UTC, with its offset (ADR 0205), or it would
+        read back as text its own schema refuses.
         """
         payload = data.model_dump(exclude_unset=exclude_unset)
         json_fields = _json_column_fields(self.model) & payload.keys()
         if json_fields:
             encoded = data.model_dump(mode="json", exclude_unset=exclude_unset)
-            payload.update({field: encoded[field] for field in json_fields})
+            payload.update({field: _with_offsets(payload[field], encoded[field]) for field in json_fields})
         return self._without_managed_columns(payload)
 
     def create(self, session: Session, data: CreateT) -> ModelT:

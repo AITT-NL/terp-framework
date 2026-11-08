@@ -142,6 +142,12 @@ decision, 0001 onwards.
   it. The steps are counted arithmetically now, and no bound is built for a window the caps
   refuse. A `skip` past the largest offset a database takes, 2^63 - 1, on a list or a
   statistic, failed in the driver as a 500 and is a 400 now.
+- **A naive timestamp in a JSON column is stored as UTC, and its document reads back (ADR
+  0205).** 0.38.0's refusal of timestamp text without an offset (ADR 0206) also judges a
+  document read back from a JSON column, where a timestamp is text. A naive `datetime` the
+  server put in such a document was stored as text without an offset, so the document failed its
+  own `BaseSchema` on the way out, which the 0.38.0 notes said of no row read back. Such a value
+  is now written as the UTC instant it names, with its offset.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
@@ -176,6 +182,10 @@ decision, 0001 onwards.
 - **An upload whose content type is not one media type is refused with a 415**
   (`content_type_malformed`), where it was stored. A file stored earlier with such a type is
   served as `application/octet-stream`.
+- **A document stored in a JSON column before 0.39.0, with a timestamp that has no offset,
+  fails its `BaseSchema` when it is read back.** Rewrite those values with their offset (`Z` for
+  UTC) in a data migration, or read them through `NaiveMeansUtc` in the schema that reads the
+  document, with the rule's marker, until they are rewritten.
 - **An early validator of your own on a timestamp field now turns the gate red.** Where it read
   the wall time of a known place, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.
   Where it only checked the instant, make it an after validator. Where it must keep reading the
