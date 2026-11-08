@@ -9,16 +9,22 @@ from __future__ import annotations
 
 BACKEND_DOCKERFILE = "Dockerfile.prod"
 FRONTEND_DOCKERFILE = "frontend/Dockerfile.prod"
+#: The static site's image (ADR 0198), rendered for the web unit that names ``static-site``.
+SITE_DOCKERFILE = "site/Dockerfile.prod"
 PROFILE = "docker-compose.prod.yml"
 
 #: Every path the generator owns. A path the declaration renders nothing for is absent.
-OWNED_PATHS = (BACKEND_DOCKERFILE, FRONTEND_DOCKERFILE, PROFILE)
+OWNED_PATHS = (BACKEND_DOCKERFILE, FRONTEND_DOCKERFILE, SITE_DOCKERFILE, PROFILE)
 
 #: The only profile a generated app has: the generator renders one file, with no override.
 PROFILE_FILE = PROFILE
 
 #: The frontend lock a ``web`` unit is built from; the caller says whether it exists.
 FRONTEND_LOCK = "frontend/package-lock.json"
+
+#: The site lock the ``static-site`` recipe builds from (ADR 0198); the caller says whether
+#: it exists, as it does for the frontend's.
+SITE_LOCK = "site/package-lock.json"
 
 #: Where the backend image runs the app from, and so where a ``var/`` mount lands.
 APP_ROOT = "/srv"

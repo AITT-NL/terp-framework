@@ -55,6 +55,7 @@ from terp.arch.deployment.generator import (
     FRONTEND_DOCKERFILE,
     MOUNT_PATH,
     OWNED_PATHS,
+    SITE_DOCKERFILE,
     PROFILE,
     escape_findings,
     fixed_interpolations,
@@ -135,7 +136,11 @@ def _sample(name: str) -> tuple[dict, reader.Declaration, Tables]:
 def _render(name: str) -> dict[str, bytes]:
     meta, declaration, tables = _sample(name)
     files, found = generate(
-        declaration, meta["project"], tables=tables, frontend_lock=meta["frontendLock"]
+        declaration,
+        meta["project"],
+        tables=tables,
+        frontend_lock=meta["frontendLock"],
+        site_lock=meta.get("siteLock", False),
     )
     assert found == [], found
     return files
@@ -205,7 +210,8 @@ def test_the_seed_renders_the_template_s_own_files_byte_for_byte(
         frontend_lock=frontend,
     )
     assert found == []
-    assert set(files) == (set(OWNED_PATHS) if frontend else set(OWNED_PATHS) - {FRONTEND_DOCKERFILE})
+    rendered = set(OWNED_PATHS) - {SITE_DOCKERFILE}  # the seed declares no recipe
+    assert set(files) == (rendered if frontend else rendered - {FRONTEND_DOCKERFILE})
     for path, template in _TEMPLATE_FILES.items():
         if path not in files:
             continue
@@ -279,6 +285,9 @@ def test_a_golden_sample_renders_exactly_its_expected_files(name: str) -> None:
     if _WRITE:  # the writer is run by hand, and its diff reviewed
         (folder / "expected").mkdir(exist_ok=True)
         (folder / "expected" / PROFILE).write_bytes(files[PROFILE])
+        if SITE_DOCKERFILE in files:
+            (folder / "expected" / "site").mkdir(exist_ok=True)
+            (folder / "expected" / SITE_DOCKERFILE).write_bytes(files[SITE_DOCKERFILE])
         meta["renders"] = list(files)
         (folder / "sample.json").write_bytes((json.dumps(meta, indent=2) + "\n").encode("ascii"))
     assert list(files) == meta["renders"], "a path the declaration renders nothing for is absent"
@@ -291,6 +300,10 @@ def test_a_golden_sample_renders_exactly_its_expected_files(name: str) -> None:
             assert files[path] == _TEMPLATE_FILES[path].read_bytes(), (
                 f"{name}: {path} takes no declaration input in this version: it is the template's"
             )
+    if SITE_DOCKERFILE in files:  # the template has no site; its golden holds the recipe's
+        assert files[SITE_DOCKERFILE] == (folder / "expected" / SITE_DOCKERFILE).read_bytes(), (
+            f"{name}: the static-site recipe's Dockerfile moved; write the goldens and review it"
+        )
 
 
 def test_the_reference_app_s_profile_is_the_grown_sample_s_render() -> None:
@@ -321,6 +334,7 @@ def test_a_refusal_sample_is_refused_with_its_own_message(name: str) -> None:
         sample["project"],
         tables=_tables(sample.get("tables")),
         frontend_lock=sample["frontendLock"],
+        site_lock=sample.get("siteLock", False),
     )
     assert files == {}, "all files or none"
     messages = [finding.message for finding in found]
@@ -773,9 +787,9 @@ def test_the_escape_audit_finds_every_interpolation_outside_its_place() -> None:
 # --------------------------------------------------------------------------- #
 # the generator's own discipline                                                #
 # --------------------------------------------------------------------------- #
-#: The generator's modules: the function, its refusals, its profile, its one YAML encoder and
-#: its fixed text.
-_GENERATOR_MODULES = ("generator", "_refusals", "_compose", "_yaml", "_generator_text")
+#: The generator's modules: the function, its refusals, its profile, its one YAML encoder,
+#: its fixed text and the static-site recipe's.
+_GENERATOR_MODULES = ("generator", "_refusals", "_compose", "_yaml", "_generator_text", "_static_site")
 _ALLOWED_IMPORTS = {
     "__future__",
     "dataclasses",

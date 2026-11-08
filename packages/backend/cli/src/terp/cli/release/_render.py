@@ -137,7 +137,7 @@ def fetch(table: str | pathlib.Path, index: str, version: str, scratch: pathlib.
 
 #: The render, run by the pinned ``terp-arch`` on nothing but itself and PyYAML.
 _RENDER = """\
-import base64, json, pathlib, sys
+import base64, inspect, json, pathlib, sys
 sys.path[:0] = [sys.argv[1], sys.argv[2]]
 from terp.arch.deployment import Declaration, published_tables, readable
 from terp.arch.deployment.generator import FRONTEND_LOCK, OWNED_PATHS, generate
@@ -148,8 +148,10 @@ name, missing = project_name(root)
 refused = [finding.message for finding in [*found, *missing]]
 files = {}
 if not refused and isinstance(declared, Declaration):
-    files, refusals = generate(declared, name, tables=published_tables(),
-                               frontend_lock=(root / FRONTEND_LOCK).is_file())
+    options = {"frontend_lock": (root / FRONTEND_LOCK).is_file()}
+    if "site_lock" in inspect.signature(generate).parameters:  # a generator from 0.40.0 on
+        options["site_lock"] = (root / "site" / "package-lock.json").is_file()
+    files, refusals = generate(declared, name, tables=published_tables(), **options)
     refused = [finding.message for finding in refusals]
 print(json.dumps({"owned": list(OWNED_PATHS), "refused": refused,
                   "files": {path: base64.b64encode(data).decode() for path, data in files.items()}}))

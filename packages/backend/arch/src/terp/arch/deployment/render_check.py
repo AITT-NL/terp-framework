@@ -43,6 +43,8 @@ from terp.arch.deployment.generator import (
     FRONTEND_DOCKERFILE,
     FRONTEND_LOCK,
     OWNED_PATHS,
+    SITE_DOCKERFILE,
+    SITE_LOCK,
     generate,
 )
 from terp.arch.deployment.reader import DEPLOYMENT_FILE, Declaration, Finding
@@ -61,7 +63,8 @@ _DIFF_LINES = 12
 #: Why a generator-owned path is rendered, for the message about one that should not exist.
 _WHY_RENDERED = {
     BACKEND_DOCKERFILE: "no unit runs the backend image",
-    FRONTEND_DOCKERFILE: "no web unit is declared",
+    FRONTEND_DOCKERFILE: "no web unit is declared without a recipe",
+    SITE_DOCKERFILE: "no web unit names the static-site recipe in generator.recipes",
 }
 
 
@@ -308,6 +311,7 @@ def check(project_root: pathlib.Path, declaration: Declaration, tables: Tables) 
             name,
             tables=tables,
             frontend_lock=(project_root / FRONTEND_LOCK).is_file(),
+            site_lock=(project_root / SITE_LOCK).is_file(),
         )
         drift.files = files
         drift.findings.extend(refused if refused else _drift(project_root, files))

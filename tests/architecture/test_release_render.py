@@ -160,7 +160,12 @@ def test_the_pinned_generator_renders_the_tree_in_a_process_of_its_own(tmp_path:
     scratch.mkdir()
     files, owned, refused = _render.render(_pinned(tmp_path), tmp_path / "tree", scratch)
     assert refused == []
-    assert owned == ["Dockerfile.prod", "frontend/Dockerfile.prod", "docker-compose.prod.yml"]
+    assert owned == [
+        "Dockerfile.prod",
+        "frontend/Dockerfile.prod",
+        "site/Dockerfile.prod",
+        "docker-compose.prod.yml",
+    ]
     expected = app_files()
     assert files == {path: expected[path] for path in ("Dockerfile.prod", "docker-compose.prod.yml")}
 

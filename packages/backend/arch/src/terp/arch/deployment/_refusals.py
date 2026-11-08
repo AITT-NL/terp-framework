@@ -17,7 +17,9 @@ from terp.arch.deployment._generator_text import (
     MOUNT_PATH,
     OWN_REMEDY,
     PROFILE_FILE,
+    SITE_LOCK,
 )
+from terp.arch.deployment._static_site import STATIC_SITE
 from terp.arch.deployment._yaml import _escape
 from terp.arch.deployment.reader import Declaration, Finding, Unit
 from terp.arch.deployment.tables import Tables
@@ -187,20 +189,48 @@ def _command_findings(declaration: Declaration) -> list[Finding]:
     return found
 
 
-def _web_findings(declaration: Declaration, frontend: bool) -> list[Finding]:
+def _web_findings(declaration: Declaration, frontend: bool, site: bool) -> list[Finding]:
+    """One web tier and at most one static site (ADR 0198 decision 4), each beside its lock.
+
+    A web unit that ``generator.recipes`` names ``static-site`` is the site, built from
+    ``site/``; every other web unit is the app's own web tier, built from ``frontend/`` and
+    proxying ``/api`` to one api unit. The site proxies nothing, so the upstream refusal holds
+    for the web tier alone.
+    """
     found: list[Finding] = []
     apis = [unit.id for unit in declaration.units if unit.kind is None and unit.role == "api"]
-    webs = 0
+    webs = sites = 0
     for index, unit in enumerate(declaration.units):
         if unit.kind is not None or unit.role != "web":
+            continue
+        if declaration.recipe(unit.id) == STATIC_SITE:
+            sites += 1
+            where = f"generator.recipes.{unit.id}"
+            if sites > 1:
+                found.append(
+                    _finding(
+                        f"{where}: a second static-site unit; the generator renders one site "
+                        "(allowed: one static-site unit, beside at most one web unit without a "
+                        "recipe - or build own)"
+                    )
+                )
+            elif not site:
+                found.append(
+                    _finding(
+                        f'{where}: web unit "{unit.id}" is built from site/ by static-site, and the '
+                        f"checkout has no {SITE_LOCK} (allowed: a static-site unit beside a locked "
+                        f"site: {SITE_LOCK} - or build own)"
+                    )
+                )
             continue
         webs += 1
         where = f"units[{index}]"
         if webs > 1:
             found.append(
                 _finding(
-                    f"{where}.role: a second web unit; the generator renders one web tier "
-                    "(allowed: one web unit)"
+                    f"{where}.role: a second web unit without a recipe; the generator renders one "
+                    "web tier (allowed: one web unit without a recipe, beside at most one "
+                    "static-site unit - or build own)"
                 )
             )
             continue
@@ -230,7 +260,7 @@ def _ingress_findings(declaration: Declaration) -> list[Finding]:
     unreachable; neither is a faithful render, so the shape is refused with what would be.
     """
     apis = [unit.id for unit in declaration.units if unit.kind is None and unit.role == "api"]
-    webs = [unit for unit in declaration.units if unit.kind is None and unit.role == "web"]
+    webs = [unit for unit in declaration.units if _fronts(declaration, unit)]
     if webs or len(apis) < 2:
         return []
     return [
@@ -241,6 +271,11 @@ def _ingress_findings(declaration: Declaration) -> list[Finding]:
             f"{API_PORT}, or a web unit that depends on the api it proxies to)"
         )
     ]
+
+
+def _fronts(declaration: Declaration, unit: Unit) -> bool:
+    """Whether *unit* is the app's own web tier, which proxies ``/api``; a site fronts nothing."""
+    return unit.kind is None and unit.role == "web" and declaration.recipe(unit.id) is None
 
 
 def _upstream(web: Unit, apis: list[str]) -> str | None:
@@ -405,16 +440,25 @@ def _package_findings(declaration: Declaration, tables: Tables) -> list[Finding]
 
 
 def refusals(
-    declaration: Declaration, project: str, *, tables: Tables, frontend_lock: bool
+    declaration: Declaration,
+    project: str,
+    *,
+    tables: Tables,
+    frontend_lock: bool,
+    site_lock: bool = False,
 ) -> list[Finding]:
-    """Everything that keeps *declaration* from rendering faithfully, in a fixed order."""
+    """Everything that keeps *declaration* from rendering faithfully, in a fixed order.
+
+    *site_lock* says whether the checkout holds ``site/package-lock.json``; a caller that
+    does not say is answered as for a checkout without one.
+    """
     return [
         *_project_findings(project),
         *_compose_findings(declaration),
         *_unit_id_findings(declaration),
         *_kind_findings(declaration, tables),
         *_command_findings(declaration),
-        *_web_findings(declaration, frontend_lock),
+        *_web_findings(declaration, frontend_lock, site_lock),
         *_ingress_findings(declaration),
         *_health_findings(declaration),
         *_order_findings(declaration),
