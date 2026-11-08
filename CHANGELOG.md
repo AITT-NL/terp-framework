@@ -175,6 +175,11 @@ decision, 0001 onwards.
   `member@example.test` beside a self-service `Member@Example.test`. Creating an account, or
   changing one's address, for an address another account holds in any spelling is now a 409,
   `address_taken`, and `ensure_user` and `terp user create` find the account in any spelling.
+- **The contract check names a changed default beside a reference on every run (ADR 0194).**
+  A pair of references already being compared was taken as equal before the keys written beside
+  it were compared, so whether a changed `default` there was reported depended on the order the
+  walk met its places, which the hash seed set: five seeds of eight read "0 breaking". The exact
+  pin always turned the check red; the report now names the change on every seed.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the

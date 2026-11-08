@@ -25,6 +25,7 @@ _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
 from terp.cli import main  # noqa: E402
+from terp.cli.api_contract_shapes import Docs, same  # noqa: E402
 from terp.cli.api_contract import (  # noqa: E402
     ADOPT_HINT,
     CONTRACT_ARTIFACT,
@@ -1116,6 +1117,17 @@ def test_a_reference_back_into_a_loop_still_carries_what_is_written_beside_it() 
     deprecated = {**ref("Node"), "deprecated": True}
     assert lines(tree(ref("Node")), tree(deprecated)) == [f"BREAKING GET /tree: response 200 field 'parent' {_UNREAD}"]
     assert lines(tree(deprecated), tree(deprecated, label=_TEXT)) == ["GET /tree: new response 200 field 'label'"]
+
+
+def test_what_is_written_beside_a_reference_is_compared_at_every_place_it_is_written() -> None:
+    # A pair of references already being compared was taken as equal before what is written
+    # beside it, so a changed default was seen or missed by the order the walk met the two
+    # places, which the hash seed set: "0 breaking" on five seeds of eight. A list holds the
+    # order fixed here, the plain reference first, as the unlucky seeds had it.
+    docs = Docs.of(doc(schemas={"A": _TEXT}), doc(schemas={"A": _TEXT}))
+    plain = ref("A")
+    assert not same([plain, {**plain, "default": "x"}], [plain, {**plain, "default": "y"}], docs)
+    assert same([plain, {**plain, "default": "x"}], [plain, {**plain, "default": "x"}], docs)
 
 
 def test_a_required_name_with_no_property_is_a_line_of_its_own() -> None:
