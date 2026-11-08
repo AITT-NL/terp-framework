@@ -376,14 +376,7 @@ def _diff_value_set(
             yield Change(False, where, f"{subject} format {old_format or 'none'} -> {new_format or 'none'}")
 
     old_bounds, new_bounds = _bounds(before, docs.before), _bounds(after, docs.after)
-    if direction == REQUEST:
-        yield from diff_bounds(where, subject, old_bounds, new_bounds)
-    else:
-        # A response bound constrains what the server sends, so moving it never fails a
-        # reader that was built on the old one; it is named, and never breaking.
-        for key in sorted(old_bounds.keys() | new_bounds.keys()):
-            if old_bounds.get(key) != new_bounds.get(key):
-                yield Change(False, where, f"{subject} {key} {old_bounds.get(key, 'none')} -> {new_bounds.get(key, 'none')}")
+    yield from diff_bounds(where, subject, old_bounds, new_bounds, response=direction != REQUEST)
 
 
 def _spell(types: frozenset[str]) -> str:

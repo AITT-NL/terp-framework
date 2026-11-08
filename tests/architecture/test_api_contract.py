@@ -335,13 +335,58 @@ def test_a_request_bound_breaks_when_it_tightens(before, after, expected: str) -
     assert lines(post({"type": "string", **before}), post({"type": "string", **after})) == [expected]
 
 
-def test_bounds_on_a_response_and_on_a_null_member_are_not_a_sender_s_problem() -> None:
-    assert lines(get({"type": "string", "maxLength": 10}), get({"type": "string", "maxLength": 5})) == [
-        "GET /things: response 200 maxLength 10 -> 5"
+@pytest.mark.parametrize(
+    ("before", "after", "expected"),
+    [
+        ({"maxLength": 5}, {"maxLength": 10}, "BREAKING GET /things: response 200 maxLength 5 -> 10"),
+        ({"maxLength": 5}, {}, "BREAKING GET /things: response 200 maxLength 5 -> none"),
+        ({"maxLength": 10}, {"maxLength": 5}, "GET /things: response 200 maxLength 10 -> 5"),
+        ({}, {"maxLength": 5}, "GET /things: response 200 maxLength none -> 5"),
+        ({"minLength": 2}, {"minLength": 1}, "BREAKING GET /things: response 200 minLength 2 -> 1"),
+        ({"minLength": 2}, {}, "BREAKING GET /things: response 200 minLength 2 -> none"),
+        ({"minLength": 1}, {"minLength": 2}, "GET /things: response 200 minLength 1 -> 2"),
+        ({}, {"minLength": 1}, "GET /things: response 200 minLength none -> 1"),
+        ({"pattern": "^a$"}, {}, "BREAKING GET /things: response 200 may no longer match '^a$'"),
+        ({"pattern": "^a$"}, {"pattern": "^b$"}, "BREAKING GET /things: response 200 may no longer match '^a$'"),
+        ({}, {"pattern": "^a$"}, "GET /things: response 200 now always matches '^a$'"),
+    ],
+)
+def test_a_response_bound_breaks_when_it_loosens(before, after, expected: str) -> None:
+    """A strict generated client holds a response to the bounds it was built with, so a value
+    past the old bound fails it the way a new enum value does."""
+    assert lines(get({"type": "string", **before}), get({"type": "string", **after})) == [expected]
+
+
+def test_a_response_bound_on_a_number_or_a_list_breaks_when_it_widens() -> None:
+    at_most, at_least = {"type": "integer", "maximum": 10}, {"type": "integer", "minimum": 1}
+    assert lines(get(at_most), get({**at_most, "maximum": 11})) == [
+        "BREAKING GET /things: response 200 maximum 10 -> 11"
     ]
-    assert lines(get({"type": "string"}), get({"type": "string", "minLength": 1})) == [
-        "GET /things: response 200 minLength none -> 1"
+    assert lines(get(at_least), get({**at_least, "minimum": 0})) == [
+        "BREAKING GET /things: response 200 minimum 1 -> 0"
     ]
+    assert lines(get({**at_most, "maximum": 11}), get(at_most)) == ["GET /things: response 200 maximum 11 -> 10"]
+    listed = {"type": "array", "items": {"type": "string"}, "maxItems": 3}
+    assert lines(get(listed), get({**listed, "maxItems": 4})) == [
+        "BREAKING GET /things: response 200 maxItems 3 -> 4"
+    ]
+    # OpenAPI 3.0's exclusive bound turned off lets the bound's own value through; turned on,
+    # or written out as false, it lets nothing new through.
+    assert lines(get({**at_most, "exclusiveMaximum": True}), get(at_most)) == [
+        "BREAKING GET /things: response 200 exclusiveMaximum True -> none"
+    ]
+    assert lines(get({**at_most, "exclusiveMaximum": True}), get({**at_most, "exclusiveMaximum": False})) == [
+        "BREAKING GET /things: response 200 exclusiveMaximum True -> False"
+    ]
+    assert lines(get(at_most), get({**at_most, "exclusiveMaximum": True})) == [
+        "GET /things: response 200 exclusiveMaximum none -> True"
+    ]
+    assert lines(get(at_most), get({**at_most, "exclusiveMaximum": False})) == [
+        "GET /things: response 200 exclusiveMaximum none -> False"
+    ]
+
+
+def test_a_bound_on_a_null_member_is_no_bound_on_the_value() -> None:
     before = {"anyOf": [{"type": "string", "maxLength": 5}, {"type": "null", "maxLength": 1}]}
     after = {"anyOf": [{"type": "string", "maxLength": 5}, {"type": "null", "maxLength": 2}]}
     assert lines(post(before), post(after)) == [

@@ -105,6 +105,14 @@ decision, 0001 onwards.
   route answers a 403, `second_factor_required`; a wrong one is a 403,
   `second_factor_not_confirmed`, and counts toward the backoff as a wrong password does.
 
+- **A loosened response bound is a breaking change to the API contract (ADR 0194).** The check
+  read bounds on the request side only, and named a response bound that moved without the label.
+  A generated client that validates what it receives holds a response to the bounds it was built
+  with, so a `maxLength`, `maxItems` or `maximum` that rises, a `minLength`, `minItems` or
+  `minimum` that falls, an OpenAPI 3.0 exclusive bound turned off, and a `pattern` dropped or
+  changed are now breaking on a response, as a new `enum` value is. A bound that tightens a
+  response is named without the label.
+
 ### Fixed
 
 - **A signed release no longer calls a lane passed that judged nothing (ADRs 0200, 0202).** The

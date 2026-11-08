@@ -114,12 +114,16 @@ The list is closed and written from the client's side.
 | Success responses | a success status removed; a media type removed; a field removed or no longer required; a field's value set widened | a new field; an optional field made required; a value set narrowed |
 
 A **value set** is everything a schema admits: its JSON types, with `null` among them for a
-nullable field and `integer` inside `number`; its `enum`; its `format`; and on the request side
-its bounds (`maxLength`, `minLength`, `maximum`, `minimum`, `pattern`, `maxItems`, `minItems`).
+nullable field and `integer` inside `number`; its `enum`; its `format`; and its bounds
+(`maxLength`, `minLength`, `maximum`, `minimum`, `pattern`, `maxItems`, `minItems`).
 A request is breaking when the new schema refuses something the old one accepted. A response is
 breaking when the new schema may produce something the old one never did, which is why a new
 `enum` value on a response is breaking: a strict decoder in a native client refuses the whole
-response when it meets a value it was not built with.
+response when it meets a value it was not built with. A loosened response bound is breaking for
+the same reason: a generated client that validates what it receives holds a response to the
+bounds it was built with. A `pattern` that changes is breaking on either side, since whether one
+pattern admits only what another does cannot be read from the two of them (amended in 0.39.0: the
+bounds were read on the request side only, and a response bound was named and never breaking).
 
 `$ref`s are resolved within each document, and a recursive schema is compared once per pair of
 references. Shapes are compared without their editorial keys (a description, a summary, a
