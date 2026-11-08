@@ -954,11 +954,15 @@ frontend design-system track below.
       `UtcDateTime`, a calendar day on a timestamp filter names its zone, and a form sends an
       instant through `DateTimeInput` (ADRs 0205 and 0206).
 - [x] The Studio pins 0.38.0 (terp-studio#167).
-- [ ] 0.39.0, unreleased: the wall time of a named zone arrives as the instant it names through
-      `LocalTimeIn`, and an app's own early validator on a timestamp field is the escape the
-      rule counts (ADR 0207). `create_app` refuses to start while a route reads a timestamp
-      nothing holds to its offset, and `Instant` is the type that holds a parameter to it
-      (ADR 0208).
+- [x] Released as 0.39.0 (2026-11-08), on terp-spec 0.43.0: the wall time of a named zone
+      arrives as the instant it names through `LocalTimeIn`, and an app's own early validator
+      on a timestamp field is the escape the rule counts (ADR 0207); `create_app` refuses to
+      start while a route reads a timestamp nothing holds to its offset, and `Instant` holds a
+      parameter to it (ADR 0208). With them, the review's fixes and the owner's decisions on
+      its open questions: closing an account asks for its second factor, a loosened response
+      bound is breaking, `terp secrets reseal` works in batches and passes over held rows, an
+      exception handler added after `create_app` is refused, and the lint runs pyflakes.
+- [ ] Owed: the Studio's pin to 0.39.0. It pins 0.38.0.
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
       every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
       the template's two `AGENTS.md` files, the repository's own and the react-core README.
