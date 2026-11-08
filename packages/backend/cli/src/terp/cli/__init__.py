@@ -1851,7 +1851,9 @@ File objects (files capability, ADR 0056/0057)
   objects, and open_range for a Range request: its default reads forward to the offset, so an
   adapter whose store reads a range overrides it) in a NAMED-PROFILE registry;
   metadata (name, type, size, sha256, storage_key, storage_profile) lives in the platform
-  DB. storage_key/storage_profile never leave the boundary (FileRead omits both).
+  DB. FileRead omits storage_key and storage_profile, and the API's routes never show them;
+  a store's signed link carries the key as its URL path, which opens nothing on a private
+  store without the signature.
 - Any provider is an adapter subclass (local ships; a NAS mount is the local adapter on
   another root). Two object-store adapters ship behind extras (ADR 0201): S3Storage
   (terp-cap-files[s3]) takes the SDK's own client and a bucket; AzureBlobStorage

@@ -22,7 +22,8 @@ who clears ``ADMIN``. For a deployment where that is wrong, one composition-root
 the row". It is opt-in rather than the default because it narrows what an
 already-authorized caller can see, which is a decision about a product.
 
-The raw ``storage_key`` never leaves the boundary (``FileRead`` omits it); the
+``FileRead`` omits the raw ``storage_key``, and no route of the API shows it (a store's own
+signed link carries it as its URL path, ADR 0201); the
 download route **streams** the bytes back through a ``StreamingResponse`` (read from the
 backend in chunks, so a large file never lands in memory whole) with a sanitized
 ``Content-Disposition`` (RFC 5987 encoding, so a hostile stored filename can never inject
