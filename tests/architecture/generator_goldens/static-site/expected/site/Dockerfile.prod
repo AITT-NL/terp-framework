@@ -125,8 +125,17 @@ export function firstOffense(html) {
   let at = 0;
   while ((at = html.indexOf("<", at)) !== -1) {
     if (html.startsWith("<!--", at)) {
-      const end = html.indexOf("-->", at + 4);
-      at = end === -1 ? html.length : end + 3;
+      // A comment ends where a browser ends it: "<!-->" and "<!--->" at once, else the first
+      // "-->" or "--!>". Reading on to a later "-->" would pass the markup in between unread.
+      const body = at + 4;
+      if (html[body] === ">" || html.startsWith("->", body)) {
+        at = html.indexOf(">", body) + 1;
+        continue;
+      }
+      const dash = html.indexOf("-->", body);
+      const bang = html.indexOf("--!>", body);
+      const end = dash === -1 ? bang : bang === -1 ? dash : Math.min(dash, bang);
+      at = end === -1 ? html.length : end + (end === bang ? 4 : 3);
       continue;
     }
     const head = /^<(\/?)([A-Za-z][^\t\n\f\r />]*)/.exec(html.slice(at, at + 256));
@@ -190,7 +199,8 @@ server {
     listen 8080;
     server_name _;
 
-    root /usr/share/nginx/html;
+    # site/dist/ and nothing else: the base image's own pages stay out of the root.
+    root /usr/share/nginx/site;
     index index.html;
 
     gzip on;
@@ -223,7 +233,9 @@ server {
     error_page 404 /404.html;
 }
 TERP_SITE_NGINX
-COPY --from=build /app/site/dist /usr/share/nginx/html
+# Into a directory of its own, which the server configuration above names as its root, and
+# never over the base image's html directory, whose own pages a copy would leave in place.
+COPY --from=build /app/site/dist /usr/share/nginx/site
 
 # Explicit, though `nginxinc/nginx-unprivileged` already runs as this user: the fact then
 # lives in this file where a reader looks for it, and a future base image cannot drop it

@@ -10,7 +10,8 @@ render for an app that declares the recipe:
 * a page is served with the recipe's document headers, its content security policy among them,
   and ``no-cache``; a directory's ``index.html`` is its page, with or without the slash;
 * a path with no file is the site's own ``404.html``, with status 404, and so is anything under
-  ``/api``: the site proxies nothing;
+  ``/api``, since the site proxies nothing, and the base image's own ``50x.html``, since the
+  site is served from a root only its build fills;
 * ``/assets/`` is immutable;
 * a page with an inline ``<style>`` fails the build, which names the file and the tag, so the
   image whose page a browser would have broken is never made.
@@ -24,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -106,7 +108,7 @@ def _context(root: pathlib.Path, extra: dict[str, str] | None = None) -> pathlib
     return root
 
 
-def _build(context: pathlib.Path, tag: str):  # type: ignore[no-untyped-def]
+def _build(context: pathlib.Path, tag: str) -> subprocess.CompletedProcess[str]:
     return rl.run(
         ["docker", "build", "--progress=plain", "-f", SITE_DOCKERFILE, "-t", tag, "."],
         cwd=context, env={**os.environ, "DOCKER_BUILDKIT": "1"}, check=False,
@@ -161,7 +163,7 @@ def test_a_page_is_served_with_the_recipe_s_policy(site: tuple[str, int]) -> Non
 
 def test_a_missing_path_and_the_api_are_the_site_s_own_404(site: tuple[str, int]) -> None:
     _name, port = site
-    for path in ("/nope", "/api/v1/health", "/api/"):
+    for path in ("/nope", "/api/v1/health", "/api/", "/50x.html"):
         status, headers, body = _get(port, path)
         assert (status, "<p>not here</p>" in body) == (404, True), path
         assert headers["Content-Security-Policy"] == POLICY, path

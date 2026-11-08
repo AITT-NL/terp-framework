@@ -24,6 +24,12 @@ STATIC_SITE = "static-site"
 #: The path the site's nginx answers itself, which the image and the profile probe.
 SITE_HEALTH_PATH = "/healthz"
 
+#: Where the image puts ``site/dist/`` and the server serves from: a directory only the site's
+#: build fills. The base image's own ``/usr/share/nginx/html`` holds pages of its own (a
+#: welcome ``index.html``, a ``50x.html`` with an inline style the policy blocks), and a
+#: directory the build is copied over keeps every page the build did not overwrite.
+SITE_ROOT = "/usr/share/nginx/site"
+
 #: The host port a site takes on a first ``up`` when its variable is unset: the one after the
 #: web tier's 23100. A deployment sets the variable explicitly.
 SITE_PORT_DEFAULT = 23101
@@ -137,8 +143,17 @@ export function firstOffense(html) {
   let at = 0;
   while ((at = html.indexOf("<", at)) !== -1) {
     if (html.startsWith("<!--", at)) {
-      const end = html.indexOf("-->", at + 4);
-      at = end === -1 ? html.length : end + 3;
+      // A comment ends where a browser ends it: "<!-->" and "<!--->" at once, else the first
+      // "-->" or "--!>". Reading on to a later "-->" would pass the markup in between unread.
+      const body = at + 4;
+      if (html[body] === ">" || html.startsWith("->", body)) {
+        at = html.indexOf(">", body) + 1;
+        continue;
+      }
+      const dash = html.indexOf("-->", body);
+      const bang = html.indexOf("--!>", body);
+      const end = dash === -1 ? bang : bang === -1 ? dash : Math.min(dash, bang);
+      at = end === -1 ? html.length : end + (end === bang ? 4 : 3);
       continue;
     }
     const head = /^<(\/?)([A-Za-z][^\t\n\f\r />]*)/.exec(html.slice(at, at + 256));
@@ -194,7 +209,7 @@ if (process.argv[2] !== undefined) {
 #: The site's server (decision 3): the template SPA's document headers, its content security
 #: policy included; real pages with no SPA fallback; no ``/api`` location; immutable caching
 #: for ``/assets/`` and none for anything else; the site's own ``404.html`` when its build
-#: writes one; and a health path nginx answers itself.
+#: writes one; and a health path nginx answers itself. It serves :data:`SITE_ROOT` alone.
 #:
 #: It listens on IPv4 alone, where the SPA's own ``frontend/nginx.conf`` also listens on
 #: ``[::]``: on a host whose kernel has no IPv6, a ``[::]`` listen stops nginx at start. An app
@@ -206,7 +221,8 @@ SITE_NGINX = """server {
     listen 8080;
     server_name _;
 
-    root /usr/share/nginx/html;
+    # site/dist/ and nothing else: the base image's own pages stay out of the root.
+    root /usr/share/nginx/site;
     index index.html;
 
     gzip on;
@@ -289,7 +305,9 @@ COPY <<"TERP_SITE_NGINX" /etc/nginx/conf.d/default.conf
 """
     + SITE_NGINX
     + """TERP_SITE_NGINX
-COPY --from=build /app/site/dist /usr/share/nginx/html
+# Into a directory of its own, which the server configuration above names as its root, and
+# never over the base image's html directory, whose own pages a copy would leave in place.
+COPY --from=build /app/site/dist /usr/share/nginx/site
 
 # Explicit, though `nginxinc/nginx-unprivileged` already runs as this user: the fact then
 # lives in this file where a reader looks for it, and a future base image cannot drop it

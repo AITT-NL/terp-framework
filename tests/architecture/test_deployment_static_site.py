@@ -30,7 +30,7 @@ from typing import Any
 import pytest
 
 from terp.arch.deployment import reader
-from terp.arch.deployment._static_site import SITE_HEALTH_PATH, port_variable, site_port
+from terp.arch.deployment._static_site import SITE_HEALTH_PATH, SITE_ROOT, port_variable, site_port
 from terp.arch.deployment.generator import (
     PROFILE,
     SITE_DOCKERFILE,
@@ -90,12 +90,18 @@ _REFUSED = {
     "handler.html": '<img src="/a.png" onerror="go()">',
     "url.html": '<a href=" JavaScript:go()">x</a>',
     "nested/deep/page.htm": "<button onclick=go()>x</button>",
+    # A comment ends where a browser ends it, so what follows is read, not skipped to a later
+    # "-->": an empty comment closed at once, and one closed by "--!>".
+    "abrupt-comment.html": "<!--><script>go()</script><!-- later -->",
+    "abrupt-dash-comment.html": "<!---><script>go()</script><!-- later -->",
+    "bang-comment.html": "<!-- a --!><script>go()</script><!-- later -->",
 }
 _PASSES = {
     "index.html": '<!doctype html><link rel="stylesheet" href="/assets/a.css">'
     '<script src="/assets/a.js" type="module"></script><p>home</p>',
     "data-block.html": '<script type="application/ld+json">{"@type": "Article"}</script>',
     "comment.html": "<!-- <script>go()</script> --><p>ok</p>",
+    "dashes.html": "<!-- a -- b - <script>go()</script> ---><!----><p>ok</p>",
     "quoted.html": '<p title="a > <script>go()</script>">ok</p>',
     "text.html": "<textarea><style>p{}</style></textarea><noscript><style>p{}</style></noscript>",
     "empty.html": '<script></script><style> </style><p style="">ok</p>',
@@ -111,7 +117,7 @@ def _run_check(tmp_path: pathlib.Path, pages: dict[str, str]) -> subprocess.Comp
     for name, text in pages.items():
         (tmp_path / "dist" / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / "dist" / name).write_text(text, encoding="utf-8")
-    return subprocess.run(  # noqa: S603 - node runs the recipe's own script over a test tree
+    return subprocess.run(
         [node, "check.mjs", "dist"], cwd=tmp_path, capture_output=True, text=True, check=False
     )
 
@@ -159,6 +165,17 @@ def test_the_site_serves_the_template_spa_s_policy_and_proxies_nothing() -> None
     assert "try_files $uri /index.html" not in nginx
     assert f"location = {SITE_HEALTH_PATH} {{" in nginx and "error_page 404 /404.html;" in nginx
     assert 'add_header Cache-Control "public, max-age=31536000, immutable";' in nginx
+
+
+def test_the_site_is_served_from_a_root_only_its_build_fills() -> None:
+    """The base image's html directory holds pages of its own (a 50x.html with an inline style
+    the policy blocks): copied over it, the site would serve them too. So the build is copied
+    into a directory of its own, and the server's root is that directory and nothing else."""
+    dockerfile = _site_dockerfile()
+    nginx = _heredoc(dockerfile, "TERP_SITE_NGINX")
+    assert re.findall(r"^\s*root (\S+);$", nginx, re.M) == [SITE_ROOT]
+    assert re.findall(r"^COPY --from=build \S+ (\S+)$", dockerfile, re.M) == [SITE_ROOT]
+    assert "/usr/share/nginx/html" not in nginx + dockerfile.split("TERP_SITE_NGINX")[-1]
 
 
 # --------------------------------------------------------------------------- #
@@ -248,7 +265,7 @@ def test_the_signer_hands_the_site_lock_only_to_a_generator_that_reads_one(
     tree = tmp_path / "tree"
     (tree / "site").mkdir(parents=True)
     (tree / "site" / "package-lock.json").write_text("{}", encoding="utf-8")
-    run = subprocess.run(  # noqa: S603 - the signer's own script, as the signer runs it
+    run = subprocess.run(
         [sys.executable, "-I", "-c", _signer_render._RENDER, str(tmp_path / "arch"), str(tmp_path), str(tree)],
         capture_output=True, text=True, check=False,
     )

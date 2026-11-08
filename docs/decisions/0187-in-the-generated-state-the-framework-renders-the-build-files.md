@@ -32,7 +32,12 @@
   in 0.36.1: the gate records
   every check of the release profile beside its assurance document, and `sign` signs only over
   a green profile whose claim holds, reading the gate's document in the version the commit's
-  pinned `terp-cli` writes (decision 6).
+  pinned `terp-cli` writes (decision 6). Amended 2026-11-08 by
+  [ADR 0198](0198-a-static-site-is-a-web-unit-the-framework-builds-from-a-recipe-it-owns.md),
+  accepted that day and built in 0.40.0: a web unit that names the `static-site` recipe gets a
+  fourth generated file, `site/Dockerfile.prod`, and is the one second web unit that renders
+  (decisions 1 and 5); the site image's SBOM is read from `site/package-lock.json` (decision
+  6); and the fixed list gains the site's port and image (decision 9).
 - **Date:** 2026-10-21
 - **Relates:** amends [ADR 0062](0062-production-deployment-profile.md) decisions 1 to 4, on top
   of its 2026-10-21 amendment; amends [ADR 0184](0184-a-deployment-declares-its-units.md)

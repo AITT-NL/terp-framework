@@ -277,11 +277,11 @@ pull` cannot move it under a running deployment. `uv run terp guide deployment` 
 
 A public site deploys as a `web` unit of the same declaration (ADR 0197). Under `"build":
 "generated"`, `"generator": {"recipes": {"site": "static-site"}}` has the framework build it
-from `site/` (ADR 0198). It is built over `site/package-lock.json` with no network and none of
-the app's environment, and served by a non-root nginx under the recipe's own policy, which
-proxies nothing. Unit `site` is published on `WEB_PORT_SITE` (default 23101), beside the
-SPA's `WEB_PORT`: the variable is `WEB_PORT_` and the unit id upper-cased. A site that needs
-another policy is `"build": "own"`.
+from `site/` (ADR 0198). Its packages are installed exactly as `site/package-lock.json`
+records them, then it is built with no network and none of the app's environment, and served
+by a non-root nginx under the recipe's own policy, which proxies nothing. Unit `site` is
+published on `WEB_PORT_SITE` (default 23101), beside the SPA's `WEB_PORT`: the variable is
+`WEB_PORT_` and the unit id upper-cased. A site that needs another policy is `"build": "own"`.
 
 ## Releasing and promoting (`terp release`, `terp promote`)
 
