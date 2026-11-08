@@ -183,7 +183,11 @@ JavaScript's dates and Temporal make. A value without an offset shows as empty r
 guessed at.
 
 The new rule `frontend/timestamp-inputs-carry-their-offset` refuses a JSX `type` of
-`datetime-local` on any element, in any letter case, and names `DateTimeInput`. Its runtime half
+`datetime-local` on any element, in any letter case, and names `DateTimeInput`. (Amended in
+0.39.0: it read only a string or a plain template as the attribute's direct value, so a branch
+of a conditional, `??`, `as const`, `satisfies` and a concatenation each passed. It is now a
+rule of its own that follows every string the attribute's expression can be, inline; a value
+read from a name, a spread props object and `createElement` are its recorded residuals.) Its runtime half
 is decision 1's refusal, which a wall time sent anyway meets at the server. `Input` itself does
 not refuse the type at render, because then the rule's marker could not keep a field that truly
 holds a wall time with a named zone, read by the API as text.

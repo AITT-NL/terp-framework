@@ -349,7 +349,10 @@ ROTATING `SECRET_KEY` (ADR 0189). Nothing is ever signed or sealed with an old k
 keys only verify or only decrypt, from two lists that run on two different clocks:
 
   SECRET_KEY_FALLBACKS          verifies signatures only: an access token for 15 minutes
-                                after it was issued, a refresh session until it expires
+                                after it was issued, a refresh session until it expires,
+                                and a self-service link mailed before the rotation, whose
+                                row is found by a digest under the key it was sent under,
+                                until the link expires
   SECRET_KEY_DECRYPT_FALLBACKS  decrypts sealed values only, until they are re-sealed
 
 Both are comma-separated. The procedure, in this order:
@@ -367,8 +370,11 @@ Both are comma-separated. The procedure, in this order:
      the fallback sooner than its lifetime (a day for a sign-up link by default) only
      makes such a link stop working, and its owner asks for a new one.
   4. Drop SECRET_KEY_FALLBACKS once the longest signature lifetime has passed since
-     step 1: REFRESH_TOKEN_TTL_SECONDS if the app issues refresh sessions, 15 minutes
-     if not. Dropping it sooner loses nothing; it signs out sessions still on the old key.
+     step 1: the longest of REFRESH_TOKEN_TTL_SECONDS if the app issues refresh sessions,
+     the self-service links' lifetimes if it mails them (sign_up_ttl, a day by default,
+     and reset_ttl, an hour), and 15 minutes. Dropping it sooner loses no data: it signs
+     out the sessions still on the old key, and a link mailed before step 1 stops
+     working, so its owner asks for a new one.
 
 A key you believe has leaked goes in SECRET_KEY_DECRYPT_FALLBACKS only, never in
 SECRET_KEY_FALLBACKS: whoever holds it could sign a token the fallback would honour,
@@ -449,10 +455,13 @@ Services (BaseService)
   datetime / Enum inside the document is encoded rather than dying at flush with
   "Object of type UUID is not JSON serializable". Non-JSON columns still receive their
   native Python value.
-- Dropping to raw SQL? Keep the text(...) argument a STATIC literal and pass data
-  through bound parameters — a dynamically built statement (f-string, concatenation,
-  .format, %, or a variable) is refused by the no_dynamic_sql rule (SQL injection):
-      session.exec(text("SELECT ... WHERE status = :status"), {"status": status})
+- Dropping to raw SQL? Not for a read on the request session: it refuses a raw text(...)
+  statement outside the write chokepoint and literal SQL in a SELECT, since it can scope
+  neither (ADR 0204). Where raw SQL belongs (a migration), keep the text(...) argument a
+  STATIC literal and pass data through bound parameters — a dynamically built statement
+  (f-string, concatenation, .format, %, or a variable) is refused by the no_dynamic_sql
+  rule (SQL injection):
+      op.execute(text("UPDATE ... SET status = :status").bindparams(status="active"))
 - A pure validator that needs a fact from ANOTHER module's table does not get a
   session of its own. Keep the validator pure — it takes facts, not a database — and
   let the calling service look the fact up before it runs. Thread the dependency in
@@ -1040,6 +1049,10 @@ Aggregates: counts and sums declared on the service, like filters (ADR 0204)
           time_buckets = (TimeBucket("issued", Invoice.issued_at, steps=("day", "month")),)
   op is one of count, count_distinct, sum, avg, min, max. A dimension groups by a
   column's own values; an expression is a column the model declares, or a database view.
+  sum and avg add numbers; min and max order numbers, text and times; a dimension is text,
+  a number, a date, an enum or an id. Anything else (a sum of text, a max of a UUID or a
+  boolean, a group keyed by JSON) is refused when the class is defined: the database could
+  not answer it on any request.
 - The route takes the capped query and returns a page typed by the declarations:
       from terp.core import Page, SessionDep, StatisticsQueryDep
       @router.get("/statistics", response_model=Page[InvoiceService.statistics_model()])
@@ -1059,19 +1072,25 @@ Aggregates: counts and sums declared on the service, like filters (ADR 0204)
   groups times steps. Each cap refuses, never clamps, and names what would fit.
 - Personal data stays personal. A Dimension or a TimeBucket over a field declared
   Personal(...), and a sum, avg, min or max over one, is refused when the class is defined:
-  over a group of one each is that person's value. count and count_distinct may run over
-  personal data. A statistic is never narrowed by a filter over a personal field (counts
-  under a contains filter would spell out an address); the list keeps its filter.
+  over a group of one each is that person's value. That holds wherever the declared column
+  reads it, under a function, a cast, a label, an alias, the Core table or a subquery's
+  column, and literal SQL or a bare column name is refused as possibly personal. count and
+  count_distinct may run over personal data. A statistic is never narrowed by a filter over
+  a personal field, however its column reads it (counts under a contains filter would spell
+  out an address); the list keeps its filter.
 - A read that is not a service's (a capability's own table) uses the same seam directly:
       from terp.core import Statistics, aggregate, group_model
       STATS = Statistics(measures=(Measure("events"),), dimensions=(...,), time_buckets=(...,))
       groups, total = aggregate(session, select(AuditEvent), STATS, measures=["events"], ...)
-- The runtime half: the request session scopes every ORM read, aggregates included, and
-  refuses with UnscopedReadError (a 500) a SELECT that reads a row-scoped table through Core
-  - Model.__table__.c.x, a Core join or subquery over it, a Core alias, table("name"),
-  literal SQL in a FROM - because there is no mapped entity in that SELECT to attach the
-  scope to. A many-to-many whose link table is row-scoped is refused the same way: map the
-  link as an association object.
+- The runtime half: the request session scopes every ORM read, aggregates included, wherever
+  it names an entity (a loader option, a VALUES row and a column property too), and refuses
+  with UnscopedReadError (a 500) every read it cannot scope. That is a SELECT that reads a
+  row-scoped table through Core (Model.__table__.c.x, a Core join, subquery, alias or sample
+  of it, table("name") in any case or schema), because there is no mapped entity in that
+  SELECT to attach the scope to. It is literal SQL wherever it is written (text(), a literal
+  column, a prefix, a suffix or a hint, unless it is only a name), and a FROM element the
+  session does not know. A many-to-many whose link table is row-scoped is refused too: map
+  the link as an association object.
 - On SQLite a timestamp is stored as its wall time without its offset: write instants in UTC
   (every timestamp the framework stamps already is) and the steps are exact on both dialects.
 """,
@@ -1829,7 +1848,8 @@ File objects (files capability, ADR 0056/0057)
 - Upload/download/list/rename/delete ride the admin-only discovered router at
   /api/v1/files; File composes OwnedMixin, so rename/delete are owner-gated centrally.
 - Bytes live behind the StorageBackend port (put/open/delete, streamed via file-like
-  objects) in a NAMED-PROFILE registry;
+  objects, and open_range for a Range request: its default reads forward to the offset, so an
+  adapter whose store reads a range overrides it) in a NAMED-PROFILE registry;
   metadata (name, type, size, sha256, storage_key, storage_profile) lives in the platform
   DB. storage_key/storage_profile never leave the boundary (FileRead omits both).
 - Any provider is an adapter subclass (local ships; a NAS mount is the local adapter on

@@ -100,6 +100,13 @@ So the longest signature lifetime, after which `SECRET_KEY_FALLBACKS` can be dro
 `REFRESH_TOKEN_TTL_SECONDS` for an app that issues refresh sessions and fifteen minutes for one
 that does not. Dropping it sooner loses no data; it signs out the sessions still on the old key.
 
+**Amended in 0.39.0.** A self-service link (ADR 0196) is found the same way: its row is stored
+under a digest keyed by the key it was mailed under, and looked up under the current key's and
+then each fallback's, for as long as the link lives (`sign_up_ttl`, a day by default, and
+`reset_ttl`, an hour). The procedure left it out, so following it on an app without refresh
+sessions dropped the list after fifteen minutes, and every link mailed before the rotation
+stopped working. The longest signature lifetime is the longest of the three.
+
 The window bounds a token's life, not a forgery: whoever holds a listed key can sign a token with
 a fresh `iat`. A key believed to have leaked therefore goes in `SECRET_KEY_DECRYPT_FALLBACKS` only.
 

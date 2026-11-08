@@ -18,7 +18,11 @@ closing under ``/api/v1/accounts``. It is never discovered: an app builds it, or
 from __future__ import annotations
 
 from terp.capabilities.users.account_tokens import AccountTokenService
-from terp.capabilities.users.accounts import AccountSignsInElsewhereError, AccountsService
+from terp.capabilities.users.accounts import (
+    AccountSignsInElsewhereError,
+    AccountsService,
+    PasswordNotConfirmedError,
+)
 from terp.capabilities.users.accounts_router import build_accounts_module, build_accounts_router
 from terp.capabilities.users.operations import (
     ACCOUNTS_CLOSE,
@@ -54,6 +58,7 @@ __all__ = [
     "AccountDeletion",
     "AccountMessages",
     "AccountSignsInElsewhereError",
+    "PasswordNotConfirmedError",
     "AccountTokenService",
     "AccountsService",
     "SelfService",

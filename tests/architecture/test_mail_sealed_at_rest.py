@@ -6,8 +6,9 @@ database would, as the text the column holds, and hold it to what the ADR claims
 
 * no address, no subject, no text and no token from a self-service link rests in it, and the
   worker still sends exactly the message that was queued;
-* a row an earlier release queued in plaintext still delivers, and the plaintext form is
-  never written, whichever path enqueues it;
+* the plaintext form is never written, whichever path enqueues it, and a row a release
+  before 0.36.1 stored in it is no longer read: nothing is sent from it, and it dead-letters
+  with the remedy;
 * a mail sealed under a key that is now only a decrypt fallback delivers, and one that no
   configured key opens is never sent: it fails with the remedy, retries and dead-letters;
 * the sealed value's cap is derived from the message's own caps and Fernet's expansion, and
@@ -48,6 +49,7 @@ from terp.capabilities.mail import (
     MAX_RECIPIENTS,
     CapturingMailTransport,
     MailMessage,
+    MailPlaintextRetiredError,
     MailSealError,
     MailSettings,
     configure_mail,
@@ -257,25 +259,43 @@ def test_a_token_row_that_fails_to_write_takes_its_mail_with_it(
 
 
 # --------------------------------------------------------------------------- #
-# the plaintext form: read, never written
+# the plaintext form: taken from a caller, never written, no longer read from a row
 # --------------------------------------------------------------------------- #
 def _legacy(message_id: str = "<legacy@example.test>") -> dict[str, Any]:
     """The payload a release before 0.36.1 queued: the message's fields, in plaintext."""
     return {**MailMessage(**_MESSAGE).model_dump(), "message_id": message_id}
 
 
-def test_a_row_an_earlier_release_queued_in_plaintext_still_delivers(
+def test_a_row_an_earlier_release_queued_in_plaintext_is_no_longer_read(
     engine: Any, relay: CapturingMailTransport
 ) -> None:
+    """ADR 0199 retired this reader in 0.37.0 on paper, and the code kept it until 0.39.0."""
     legacy = _legacy()
+    with pytest.raises(MailPlaintextRetiredError):
+        MailJobPayload.model_validate(legacy).message()
     with WriteGuardedSession(engine) as session:  # the row exactly as 0.36.0 wrote it
         OutboxJobQueue().enqueue(session, JobEnvelope(MAIL_SEND.name, legacy, legacy["message_id"]))
     ((stored, *_),) = _at_rest(engine)
     assert _readable(stored, "customer@example.test"), "control: the probe sees plaintext where it is"
 
-    _worker(engine, _Clock()).drain_once()
-    (email,) = relay.sent
-    assert email.as_bytes() == _as_built(MailMessage(**_MESSAGE), legacy["message_id"])
+    clock = _Clock()
+    worker = _worker(engine, clock)
+    worker.drain_once()
+    ((_stored, status, attempts, error),) = _at_rest(engine)
+    assert (status, attempts, relay.sent) == (STATUS_PENDING, 1, [])
+    assert error is not None and error.startswith("MailPlaintextRetiredError: ")
+    assert "Send it again" in error and "customer@example.test" not in error, "the remedy, not the mail"
+    for _ in range(MAIL_SEND.retry.max_attempts - 1):
+        clock.now += timedelta(seconds=MAIL_SEND.retry.max_backoff_seconds + 1)
+        worker.drain_once()
+    ((_stored, status, _attempts, _error),) = _at_rest(engine)
+    assert (status, relay.sent) == (STATUS_DEAD_LETTERED, [])
+
+
+def test_the_retired_plaintext_error_is_a_500_that_says_what_to_do() -> None:
+    error = MailPlaintextRetiredError()
+    assert (error.status_code, error.code) == (500, "mail_plaintext_retired")
+    assert "before 0.36.1" in error.message and "Send it again" in error.message
 
 
 def test_the_plaintext_form_is_never_written_whatever_enqueues_it(engine: Any, relay: CapturingMailTransport) -> None:
@@ -318,9 +338,10 @@ def test_a_payload_in_both_forms_or_neither_is_refused_without_repeating_it(form
         MailJobPayload.model_validate(form(legacy, sealed))
     assert "exactly one of the two" in str(refused.value)
     assert [secret for secret in _READABLE if secret in str(refused.value)] == []
-    # Control: each form alone is accepted.
+    # Control: each form alone is accepted, and the sealed one opens to the message.
+    assert MailJobPayload.model_validate(legacy).plaintext == MailMessage(**_MESSAGE)
     assert MailJobPayload.model_validate({"message_id": legacy["message_id"], "sealed": sealed}).message() == (
-        MailJobPayload.model_validate(legacy).message()
+        MailMessage(**_MESSAGE)
     )
 
 

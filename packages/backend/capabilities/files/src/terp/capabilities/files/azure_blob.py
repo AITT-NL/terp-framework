@@ -6,7 +6,10 @@ profile name::
 
     register_storage_backend("media", AzureBlobStorage(container))
 
-``put`` / ``open`` / ``delete`` are the port's streaming contract over the container. ``link``
+``put`` / ``open`` / ``delete`` are the port's streaming contract over the container. A blob is
+read one bounded window per request, as the stream is read, rather than through the SDK's own
+downloader, which fetches its first 32 MiB before it returns: so ``open`` costs nothing until it
+is read, and ``open_range`` costs the range a ``Range`` request names. ``link``
 is a read-only blob SAS carrying the download's media type and disposition (``rsct`` and
 ``rscd``), signed one of two ways: with a **user-delegation key** when a ``BlobServiceClient``
 authenticated by an Entra credential is given as ``delegation`` (the key is requested for
@@ -25,6 +28,7 @@ the adapter without the extra fails at boot, with the install line.
 from __future__ import annotations
 
 import io
+from collections.abc import Callable
 from threading import Lock
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, BinaryIO, Final
@@ -50,14 +54,18 @@ _DELEGATION_KEY_LIFETIME: Final[timedelta] = 2 * LINK_TTL_MAX
 #: never signs a link the service reads as not yet valid.
 _DELEGATION_KEY_SKEW: Final[timedelta] = timedelta(minutes=5)
 
+#: The most one request reads of a blob: the SDK's own chunk size, and all a stream holds.
+_WINDOW_BYTES: Final[int] = 4 * 1024 * 1024
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def _sdk() -> tuple[Any, Any, Any, Any]:
-    """The four names the adapter needs from the extra; fail closed, with the remedy, without it."""
+def _sdk() -> tuple[Any, Any, Any, Any, Any]:
+    """The five names the adapter needs from the extra; fail closed, with the remedy, without it."""
     try:
+        from azure.core import MatchConditions
         from azure.core.exceptions import AzureError, ResourceNotFoundError
         from azure.storage.blob import BlobSasPermissions, generate_blob_sas
     except ImportError as exc:
@@ -65,23 +73,41 @@ def _sdk() -> tuple[Any, Any, Any, Any]:
             "The Azure Blob storage adapter needs the 'azure-storage-blob' package — "
             "install the terp-cap-files[azure] extra."
         ) from exc
-    return AzureError, ResourceNotFoundError, BlobSasPermissions, generate_blob_sas
+    return AzureError, ResourceNotFoundError, BlobSasPermissions, generate_blob_sas, MatchConditions
 
 
-class _DownloadStream(io.RawIOBase):
-    """The SDK's downloader as a readable binary stream: it reads, but is no file object."""
+class _Windows(io.RawIOBase):
+    """A blob's bytes from *start* up to *end*, one window per request, fetched as they are read.
 
-    def __init__(self, downloader: Any) -> None:
+    *first* is a window already read from *start*. *fetch* reads the window at an offset; it
+    names the blob's ETag, so a blob replaced between two windows fails the read rather than
+    splicing two versions into one body. A window shorter than asked is the blob's end.
+    """
+
+    def __init__(
+        self, fetch: Callable[[int, int], bytes], start: int, end: int, first: bytes = b""
+    ) -> None:
         super().__init__()
-        self._downloader = downloader
+        self._fetch = fetch
+        self._next = start + len(first)
+        self._end = end
+        self._window = memoryview(first)
 
     def readable(self) -> bool:
         return True
 
     def readinto(self, buffer: Any) -> int:
-        data = self._downloader.read(len(buffer))
-        buffer[: len(data)] = data
-        return len(data)
+        if not self._window and self._next < self._end:
+            asked = min(_WINDOW_BYTES, self._end - self._next)
+            data = self._fetch(self._next, asked)
+            self._next += len(data)
+            if len(data) < asked:
+                self._end = self._next
+            self._window = memoryview(data)
+        size = min(len(buffer), len(self._window))
+        buffer[:size] = self._window[:size]
+        self._window = self._window[size:]
+        return size
 
 
 class AzureBlobStorage(StorageBackend):
@@ -96,7 +122,7 @@ class AzureBlobStorage(StorageBackend):
     def __init__(
         self, container: ContainerClient, *, delegation: BlobServiceClient | None = None
     ) -> None:
-        self._errors, self._not_found, self._permissions, self._generate_sas = _sdk()
+        self._errors, self._not_found, self._permissions, self._generate_sas, self._match = _sdk()
         self._container = container
         self._delegation = delegation
         self._key: UserDelegationKey | None = None
@@ -120,13 +146,45 @@ class AzureBlobStorage(StorageBackend):
             raise self._failed("put", key, exc) from exc
 
     def open(self, key: str) -> BinaryIO:
+        """*key*'s bytes: its properties are read now, so a vanished blob is a ``FileNotFoundError``
+        here, and its first window when the stream is first read."""
         try:
-            downloader = self._container.download_blob(key)
+            properties = self._container.get_blob_client(key).get_blob_properties()
         except self._not_found as exc:
             raise FileNotFoundError(key) from exc
         except self._errors as exc:
             raise self._failed("open", key, exc) from exc
-        return io.BufferedReader(_DownloadStream(downloader))
+        return self._stream(key, properties.etag, 0, properties.size)
+
+    def open_range(self, key: str, *, offset: int, length: int) -> BinaryIO:
+        """*length* bytes of *key* from *offset*: the first window is read now, the rest as read."""
+        asked = min(_WINDOW_BYTES, length)
+        try:
+            downloader = self._container.download_blob(key, offset=offset, length=asked)
+            first = downloader.readall()
+        except self._not_found as exc:
+            raise FileNotFoundError(key) from exc
+        except self._errors as exc:
+            raise self._failed("open", key, exc) from exc
+        end = offset + length if len(first) == asked else offset + len(first)
+        return self._stream(key, downloader.properties.etag, offset, end, first)
+
+    def _stream(
+        self, key: str, etag: str, start: int, end: int, first: bytes = b""
+    ) -> BinaryIO:
+        def fetch(offset: int, length: int) -> bytes:
+            try:
+                return self._container.download_blob(
+                    key,
+                    offset=offset,
+                    length=length,
+                    etag=etag,
+                    match_condition=self._match.IfNotModified,
+                ).readall()
+            except self._errors as exc:
+                raise self._failed("open", key, exc) from exc
+
+        return io.BufferedReader(_Windows(fetch, start, end, first))
 
     def delete(self, key: str) -> None:
         try:

@@ -161,8 +161,13 @@ def lane(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Lane]:
     patch = pytest.MonkeyPatch()
     patch.setattr(build_module, "BUILDER_PREFIX", f"{rl.prefix()}builder-")
     # The release lane's stand-in for the profile: the app's suite is the app's subject, not the
-    # lane's. Every platform check passes, and the gate composes the claim from them.
-    patch.setattr(gate_module, "_verify", lambda checkout: [{"id": check.id, "ok": True} for check in PROFILES["release"]])
+    # lane's. Every platform check passes and had something to judge, as the verdict a version 3
+    # gate document records says, and the gate composes the claim from them.
+    patch.setattr(
+        gate_module,
+        "_verify",
+        lambda checkout: [{"id": check.id, "ok": True, "applicable": True} for check in PROFILES["release"]],
+    )
     name = f"{rl.prefix()}app"
     work = tmp_path_factory.mktemp("lane")
     rl.remove_everything(name)

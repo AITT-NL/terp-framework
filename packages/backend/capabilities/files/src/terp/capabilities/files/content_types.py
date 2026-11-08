@@ -12,6 +12,7 @@ before any byte lands.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 
 from terp.core import AppError
@@ -25,12 +26,55 @@ class UnsupportedContentTypeError(AppError):
     default_message = "The uploaded file's content type is not allowed."
 
 
+class ContentTypeMalformedError(AppError):
+    """415 — the upload's content type is not one media type (ADR 0201)."""
+
+    status_code = 415
+    code = "content_type_malformed"
+    default_message = "The uploaded file's content type must be one media type, such as image/png."
+
+
 class ContentTypeMismatchError(AppError):
     """415 — the upload's bytes do not carry the declared content type's signature (ADR 0076)."""
 
     status_code = 415
     code = "content_type_mismatch"
     default_message = "The uploaded bytes do not match the declared content type."
+
+
+_TCHARS = r"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
+
+#: One media type (RFC 9110, section 8.3.1): a type and a subtype, then parameters, each a token
+#: or a quoted string. Never a list of types: a browser handed ``image/png, text/html`` takes the
+#: last of them, so the type a check judged would not be the one the browser renders. No comma at
+#: all, then, not even quoted, where one reader of the header could split on it.
+_ONE_MEDIA_TYPE = re.compile(rf'{_TCHARS}/{_TCHARS}(?:[ \t]*;[ \t]*(?:{_TCHARS}=(?:{_TCHARS}|"[^"\\,\r\n]*"))?)*')
+
+
+def _one_media_type(value: str) -> str | None:
+    """The bare media type *value* names, lowercased, when it is one media type; else ``None``."""
+    if not _ONE_MEDIA_TYPE.fullmatch(value.strip()):
+        return None
+    return _normalized_media_type(value)
+
+
+def _served_media_type(content_type: str) -> str:
+    """The ``Content-Type`` a stored file is served with: its own, unless it is not one type.
+
+    Upload refuses such a type from 0.39.0; a row stored before then is served as bytes.
+    """
+    return content_type if _one_media_type(content_type) is not None else "application/octet-stream"
+
+
+def _ensure_one_media_type(content_type: str) -> None:
+    """Fail closed when *content_type* is not exactly one media type (ADR 0201).
+
+    Stored, it is served back as the download's ``Content-Type``, and judged by the allowlist,
+    the signature check and the inline rule first. A list of types, or anything a header could
+    read otherwise, would let those judge one type while the browser renders another.
+    """
+    if _one_media_type(content_type) is None:
+        raise ContentTypeMalformedError(log_context={"content_type": content_type[:200]})
 
 
 def _normalized_media_type(value: str) -> str:
@@ -135,6 +179,7 @@ def _ensure_bytes_match_declared_type(content_type: str, head: bytes) -> None:
 
 
 __all__ = [
+    "ContentTypeMalformedError",
     "ContentTypeMismatchError",
     "UnsupportedContentTypeError",
     "active_allowed_content_types",

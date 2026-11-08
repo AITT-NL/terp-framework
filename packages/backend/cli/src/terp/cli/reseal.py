@@ -205,6 +205,34 @@ def _resealed(value: Any, settle: Callable[[str], str]) -> Any:
     return value
 
 
+def _rewrite_strings(text: str, replacements: dict[str, str]) -> str:
+    """*text*, a JSON document, with each string in *replacements* rewritten and every other byte kept.
+
+    Read as an object and written back, a document would lose what Python's JSON does not
+    keep: a number beyond a float's precision became the nearest float. So the document's
+    text is walked, string token by string token, and only a sealed value being re-sealed is
+    replaced, as a key or a value.
+    """
+    from json.decoder import scanstring
+
+    parts: list[str] = []
+    index = 0
+    while (start := text.find('"', index)) != -1:  # in a valid document, only a string opens a quote
+        value, end = scanstring(text, start + 1)
+        parts.extend((text[index:start], json.dumps(replacements[value]) if value in replacements else text[start:end]))
+        index = end
+    parts.append(text[index:])
+    return "".join(parts)
+
+
+def _as_document(conn: Connection, column: Column[Any], text: str) -> Any:
+    """*text*, a JSON document, as *column*'s value, written as it is and never encoded again."""
+    from sqlalchemy import Text, cast, literal
+
+    value = literal(text, Text)
+    return cast(value, column.type) if conn.dialect.name == "postgresql" else value
+
+
 def _settle_document(
     conn: Connection,
     table: Table,
@@ -228,22 +256,26 @@ def _settle_document(
     except ValueError:
         tally.unreadable += 1
         return
-    pending: list[str] = []
+    pending: dict[str, str] = {}
+    found = 0
 
     def settle(stored: str) -> str:
+        nonlocal found
         resealed = _judge(stored, tally, write=write)
         if resealed is None:
             return stored
-        pending.append(resealed)
+        found += 1
+        pending[stored] = resealed
         return resealed
 
-    document = _resealed(document, settle)
+    _resealed(document, settle)
     if not pending:
         return
-    if _swap(conn, table, where, cast(column, Text) == text, column, document):
-        tally.resealed += len(pending)
+    rewritten = _as_document(conn, column, _rewrite_strings(text, pending))
+    if _swap(conn, table, where, cast(column, Text) == text, column, rewritten):
+        tally.resealed += found
     else:
-        tally.changed += len(pending)
+        tally.changed += found
 
 
 def _survey_table(conn: Connection, table: Table, *, write: bool) -> list[ColumnTally]:

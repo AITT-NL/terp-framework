@@ -17,7 +17,7 @@ from collections.abc import Callable, Iterator
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import inspect, text, update
+from sqlalchemy import inspect, literal_column, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Field, SQLModel, create_engine, select
 
@@ -225,6 +225,11 @@ _BLOCKED_WRITES: list[tuple[str, Callable[[WriteGuardedSession], object]]] = [
     ("exec_dml", lambda s: s.exec(update(_GuardWidget).values(name="x"))),
     ("execute_text", lambda s: s.execute(text("UPDATE test_guard_widget SET name='x'"))),
     ("execute_dml", lambda s: s.execute(update(_GuardWidget).values(name="x"))),
+    # A SELECT runs the UPDATE in its CTE (PostgreSQL), so it is a write, not a read.
+    (
+        "exec_select_carrying_dml",
+        lambda s: s.exec(select(literal_column("1")).add_cte(update(_GuardWidget).values(name="x").cte("changed"))),
+    ),
 ]
 
 

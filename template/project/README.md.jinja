@@ -197,9 +197,10 @@ place for your own wording. CI runs the suite against the Docker workbench on ev
 This app has no frontend of its own: a native app, a site built elsewhere or another service
 is its client, and the API is the one surface they share. `uv run terp openapi` writes the
 contract (`openapi.json`) every client types itself from, and `uv run terp verify` holds the
-committed copy to the live app. A browser client on another origin needs its origin listed in
-`BACKEND_CORS_ORIGINS` (`.env.example` shows the shape; never `*`); a native app or a server
-needs nothing. In production the `api` unit is the deployment's only way in and publishes
+committed copy to the live app. A browser client on another origin needs its origin allowed in
+`control_plane/__init__.py`, as `cors=CorsPolicy.allow(["https://app.your-domain.example"])` in
+place of `CorsPolicy.disabled(...)` (never `*`, which production refuses); a native app or a
+server needs nothing. `BACKEND_CORS_ORIGINS` allows nothing: it is read only to refuse `*`. In production the `api` unit is the deployment's only way in and publishes
 `API_PORT` (23200 unless the deployment says otherwise); whatever you put in front of it is
 counted in `trusted_proxy_hops` (`control_plane/__init__.py`).
 {%- endif %}

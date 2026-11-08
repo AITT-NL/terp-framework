@@ -117,7 +117,9 @@ The gate is the commit's pinned `terp-cli`, so its document's version follows fr
 (`terp.cli.release.gate.STRICT_SINCE`):
 
 - **below 0.36.1** it accepts version 1 only, held to its claim alone, as before;
-- **from 0.36.1 up** it accepts version 2 only, held to decision 2.
+- **from 0.36.1 up** it accepts version 2 only, held to decision 2;
+- **from 0.39.0 up** it accepts version 3 only, held to decision 2 and to the claim its
+  checks compose (see *Amendments*, ADR 0202).
 
 Refusing version 1 for a newer pin is what makes decision 2 a control rather than an option:
 otherwise a document an older gate wrote, or one cut down to its claim, would be signed over the
@@ -160,6 +162,14 @@ exactly as before, and moving its pin to 0.36.1 or later is what brings it under
 - **ADR 0194 decision 5** and its open item *Signing over a red contract check*: a commit that
   pins `terp-cli` 0.36.1 or later is signed only when its `api-contract` check passed in the
   gate, so the contract its manifest carries is the one its app served there.
+- **Version 3, from 0.39.0** (`terp.cli.release.gate.APPLICABLE_SINCE`). A review found that
+  the version 2 gate kept each check's id and verdict and dropped whether it had anything to
+  judge (ADR 0202 decision 4). So for an app with no conformance suite, the claim it composed,
+  and `sign` signed, called `blackbox-conformance` passed where `terp verify` says not-run.
+  Version 3 records `applicable` on every check, and the gate writes why a check had nothing to
+  judge to its own log. `sign` refuses a version 3 check without it, and a claim its checks do
+  not compose. A commit pinning 0.36.1 to 0.38.x is still read as version 2: its own gate wrote
+  that document, and could write no other.
 
 ## Consequences
 

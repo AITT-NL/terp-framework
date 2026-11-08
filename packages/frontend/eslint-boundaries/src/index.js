@@ -184,6 +184,77 @@ function isDocumentObject(node) {
   );
 }
 
+/** How many strings an expression is followed to: concatenation multiplies its branches, and an
+ *  attribute that spells more is no `type` written by hand. */
+const POSSIBLE_STRINGS_CAP = 64;
+
+function joinEach(lefts, rights) {
+  const joined = [];
+  for (const left of lefts) {
+    for (const right of rights) {
+      if (joined.length >= POSSIBLE_STRINGS_CAP) return joined;
+      joined.push(left + right);
+    }
+  }
+  return joined;
+}
+
+/**
+ * Every string *node* can evaluate to where the source spells it: a string, a template, each
+ * branch of a conditional and of `??`, `||` and `&&`, a concatenation of those, the last of a
+ * comma sequence, and the expression under `as`, `satisfies` and `!`. A name, a call or a
+ * member read is followed by no rule here, and contributes nothing.
+ */
+function possibleStrings(node) {
+  const value = unwrapExpression(node);
+  switch (value?.type) {
+    case "Literal":
+      return typeof value.value === "string" ? [value.value] : [];
+    case "TemplateLiteral":
+      return value.expressions.reduce(
+        (sofar, expression, index) => {
+          const tail = value.quasis[index + 1].value.cooked ?? value.quasis[index + 1].value.raw;
+          return joinEach(sofar, possibleStrings(expression).map((part) => part + tail));
+        },
+        [value.quasis[0].value.cooked ?? value.quasis[0].value.raw],
+      );
+    case "ConditionalExpression":
+      return [...possibleStrings(value.consequent), ...possibleStrings(value.alternate)];
+    case "LogicalExpression":
+      return [...possibleStrings(value.left), ...possibleStrings(value.right)];
+    case "SequenceExpression":
+      return possibleStrings(value.expressions.at(-1));
+    case "BinaryExpression":
+      return value.operator === "+" ? joinEach(possibleStrings(value.left), possibleStrings(value.right)) : [];
+    default:
+      return [];
+  }
+}
+
+/**
+ * A `type` attribute that can be `datetime-local` (ADR 0206), however the value is spelled
+ * inline: a string, a template, a branch of a conditional or of `??`, a concatenation, or under
+ * `as const` or `satisfies`. The browser reads the type case-insensitively, so this does too.
+ */
+const timestampInputsCarryTheirOffset = {
+  meta: {
+    type: "problem",
+    docs: { description: "Disallow a datetime-local input, whose value names no instant." },
+    schema: [],
+  },
+  create(context) {
+    return {
+      JSXAttribute(node) {
+        if (jsxName(node.name) !== "type" || !node.value) return;
+        const value = node.value.type === "JSXExpressionContainer" ? node.value.expression : node.value;
+        if (possibleStrings(value).some((text) => /^datetime-local$/i.test(text))) {
+          context.report({ node, message: localDateTimeMessage });
+        }
+      },
+    };
+  },
+};
+
 const noUnsafeTargetBlank = {
   meta: {
     type: "problem",
@@ -1165,6 +1236,7 @@ const terpPlugin = {
     "no-untranslated-ui": noUntranslatedUi,
     "no-unsafe-href": noUnsafeHref,
     "no-unsafe-target-blank": noUnsafeTargetBlank,
+    "timestamp-inputs-carry-their-offset": timestampInputsCarryTheirOffset,
   },
 };
 
@@ -1309,22 +1381,6 @@ function restrictedSyntaxWithCatalogIds() {
         },
       ]
     : [];
-  const localDateTime = BOUNDARY_SPEC.restrictLocalDateTimeInput
-    ? [
-        {
-          // The attribute on any element: `Input`, a raw `input` (refused on its own as well)
-          // or a wrapper that passes it through. Any letter case, since the browser reads the
-          // type case-insensitively, and as a string, an expression or a plain template.
-          catalogId: "frontend/timestamp-inputs-carry-their-offset",
-          selector:
-            "JSXAttribute[name.name='type'][value.value=/^datetime-local$/i], " +
-            "JSXAttribute[name.name='type'] > JSXExpressionContainer > Literal[value=/^datetime-local$/i], " +
-            "JSXAttribute[name.name='type'] > JSXExpressionContainer > " +
-            "TemplateLiteral[expressions.length=0][quasis.0.value.raw=/^datetime-local$/i]",
-          message: localDateTimeMessage,
-        },
-      ]
-    : [];
   // A stylesheet reached without an import declaration, which no-restricted-imports never
   // sees: `import("lib/style.css")`, `import(`./themes/${name}.css`)`, and a Vite
   // `import.meta.glob` whose pattern names a stylesheet (a string, or a string in the array
@@ -1358,7 +1414,6 @@ function restrictedSyntaxWithCatalogIds() {
     ...inAppAnchors,
     ...rawClipboard,
     ...rawRandomUuid,
-    ...localDateTime,
     ...dynamicStyleImports,
     {
       catalogId: "frontend/no-dom-html-injection",
@@ -1687,6 +1742,9 @@ export function terpBoundaries() {
         "terp/no-eval": "error",
         "terp/no-unsafe-href": "error",
         "terp/no-unsafe-target-blank": "error",
+        ...(BOUNDARY_SPEC.restrictLocalDateTimeInput
+          ? { "terp/timestamp-inputs-carry-their-offset": "error" }
+          : {}),
         "no-restricted-syntax": ["error", ...restrictedSyntax()],
         "no-restricted-globals": [
           "error",

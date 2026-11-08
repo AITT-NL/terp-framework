@@ -20,11 +20,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, update
 
-from terp.core import NotFoundError, RateLimit, encrypt_config
+from terp.core import NotFoundError, RateLimit, SecurityConfig, encrypt_config
 from terp.core._internal.session_guard import WriteGuardedSession
-from terp.core.app import register_error_handlers
+from terp.core.app import _rate_limit_override_map, register_error_handlers
 from terp.core.db import get_session
 from terp.core.routing import declared_route_policy
 
@@ -55,7 +55,8 @@ from terp.capabilities.files.links import (
     open_link,
     seal_link,
 )
-from terp.capabilities.files.router import _byte_range, _skip_to, _UnsatisfiableRange, module, read_link, router
+from terp.capabilities.files.router import _byte_range, _UnsatisfiableRange, module, read_link, router
+from terp.capabilities.files.storage import _skip_to
 
 _CONTENT = b"0123456789abcdefghijklmnopqrstuvwxyz"
 _PNG = b"\x89PNG\r\n\x1a\n" + _CONTENT
@@ -148,6 +149,9 @@ def test_inline_is_allowed_only_for_a_type_a_browser_renders_without_running_it(
     # it really are: refused however the image family is admitted.
     assert not inline_allowed("image/svg+xml") and not inline_allowed("IMAGE/SVG+XML; charset=utf-8")
     assert not inline_allowed("application/xml") and not inline_allowed("image/x-thing+xml")
+    # Judged on the one type a browser would render: a list renders its last, so it is none.
+    assert not inline_allowed("image/png, text/html") and not inline_allowed("image/png,text/html")
+    assert inline_allowed("image/png;")
 
 
 def test_the_disposition_is_inline_or_attachment_and_never_carries_a_raw_name() -> None:
@@ -276,8 +280,10 @@ def test_the_public_link_route_declares_its_posture_and_its_rate_limit() -> None
     policy = declared_route_policy(read_link)
     assert policy is not None and policy.authenticated is False
     assert "cannot send a bearer" in policy.public_reason
-    assert isinstance(dict(module.rate_limit)["/link"], RateLimit)
-    assert dict(module.rate_limit)["/link"].enabled
+    # The application's general limit, in a bucket of its own: a tighter one applies here too.
+    assert dict(module.rate_limit)["/link"] == RateLimit.general()
+    tight = SecurityConfig(rate_limit=RateLimit(requests=60, window_seconds=60))
+    assert _rate_limit_override_map([module], tight)["/api/v1/files/link"] == (60, 60)
 
 
 def test_a_link_is_minted_by_the_route_and_read_back_whole_or_by_range(engine: Any, session: Session, storage_root: Path) -> None:
@@ -349,6 +355,24 @@ def test_an_inline_link_to_an_image_is_shown_inline_by_the_route(engine: Any, se
     assert shown.status_code == 200 and shown.headers["content-disposition"].startswith("inline; ")
 
 
+def test_a_row_stored_with_a_list_of_types_is_served_as_bytes_and_never_inline(
+    engine: Any, session: Session, storage_root: Path
+) -> None:
+    # Upload refuses such a type from 0.39.0; a row an earlier release stored is still served.
+    image = _store(FileService(), session, filename="a.png", content_type="image/png", source=io.BytesIO(_PNG))
+    with Session(engine) as raw:
+        raw.exec(update(File).where(File.id == image.id).values(content_type="image/png, text/html"))
+        raw.commit()
+    client = _client(engine)
+    url = client.get(f"/api/v1/files/{image.id}/link", params={"inline": "true"}).json()["url"]
+    served = client.get(url)
+    assert served.status_code == 200
+    assert served.headers["content-type"] == "application/octet-stream"
+    assert served.headers["content-disposition"].startswith("attachment; ")
+    ranged = client.get(url, headers={"Range": "bytes=0-3"})
+    assert ranged.status_code == 206 and ranged.headers["content-type"] == "application/octet-stream"
+
+
 class _NonSeekableStorage(_LinkingStorage):
     """A store whose streams cannot seek, and that leaves the bytes to the API."""
 
@@ -381,6 +405,77 @@ def test_a_range_on_a_stream_that_cannot_seek_is_read_up_to_and_discarded(engine
         assert part.status_code == 206 and part.content == _CONTENT[10:13]
     finally:
         reset_storage_backend()
+
+
+class _RangingStorage(_NonSeekableStorage):
+    """A store that reads a range itself, recording each open it is asked for."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.opened: list[tuple[int, int] | None] = []
+
+    def open(self, key: str) -> BinaryIO:
+        self.opened.append(None)
+        return super().open(key)
+
+    def open_range(self, key: str, *, offset: int, length: int) -> BinaryIO:
+        self.opened.append((offset, length))
+        if key not in self.blobs:
+            raise FileNotFoundError(key)
+        return io.BytesIO(self.blobs[key][offset : offset + length])
+
+
+def test_a_range_is_asked_of_the_store_alone_on_both_routes(engine: Any, session: Session) -> None:
+    """The route reads the range before it opens the bytes, so the store is asked for it.
+
+    It opened the whole blob first and read forward to the range, which on an object store
+    meant fetching every byte before a seek far into a large file, on every seek.
+    """
+    store = _RangingStorage()
+    register_storage_backend("ranging", store)
+    try:
+        row = _store(FileService(), session, profile="ranging")
+        client = _client(engine)
+        url = client.get(f"/api/v1/files/{row.id}/link").json()["url"]
+        for path in (url, f"/api/v1/files/{row.id}/content"):
+            part = client.get(path, headers={"Range": "bytes=30-"})
+            assert part.status_code == 206 and part.content == _CONTENT[30:]
+        assert store.opened == [(30, 6), (30, 6)]
+        assert client.get(url, headers={"Range": "bytes=99-"}).status_code == 416
+        assert store.opened == [(30, 6), (30, 6)], "an unsatisfiable range opens nothing"
+        assert client.get(url).content == _CONTENT and store.opened[-1] is None
+        store.blobs.clear()
+        gone = client.get(url, headers={"Range": "bytes=0-1"})
+        assert gone.status_code == 404 and store.opened[-1] == (0, 2)
+    finally:
+        reset_storage_backend()
+
+
+def test_a_part_runs_forward_from_a_byte_of_the_file(session: Session, storage_root: Path) -> None:
+    service = FileService()
+    row = _store(service, session)
+    for backwards in ((-1, 3), (5, 4)):
+        with pytest.raises(ValueError, match="first byte to its last"):
+            service.open_content(row, backwards)
+    with service.open_content(row, (2, 4)) as stream:
+        assert stream.read(3) == _CONTENT[2:5]
+
+
+def test_the_default_range_closes_a_stream_it_could_not_position() -> None:
+    class _Unpositionable(io.BytesIO):
+        def seek(self, *_args: Any) -> int:
+            raise OSError("the device went away")
+
+    opened: list[_Unpositionable] = []
+
+    class _Store(_LinkingStorage):
+        def open(self, key: str) -> BinaryIO:
+            opened.append(_Unpositionable(_CONTENT))
+            return opened[-1]
+
+    with pytest.raises(OSError, match="went away"):
+        _Store().open_range("k", offset=1, length=1)
+    assert opened[0].closed
 
 
 def test_skipping_forward_stops_at_the_end_of_a_stream_that_cannot_seek() -> None:

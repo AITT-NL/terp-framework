@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -95,6 +95,26 @@ def test_datetime_inside_a_json_column_survives_update(session: Session) -> None
         session, row.id, _DocUpdate(version=row.version, document={"at": moment})
     )
     assert isinstance(updated.document["at"], str)
+
+
+class _Moment(BaseSchema):
+    at: datetime
+
+
+class _MomentRead(BaseSchema):
+    document: dict[str, _Moment | list[_Moment]]
+
+
+def test_a_naive_datetime_in_a_json_column_is_stored_as_utc_and_reads_back(session: Session) -> None:
+    # A timestamp without an offset is UTC (ADR 0205). Stored as text without one, it read
+    # back as text a BaseSchema refuses (ADR 0206), so the document failed its own schema.
+    naive, aware = datetime(2026, 11, 6, 10), datetime(2026, 11, 6, 12, 30, tzinfo=timezone(timedelta(hours=1)))
+    document = {"first": {"at": naive}, "later": [{"at": naive.replace(microsecond=5)}, {"at": aware}]}
+    row = _DocService().create(session, _DocCreate(name="moments", document=document))
+    assert row.document["first"]["at"] == "2026-11-06T10:00:00Z"
+    assert [item["at"] for item in row.document["later"]] == ["2026-11-06T10:00:00.000005Z", "2026-11-06T12:30:00+01:00"]
+    read = _MomentRead.model_validate({"document": row.document})
+    assert read.document["first"].at == datetime(2026, 11, 6, 10, tzinfo=UTC)  # type: ignore[union-attr]
 
 
 def test_non_json_columns_keep_their_native_python_value(session: Session) -> None:

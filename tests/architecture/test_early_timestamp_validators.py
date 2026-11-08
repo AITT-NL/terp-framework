@@ -410,3 +410,64 @@ def test_the_boundarys_own_packages_are_not_its_users(tmp_path: pathlib.Path) ->
     assert len(check_request_timestamps_carry_their_offset(app)) == 1
     assert check_request_timestamps_carry_their_offset(app, package="terp.core") == []
     assert check_request_timestamps_carry_their_offset(app, package="terp.arch") == []
+
+
+def _write(app: pathlib.Path, files: dict[str, str]) -> dict[str, list[int]]:
+    """Write *files* under *app* and return each file's finding lines, as the file numbers them."""
+    for name, text in files.items():
+        path = app / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    found: dict[str, list[int]] = {}
+    for violation in check_request_timestamps_carry_their_offset(app):
+        found.setdefault(violation.path.split("app/", 1)[-1], []).append(violation.line)
+    return found
+
+
+def test_a_type_declared_in_one_module_counts_at_each_use_in_every_other(tmp_path: pathlib.Path) -> None:
+    """ADR 0207: one marker never covers more than one field. A rule that reads one file at a
+    time counted a type carrying an early validator once, where it was declared, so one marker
+    there covered every field of every module that imported it."""
+    imports = "from datetime import datetime\nfrom typing import Annotated\nfrom pydantic import BaseModel, BeforeValidator, PlainValidator\n"
+    found = _write(
+        tmp_path / "app",
+        {
+            "__init__.py": "",
+            "types.py": imports + "\n"
+            "def read(value):\n    return value\n"
+            "LocalStamp = Annotated[datetime, BeforeValidator(read)]\n"  # 7: declared
+            "local = BeforeValidator(read)\n",  # 8: a validator, counted where it is used
+            "shared.py": "from app.types import LocalStamp\nMaybe = LocalStamp | None\n",  # 2: a use
+            "stamps/__init__.py": "from .base import Stamp\n",
+            "stamps/base.py": imports + "Stamp = Annotated[datetime, PlainValidator(lambda v: v)]\n",  # 4
+            "modules/meetings/schemas.py": imports
+            + "from app import types\n"  # 4
+            "from app.types import LocalStamp, local\n"  # 5
+            "from ...types import LocalStamp as Again\n"  # 6
+            "from app.shared import Maybe, LocalStamp as Passed\n"  # 7
+            "from app.stamps import Stamp\n"  # 8
+            "class Meeting(BaseModel):\n"  # 9
+            "    starts_at: LocalStamp\n"  # 10
+            "    ends_at: types.LocalStamp\n"  # 11
+            "    moved_at: Again | None\n"  # 12
+            "    held_at: Annotated[datetime, local]\n"  # 13
+            "    noted_at: Annotated[datetime, types.local]\n"  # 14
+            "    kept_at: Maybe\n"  # 15
+            "    seen_at: Passed\n"  # 16
+            "    read_at: Stamp\n"  # 17
+            "    plain_at: datetime\n",  # 18: no validator, no finding
+            "modules/rooms/schemas.py": "import app.types\nimport app.types as kinds\n"
+            "from pydantic import BaseModel\n"
+            "class Room(BaseModel):\n"  # 4
+            "    booked_at: app.types.LocalStamp\n"  # 5
+            "    freed_at: kinds.LocalStamp\n",  # 6
+        },
+    )
+    assert found == {
+        "types.py": [7],
+        "shared.py": [2],
+        "stamps/base.py": [4],
+        "modules/meetings/schemas.py": [10, 11, 12, 13, 14, 15, 16, 17],
+        "modules/rooms/schemas.py": [5, 6],
+    }
+

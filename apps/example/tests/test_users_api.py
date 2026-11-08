@@ -306,11 +306,12 @@ def test_provisioning_a_duplicate_email_conflicts(app_db: FastAPI) -> None:
     first = admin.post("/api/v1/users/", json={"email": "dup@example.com", "password": "correct horse battery"})
     assert first.status_code == 201, first.text
 
-    # The unique-email constraint surfaces as a uniform 409 envelope, not a raw 500:
-    # BaseService maps the IntegrityError to a typed ConflictError.
-    duplicate = admin.post("/api/v1/users/", json={"email": "dup@example.com", "password": "correct horse battery"})
-    assert duplicate.status_code == 409, duplicate.text
-    assert duplicate.json()["code"] == "conflict"
+    # A taken address is a uniform 409 envelope, not a raw 500, in any spelling: the service
+    # refuses it before the insert, comparing addresses without regard to case.
+    for spelling in ("dup@example.com", "Dup@Example.com"):
+        duplicate = admin.post("/api/v1/users/", json={"email": spelling, "password": "correct horse battery"})
+        assert duplicate.status_code == 409, duplicate.text
+        assert duplicate.json()["code"] == "address_taken"
 
 
 def _provision_admin(admin: TestClient, email: str) -> dict:

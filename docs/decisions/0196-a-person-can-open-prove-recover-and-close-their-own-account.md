@@ -97,7 +97,12 @@ are compared without regard to case, so two spellings of one mailbox are one add
 never two accounts: a self-service account is stored with its address lower-cased, and a
 sign-in reaches it in any spelling, because the identity capability's lookup tries the
 address as written and then lower-cased. An account provisioned with capitals keeps signing
-in as it was written.
+in as it was written. From 0.39.0 provisioning holds to it too: creating an account, or
+changing one's address, for an address another account holds in any spelling is a 409,
+`address_taken` (until then an administrator could open the second account). The database's
+unique index is still on the exact spelling, so two writes racing with two spellings of one
+new address could both pass; a case-folded index is a migration of an app's own data, and is
+left open.
 
 ### 3. A request about an address answers the same way, and does the same work, whether or not an account exists
 
@@ -142,10 +147,18 @@ every redemption would be one counter that everyone spends, and enough bad token
 anywhere would hold up everyone's good one, a lockout by another name. Per caller, bad
 tokens slow only the caller that sent them.
 
+A request counts under `accounts:request:` and its address, never the bare address. Sign-in
+counts under the bare address, and the store is commonly the same one, so until 0.39.0 fifty
+callers asking once each about an address reached the backstop sign-in reads, and its owner
+could not sign in for five minutes, again and again: the lockout ADR 0147 refuses, reached
+from the side.
+
 ### 6. Closing an account takes the password again, and ends every session
 
 `POST /me/close` is the one authenticated route, open to any signed-in rank. It requires the
-current password, so a stolen access token cannot close the account, and refuses an account
+current password, so a stolen access token cannot close the account. A wrong one is a 403,
+`password_not_confirmed`, and not a 401, which a client takes for an expired session and signs
+the person out over (corrected in 0.39.0). It refuses an account
 that signs in only through a provider, which an administrator closes instead. It refuses the
 last active administrator. Then it revokes every session, through the token epoch and the
 refresh families, and does what the app declared, in one audited write:

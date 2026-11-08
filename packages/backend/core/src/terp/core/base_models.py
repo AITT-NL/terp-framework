@@ -25,7 +25,7 @@ import uuid
 from datetime import UTC, date, datetime, time
 from typing import Any
 
-from pydantic import ConfigDict, GetCoreSchemaHandler
+from pydantic import ConfigDict, GetCoreSchemaHandler, TypeAdapter
 from pydantic_core import CoreSchema
 from sqlalchemy import DateTime, Dialect, MetaData
 from sqlalchemy.orm import declared_attr
@@ -65,6 +65,26 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+_DATETIME = TypeAdapter(datetime)
+
+
+def _with_offsets(plain: object, encoded: object) -> object:
+    """*encoded*, a document's JSON form, with each naive datetime of *plain* written as UTC.
+
+    A timestamp without an offset is UTC wherever it is stored (ADR 0205). Written as text
+    without one, it comes back as text a ``BaseSchema`` refuses (ADR 0206), so a document
+    could not be read through its own schema. *plain* is the same document dumped in
+    Python mode, walked beside it; where their shapes part, *encoded* is kept as it is.
+    """
+    if isinstance(plain, datetime):
+        return _DATETIME.dump_python(_as_utc(plain), mode="json") if plain.utcoffset() is None else encoded
+    if isinstance(plain, dict) and isinstance(encoded, dict) and len(plain) == len(encoded):
+        return {key: _with_offsets(old, new) for old, (key, new) in zip(plain.values(), encoded.items())}
+    if isinstance(plain, list | tuple) and isinstance(encoded, list) and len(plain) == len(encoded):
+        return [_with_offsets(old, new) for old, new in zip(plain, encoded)]
+    return encoded
 
 
 class UtcDateTime(TypeDecorator[datetime]):

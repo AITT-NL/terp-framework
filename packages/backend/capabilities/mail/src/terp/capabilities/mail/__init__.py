@@ -47,6 +47,7 @@ from terp.capabilities.mail.delivery import (
 from terp.capabilities.mail.errors import (
     MailConfigurationError,
     MailDeliveryError,
+    MailPlaintextRetiredError,
     MailSealError,
 )
 from terp.capabilities.mail.message import MAX_RECIPIENTS, MailMessage
@@ -64,6 +65,7 @@ __all__ = [
     "MailConfigurationError",
     "MailDeliveryError",
     "MailMessage",
+    "MailPlaintextRetiredError",
     "MailSealError",
     "MailSecurity",
     "MailSettings",

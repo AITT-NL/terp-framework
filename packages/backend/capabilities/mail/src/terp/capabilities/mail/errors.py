@@ -64,4 +64,21 @@ class MailSealError(AppError):
     )
 
 
-__all__ = ["MailConfigurationError", "MailDeliveryError", "MailSealError"]
+class MailPlaintextRetiredError(AppError):
+    """500 — a queued mail a release before 0.36.1 stored in plaintext is no longer read (ADR 0199).
+
+    Those releases queued a mail's recipients and text in the clear. 0.36.1 to 0.38.0 still
+    read such a row so that it delivered; from 0.39.0 the worker reads a mail sealed or not at
+    all. The job fails, retries and dead-letters, and nothing is sent, so the mail is sent again
+    from where it was written, and a self-service link in it has long expired.
+    """
+
+    status_code = 500
+    code = "mail_plaintext_retired"
+    default_message = (
+        "A queued mail was stored in plaintext by a release before 0.36.1, and this release no "
+        "longer reads that form, so it was not sent. Send it again; a link in it has expired."
+    )
+
+
+__all__ = ["MailConfigurationError", "MailDeliveryError", "MailPlaintextRetiredError", "MailSealError"]

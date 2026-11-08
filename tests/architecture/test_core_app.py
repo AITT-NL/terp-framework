@@ -5,15 +5,18 @@ Pure-kernel unit checks (no app), complementing the reference-app end-to-end tes
 
 from __future__ import annotations
 
+import copy
 import logging
 import uuid
 
 import pytest
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 from starlette.middleware import Middleware
+from starlette.routing import Route
 
-from terp.core.app import build_guard
+from terp.core.app import build_guard, register_error_handlers
+from terp.core.pagination import MAX_SKIP, PaginationDep
 from terp.core import (
     ADMIN,
     AuditPolicy,
@@ -76,6 +79,60 @@ def test_create_app_refuses_route_registration_after_composition() -> None:
     ):
         with pytest.raises(BootError, match="after create_app"):
             action()
+
+
+def test_nothing_reaches_a_composed_app_by_a_spelling_nobody_listed(tmp_path) -> None:
+    # Each of these added what the app then served or ran, outside the module guard, while
+    # the freeze refused registration methods by name: a method it did not list, one called
+    # on its class with the router passed in, and the lists themselves.
+    router = APIRouter()
+
+    @router.get("/fine", response_model=dict[str, bool])
+    def fine() -> dict[str, bool]:
+        return {"ok": True}
+
+    router.frontend("/site", directory=str(tmp_path))  # a frontend group made before composition
+    app = create_app([ModuleSpec(name="ok", router=router, policy=Policy.default())])
+    late = Route("/late", lambda request: None)
+    listed, unlisted = r"registration via router\.{}\(\.\.\.\)", r"{} added after create_app\(\) composed"
+    attempts = {
+        "a host on the mounted router": (lambda: router.host("evil.example", app=late), listed.format("host")),
+        "a frontend on the mounted router": (
+            lambda: router.frontend("/other", directory=str(tmp_path)),
+            listed.format("frontend"),
+        ),
+        "a host on the app": (lambda: app.host("evil.example", app=late), "app.host"),
+        "a route through the class": (lambda: APIRouter.add_api_route(router, "/late", fine), unlisted.format("a route")),
+        "a route through the class on the app's router": (
+            lambda: APIRouter.add_api_route(app.router, "/late", fine),
+            unlisted.format("a route"),
+        ),
+        "a frontend into the existing group": (
+            lambda: APIRouter.frontend(router, "/more", directory=str(tmp_path)),
+            unlisted.format("a frontend route"),
+        ),
+        "a frontend group through the class on the app's router": (
+            lambda: APIRouter.frontend(app.router, "/more", directory=str(tmp_path)),
+            unlisted.format("a frontend route"),
+        ),
+        "the mounted router's list": (lambda: router.routes.append(late), unlisted.format("a route")),
+        "the app's list": (lambda: app.router.routes.insert(0, late), unlisted.format("a route")),
+        "a startup hook": (lambda: app.router.on_startup.append(fine), unlisted.format("a startup handler")),
+        "a shutdown hook": (lambda: app.router.on_shutdown.append(fine), unlisted.format("a shutdown handler")),
+        "middleware": (
+            lambda: app.user_middleware.append(Middleware(_HeaderStampMiddleware)),
+            unlisted.format("middleware"),
+        ),
+    }
+    routes = list(app.router.routes)
+    for attempt, refusal in attempts.values():
+        with pytest.raises(BootError, match=refusal):
+            attempt()
+    assert list(app.router.routes) == routes
+    assert type(copy.copy(app.router.routes)) is list  # a copy is the app's to change
+    with TestClient(app) as client:  # what was declared still starts, behind its guard
+        served = client.get("/api/v1/ok/fine")
+        assert served.status_code == 401 and "x-composed" not in served.headers
 
 
 class _HeaderStampMiddleware:
@@ -239,6 +296,22 @@ def test_dependency_overrides_freeze_outside_the_local_environment(
 def test_page_of_builds_envelope() -> None:
     page = Page[int].of([1, 2, 3], total=3, pagination=PaginationParams(skip=0, limit=10))
     assert page.model_dump() == {"items": [1, 2, 3], "total": 3, "skip": 0, "limit": 10}
+
+
+def test_a_skip_no_database_takes_is_a_400_not_a_driver_error() -> None:
+    router = APIRouter()
+
+    @router.get("/rows", response_model=dict[str, int])
+    def rows(pagination: PaginationDep) -> dict[str, int]:
+        return {"skip": pagination.skip}
+
+    app = FastAPI()
+    register_error_handlers(app)
+    app.include_router(router)
+    client = TestClient(app)
+    assert client.get("/rows", params={"skip": MAX_SKIP}).json() == {"skip": MAX_SKIP}
+    refused = client.get("/rows", params={"skip": MAX_SKIP + 1})
+    assert refused.status_code == 400 and "at the latest" in refused.text
 
 
 # --------------------------------------------------------------------------- #

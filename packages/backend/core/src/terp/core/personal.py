@@ -41,6 +41,7 @@ is a string, and so is ``customer.email`` passed on its own. Log the model or it
 
 from __future__ import annotations
 
+import re
 import weakref
 from collections.abc import Iterable, Mapping
 from threading import Lock
@@ -303,25 +304,35 @@ def _held(instance: BaseModel, name: str) -> Any:
     return state.dict.get(name)
 
 
+def held_personal_values(instance: BaseModel) -> frozenset[str]:
+    """Every declared personal value *instance* holds in memory, as text, never loaded."""
+    return frozenset(
+        str(current)
+        for name in personal_fields(instance)
+        if (current := _held(instance, name)) is not None and str(current)
+    )
+
+
+def withhold_values(text: str, values: Iterable[str]) -> str:
+    """*text* with each of *values* replaced by ``[PERSONAL]``, longest first, in any case.
+
+    Longest first, so a value inside another goes with it; in any case, since a database may
+    repeat a value as an index folded it.
+    """
+    for current in sorted(set(values), key=len, reverse=True):
+        text = re.sub(re.escape(current), lambda _: PERSONAL, text, flags=re.IGNORECASE)
+    return text
+
+
 def withhold_personal_values(text: str, instance: BaseModel) -> str:
     """*text* with every declared personal value *instance* holds replaced by ``[PERSONAL]``.
 
     For text the framework builds from a row it has in hand, such as a database's refusal
     to store it (``Key (email)=(...) already exists``): the values are known, so they are
-    what is removed, longest first so a value inside another goes with it.
+    what is removed. A refused flush expires the rows in it, so the write chokepoint reads
+    the values before it flushes (:func:`held_personal_values`, :func:`withhold_values`).
     """
-    values = sorted(
-        {
-            str(current)
-            for name in personal_fields(instance)
-            if (current := _held(instance, name)) is not None and str(current)
-        },
-        key=len,
-        reverse=True,
-    )
-    for current in values:
-        text = text.replace(current, PERSONAL)
-    return text
+    return withhold_values(text, held_personal_values(instance))
 
 
 def personal_columns(metadata: MetaData | None = None) -> dict[str, tuple[str, ...]]:
@@ -369,5 +380,7 @@ __all__ = [
     "personal_fields",
     "redact_personal",
     "refuse_public_personal_payload",
+    "held_personal_values",
     "withhold_personal_values",
+    "withhold_values",
 ]

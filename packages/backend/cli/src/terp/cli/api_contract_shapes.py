@@ -239,14 +239,18 @@ def _same(before: Any, after: Any, docs: Docs, pending: set[tuple[object, object
 def _same_reference(
     before: Mapping[str, Any], after: Mapping[str, Any], docs: Docs, pending: set[tuple[object, object]]
 ) -> bool:
-    key = (ref_of(before) or id(before), ref_of(after) or id(after))
-    if key in pending:
-        return True
-    pending.add(key)
+    # What is written beside a reference belongs to this place alone, so it is compared at
+    # every visit, before the shortcut for a pair already being compared: otherwise whether a
+    # changed default is seen depends on which place the walk meets first, an order a set's
+    # hash randomisation sets from one run to the next.
     old, old_beside = follow(before, docs.before)
     new, new_beside = follow(after, docs.after)
     if not _same(old_beside, new_beside, docs, pending, names=False):
         return False
+    key = (ref_of(before) or id(before), ref_of(after) or id(after))
+    if key in pending:
+        return True
+    pending.add(key)
     if old is None or new is None:
         # Nothing to resolve to, so nothing but the reference as written to compare.
         return old is None and new is None and ref_of(before) == ref_of(after)

@@ -26,7 +26,14 @@ import pathlib
 import sys
 from dataclasses import dataclass
 
-from terp.cli.api_contract import ADOPT_HINT, CONTRACT_ARTIFACT, diff_contract, read_contract, render_changes
+from terp.cli.api_contract import (
+    ADOPT_HINT,
+    CONTRACT_ARTIFACT,
+    ContractNotAFileError,
+    diff_contract,
+    read_contract,
+    render_changes,
+)
 
 #: The app reference ``terp openapi`` loads by default. The check composes the same one, so it
 #: compares the committed file with exactly what regenerating it would write.
@@ -106,6 +113,9 @@ def run_api_contract_check(project_root: pathlib.Path) -> tuple[int, str]:
         )
     try:
         committed = read_contract(project_root)
+    except ContractNotAFileError as exc:
+        # `terp openapi` writes through a link, so regenerating alone would leave it in place.
+        return 1, f"{exc}. Commit the contract itself: remove {CONTRACT_ARTIFACT}, then {ADOPT_HINT}"
     except (OSError, ValueError, RecursionError) as exc:
         return 1, (
             f"{CONTRACT_ARTIFACT} is tracked but is not a readable JSON document ({exc}), "

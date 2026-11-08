@@ -14,15 +14,18 @@ import types
 from datetime import UTC, datetime
 from importlib.resources import files
 from typing import Annotated, Any
+import zoneinfo
 from zoneinfo import ZoneInfo
 
 import pytest
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
-from pydantic import AfterValidator, BaseModel, ConfigDict, NaiveDatetime, TypeAdapter, ValidationError
+from pydantic import AfterValidator, BaseModel, ConfigDict, NaiveDatetime, TypeAdapter, ValidationError, create_model
 
-from terp.core import BaseSchema, LocalTimeIn
+from terp.core import BaseSchema, BootError, LocalTimeIn, ModuleSpec, Policy, create_app
 from terp.core.local_time import _instant_in
+
+_CENTURIES = tuple(datetime(year, 1, 1, tzinfo=UTC) for year in (1800, 1900, 2000))
 
 Amsterdam = Annotated[datetime, LocalTimeIn("Europe/Amsterdam")]
 
@@ -160,6 +163,45 @@ def test_a_reader_put_on_the_class_afterwards_is_not_trusted(monkeypatch: pytest
     assert caught.value.errors()[0]["type"] == "timestamp_offset_required"
 
 
+def _swapped(**fields: object) -> LocalTimeIn:
+    """A local time declared in Amsterdam, then changed behind the type's back."""
+    marker = LocalTimeIn("Europe/Amsterdam")
+    for name, value in fields.items():
+        object.__setattr__(marker, name, value)
+    return marker
+
+
+SWAPS = {
+    "its zone for UTC": {"_zone": ZoneInfo("UTC")},
+    "its zone for another place": {"_zone": ZoneInfo("Europe/London")},
+    "both for UTC": {"zone": "UTC", "_zone": ZoneInfo("UTC")},
+    "its name for none": {"zone": None},
+    "its zone for text": {"_zone": "Europe/Amsterdam"},
+}
+
+
+@pytest.mark.parametrize("swap", sorted(SWAPS))
+def test_a_zone_swapped_behind_the_types_back_is_not_trusted(swap: str) -> None:
+    # object.__setattr__ reaches past the type's refusal of a change, and the swapped reader
+    # would read a time without an offset as UTC. The walk reads the zone again, so the
+    # timestamp in front of that reader is judged like any other.
+    swapped = create_model("_Swapped", __base__=BaseSchema, at=(Annotated[datetime, _swapped(**SWAPS[swap])], ...))
+    with pytest.raises(ValidationError) as caught:
+        swapped.model_validate({"at": "2026-11-06T10:00:00"})
+    assert caught.value.errors()[0]["type"] == "timestamp_offset_required"
+
+
+def test_create_app_refuses_a_route_whose_zone_was_swapped() -> None:
+    def slots(starts_after: datetime) -> dict[str, str]:  # pragma: no cover - never served
+        return {}
+
+    slots.__annotations__["starts_after"] = Annotated[datetime, _swapped(_zone=ZoneInfo("UTC"))]
+    router = APIRouter()
+    router.add_api_route("/slots", slots, response_model=dict[str, str])
+    with pytest.raises(BootError, match="'starts_after'"):
+        create_app([ModuleSpec(name="slots", router=router, policy=Policy.default())])
+
+
 def test_it_reads_each_item_of_a_list_and_an_optional_value() -> None:
     agenda = _Agenda.model_validate(
         {"slots": ["2026-11-06T10:00", "2026-11-06T11:00:00+01:00"], "moved_at": None}
@@ -212,6 +254,37 @@ def test_a_key_that_names_no_place_is_refused_and_points_to_the_escape(zone: str
     with pytest.raises(ValueError, match="names no place's wall time") as caught:
         LocalTimeIn(zone)
     assert "NaiveMeansUtc" in str(caught.value)
+
+
+@pytest.fixture
+def without_a_host_database() -> Any:
+    """zoneinfo as it reads on Windows or a slim image: from the pinned tzdata package alone."""
+    zoneinfo.reset_tzpath(to=[])
+    ZoneInfo.clear_cache()
+    yield
+    zoneinfo.reset_tzpath()
+    ZoneInfo.clear_cache()
+
+
+@pytest.mark.parametrize("zone", ["EST", "MST", "HST", "Japan", "CET"])
+def test_a_name_without_a_place_is_refused_on_every_host(zone: str, without_a_host_database: Any) -> None:
+    """The tzdata package reads EST, MST and HST as Panama, Phoenix and Honolulu from 2024b,
+    where many a host's own database keeps them fixed offsets: judged by the zone's history they
+    were accepted on one host and refused on another, so an app passed its tests on one and
+    failed at import on the next. A place is named Area/Location, judged by the name."""
+    assert len({moment.astimezone(ZoneInfo("EST")).utcoffset() for moment in _CENTURIES}) > 1, (
+        "the package reads EST as a place's zone, which is what made the history disagree"
+    )
+    with pytest.raises(ValueError, match="names no place's wall time") as caught:
+        LocalTimeIn(zone)
+    assert "Area/Location" in str(caught.value)
+
+
+def test_a_name_only_one_host_s_database_holds_is_refused_everywhere() -> None:
+    """A host's own directories (posix/, right/) are no zone the pinned data holds."""
+    with pytest.raises(ValueError, match="names no place's wall time|names no time zone this server knows"):
+        LocalTimeIn("posix/Europe/Amsterdam")
+    assert LocalTimeIn("US/Eastern").zone == "US/Eastern", "an old Area/Location name is still a place"
 
 
 @pytest.mark.parametrize("zone", ["localtime", "posixrules"])

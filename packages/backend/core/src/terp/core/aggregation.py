@@ -20,7 +20,9 @@ every result is capped, and a statistic never answers for one person's personal 
 from __future__ import annotations
 
 import datetime as dt
+import enum
 import re
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
@@ -36,17 +38,16 @@ from sqlmodel.sql.expression import SelectOfScalar
 
 from terp.core.errors import ValidationFailedError
 from terp.core.filtering import FilterField, resolve_filters
-from terp.core.personal import personal_fields
+from terp.core.aggregation_types import VALUE_OPS, type_refusal
+from terp.core.aggregation_window import _steps_table, window_bounds, window_days, window_steps
+from terp.core.pagination import refuse_skip_past_any_table
+from terp.core.personal_reads import personal_reads
 
 MeasureOp = Literal["count", "count_distinct", "sum", "avg", "min", "max"]
 """The fixed aggregate set. Declared per measure by the service — never sent by a client."""
 
 TimeStep = Literal["day", "week", "month"]
 """Calendar steps of the caller's time zone. A week starts on Monday (ISO 8601)."""
-
-#: The ops whose answer is derived from the values themselves. Over a group of one, each
-#: of them is that one row's value, so none may run over a field declared personal.
-VALUE_OPS: frozenset[str] = frozenset({"sum", "avg", "min", "max"})
 
 #: How many groups one page may hold unless a declaration lowers it.
 DEFAULT_MAX_GROUPS = 100
@@ -60,17 +61,10 @@ DEFAULT_MAX_POINTS = 10_000
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
-MeasureValue = int | float | Decimal | dt.date | dt.datetime | None
-DimensionValue = str | int | float | bool | Decimal | dt.date | dt.datetime | None
-
-
-def _column_key(column: InstrumentedAttribute) -> str:
-    return str(column.key)
-
-
-def _is_personal(column: InstrumentedAttribute) -> bool:
-    owner = getattr(column, "class_", None)
-    return owner is not None and _column_key(column) in personal_fields(owner)
+MeasureValue = int | float | Decimal | str | dt.date | dt.datetime | dt.time | dt.timedelta | None
+DimensionValue = (
+    str | int | float | bool | Decimal | dt.date | dt.datetime | dt.time | uuid.UUID | enum.Enum | None
+)
 
 
 @dataclass(frozen=True)
@@ -137,7 +131,9 @@ class SeriesPoint(BaseModel):
 
     ``date`` is the step's own label. ``start`` is the instant, in the window's zone, and on a
     day whose midnight daylight saving skips it reads 01:00; a client that re-zones it to its
-    own clock could also move it to the day before, so label a step by ``date``.
+    own clock could also move it to the day before, so label a step by ``date``. A day the zone
+    skipped entirely (Samoa's 30 December 2011) is a step of no length: its ``date`` is that
+    day, and its ``start`` is the next day's.
     """
 
     start: dt.datetime
@@ -185,31 +181,37 @@ def declaration_refusal(
     grouping, a time bucket or a value-derived measure over a field declared personal is
     refused: over a group of one each of them is that person's value, and a breakdown per
     person is a list, which has a route, a policy and a page of its own (ADR 0204 decision 5).
+    So is a declaration whose column's type the aggregate cannot take, which would fail on
+    every request: a sum of text, a maximum of a boolean, a group keyed by JSON.
     """
     names = [m.name for m in measures] + [d.name for d in dimensions] + [b.name for b in time_buckets]
     doubled = sorted({n for n in names if names.count(n) > 1})
     if doubled:
         return f"{owner} declares {', '.join(map(repr, doubled))} more than once among its statistics."
     for dimension in dimensions:
-        if _is_personal(dimension.column):
+        reads = personal_reads(dimension.column)
+        if reads:
             return (
-                f"{owner} groups by {dimension.name!r}, a field declared personal: a group of one "
-                "is that person's value. A breakdown per person is a list route, not a statistic."
+                f"{owner} groups by {dimension.name!r}, {reads}: a group of one is that person's "
+                "value. A breakdown per person is a list route, not a statistic."
             )
     for bucket in time_buckets:
-        if _is_personal(bucket.column):
+        reads = personal_reads(bucket.column)
+        if reads:
             return (
-                f"{owner} buckets by {bucket.name!r}, a field declared personal: a bucket of one "
-                "is that person's value. Count it, or list it, but do not bucket it."
+                f"{owner} buckets by {bucket.name!r}, {reads}: a bucket of one is that person's "
+                "value. Count it, or list it, but do not bucket it."
             )
     for measure in measures:
-        if measure.op in VALUE_OPS and measure.column is not None and _is_personal(measure.column):
+        reads = personal_reads(measure.column) if measure.op in VALUE_OPS and measure.column is not None else ""
+        if reads:
             return (
-                f"{owner} declares {measure.name!r} as {measure.op} over a field declared personal: "
-                "over a group of one it is that person's value. Only count and count_distinct may "
-                "run over personal data."
+                f"{owner} declares {measure.name!r} as {measure.op} over {reads}: over a group of "
+                "one it is that person's value. Only count and count_distinct may run over "
+                "personal data."
             )
-    return ""
+    # Last: a personal field is refused for what it is, before its type is judged at all.
+    return type_refusal(measures, dimensions, owner)
 
 
 def resolve_time_zone(name: str | ZoneInfo) -> ZoneInfo:
@@ -220,51 +222,6 @@ def resolve_time_zone(name: str | ZoneInfo) -> ZoneInfo:
         return ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError) as exc:
         raise ValidationFailedError(f"{name!r} is not a time zone this server knows.") from exc
-
-
-def _next_step(day: dt.date, step: TimeStep) -> dt.date:
-    if step == "day":
-        return day + dt.timedelta(days=1)
-    if step == "week":
-        return day + dt.timedelta(days=7 - day.weekday())
-    return (day.replace(day=1) + dt.timedelta(days=32)).replace(day=1)
-
-
-def _midnight(day: dt.date, zone: ZoneInfo) -> dt.datetime:
-    """Local midnight of *day* in *zone*, as a UTC instant (a short day keeps its length)."""
-    return dt.datetime.combine(day, dt.time(), tzinfo=zone).astimezone(dt.UTC)
-
-
-def window_bounds(window: Window, zone: ZoneInfo) -> list[dt.datetime]:
-    """The UTC instants that cut the window into its steps; the whole window without one."""
-    if window.end < window.start:
-        raise ValidationFailedError("A window's end is on or after its start.")
-    last = window.end + dt.timedelta(days=1)
-    if window.step is None:
-        return [_midnight(window.start, zone), _midnight(last, zone)]
-    days = [window.start]
-    while days[-1] < last:
-        days.append(min(_next_step(days[-1], window.step), last))
-    return [_midnight(day, zone) for day in days]
-
-
-def _steps_table(bounds: Sequence[dt.datetime], column_type: Any) -> Any:
-    """The window's steps as rows ``(i, lo, hi)``, to join a row to the step it falls in.
-
-    A join to a small table of bound instants groups by a plain column and is the cheapest
-    form measured on both dialects (a few times faster than a balanced ``CASE``, an order of
-    magnitude faster than one ``WHEN`` per step). Each bound is bound with the bucket column's
-    own type, so it is stored-form compatible on SQLite and a ``timestamptz`` on PostgreSQL.
-    """
-    rows = [
-        sa_select(
-            literal(index, Integer).label("i"),
-            literal(bounds[index], column_type).label("lo"),
-            literal(bounds[index + 1], column_type).label("hi"),
-        )
-        for index in range(len(bounds) - 1)
-    ]
-    return (union_all(*rows) if len(rows) > 1 else rows[0]).subquery("steps")
 
 
 def _by_name(declared: Sequence[Any], requested: Sequence[str], kind: str) -> list[Any]:
@@ -328,6 +285,7 @@ def aggregate(
     limit = statistics.max_groups if limit is None else limit
     if skip < 0:
         raise ValidationFailedError(f"A page of groups starts at 0 or later; {skip} was asked.")
+    refuse_skip_past_any_table(skip)
     if limit < 1 or limit > statistics.max_groups:
         raise ValidationFailedError(
             f"A page of groups holds 1 to {statistics.max_groups}; {limit} was asked."
@@ -343,29 +301,35 @@ def aggregate(
             )
         zone = resolve_time_zone(window.zone)
         try:
-            bounds = window_bounds(window, zone)
+            steps = window_steps(window)
         except OverflowError as exc:
             raise ValidationFailedError("That window reaches past the years a timestamp holds.") from exc
-        steps = len(bounds) - 1
         if window.step is not None and steps > bucket.max_buckets:
             raise ValidationFailedError(
                 f"That window holds {steps} {window.step}s; a series holds at most "
                 f"{bucket.max_buckets}. Ask for a shorter window or a longer step."
             )
-        if window.step is not None and steps * limit > statistics.max_points:
+        # Without a dimension there is one group, whatever page size was asked.
+        groups = limit if groups_by else 1
+        if window.step is not None and steps * groups > statistics.max_points:
             raise ValidationFailedError(
-                f"{limit} groups of {steps} {window.step}s would be {steps * limit} points; a "
+                f"{groups} groups of {steps} {window.step}s would be {steps * groups} points; a "
                 f"page carries at most {statistics.max_points}. Ask for fewer groups, a "
                 "shorter window or a longer step."
             )
+        try:
+            bounds = window_bounds(window, zone)
+        except OverflowError as exc:
+            raise ValidationFailedError("That window reaches past the years a timestamp holds.") from exc
 
     declared_filters = {field.name: field for field in statistics.filterable}
     for name, value in (filters or {}).items():
         field = declared_filters.get(name)
-        if value is not None and field is not None and _is_personal(field.column):
+        reads = personal_reads(field.column) if value is not None and field is not None else ""
+        if reads:
             raise ValidationFailedError(
-                f"Filter {name!r} narrows by a field declared personal, and a statistic is "
-                "never narrowed by one: its counts would answer for one person."
+                f"Filter {name!r} narrows by {reads}, and a statistic is never narrowed by one: "
+                "its counts would answer for one person."
             )
     scoped = query
     conditions = resolve_filters(statistics.filterable, filters)
@@ -411,7 +375,8 @@ def aggregate(
             )
         )
     if window is not None and window.step is not None and result:
-        _attach_series(session, rows, chosen, groups_by, keys, result, bounds, zone)
+        days = window_days(window)
+        _attach_series(session, rows, chosen, groups_by, keys, result, bounds, days, zone)
     return result, total
 
 
@@ -433,7 +398,7 @@ def _order(sort, chosen, groups_by, figures, keys) -> list[Any]:
     return terms
 
 
-def _attach_series(session, rows, chosen, groups_by, keys, result, bounds, zone) -> None:
+def _attach_series(session, rows, chosen, groups_by, keys, result, bounds, days, zone) -> None:
     index = rows.c["b"]
     figures = [_aggregate(m, rows).label(f"m_{m.name}") for m in chosen]
     query = sa_select(*keys, index, *figures).select_from(rows).group_by(*keys, index)
@@ -461,7 +426,8 @@ def _attach_series(session, rows, chosen, groups_by, keys, result, bounds, zone)
         group.series = [
             SeriesPoint(
                 start=start,
-                date=start.date(),
+                # The date that opens the step: a day the zone skipped starts where the next does.
+                date=days[i],
                 measures={
                     m.name: _value(m, steps[i][f"m_{m.name}"]) if i in steps else _empty(m)
                     for m in chosen
@@ -489,4 +455,5 @@ __all__ = [
     "VALUE_OPS",
     "Window",
     "window_bounds",
+    "window_days",
 ]

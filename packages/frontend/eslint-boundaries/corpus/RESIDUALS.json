@@ -16,7 +16,7 @@
       "a marker written by a route other than an attribute in markup, a properties-object key, an attribute-setting call or a data-attribute-map assignment (`Object.assign(element.dataset, { terp: \"card\" })`, an attribute node built with `document.createAttribute`) is not required to be recognised"
     ],
     "frontend/timestamp-inputs-carry-their-offset": [
-      "a type reached through a spread or a variable (`type={kind}`), and an input whose type is set through the DOM rather than in JSX, are not resolved to the local date-and-time control"
+      "a type read from a name, a call or a member (`type={kind}`), a props object spread onto the element, `createElement`, and an input whose type is set through the DOM rather than in JSX, are not resolved to the local date-and-time control"
     ]
   }
 }

@@ -1,11 +1,12 @@
 # 0204 — A statistic is declared on the service, like a filter
 
 - **Status:** Accepted on 2026-11-06 by the owner, who answered the three review questions as
-  recommended (decision 5, decision 6, the zone database). Built in 0.37.0. An
-  independent review of the proposed record before the build found that it leaked personal data
-  through filters, missed Core reads and froze a context-dependent answer in a cache. It also
-  found claims the code did not support. Each finding is either fixed below or recorded as an
-  open gap with its follow-up (see *What the review changed*).
+  recommended (decision 5, decision 6, the zone database). Built in 0.37.0. Decisions 5 and 6
+  amended in 0.39.0, after a review of the build (see there). An independent review of the proposed
+  record before the build found that it leaked personal data through filters, missed Core reads
+  and froze a context-dependent answer in a cache. It also found claims the code did not
+  support. Each finding is either fixed below or recorded as an open gap with its follow-up (see
+  *What the review changed*).
 - **Date:** 2026-11-06.
 - **Relates:** [ADR 0017](0017-non-overridable-scope-predicate-and-registry.md) (the row scope
   every read composes, and the `reads_use_base_query` rule that warns about a read that skips
@@ -208,6 +209,14 @@ This guards fields *declared* personal, not every breakdown by person. A dimensi
 `customer_id` is a per-customer figure, and whether that is a statistic or a list is the
 service's call.
 
+**Amended in 0.39.0.** A review found that the check read only the attribute a declaration
+names, so `func.lower(User.email)`, a `cast`, a label, an alias, `User.__table__.c.email` and a
+subquery's column over the address each passed it, and so did a filter under a function. Every
+declared column and every filter that narrows a statistic is now walked down to the columns it
+stands for, and each is matched to the models that map it, by its table's and its own name. SQL
+that names no model column, literal SQL or a bare column name, is refused too: nothing can tell
+it apart from a personal field.
+
 A minimum group size, so that a group of one cannot be read off a narrowed count, is **not**
 decided here. It is a real threat for a small population, and it is a policy with a number in
 it. It needs its own record when an application asks for it.
@@ -215,15 +224,26 @@ it. It needs its own record when an application asks for it.
 ### 6. The runtime refuses every SELECT it cannot scope
 
 The ORM execution hook stays, and tests now pin each aggregate shape it scopes, for soft-delete,
-tenant and owner scope, on both dialects. Beside it, the same hook refuses a SELECT that reads a
-row-scoped table through Core. The rule is judged **per SELECT**, nested ones included:
+tenant and owner scope, on both dialects. Beside it, the same hook refuses a read it cannot
+scope. Only the shapes it can scope pass, so a shape nobody listed is refused rather than read.
+The rule is judged **per SELECT**, nested ones included:
 - **Named:** a scoped table in a SELECT's FROM list must be named by a mapped entity in that
   same SELECT, which is what the loader criteria attach to. A mapped entity elsewhere in the
   statement does not count: a parent's relationship to a child reaches the child's mapper
   without covering a Core join to the child's table.
+- **Tables:** a table is matched to its models by name alone, case folded and in any schema. A
+  `table("NAME")`, a copy of the Table in another `MetaData` and a sample of it are the model's
+  table, and so is one inside a parenthesised join.
 - **Aliases:** an ORM alias counts when it is named in that SELECT. A Core alias never does.
-- **Literal SQL:** a FROM written as literal SQL is refused outright, since nothing can scope
-  it.
+- **Wherever a read names an entity:** the session attaches the criteria to every mapped entity
+  a read names, in its own clauses, a loader option, a `VALUES` row, or a column property of a
+  model it loads, whose SQL every load of the model carries. Each is held to the rules above,
+  and a refusal says where it stands.
+- **Literal SQL:** refused wherever the statement writes it, unless it is a name, a number or
+  `*`: `text()`, a `text()` subquery, a literal column, a prefix, a suffix and a hint. Nothing
+  can read it, let alone scope it.
+- **What reads no table:** a `VALUES` list and a function's rows pass, and what they hold is
+  walked with the rest of the statement. A FROM element of any other kind is refused.
 - **Many-to-many:** one whose secondary table is row-scoped is refused when it loads. Map the
   link as an association object instead.
 
@@ -236,6 +256,20 @@ alone. A Core read of a table with no row scope is allowed.
 
 The audit the owner asked for ran the framework's whole suite with the refusal on. No framework
 code path reads a row-scoped table through Core on a request session.
+
+**Amended in 0.39.0.** A review found that the first build refused the shapes it recognised and
+let every other one through. A literal column holding a subquery, a `text()` subquery, a
+`table()` in another case or schema, a copy or a sample of the table, and a table inside a
+parenthesised join each read soft-deleted rows on both dialects. So did the parts SQLAlchemy's
+own walk of a statement skips, though each is written into the SQL: a prefix, a suffix and a
+hint. A model named only in a column property, a loader option or a `VALUES` row was read
+unscoped even through its entity, since the session looked for entities in the statement's own
+clauses only and attached no criteria. Measured on both dialects, the criteria apply in each of
+those places once attached, so the session now finds the entity there and scopes it. The check
+now passes only the shapes above. The same review found that a SELECT carrying an `INSERT`,
+`UPDATE` or `DELETE` in a CTE ran it outside the audited write chokepoint
+([ADR 0015](0015-runtime-write-guarded-session.md)). The session now treats such a SELECT as a
+write.
 
 ## What does not change
 
@@ -265,6 +299,10 @@ code path reads a row-scoped table through Core on a request session.
 `reads_use_base_query` stays `runtime.applicability: required`.
 
 ## Known gaps, recorded
+
+- **The database's own SQL.** A view or a function that reads a scoped table is read like any
+  other table or function: the session sees its name, not the SQL behind it. It scopes the
+  rows it reads in its own SQL, or a view is mapped to a model that carries the scope traits.
 
 - **The build-time rule sees direct mixins only.** It does not see a model that inherits soft
   delete through a base of its own, or an `OwnedMixin` model. For those, the runtime refusal is
@@ -302,6 +340,26 @@ are folded in above:
   - the zone database;
   - the build-time half of the personal-data row;
   - where the catalog corrections land.
+
+### Amended in 0.39.0: declarations that failed on every request
+
+A review after 0.38.0 found statistics a service could declare and never answer:
+- A dimension over a UUID column, though every Terp id is one, and `min` or `max` over a text
+  column were each a 500: the group refused the value the database returned. A group now carries
+  a UUID, an enum and a time of day as a dimension, and text, a time of day and a duration as a
+  figure.
+- PostgreSQL has no `sum` of text or of a boolean, no `min` or `max` of a UUID, a boolean or a
+  JSON value, and cannot key a group by JSON; SQLite answers a sum of text with `0.0`. Such a
+  declaration is now refused when the class is defined, after the personal-data refusals, judged
+  on the column's Python type read through a `TypeDecorator`. A type that names none is left to
+  the database.
+- SQLite reads at most 500 terms of one compound `SELECT`, and the step join was one, so a series
+  of more than 500 steps failed there. The steps are joined in groups of 500.
+- The points cap counted the page size asked even with no dimension, where there is one group,
+  so a year of days over the whole scope was refused at the default page size.
+- A step was labelled by its start read back in the zone. A day the zone skipped entirely
+  (Samoa's 30 December 2011) starts where the next day does, so the series named one day twice.
+  A step is now labelled by the date that opens it.
 
 ## Consequences
 

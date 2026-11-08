@@ -81,9 +81,9 @@ def create_user_command(
     service = UsersService()
     with contextlib.closing(get_session()) as gen:
         session = next(gen)
-        existing = service.get_by_email(session, email)
+        existing = service.get_by_address(session, email)  # one mailbox, in any spelling
         if existing is not None:
-            return f"user {email!r} already exists (id {existing.id}); left unchanged"
+            return f"user {existing.email!r} already exists (id {existing.id}); left unchanged"
         password = password_reader(password_env)
         try:
             user = service.create(

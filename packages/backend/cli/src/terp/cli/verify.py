@@ -1243,18 +1243,49 @@ def _run_argv(
         )
 
 
-def _workspace_absent(root: pathlib.Path, workspace: str, check_id: str) -> str | None:
-    """Why *check_id* is not applicable: the npm *workspace* is not there at all.
+#: The package that marks each of the framework's own npm workspaces: the template's frontend
+#: depends on react-core, and its conformance suite on the conformance package.
+_WORKSPACE_MARKS = {"frontend": "@terpjs/react-core", "conformance": "@terpjs/conformance"}
 
-    The directory decides, never one file in it. An app rendered API-only has no
-    ``frontend/`` and no ``conformance/`` (ADR 0202), so there is nothing to run and
-    nothing to fail; a ``frontend/`` that exists without its ``package.json`` is a
-    frontend that cannot be built, and that stays the red the command itself reports.
-    The project root is never absent, so a root-level manifest command is never skipped.
+
+def _missing_workspace(root: pathlib.Path, workspace: str, check_id: str) -> tuple[int, str] | None:
+    """What the framework's *check_id* answers when its npm *workspace* is missing, or ``None``.
+
+    An app rendered API-only has no ``frontend/`` and no ``conformance/`` (ADR 0202), so the
+    check has nothing to judge: not applicable. The missing directory alone does not decide it,
+    though: a workspace kept anywhere else is one the check would never read, and the security
+    lint among them would go quiet by a rename. So when a manifest anywhere in the app depends
+    on the package that marks the workspace, the check is red and names where it is. A
+    ``frontend/`` that exists without its ``package.json`` is a frontend that cannot be built,
+    and that stays the red the command itself reports. The project root is never missing, so a
+    root-level manifest command always runs.
     """
     if workspace in ("", ".") or (root / workspace).is_dir():
         return None
-    return f"no {workspace}/ - {check_id} {NOT_APPLICABLE}"
+    mark = _WORKSPACE_MARKS.get(workspace)
+    found = [
+        path.parent.relative_to(root).as_posix() or "."
+        for path in _terp_frontend_manifests(root)
+        if mark is not None and _declares(path, mark)
+    ]
+    if found:
+        return 1, (
+            f"no {workspace}/, but {', '.join(f'{place}/package.json' for place in found)} "
+            f"depends on {mark}: {check_id} reads that workspace at {workspace}/ only, so it would "
+            f"judge nothing. Move it to {workspace}/"
+        )
+    return 0, f"no {workspace}/ - {check_id} {NOT_APPLICABLE}"
+
+
+def _declares(manifest: pathlib.Path, package: str) -> bool:
+    """Whether *manifest* depends on *package* (it was read once already, so it parses)."""
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    return any(package in (data.get(key) or {}) for key in _NPM_DEPENDENCY_KEYS)
+
+
+def _builtin(check_id: str) -> bool:
+    """Whether *check_id* is one of the framework's own checks, never an app's declared one."""
+    return any(check.id == check_id for checks in PROFILES.values() for check in checks)
 
 
 def _run_subprocess(
@@ -1274,9 +1305,16 @@ def _run_subprocess(
     argv = shlex.split(check.command)
     if argv and argv[0] == "npm":
         workspace = _npm_workspace(argv)
-        absent = _workspace_absent(root, workspace, check.id)
-        if absent is not None:
-            return 0, absent
+        if workspace not in ("", ".") and not (root / workspace).is_dir() and not _builtin(check.id):
+            # An app's own check names its workspace itself, so a missing one is a mistake,
+            # never a check with nothing to judge: a gate green over a check it never ran.
+            return 1, (
+                f"{check.id} runs npm in {workspace}/, which does not exist: correct the path in "
+                f"its {APP_CHECK_TABLE} entry in pyproject.toml, or remove the entry"
+            )
+        missing = _missing_workspace(root, workspace, check.id)
+        if missing is not None:
+            return missing
         problem = _node_modules_problem(root, workspace)
         if problem is not None:
             return 1, problem
@@ -1786,8 +1824,9 @@ def _run_routes_drift(root: pathlib.Path) -> tuple[int, str]:
     from terp.cli.routes import ADOPT_HINT, routes_argv, routes_script_wired
 
     frontend = root / "frontend"
-    if not frontend.is_dir():
-        return 0, "no frontend/ - route types not applicable"
+    missing = _missing_workspace(root, "frontend", "routes-drift")
+    if missing is not None:
+        return missing
     if not routes_script_wired(frontend):
         # A note, not silence: this passes by SKIPPING, and the reader is the only one
         # who can turn it on. Announcing that only in `--format json` is how the opt-in
@@ -1994,9 +2033,12 @@ def _run_frontend_tests(root: pathlib.Path) -> tuple[int, str]:
     line, under a README that calls a fresh checkout gate-green. The note keeps vitest's
     own words, so a glob that matches nothing by mistake is still visible, only not red.
     """
+    missing = _missing_workspace(root, "frontend", "frontend-tests")
+    if missing is not None:
+        return missing
     manifest = root / "frontend" / "package.json"
     if not manifest.is_file():
-        return 0, "no frontend/package.json - frontend tests not applicable"
+        return 1, "frontend/ holds no package.json, so its tests cannot run: restore the manifest"
     try:
         declared = json.loads(manifest.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -2060,8 +2102,9 @@ def _run_api_client(root: pathlib.Path) -> tuple[int, str]:
     from terp.cli.openapi import export_openapi
 
     frontend = root / "frontend"
-    if not frontend.is_dir():
-        return 0, "no frontend/ - the API client is not applicable"
+    missing = _missing_workspace(root, "frontend", "api-client")
+    if missing is not None:
+        return missing
     manifest = frontend / "package.json"
     try:
         scripts = json.loads(manifest.read_text(encoding="utf-8")).get("scripts") or {}
@@ -2175,11 +2218,12 @@ def _run_conformance(root: pathlib.Path) -> tuple[int, str]:
     """
     from terp.cli.dev import DEFAULT_WEB_PORT
 
-    absent = _workspace_absent(root, "conformance", _CONFORMANCE.id)
-    if absent is not None:
-        # No suite to drive at all (an API-only app renders none, ADR 0202): the same
-        # seam every npm check answers through, before the stack is looked for.
-        return 0, absent
+    missing = _missing_workspace(root, "conformance", _CONFORMANCE.id)
+    if missing is not None:
+        # No suite to drive at all (an API-only app renders none, ADR 0202), or one kept where
+        # this check never reads it: the same seam every npm check answers through, before the
+        # stack is looked for.
+        return missing
     url, source = conformance_address(root)
     if url is None:
         return 1, (

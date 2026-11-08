@@ -1253,6 +1253,50 @@ def test_an_application_override_outranks_a_capability_route_declaration() -> No
     assert effective("/api/v1/auth/token") == (1_000, 60)
 
 
+def test_a_route_declared_at_the_general_limit_follows_the_application_s_own() -> None:
+    """``RateLimit.general()`` is the application's general limit, in a bucket of its own.
+
+    A capability that wanted that for a route wrote ``RateLimit()``: the framework's default
+    of 240 a minute, which stayed 240 where the application set its general limit to 60, so
+    the one public route of the files capability ignored the application's tighter cap
+    while the comment beside it said it followed it.
+    """
+    spec = _spec_declaring("media", {"/link": RateLimit.general()})
+    tight = SecurityConfig(rate_limit=RateLimit(requests=60, window_seconds=60))
+    assert _rate_limit_override_map([spec], tight) == {"/api/v1/media/link": (60, 60)}
+    assert _rate_limit_override_map([spec], SecurityConfig()) == {"/api/v1/media/link": (240, 60)}
+    # An application override may name the general limit too, and the notice reads both
+    # sides as the numbers they resolve to: following the general limit raises nothing.
+    loose = SecurityConfig(
+        rate_limit=RateLimit(requests=600, window_seconds=60),
+        rate_limit_overrides=(("/api/v1/media", RateLimit.general()),),
+    )
+    assert _rate_limit_override_map([spec], loose) == {"/api/v1/media": (600, 60)}
+    with pytest.raises(ValueError, match="the general limit itself"):
+        SecurityConfig(rate_limit=RateLimit.general())
+
+
+def test_following_the_general_limit_is_read_as_its_numbers_by_the_production_notice(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    spec = _spec_declaring("media", {"/link": RateLimit.general()})
+    config = SecurityConfig(
+        rate_limit=RateLimit(requests=60, window_seconds=60),
+        rate_limit_overrides=(("/api/v1/media", RateLimit(requests=120, window_seconds=60)),),
+    )
+    with caplog.at_level(logging.WARNING):
+        _warn_loosened_capability_limit_in_production([spec], config)
+    assert "/api/v1/media/link" in caplog.text and "120/60s" in caplog.text
+    caplog.clear()
+    following = SecurityConfig(
+        rate_limit=RateLimit(requests=60, window_seconds=60),
+        rate_limit_overrides=(("/api/v1/media", RateLimit.general()),),
+    )
+    with caplog.at_level(logging.WARNING):
+        _warn_loosened_capability_limit_in_production([spec], following)
+    assert caplog.records == []
+
+
 def test_a_capability_route_declaration_stands_when_the_app_says_nothing() -> None:
     """The other half: absent an override, the capability's own split is untouched.
 

@@ -46,6 +46,21 @@ class LastAdminError(AppError):
     )
 
 
+class AddressTakenError(ConflictError):
+    """409 — another account holds this address, in some spelling.
+
+    ``Member@example.test`` and ``member@example.test`` reach one mailbox, so they are one
+    address, and one address is one account (ADR 0196).
+    """
+
+    status_code = 409
+    code = "address_taken"
+    default_message = (
+        "Another account already has this address. Addresses are compared without regard to "
+        "case, so a different spelling of it is the same address."
+    )
+
+
 class SelfAdminActionError(AppError):
     """409 — an administrator may not deactivate or demote their own account."""
 
@@ -90,6 +105,7 @@ class UsersService(BaseService[User, UserProvision, UserAdminUpdate]):
         DTO's ``max_length`` stays the separate DoS cap.
         """
         validate_password(data.password)
+        self._refuse_taken_address(session, data.email)
         user = User(
             email=data.email,
             hashed_password=hash_password(data.password),
@@ -131,10 +147,16 @@ class UsersService(BaseService[User, UserProvision, UserAdminUpdate]):
         re-implements the query. An already-present user is returned untouched (no password
         reset, no role change), so re-running a seed is a safe no-op.
         """
-        existing = self.get_by_email(session, data.email)
+        existing = self.get_by_address(session, data.email)
         if existing is not None:
             return existing
         return self.create(session, data)
+
+    def _refuse_taken_address(self, session: Session, email: str, *, but: uuid.UUID | None = None) -> None:
+        """Refuse *email* when an account other than *but* holds it, in any spelling."""
+        holder = self.get_by_address(session, email)
+        if holder is not None and holder.id != but:
+            raise AddressTakenError()
 
     def update(
         self,
@@ -165,6 +187,8 @@ class UsersService(BaseService[User, UserProvision, UserAdminUpdate]):
                 from terp.core import StaleDataError
 
                 raise StaleDataError()
+            if data.email is not None:
+                self._refuse_taken_address(session, data.email, but=user.id)
             patch = self._without_managed_columns(data.model_dump(exclude_unset=True))
             for key, value in patch.items():
                 setattr(user, key, value)

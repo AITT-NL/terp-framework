@@ -7,17 +7,21 @@ credential and no key, and nothing it writes reaches an image, which ``build`` a
 What it produces is its word:
 
 * the verdict of one run of ``terp verify --profile release --format json`` in the checkout of
-  the SHA, with npm's lifecycle scripts off: every check it ran, by id with whether it passed,
-  and the release-assurance claim those same results compose (ADR 0200). Nothing a check
+  the SHA, with npm's lifecycle scripts off: every check it ran, by id with whether it passed and
+  whether it had anything to judge, and the release-assurance claim those same results compose
+  (ADR 0200). A check with nothing to judge, such as an API-only app's frontend (ADR 0202), is
+  recorded as such, so a lane it composes is ``not-run`` and never ``passed``. Nothing a check
   printed is recorded, because that is the app's own text from a run with the app's environment;
-  what a red check printed goes to the gate's own log instead, where the operator reads it;
+  what a red check printed, and why a check had nothing to judge, goes to the gate's own log
+  instead, where the operator reads it;
 * the schedule catalog, each schedule's name, cron and job, read by running the pushed backend
   image, pulled by digest, as its own non-root user with no network and a read-only filesystem,
   so a deploy tool that never imports the app can trigger every schedule.
 
 ``sign`` reads the document in the version the commit's pinned ``terp-cli`` writes, and signs a
-version 2 document only when every check passed and the claim holds (:func:`require_passed`); the
-manifest files the claim and the schedules under ``collected``.
+version 2 or 3 document only when every check passed and the claim holds, and is the one the
+checks compose (:func:`require_passed`); the manifest files the claim and the schedules under
+``collected``.
 
 The checkout must be the SHA, clean. Its docker client gets a configuration directory of its
 own, holding nothing or the pull credential it is given, so the operator's push credential is
@@ -50,14 +54,21 @@ from terp.cli.verify import assurance_document
 
 DOCUMENT = "terpReleaseGate"
 
-#: The version this toolchain writes: every check of the release profile beside the claim.
-#: Version 1, which the gate wrote before :data:`STRICT_SINCE`, records the claim alone.
-VERSION = 2
+#: The version this toolchain writes: every check of the release profile, with whether it had
+#: anything to judge, beside the claim. Version 2 records each check's verdict alone, and version
+#: 1, which the gate wrote before :data:`STRICT_SINCE`, the claim alone.
+VERSION = 3
 
-#: The first ``terp-cli`` release whose gate writes :data:`VERSION`. The gate is the commit's own
-#: pinned toolchain (ADR 0187 decision 6), so ``sign`` reads a commit's document in the version
-#: this says its gate writes, and in no other (ADR 0200 decision 3).
+#: The first ``terp-cli`` release whose gate writes version 2 or later. The gate is the commit's
+#: own pinned toolchain (ADR 0187 decision 6), so ``sign`` reads a commit's document in the
+#: version this and :data:`APPLICABLE_SINCE` say its gate writes, and in no other (ADR 0200
+#: decision 3).
 STRICT_SINCE = "0.36.1"
+
+#: The first ``terp-cli`` release whose gate writes :data:`VERSION`. A version 2 gate dropped
+#: whether a check had anything to judge, so a lane composed only of such checks read as passed
+#: in the claim it signed, where ``terp verify`` says not-run (ADR 0202 decision 4).
+APPLICABLE_SINCE = "0.39.0"
 
 #: The command the gate runs, once: the whole release profile, with every check's verdict.
 VERIFY = ("verify", "--profile", "release", "--format", "json")
@@ -73,9 +84,13 @@ _SEALED = (
 )
 
 
-def _is_verdict(check: object) -> bool:
-    """Whether *check* is one check's verdict: its id, and whether it passed."""
-    return isinstance(check, dict) and isinstance(check.get("id"), str) and isinstance(check.get("ok"), bool)
+def _is_verdict(check: object, version: int = VERSION) -> bool:
+    """Whether *check* is one check's verdict in a *version* document: its id and whether it
+    passed, and from version 3 whether it had anything to judge."""
+    return (
+        isinstance(check, dict) and isinstance(check.get("id"), str) and isinstance(check.get("ok"), bool)
+        and (version < VERSION or isinstance(check.get("applicable"), bool))
+    )
 
 
 def _verify(checkout: pathlib.Path) -> list[dict[str, Any]]:
@@ -103,7 +118,9 @@ def _verify(checkout: pathlib.Path) -> list[dict[str, Any]]:
     for check in checks:
         if not check["ok"]:
             _relay_red(check)
-    return [{"id": check["id"], "ok": check["ok"]} for check in checks]
+        elif not check["applicable"]:
+            _relay_inapplicable(check)
+    return [{"id": check["id"], "ok": check["ok"], "applicable": check["applicable"]} for check in checks]
 
 
 def _relay_red(check: dict[str, Any]) -> None:
@@ -124,6 +141,14 @@ def _relay_red(check: dict[str, Any]) -> None:
     tail = check.get("output_tail")
     if isinstance(tail, str) and tail.strip():
         emit(tail.rstrip())
+
+
+def _relay_inapplicable(check: dict[str, Any]) -> None:
+    """Write why *check* had nothing to judge to the gate's own log: a check that ran nothing is
+    never a silent green there, though the claim already names no lane it composes as passed."""
+    tail = check.get("output_tail")
+    reason = tail.strip().split("\n", 1)[0] if isinstance(tail, str) and tail.strip() else ""
+    emit(f"verify: {check['id']} not applicable" + (f": {reason}" if reason else ""))
 
 
 def _backend(build: dict[str, Any]) -> dict[str, Any]:
@@ -209,13 +234,15 @@ def red(document: dict[str, Any]) -> list[str]:
 
 
 def _green(document: dict[str, Any]) -> None:
-    """Refused unless a version 2 *document* holds a verdict of each check of the release profile,
-    agrees with it, and every check passed."""
+    """Refused unless a version 2 or 3 *document* holds a verdict of each check of the release
+    profile, agrees with it, and every check passed."""
     profile = document.get("profile")
     checks = profile.get("checks") if isinstance(profile, dict) else None
+    version = document[DOCUMENT]
     if (
         not isinstance(checks, list) or not checks or profile.get("name") != "release"
-        or not isinstance(profile.get("ok"), bool) or not all(_is_verdict(check) for check in checks)
+        or not isinstance(profile.get("ok"), bool)
+        or not all(_is_verdict(check, version) for check in checks)
     ):
         raise ReleaseError(
             "the gate document holds no verdict of the release profile's checks: sign reads only "
@@ -242,18 +269,25 @@ def require_passed(document: dict[str, Any], terp_cli: str) -> None:
 
     The gate is the commit's own pinned toolchain, so its document is read in the version that
     toolchain writes (ADR 0200): version 1 below :data:`STRICT_SINCE`, held to its
-    release-assurance claim alone, as it always was; version 2 from it up, held to every check
-    the release profile ran, to itself, and to the claim.
+    release-assurance claim alone, as it always was; version 2 from it up, and version 3 from
+    :data:`APPLICABLE_SINCE`, held to every check the release profile ran, to itself, and to the
+    claim those checks compose.
     """
     try:
-        strict = version_key(terp_cli) >= version_key(STRICT_SINCE)
+        pinned = version_key(terp_cli)
     except ReleaseError as exc:
         raise ReleaseError(
             f"the commit's uv.lock pins terp-cli {terp_cli}, which is not a release number this "
             "signer compares, so it cannot tell which gate document that toolchain writes: "
             "sign a commit that pins a released terp-cli"
         ) from exc
-    expected = VERSION if strict else 1
+    if pinned >= version_key(APPLICABLE_SINCE):
+        expected = VERSION
+    elif pinned >= version_key(STRICT_SINCE):
+        expected = 2
+    else:
+        expected = 1
+    strict = expected > 1
     if document[DOCUMENT] != expected:
         raise ReleaseError(
             f"the gate document is version {document[DOCUMENT]}, and the commit pins terp-cli "
@@ -275,7 +309,7 @@ def require_passed(document: dict[str, Any], terp_cli: str) -> None:
 
 
 def _composed(document: dict[str, Any], claim: dict[str, Any]) -> None:
-    """Refused unless a version 2 document's *claim* is the one its own checks compose.
+    """Refused unless a version 2 or 3 document's *claim* is the one its own checks compose.
 
     The gate composes the claim from the very checks it records (decision 1), so a claim that
     holds over checks that do not compose it was not written by one run: a claim borrowed from
@@ -290,4 +324,4 @@ def _composed(document: dict[str, Any], claim: dict[str, Any]) -> None:
         )
 
 
-__all__ = ["DOCUMENT", "STRICT_SINCE", "VERIFY", "VERSION", "gate", "red", "require_passed"]
+__all__ = ["APPLICABLE_SINCE", "DOCUMENT", "STRICT_SINCE", "VERIFY", "VERSION", "gate", "red", "require_passed"]
