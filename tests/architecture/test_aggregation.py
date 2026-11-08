@@ -311,6 +311,8 @@ def test_window_bounds_cut_a_window_into_its_steps() -> None:
         "2026-03-03",
     ]
     assert len(window_bounds(Window("sold", dt.date(2026, 1, 1), dt.date(2026, 1, 1), zone), zone)) == 2
+    with pytest.raises(ValidationFailedError, match="end is on or after its start"):
+        window_bounds(Window("sold", dt.date(2026, 1, 2), dt.date(2026, 1, 1), zone, "day"), zone)
 
 
 @pytest.mark.parametrize("step", ["day", "week", "month"])
