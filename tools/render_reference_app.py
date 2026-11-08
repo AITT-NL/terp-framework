@@ -187,7 +187,7 @@ def _skipped_if_exists() -> set[str]:
     """The files copier seeds once and never rewrites: the app's from the first render."""
     # Imported here, not at the top: rendering needs only the standard library and copier,
     # so another lane can run this from a bare checkout. Only the baseline reads YAML.
-    import yaml  # noqa: PLC0415 - see above
+    import yaml  # see above
 
     config = yaml.safe_load((TEMPLATE / "copier.yml").read_text(encoding="utf-8"))
     return set(config.get("_skip_if_exists", ()))

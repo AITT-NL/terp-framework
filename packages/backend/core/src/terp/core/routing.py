@@ -281,7 +281,7 @@ def declared_route_policy(endpoint: object | None) -> "Policy | None":
     # Imported here rather than at module scope: `module_spec` imports this file, so a
     # top-level import would be a cycle. The isinstance check is worth the import --
     # `getattr` on a stray attribute of the same name must not be mistaken for a policy.
-    from terp.core.module_spec import Policy  # noqa: PLC0415
+    from terp.core.module_spec import Policy
 
     found = getattr(endpoint, ROUTE_POLICY_ATTRIBUTE, None)
     return found if isinstance(found, Policy) else None

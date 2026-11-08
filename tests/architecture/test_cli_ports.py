@@ -29,9 +29,9 @@ import pytest
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "packages" / "backend" / "cli" / "src"))
 
-from terp.cli import main  # noqa: E402
-from terp.cli import ports as ports_module  # noqa: E402
-from terp.cli.ports import (  # noqa: E402
+from terp.cli import main
+from terp.cli import ports as ports_module
+from terp.cli.ports import (
     BLOCK_BEGIN,
     BLOCK_END,
     WEB_BASE,
@@ -1042,7 +1042,7 @@ def test_concurrent_assigns_do_not_lose_a_claim(tmp_path, capsys, monkeypatch):
     def _run(root):
         try:
             ports_module.assign(root)
-        except BaseException as exc:  # noqa: BLE001 - reported, not swallowed
+        except BaseException as exc:  # reported, not swallowed
             errors.append(exc)
 
     threads = [threading.Thread(target=_run, args=(root,)) for root in roots]

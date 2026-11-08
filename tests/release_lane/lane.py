@@ -84,7 +84,7 @@ def missing_tools() -> list[str]:
             (["docker", "buildx", "version"], "docker buildx"),
             (["docker", "compose", "version"], "docker compose"),
         ):
-            if subprocess.run(argv, capture_output=True, check=False).returncode != 0:  # noqa: S603
+            if subprocess.run(argv, capture_output=True, check=False).returncode != 0:
                 missing.append(what)
     return missing
 
@@ -100,7 +100,7 @@ def run(
 ) -> subprocess.CompletedProcess[str]:
     """Run *argv* (no shell); a failure raises with what the program said."""
     executable = shutil.which(argv[0]) or argv[0]
-    done = subprocess.run(  # noqa: S603 - a fixed argument list
+    done = subprocess.run(  # a fixed argument list
         [executable, *argv[1:]], cwd=cwd, env=env, input=stdin.decode() if stdin else None,
         capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
         timeout=timeout,

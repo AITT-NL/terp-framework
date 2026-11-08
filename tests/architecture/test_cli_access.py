@@ -136,7 +136,7 @@ def test_access_graph_warns_when_module_declares_no_services() -> None:
     router = APIRouter()
 
     @router.get("/")
-    def listing() -> dict:  # pragma: no cover - never called
+    def listing() -> dict:  # never called
         return {}
 
     spec = ModuleSpec(name="widgets", router=router, policy=Policy.default())
@@ -171,7 +171,7 @@ def test_access_graph_marks_route_level_permission_dependencies() -> None:
     router = APIRouter()
 
     @router.post("/approve", dependencies=[Depends(require_permission(approve))])
-    def approve_widget() -> dict:  # pragma: no cover - never called
+    def approve_widget() -> dict:  # never called
         return {}
 
     spec = ModuleSpec(
@@ -235,18 +235,18 @@ def test_the_model_reports_a_websocket_route_and_leaves_nesting_to_the_reconcili
     child = APIRouter()
 
     @child.get("/nested-leaf", response_model=str)
-    def leaf() -> str:  # pragma: no cover - never called
+    def leaf() -> str:  # never called
         return "x"
 
     parent = APIRouter()
     parent.include_router(child)
 
     @parent.get("/top", response_model=str)
-    def top() -> str:  # pragma: no cover - never called
+    def top() -> str:  # never called
         return "x"
 
     @parent.websocket("/live")
-    async def live(ws: WebSocket) -> None:  # pragma: no cover - never called
+    async def live(ws: WebSocket) -> None:  # never called
         return None
 
     model = build_access_model(
@@ -288,7 +288,7 @@ def test_the_projection_sees_a_permission_declared_in_the_endpoint_signature() -
     router = APIRouter()
 
     @router.post("/act", response_model=str)
-    def do_act(_: None = Depends(require_permission(act))) -> str:  # pragma: no cover
+    def do_act(_: None = Depends(require_permission(act))) -> str:
         return "ok"
 
     model = build_access_model(
@@ -327,7 +327,7 @@ def test_a_public_route_gated_by_a_grant_is_not_reported_as_allowed() -> None:
     router = APIRouter()
 
     @router.post("/act", response_model=str, dependencies=[Depends(require_permission(act))])
-    def do_act() -> str:  # pragma: no cover - never called
+    def do_act() -> str:  # never called
         return "ok"
 
     spec = ModuleSpec(
@@ -353,7 +353,7 @@ def test_a_public_route_gated_by_a_grant_is_not_reported_as_allowed() -> None:
     open_router = APIRouter()
 
     @open_router.get("/health", response_model=str)
-    def health() -> str:  # pragma: no cover - never called
+    def health() -> str:  # never called
         return "ok"
 
     probe = ModuleSpec(
@@ -373,7 +373,7 @@ def test_access_graph_renders_public_policy() -> None:
     router = APIRouter()
 
     @router.get("/")
-    def probe() -> dict:  # pragma: no cover - never called
+    def probe() -> dict:  # never called
         return {}
 
     spec = ModuleSpec(
@@ -408,7 +408,7 @@ def test_access_graph_surfaces_missing_policy_and_empty_predicate_edges(
     )
 
     def _demo_object_authz() -> bool:  # reported by name only, never invoked here
-        return True  # pragma: no cover - listed in the graph, not called
+        return True  # listed in the graph, not called
 
     # App-wide predicate registries are global; pin them for a deterministic view.
     monkeypatch.setattr(access_mod, "registered_scope_predicates", lambda: ())
@@ -424,7 +424,7 @@ def test_access_graph_surfaces_missing_policy_and_empty_predicate_edges(
     router = APIRouter()
 
     @router.get("/")
-    def listing() -> dict:  # pragma: no cover - never called
+    def listing() -> dict:  # never called
         return {}
 
     spec = ModuleSpec(
@@ -584,7 +584,7 @@ def test_access_graph_flags_a_mounted_route_absent_from_the_graph() -> None:
     router = APIRouter()
 
     @router.get("/")
-    def ghost() -> dict:  # pragma: no cover - never called
+    def ghost() -> dict:  # never called
         return {}
 
     app.include_router(router, prefix="/api/v1/ghost")
@@ -610,13 +610,13 @@ def test_access_graph_flags_nested_router_routes_instead_of_dropping_them() -> N
     nested = APIRouter()
 
     @nested.get("/nested")
-    def deep() -> dict:  # pragma: no cover - never called
+    def deep() -> dict:  # never called
         return {}
 
     parent = APIRouter()
 
     @parent.get("/")
-    def top() -> dict:  # pragma: no cover - never called
+    def top() -> dict:  # never called
         return {}
 
     parent.include_router(nested, prefix="/deep")
@@ -647,7 +647,7 @@ def test_access_graph_reports_mounted_sub_applications() -> None:
     app.mount("/static", FastAPI())
 
     @app.get("/ping")
-    def ping() -> dict:  # pragma: no cover - never called
+    def ping() -> dict:  # never called
         return {}
 
     app.state.terp_module_specs = ()
@@ -679,7 +679,7 @@ def test_access_graph_alarms_undeclared_event_subscribers(monkeypatch) -> None:
     from terp.cli.access import build_access_graph_for_app, render_access_graph
     from terp.core import ControlPlane, PermissionModel
 
-    def _ghost_handler(envelope) -> None:  # pragma: no cover - never invoked
+    def _ghost_handler(envelope) -> None:  # never invoked
         ...
 
     monkeypatch.setattr(

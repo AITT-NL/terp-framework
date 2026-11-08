@@ -170,7 +170,7 @@ def check_grantable_modules_are_named(
 def check_platform_modules_refuse_module_roles(
     app_root: str | pathlib.Path,
     *,
-    package: str = "app",  # noqa: ARG001  (the harness calls every rule with it)
+    package: str = "app",  # the harness calls every rule with it
 ) -> list[ArchViolation]:
     """A module that can hand authority out is never itself per-module assignable.
 

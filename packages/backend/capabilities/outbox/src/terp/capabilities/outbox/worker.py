@@ -272,7 +272,7 @@ class OutboxWorker:
         """Execute one claimed *message*, then finalize its status; return that status."""
         try:
             self._execute(message)
-        except Exception as exc:  # noqa: BLE001 - any handler failure becomes a retry / dead-letter
+        except Exception as exc:  # any handler failure becomes a retry / dead-letter
             return self._finalize_failure(message, exc)
         return self._finalize_success(message)
 

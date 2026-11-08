@@ -20,9 +20,9 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli import guide_choices, main  # noqa: E402  (import after sys.path setup)
-from terp.cli import capabilities as capabilities_module  # noqa: E402
-from terp.cli.capabilities import (  # noqa: E402
+from terp.cli import guide_choices, main  # import after sys.path setup
+from terp.cli import capabilities as capabilities_module
+from terp.cli.capabilities import (
     CAPABILITIES,
     Capability,
     app_sources,

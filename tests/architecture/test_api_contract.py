@@ -25,9 +25,9 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli import main  # noqa: E402
-from terp.cli.api_contract_shapes import Docs, same  # noqa: E402
-from terp.cli.api_contract import (  # noqa: E402
+from terp.cli import main
+from terp.cli.api_contract_shapes import Docs, same
+from terp.cli.api_contract import (
     ADOPT_HINT,
     CONTRACT_ARTIFACT,
     Change,
@@ -474,7 +474,7 @@ def test_the_contract_is_read_as_one_json_object(tmp_path: pathlib.Path) -> None
 def _link(link: pathlib.Path, target: str) -> None:
     try:
         os.symlink(target, link)
-    except OSError:  # pragma: no cover - a Windows account without the link privilege
+    except OSError:  # a Windows account without the link privilege
         pytest.skip("this account cannot create a symbolic link")
 
 

@@ -164,7 +164,7 @@ class FakeIdP:
             if isinstance(self.token_body, str):
                 return httpx.Response(self.token_status, text=self.token_body)
             return httpx.Response(self.token_status, json=self.token_body)
-        raise AssertionError(f"unexpected IdP request: {request.url}")  # pragma: no cover
+        raise AssertionError(f"unexpected IdP request: {request.url}")
 
     @property
     def sender(self) -> Sender:
@@ -751,7 +751,7 @@ def test_validate_normalizes_untrusted_optional_claims(idp: FakeIdP, client: OID
 # the router — construction fail-fast + the wired flow
 # --------------------------------------------------------------------------- #
 def test_router_construction_refuses_bad_registries() -> None:
-    resolver = lambda session, claims: None  # noqa: E731
+    resolver = lambda session, claims: None
     with pytest.raises(ValueError, match="at least one"):
         build_oidc_router([], resolver)
     with pytest.raises(ValueError, match="duplicate"):

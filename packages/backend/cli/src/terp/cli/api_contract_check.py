@@ -132,7 +132,7 @@ def run_api_contract_check(project_root: pathlib.Path) -> tuple[int, str]:
         # one channel `terp verify --format json` reports on: its stdout goes to stderr here.
         with contextlib.redirect_stdout(sys.stderr):
             live = openapi_document(load_app(APP_REF))
-    except (SystemExit, Exception) as exc:  # noqa: BLE001 - any failure to compose is the app's answer
+    except (SystemExit, Exception) as exc:  # any failure to compose is the app's answer
         return 1, (
             f"{APP_REF} could not be composed, so whether {CONTRACT_ARTIFACT} still describes "
             f"the API this app serves cannot be established: {type(exc).__name__}: {exc}\n"

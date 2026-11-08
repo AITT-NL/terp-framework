@@ -235,7 +235,7 @@ def test_a_machine_token_is_not_validated_against_the_user_table(
 # --------------------------------------------------------------------------- #
 # Wiring — the fail-closed construction guards
 # --------------------------------------------------------------------------- #
-def _authenticate(session, email, password):  # pragma: no cover - never called
+def _authenticate(session, email, password):  # never called
     return None
 
 

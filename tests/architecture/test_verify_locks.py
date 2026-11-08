@@ -221,7 +221,7 @@ def test_uv_answers_for_a_lock_it_wrote_and_refuses_it_once_the_manifest_moves(
     tmp_path,
 ) -> None:
     root = _managed(tmp_path, **{"uv.lock": ""})
-    subprocess.run(["uv", "lock", "--offline"], cwd=root, check=True, capture_output=True)  # noqa: S603, S607
+    subprocess.run(["uv", "lock", "--offline"], cwd=root, check=True, capture_output=True)
     assert run_locks_check(root)[0] == 0
 
     pyproject = root / "pyproject.toml"
@@ -241,7 +241,7 @@ def test_npm_answers_for_a_lock_it_wrote_and_refuses_it_once_the_manifest_moves(
     tmp_path, monkeypatch
 ) -> None:
     root = _managed(tmp_path, **{"frontend/package.json": _PACKAGE})
-    subprocess.run(  # noqa: S603
+    subprocess.run(
         [shutil.which("npm") or "npm", "--prefix", "frontend", "install",
          "--package-lock-only", "--offline", "--no-audit", "--no-fund"],
         cwd=root,

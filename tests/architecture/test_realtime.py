@@ -108,7 +108,7 @@ def _principal(role=EDITOR) -> Principal:
     return Principal(id=uuid.uuid4(), role=role)
 
 
-_FAKE_BEARER = "test-access-token"  # noqa: S105 - test fixture, not a real credential
+_FAKE_BEARER = "test-access-token"  # test fixture, not a real credential
 
 
 def _request(token: str = _FAKE_BEARER) -> Request:

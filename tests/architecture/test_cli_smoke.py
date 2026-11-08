@@ -25,8 +25,8 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli import main  # noqa: E402
-from terp.cli.smoke import (  # noqa: E402
+from terp.cli import main
+from terp.cli.smoke import (
     SmokeStep,
     _await_health,
     _backend_services,
@@ -447,7 +447,7 @@ def test_the_health_poll_gives_up_rather_than_hanging() -> None:
 
 def test_the_health_poll_returns_true_once_the_endpoint_answers() -> None:
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler's interface
+        def do_GET(self) -> None:  # BaseHTTPRequestHandler's interface
             self.send_response(200)
             self.end_headers()
 
@@ -535,7 +535,7 @@ def test_a_server_that_already_exited_is_not_terminated_again(
         def poll(self) -> int:
             return 0
 
-        def terminate(self) -> None:  # pragma: no cover - proving this is NOT reached
+        def terminate(self) -> None:  # proving this is NOT reached
             raise AssertionError("terminate called on an already-exited process")
 
     monkeypatch.setattr("terp.cli.smoke._spawn_server", lambda step, cwd: _ExitedProcess())

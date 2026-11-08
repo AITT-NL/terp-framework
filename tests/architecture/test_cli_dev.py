@@ -21,8 +21,8 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli import main, run_dev_command  # noqa: E402
-from terp.cli.dev import (  # noqa: E402
+from terp.cli import main, run_dev_command
+from terp.cli.dev import (
     _POLL_SECONDS,
     _refuse_taken_ports,
     DEFAULT_API_PORT,
@@ -597,7 +597,7 @@ def test_the_claimed_pair_is_used_when_nothing_is_passed(
 def test_an_explicit_port_wins_and_the_other_half_is_still_claimed(
     tmp_path: pathlib.Path,
 ) -> None:
-    claim = lambda root: ({"WEB_PORT": 21107, "API_PORT": 22107}, "")  # noqa: E731
+    claim = lambda root: ({"WEB_PORT": 21107, "API_PORT": 22107}, "")
 
     (api, web) = dev_ports(tmp_path, port=9000, web_port=None, claim=claim)
 
@@ -618,7 +618,7 @@ def test_both_ports_passed_means_no_claim_is_made(tmp_path: pathlib.Path) -> Non
 def test_no_claim_falls_back_to_the_fixed_pair_and_says_why(
     tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    claim = lambda root: ({}, "workbench.json declares this app unmanaged")  # noqa: E731
+    claim = lambda root: ({}, "workbench.json declares this app unmanaged")
 
     (api, web) = dev_ports(tmp_path, port=None, web_port=None, claim=claim)
 
@@ -635,7 +635,7 @@ def test_the_names_a_workbench_declares_are_the_names_read(tmp_path: pathlib.Pat
         '{"role": "api", "service": "api", "hostPortEnv": "SHOP_API_PORT"}]}',
         encoding="utf-8",
     )
-    claim = lambda root: ({"SHOP_WEB_PORT": 21120, "SHOP_API_PORT": 22120}, "")  # noqa: E731
+    claim = lambda root: ({"SHOP_WEB_PORT": 21120, "SHOP_API_PORT": 22120}, "")
 
     (api, web) = dev_ports(tmp_path, port=None, web_port=None, claim=claim)
 

@@ -83,7 +83,7 @@ def _project(
         assert refused == []
         _write(root, rendered)
     if git:
-        subprocess.run(["git", "init", "-q", str(root)], check=True)  # noqa: S603, S607
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
     _write(root, {name.replace("__", "/").replace("_dot_", "."): data for name, data in files.items()})
     return root
 

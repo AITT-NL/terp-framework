@@ -17,10 +17,10 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.core import settings  # noqa: E402
-from terp.core._internal.engine import reset_engine  # noqa: E402
+from terp.core import settings
+from terp.core._internal.engine import reset_engine
 
-from terp.cli import main, run_seed_command  # noqa: E402
+from terp.cli import main, run_seed_command
 
 _SEED_APP = """\
 from sqlmodel import SQLModel

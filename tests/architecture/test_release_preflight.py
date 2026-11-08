@@ -26,7 +26,7 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 sys.path.insert(0, str(_REPO_ROOT / "tools"))
 
-from check_pypi_projects import (  # noqa: E402
+from check_pypi_projects import (
     distribution_names,
     main,
     missing_projects,

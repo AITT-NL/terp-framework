@@ -201,7 +201,7 @@ def test_boot_refuses_an_undeclared_websocket_in_a_public_module() -> None:
     router = APIRouter()
 
     @router.websocket("/ws")
-    async def socket(websocket) -> None:  # pragma: no cover - never connected
+    async def socket(websocket) -> None:  # never connected
         ...
 
     spec = ModuleSpec(name="probe", router=router, policy=_PUBLIC_WRITE)

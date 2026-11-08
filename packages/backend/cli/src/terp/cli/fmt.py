@@ -36,7 +36,7 @@ def changed_python_files(root: str | pathlib.Path = ".") -> list[pathlib.Path]:
     """
     base = pathlib.Path(root)
     try:
-        result = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        result = subprocess.run(  # fixed argv, no shell
             ["git", "status", "--porcelain", "--untracked-files=all"],  # noqa: S607
             cwd=base,
             capture_output=True,

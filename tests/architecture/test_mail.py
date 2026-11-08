@@ -445,7 +445,7 @@ class _Relay:
         self._server.shutdown()
         self._server.server_close()
 
-    def _serve(self, sock: object) -> None:  # noqa: C901 - one small protocol, inline on purpose
+    def _serve(self, sock: object) -> None:  # one small protocol, inline on purpose
         session = _Session(tls=self.implicit_tls)
         self.sessions.append(session)
         if self.implicit_tls:

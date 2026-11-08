@@ -129,7 +129,7 @@ def note_guard_decision(
             "guard %s on %s: %s", guard["outcome"], tier, guard["rule"],
             extra=log_fields(event="guard.decision", guard=guard, actor=actor, tenant=tenant),
         )
-    except Exception as exc:  # noqa: BLE001 - recording a decision never changes it
+    except Exception as exc:  # recording a decision never changes it
         _report_failure(_guard_logger, "a guard decision", exc)
 
 
@@ -177,7 +177,7 @@ def write_access_line(scope: Scope, notes: dict[str, Any], elapsed: float) -> No
                 guard=notes.get("guard"),
             ),
         )
-    except Exception as exc:  # noqa: BLE001 - the access line never breaks a response
+    except Exception as exc:  # the access line never breaks a response
         _report_failure(_access_logger, "an access line", exc)
 
 

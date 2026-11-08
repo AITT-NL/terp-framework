@@ -523,7 +523,7 @@ def test_adopt_schemas_rolls_back_wholesale_on_failure(pg_url: str) -> None:
     finally:
         engine.dispose()
 
-    with pytest.raises(Exception):  # noqa: B017 - the driver's error class is incidental
+    with pytest.raises(Exception):  # the driver's error class is incidental
         adopt_schemas(pg_url, APP_ROOT, package="app")
 
     # Nothing moved: the tables adopted before the failing one are back in public.
@@ -966,7 +966,7 @@ def _pg_client_version() -> tuple[int, ...] | None:
     binary = shutil.which("pg_dump")
     if binary is None:
         return None
-    result = subprocess.run(  # noqa: S603 - fixed argv, no shell
+    result = subprocess.run(  # fixed argv, no shell
         [binary, "--version"], capture_output=True, text=True, check=False
     )
     match = re.search(r"(\d+)(?:\.(\d+))?", result.stdout)
@@ -1075,11 +1075,11 @@ def _dump(url: str, target: pathlib.Path, *, exclude: str | None = None) -> None
     if exclude is not None:
         argv.append(f"--exclude-table={exclude}")
     argv.append(_libpq_url(url))
-    subprocess.run(argv, check=True, capture_output=True)  # noqa: S603, S607
+    subprocess.run(argv, check=True, capture_output=True)
 
 
 def _restore(dump: pathlib.Path, url: str) -> None:
-    subprocess.run(  # noqa: S603, S607
+    subprocess.run(
         [
             "pg_restore",
             "--no-owner",

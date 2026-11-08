@@ -350,7 +350,7 @@ def test_a_link_in_the_tree_is_held_to_the_image_s_link(tmp_path: pathlib.Path) 
 
     root = tmp_path / "repo"
     committed_app(root)
-    link = subprocess.run(["git", "-C", str(root), "hash-object", "-w", "--stdin"], input=b"main.py",  # noqa: S603, S607
+    link = subprocess.run(["git", "-C", str(root), "hash-object", "-w", "--stdin"], input=b"main.py",
                           capture_output=True, check=True).stdout.decode().strip()
     git(root, "update-index", "--add", "--cacheinfo", f"120000,{link},app/alias.py")
     git(root, "commit", "-q", "-m", "a link")

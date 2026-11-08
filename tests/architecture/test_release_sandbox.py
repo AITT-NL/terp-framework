@@ -59,13 +59,13 @@ def test_the_compile_script_is_compileall_s_own_compile(tmp_path: pathlib.Path) 
     (tmp_path / "app").mkdir()
     (tmp_path / "app" / "x.py").write_bytes(source)
     expected = tmp_path / "expected.pyc"
-    subprocess.run(  # noqa: S603
+    subprocess.run(
         [sys.executable, "-c", "import py_compile, sys; py_compile.compile('app/x.py', cfile=sys.argv[1], doraise=True, "
          "invalidation_mode=py_compile.PycInvalidationMode.CHECKED_HASH)", str(expected)],
         cwd=tmp_path, check=True,
     )
     script = _sandbox._COMPILE.replace('"/tmp/w"', repr(str(tmp_path / "w"))).replace('"/tmp/out.pyc"', repr(str(tmp_path / "out.pyc")))
-    out = subprocess.run(  # noqa: S603
+    out = subprocess.run(
         [sys.executable, "-I", "-S", "-c", script],
         input=json.dumps({"app/x.py": base64.b64encode(source).decode()}).encode(), capture_output=True, check=True,
     )

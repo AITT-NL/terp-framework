@@ -17,11 +17,11 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.core import Roles, settings  # noqa: E402
-from terp.core._internal.engine import reset_engine  # noqa: E402
+from terp.core import Roles, settings
+from terp.core._internal.engine import reset_engine
 
-from terp.cli import main  # noqa: E402
-from terp.cli.users import create_user_command, read_password, resolve_role  # noqa: E402
+from terp.cli import main
+from terp.cli.users import create_user_command, read_password, resolve_role
 
 # A synthetic app that registers the identity `User` table and creates the schema, so the
 # command has a real store to write to (mirrors the terp jobs CLI test's app module).
@@ -43,7 +43,7 @@ def build():
 app = build()
 """
 
-_STRONG_PASSWORD = "correct-horse-battery-9"  # noqa: S105 - test fixture, satisfies the policy
+_STRONG_PASSWORD = "correct-horse-battery-9"  # test fixture, satisfies the policy
 
 
 @pytest.fixture(autouse=True)

@@ -76,7 +76,7 @@ class SyncSource(ABC):
         MUST persist through an audited ``BaseService`` so the synced row is stamped + audited.
         """
 
-    def push(self, session: Session) -> int:  # noqa: ARG002 - default seam; overridden by push-capable sources
+    def push(self, session: Session) -> int:  # default seam; overridden by push-capable sources
         """Push local changes to System B (``SYNC_PUSH``); default: unsupported. Returns count."""
         raise SyncError(f"sync source {self.entity_type!r} does not implement push")
 

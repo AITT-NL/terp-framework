@@ -380,7 +380,7 @@ def test_structured_formatter_extra_stays_redacted() -> None:
     # The formatter renders whatever survives the handler's RedactingFilter, so a
     # secret-bearing extra is masked before it ever reaches the log line.
     record = logging.LogRecord("svc", logging.INFO, "p", 1, "login", None, None)
-    record.password = "hunter2"  # noqa: S105 - deliberately fake secret under test
+    record.password = "hunter2"  # deliberately fake secret under test
     RedactingFilter().filter(record)
     rendered = StructuredFormatter().format(record)
     assert "hunter2" not in rendered

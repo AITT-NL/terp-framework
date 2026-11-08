@@ -710,7 +710,7 @@ def test_an_actor_that_is_not_an_id_is_never_written(no_tenant_reader: None) -> 
     # A principal provider that put the credential itself in the id: the field holds a
     # UUID or nothing, so the token cannot reach the line through it.
     register_log_tenant_reader(lambda: f"Bearer {_TOKEN}")  # type: ignore[arg-type,return-value]
-    leaky = lambda connection: Principal(id=f"Bearer {_TOKEN}", role=VIEWER)  # type: ignore[arg-type]  # noqa: E731
+    leaky = lambda connection: Principal(id=f"Bearer {_TOKEN}", role=VIEWER)  # type: ignore[arg-type]
     with captured() as lines:
         TestClient(_app(principal=leaky)).get(f"/api/v1/probe/items/{uuid.uuid4()}")
     (line,) = _ours(lines, "terp.access")
@@ -1063,7 +1063,7 @@ def test_resetting_the_logging_runtime_puts_back_only_what_capture_installed(
     assert threading.excepthook is threading.__excepthook__
     assert sys.unraisablehook is sys.__unraisablehook__
     assert warnings.showwarning is log_capture._INTERPRETER_SHOWWARNING
-    theirs = lambda *_args: None  # noqa: E731
+    theirs = lambda *_args: None
     monkeypatch.setattr(sys, "excepthook", theirs)
     monkeypatch.setattr(warnings, "showwarning", theirs)
     reset_logging_runtime()  # nothing of capture's is installed: theirs stays
@@ -1094,7 +1094,7 @@ def test_a_warning_sent_to_an_explicit_file_still_goes_there(default_hooks: None
 def test_process_capture_leaves_a_hook_someone_else_installed(
     default_hooks: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    theirs = lambda *_args: None  # noqa: E731
+    theirs = lambda *_args: None
     monkeypatch.setattr(sys, "excepthook", theirs)
     monkeypatch.setattr(threading, "excepthook", theirs)
     monkeypatch.setattr(sys, "unraisablehook", theirs)
@@ -1165,7 +1165,7 @@ def test_a_refused_configuration_does_not_print_the_configuration() -> None:
     with pytest.raises(ValidationError) as refused:
         Settings(
             ENVIRONMENT="production",
-            SECRET_KEY="short",  # noqa: S106 - refused on purpose
+            SECRET_KEY="short",  # refused on purpose
             DATABASE_URL=f"postgresql+psycopg://app:{_PASSWORD}@db/app",
         )
     text = str(refused.value)

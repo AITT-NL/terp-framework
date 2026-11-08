@@ -22,7 +22,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from terp.core import ConflictError
 from terp.core._internal.session_guard import WriteGuardedSession
 
-import terp.capabilities.audit.models  # noqa: F401  (the audit table the delete writes to)
+import terp.capabilities.audit.models  # the audit table the delete writes to
 from terp.capabilities.auth import hash_password
 from terp.capabilities.identity import User
 from terp.capabilities.users import UsersService

@@ -187,7 +187,7 @@ def test_a_declared_subscription_without_a_handler_is_refused_at_boot() -> None:
 
 def test_a_declared_subscription_with_a_registered_handler_boots() -> None:
     @subscribe(_CREATED)
-    def handler(envelope: EventEnvelope) -> None:  # pragma: no cover - never dispatched
+    def handler(envelope: EventEnvelope) -> None:  # never dispatched
         return None
 
     spec = ModuleSpec(
@@ -201,7 +201,7 @@ def test_a_declared_subscription_with_a_registered_handler_boots() -> None:
 
 def test_the_registry_reports_its_subscriptions_to_the_kernel() -> None:
     @subscribe(_CREATED)
-    def handler(envelope: EventEnvelope) -> None:  # pragma: no cover - never dispatched
+    def handler(envelope: EventEnvelope) -> None:  # never dispatched
         return None
 
     assert _CREATED.name in subscribed_event_names()

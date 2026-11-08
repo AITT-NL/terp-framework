@@ -222,7 +222,7 @@ def test_a_zone_swapped_behind_the_types_back_is_not_trusted(swap: str) -> None:
 
 
 def test_create_app_refuses_a_route_whose_zone_was_swapped() -> None:
-    def slots(starts_after: datetime) -> dict[str, str]:  # pragma: no cover - never served
+    def slots(starts_after: datetime) -> dict[str, str]:  # never served
         return {}
 
     slots.__annotations__["starts_after"] = Annotated[datetime, _swapped(_zone=ZoneInfo("UTC"))]
@@ -358,7 +358,7 @@ def test_it_is_fixed_once_declared_and_copies_as_itself() -> None:
         del marker.zone
     assert copy.copy(marker) is marker
     assert copy.deepcopy(marker) is marker
-    assert pickle.loads(pickle.dumps(marker)).zone == "Europe/Amsterdam"  # noqa: S301
+    assert pickle.loads(pickle.dumps(marker)).zone == "Europe/Amsterdam"  # noqa: S301 - bytes this test just wrote
 
 
 def test_an_instant_outside_the_years_a_timestamp_holds_is_a_422_not_a_crash() -> None:

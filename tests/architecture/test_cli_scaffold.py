@@ -18,11 +18,11 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.arch import check_app  # noqa: E402
-from terp.cli import api_docs, main, new_module  # noqa: E402
-from terp.cli.apidocs import _kind, _summary  # noqa: E402
-from terp.cli.profiles import profile_names  # noqa: E402
-from terp.cli.scaffold import _model_name, _singular, new_module_message  # noqa: E402
+from terp.arch import check_app
+from terp.cli import api_docs, main, new_module
+from terp.cli.apidocs import _kind, _summary
+from terp.cli.profiles import profile_names
+from terp.cli.scaffold import _model_name, _singular, new_module_message
 
 _MODULE = "app/modules/invoices"
 _SLOTS = {

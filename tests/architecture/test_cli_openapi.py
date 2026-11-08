@@ -19,7 +19,7 @@ _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 _EXAMPLE = _REPO_ROOT / "apps" / "example"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli import export_openapi, main  # noqa: E402
+from terp.cli import export_openapi, main
 
 
 def _read_spec(path: pathlib.Path) -> dict:

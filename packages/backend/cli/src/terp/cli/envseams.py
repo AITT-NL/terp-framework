@@ -196,7 +196,7 @@ def _compose_profiles(project_root: pathlib.Path) -> list[tuple[str, dict]]:
     for compose_path in compose_files(project_root):
         try:
             compose = _load_compose(compose_path)
-        except Exception:  # noqa: BLE001, S112 - unreadable YAML is not this check's verdict
+        except Exception:  # noqa: S112 - unreadable YAML is not this check's verdict
             continue
         services = compose.get("services")
         if not isinstance(services, dict):

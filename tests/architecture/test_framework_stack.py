@@ -37,10 +37,10 @@ from terp.core import (
 )
 from terp.core._internal.session_guard import WriteGuardedSession
 
-import terp.capabilities.access.models  # noqa: F401  (register Grant table)
-import terp.capabilities.audit.models  # noqa: F401  (register AuditEvent table)
+import terp.capabilities.access.models  # register Grant table
+import terp.capabilities.audit.models  # register AuditEvent table
 from terp.capabilities.audit.models import AuditEvent
-import terp.capabilities.identity.models  # noqa: F401  (register User table)
+import terp.capabilities.identity.models  # register User table
 from terp.capabilities.access import (
     ACCESS_ASSIGN_MODULE_ROLE,
     ACCESS_CREATE_GRANT,

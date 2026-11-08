@@ -112,7 +112,7 @@ def _owner_read_scope_predicate(
     # Imported at call time, not at module scope: `terp.core.audit` reaches this
     # module through the session guard, so a top-level import here closes a cycle
     # that only shows up as a half-initialised module at first import.
-    from terp.core.audit import audit_actor_ctx  # noqa: PLC0415 - cycle, see above
+    from terp.core.audit import audit_actor_ctx  # cycle, see above
 
     if not issubclass(model, OwnedMixin):
         return query

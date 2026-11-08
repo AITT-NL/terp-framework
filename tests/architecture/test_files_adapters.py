@@ -556,7 +556,7 @@ def test_azure_reports_a_failed_delegation_key_request_as_the_typed_error() -> N
 
 def test_azure_mints_no_link_where_nothing_can_sign_so_the_api_serves_the_bytes(session: Session) -> None:
     class _TokenCredential:  # an Entra token on the container client alone: it cannot sign a SAS
-        def get_token(self, *scopes: str) -> None:  # pragma: no cover - never called
+        def get_token(self, *scopes: str) -> None:  # never called
             return None
 
     for credential in (None, _TokenCredential(), "sv=2020-10-02&sig=abc"):
