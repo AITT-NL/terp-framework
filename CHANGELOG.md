@@ -236,6 +236,12 @@ decision, 0001 onwards.
   each branch of a conditional and of `??`, `||` and `&&`, a concatenation, a template, and the
   expression under `as`, `satisfies` and `!`. Its marker is unchanged. A value read from a name,
   a spread props object and `createElement` stay outside it, recorded as its residuals.
+- **The template names the setting that allows a browser origin (ADR 0202).** An API-only app's
+  README and AGENTS.md, and both variants' `.env.example`, said to list a browser client's origin
+  in `BACKEND_CORS_ORIGINS`. That variable allows nothing: it is read only to refuse `*`, while
+  the rendered control plane declares `CorsPolicy.disabled(...)`, so an origin listed there was
+  still refused by the browser. They now name `CorsPolicy.allow([...])` in
+  `control_plane/__init__.py`, and say what the variable is for.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
