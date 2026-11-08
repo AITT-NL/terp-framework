@@ -1,6 +1,8 @@
 # 0209 — A new app pins who can reach what, and the check names each change that widens it
 
-- **Status:** Proposed on 2026-11-08, for the owner's review before anything is built.
+- **Status:** Proposed on 2026-11-08, for the owner's review before anything is built. Revised
+  the same day after an independent review: it found three widenings the shipped check
+  passed with an empty diff, and those are fixed in 0.41.0 on their own (ADR 0139's status).
 - **Date:** 2026-11-08.
 - **Amends:** [ADR 0139](0139-who-can-reach-what-is-pinned-not-merely-reportable.md): its
   opt-in, for an app the template makes, and its consequence that labelling a change would be
@@ -32,37 +34,54 @@ The check also reports its changes as one list of sentences. A tool that must as
 about some changes and not others cannot tell them apart, so it would ask about every change or
 about none.
 
+## What it covers, and what it does not
+
+The surface answers one question: **which rung of the role ladder reaches which method and path,
+under which requirement.** It does not cover row scope (what a tenant or owner filter lets a
+caller see once in), who holds a rung (an assignment, or a role given on first sign-in), or
+realtime channels' requirements and audiences. A tool that shows its lines must not promise
+more than that.
+
+It sees the modules that `build()` composes where the check runs. A module mounted only when a
+setting is present is outside the surface unless that setting is present then.
+
 ## What changes
 
 1. **The template pins.** The template's `pyproject.toml` gains
-   `[tool.terp.verify] pinned = ["authz-surface"]`. With that line and no `authz-surface.json`,
-   the check is red and names the command that writes the file. Studio's bootstrap runs that
-   command after the first install. For an app rendered by hand, it is the README's first step.
+   `[tool.terp.verify] pinned = ["authz-surface"]`, in the release whose `terp verify` reads that
+   key: an older one refuses an unknown key, which would take every check out of the run. With
+   the line and no `authz-surface.json`, the check is red and names the command that writes the
+   file, `terp inspect access --app app.main:build --format surface`. Studio's bootstrap runs
+   it after the first install; for an app rendered by hand it is the README's first step.
    Template acceptance does the same on every variant, then runs the check. The template carries
-   no baseline of its own. A hand-kept copy of the surface would describe it rather than derive
-   it, which ADR 0121 decision 4 rules out, and it would be wrong for some combination of the
-   template's answers.
-2. **Each change is labelled.** For an endpoint on both sides, a change is a narrowing when all
-   three hold:
+   no baseline of its own: a hand-kept copy would describe the surface rather than derive it,
+   which ADR 0121 decision 4 rules out, and it would be wrong for some combination of answers.
+2. **Each change is labelled.** A rung *reaches* an endpoint unless its answer is `rank`,
+   `no_policy`, `unknown_permission`, `unauthenticated` or `unregistered_role`. A `grant` answer
+   reaches: whoever holds the permission gets in. For an endpoint on both sides, a change is a
+   narrowing when all three hold:
    - every rung's answer stays, or moves down the order public, allowed, grant, refused;
    - where both answers are a grant, they name the same permission;
    - the endpoint's required grants are the same, or more.
 
    An endpoint that is gone, or a new one that no rung reaches, is a narrowing too. Everything
    else is a widening: a new endpoint some rung reaches, a rung that gains reach, a grant that
-   names another permission, fewer required grants, and any change to the role ladder or a
-   permission's floor. This is set inclusion over the answers `decide` already gives. It judges
-   no change dangerous or safe, which ADR 0139 rightly declined to do. It proves only that
-   nobody gains reach, and calls everything else a widening.
+   names another permission, fewer required grants, a change to the role ladder or a
+   permission's floor, and a change to a module's `policy` or `access`. A change the check
+   reports without a label of its own (the whole-surface line 0.41.0 adds) is a widening too.
+   This is set inclusion over the answers `decide` already gives. It judges no change dangerous
+   or safe, which ADR 0139 rightly declined to do. It proves only that nobody gains reach, and
+   calls everything else a widening.
 3. **The output says so.** The text output lists each change under `widens:` or `narrows:`.
    `terp verify --format json` gives the check's result an `authority_changes` list with one
-   entry per change: the module, the method and path (or `roles` or `permissions` for the
-   ladder), the rungs that gain or lose reach, the sentence the text prints, and `widens`.
-   Drift stays red either way. The baseline is still regenerated in the same change, so the
-   diff records what changed.
-4. **Upgrading stays green.** Without the `pinned` line, the check still skips with its note. A
-   framework release that adds an endpoint to a capability turns a pinned app's check red, and
-   that is intended: the app's owner has not seen the new endpoint.
+   entry per change. Each entry carries what a person needs to read it: the module; the
+   method and path; the operation's label where the route declares one, or `null`; the rungs
+   that gain or lose reach, with `anonymous` for a public endpoint; the permissions involved,
+   with their labels; the sentence the text prints; and `widens`. Drift stays red either way.
+   The baseline is still regenerated in the same change, so the diff records what changed.
+4. **Upgrading stays green.** Without the `pinned` line, a tree with no baseline still skips with
+   its note. A framework release that adds an endpoint to a capability turns a pinned app's
+   check red, and that is intended: the app's owner has not seen the new endpoint.
 
 ## Consequences
 
@@ -73,3 +92,11 @@ about none.
   must exist. For now it accepts only `authz-surface`.
 - An app made before this release adopts as ADR 0139 says, with one command and one commit. It
   adds the `pinned` line if it wants a missing file to be red.
+
+## Open
+
+- **A module that only mounts under a setting.** The template mounts its OIDC routes only when
+  `OIDC_ISSUER` is set, so the check composes them only where that variable is set. Two ways
+  out: the check composes with the production settings it can name, or a module list may not
+  depend on a setting. My recommendation is the second, as a change of its own, because it
+  also makes the surface the same in every environment.
