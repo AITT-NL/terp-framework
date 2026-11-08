@@ -963,8 +963,17 @@ frontend design-system track below.
       bound is breaking, `terp secrets reseal` works in batches and passes over held rows, an
       exception handler added after `create_app` is refused, and the lint runs pyflakes.
 - [x] The Studio pins 0.39.0 (terp-studio#173).
-- [ ] 0.40.0, unreleased: on terp-spec 0.44.0, the release that holds only the contracts. The
+- [x] Released as 0.40.0 (2026-11-08), on terp-spec 0.45.0: a static site is a web unit the
+      framework builds from the `static-site` recipe (ADR 0198 step 2). The generator renders
+      `site/Dockerfile.prod`, which builds `site/` with no network and refuses a page its policy
+      would break, then serves it from a non-root nginx that proxies nothing. The profile
+      publishes it on `WEB_PORT_<UNIT>`, the fixed list gains its port and image, and the
+      release jobs read the site's lock. The deployment guide moves into a module of its own. The
       signer image and `terp promote` that read a release made with it must be 0.40.0 or later.
+- [ ] Owed before an app declares a static site (ADR 0198 decision 7): a runner release carrying
+      terp-spec 0.45.0 and the two new interpolations (terp-runner#11, merged), the signer image
+      at 0.40.0, and Studio's builder building every generator-owned web Dockerfile.
+- [ ] Owed: the Studio's pin to 0.40.0. It pins 0.39.0.
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
       every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
       the template's two `AGENTS.md` files, the repository's own and the react-core README.
