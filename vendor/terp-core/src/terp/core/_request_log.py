@@ -188,13 +188,14 @@ def log_app_error(exc: Any) -> None:
     line that already carries its status; a server error (5xx) at ERROR, with its
     traceback, because something the app relies on is broken. ``log_context`` -- the
     reason the envelope deliberately does not tell the client -- goes in ``context``,
-    redacted like every other field.
+    redacted like every other field. The message follows the code in parentheses: after a
+    colon, a code such as ``weak_password`` reads to the redactor as a credential's label.
     """
     status = exc.status_code
     server_error = status >= 500
     _error_logger.log(
         logging.ERROR if server_error else logging.INFO,
-        "%s %s: %s", status, exc.code, exc.message,
+        "%s %s (%s)", status, exc.code, exc.message,
         exc_info=exc if server_error else None,
         extra=log_fields(
             event="error.app",

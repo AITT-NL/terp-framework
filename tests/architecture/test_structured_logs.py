@@ -67,6 +67,7 @@ from terp.core import (
     RateLimit,
     SecurityConfig,
     CorsPolicy,
+    WeakPasswordError,
     create_app,
     log_record_schema,
     register_log_tenant_reader,
@@ -923,6 +924,16 @@ def test_each_app_error_is_logged_once_with_its_redacted_context() -> None:
     assert "exc_info" not in error
     assert error["request_id"] == response.headers["X-Request-ID"]
     assert _TOKEN not in json.dumps(lines)
+    assert_record(error)
+
+
+def test_an_app_error_whose_code_names_a_credential_keeps_its_whole_message() -> None:
+    # Written as "code: message", the code read to the redactor as a credential's label and
+    # the message's first word as its value, so the line said "[REDACTED] password does ...".
+    with captured() as lines:
+        request_log.log_app_error(WeakPasswordError())
+    (error,) = _ours(lines, "terp.errors")
+    assert error["message"] == "422 weak_password (The password does not meet the strength policy.)"
     assert_record(error)
 
 

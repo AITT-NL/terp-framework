@@ -265,6 +265,11 @@ decision, 0001 onwards.
   Step 4 of `terp guide secrets` dropped the list after fifteen minutes on an app without refresh
   sessions, and every link mailed before the rotation stopped working. It now waits for the
   longest of the refresh session, the self-service links and fifteen minutes.
+- **An error whose code names a credential keeps its whole message in the log (ADR 0188).** The
+  `error.app` line was written `422 weak_password: The password does not meet ...`, and the
+  redactor read the code as a credential's label and the message's first word as its value, so
+  the line said `[REDACTED] password does not meet ...`. The message now follows the code in
+  parentheses. Nothing leaked; a word was lost.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
