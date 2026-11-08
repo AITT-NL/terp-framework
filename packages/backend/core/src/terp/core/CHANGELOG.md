@@ -180,6 +180,12 @@ decision, 0001 onwards.
   it were compared, so whether a changed `default` there was reported depended on the order the
   walk met its places, which the hash seed set: five seeds of eight read "0 breaking". The exact
   pin always turned the check red; the report now names the change on every seed.
+- **An API contract committed as a symbolic link is refused, by the check and by `sign` (ADR
+  0194).** The `api-contract` check followed a link at `openapi.json` and held the app to the
+  file at its other end, while git commits a link's own text, so the signed release carried a
+  path where the contract should be. The check is now red for a link, and for anything else that
+  is not a regular file, and names how to commit the file itself; `sign` refuses a commit whose
+  contract is a link.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the

@@ -12,6 +12,7 @@ artifact rather than a scratch file.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -470,6 +471,30 @@ def test_the_contract_is_read_as_one_json_object(tmp_path: pathlib.Path) -> None
         read_contract(tmp_path)
 
 
+def _link(link: pathlib.Path, target: str) -> None:
+    try:
+        os.symlink(target, link)
+    except OSError:  # pragma: no cover - a Windows account without the link privilege
+        pytest.skip("this account cannot create a symbolic link")
+
+
+def test_a_contract_that_is_not_a_file_of_its_own_is_refused_and_never_followed(tmp_path: pathlib.Path) -> None:
+    """git commits a symbolic link's own text, so a release carries that, not the contract.
+
+    Followed, the link let the check hold the app to the file it points to and pass, while the
+    signed release carried a path where the contract should be. A pipe would hold the check
+    open, so whatever is not a regular file is refused before it is opened.
+    """
+    (tmp_path / "api.json").write_text('{"openapi": "3.1.0"}', encoding="utf-8")
+    _link(tmp_path / CONTRACT_ARTIFACT, "api.json")
+    with pytest.raises(ValueError, match="is a symbolic link"):
+        read_contract(tmp_path)
+    (tmp_path / CONTRACT_ARTIFACT).unlink()
+    (tmp_path / CONTRACT_ARTIFACT).mkdir()
+    with pytest.raises(ValueError, match="is not a regular file"):
+        read_contract(tmp_path)
+
+
 # --------------------------------------------------------------------------- #
 # the api-contract check
 # --------------------------------------------------------------------------- #
@@ -614,6 +639,21 @@ def test_a_tracked_contract_that_is_not_json_is_red(tmp_path: pathlib.Path) -> N
     exit_code, output = run_api_contract_check(tmp_path)
     assert exit_code == 1
     assert "is tracked but is not a readable JSON document" in output
+
+
+def test_a_tracked_contract_committed_as_a_link_is_red_and_names_how_to_commit_the_file(
+    tmp_path: pathlib.Path,
+) -> None:
+    from terp.cli.api_contract_check import run_api_contract_check
+
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / "api.json").write_text("{}", encoding="utf-8")
+    _link(tmp_path / CONTRACT_ARTIFACT, "api.json")
+    subprocess.run(["git", "-C", str(tmp_path), "add", CONTRACT_ARTIFACT], check=True)
+    exit_code, output = run_api_contract_check(tmp_path)
+    assert exit_code == 1
+    assert "is a symbolic link" in output
+    assert output.endswith(f"Commit the contract itself: remove {CONTRACT_ARTIFACT}, then {ADOPT_HINT}")
 
 
 def test_a_tracked_contract_with_no_app_package_is_a_named_skip(tmp_path: pathlib.Path) -> None:
@@ -800,26 +840,35 @@ def test_the_cli_prints_what_terp_openapi_reports(
 # --------------------------------------------------------------------------- #
 
 
-class _Tree:
-    def __init__(self, files: dict[str, bytes]) -> None:
-        self.files = files
+def _tree(files: dict[str, bytes], *, mode: str = "100644") -> Any:
+    """A commit's tree holding *files*, each under git *mode* (``120000`` is a link)."""
+    from terp.cli.release._git import Entry, Tree
 
-    def has(self, path: str) -> bool:
-        return path in self.files
-
-    def bytes(self, path: str) -> bytes:
-        return self.files[path]
+    entries = {path: Entry(mode, f"{number:040x}") for number, path in enumerate(files)}
+    blobs = {entries[path].oid: data for path, data in files.items()}
+    return Tree("c" * 40, "t" * 40, 0, entries, blobs)
 
 
 def test_a_release_carries_the_contract_its_commit_holds_and_nothing_when_there_is_none() -> None:
     from terp.cli.release import manifest
     from terp.cli.release._common import sha256
 
-    assert manifest.carried_contract(_Tree({})) == {}
+    assert manifest.carried_contract(_tree({})) == {}
     content = b'{"openapi": "3.1.0"}\n'
-    assert manifest.carried_contract(_Tree({CONTRACT_ARTIFACT: content})) == {
+    assert manifest.carried_contract(_tree({CONTRACT_ARTIFACT: content})) == {
         "contract": {"path": CONTRACT_ARTIFACT, "sha256": sha256(content), "content": content.decode()}
     }
+
+
+def test_a_contract_committed_as_a_link_is_refused_rather_than_carried_as_its_text() -> None:
+    """A link's blob is the path it points to. Carried, the signed release named that path
+    where the contract should be, while the check had read the file at the other end."""
+    from terp.cli.release import manifest
+    from terp.cli.release._common import ReleaseError
+
+    with pytest.raises(ReleaseError, match="committed as a symbolic link") as refused:
+        manifest.carried_contract(_tree({CONTRACT_ARTIFACT: b"docs/api.json"}, mode="120000"))
+    assert f"then uv run terp openapi, then commit {CONTRACT_ARTIFACT}" in str(refused.value)
 
 
 def _manifest_with(contract: Any) -> bytes:
