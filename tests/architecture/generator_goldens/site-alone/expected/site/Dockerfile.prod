@@ -186,8 +186,8 @@ FROM nginxinc/nginx-unprivileged@sha256:b5047b9b76845eac124358373c6852377c52e4b0
 
 COPY <<"TERP_SITE_NGINX" /etc/nginx/conf.d/default.conf
 server {
+    # IPv4 alone: a [::] listen stops nginx on a host whose kernel has no IPv6.
     listen 8080;
-    listen [::]:8080;
     server_name _;
 
     root /usr/share/nginx/html;

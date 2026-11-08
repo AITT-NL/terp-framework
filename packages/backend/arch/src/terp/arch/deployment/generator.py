@@ -1,10 +1,11 @@
-"""The generator: a generated app's three build files, rendered from its declaration (ADR 0187).
+"""The generator: a generated app's build files, rendered from its declaration (ADR 0187).
 
 Where ``deployment.json`` says ``"build": "generated"`` the production build files are the
 framework's to write: ``Dockerfile.prod`` when a unit runs the backend image,
-``frontend/Dockerfile.prod`` when a ``web`` unit names no recipe, ``site/Dockerfile.prod`` when
-one names ``static-site`` (ADR 0198), and ``docker-compose.prod.yml`` always. The template's own three files are this function's render of the seed, held byte
-for byte by a test, so the two cannot drift and a hardening change is made once.
+``frontend/Dockerfile.prod`` when a ``web`` unit names no recipe, ``site/Dockerfile.prod``
+when one names ``static-site`` (ADR 0198), and ``docker-compose.prod.yml`` always. The
+template's own three files are this function's render of the seed, held byte for byte by a
+test, so the two cannot drift and a hardening change is made once.
 
 :func:`generate` is a **pure function** of the typed declaration, the project name, whether
 the checkout holds ``frontend/package-lock.json`` and ``site/package-lock.json``, and the

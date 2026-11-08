@@ -1,9 +1,10 @@
 """The generated state's check: a committed copy that is not the render is refused (ADR 0187).
 
-Where ``deployment.json`` says ``"build": "generated"`` the three production build files are
-the generator's, and a person or an agent changes them by changing the declaration, the
-project name or the framework version, then rendering again. This module asks, from files
-alone and without importing the app, whether what is committed is what that render gives:
+Where ``deployment.json`` says ``"build": "generated"`` the production build files (three, and
+``site/Dockerfile.prod`` for a static site, ADR 0198) are the generator's, and a person or an
+agent changes them by changing the declaration, the project name or the framework version,
+then rendering again. This module asks, from files alone and without importing the app,
+whether what is committed is what that render gives:
 
 * the declaration must render - the generator's refusal, word for word, is the finding;
 * every generator-owned file must be the render byte for byte (a short diff, and the fix),

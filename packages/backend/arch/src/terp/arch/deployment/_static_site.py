@@ -195,9 +195,15 @@ if (process.argv[2] !== undefined) {
 #: policy included; real pages with no SPA fallback; no ``/api`` location; immutable caching
 #: for ``/assets/`` and none for anything else; the site's own ``404.html`` when its build
 #: writes one; and a health path nginx answers itself.
+#:
+#: It listens on IPv4 alone, where the SPA's own ``frontend/nginx.conf`` also listens on
+#: ``[::]``: on a host whose kernel has no IPv6, a ``[::]`` listen stops nginx at start. An app
+#: can edit its SPA's file, and nobody can edit this one, so it must start on every host. A
+#: port compose publishes reaches the container over the network's IPv4 address, which the
+#: generated profile never gives an IPv6 one.
 SITE_NGINX = """server {
+    # IPv4 alone: a [::] listen stops nginx on a host whose kernel has no IPv6.
     listen 8080;
-    listen [::]:8080;
     server_name _;
 
     root /usr/share/nginx/html;

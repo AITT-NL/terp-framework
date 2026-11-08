@@ -384,23 +384,20 @@ _LOCKS = VerifyCheck(
 
 # Are the build files of a generated app the generator's render (ADR 0187)? Where
 # deployment.json says "build": "generated", Dockerfile.prod, frontend/Dockerfile.prod,
-# site/Dockerfile.prod (ADR 0198) and docker-compose.prod.yml are the framework's, rendered by
-# `terp deployment render`, and a
-# committed copy that is not the render is a build nobody declared. Red also when an
-# environment file a unit loads is not ignored by git and the build context, and when the
-# template's recorded build disagrees. Silent for every other state. Its own check rather than
-# part of `deployment`, for the reason `locks` is: a stale render contradicts nothing the
-# declaration says. Category `build`, like `routes-drift`, the other generate-commit-gate
-# artifact. The scope is every input of the render and of the ignore and answers questions;
-# `pyproject.toml` also pins the terp-arch whose generator renders.
+# site/Dockerfile.prod (ADR 0198) and docker-compose.prod.yml are the framework's, rendered
+# by `terp deployment render`, and a committed copy that is not the render is a build nobody
+# declared. Red also when an environment file a unit loads is not ignored by git and the
+# build context, and when the template's recorded build disagrees. Silent for every other
+# state. Its own check rather than part of `deployment`, for the reason `locks` is: a stale
+# render contradicts nothing the declaration says. Category `build`, like `routes-drift`,
+# the other generate-commit-gate artifact. The scope is every input of the render and of the
+# ignore and answers questions; `pyproject.toml` also pins the terp-arch whose generator renders.
 _GENERATED = VerifyCheck(
     id="generated",
     category="build",
     command="terp verify --only generated",
     scope=(
-        "Dockerfile.prod",
-        "frontend/Dockerfile.prod",
-        "site/Dockerfile.prod",
+        "Dockerfile.prod", "frontend/Dockerfile.prod", "site/Dockerfile.prod",
         "docker-compose.prod.yml",
         "deployment.json",
         "pyproject.toml",

@@ -12,27 +12,78 @@ decision, 0001 onwards.
 
 ## 0.40.0 — unreleased
 
+### Added
+
+- **A static site, built from a recipe the framework owns (ADR 0198).** Under `"build":
+  "generated"`, a `web` unit that `generator.recipes` names `static-site` is built from
+  `site/` with no Dockerfile of the app's own:
+
+  ```json
+  "generator": { "recipes": { "site": "static-site" } }
+  ```
+
+  The generator renders `site/Dockerfile.prod`, a fourth generator-owned file held byte for
+  byte like the other three. Stage 1 installs exactly `site/package-lock.json` with `npm ci
+  --ignore-scripts` and runs `npm run build` with no network, no build argument and none of
+  the app's environment. It then refuses any page under `site/dist/` with an inline script, a
+  `<style>` element, a `style` or event-handler attribute or a `javascript:` URL, naming the
+  file and its first such tag: the policy refuses each in a browser, where a page breaks with
+  nothing in any log. Stage 2 serves `site/dist/` from a non-root nginx whose server
+  configuration the render carries: the template SPA's headers and content security policy,
+  real pages with no SPA fallback, no `/api` location, and `/healthz`. The site is published
+  on `WEB_PORT_` and its unit id (`${WEB_PORT_SITE:-23101}:8080` for unit `site`) as
+  `<project>-site-prod`, tagged per release like the other images. The generator's fixed list
+  of interpolations gains those two scalars, so `terp promote` audits a site's profile.
+- **What the generator renders and refuses for a site.** One SPA and one site render
+  together, and a site alone renders too: the api then publishes `API_PORT`, as with no web
+  unit. Two SPAs, two sites, or a site without `site/package-lock.json` are refused, each
+  naming `"build": "own"` as the way out. The readable rule refuses a recipe key that names no
+  `web` unit, and lists the web units declared. A recipe outside the set is refused by the
+  schema. New corpus cases: `readable` violations 48 to 50 and compliant 13, and `render`
+  violations 8 to 10.
+- **The release jobs read the site's lock.** They treat `site/package-lock.json` for the site
+  image as they treat the frontend lock for the SPA's:
+  - `terp release` refuses it when it takes a package from a path;
+  - the manifest records it under `inputs.locks`, and its hosts under `fetches.npm`;
+  - `sign` builds the site image's SBOM from it.
+
+  `terp deployment render` writes `site/Dockerfile.prod`, and removes it when no unit names
+  the recipe. `terp verify --only generated` holds it to the render, and the signer tells the
+  pinned generator whether `site/package-lock.json` exists.
+
 ### Changed
 
-- **On terp-spec 0.44.0, the release that holds only the contracts.** Both pins move:
-  `terp-spec` in `pyproject.toml` and `@terpjs/spec` in `@terpjs/eslint-boundaries`, with
-  `terp.arch.SPEC_VERSION`, the JS `SPEC_VERSION` and both mirrors' `SPEC_RELEASE`. 0.44.0
-  removes the rule catalog, its corpus and the runtime security cases, which live here since
-  0.38.0 (ADR 0203), and the scorecard format, which that release retired; nothing here read
-  any of them from the package any more. Every file the framework does read is 0.43.0's byte
-  for byte, except the check-report schema, whose descriptions now say what the toolchain
-  already writes: `spec_version` names the release of the report format, and the checker's
-  version names the catalog the rule ids resolve against. The two docstrings that still
-  described `spec_version` the old way follow it, and `docs/RELEASING.md` lists the six
-  declarations a contracts release moves.
+- **On terp-spec 0.45.0.** Both pins move: `terp-spec` in `pyproject.toml` and `@terpjs/spec`
+  in `@terpjs/eslint-boundaries`, with `terp.arch.SPEC_VERSION`, the JS `SPEC_VERSION` and
+  both mirrors' `SPEC_RELEASE`. 0.45.0 adds `generator.recipes` (above). 0.44.0 before it is
+  the release that holds only the contracts. It removed the rule catalog, its corpus and the
+  runtime security cases, which have lived here since 0.38.0 (ADR 0203). It also removed the
+  scorecard format, which that release retired. Nothing here read any of them from the
+  package any more. Every other file the framework reads is 0.43.0's byte for byte, except
+  the check-report schema. Its descriptions now say what the toolchain already writes:
+  `spec_version` names the release of the report format, and the checker's version names the
+  catalog the rule ids resolve against. The two docstrings that still described
+  `spec_version` the old way follow it, and `docs/RELEASING.md` lists the six declarations a
+  contracts release moves.
+- **`terp guide deployment` lives in a module of its own**
+  (`terp.cli.guide_deployment`), as `terp guide passwords` does. The CLI's entry module drops
+  339 lines, and its record in `OVERSIZED.json` drops with it. The topic gains a section on
+  the static site.
 
 ### Upgrade notes
 
-- **A release made with 0.40.0 names terp-spec 0.44.0.** The signer refuses a commit whose
+- **A release made with 0.40.0 names terp-spec 0.45.0.** The signer refuses a commit whose
   pinned `terp-arch` reads a newer standard than its own, and `terp promote` refuses a release
-  declared against one, so update the signer image and `terp promote` to 0.40.0 before you
-  sign or promote the first app that upgrades. The deployment and workbench declarations are
-  unchanged, so an app's own files need nothing.
+  declared against one. So update the signer image and `terp promote` to 0.40.0 before you
+  sign or promote the first app that upgrades. An app that declares no recipe renders byte
+  for byte what it did, so its own files need nothing.
+- **Declare a static site only after the executors and the signer carry it** (ADR 0198
+  decision 7):
+  - the runner refuses a site's profile until it carries terp-spec 0.45.0 and the two new
+    interpolations;
+  - the signer refuses the release until its image is 0.40.0;
+  - Studio's builder builds the two fixed web Dockerfiles until its own update. Until then,
+    release an app with a site with `terp release` alone.
 
 ## 0.39.0 — 2026-11-08
 
