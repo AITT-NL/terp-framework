@@ -33,6 +33,7 @@ from azure.core.exceptions import HttpResponseError, ResourceModifiedError, Reso
 from azure.storage.blob import BlobClient, ContainerClient, StorageStreamDownloader, UserDelegationKey
 from botocore.config import Config
 from botocore.credentials import Credentials, RefreshableCredentials
+from botocore.exceptions import EndpointConnectionError
 from botocore.stub import Stubber
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
@@ -160,6 +161,38 @@ def test_s3_reads_a_range_with_one_ranged_get(session: Session, s3: tuple[S3Stor
     stub.add_client_error("get_object", service_error_code="NoSuchKey", http_status_code=404)
     with pytest.raises(FileNotFoundError):
         backend.open_range("gone", offset=0, length=1)
+
+
+def test_s3_maps_a_network_failure_to_the_typed_error_too(
+    monkeypatch: pytest.MonkeyPatch, s3: tuple[S3Storage, Stubber]
+) -> None:
+    """A refused connection or a timeout is botocore's own error, not a ``ClientError``: it
+    escaped every operation as a 500 with its trace instead of the typed 502."""
+    backend, _ = s3
+
+    def unreachable(*_args: Any, **_kwargs: Any) -> Any:
+        raise EndpointConnectionError(endpoint_url="https://media.s3.eu-west-1.amazonaws.com")
+
+    for name in ("upload_fileobj", "get_object", "delete_object", "generate_presigned_url"):
+        monkeypatch.setattr(backend._client, name, unreachable)
+    for operation, call in (
+        ("put", lambda: backend.put("ab/k", io.BytesIO(_CONTENT))),
+        ("open", lambda: backend.open("ab/k")),
+        ("open", lambda: backend.open_range("ab/k", offset=0, length=1)),
+        ("delete", lambda: backend.delete("ab/k")),
+        ("link", lambda: backend.link("ab/k", ttl=timedelta(minutes=1), content_type="text/plain", disposition="attachment")),
+    ):
+        with pytest.raises(FileStorageError) as failed:
+            call()
+        assert failed.value.log_context["operation"] == operation
+        assert "Could not connect" in failed.value.log_context["error"]
+        assert "Could not connect" not in failed.value.message
+
+
+def test_s3_fails_closed_at_construction_without_the_extra(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "botocore.exceptions", None)
+    with pytest.raises(StorageSdkMissingError, match=r"terp-cap-files\[s3\]"):
+        S3Storage(SimpleNamespace(exceptions=SimpleNamespace(NoSuchKey=KeyError, ClientError=OSError)), bucket="media")
 
 
 def test_s3_links_with_a_presigned_get_carrying_type_disposition_and_expiry(

@@ -200,6 +200,11 @@ decision, 0001 onwards.
   own expiry says, so a link could die before the `expires_at` the service reported. The S3
   adapter now hands out its own link only when the credentials it signs with outlive it, and
   otherwise leaves the bytes to the API behind an app-signed link for the whole lifetime.
+- **An S3 network failure is the typed 502 (ADR 0201).** A refused connection, a timeout or
+  credentials that could not be refreshed raise botocore's `BotoCoreError`, not one of the
+  classes the client carries, so they escaped every operation of the S3 adapter as a 500 with
+  its trace. They are now the typed `file_storage_failed` 502, with botocore's text in
+  `log_context`.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the

@@ -90,6 +90,12 @@ credentials only through its private `_get_credentials`; were that removed, link
 from the API, never from credentials nobody judged. A deployment whose links should come from
 the store gives its role a session longer than its longest link.
 
+**Amended in 0.39.0: a network failure is the typed 502 too.** The classes the S3 client
+carries are the store's own answers; a refused connection, a timeout or credentials that could
+not be refreshed raise botocore's `BotoCoreError` instead, which escaped every operation as a
+500. The adapter now imports that one class when it is built, and fails at boot with the install
+line where the extra is missing, as the Azure adapter does.
+
 ### 3. A link is minted where a download is authorized
 
 `FileService.link(session, file_id, *, ttl=None, inline=False) -> FileLink` runs the same checks as

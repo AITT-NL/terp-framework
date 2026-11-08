@@ -7,9 +7,10 @@ the adapter under a profile::
 
     register_storage_backend("media", S3Storage(boto3.client("s3"), bucket="app-media"))
 
-The adapter imports nothing from the SDK: every error it maps is a class the client carries,
-so the module loads without the ``terp-cap-files[s3]`` extra, and the extra is what makes a
-client. ``put`` streams through the SDK's managed upload, ``open`` returns the SDK's response
+The module imports nothing from the SDK, so it loads without the ``terp-cap-files[s3]`` extra,
+and the extra is what makes a client. The errors it maps are the classes the client carries and
+botocore's own base error, which a refused connection or a timeout raises, imported when an
+adapter is built: without the extra that fails at boot, with the install line. ``put`` streams through the SDK's managed upload, ``open`` returns the SDK's response
 body (a readable, non-seekable stream the router reads forward), ``open_range`` asks the store
 for the one range a ``Range`` request names, so a seek far into a large object reads only the
 bytes it serves, ``delete`` is the provider's
@@ -31,7 +32,11 @@ from datetime import timedelta
 from typing import Any, BinaryIO, Final
 
 from terp.capabilities.files.links import link_ttl
-from terp.capabilities.files.storage import FileStorageError, StorageBackend
+from terp.capabilities.files.storage import (
+    FileStorageError,
+    StorageBackend,
+    StorageSdkMissingError,
+)
 
 #: How long the signing credentials must outlast a link: a clock a little behind the store's
 #: never hands out a link the store stops honouring before its stated expiry.
@@ -56,10 +61,19 @@ class S3Storage(StorageBackend):
             raise ValueError(
                 "an S3 storage adapter takes the SDK's S3 client (boto3.client('s3', ...))"
             )
+        try:
+            from botocore.exceptions import BotoCoreError
+        except ImportError as exc:
+            raise StorageSdkMissingError(
+                "The S3 storage adapter needs the 'boto3' package — "
+                "install the terp-cap-files[s3] extra."
+            ) from exc
         self._client = client
         self._bucket = bucket
         self._not_found: type[Exception] = not_found
-        self._client_error: type[Exception] = client_error
+        # A ClientError is the store's answer; a BotoCoreError is a connection refused, a
+        # timeout or credentials that could not be read. Either is the typed 502.
+        self._failures: tuple[type[Exception], ...] = (client_error, BotoCoreError)
 
     def _failed(self, operation: str, key: str, exc: Exception) -> FileStorageError:
         return FileStorageError(
@@ -74,7 +88,7 @@ class S3Storage(StorageBackend):
     def put(self, key: str, source: BinaryIO) -> None:
         try:
             self._client.upload_fileobj(source, self._bucket, key)
-        except self._client_error as exc:
+        except self._failures as exc:
             raise self._failed("put", key, exc) from exc
 
     def open(self, key: str) -> BinaryIO:
@@ -89,13 +103,13 @@ class S3Storage(StorageBackend):
             return self._client.get_object(Bucket=self._bucket, Key=key, **part)["Body"]
         except self._not_found as exc:
             raise FileNotFoundError(key) from exc
-        except self._client_error as exc:
+        except self._failures as exc:
             raise self._failed("open", key, exc) from exc
 
     def delete(self, key: str) -> None:
         try:
             self._client.delete_object(Bucket=self._bucket, Key=key)
-        except self._client_error as exc:
+        except self._failures as exc:
             raise self._failed("delete", key, exc) from exc
 
     def link(
@@ -104,18 +118,21 @@ class S3Storage(StorageBackend):
         """A presigned ``GET`` for *key*, good for *ttl* (bounded like every link), or ``None``
         where the credentials it would be signed with expire first."""
         lifetime = link_ttl(ttl)
-        if not self._signing_outlives(lifetime):
-            return None
-        return self._client.generate_presigned_url(
-            "get_object",
-            Params={
-                "Bucket": self._bucket,
-                "Key": key,
-                "ResponseContentType": content_type,
-                "ResponseContentDisposition": disposition,
-            },
-            ExpiresIn=int(lifetime.total_seconds()),
-        )
+        try:
+            if not self._signing_outlives(lifetime):
+                return None
+            return self._client.generate_presigned_url(
+                "get_object",
+                Params={
+                    "Bucket": self._bucket,
+                    "Key": key,
+                    "ResponseContentType": content_type,
+                    "ResponseContentDisposition": disposition,
+                },
+                ExpiresIn=int(lifetime.total_seconds()),
+            )
+        except self._failures as exc:
+            raise self._failed("link", key, exc) from exc
 
     def _signing_outlives(self, lifetime: timedelta) -> bool:
         """Whether the credentials this client signs with are valid until a link signed now
