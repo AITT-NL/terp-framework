@@ -532,6 +532,18 @@ def test_a_filter_that_declares_a_zone_takes_a_list_of_days_and_an_instant_as_on
         since.condition(datetime(2026, 11, 6, 10, 0))
 
 
+@pytest.mark.parametrize(
+    ("zone", "day"),
+    [("Asia/Tokyo", dt.date(1, 1, 1)), ("America/New_York", dt.date(9999, 12, 31)), ("UTC", dt.date(9999, 12, 31))],
+)
+def test_a_day_at_the_edge_of_the_years_a_timestamp_holds_is_a_400(zone: str, day: dt.date) -> None:
+    # Midnight on 1 January of year 1 east of UTC is in year 0, and the day after 31 December
+    # 9999 is in no year a date holds: each overflowed into a 500.
+    field = FilterField("taken_on", _Reading.taken_at, op="eq", zone=zone)
+    with pytest.raises(ValidationFailedError, match="'taken_on' is outside the range of a timestamp"):
+        field.condition(day)
+
+
 def test_a_day_the_clocks_go_back_on_is_twenty_five_hours_long() -> None:
     field = FilterField("taken_on", _Reading.taken_at, op="eq", zone="Europe/Amsterdam")
     start, end = (clause.right.value for clause in field.condition(dt.date(2026, 10, 25)).clauses)  # type: ignore[attr-defined]

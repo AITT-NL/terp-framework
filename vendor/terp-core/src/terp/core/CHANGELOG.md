@@ -148,6 +148,10 @@ decision, 0001 onwards.
   server put in such a document was stored as text without an offset, so the document failed its
   own `BaseSchema` on the way out, which the 0.38.0 notes said of no row read back. Such a value
   is now written as the UTC instant it names, with its offset.
+- **A zoned calendar-day filter at the first or the last day a timestamp holds is a 400 (ADR
+  0206).** A filter that reads a day in a declared zone overflowed into a 500 for 1 January of
+  year 1 east of UTC, whose midnight is in year 0, and for 31 December 9999, whose next day is
+  in no year. Both are refused as a bound outside the range of a timestamp, naming the filter.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
