@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import contextlib
 import pathlib
-import uuid
 
 from fastapi import FastAPI
 from sqlmodel import Session

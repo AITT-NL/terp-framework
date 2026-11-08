@@ -187,7 +187,7 @@ def test_tenant_middleware_passes_through_non_http_scope() -> None:
 # users: the get-by-id route body
 # --------------------------------------------------------------------------- #
 def test_users_get_user_route_returns_dto() -> None:
-    import terp.capabilities.identity.models  # register the shared User table
+    import terp.capabilities.identity.models  # noqa: F401 - registers the shared User table
     from terp.capabilities.users import UserProvision, UsersService
     from terp.capabilities.users.router import get_user
 

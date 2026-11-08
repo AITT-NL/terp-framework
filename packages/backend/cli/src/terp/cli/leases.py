@@ -62,7 +62,6 @@ def render_leases(
     the mistake an author actually makes.
     """
     _prepare(app_ref, app_root)
-    from sqlmodel import Session
 
     from terp.capabilities.leases import list_leases
     from terp.cli._engine import cli_session

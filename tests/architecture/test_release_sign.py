@@ -21,7 +21,7 @@ from terp.cli.release import _render, dsse, sign
 from terp.cli.release._common import ReleaseError, canonical, write_document
 from terp.cli.release._git import Tree
 from terp.cli.release.manifest import parse
-from tests.architecture.release_fixtures import PROJECT, TOOLCHAIN, app_files, committed_app, git
+from tests.architecture.release_fixtures import PROJECT, TOOLCHAIN, app_files, committed_app
 from tests.architecture.test_release_compare import faithful
 from tests.architecture.test_release_dsse import pem_private, pem_public
 from tests.architecture.test_release_image import FakeRegistry, layer

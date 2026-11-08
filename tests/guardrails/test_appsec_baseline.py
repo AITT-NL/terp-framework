@@ -34,6 +34,11 @@ _TEMPLATE = _REPO_ROOT / "template" / "project"
 #: non-crypto randomness. A wider ignore list is a weakened baseline.
 _SANCTIONED_IGNORES = {"S101", "S105", "S106"}
 _SANCTIONED_TEST_IGNORES = {"S311", "S603", "S607"}
+#: The one per-file ignore outside a test tree, and all it may excuse: pyflakes (`F`)
+#: over the rule corpus, whose cases are fragments of an app, never imported or run, so
+#: their names live in the app they stand for. It excuses no `S` rule: the corpus keeps
+#: the security baseline like any other code.
+_SANCTIONED_CORPUS_IGNORE = ("packages/backend/arch/corpus/**", {"F"})
 #: Paths a ruff exclude may carve out without weakening the baseline: virtualenvs,
 #: the byte-checked vendored mirror, generated Alembic DDL, and the violation cases of the
 #: two rules whose cases must carry a form the `S` baseline refuses (dynamic SQL, eval).
@@ -78,6 +83,8 @@ def test_platform_repo_keeps_the_ruff_security_baseline() -> None:
         "the excusals is a weakened baseline and needs an ADR"
     )
     for pattern, codes in lint.get("per-file-ignores", {}).items():
+        if (pattern, set(codes)) == _SANCTIONED_CORPUS_IGNORE:
+            continue
         assert "test" in pattern, (
             f"per-file-ignores for {pattern!r}: only test trees may excuse baseline rules"
         )

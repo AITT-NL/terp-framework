@@ -16,7 +16,6 @@ from terp.arch.rules._support import (
     _module_parts,
     _module_under,
     _rel,
-    _resolve_relative_import,
 )
 from terp.arch.rules.dependencies import declared_dependency_graph
 

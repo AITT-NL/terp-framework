@@ -140,8 +140,6 @@ def test_json_is_the_dto_a_tool_reads(app_module: str) -> None:
 def test_an_expired_credential_reads_as_expired(app_module: str) -> None:
     """Not just a date in the past: an operator scanning this is looking for a word."""
     _create(app_module, "lapsed", days=1)
-    import sa_app  # already imported by the command above
-
     from sqlmodel import Session, select
 
     from terp.capabilities.identity.models import ServiceAccount

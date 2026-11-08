@@ -43,7 +43,7 @@ from terp.core import (
     get_session,
 )
 
-import terp.capabilities.access.models  # register the access tables
+import terp.capabilities.access.models  # noqa: F401 - registers the access tables
 from terp.capabilities.access import (
     ModuleRoleService,
     assignable_modules,

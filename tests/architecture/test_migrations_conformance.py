@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 import uuid
+from collections.abc import Iterator
 from types import SimpleNamespace
 
 import pytest

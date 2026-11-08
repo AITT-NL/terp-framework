@@ -37,7 +37,7 @@ from terp.migrations.errors import (
 
 # Import a real capability model so its table is registered for the ownership tests.
 import terp.capabilities.audit.models
-import terp.capabilities.identity.models
+import terp.capabilities.identity.models  # noqa: F401 - registers the User table
 
 
 def test_owned_table_names_scopes_to_the_package() -> None:
@@ -269,7 +269,7 @@ def test_make_fails_closed_on_a_homeless_linked_table(
     from sqlalchemy import Column, ForeignKey, Table
     from sqlmodel import SQLModel
 
-    import terp.capabilities.audit.models  # audit_event is owned + mapped
+    import terp.capabilities.audit.models  # noqa: F401 - audit_event is owned and mapped
 
     tree = MigrationTree("audit", "terp.capabilities.audit", tmp_path / "migrations")
     monkeypatch.setattr(orchestrate, "resolve_migration_target", lambda *a, **k: tree)
@@ -395,7 +395,7 @@ def test_make_fails_closed_on_a_mapped_but_unowned_fk_target(
     from sqlalchemy import Column, ForeignKey, Table
     from sqlmodel import SQLModel
 
-    import terp.capabilities.audit.models  # audit_event is owned + mapped
+    import terp.capabilities.audit.models  # noqa: F401 - audit_event is owned and mapped
 
     tree = MigrationTree("audit", "terp.capabilities.audit", tmp_path / "migrations")
     monkeypatch.setattr(orchestrate, "resolve_migration_target", lambda *a, **k: tree)

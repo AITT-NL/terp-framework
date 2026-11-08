@@ -11,6 +11,7 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
+from fastapi import APIRouter
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 from sqlalchemy.pool import StaticPool

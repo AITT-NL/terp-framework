@@ -331,7 +331,7 @@ def test_a_wheel_that_maps_files_elsewhere_is_refused_as_uncomparable(tmp_path: 
     files = app_files()
     files["pyproject.toml"] = files["pyproject.toml"].replace(b'packages = ["app", "control_plane"]', wheel.encode())
     tree = Tree.read(tmp_path / "repo", committed_app(tmp_path / "repo", files))
-    with pytest.raises(ReleaseError, match=f"a shape sign cannot compare.*") as raised:
+    with pytest.raises(ReleaseError, match="a shape sign cannot compare.*") as raised:
         _compare.wheel_shape(tree)
     assert expected in raised.value.message
 

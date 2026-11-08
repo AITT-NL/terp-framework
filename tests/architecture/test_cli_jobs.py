@@ -14,7 +14,6 @@ import signal
 import sys
 import threading
 import tomllib
-import uuid
 from collections.abc import Iterator
 
 import pytest

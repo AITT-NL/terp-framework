@@ -193,13 +193,19 @@ extend-exclude = [
 # `S101`/`S105`/`S106` heuristics are name-based and noisy (assert in tests,
 # field names like SECRET_KEY / token_type), so they are excused; the high-signal
 # rules (exec/eval/weak-hash/SQL-injection/bind-all/unsafe-deserialize/shell) stay on.
-select = ["S"]
+# Pyflakes (`F`) beside it: an undefined name, an unused import or local, an f-string
+# with nothing to format. An import kept for what importing it does (registering a
+# table) says so with `# noqa: F401 - <reason>`.
+select = ["S", "F"]
 ignore = ["S101", "S105", "S106"]
 
 [tool.ruff.lint.per-file-ignores]
 # Tests legitimately spawn known subprocesses and use non-crypto randomness.
 "**/tests/**" = ["S603", "S607", "S311"]
 "tests/**" = ["S603", "S607", "S311"]
+# A corpus case is the fragment of an app a rule reads, never imported or run: its names
+# are defined in the app it stands for, so pyflakes would report the fragment, not a bug.
+"packages/backend/arch/corpus/**" = ["F"]
 
 [tool.mypy]
 exclude = ["\\.venv/"]

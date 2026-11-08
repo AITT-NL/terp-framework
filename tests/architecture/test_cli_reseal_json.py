@@ -339,7 +339,7 @@ def test_a_document_that_does_not_parse_is_never_reported_clean(tmp_path: pathli
 
     engine = create_engine(f"sqlite:///{tmp_path / 'damaged.db'}")
     mapping = MetaData()
-    documents = _documents(mapping)
+    _documents(mapping)
     mapping.create_all(engine)
     damaged = '{"secret": "' + encrypt_config("one") + '", '  # cut off mid-document
     insert_row = text("INSERT INTO cli_reseal_documents (id, doc, token) VALUES (:id, :doc, :token)")
