@@ -225,8 +225,8 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   `npm run lint`).
 - **A public website is not a Terp app** (ADR 0123) — never put public pages in an app's SPA,
   ask for a relaxed zone for them, or connect a site to the database; a site is a separate
-  client that reads published content through the app's API at build time, and ADR 0197,
-  proposed, defines the socket it plugs into.
+  client that reads published content through the app's API at build time, and ADR 0197
+  defines the socket it plugs into.
 
 ## The rule catalog, and the contracts in terp-spec
 

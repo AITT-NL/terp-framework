@@ -1,6 +1,6 @@
 # 0198 — A static site is a web unit the framework builds from a recipe it owns
 
-- **Status:** Proposed (awaiting review). Decision 3, the part this record most wanted
+- **Status:** Accepted on 2026-11-08 by the owner. Decision 3, the part this record most wanted
   reviewed, was reviewed on 2026-11-04 and kept, with the build refusing what its policy would
   break. Nothing is built yet: the Terp Standard's schema word, the generator's second web
   build, the executors and the signer that accept its render, and Studio's builder follow as
