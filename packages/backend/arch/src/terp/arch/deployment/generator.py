@@ -1,13 +1,15 @@
-"""The generator: a generated app's three build files, rendered from its declaration (ADR 0187).
+"""The generator: a generated app's build files, rendered from its declaration (ADR 0187).
 
 Where ``deployment.json`` says ``"build": "generated"`` the production build files are the
 framework's to write: ``Dockerfile.prod`` when a unit runs the backend image,
-``frontend/Dockerfile.prod`` when a ``web`` unit is declared, and ``docker-compose.prod.yml``
-always. The template's own three files are this function's render of the seed, held byte
-for byte by a test, so the two cannot drift and a hardening change is made once.
+``frontend/Dockerfile.prod`` when a ``web`` unit names no recipe, ``site/Dockerfile.prod``
+when one names ``static-site`` (ADR 0198), and ``docker-compose.prod.yml`` always. The
+template's own three files are this function's render of the seed, held byte for byte by a
+test, so the two cannot drift and a hardening change is made once.
 
 :func:`generate` is a **pure function** of the typed declaration, the project name, whether
-the checkout holds ``frontend/package-lock.json``, and the framework release's tables
+the checkout holds ``frontend/package-lock.json`` and ``site/package-lock.json``, and the
+framework release's tables
 (:mod:`terp.arch.deployment.tables`). It imports the standard library and the reader's own
 modules only, does no I/O, and returns every file or none: a map of path to bytes, or the
 refusals in the reader's finding shape. It refuses what it cannot render faithfully and never
@@ -64,11 +66,14 @@ from terp.arch.deployment._generator_text import (
     PROFILE_FILE,
     RELEASE_TAG_SEAM,
     RELEASE_TAG_VARIABLE,
+    SITE_DOCKERFILE,
+    SITE_LOCK,
     API_PORT,
     WEB_PORT,
     heartbeat_role,
 )
 from terp.arch.deployment._refusals import refusals
+from terp.arch.deployment._static_site import _SITE_DOCKERFILE, SITE_PORT_PATTERN, STATIC_SITE
 from terp.arch.deployment._yaml import fixed, plain_safe, scalar, value
 from terp.arch.deployment.reader import Declaration, Finding
 from terp.arch.deployment.tables import Tables
@@ -85,17 +90,26 @@ def _dockerfile(template: str, tables: Tables, names: tuple[str, ...]) -> str:
 
 
 def generate(
-    declaration: Declaration, project: str, *, tables: Tables, frontend_lock: bool
+    declaration: Declaration,
+    project: str,
+    *,
+    tables: Tables,
+    frontend_lock: bool,
+    site_lock: bool = False,
 ) -> tuple[dict[str, bytes], list[Finding]]:
     """The generator-owned files *declaration* renders to, or every reason it cannot.
 
     *project* is ``[project].name`` from ``pyproject.toml``, used verbatim; *frontend_lock*
-    says whether the checkout holds ``frontend/package-lock.json``; *tables* are the
-    framework release's (:func:`terp.arch.deployment.tables.published_tables`). Returns
-    ``(files, [])`` - a path the declaration renders nothing for is absent from *files* - or
-    ``({}, findings)``. Two calls with the same inputs return the same bytes, in any process.
+    and *site_lock* say whether the checkout holds ``frontend/package-lock.json`` and
+    ``site/package-lock.json`` (a caller that does not say is answered as for one without);
+    *tables* are the framework release's
+    (:func:`terp.arch.deployment.tables.published_tables`). Returns ``(files, [])`` - a path
+    the declaration renders nothing for is absent from *files* - or ``({}, findings)``. Two
+    calls with the same inputs return the same bytes, in any process.
     """
-    found = refusals(declaration, project, tables=tables, frontend_lock=frontend_lock)
+    found = refusals(
+        declaration, project, tables=tables, frontend_lock=frontend_lock, site_lock=site_lock
+    )
     if found:
         return {}, found
     plan = _plan(declaration, project, tables, frontend_lock)
@@ -104,6 +118,8 @@ def generate(
         files[BACKEND_DOCKERFILE] = _dockerfile(_BACKEND_DOCKERFILE, tables, ("uv", "python"))
     if plan.upstream is not None:
         files[FRONTEND_DOCKERFILE] = _dockerfile(_FRONTEND_DOCKERFILE, tables, ("node", "nginx"))
+    if any(plan.kind_of(unit.id) == "site" for unit in declaration.units):
+        files[SITE_DOCKERFILE] = _dockerfile(_SITE_DOCKERFILE, tables, ("node", "nginx"))
     return {path: files[path].encode("ascii") for path in OWNED_PATHS if path in files}, []
 
 
@@ -121,8 +137,9 @@ def fixed_interpolations(tables: Tables) -> tuple[tuple[str, re.Pattern[str]], .
     above it, ``environment.SECRET_KEY`` - or, for an item of a list, the list's own key,
     ``ports[]``; ``*.image`` is an ``image`` under any key, a service or ``x-backend``. The
     closed list an executor carries, which a framework release only extends: 0.35 added
-    the per-release tag of ADR 0185 on the two image names, and 0.36.1 the api unit's own
-    host port, published when no web tier fronts it (ADR 0202).
+    the per-release tag of ADR 0185 on the two image names, 0.36.1 the api unit's own host
+    port, published when no web tier fronts it (ADR 0202), and 0.40.0 a static site's own
+    host port and its image name (ADR 0198).
     """
     places = [
         ("environment.DATABASE_URL", re.escape(EXTERNAL_DATABASE_URL)),
@@ -131,7 +148,9 @@ def fixed_interpolations(tables: Tables) -> tuple[tuple[str, re.Pattern[str]], .
         ("environment.BACKEND_CORS_ORIGINS", re.escape(CORS_ORIGINS)),
         ("ports[]", re.escape(WEB_PORT)),
         ("ports[]", re.escape(API_PORT)),
+        ("ports[]", SITE_PORT_PATTERN),
         ("*.image", rf"{_PROJECT}-(?:backend|frontend)-prod:{re.escape(RELEASE_TAG_SEAM)}"),
+        ("*.image", rf"{_PROJECT}-site-prod:{re.escape(RELEASE_TAG_SEAM)}"),
     ]
     for recipe in tables.recipes:
         url = re.escape(recipe.url).replace(re.escape("{host}"), _ID)
@@ -204,6 +223,9 @@ __all__ = [
     "PROFILE_FILE",
     "RELEASE_TAG_SEAM",
     "RELEASE_TAG_VARIABLE",
+    "SITE_DOCKERFILE",
+    "SITE_LOCK",
+    "STATIC_SITE",
     "WEB_PORT",
     "escape_findings",
     "fixed",

@@ -36,7 +36,7 @@ from terp.arch.deployment.reader import DEV_COMPOSE_FILE
 WORKBENCH_FILE = "workbench.json"
 from terp.cli.release._common import RELEASE_TAG, ReleaseError, canonical, sha256
 from terp.cli.release._git import Tree
-from terp.cli.release._locks import NPM_LOCK, UV_LOCK, normalise, npm_hosts, python_sources, read_npm_lock, read_uv_lock
+from terp.cli.release._locks import NPM_LOCKS, UV_LOCK, normalise, npm_hosts, python_sources, read_npm_lock, read_uv_lock
 from terp.cli.release._plan import Plan
 
 SCHEMA_VERSION = 1
@@ -142,10 +142,12 @@ def inputs(
     """The ``inputs`` section, from the tree, the plan and what ``sign`` established."""
     lock = read_uv_lock(tree.read_text(UV_LOCK))
     locks = [{"path": UV_LOCK, "sha256": sha256(tree.bytes(UV_LOCK))}]
-    npm: list[str] = []
-    if tree.has(NPM_LOCK):
-        locks.append({"path": NPM_LOCK, "sha256": sha256(tree.bytes(NPM_LOCK))})
-        npm = npm_hosts(read_npm_lock(tree.read_text(NPM_LOCK)))
+    hosts: set[str] = set()
+    for npm_lock in NPM_LOCKS:  # the frontend's, then a static site's (ADR 0198)
+        if tree.has(npm_lock):
+            locks.append({"path": npm_lock, "sha256": sha256(tree.bytes(npm_lock))})
+            hosts.update(npm_hosts(read_npm_lock(tree.read_text(npm_lock), npm_lock)))
+    npm = sorted(hosts)
     bases = _base_images(tree, plan)
     registries = sorted(
         {(parse_image(base["image"]).repository.split("/", 1)[0]) for base in bases if parse_image(base["image"])}

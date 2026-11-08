@@ -298,8 +298,11 @@ def test_the_frontend_lock_says_where_npm_fetches_and_what_it_installs() -> None
     assert _locks.npm_path_sources(lock) == ["node_modules/@terpjs/react-core", "node_modules/linked"]
     assert _locks.npm_hosts(lock) == ["mirror.example", "registry.npmjs.org"]
     assert _locks.npm_packages(lock) == [("@terpjs/react-core", "0.35.0"), ("b", "1.0.0"), ("react", "19.0.0")]
-    with pytest.raises(ReleaseError, match="is not JSON"):
+    with pytest.raises(ReleaseError, match="^frontend/package-lock.json is not JSON"):
         _locks.read_npm_lock("{")
-    with pytest.raises(ReleaseError, match="no packages object"):
+    with pytest.raises(ReleaseError, match="^frontend/package-lock.json is not a lockfile npm ci reads"):
         _locks.read_npm_lock("[]")
+    with pytest.raises(ReleaseError, match="^site/package-lock.json is not JSON"):
+        _locks.read_npm_lock("{", _locks.SITE_NPM_LOCK)
+    assert _locks.NPM_LOCKS == ("frontend/package-lock.json", "site/package-lock.json")
     assert _locks.normalise("Zope.Interface_x") == "zope-interface-x"

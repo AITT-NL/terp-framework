@@ -1,0 +1,12 @@
+{
+  "about": "The app's web tier and a static site beside it (ADR 0198): the site is built from site/ by the recipe, proxies nothing and is published on WEB_PORT_SITE, the web tier keeps WEB_PORT and the /api proxy.",
+  "project": "demo",
+  "frontendLock": true,
+  "siteLock": true,
+  "renders": [
+    "Dockerfile.prod",
+    "frontend/Dockerfile.prod",
+    "site/Dockerfile.prod",
+    "docker-compose.prod.yml"
+  ]
+}

@@ -2,9 +2,16 @@
 
 - **Status:** Accepted on 2026-11-08 by the owner. Decision 3, the part this record most wanted
   reviewed, was reviewed on 2026-11-04 and kept, with the build refusing what its policy would
-  break. Nothing is built yet: the Terp Standard's schema word, the generator's second web
-  build, the executors and the signer that accept its render, and Studio's builder follow as
-  changes of their own, in the order decision 7 gives. Revised 2026-11-08: it amends ADR 0197's
+  break. Built so far, in decision 7's order: step 1 in terp-spec 0.45.0 (the word and its
+  fixtures), and step 2 in 0.40.0 (the mirror and the pins, the reader's check and its corpus
+  cases, the generator's second web build with its goldens, the profile's port variable, the
+  fixed list's two entries, and the release jobs reading the site's lock). Steps 3 to 6, the
+  executors, the signer image, an app's pin and Studio's builder, follow as changes of their
+  own. The build settled three details the decisions leave open: the build-time refusal also
+  refuses a `javascript:` URL, which the policy breaks the same way; the image serves
+  `site/dist/` from a directory only its build fills, never over the base image's own pages;
+  and its server listens on IPv4 alone, so it starts on a host whose kernel has no IPv6.
+  Revised 2026-11-08: it amends ADR 0197's
   item 3 (the deploy side; item 5 before that list was cut), relies on the reference site where
   it named a starter that list no longer holds, and says that its build-time refusal holds for a
   site built with its image, not yet for one the undecided managed-content rebuild builds.

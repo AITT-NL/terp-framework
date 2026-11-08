@@ -1,0 +1,11 @@
+{
+  "about": "A static site and no web tier (ADR 0198): the site fronts nothing, so the api unit publishes its own port as it does with no web unit at all (ADR 0202).",
+  "project": "demo",
+  "frontendLock": false,
+  "siteLock": true,
+  "renders": [
+    "Dockerfile.prod",
+    "site/Dockerfile.prod",
+    "docker-compose.prod.yml"
+  ]
+}

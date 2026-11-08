@@ -183,6 +183,42 @@ def test_a_web_image_is_described_from_the_frontend_lock(tmp_path: pathlib.Path,
     assert sorted(manifest["inputs"]["generator"]["files"]) == ["Dockerfile.prod", "docker-compose.prod.yml", "frontend/Dockerfile.prod"]
 
 
+def test_a_static_site_image_is_described_from_the_site_lock(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """ADR 0198 decision 4 and its amendment of ADR 0187 decision 6: the site image's SBOM is read
+    from ``site/package-lock.json``, and the manifest records that lock and its hosts."""
+    release = Release(tmp_path, monkeypatch, app_files(site=True))
+    backend = json.loads(release.build_doc.read_text())["images"][0]
+    images = [backend]
+    for name, dockerfile, service in ((f"{PROJECT}-frontend-prod", "frontend/Dockerfile.prod", "web"),
+                                      (f"{PROJECT}-site-prod", "site/Dockerfile.prod", "site")):
+        digest = release.registry.push_image([layer(("usr/share/nginx/html/index.html", name.encode()))])
+        config = json.loads(release.registry.manifests[digest][1])["config"]["digest"]
+        release.registry.repo_tags[(f"rel/{name}", "r1")] = digest
+        images.append({"name": name, "repository": f"{REGISTRY}/{name}", "tag": "r1", "digest": digest,
+                       "configDigest": config, "context": ".", "dockerfile": dockerfile,
+                       "services": [service], "web": True})
+    write_document(release.build_doc, {"terpReleaseBuild": 1, "commit": release.sha, "releaseTag": "r1",
+                                       "platform": "linux/amd64", "builder": {}, "images": images})
+    release.sign()
+    manifest = parse((tmp_path / "out" / sign.MANIFEST).read_bytes().strip())
+    site = f"{PROJECT}-site-prod"
+    assert manifest["outputs"]["images"][site]["web"] is True
+    assert manifest["outputs"]["services"]["site"] == f"{REGISTRY}/{site}@{images[2]['digest']}"
+
+    def purls(name: str) -> list[str]:
+        return [c["purl"] for c in json.loads((tmp_path / "out" / f"sbom-{name}.cdx.json").read_text())["components"]]
+
+    assert purls(site) == ["pkg:npm/%40site/theme@1.2.0", "pkg:npm/marked@15.0.0"]
+    assert purls(f"{PROJECT}-frontend-prod") == ["pkg:npm/react@19.0.0"], "the SPA's still reads the frontend lock"
+    assert [task for task, _ in release.tasks].count("image") == 1, "only the backend image is read"
+    given = manifest["inputs"]
+    assert [lock["path"] for lock in given["locks"]] == ["uv.lock", "frontend/package-lock.json", "site/package-lock.json"]
+    assert given["fetches"]["npm"] == ["npm.example.org", "registry.npmjs.org"], "both locks' hosts, once each"
+    assert sorted(given["generator"]["files"]) == [
+        "Dockerfile.prod", "docker-compose.prod.yml", "frontend/Dockerfile.prod", "site/Dockerfile.prod"
+    ]
+
+
 @pytest.mark.parametrize(
     ("options", "expected"),
     [

@@ -50,7 +50,7 @@ SCHEMA_FILE = "deployment-declaration.schema.json"
 #: The terp-spec release whose ``deployment-declaration.schema.json`` this mirror must
 #: equal byte for byte once that release is pinned
 #: (``tests/architecture/test_deployment_schema_mirror.py``).
-SPEC_RELEASE = "0.44.0"
+SPEC_RELEASE = "0.45.0"
 
 #: Versions this reader understands. A later file means the toolchain is behind, and
 #: saying so beats reading it with an earlier vocabulary.
@@ -346,6 +346,11 @@ def _declaration(raw: dict[str, Any]) -> Declaration:
         rollback=raw.get("rollback", {}).get("strategy"),
         external_database="externalDatabase" in raw,
         system_packages=tuple(raw.get("generator", {}).get("systemPackages", ())),
+        recipes=tuple(
+            (ident, recipe)
+            for ident, recipe in raw.get("generator", {}).get("recipes", {}).items()
+            if not ident.startswith("$")
+        ),
     )
 
 
@@ -411,6 +416,17 @@ def _meaning_findings(
                     f"table (allowed: a package of the table: {', '.join(listed) or 'none in this release'})",
                     "A system package waits for a measured need and a pinned source the table "
                     'records; until then, build this unit under "build": "own".',
+                )
+            )
+    roles = {unit.id: unit.role for unit in declaration.units}
+    webs = ", ".join(sorted(ident for ident, role in roles.items() if role == "web")) or "none"
+    for ident, recipe in declaration.recipes:
+        if roles.get(ident) != "web":
+            found = f"unit {ident} has role {roles[ident]}" if ident in roles else f"no unit is {ident}"
+            findings.append(
+                Finding(
+                    f'generator.recipes.{ident} names the recipe "{recipe}", which builds a web '
+                    f"unit, and {found} (allowed: a declared web unit's id: {webs})"
                 )
             )
     return findings

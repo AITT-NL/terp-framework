@@ -87,6 +87,7 @@ _exclude:
   - "{% if not frontend %}/conformance{% endif %}"
   - "{% if deploy_build == 'generated' %}/Dockerfile.prod{% endif %}"
   - "{% if deploy_build == 'generated' %}/frontend/Dockerfile.prod{% endif %}"
+  - "{% if deploy_build == 'generated' %}/site/Dockerfile.prod{% endif %}"
   - "{% if deploy_build == 'generated' %}/docker-compose.prod.yml{% endif %}"
 
 project_name:

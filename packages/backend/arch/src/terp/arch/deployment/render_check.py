@@ -1,9 +1,10 @@
 """The generated state's check: a committed copy that is not the render is refused (ADR 0187).
 
-Where ``deployment.json`` says ``"build": "generated"`` the three production build files are
-the generator's, and a person or an agent changes them by changing the declaration, the
-project name or the framework version, then rendering again. This module asks, from files
-alone and without importing the app, whether what is committed is what that render gives:
+Where ``deployment.json`` says ``"build": "generated"`` the production build files (three, and
+``site/Dockerfile.prod`` for a static site, ADR 0198) are the generator's, and a person or an
+agent changes them by changing the declaration, the project name or the framework version,
+then rendering again. This module asks, from files alone and without importing the app,
+whether what is committed is what that render gives:
 
 * the declaration must render - the generator's refusal, word for word, is the finding;
 * every generator-owned file must be the render byte for byte (a short diff, and the fix),
@@ -43,6 +44,8 @@ from terp.arch.deployment.generator import (
     FRONTEND_DOCKERFILE,
     FRONTEND_LOCK,
     OWNED_PATHS,
+    SITE_DOCKERFILE,
+    SITE_LOCK,
     generate,
 )
 from terp.arch.deployment.reader import DEPLOYMENT_FILE, Declaration, Finding
@@ -61,7 +64,8 @@ _DIFF_LINES = 12
 #: Why a generator-owned path is rendered, for the message about one that should not exist.
 _WHY_RENDERED = {
     BACKEND_DOCKERFILE: "no unit runs the backend image",
-    FRONTEND_DOCKERFILE: "no web unit is declared",
+    FRONTEND_DOCKERFILE: "no web unit is declared without a recipe",
+    SITE_DOCKERFILE: "no web unit names the static-site recipe in generator.recipes",
 }
 
 
@@ -308,6 +312,7 @@ def check(project_root: pathlib.Path, declaration: Declaration, tables: Tables) 
             name,
             tables=tables,
             frontend_lock=(project_root / FRONTEND_LOCK).is_file(),
+            site_lock=(project_root / SITE_LOCK).is_file(),
         )
         drift.files = files
         drift.findings.extend(refused if refused else _drift(project_root, files))

@@ -27,11 +27,13 @@ from terp.arch.deployment._generator_text import (
     MOUNT_PATH,
     NO_DATABASE_URL,
     RELEASE_TAG_SEAM,
+    SITE_DOCKERFILE,
     API_PORT,
     WEB_PORT,
     heartbeat_role,
 )
-from terp.arch.deployment._refusals import _backend_ids, _upstream
+from terp.arch.deployment._refusals import _backend_ids, _fronts, _upstream
+from terp.arch.deployment._static_site import SITE_HEALTH_PATH, SITE_PORT_DEFAULT, STATIC_SITE, site_port
 from terp.arch.deployment._yaml import _flow, fixed, scalar, value
 from terp.arch.deployment.reader import Declaration, Unit
 from terp.arch.deployment.tables import KindRecipe, Tables
@@ -56,10 +58,12 @@ class _Plan:
         return next(unit for unit in self.declaration.units if unit.id == ident)
 
     def kind_of(self, ident: str) -> str:
-        """kind | api | web | one-shot | worker | scheduler | other."""
+        """kind | api | web | site | one-shot | worker | scheduler | other."""
         unit = self.unit(ident)
         if unit.kind is not None:
             return "kind"
+        if unit.role == "web" and self.declaration.recipe(ident) == STATIC_SITE:
+            return "site"
         if unit.role in ("api", "web", "one-shot", "worker", "scheduler"):
             return unit.role
         return "other"
@@ -75,7 +79,7 @@ class _Plan:
 
     def heartbeat_of(self, ident: str) -> str | None:
         """The heartbeat a backend unit's command writes, which its check reads (ADR 0191)."""
-        if self.kind_of(ident) in ("kind", "web"):
+        if self.kind_of(ident) in ("kind", "web", "site"):
             return None
         return heartbeat_role(self.command_of(ident))
 
@@ -89,7 +93,7 @@ def _plan(declaration: Declaration, project: str, tables: Tables, frontend: bool
     backend = tuple(_backend_ids(declaration))
     apis = [ident for ident in backend if _role(declaration, ident) == "api"]
     builder = apis[0] if apis else (backend[0] if backend else None)
-    web = next((unit for unit in declaration.units if unit.kind is None and unit.role == "web"), None)
+    web = next((unit for unit in declaration.units if _fronts(declaration, unit)), None)
     database = next(
         (unit for unit in declaration.units if unit.kind is not None and unit.role == "database"),
         None,
@@ -190,6 +194,7 @@ def _depends_on(plan: _Plan, unit: Unit) -> list[str]:
         "kind": "service_healthy",
         "api": "service_healthy",
         "web": "service_healthy",
+        "site": "service_healthy",
         "one-shot": "service_completed_successfully",
     }
     lines = ["    depends_on:"]
@@ -330,6 +335,29 @@ def _web_service(plan: _Plan, unit: Unit) -> list[str]:
     return lines
 
 
+def _site_service(plan: _Plan, unit: Unit) -> list[str]:
+    """A static site (ADR 0198): built from site/, proxying nothing, on a port of its own."""
+    return [
+        f"  {scalar(unit.id)}:",
+        "    # A static site the static-site recipe builds from site/ (ADR 0198): it proxies",
+        "    # nothing, so a page reaches nothing of the app, and its own nginx answers its probe.",
+        "    build:",
+        "      context: .",
+        f"      dockerfile: {SITE_DOCKERFILE}",
+        f"    image: {_image(plan, 'site')}",
+        "    restart: unless-stopped",
+        "    ports:",
+        f"      # {SITE_PORT_DEFAULT}, the port after the web tier's: a deployment sets this unit's",
+        "      # variable explicitly -- this default only decides what a first",
+        "      # `docker compose -f docker-compose.prod.yml up` grabs.",
+        f"      - {fixed(site_port(unit.id))}",
+        *_depends_on(plan, unit),
+        *_probe(
+            _flow(("CMD-SHELL", f"wget -q -O /dev/null http://127.0.0.1:8080{SITE_HEALTH_PATH}"), fixed)
+        ),
+    ]
+
+
 def _profile(plan: _Plan) -> str:
     lines = [
         *HEADER.splitlines(),
@@ -348,6 +376,8 @@ def _profile(plan: _Plan) -> str:
             lines += _kind_service(plan, unit)
         elif kind == "web":
             lines += _web_service(plan, unit)
+        elif kind == "site":
+            lines += _site_service(plan, unit)
         else:
             lines += _backend_service(plan, unit)
         lines.append("    logging: *container-logging")

@@ -57,7 +57,7 @@ weak `SECRET_KEY`, `DEBUG=true`, SQLite, CORS `*`, or an insecure refresh cookie
 | `SECRET_KEY_FALLBACKS` | no | Previous keys, comma-separated, that only **verify** signatures, each for its own lifetime (ADR 0076, 0189); each ≥ 32 chars, never `SECRET_KEY` itself — see [Rotating `SECRET_KEY`](#rotating-secret_key) |
 | `SECRET_KEY_DECRYPT_FALLBACKS` | no | Previous keys, comma-separated, that only **decrypt** values sealed at rest, until `terp secrets reseal` has moved them (ADR 0189); same rules |
 | `POSTGRES_PASSWORD` | yes | Bundled Postgres; compose fails fast when unset |
-| `TERP_RELEASE_TAG` | yes | The tag of this release's images, `<project>-backend-prod:<tag>` and `<project>-frontend-prod:<tag>` (ADR 0185): a Docker tag, new for every release, so the previous release's images stay on the host and can be started again. Compose fails fast when unset; it cannot tell a stale value from a new one, so set it per release. Platform-owned: `environment.schema.json` may not declare it |
+| `TERP_RELEASE_TAG` | yes | The tag of this release's images, `<project>-backend-prod:<tag>` and `<project>-frontend-prod:<tag>` (ADR 0185), and a static site's `<project>-site-prod:<tag>` (ADR 0198): a Docker tag, new for every release, so the previous release's images stay on the host and can be started again. Compose fails fast when unset; it cannot tell a stale value from a new one, so set it per release. Platform-owned: `environment.schema.json` may not declare it |
 | `DATABASE_URL` | derived | Defaults to the bundled `db` service. Set it to run on a managed/external PostgreSQL — then also drop the `db` service (and the `depends_on` waiting on it) with a compose override |
 | `BACKEND_CORS_ORIGINS` | no | Deny-by-default; only for cross-origin SPAs, never `*` |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_TIMEOUT` / `DB_POOL_RECYCLE` | no | Pool tuning (ADR 0024) |
@@ -65,6 +65,7 @@ weak `SECRET_KEY`, `DEBUG=true`, SQLite, CORS `*`, or an insecure refresh cookie
 | `REFRESH_COOKIE_SECURE` | no | Derived on in production; do not disable |
 | `DB_SCHEMA_LAYOUT` | no | `per-module` places each package's tables in its own PostgreSQL schema (ADR 0070) |
 | `WEB_PORT` | no | Host port for nginx (default 8080) |
+| `WEB_PORT_<UNIT>` | no | Host port of a static site's nginx, e.g. `WEB_PORT_SITE` for unit `site` (default 23101; ADR 0198) |
 
 ### App-declared variables (`environment.schema.json`)
 
@@ -274,6 +275,14 @@ policy (who may publish, approvals, gate policy) never belongs in it. The bundle
 pinned by digest to the datastore table the framework release publishes, so a `docker compose
 pull` cannot move it under a running deployment. `uv run terp guide deployment` has the rules.
 
+A public site deploys as a `web` unit of the same declaration (ADR 0197). Under `"build":
+"generated"`, `"generator": {"recipes": {"site": "static-site"}}` has the framework build it
+from `site/` (ADR 0198). Its packages are installed exactly as `site/package-lock.json`
+records them, then it is built with no network and none of the app's environment, and served
+by a non-root nginx under the recipe's own policy, which proxies nothing. Unit `site` is
+published on `WEB_PORT_SITE` (default 23101), beside the SPA's `WEB_PORT`: the variable is
+`WEB_PORT_` and the unit id upper-cased. A site that needs another policy is `"build": "own"`.
+
 ## Releasing and promoting (`terp release`, `terp promote`)
 
 A declared app can be released as a signed, exact-commit set of images and deployed from it
@@ -318,7 +327,7 @@ runs on the engine's own network.
 
 `terp promote release.dsse.json --public-key <trusted.pub> --project-dir <dir>` verifies the
 envelope before reading it, pulls each image by its signed digest, tags it
-`<project>-backend-prod:<tag>` (and the frontend's), writes the carried profile into `<dir>`
+`<project>-backend-prod:<tag>` (and the frontend's and a site's), writes the carried profile into `<dir>`
 and runs it with the release's `TERP_RELEASE_TAG`, the variables the profile names and nothing
 else of your environment: put `.app.env` and the secrets there as for a hand deploy. It reads
 every `alembic_version_*` table before the migration step (`<dir>/.terp/versions-before-<tag>.json`),

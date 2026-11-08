@@ -90,25 +90,39 @@ def git(root: pathlib.Path, *args: str) -> str:
 NPM_LOCK = {"lockfileVersion": 3, "packages": {"": {"name": "frontend"}, "node_modules/react": {
     "version": "19.0.0", "resolved": "https://registry.npmjs.org/react/-/react-19.0.0.tgz"}}}
 
+#: The static site's lock (ADR 0198): packages of its own, one from a second registry, so a
+#: test can tell what was read from this lock from what was read from the frontend's.
+SITE_LOCK = {"lockfileVersion": 3, "packages": {"": {"name": "site"}, "node_modules/marked": {
+    "version": "15.0.0", "resolved": "https://registry.npmjs.org/marked/-/marked-15.0.0.tgz"},
+    "node_modules/@site/theme": {"version": "1.2.0",
+                                 "resolved": "https://npm.example.org/@site/theme/-/theme-1.2.0.tgz"}}}
 
-def app_files(*, web: bool = False) -> dict[str, bytes]:
+
+def app_files(*, web: bool = False, site: bool = False) -> dict[str, bytes]:
     """The app's files, path to bytes, its build files the generator's render.
 
-    With *web*, the template's own seed (a web tier beside the api) and a frontend lock.
+    With *web*, the template's own seed (a web tier beside the api) and a frontend lock. With
+    *site* as well, a second web unit ``site`` that names the ``static-site`` recipe, and the
+    site's own manifest and lock.
     """
-    if web:
+    if web or site:
         from tests.architecture.deployment_fixtures import seed
 
         raw = seed("generated")
+        if site:
+            raw["units"].append({"id": "site", "role": "web"})
+            raw.setdefault("generator", {})["recipes"] = {"site": "static-site"}
     else:
         raw = json.loads(GOLDEN.read_text(encoding="utf-8"))
     tables = published_tables()
     declared, findings = reader.read(raw, tables.datastores, tables.system_packages)
     assert findings == [] and declared is not None
-    rendered, refused = generate(declared, PROJECT, tables=tables, frontend_lock=web)
+    rendered, refused = generate(
+        declared, PROJECT, tables=tables, frontend_lock=web or site, site_lock=site
+    )
     assert refused == []
     files: dict[str, bytes] = {
-        "deployment.json": json.dumps(raw, indent=2).encode() if web else GOLDEN.read_bytes(),
+        "deployment.json": json.dumps(raw, indent=2).encode() if web or site else GOLDEN.read_bytes(),
         "pyproject.toml": PYPROJECT.encode(),
         "uv.lock": UV_LOCK.encode(),
         ".gitignore": (TEMPLATE / ".gitignore").read_bytes(),
@@ -119,9 +133,12 @@ def app_files(*, web: bool = False) -> dict[str, bytes]:
         "control_plane/__init__.py": b"control_plane = None\n",
         "tests/test_app.py": b"def test_nothing():\n    pass\n",
     }
-    if web:
+    if web or site:
         files["frontend/package.json"] = b'{"name": "frontend", "private": true}\n'
         files["frontend/package-lock.json"] = json.dumps(NPM_LOCK, indent=2).encode()
+    if site:
+        files["site/package.json"] = b'{"name": "site", "private": true}\n'
+        files["site/package-lock.json"] = json.dumps(SITE_LOCK, indent=2).encode()
     files.update(rendered)
     return files
 

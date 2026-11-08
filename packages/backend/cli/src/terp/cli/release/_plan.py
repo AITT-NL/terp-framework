@@ -40,12 +40,14 @@ from terp.arch.deployment import (
     resolve_profile,
     services_of,
 )
-from terp.arch.deployment.generator import RELEASE_TAG_VARIABLE
+from terp.arch.deployment.generator import RELEASE_TAG_VARIABLE, STATIC_SITE
 from terp.arch.deployment.profile import truth_findings
 from terp.cli.release._common import ReleaseError
 from terp.cli.release._git import Tree
 from terp.cli.release._locks import (
     NPM_LOCK,
+    NPM_LOCKS,
+    SITE_NPM_LOCK,
     UV_LOCK,
     npm_path_sources,
     path_sources,
@@ -76,6 +78,9 @@ class Image:
     services: tuple[str, ...]
     #: The web tier's image: its bundle cannot be compared with the tree (ADR 0187).
     web: bool
+    #: The npm lock the image is built from, which its SBOM reads: the site's for an image a
+    #: static-site unit runs (ADR 0198), the frontend's for another web image, else none.
+    npm_lock: str | None = None
 
 
 @dataclass(frozen=True)
@@ -135,11 +140,12 @@ def _tree_refusals(tree: Tree) -> list[str]:
             f"{UV_LOCK} takes {source} from a path, which a pristine context does not hold"
             for source in path_sources(read_uv_lock(tree.read_text(UV_LOCK)))
         )
-    if tree.has(NPM_LOCK):
-        refused.extend(
-            f"{NPM_LOCK} takes {source} from a path, which a pristine context does not hold"
-            for source in npm_path_sources(read_npm_lock(tree.read_text(NPM_LOCK)))
-        )
+    for npm_lock in NPM_LOCKS:
+        if tree.has(npm_lock):
+            refused.extend(
+                f"{npm_lock} takes {source} from a path, which a pristine context does not hold"
+                for source in npm_path_sources(read_npm_lock(tree.read_text(npm_lock), npm_lock))
+            )
     return refused
 
 
@@ -218,11 +224,15 @@ def _images(
                 "decision 9; deploy anything else by your own means, or declare unmanaged)"
             )
     webs = {unit.id for unit in declared.units if unit.role == "web" and unit.kind is None}
-    images = tuple(
-        Image(image, context, dockerfile, tuple(runners.get(image, [])), bool(webs & set(runners.get(image, []))))
-        for image, (_builder, context, dockerfile) in sorted(builds.items())
-    )
-    return images, datastores
+    sites = {ident for ident in webs if declared.recipe(ident) == STATIC_SITE}
+    images = []
+    for image, (_builder, context, dockerfile) in sorted(builds.items()):
+        run = set(runners.get(image, []))
+        lock = SITE_NPM_LOCK if sites & run else NPM_LOCK if webs & run else None
+        images.append(
+            Image(image, context, dockerfile, tuple(runners.get(image, [])), bool(webs & run), lock)
+        )
+    return tuple(images), datastores
 
 
 def _steps(
