@@ -59,7 +59,7 @@ from terp.core import (
 )
 from terp.core import settings as _platform_settings
 
-from terp.capabilities.mail.errors import MailConfigurationError, MailSealError
+from terp.capabilities.mail.errors import MailConfigurationError, MailPlaintextRetiredError, MailSealError
 from terp.capabilities.mail.message import (
     MAX_RECIPIENTS,
     MAX_SUBJECT_LENGTH,
@@ -231,12 +231,12 @@ MAX_SEALED_LENGTH: Final[int] = _sealed_length(
     )
 )
 
-#: The message's own fields: what a row queued before 0.36.1 holds in plaintext.
+#: The message's own fields: the plaintext form a caller may enqueue, which is sealed when written.
 _PLAINTEXT_FIELDS: Final[frozenset[str]] = frozenset(MailMessage.model_fields)
 
 _ONE_FORM = (
-    "a MAIL_SEND payload carries its message sealed or, in a row a release before 0.36.1 "
-    "queued, in plaintext: exactly one of the two"
+    "a MAIL_SEND payload carries its message sealed or, as a caller enqueues it, in "
+    "plaintext: exactly one of the two"
 )
 
 
@@ -254,11 +254,12 @@ class MailJobPayload(BaseSchema):
     idempotency key, and it rides the payload rather than being minted at delivery, so
     every retry of one send is the same message to the recipient's mail client.
 
-    A row queued before 0.36.1 holds the message's own fields in plaintext, beside the
-    ``Message-ID``. That form is read, through the 0.36 releases, so such a row still
-    delivers, and it is never written: the payload serializes sealed whichever form it was
-    given, so what enqueues one in plaintext queues it sealed. A payload that holds both
-    forms, or neither, is refused, and the refusal never repeats what the payload held.
+    The message's own fields, beside the ``Message-ID``, are accepted as input and never
+    written: the payload serializes sealed whichever form it was given, so what enqueues one
+    in plaintext, ``terp jobs run`` included, queues it sealed. A payload that holds both
+    forms, or neither, is refused, and the refusal never repeats what the payload held. A
+    stored row in the plaintext form, which only a release before 0.36.1 wrote, is no longer
+    read: :meth:`message` refuses it (ADR 0199, decision 3, as amended in 0.39.0).
     """
 
     model_config = ConfigDict(hide_input_in_errors=True)
@@ -297,11 +298,13 @@ class MailJobPayload(BaseSchema):
         """The message, opened under ``SECRET_KEY`` or a ``SECRET_KEY_DECRYPT_FALLBACKS`` entry.
 
         Raises :class:`MailSealError`, naming the remedy, when no configured key opens it:
-        the job then fails, and the outbox retries it and in the end dead-letters it. A
-        payload in the plaintext form is the message as an earlier release queued it.
+        the job then fails, and the outbox retries it and in the end dead-letters it. A payload
+        read in the plaintext form is a row a release before 0.36.1 queued, since every payload
+        this release writes is sealed, and raises :class:`MailPlaintextRetiredError` the same
+        way: that reader was retired in 0.39.0.
         """
         if self.plaintext is not None:
-            return self.plaintext
+            raise MailPlaintextRetiredError()
         opened = _QUEUED.open(self.sealed or "")
         if opened is None:
             raise MailSealError()

@@ -257,6 +257,16 @@ decision, 0001 onwards.
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
   write scope, as the statement it carries does.
 
+
+### Removed
+
+- **The plaintext reader of a queued mail (ADR 0199).** 0.36.1 read a mail an earlier release
+  had stored in plaintext so that it still delivered, and ADR 0199 said 0.37.0 would remove that
+  reader; 0.37.0 and 0.38.0 shipped it anyway. The worker now reads a mail sealed or not at all: a stored
+  row in the plaintext form fails with `MailPlaintextRetiredError` (`mail_plaintext_retired`),
+  naming the remedy, and dead-letters with nothing sent. A caller that enqueues the message's
+  fields still queues it sealed.
+
 ### Upgrade notes
 
 - **A Terp frontend or conformance suite kept outside `frontend/` or `conformance/` now turns
@@ -308,6 +318,10 @@ decision, 0001 onwards.
   dimension over JSON or bytes now raise `TypeError` when the service class is defined. Each of
   them failed on every request on PostgreSQL before; count the column, or count its distinct
   values, instead.
+- **From 0.36.0 or earlier, let the outbox drain before you upgrade.** A mail a release before
+  0.36.1 queued in plaintext is no longer read: its job fails with `mail_plaintext_retired`, and
+  it dead-letters with nothing sent. Run `terp outbox backlog` on the old release until it shows
+  nothing pending, then upgrade. A deployment already on 0.36.1 or later has no such row left.
 - **An early validator of your own on a timestamp field now turns the gate red.** Where it read
   the wall time of a known place, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.
   Where it only checked the instant, make it an after validator. Where it must keep reading the
