@@ -1091,8 +1091,8 @@ Aggregates: counts and sums declared on the service, like filters (ADR 0204)
   column, a prefix, a suffix or a hint, unless it is only a name), and a FROM element the
   session does not know. A many-to-many whose link table is row-scoped is refused too: map
   the link as an association object.
-- On SQLite a timestamp is stored as its wall time without its offset: write instants in UTC
-  (every timestamp the framework stamps already is) and the steps are exact on both dialects.
+- A bucket's column is a UtcDateTime (the column rule requires one), which stores the UTC
+  instant on every dialect, SQLite included (ADR 0205), so the steps are exact on both.
 """,
     "leases": """\
 Leases: expiring, fenced custody of work (leases capability)
@@ -1851,7 +1851,9 @@ File objects (files capability, ADR 0056/0057)
   objects, and open_range for a Range request: its default reads forward to the offset, so an
   adapter whose store reads a range overrides it) in a NAMED-PROFILE registry;
   metadata (name, type, size, sha256, storage_key, storage_profile) lives in the platform
-  DB. storage_key/storage_profile never leave the boundary (FileRead omits both).
+  DB. FileRead omits storage_key and storage_profile, and the API's routes never show them;
+  a store's signed link carries the key as its URL path, which opens nothing on a private
+  store without the signature.
 - Any provider is an adapter subclass (local ships; a NAS mount is the local adapter on
   another root). Two object-store adapters ship behind extras (ADR 0201): S3Storage
   (terp-cap-files[s3]) takes the SDK's own client and a bucket; AzureBlobStorage

@@ -35,9 +35,9 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli.reseal import ResealReport, _as_document, _render, survey  # noqa: E402
+from terp.cli.reseal import ResealReport, _as_document, _render, survey
 
-from terp.core import (  # noqa: E402
+from terp.core import (
     JobCatalog,
     SealState,
     check_sealed_value,
@@ -46,10 +46,10 @@ from terp.core import (  # noqa: E402
     register_decrypt_call_site,
     settings,
 )
-from terp.core.jobs import configure_jobs  # noqa: E402
-from terp.core._internal.session_guard import WriteGuardedSession  # noqa: E402
+from terp.core.jobs import configure_jobs
+from terp.core._internal.session_guard import WriteGuardedSession
 
-from terp.capabilities.mail import (  # noqa: E402
+from terp.capabilities.mail import (
     MAIL_SEND,
     CapturingMailTransport,
     MailMessage,
@@ -58,8 +58,8 @@ from terp.capabilities.mail import (  # noqa: E402
     reset_mail,
     send_mail,
 )
-from terp.capabilities.mail.delivery import MailJobPayload  # noqa: E402
-from terp.capabilities.outbox import OutboxJobQueue, OutboxMessage, OutboxWorker  # noqa: E402
+from terp.capabilities.mail.delivery import MailJobPayload
+from terp.capabilities.outbox import OutboxJobQueue, OutboxMessage, OutboxWorker
 
 _OLD = secrets.token_urlsafe(32)
 _NEW = secrets.token_urlsafe(32)

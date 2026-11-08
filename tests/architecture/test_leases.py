@@ -1289,7 +1289,7 @@ def test_the_heartbeat_route_refuses_an_anonymous_caller_on_its_own(
     app.include_router(build_holder_router(lambda _principal: "w1"), prefix="/custody")
 
     @app.exception_handler(AuthenticationError)
-    def _unauthenticated(_request: object, _exc: AuthenticationError):  # noqa: ANN202
+    def _unauthenticated(_request: object, _exc: AuthenticationError):
         from fastapi.responses import JSONResponse
 
         return JSONResponse({"code": "unauthenticated"}, status_code=401)

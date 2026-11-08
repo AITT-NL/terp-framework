@@ -201,13 +201,15 @@ class FilterField:
         return column >= value
 
 
+def local_midnight(day: date, zone: ZoneInfo) -> datetime:
+    """The UTC instant *day* starts at in *zone*. A day daylight saving shortens or lengthens
+    keeps its length, and one whose midnight it skips starts at the hour after."""
+    return datetime.combine(day, time(), tzinfo=zone).astimezone(UTC)
+
+
 def _day_in(day: date, zone: ZoneInfo) -> tuple[datetime, datetime]:
-    """The UTC instants *day* starts and ends at in *zone*. A day daylight saving shortens or
-    lengthens keeps its length, and one whose midnight it skips starts at the hour after."""
-    start, end = (
-        datetime.combine(edge, time(), tzinfo=zone).astimezone(UTC) for edge in (day, day + timedelta(days=1))
-    )
-    return start, end
+    """The UTC instants *day* starts and ends at in *zone*."""
+    return local_midnight(day, zone), local_midnight(day + timedelta(days=1), zone)
 
 
 @dataclass(frozen=True)

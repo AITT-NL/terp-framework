@@ -17,7 +17,7 @@ import sys
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "tools"))
-import signer_context  # noqa: E402
+import signer_context
 
 DOCKERFILE = signer_context.SIGNER / "Dockerfile"
 EXPORTED = "alembic==1.20.1 \\\n    --hash=sha256:" + "a" * 64

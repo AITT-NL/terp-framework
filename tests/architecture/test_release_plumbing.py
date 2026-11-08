@@ -138,7 +138,7 @@ def test_a_link_is_a_link_or_a_refusal_and_a_submodule_is_named(tmp_path: pathli
     root = tmp_path / "repo"
     sha = committed_app(root)
     # A link and a submodule enter the index directly, so the test needs no privilege.
-    link = subprocess.run(["git", "-C", str(root), "hash-object", "-w", "--stdin"], input=b"app/main.py",  # noqa: S603, S607
+    link = subprocess.run(["git", "-C", str(root), "hash-object", "-w", "--stdin"], input=b"app/main.py",
                           capture_output=True, check=True).stdout.decode().strip()
     git(root, "update-index", "--add", "--cacheinfo", f"120000,{link},alias.py")
     git(root, "update-index", "--add", "--cacheinfo", f"160000,{sha},vendor/other")
@@ -199,7 +199,7 @@ def test_a_checkout_another_user_owns_is_read_all_the_same(tmp_path: pathlib.Pat
     for name in ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"):  # configuration given in the environment
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")  # git's own switch for the check
-    refused = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, check=False)  # noqa: S603, S607
+    refused = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, check=False)
     assert refused.returncode != 0 and b"dubious ownership" in refused.stderr
     assert _git.Tree.read(root, sha).commit == sha
 

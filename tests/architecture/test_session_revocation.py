@@ -341,7 +341,7 @@ def test_validated_provider_rejects_a_token_its_validator_fails() -> None:
 
     seen: dict[str, int] = {}
 
-    def validator(_session: object, claims) -> bool:  # noqa: ANN001
+    def validator(_session: object, claims) -> bool:
         seen["tv"] = claims.token_version
         return claims.token_version == 2
 

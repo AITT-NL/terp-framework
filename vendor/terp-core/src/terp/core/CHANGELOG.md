@@ -78,6 +78,13 @@ decision, 0001 onwards.
   records four residuals. The rule's walks no longer recurse, so no file the parser takes can
   exhaust its stack.
 
+- **`refuse_timestamp_text_without_offset` takes the value alone.** It was declared with a
+  `ValidationInfo` it never read, so Pydantic handed it every caller's validation context. No
+  context ever spared a value, and now none reaches the refusal: what spares text the framework
+  wrote itself is a context variable only its own module sets.
+  `BeforeValidator(refuse_timestamp_text_without_offset)` works as before; a direct call that
+  passes a second argument does not.
+
 ### Fixed
 
 - **A signed release no longer calls a lane passed that judged nothing (ADRs 0200, 0202).** The
@@ -124,14 +131,15 @@ decision, 0001 onwards.
   with a 415 of code `content_type_malformed` before any byte lands. The inline rule and the
   served type judge the parsed value, so a row stored earlier with a list is served as
   `application/octet-stream`, as an attachment.
-- **Nothing reaches a composed app by a spelling the freeze did not list.** The composition
-  freeze refused registration methods by name, so `router.host(...)`, FastAPI's
+- **A registration the freeze did not list by name reaches a composed app no more.** The
+  composition freeze refused registration methods by name, so `router.host(...)`, FastAPI's
   `router.frontend(...)`, `APIRouter.add_api_route(router, ...)` called on the class, and a
   route appended to `router.routes` were each served after `create_app` returned, without the
   module guard, on the app and on every router it mounted. A startup hook and middleware
   reached the app the same way. The lists the app reads requests through now refuse a change
-  themselves: every router's routes, FastAPI's frontend routes, the lifecycle hooks and the
-  middleware.
+  through their own methods, which every registration makes: every router's routes, FastAPI's
+  frontend routes, the lifecycle hooks and the middleware. Code that calls `list`'s methods on
+  one directly, or replaces it, still reaches past the refusal; ADR 0208 says why that is left.
 - **Requests about an address never hold up its owner's sign-in (ADR 0196).** A sign-up or a
   password-reset request counted in the throttle under the bare address, the key sign-in's
   backstop reads, and an app commonly shares one store between them. So fifty callers asking
@@ -227,6 +235,11 @@ decision, 0001 onwards.
   (Samoa, 30 December 2011) was labelled as the next one. Each now answers. A declaration the
   database cannot answer at all (a `sum` of text, a `max` of a UUID or a boolean, a group keyed by
   JSON) is refused when the class is defined, naming what to count instead.
+- **A `count` that names a column is refused when declared (ADR 0204).** The ADR says `count`
+  alone takes no column, but one given to it was dropped without a word, so
+  `Measure("paid", Invoice.paid_at)` counted every invoice, not the paid ones. It now raises
+  `TypeError` naming the two declarations that mean something: `Measure(name)` counts rows, and
+  `op="count_distinct"` counts a column's values.
 - **`frontend/timestamp-inputs-carry-their-offset` follows a `type` however it is spelled
   inline (ADR 0206).** The rule read only a string or a plain template as the attribute's direct
   value, so `type={withTime ? "datetime-local" : "date"}`, `?? "datetime-local"`,
@@ -252,6 +265,11 @@ decision, 0001 onwards.
   Step 4 of `terp guide secrets` dropped the list after fifteen minutes on an app without refresh
   sessions, and every link mailed before the rotation stopped working. It now waits for the
   longest of the refresh session, the self-service links and fifteen minutes.
+- **An error whose code names a credential keeps its whole message in the log (ADR 0188).** The
+  `error.app` line was written `422 weak_password: The password does not meet ...`, and the
+  redactor read the code as a credential's label and the message's first word as its value, so
+  the line said `[REDACTED] password does not meet ...`. The message now follows the code in
+  parentheses. Nothing leaked; a word was lost.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
@@ -266,6 +284,9 @@ decision, 0001 onwards.
   row in the plaintext form fails with `MailPlaintextRetiredError` (`mail_plaintext_retired`),
   naming the remedy, and dead-letters with nothing sent. A caller that enqueues the message's
   fields still queues it sealed.
+- **`local_midnights` from the audit capability.** Nothing has called it since the trail's
+  activity was counted through `aggregate` (ADR 0204), and `window_bounds` in
+  `terp.core.aggregation` cuts the same days.
 
 ### Upgrade notes
 
@@ -278,8 +299,9 @@ decision, 0001 onwards.
   `Annotated[datetime, LocalTimeIn("<zone>")]`, and keep `NaiveMeansUtc` with the rule's marker
   for a sender known to send UTC without saying so. Make a class that holds a timestamp a
   `BaseSchema`, or type its field `Instant`.
-- **A route added to a router after `create_app` mounted it is refused,** by any spelling, and
-  so is a startup or shutdown hook or middleware added to the composed app. Declare every route
+- **A route added to a router after `create_app` mounted it is refused,** by any registration
+  method, however it is called, and so is a startup or shutdown hook or middleware added to the
+  composed app. Declare every route
   before `create_app` runs, and pass middleware to `create_app(middleware=[...])`.
 - **A read on the request session that writes literal SQL, reads a row-scoped table through Core
   in any of the shapes above, or reads a FROM element the session does not know now fails with
@@ -318,6 +340,10 @@ decision, 0001 onwards.
   dimension over JSON or bytes now raise `TypeError` when the service class is defined. Each of
   them failed on every request on PostgreSQL before; count the column, or count its distinct
   values, instead.
+- **A `Measure` that names a column under the default `count` is refused when declared.** Drop
+  the column to count rows, or declare `op="count_distinct"` to count the column's values.
+- **`terp.capabilities.audit.service.local_midnights` is removed.** Cut the days with
+  `window_bounds(Window(name, start, end, zone, "day"), zone)` from `terp.core.aggregation`.
 - **From 0.36.0 or earlier, let the outbox drain before you upgrade.** A mail a release before
   0.36.1 queued in plaintext is no longer read: its job fails with `mail_plaintext_retired`, and
   it dead-letters with nothing sent. Run `terp outbox backlog` on the old release until it shows

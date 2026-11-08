@@ -1093,9 +1093,10 @@ export interface components {
          * @description A short-lived link to a file's bytes (ADR 0201): the URL, and when it stops working.
          *
          *     ``url`` is absolute for a store's own signed URL and path-absolute for one the
-         *     capability signed itself; a client uses either as it is. A store's URL carries the
-         *     store's own address of the blob, which is the store's business and expires with the
-         *     link: ``storage_key`` itself still never leaves the API.
+         *     capability signed itself; a client uses either as it is. A store's URL is the store's
+         *     own address of the blob, so its path carries ``storage_key``: on a private store the key
+         *     opens nothing without the signature, which expires with the link. The capability's own
+         *     link carries a sealed token and no key.
          */
         FileLinkRead: {
             /**

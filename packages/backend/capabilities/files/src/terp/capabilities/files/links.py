@@ -25,7 +25,8 @@ from typing import Final
 
 from terp.core import SealingDomain
 
-from terp.capabilities.files.content_types import _one_media_type
+from terp.capabilities.files.content_types import one_media_type
+from terp.capabilities.files.models import DEFAULT_FILENAME
 
 #: The lifetime a link gets when nothing selects one: long enough for a listening session.
 DEFAULT_LINK_TTL: Final[timedelta] = timedelta(hours=1)
@@ -46,8 +47,6 @@ SIGNED_LINK_PATH: Final[str] = "/api/v1/files/link"
 #: handlers in it, and no magic signature pins what bytes declared as it really are.
 _INLINE_TYPES: Final[tuple[str, ...]] = ("image/", "audio/", "video/", "application/pdf")
 _INLINE_REFUSED_SUFFIXES: Final[tuple[str, ...]] = ("+xml", "/xml")
-
-_DEFAULT_FILENAME: Final[str] = "upload"
 
 _domain = SealingDomain("files.link", b"terp-cap-files link")
 
@@ -76,7 +75,7 @@ def link_ttl(ttl: timedelta | None) -> timedelta:
 
 def inline_allowed(content_type: str) -> bool:
     """Whether a link to a file of *content_type* may ask to be shown inline."""
-    media_type = _one_media_type(content_type)
+    media_type = one_media_type(content_type)
     if media_type is None or media_type.endswith(_INLINE_REFUSED_SUFFIXES):
         return False  # a list of types, or a row stored before 0.39.0 refused one, is not shown
     return any(media_type.startswith(prefix) for prefix in _INLINE_TYPES)
@@ -95,7 +94,7 @@ def content_disposition(filename: str, *, inline: bool = False) -> str:
     )
     encoded = urllib.parse.quote(filename, safe="")
     kind = "inline" if inline else "attachment"
-    return f"{kind}; filename=\"{fallback or _DEFAULT_FILENAME}\"; filename*=UTF-8''{encoded}"
+    return f"{kind}; filename=\"{fallback or DEFAULT_FILENAME}\"; filename*=UTF-8''{encoded}"
 
 
 def seal_link(file_id: uuid.UUID, expires_at: datetime, *, inline: bool) -> str:

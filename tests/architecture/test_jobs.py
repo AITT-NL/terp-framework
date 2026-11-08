@@ -236,7 +236,7 @@ def test_catalog_missing_jobs_reports_unregistered() -> None:
 # (2) typed definitions validate their own shape
 # --------------------------------------------------------------------------- #
 def test_job_definition_validates_name_schema_and_handler() -> None:
-    handler = lambda ctx, payload: None  # noqa: E731
+    handler = lambda ctx, payload: None
     JobDefinition(name="sync.customers.pull", payload_schema=_DocCreate, handler=handler)
 
     with pytest.raises(ValueError, match="dotted token"):
@@ -384,7 +384,7 @@ def test_run_job_rebinds_tenant_so_writes_are_isolated(
 ) -> None:
     configure_jobs(JobCatalog([_tenant_job()]))
     tenant_a, tenant_b = uuid.uuid4(), uuid.uuid4()
-    factory = lambda: Session(engine)  # noqa: E731
+    factory = lambda: Session(engine)
 
     # Two jobs, each under a different tenant carried only by the envelope.
     run_job(JobEnvelope(name="docs.tenant.create", payload={"label": "a"}, tenant_id=tenant_a), session_factory=factory)

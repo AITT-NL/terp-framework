@@ -62,11 +62,11 @@ def test_the_lane_skips_without_an_engine_and_fails_where_it_is_required(monkeyp
     """Either outcome is caught and its kind asserted: a skip escaping a ``raises`` that waits
     for a failure would skip this test too, and a skip is green."""
     monkeypatch.delenv(lane.REQUIRE_ENV, raising=False)
-    with pytest.raises(BaseException) as skipped:  # noqa: PT011 - the kind is asserted below
+    with pytest.raises(BaseException) as skipped:  # the kind is asserted below
         lane.unavailable("no engine here")
     assert skipped.type is pytest.skip.Exception and "no engine here" in str(skipped.value)
     monkeypatch.setenv(lane.REQUIRE_ENV, "1")
-    with pytest.raises(BaseException) as failed:  # noqa: PT011 - the kind is asserted below
+    with pytest.raises(BaseException) as failed:  # the kind is asserted below
         lane.unavailable("no engine here")
     assert failed.type is pytest.fail.Exception, failed.type
     assert f"no engine here. {lane.REQUIRE_ENV} is set" in str(failed.value)

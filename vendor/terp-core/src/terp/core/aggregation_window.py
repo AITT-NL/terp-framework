@@ -16,6 +16,7 @@ from sqlalchemy import Integer, literal, union_all
 from sqlalchemy import select as sa_select
 
 from terp.core.errors import ValidationFailedError
+from terp.core.filtering import local_midnight
 
 if TYPE_CHECKING:
     from terp.core.aggregation import TimeStep, Window
@@ -27,11 +28,6 @@ def _next_step(day: dt.date, step: TimeStep) -> dt.date:
     if step == "week":
         return day + dt.timedelta(days=7 - day.weekday())
     return (day.replace(day=1) + dt.timedelta(days=32)).replace(day=1)
-
-
-def _midnight(day: dt.date, zone: ZoneInfo) -> dt.datetime:
-    """Local midnight of *day* in *zone*, as a UTC instant (a short day keeps its length)."""
-    return dt.datetime.combine(day, dt.time(), tzinfo=zone).astimezone(dt.UTC)
 
 
 def window_steps(window: Window) -> int:
@@ -78,7 +74,7 @@ def window_days(window: Window) -> list[dt.date]:
 
 def window_bounds(window: Window, zone: ZoneInfo) -> list[dt.datetime]:
     """The UTC instants that cut the window into its steps; the whole window without one."""
-    return [_midnight(day, zone) for day in window_days(window)]
+    return [local_midnight(day, zone) for day in window_days(window)]
 
 
 def _steps_table(bounds: Sequence[dt.datetime], column_type: Any) -> Any:

@@ -708,7 +708,7 @@ def test_a_revert_release_keeps_ns_revisions_and_models_and_boots(
     environment["PYTHONPATH"] = os.pathsep.join(
         part for part in (str(tmp_path), environment.get("PYTHONPATH", "")) if part
     )
-    result = subprocess.run(  # noqa: S603 - our own interpreter and file
+    result = subprocess.run(  # our own interpreter and file
         [sys.executable, str(driver)], capture_output=True, text=True, env=environment, check=False
     )
     assert result.returncode == 0, result.stderr

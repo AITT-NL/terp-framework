@@ -442,7 +442,7 @@ def _await_health(port: int, timeout: float = _HEALTH_TIMEOUT_SECONDS) -> bool:
     url = f"http://127.0.0.1:{port}{_HEALTH_PATH}"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=2) as response:  # noqa: S310
+            with urllib.request.urlopen(url, timeout=2) as response:
                 if 200 <= response.status < 300:
                     return True
         except (urllib.error.URLError, OSError, ValueError):

@@ -36,9 +36,9 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.arch.rules import _ALL_RULES  # noqa: E402  (import after sys.path setup)
-from terp.cli import guide, guide_topics  # noqa: E402
-from terp.core import __all__ as _CORE_ALL  # noqa: E402
+from terp.arch.rules import _ALL_RULES  # import after sys.path setup
+from terp.cli import guide, guide_topics
+from terp.core import __all__ as _CORE_ALL
 
 # The three surfaces an agent actually reads (design §8 names AGENTS.md; the consumer
 # bootstrap pointer is template/AGENTS.md; the live recipes are `terp guide`).
@@ -355,7 +355,7 @@ def _undeclared_declaration_fields(text: str) -> dict[str, list[str]]:
 
     undocumented: dict[str, list[str]] = {}
     for cls in _declarations_refused_at_boot():
-        if not dataclasses.is_dataclass(cls):  # pragma: no cover - all of them are today
+        if not dataclasses.is_dataclass(cls):  # all of them are today
             continue
         missing = [
             declared.name

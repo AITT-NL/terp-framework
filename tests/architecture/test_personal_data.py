@@ -316,7 +316,7 @@ def test_a_personal_model_hides_its_input_in_a_validation_error() -> None:
 def test_a_forward_reference_is_resolved_and_still_hides_its_input() -> None:
     class _Later(BaseSchema):
         email: str = Personal(max_length=8)
-        child: _Missing | None = None  # noqa: F821 - defined below, on purpose
+        child: _Missing | None = None  # defined below, on purpose
 
     class _Missing(BaseSchema):
         code: str = ""
@@ -451,7 +451,7 @@ def _app() -> FastAPI:
     @router.get("/logged")
     def logged() -> dict[str, str]:
         log.info("customer %s", _read(), extra={"customer": _read(), "email": _EMAIL})
-        log.info(f"customer {_read()}")  # noqa: G004 - the f-string is the path under test
+        log.info(f"customer {_read()}")  # the f-string is the path under test
         return {}
 
     @router.get("/boom")

@@ -24,8 +24,8 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli import main, profile_ids, verify_manifest  # noqa: E402
-from terp.cli.verify import (  # noqa: E402
+from terp.cli import main, profile_ids, verify_manifest
+from terp.cli.verify import (
     PROFILES,
     VerifyCheck,
     _json_documents,

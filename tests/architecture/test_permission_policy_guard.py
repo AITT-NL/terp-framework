@@ -36,7 +36,7 @@ from terp.core import (
 from terp.core.app import build_guard
 
 from terp.capabilities.access import AccessService, enforce_permission
-import terp.capabilities.access.models  # noqa: F401  (register the Grant table)
+import terp.capabilities.access.models  # register the Grant table
 
 _PUBLISH = Permission("widgets.publish", min_role=EDITOR)
 _POLICY = Policy(read=VIEWER, write=_PUBLISH)

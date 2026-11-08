@@ -8,13 +8,16 @@
   record: the contract baseline, the reference site and the deploy recipe are each a later
   change of their own, listed under "How it will be held". Revised
   2026-11-04: decision 5 no longer says the generated-client rule keeps a page from calling the
-  app, and says what does. Item 5 of "How it will be held" is amended by
+  app, and says what does. Item 3 of "How it will be held" (item 5 before the list was cut on
+  2026-11-05) is amended by
   [ADR 0198](0198-a-static-site-is-a-web-unit-the-framework-builds-from-a-recipe-it-owns.md)
   (proposed 2026-11-04): the static `web` recipe and a second `web` unit land in the standard
   and the framework's generator. Revised 2026-11-05: the site rules profile, its lint preset and
   its conformance claim are withdrawn (decision 5), following the direction that rules belong to
   the framework and that a site carries no Terp claim; the socket is four declarations, and the
-  starter is reduced to a reference site the recipe builds.
+  starter is reduced to a reference site the recipe builds. Revised 2026-11-08: decision 4 and
+  the tokens' footnote describe that reference site, where they still described the starter the
+  previous revision cut.
 - **Date:** 2026-11-03. 0182 and 0183 are reserved for other records and 0184 to 0193 are taken;
   0194 to 0197 are this series.
 - **Relates:** amends [ADR 0123](0123-marketing-websites-are-not-a-terp-application-kind.md)
@@ -157,18 +160,19 @@ How a deploy tool picks the recipe that builds a site's `web` unit, whether by a
 `deployment.json` or by inference from the profile, is not decided here. A field would be a change
 to the deployment vocabulary, so it is taken with the spec, by the record that builds the recipe.
 
-### 4. The family ships a reference plug: a site starter, outside the framework
+### 4. The family ships a reference plug: a reference site, outside the framework
 
-The Terp family ships a site starter: a template of its own, separate from the app template, and
-scaffolded by the `terp` CLI. A site made from it is **outside the framework** in every sense a
+The Terp family ships a reference site: its own public site, built from the static `web` recipe
+(ADR 0198) and walked through by a guide topic. It is **outside the framework** in every sense a
 guarantee depends on. It imports nothing from `terp.*` or `@terpjs/react-core`. It has no
 `ModuleSpec`, no archetype and no runtime control, and nothing in this platform's two-layer model
-extends to it.
+extends to it. A starter a team scaffolds a site from, a template of its own, waits with the
+themed site of item 2 under "How it will be held".
 
-The starter is also only one plug. Any site that makes the four declarations above is as
-first-class to the family's tooling as one made from the starter, which is what makes this a
-socket rather than a second framework. The starter's build tool is chosen with the starter; the
-socket does not depend on it.
+The reference site is also only one plug. Any site that makes the four declarations above is as
+first-class to the family's tooling as the reference site, which is what makes this a socket
+rather than a second framework. Its build tool is chosen with it; the socket does not depend on
+it.
 
 ### 5. A site's lint is its own, and a site claims nothing of Terp
 
@@ -214,11 +218,11 @@ own diff moves the pin. And it keeps three things a copy loses:
 
 A site takes `tokens.css` and `tokens.manifest.json` from the package and nothing else, and its
 lockfile pins the package's own dependencies with it; if that footprint matters to a site,
-publishing the tokens as a package of their own is the starter's decision, taken on evidence. The
-package's typed client is generated from the framework's own reference app, not from the app a
-site reads, so a site never uses it (decision 3). The theme is one of the five named ones, set on
-the document exactly as an app sets it. §4's second paragraph stands: the frontend primitives do
-not travel.
+publishing the tokens as a package of their own is a decision for when that footprint shows,
+taken on evidence. The package's typed client is generated from the framework's own reference
+app, not from the app a site reads, so a site never uses it (decision 3). The theme is one of the
+five named ones, set on the document exactly as an app sets it. §4's second paragraph stands:
+the frontend primitives do not travel.
 
 ## Consequences
 

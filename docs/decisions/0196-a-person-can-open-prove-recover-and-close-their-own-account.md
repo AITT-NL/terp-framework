@@ -90,19 +90,22 @@ let anyone who asked choose the password of an account the mailbox's owner then 
 following the link: an account its owner believes is theirs, with a password someone else
 knows.
 
-So an unproven address leaves no account and no personal data, there is no "pending" state
-to clean up, and the token is single-use twice over: its row is stamped when it is redeemed,
-and once the account exists, a second token for the same address is refused too. Addresses
-are compared without regard to case, so two spellings of one mailbox are one address and
-never two accounts: a self-service account is stored with its address lower-cased, and a
-sign-in reaches it in any spelling, because the identity capability's lookup tries the
-address as written and then lower-cased. An account provisioned with capitals keeps signing
-in as it was written. From 0.39.0 provisioning holds to it too: creating an account, or
-changing one's address, for an address another account holds in any spelling is a 409,
-`address_taken` (until then an administrator could open the second account). The database's
-unique index is still on the exact spelling, so two writes racing with two spellings of one
-new address could both pass; a case-folded index is a migration of an app's own data, and is
-left open.
+So an unproven address leaves no account and no row that names it, there is no "pending"
+state to clean up, and the token is single-use twice over: its row is stamped when it is
+redeemed, and once the account exists, a second token for the same address is refused too.
+The address does leave two traces (amended in 0.39.0, which corrected "no personal data"): the
+mail sent to it rests sealed in the outbox until its rows are pruned (ADR 0199), and the
+backoff keys the request under the address, in plain text, for its fifteen-minute window.
+Addresses are compared without regard to case, so two spellings of one mailbox are one address,
+and the capability opens no second account for one: a self-service account is stored with its
+address lower-cased, and a sign-in reaches it in any spelling, because the identity
+capability's lookup tries the address as written and then lower-cased. An account provisioned
+with capitals keeps signing in as it was written. From 0.39.0 provisioning holds to it too:
+creating an account, or changing one's address, for an address another account holds in any
+spelling is a 409, `address_taken` (until then an administrator could open the second account).
+The database's unique index is still on the exact spelling, so two writes racing with two
+spellings of one new address could both pass; a case-folded index is a migration of an app's
+own data, and is left open.
 
 ### 3. A request about an address answers the same way, and does the same work, whether or not an account exists
 
@@ -133,7 +136,7 @@ any revocation that comes after it was mailed. The link puts the token
 in the URL **fragment**, which a browser never sends, so it cannot reach a server log, a
 proxy or a `Referer` header.
 
-### 5. Public routes back off; they never lock anyone out
+### 5. Public routes back off rather than lock anyone out
 
 Every route takes the auth capability's backoff (ADR 0147) on a store the app supplies: the
 two requests by address and caller, each request counting, so a flood of mail to one address
@@ -152,6 +155,12 @@ counts under the bare address, and the store is commonly the same one, so until 
 callers asking once each about an address reached the backstop sign-in reads, and its owner
 could not sign in for five minutes, again and again: the lockout ADR 0147 refuses, reached
 from the side.
+
+What a backoff cannot promise is that a flood leaves its target alone. Many callers asking
+about one address reach that address's backstop, and every request about it, its owner's
+included, then waits out the window, five minutes at most at a time. Nothing is refused for
+good and no account or address is ever marked locked, and sign-in, which reads its own key,
+is untouched.
 
 ### 6. Closing an account takes the password again, and ends every session
 
@@ -175,10 +184,14 @@ action) and both remedies: declare `CASCADE` or `SET NULL` on it to let the row 
 hold: a table another program owns, or a model imported after the build. A close meets that
 one at run time. The delete's write has then rolled back, so nothing has changed, and the
 account is scrubbed instead, with a warning that names the cause and both remedies. Closing
-never stops halfway, the person's data goes either way, and the person is not left with an
-account they asked to close because of a schema choice they cannot see; refusing the close
-with a 409 was the alternative, and it would have kept a person's account open over an
-operator's oversight.
+never stops halfway, the account's address and password go either way, and the person is not
+left with an account they asked to close because of a schema choice they cannot see; refusing
+the close with a 409 was the alternative, and it would have kept a person's account open over
+an operator's oversight. What a close does not reach (amended in 0.39.0, which corrected "the
+person's data goes either way"): a scrubbed account keeps the issuer and subject of each
+external identity linked to it, which open nothing while it is inactive; a mail sent to the
+person rests sealed in the outbox until its rows are pruned; and the app's own rows that hold
+the person's data are the app's to clear.
 
 ### 7. Every step is audited, and the address never is
 
@@ -208,7 +221,7 @@ control. The Terp Standard states them as its `self-service-accounts` runtime se
 | A verification or reset token works once | `AccountTokenService.live` and `consume`; the account's existence; the token epoch |
 | A token expires, and its expiry is inside the sealed token | `open_account_token` |
 | A token cannot be read or forged without the app's secret, and never reaches a server in a URL | `SealingDomain("users.account")`; the fragment link |
-| Repeated public requests back off per caller and never lock out | `LoginThrottle` on the declared store; the per-caller redemption counter |
+| Repeated public requests back off per caller, never refuse for good, and never touch sign-in | `LoginThrottle` on the declared store; the per-caller redemption counter |
 | A self-registered account starts at the viewer rank, and an app that approves accounts creates it inactive | `UsersService.create_verified` |
 | Closing an account requires the password and revokes every session | `UsersService.close_account` |
 | Half-configured, the capability refuses to be built, `REMOVE` included while a reference it can see would refuse the delete | `SelfService.__post_init__`, `build_accounts_module` |

@@ -141,7 +141,7 @@ _UNREACHABLE_AGAINST_SOFT_DELETE = frozenset(
 _SOFT_DELETE_COLUMN = "deleted_at"
 
 
-def Ref(  # noqa: N802 - a Field-style factory, named like the declaration it makes
+def Ref(  # a Field-style factory, named like the declaration it makes
     target: str,
     *,
     on_delete: OnDelete,

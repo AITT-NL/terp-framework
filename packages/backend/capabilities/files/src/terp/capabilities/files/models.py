@@ -48,6 +48,9 @@ CONTENT_TYPE_MAX: Final[int] = 255
 _SHA256_MAX: Final[int] = 64
 _STORAGE_KEY_MAX: Final[int] = 512
 
+#: The name a file goes by when it arrived without one.
+DEFAULT_FILENAME: Final[str] = "upload"
+
 
 class File(BaseTable, OwnedMixin, table=True):
     """One stored file's metadata: name, type, size, digest, and its storage address.
@@ -73,4 +76,4 @@ class File(BaseTable, OwnedMixin, table=True):
     )
 
 
-__all__ = ["CONTENT_TYPE_MAX", "FILENAME_MAX", "File"]
+__all__ = ["CONTENT_TYPE_MAX", "DEFAULT_FILENAME", "FILENAME_MAX", "File"]

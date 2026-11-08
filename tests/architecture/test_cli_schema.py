@@ -42,7 +42,7 @@ def _example_graph() -> dict:
         "main(['inspect', 'schema', '--app-root', r'" + str(_EXAMPLE) + "', "
         "'--format', 'json'])"
     )
-    result = subprocess.run(  # noqa: S603 - fixed argv, no shell
+    result = subprocess.run(  # fixed argv, no shell
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,

@@ -51,29 +51,29 @@ _TCHARS = r"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
 _ONE_MEDIA_TYPE = re.compile(rf'{_TCHARS}/{_TCHARS}(?:[ \t]*;[ \t]*(?:{_TCHARS}=(?:{_TCHARS}|"[^"\\,\r\n]*"))?)*')
 
 
-def _one_media_type(value: str) -> str | None:
+def one_media_type(value: str) -> str | None:
     """The bare media type *value* names, lowercased, when it is one media type; else ``None``."""
     if not _ONE_MEDIA_TYPE.fullmatch(value.strip()):
         return None
     return _normalized_media_type(value)
 
 
-def _served_media_type(content_type: str) -> str:
+def served_media_type(content_type: str) -> str:
     """The ``Content-Type`` a stored file is served with: its own, unless it is not one type.
 
     Upload refuses such a type from 0.39.0; a row stored before then is served as bytes.
     """
-    return content_type if _one_media_type(content_type) is not None else "application/octet-stream"
+    return content_type if one_media_type(content_type) is not None else "application/octet-stream"
 
 
-def _ensure_one_media_type(content_type: str) -> None:
+def ensure_one_media_type(content_type: str) -> None:
     """Fail closed when *content_type* is not exactly one media type (ADR 0201).
 
     Stored, it is served back as the download's ``Content-Type``, and judged by the allowlist,
     the signature check and the inline rule first. A list of types, or anything a header could
     read otherwise, would let those judge one type while the browser renders another.
     """
-    if _one_media_type(content_type) is None:
+    if one_media_type(content_type) is None:
         raise ContentTypeMalformedError(log_context={"content_type": content_type[:200]})
 
 
@@ -123,7 +123,7 @@ def reset_allowed_content_types() -> None:
     _allowed_content_types = None
 
 
-def _ensure_content_type_allowed(content_type: str) -> None:
+def ensure_content_type_allowed(content_type: str) -> None:
     """Fail closed when an allowlist is configured and *content_type* is not on it."""
     allowed = _allowed_content_types
     if allowed is None:
@@ -158,11 +158,12 @@ _MAGIC_SIGNATURES: dict[str, tuple[tuple[tuple[int, bytes], ...], ...]] = {
     "application/gzip": (((0, b"\x1f\x8b"),),),
 }
 
-# The longest constraint ends at offset 8 + len(b"WEBP") = 12; peeking 16 keeps headroom.
-_SNIFF_LEN = 16
+#: How many leading bytes the signature check reads: the longest constraint ends at offset
+#: 8 + len(b"WEBP") = 12, and 16 keeps headroom.
+SNIFF_LEN = 16
 
 
-def _ensure_bytes_match_declared_type(content_type: str, head: bytes) -> None:
+def ensure_bytes_match_declared_type(content_type: str, head: bytes) -> None:
     """Fail closed when the declared type has a known signature the bytes lack (ADR 0076)."""
     alternatives = _MAGIC_SIGNATURES.get(_normalized_media_type(content_type))
     if alternatives is None:
@@ -179,10 +180,16 @@ def _ensure_bytes_match_declared_type(content_type: str, head: bytes) -> None:
 
 
 __all__ = [
+    "SNIFF_LEN",
     "ContentTypeMalformedError",
     "ContentTypeMismatchError",
     "UnsupportedContentTypeError",
     "active_allowed_content_types",
     "configure_allowed_content_types",
+    "ensure_bytes_match_declared_type",
+    "ensure_content_type_allowed",
+    "ensure_one_media_type",
+    "one_media_type",
     "reset_allowed_content_types",
+    "served_media_type",
 ]

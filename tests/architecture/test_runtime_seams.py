@@ -34,7 +34,7 @@ from terp.core.runtime import (
 )
 from terp.core.testing import InstallAudit, InstallEvents
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
+if TYPE_CHECKING:  # typing only
     from sqlmodel import Session
 
 
@@ -99,7 +99,7 @@ def test_registering_a_conflicting_seam_name_is_refused() -> None:
         )
     except ValueError as exc:
         assert seam.name in str(exc)
-    else:  # pragma: no cover - the guard is the point of the test
+    else:  # the guard is the point of the test
         raise AssertionError("a conflicting seam registration must be refused")
 
 

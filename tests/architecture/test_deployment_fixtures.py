@@ -84,7 +84,7 @@ def test_the_tree_fixtures_a_corpus_case_cannot_carry(tmp_path) -> None:
         try:
             for link, destination in tree["links"].items():
                 os.symlink(destination, root / link, target_is_directory=True)
-        except OSError:  # pragma: no cover - a Windows account without the link privilege
+        except OSError:  # a Windows account without the link privilege
             continue
         if "workTree" in tree:
             (root / tree["workTree"] / ".git").mkdir(parents=True, exist_ok=True)

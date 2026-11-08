@@ -19,9 +19,9 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli import main, run_routes_command  # noqa: E402
-from terp.cli.dev import run_dev_command  # noqa: E402
-from terp.cli.routes import routes_argv  # noqa: E402
+from terp.cli import main, run_routes_command
+from terp.cli.dev import run_dev_command
+from terp.cli.routes import routes_argv
 
 
 def _frontend(root: pathlib.Path, *, wired: bool = True) -> pathlib.Path:
@@ -45,7 +45,7 @@ class _DoneProc:
     def poll(self) -> int:
         return 0
 
-    def terminate(self) -> None:  # pragma: no cover - never reached
+    def terminate(self) -> None:  # never reached
         raise AssertionError("a finished process is not terminated")
 
 

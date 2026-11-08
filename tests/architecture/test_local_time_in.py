@@ -20,7 +20,18 @@ from zoneinfo import ZoneInfo
 import pytest
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
-from pydantic import AfterValidator, BaseModel, ConfigDict, NaiveDatetime, TypeAdapter, ValidationError, create_model
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    FutureDatetime,
+    NaiveDatetime,
+    PastDatetime,
+    TypeAdapter,
+    ValidationError,
+    create_model,
+)
 
 from terp.core import BaseSchema, BootError, LocalTimeIn, ModuleSpec, Policy, create_app
 from terp.core.local_time import _instant_in
@@ -149,6 +160,25 @@ def test_the_walk_trusts_only_the_types_own_reader() -> None:
     assert caught.value.errors()[0]["type"] == "timestamp_offset_required"
 
 
+#: The type's own reader, bound to an object of another class that answers the zone check as a
+#: place does. Such an object answers it however it likes, and reads however it likes after.
+_FORGED = types.MethodType(
+    LocalTimeIn._read, types.SimpleNamespace(zone="Europe/Amsterdam", _zone=ZoneInfo("Europe/Amsterdam"))
+)
+
+
+class _Forged(BaseSchema):
+    at: Annotated[datetime, AfterValidator(_FORGED)]
+
+
+def test_the_walk_trusts_the_reader_only_on_an_instance_of_the_type() -> None:
+    # The type cannot be subclassed and is fixed once declared; an object of any other class
+    # is neither, so the reader bound to one is a function like any other.
+    with pytest.raises(ValidationError) as caught:
+        _Forged.model_validate({"at": "2026-11-06T10:00:00"})
+    assert caught.value.errors()[0]["type"] == "timestamp_offset_required"
+
+
 def test_a_reader_put_on_the_class_afterwards_is_not_trusted(monkeypatch: pytest.MonkeyPatch) -> None:
     # The walk knows the reader the type defined when the framework loaded, so a function put
     # on the class later is a function like any other, and the timestamp in front of it is
@@ -192,7 +222,7 @@ def test_a_zone_swapped_behind_the_types_back_is_not_trusted(swap: str) -> None:
 
 
 def test_create_app_refuses_a_route_whose_zone_was_swapped() -> None:
-    def slots(starts_after: datetime) -> dict[str, str]:  # pragma: no cover - never served
+    def slots(starts_after: datetime) -> dict[str, str]:  # never served
         return {}
 
     slots.__annotations__["starts_after"] = Annotated[datetime, _swapped(_zone=ZoneInfo("UTC"))]
@@ -303,6 +333,10 @@ def test_it_reads_a_plain_datetime_and_says_where_it_goes() -> None:
     for declared in (
         Annotated[str, LocalTimeIn("Europe/Amsterdam")],
         Annotated[NaiveDatetime, LocalTimeIn("Europe/Amsterdam")],
+        Annotated[AwareDatetime, LocalTimeIn("Europe/Amsterdam")],
+        # Past and future are judged against now before the zone places the value.
+        Annotated[PastDatetime, LocalTimeIn("Europe/Amsterdam")],
+        Annotated[FutureDatetime, LocalTimeIn("Europe/Amsterdam")],
         Annotated[datetime, AfterValidator(lambda value: value), LocalTimeIn("Europe/Amsterdam")],
     ):
         with pytest.raises(TypeError, match=r"goes directly after one: Annotated\[datetime, LocalTimeIn"):
@@ -324,7 +358,7 @@ def test_it_is_fixed_once_declared_and_copies_as_itself() -> None:
         del marker.zone
     assert copy.copy(marker) is marker
     assert copy.deepcopy(marker) is marker
-    assert pickle.loads(pickle.dumps(marker)).zone == "Europe/Amsterdam"  # noqa: S301
+    assert pickle.loads(pickle.dumps(marker)).zone == "Europe/Amsterdam"  # noqa: S301 - bytes this test just wrote
 
 
 def test_an_instant_outside_the_years_a_timestamp_holds_is_a_422_not_a_crash() -> None:

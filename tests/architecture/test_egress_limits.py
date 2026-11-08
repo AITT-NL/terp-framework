@@ -23,7 +23,7 @@ def test_unnegotiated_compression_is_refused_without_reading_or_decoding(
     class UnreadBody(httpx.SyncByteStream):
         def __iter__(self):
             raise AssertionError("A compressed body reached the reader")
-            yield b""  # pragma: no cover - generator protocol; the assertion always raises
+            yield b""  # generator protocol; the assertion always raises
 
     recorded = _mock_httpx(monkeypatch, lambda _r: httpx.Response(
         200, headers={"content-encoding": encoding}, stream=UnreadBody(),

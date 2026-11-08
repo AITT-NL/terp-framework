@@ -20,10 +20,10 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.core import settings  # noqa: E402
-from terp.core._internal.engine import reset_engine  # noqa: E402
+from terp.core import settings
+from terp.core._internal.engine import reset_engine
 
-from terp.cli import main  # noqa: E402
+from terp.cli import main
 
 # An app with one assignable module, one that refuses assignment outright, one that stays
 # silent, and a four-rung ladder — so every refusal has something real to be measured against.

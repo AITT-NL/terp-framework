@@ -61,7 +61,7 @@ class UndeclaredFileReferenceError(AppError):
     default_message = "The record's file reference is not declared with FileRef."
 
 
-def FileRef(*, index: bool = True) -> Any:  # noqa: N802 - a Field-style factory, named like the trait it declares
+def FileRef(*, index: bool = True) -> Any:  # a Field-style factory, named like the trait it declares
     """Declare a model column as a reference to a stored ``File``.
 
     Use it instead of a bare ``uuid`` field::

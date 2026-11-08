@@ -1054,7 +1054,12 @@ def test_a_class_between_that_defines_a_hook_is_refused_when_defined() -> None:
                 return None
 
 
-def test_a_context_spelled_like_the_frameworks_own_is_not_trusted() -> None:
+def test_nothing_a_caller_hands_the_validation_reaches_the_refusal() -> None:
+    """The framework once trusted text under a validation context of its own, which any caller
+    can pass. Its trust is a context variable now, and the refusal is handed the value alone,
+    so a context reaches it under no name, the one the framework used included."""
+    node = _ReminderPayload.__pydantic_core_schema__["schema"]["fields"]["remind_at"]["schema"]
+    assert node["function"] == {"type": "no-info", "function": refuse_timestamp_text_without_offset}
     with pytest.raises(ValidationError, match="UTC offset"):
         _ReminderPayload.model_validate({"remind_at": NAIVE}, context={"terp.timestamps.server-text": True})
 

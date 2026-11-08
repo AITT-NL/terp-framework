@@ -265,7 +265,7 @@ def wiring_seams(capability: Capability) -> tuple[str, ...]:
     """
     try:
         module = importlib.import_module(capability.module)
-    except Exception:  # noqa: BLE001 - a broken optional import is "no seams to report"
+    except Exception:  # a broken optional import is "no seams to report"
         return ()
     found = []
     for name in getattr(module, "__all__", ()):

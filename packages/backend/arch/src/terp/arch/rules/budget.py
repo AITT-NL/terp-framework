@@ -144,7 +144,7 @@ def check_escape_hatch_budget(
 
     actual: dict[str, int] = {}
     located: list[ArchViolation] = []
-    review_deadline = today if today is not None else datetime.date.today()  # noqa: DTZ011 — date-only convention
+    review_deadline = today if today is not None else datetime.date.today()  # date-only convention
     for root in roots:
         for path in iter_python_files(root.path, skip_dirs=_SECURITY_SKIP_DIRS):
             for lineno, comment in _file_comments(path.read_text(encoding="utf-8")):

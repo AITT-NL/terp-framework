@@ -20,9 +20,9 @@ import pytest
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "packages" / "backend" / "cli" / "src"))
 
-from terp.cli import main  # noqa: E402
-from terp.cli.envfile import MASKED, run_env_command  # noqa: E402
-from terp.cli.envseams import run_env_seams_check  # noqa: E402
+from terp.cli import main
+from terp.cli.envfile import MASKED, run_env_command
+from terp.cli.envseams import run_env_seams_check
 
 _MANIFEST = {
     "type": "object",

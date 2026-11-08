@@ -92,7 +92,7 @@ def _execute_envelope(
     job_envelope = replace(kwargs_to_job_envelope(envelope), attempt=attempt)
     try:
         run_job(job_envelope, session_factory=job_session_factory)
-    except Exception as exc:  # noqa: BLE001 - any handler failure becomes a retry / terminal raise
+    except Exception as exc:  # any handler failure becomes a retry / terminal raise
         policy = _retry_for(job_envelope.name, default_retry)
         if attempt >= policy.max_attempts:
             raise

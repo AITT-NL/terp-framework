@@ -21,7 +21,7 @@ import pytest
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "tools"))
 
-import copier_round_trip as trip_tool  # noqa: E402
+import copier_round_trip as trip_tool
 
 
 def _copier() -> list[str] | None:

@@ -77,7 +77,7 @@ class _PersonalMarker:
 _MARKER: Final[_PersonalMarker] = _PersonalMarker()
 
 
-def Personal(default: Any = PydanticUndefined, **field_kwargs: Any) -> Any:  # noqa: N802 - a Field-style factory
+def Personal(default: Any = PydanticUndefined, **field_kwargs: Any) -> Any:  # a Field-style factory
     """Declare a model field as personal data; otherwise exactly :func:`sqlmodel.Field`.
 
     Use it wherever the field is declared, on the table and on each schema::

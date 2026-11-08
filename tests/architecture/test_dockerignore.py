@@ -141,7 +141,7 @@ def _docker_build_output() -> tuple[list[str] | None, str]:
         (["info", "--format", "{{.ServerVersion}}"], "no running Docker engine"),
         (["buildx", "version"], "no docker buildx"),
     ):
-        if subprocess.run([docker, *argv], capture_output=True, check=False).returncode != 0:  # noqa: S603
+        if subprocess.run([docker, *argv], capture_output=True, check=False).returncode != 0:
             return None, what
     return [docker], ""
 
@@ -164,7 +164,7 @@ def test_the_matcher_predicts_what_docker_s_builder_lets_into_a_context(tmp_path
     (context / ".dockerignore").write_text(_PATTERNS, encoding="utf-8")
     (context / "Dockerfile").write_text("FROM scratch\nCOPY . /\n", encoding="utf-8")
     out = tmp_path / "out"
-    run = subprocess.run(  # noqa: S603
+    run = subprocess.run(
         [*docker, "build", "-q", "-o", f"type=local,dest={out}", str(context)],
         capture_output=True, text=True, check=False,
     )

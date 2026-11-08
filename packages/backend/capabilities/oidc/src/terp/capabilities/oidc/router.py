@@ -141,7 +141,7 @@ def build_oidc_router(
 
     def _client_secret(config: OIDCProviderConfig) -> str:
         if is_sealed_config(config.client_secret):
-            assert secret_resolver is not None  # noqa: S101 - enforced at construction
+            assert secret_resolver is not None  # enforced at construction
             return secret_resolver(config.client_secret)
         return config.client_secret
 

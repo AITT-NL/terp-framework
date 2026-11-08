@@ -22,7 +22,7 @@ import pytest
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "packages" / "backend" / "cli" / "src"))
 
-from terp.cli.outbox import _duration, render_backlog, render_dead_letters  # noqa: E402
+from terp.cli.outbox import _duration, render_backlog, render_dead_letters
 
 _NOW = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
 

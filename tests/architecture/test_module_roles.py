@@ -43,7 +43,7 @@ from terp.core import (
     get_session,
 )
 
-import terp.capabilities.access.models  # noqa: F401  (register the access tables)
+import terp.capabilities.access.models  # register the access tables
 from terp.capabilities.access import (
     ModuleRoleService,
     assignable_modules,
@@ -115,7 +115,7 @@ def _writable_module(name: str) -> ModuleSpec:
     router = APIRouter()
 
     @router.post("/", response_model=str)
-    def write() -> str:  # pragma: no cover - exercised over HTTP
+    def write() -> str:  # exercised over HTTP
         return f"wrote {name}"
 
     return ModuleSpec(
@@ -421,7 +421,7 @@ def _admin_only_module(name: str, access: ModuleAccess | None) -> ModuleSpec:
     router = APIRouter()
 
     @router.post("/", response_model=str)
-    def write() -> str:  # pragma: no cover - exercised over HTTP
+    def write() -> str:  # exercised over HTTP
         return f"wrote {name}"
 
     return ModuleSpec(

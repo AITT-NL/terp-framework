@@ -78,7 +78,7 @@ source = {{ registry = "https://pypi.org/simple" }}
 
 def git(root: pathlib.Path, *args: str) -> str:
     """Run git in *root* as a test commits: a fixed identity, no hooks, the bytes as written."""
-    completed = subprocess.run(  # noqa: S603 - fixed argv
+    completed = subprocess.run(  # fixed argv
         ["git", "-c", "user.email=release@example.invalid", "-c", "user.name=release",
          "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false", "-C", str(root), *args],
         capture_output=True, text=True, check=True,

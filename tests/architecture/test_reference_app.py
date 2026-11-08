@@ -28,7 +28,7 @@ import yaml
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "tools"))
 
-import render_reference_app as reference  # noqa: E402
+import render_reference_app as reference
 
 _TEMPLATE_PYPROJECT = reference.TEMPLATE_PROJECT / "pyproject.toml.jinja"
 _FRAMEWORK_CI = _REPO_ROOT / ".github" / "workflows" / "ci.yml"

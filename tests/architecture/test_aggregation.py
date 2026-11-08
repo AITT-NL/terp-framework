@@ -330,7 +330,7 @@ def test_a_window_s_steps_are_counted_as_they_are_built(step: str) -> None:
 def test_a_window_of_millennia_is_refused_before_a_bound_is_built(engine, monkeypatch) -> None:
     # Building every day from year 1 to 9999 took seconds and hundreds of megabytes before the
     # cap refused it; the count is arithmetic now, and no bound is built for a refused window.
-    def built(*_args: object) -> None:  # pragma: no cover - the test fails if it is reached
+    def built(*_args: object) -> None:  # the test fails if it is reached
         raise AssertionError("a bound was built for a window the caps refuse")
 
     monkeypatch.setattr(aggregation, "window_bounds", built)
@@ -382,6 +382,7 @@ def test_a_step_the_bucket_does_not_offer_is_refused(engine) -> None:
     [
         (lambda: Measure("Revenue", Sale.amount, op="sum"), "lower_snake_case"),
         (lambda: Measure("revenue", op="sum"), "needs the column it aggregates"),
+        (lambda: Measure("with_email", Sale.buyer_email), "counts rows, so it takes no column"),
         (lambda: Dimension("Region", Sale.region), "lower_snake_case"),
         (lambda: TimeBucket("Sold", Sale.sold_at), "lower_snake_case"),
         (lambda: TimeBucket("sold", Sale.sold_at, steps=()), "declares no step"),

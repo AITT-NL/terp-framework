@@ -24,7 +24,7 @@ import yaml
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "tools"))
 
-import production_boot as boot_tool  # noqa: E402
+import production_boot as boot_tool
 
 _AUTH = _REPO_ROOT / "template" / "project" / "app" / "auth.py.jinja"
 _DATABASE = "postgresql+psycopg://postgres@localhost:5432/postgres"

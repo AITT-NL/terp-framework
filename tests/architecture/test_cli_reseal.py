@@ -40,13 +40,13 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli import main, reseal_command  # noqa: E402
+from terp.cli import main, reseal_command
 
-from terp.core import SealState, check_sealed_value, encrypt_config  # noqa: E402
-from terp.core.config import settings  # noqa: E402
+from terp.core import SealState, check_sealed_value, encrypt_config
+from terp.core.config import settings
 
-from terp.capabilities.mfa import seal_secret as seal_totp  # noqa: E402
-from terp.capabilities.webhooks import seal_secret as seal_webhook  # noqa: E402
+from terp.capabilities.mfa import seal_secret as seal_totp
+from terp.capabilities.webhooks import seal_secret as seal_webhook
 
 _OLD = secrets.token_urlsafe(32)
 _NEW = secrets.token_urlsafe(32)

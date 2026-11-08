@@ -32,7 +32,7 @@ _CONTRACT = _REPO_ROOT / "packages" / "frontend" / "contract" / "openapi.json"
 _EXAMPLE_SPEC = _EXAMPLE / "openapi.json"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli import export_openapi  # noqa: E402
+from terp.cli import export_openapi
 
 
 def _regenerate(app_ref: str, out: pathlib.Path) -> dict:

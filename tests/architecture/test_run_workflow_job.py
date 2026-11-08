@@ -22,7 +22,7 @@ import pytest
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "tools"))
 
-import run_workflow_job as runner  # noqa: E402
+import run_workflow_job as runner
 
 #: The first step of every refusal fixture. A refusal happens before anything runs, so the
 #: file this step would write must never appear.

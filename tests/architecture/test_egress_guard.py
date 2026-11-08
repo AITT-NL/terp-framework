@@ -139,7 +139,7 @@ def test_real_http_clients_are_refused_before_they_connect() -> None:
             connection.request("GET", "/latest/meta-data/")
         assert refused.value.log_context["address"] == CLOUD_METADATA_ADDRESS
         with pytest.raises(EgressRefusedError):
-            urllib.request.urlopen(url, timeout=1)  # noqa: S310 - the refusal is the point
+            urllib.request.urlopen(url, timeout=1)  # the refusal is the point
         del refused
         gc.collect()
 
@@ -359,7 +359,7 @@ def test_a_resolver_that_raises_socket_events_of_its_own_does_not_deadlock() -> 
         try:
             sys.audit("socket.connect", None, ("10.0.0.4", 5432))  # a miss: resolved again
             outcome.append("connected")
-        except BaseException as exc:  # noqa: BLE001 - reported by the assertion below
+        except BaseException as exc:  # reported by the assertion below
             outcome.append(exc)
 
     worker = threading.Thread(target=connect, daemon=True)
@@ -451,7 +451,7 @@ def test_importing_uvloop_after_install_is_refused() -> None:
     install_egress_guard(EgressGuard())
     # The statement uvicorn's loop setup runs; refused whether or not uvloop is installed.
     with pytest.raises(EgressGuardUnsupportedError, match="uvloop is being imported"):
-        import uvloop  # noqa: F401, PLC0415
+        import uvloop
     assert "uvloop" not in sys.modules
     with pytest.raises(EgressGuardUnsupportedError):
         sys.audit("import", "uvloop.loop", None, None, None, None)

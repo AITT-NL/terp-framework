@@ -28,8 +28,8 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "packages" / "backend" / "cli" / "src"))
 sys.path.insert(0, str(_REPO_ROOT / "tools"))
 
-import run_workflow_job  # noqa: E402
-from terp.cli.verify import CONFORMANCE_BASE_URL_ENV  # noqa: E402
+import run_workflow_job
+from terp.cli.verify import CONFORMANCE_BASE_URL_ENV
 
 _PROJECT = _REPO_ROOT / "template" / "project"
 _TEMPLATE_CI = _PROJECT / ".github" / "workflows" / "ci.yml.jinja"

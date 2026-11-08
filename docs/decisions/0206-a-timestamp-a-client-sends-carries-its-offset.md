@@ -96,7 +96,11 @@ either would decide for itself and every class below it whether the refusal runs
 An object that reaches a schema was built by the server: a row read back, or a value computed
 in code. A number is a Unix time, which is UTC. Neither is judged. So a response model built
 from rows validates exactly as before, and so does a schema constructed in code from a
-`datetime`.
+`datetime`. A JSON column is the exception (amended in 0.39.0, which corrected "rows read back
+validate as before"): its document is text, so a timestamp in it is judged when a schema reads
+the document back. From 0.39.0 a service writes each timestamp in a document with its offset,
+a naive one as the UTC instant it names; a document written earlier with a timestamp that has
+none is refused when it is read back, and the 0.39.0 upgrade note says how to rewrite it.
 
 The framework writes a job's payload as text when it is enqueued and reads it back in the
 worker. A naive value the server built is written without an offset (ADR 0205 reads one as

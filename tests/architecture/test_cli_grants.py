@@ -19,10 +19,10 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.core import Roles, settings  # noqa: E402
-from terp.core._internal.engine import reset_engine  # noqa: E402
+from terp.core import Roles, settings
+from terp.core._internal.engine import reset_engine
 
-from terp.cli import main  # noqa: E402
+from terp.cli import main
 
 # An app that declares one permission and registers the identity + access tables, so
 # the command has both a real catalog to validate against and a real store to write to.
@@ -147,7 +147,7 @@ def test_a_service_account_is_granted_by_its_name(
 def test_a_user_is_granted_by_email(app_module: str, tmp_path: pathlib.Path) -> None:
     import os
 
-    os.environ["TERP_USER_PASSWORD"] = "correct-horse-battery-9"  # noqa: S105
+    os.environ["TERP_USER_PASSWORD"] = "correct-horse-battery-9"
     try:
         main(
             [
