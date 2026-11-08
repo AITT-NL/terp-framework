@@ -87,6 +87,18 @@ def test_a_web_image_is_planned_as_the_web_tier_s(tmp_path: pathlib.Path) -> Non
     assert "tools" not in plan.services, "a service under a compose profile is not part of the release"
 
 
+def test_a_static_site_image_is_planned_from_the_site_s_own_lock(tmp_path: pathlib.Path) -> None:
+    """ADR 0198 decision 4: the site's image is found from the profile, as the other two are, and
+    is the one image whose SBOM reads ``site/package-lock.json``."""
+    plan = _plan_of(tmp_path, app_files(site=True))
+    assert [(image.name, image.context, image.dockerfile, image.services, image.web, image.npm_lock)
+            for image in plan.images] == [
+        (f"{PROJECT}-backend-prod", ".", "Dockerfile.prod", ("api", "migrate"), False, None),
+        (f"{PROJECT}-frontend-prod", ".", "frontend/Dockerfile.prod", ("web",), True, "frontend/package-lock.json"),
+        (f"{PROJECT}-site-prod", ".", "site/Dockerfile.prod", ("site",), True, "site/package-lock.json"),
+    ]
+
+
 @pytest.mark.parametrize(
     ("change", "expected"),
     [
@@ -99,12 +111,21 @@ def test_a_web_image_is_planned_as_the_web_tier_s(tmp_path: pathlib.Path) -> Non
          "uv.lock takes v (path = '../v') from a path"),
         (lambda f: f.update({"frontend/package-lock.json": json.dumps({"packages": {"": {}, "node_modules/x": {"version": "1", "resolved": "file:../x.tgz"}}}).encode()}),
          "frontend/package-lock.json takes node_modules/x from a path"),
+        (lambda f: f.update({"site/package-lock.json": json.dumps({"packages": {"": {}, "node_modules/y": {"version": "1", "link": True}}}).encode()}),
+         "site/package-lock.json takes node_modules/y from a path"),
     ],
 )
 def test_the_commit_is_refused_from_data(tmp_path: pathlib.Path, change, expected: str) -> None:
     files = app_files()
     change(files)
     assert expected in _refusals(tmp_path, files)
+
+
+def test_a_site_lock_npm_cannot_read_is_refused_by_its_own_path(tmp_path: pathlib.Path) -> None:
+    files = app_files()
+    files["site/package-lock.json"] = b"[]"
+    with pytest.raises(ReleaseError, match="^site/package-lock.json is not a lockfile npm ci reads"):
+        _plan_of(tmp_path, files)
 
 
 def test_an_untrue_declaration_and_a_profile_it_cannot_read_are_refused(tmp_path: pathlib.Path) -> None:

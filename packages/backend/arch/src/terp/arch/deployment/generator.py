@@ -72,7 +72,7 @@ from terp.arch.deployment._generator_text import (
     heartbeat_role,
 )
 from terp.arch.deployment._refusals import refusals
-from terp.arch.deployment._static_site import _SITE_DOCKERFILE, SITE_PORT_PATTERN
+from terp.arch.deployment._static_site import _SITE_DOCKERFILE, SITE_PORT_PATTERN, STATIC_SITE
 from terp.arch.deployment._yaml import fixed, plain_safe, scalar, value
 from terp.arch.deployment.reader import Declaration, Finding
 from terp.arch.deployment.tables import Tables
@@ -224,6 +224,7 @@ __all__ = [
     "RELEASE_TAG_VARIABLE",
     "SITE_DOCKERFILE",
     "SITE_LOCK",
+    "STATIC_SITE",
     "WEB_PORT",
     "escape_findings",
     "fixed",

@@ -22,6 +22,11 @@ from terp.cli.release._common import ReleaseError
 
 UV_LOCK = "uv.lock"
 NPM_LOCK = "frontend/package-lock.json"
+#: The static site's lock (ADR 0198): read for the site's image as the frontend's is for the
+#: web tier's.
+SITE_NPM_LOCK = "site/package-lock.json"
+#: Every npm lock a release reads, in the order it records them.
+NPM_LOCKS = (NPM_LOCK, SITE_NPM_LOCK)
 
 #: The keys a uv source uses to name a package by where it lies on disk.
 _PATH_KEYS = ("path", "directory", "editable", "virtual")
@@ -165,14 +170,14 @@ def runtime_set(
     return sorted(found.items())
 
 
-def read_npm_lock(text: str) -> dict[str, Any]:
-    """``frontend/package-lock.json`` parsed, refused when it is not a v2 or v3 lock."""
+def read_npm_lock(text: str, path: str = NPM_LOCK) -> dict[str, Any]:
+    """The npm lock at *path* parsed, refused when it is not a v2 or v3 lock."""
     try:
         lock = json.loads(text)
     except ValueError as exc:
-        raise ReleaseError(f"{NPM_LOCK} is not JSON", cause=str(exc)) from exc
+        raise ReleaseError(f"{path} is not JSON", cause=str(exc)) from exc
     if not isinstance(lock, dict) or not isinstance(lock.get("packages"), dict):
-        raise ReleaseError(f"{NPM_LOCK} is not a lockfile npm ci reads (no packages object)")
+        raise ReleaseError(f"{path} is not a lockfile npm ci reads (no packages object)")
     return lock
 
 
@@ -185,7 +190,7 @@ def _npm_entries(lock: Mapping[str, Any]) -> list[tuple[str, dict[str, Any]]]:
 
 
 def npm_path_sources(lock: Mapping[str, Any]) -> list[str]:
-    """Every package the frontend lock takes from a path or links in from one."""
+    """Every package an npm lock takes from a path or links in from one."""
     return [
         key
         for key, entry in _npm_entries(lock)
@@ -194,7 +199,7 @@ def npm_path_sources(lock: Mapping[str, Any]) -> list[str]:
 
 
 def npm_hosts(lock: Mapping[str, Any]) -> list[str]:
-    """The hosts ``npm ci`` fetches the frontend's packages from."""
+    """The hosts ``npm ci`` fetches an npm lock's packages from."""
     hosts = {
         urllib.parse.urlsplit(str(entry["resolved"])).hostname or ""
         for _key, entry in _npm_entries(lock)
@@ -204,7 +209,7 @@ def npm_hosts(lock: Mapping[str, Any]) -> list[str]:
 
 
 def npm_packages(lock: Mapping[str, Any]) -> list[tuple[str, str]]:
-    """``(name, version)`` of every package ``npm ci`` installs to build the bundle, sorted."""
+    """``(name, version)`` of every package ``npm ci`` installs from an npm lock, sorted."""
     found = {
         (str(entry.get("name") or key.rsplit("node_modules/", 1)[-1]), str(entry["version"]))
         for key, entry in _npm_entries(lock)
@@ -215,6 +220,8 @@ def npm_packages(lock: Mapping[str, Any]) -> list[tuple[str, str]]:
 
 __all__ = [
     "NPM_LOCK",
+    "NPM_LOCKS",
+    "SITE_NPM_LOCK",
     "UV_LOCK",
     "marker_environment",
     "normalise",
