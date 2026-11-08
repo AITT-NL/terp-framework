@@ -195,6 +195,11 @@ decision, 0001 onwards.
   the stream is read, each window after the first naming the blob's ETag. `FileService` gains
   `servable`, `open_content` and `linked`, the two halves of `open_stream` and
   `open_link_stream`, which keep their behaviour.
+- **An S3 link is good for as long as it says (ADR 0201).** A URL signed with temporary
+  credentials, a role's or an instance profile's, stops working when they expire, whatever its
+  own expiry says, so a link could die before the `expires_at` the service reported. The S3
+  adapter now hands out its own link only when the credentials it signs with outlive it, and
+  otherwise leaves the bytes to the API behind an app-signed link for the whole lifetime.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
@@ -242,6 +247,10 @@ decision, 0001 onwards.
   offset, length)` has a default that opens the whole blob and moves to the offset, so an adapter
   written against 0.38 keeps working unchanged. Where your store can read a range, override it:
   a seek into a large file then costs the bytes it serves.
+- **An S3 profile on a role's credentials may serve some links through the API.** Where the
+  credentials expire before a link would, the link is now the app-signed one the API serves
+  rather than a presigned URL that stops working early. To keep the bytes on S3, give the role a
+  session longer than your longest link (24 hours at most).
 - **An early validator of your own on a timestamp field now turns the gate red.** Where it read
   the wall time of a known place, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.
   Where it only checked the instant, make it an after validator. Where it must keep reading the

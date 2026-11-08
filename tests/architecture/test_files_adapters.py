@@ -32,6 +32,7 @@ from azure.core import MatchConditions
 from azure.core.exceptions import HttpResponseError, ResourceModifiedError, ResourceNotFoundError
 from azure.storage.blob import BlobClient, ContainerClient, StorageStreamDownloader, UserDelegationKey
 from botocore.config import Config
+from botocore.credentials import Credentials, RefreshableCredentials
 from botocore.stub import Stubber
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
@@ -180,6 +181,44 @@ def test_s3_bounds_a_link_lifetime_like_every_link(s3: tuple[S3Storage, Stubber]
     backend, _ = s3
     with pytest.raises(ValueError):
         backend.link("ab/k", ttl=LINK_TTL_MAX + timedelta(seconds=1), content_type="text/plain", disposition="attachment")
+
+
+def _temporary(expires_in: timedelta) -> RefreshableCredentials:
+    """A role's credentials, as botocore holds them: a session token and its expiry."""
+    metadata = {
+        "access_key": "ASIAEXAMPLE",
+        "secret_key": "example-secret",
+        "token": "session-token",
+        "expiry_time": (datetime.now(UTC) + expires_in).isoformat(),
+    }
+    return RefreshableCredentials.create_from_metadata(metadata, refresh_using=lambda: metadata, method="assume-role")
+
+
+def test_s3_hands_out_no_link_its_credentials_would_not_outlive(session: Session, s3: tuple[S3Storage, Stubber]) -> None:
+    """A URL signed with temporary credentials stops working when they expire, whatever its own
+    expiry says, so a link from a role's credentials died before the ``expires_at`` the service
+    reported. Such a link is now handed out only when the credentials outlive it; otherwise the
+    API serves the bytes behind its own link, for the whole lifetime."""
+    backend, _ = s3
+    signer = backend._client._request_signer  # where botocore keeps the credentials it signs with
+    signer._credentials = _temporary(timedelta(hours=2))
+    url = backend.link("ab/k", ttl=timedelta(hours=1), content_type="text/plain", disposition="attachment")
+    assert url is not None and "X-Amz-Security-Token=session-token" in url
+    assert backend.link("ab/k", ttl=timedelta(hours=2), content_type="text/plain", disposition="attachment") is None
+
+    register_storage_backend("s3-media", backend)
+    _, stub = s3
+    stub.add_response("put_object", {})
+    row = FileService().store(
+        session, filename="a.txt", content_type="text/plain", source=io.BytesIO(_CONTENT), profile="s3-media"
+    )
+    assert FileService().link(session, row.id, ttl=timedelta(hours=3)).url.startswith("/api/v1/files/link/")
+
+    # A session token whose expiry cannot be read, and a client with no credentials, sign nothing.
+    signer._credentials = Credentials("ASIAEXAMPLE", "example-secret", "session-token")
+    assert backend.link("ab/k", ttl=timedelta(minutes=1), content_type="text/plain", disposition="attachment") is None
+    signer._credentials = None
+    assert backend.link("ab/k", ttl=timedelta(minutes=1), content_type="text/plain", disposition="attachment") is None
 
 
 def test_the_service_hands_out_the_provider_link_for_a_row_on_an_s3_profile(

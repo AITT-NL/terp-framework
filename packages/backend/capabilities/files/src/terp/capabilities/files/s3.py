@@ -17,15 +17,25 @@ own idempotent delete, and ``link`` is a presigned ``GET`` carrying the download
 and disposition as response-header parameters, so the store tells a client the same thing the
 API would. Nothing here decides who may read: the service asks for a link only after the
 checks a download passes.
+
+A URL signed with temporary credentials (a role's, an instance profile's, an SSO session's)
+stops working when they expire, whatever its own expiry says. So ``link`` signs only when the
+credentials the client signs with outlive the link; otherwise it hands out none, and the API
+serves the bytes behind an app-signed link for the whole lifetime. A deployment whose links
+should come from the store gives its role a session longer than its longest link.
 """
 
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Final
 
 from terp.capabilities.files.links import link_ttl
 from terp.capabilities.files.storage import FileStorageError, StorageBackend
+
+#: How long the signing credentials must outlast a link: a clock a little behind the store's
+#: never hands out a link the store stops honouring before its stated expiry.
+_CREDENTIAL_SKEW: Final[timedelta] = timedelta(minutes=1)
 
 
 class S3Storage(StorageBackend):
@@ -91,8 +101,11 @@ class S3Storage(StorageBackend):
     def link(
         self, key: str, *, ttl: timedelta, content_type: str, disposition: str
     ) -> str | None:
-        """A presigned ``GET`` for *key*, good for *ttl* (bounded like every link)."""
+        """A presigned ``GET`` for *key*, good for *ttl* (bounded like every link), or ``None``
+        where the credentials it would be signed with expire first."""
         lifetime = link_ttl(ttl)
+        if not self._signing_outlives(lifetime):
+            return None
         return self._client.generate_presigned_url(
             "get_object",
             Params={
@@ -102,6 +115,29 @@ class S3Storage(StorageBackend):
                 "ResponseContentDisposition": disposition,
             },
             ExpiresIn=int(lifetime.total_seconds()),
+        )
+
+    def _signing_outlives(self, lifetime: timedelta) -> bool:
+        """Whether the credentials this client signs with are valid until a link signed now
+        for *lifetime* expires.
+
+        Long-term keys carry no session token, and a URL they sign lives its own expiry. A
+        session token's credentials are judged by their expiry, read after the credentials
+        are refreshed if they were about to lapse, and before the URL is signed, so the
+        credentials that sign it are never older than the ones judged. A token whose expiry
+        cannot be read, and a client whose credentials cannot be read at all, sign nothing.
+        botocore reads a client's credentials only through ``_get_credentials``; were it
+        gone, links would come from the API, never from credentials nobody judged.
+        """
+        read = getattr(self._client, "_get_credentials", None)
+        credentials = read() if callable(read) else None
+        if credentials is None:
+            return False
+        if not credentials.get_frozen_credentials().token:
+            return True
+        refresh_needed = getattr(credentials, "refresh_needed", None)
+        return callable(refresh_needed) and not refresh_needed(
+            refresh_in=(lifetime + _CREDENTIAL_SKEW).total_seconds()
         )
 
 

@@ -78,6 +78,18 @@ client's small surface, checked against the real client's shape, with the SDK's 
 exception types; running either against an emulator in the conformance lane is a later change
 of its own.
 
+**Amended in 0.39.0: an S3 link never outlives its signature.** A URL signed with temporary
+credentials (a role's, an instance profile's, an SSO session's) stops working when they expire,
+whatever its own expiry says, so a link could die before the `expires_at` the service reported.
+The S3 adapter now signs only when the credentials it signs with outlive the link by a minute,
+judged after botocore refreshes credentials about to lapse and before the URL is signed; where
+they do not, where a session token's expiry cannot be read, and where the client holds no
+credentials, it hands out none and the API serves the bytes behind an app-signed link for the
+whole lifetime. Long-term keys carry no token and sign as before. botocore reads a client's
+credentials only through its private `_get_credentials`; were that removed, links would come
+from the API, never from credentials nobody judged. A deployment whose links should come from
+the store gives its role a session longer than its longest link.
+
 ### 3. A link is minted where a download is authorized
 
 `FileService.link(session, file_id, *, ttl=None, inline=False) -> FileLink` runs the same checks as
