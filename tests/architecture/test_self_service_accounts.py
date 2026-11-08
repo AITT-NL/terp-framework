@@ -404,6 +404,45 @@ def test_closing_an_account_takes_the_password_scrubs_it_and_ends_every_session(
     assert all(row.revoked_at is not None for row in _rows(engine, RefreshToken))
 
 
+class _SecondFactor:
+    """A second factor enrolled for the users it names, whose one good code is 246810."""
+
+    def __init__(self, *enrolled: uuid.UUID) -> None:
+        self.enrolled = set(enrolled)
+        self.checked: list[str] = []
+
+    def is_enrolled(self, session: Session, user_id: uuid.UUID) -> bool:
+        return user_id in self.enrolled
+
+    def verify(self, session: Session, user_id: uuid.UUID, code: str) -> bool:
+        self.checked.append(code)
+        return code == "246810"
+
+
+def test_closing_an_account_with_a_second_factor_asks_for_a_code_from_it(engine: Any, mail: CapturingMailTransport) -> None:
+    user_id = _user(engine, "leaving@example.test")
+    factor = _SecondFactor(user_id)
+    client = _client(engine, principal=Principal(id=user_id, role=Roles.VIEWER), second_factor=factor)
+    # The password first, as without one: a wrong password never reaches the factor.
+    mistyped = client.post(_CLOSE, json={"password": "not the password", "mfa_code": "246810"})
+    assert mistyped.json()["code"] == "password_not_confirmed" and factor.checked == []
+    # Each a 403 that names the fix, never a 401, which a client takes for an expired session.
+    asked = client.post(_CLOSE, json={"password": _PASSWORD})
+    assert (asked.status_code, asked.json()["code"]) == (403, "second_factor_required")
+    wrong = client.post(_CLOSE, json={"password": _PASSWORD, "mfa_code": "000000"})
+    assert (wrong.status_code, wrong.json()["code"]) == (403, "second_factor_not_confirmed")
+    assert [user.is_active for user in _rows(engine, User)] == [True]
+    assert client.post(_CLOSE, json={"password": _PASSWORD, "mfa_code": "246810"}).status_code == 204
+    assert [user.is_active for user in _rows(engine, User)] == [False]
+    assert factor.checked == ["000000", "246810"]
+
+
+def test_an_account_without_an_enrolled_factor_closes_with_its_password(engine: Any, mail: CapturingMailTransport) -> None:
+    user_id = _user(engine, "leaving@example.test")
+    client = _client(engine, principal=Principal(id=user_id, role=Roles.VIEWER), second_factor=_SecondFactor())
+    assert client.post(_CLOSE, json={"password": _PASSWORD}).status_code == 204
+
+
 def test_an_app_that_removes_accounts_deletes_the_row(engine: Any, mail: CapturingMailTransport) -> None:
     user_id = _user(engine, "leaving@example.test")
     with WriteGuardedSession(engine) as session:
@@ -513,6 +552,11 @@ def test_repeated_requests_and_failed_redemptions_back_off(engine: Any, mail: Ca
     closing = _client(engine, principal=Principal(id=_user(engine, "c@example.test"), role=Roles.VIEWER))
     attempts = [closing.post(_CLOSE, json={"password": "wrong"}).status_code for _ in range(8)]
     assert attempts[0] == 403 and 429 in attempts, attempts
+    # A wrong code from the second factor is counted as a wrong password is.
+    enrolled = _user(engine, "f@example.test")
+    guessing = _client(engine, principal=Principal(id=enrolled, role=Roles.VIEWER), second_factor=_SecondFactor(enrolled))
+    codes = [guessing.post(_CLOSE, json={"password": _PASSWORD, "mfa_code": f"{n:06d}"}).status_code for n in range(8)]
+    assert codes[0] == 403 and 429 in codes, codes
 
 
 @pytest.mark.parametrize("path", [_SIGN_UP, _RESET])

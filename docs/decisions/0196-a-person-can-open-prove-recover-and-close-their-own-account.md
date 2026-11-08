@@ -167,7 +167,11 @@ is untouched.
 `POST /me/close` is the one authenticated route, open to any signed-in rank. It requires the
 current password, so a stolen access token cannot close the account. A wrong one is a 403,
 `password_not_confirmed`, and not a 401, which a client takes for an expired session and signs
-the person out over (corrected in 0.39.0). It refuses an account
+the person out over (corrected in 0.39.0). Where the app wires the second factor its login
+consults into the declaration too (`SelfService(..., second_factor=MfaService())`) and the
+account has one enrolled, it asks for a code from it as well, in `mfa_code`: without one it is a
+403, `second_factor_required`, and a wrong one is a 403, `second_factor_not_confirmed`, counted
+as a wrong password is (amended in 0.39.0). It refuses an account
 that signs in only through a provider, which an administrator closes instead. It refuses the
 last active administrator. Then it revokes every session, through the token epoch and the
 refresh families, and does what the app declared, in one audited write:
@@ -223,7 +227,7 @@ control. The Terp Standard states them as its `self-service-accounts` runtime se
 | A token cannot be read or forged without the app's secret, and never reaches a server in a URL | `SealingDomain("users.account")`; the fragment link |
 | Repeated public requests back off per caller, never refuse for good, and never touch sign-in | `LoginThrottle` on the declared store; the per-caller redemption counter |
 | A self-registered account starts at the viewer rank, and an app that approves accounts creates it inactive | `UsersService.create_verified` |
-| Closing an account requires the password and revokes every session | `UsersService.close_account` |
+| Closing an account requires the password, and the second factor where one is enrolled and wired, and revokes every session | `UsersService.close_account` |
 | Half-configured, the capability refuses to be built, `REMOVE` included while a reference it can see would refuse the delete | `SelfService.__post_init__`, `build_accounts_module` |
 
 ## Consequences

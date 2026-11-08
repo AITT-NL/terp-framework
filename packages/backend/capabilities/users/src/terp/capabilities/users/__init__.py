@@ -22,6 +22,8 @@ from terp.capabilities.users.accounts import (
     AccountSignsInElsewhereError,
     AccountsService,
     PasswordNotConfirmedError,
+    SecondFactorNotConfirmedError,
+    SecondFactorRequiredError,
 )
 from terp.capabilities.users.accounts_router import build_accounts_module, build_accounts_router
 from terp.capabilities.users.operations import (
@@ -59,6 +61,8 @@ __all__ = [
     "AccountMessages",
     "AccountSignsInElsewhereError",
     "PasswordNotConfirmedError",
+    "SecondFactorNotConfirmedError",
+    "SecondFactorRequiredError",
     "AccountTokenService",
     "AccountsService",
     "SelfService",

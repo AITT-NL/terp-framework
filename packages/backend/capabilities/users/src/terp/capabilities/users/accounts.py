@@ -50,6 +50,28 @@ class PasswordNotConfirmedError(AppError):
     default_message = "That is not this account's password. Enter the password you sign in with."
 
 
+class SecondFactorRequiredError(AppError):
+    """403 — the account has a second factor, and closing it asks for a code from it too.
+
+    Not a 401, for the reason :class:`PasswordNotConfirmedError` is not.
+    """
+
+    status_code = 403
+    code = "second_factor_required"
+    default_message = "This account has a second factor. Enter a code from it to close the account."
+
+
+class SecondFactorNotConfirmedError(AppError):
+    """403 — the code given to close the account does not satisfy its second factor."""
+
+    status_code = 403
+    code = "second_factor_not_confirmed"
+    default_message = (
+        "That code is not from this account's second factor. Enter a current code from your "
+        "authenticator, or a recovery code."
+    )
+
+
 class AccountSignsInElsewhereError(AppError):
     """409 — the account has no password here: it signs in through an identity provider."""
 
@@ -188,8 +210,13 @@ class AccountsService:
         self._tokens.consume(session, row)
 
     # -- close -------------------------------------------------------------------------- #
-    def close(self, session: Session, principal: Principal, password: str) -> None:
-        """Close the caller's own account, after checking their password again."""
+    def close(self, session: Session, principal: Principal, password: str, code: str | None = None) -> None:
+        """Close the caller's own account, after checking their password again.
+
+        Where the declaration wires a second factor and the account has one enrolled, a *code*
+        from it is asked too: a stolen password and a stolen session together still do not
+        close an account its owner protected with a second factor.
+        """
         user = self._users.find(session, principal.id)
         if user is None or not user.is_active:
             verify_password_dummy()
@@ -198,6 +225,12 @@ class AccountsService:
             raise AccountSignsInElsewhereError()
         if not verify_password(password, user.hashed_password):
             raise PasswordNotConfirmedError()
+        factor = self._declaration.second_factor
+        if factor is not None and factor.is_enrolled(session, user.id):
+            if not code:
+                raise SecondFactorRequiredError()
+            if not factor.verify(session, user.id, code):
+                raise SecondFactorNotConfirmedError()
         self._users.close_account(
             session, user.id, remove=self._declaration.deletion is AccountDeletion.REMOVE
         )
@@ -218,4 +251,10 @@ def _user_for(users: UsersService, session: Session, claims: dict[str, Any] | No
         return None
 
 
-__all__ = ["AccountSignsInElsewhereError", "AccountsService", "PasswordNotConfirmedError"]
+__all__ = [
+    "AccountSignsInElsewhereError",
+    "AccountsService",
+    "PasswordNotConfirmedError",
+    "SecondFactorNotConfirmedError",
+    "SecondFactorRequiredError",
+]

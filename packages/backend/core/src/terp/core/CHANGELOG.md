@@ -97,6 +97,14 @@ decision, 0001 onwards.
   files of `terp.core` that define the refusal and its escape or put the refusal in place, and this
   rule's own module in `terp.arch`; every other module of both is held like an app's.
 
+- **Closing an account asks for its second factor too, where one is enrolled and wired (ADR
+  0196).** `POST /me/close` asked only for the password, so a password and a session taken
+  together closed an account its owner had protected with a second factor. `SelfService` takes
+  the `second_factor` the app's login consults (`SelfService(..., second_factor=MfaService())`);
+  closing an account that enrolled one then asks for a code from it in `mfa_code`. Without one the
+  route answers a 403, `second_factor_required`; a wrong one is a 403,
+  `second_factor_not_confirmed`, and counts toward the backoff as a wrong password does.
+
 ### Fixed
 
 - **A signed release no longer calls a lane passed that judged nothing (ADRs 0200, 0202).** The
@@ -367,6 +375,11 @@ decision, 0001 onwards.
   in `escape-hatch-budget.json`.
 - **A `BaseSchema` with an `__init__` of its own is refused when the class is defined.** Move what
   it does into a `model_validator(mode="after")`.
+- **Where your login consults a second factor, wire the same one into `SelfService`**
+  (`second_factor=MfaService()`), and send the code as `mfa_code` from your close-account page.
+  Closing an account that enrolled one then answers a 403, `second_factor_required`, until the
+  code comes with the password. An app that leaves `second_factor` unset closes accounts with the
+  password alone, as before.
 
 ## 0.38.0 — 2026-11-07
 

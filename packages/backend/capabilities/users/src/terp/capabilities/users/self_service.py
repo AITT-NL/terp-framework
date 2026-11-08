@@ -12,12 +12,16 @@ from __future__ import annotations
 import enum
 import logging
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 from datetime import timedelta
 from urllib.parse import urlsplit
 
 from terp.core import ThrottleStore, settings
 
 from terp.capabilities.users.service import UsersService
+
+if TYPE_CHECKING:  # annotations only: the declaration reads no factor itself
+    from terp.capabilities.auth import SecondFactor
 
 _logger = logging.getLogger("terp.capabilities.users.self_service")
 
@@ -86,7 +90,9 @@ class SelfService:
     refresh revoker, so closing an account and resetting a password end every session the
     same way an administrator's action does. *throttle_store* backs the backoff on every
     route. *link_base* is where the app's account pages live; a link puts the token in the
-    URL fragment, which a browser never sends to a server.
+    URL fragment, which a browser never sends to a server. *second_factor* is the one the
+    app's login consults, wired the same way (``build_login_module(..., second_factor=...)``):
+    closing an account whose second factor is enrolled then asks for a code from it too.
     """
 
     reason: str
@@ -100,6 +106,7 @@ class SelfService:
     sign_up_ttl: timedelta = timedelta(hours=24)
     reset_ttl: timedelta = timedelta(hours=1)
     messages: AccountMessages = field(default_factory=AccountMessages)
+    second_factor: SecondFactor | None = None
 
     def __post_init__(self) -> None:
         if not self.reason or not self.reason.strip():
