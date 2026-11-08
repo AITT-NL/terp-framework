@@ -1341,6 +1341,25 @@ def test_an_openapi_3_0_exclusive_bound_turned_on_is_a_tightening() -> None:
     ]
 
 
+def test_an_openapi_3_0_exclusive_bound_written_false_admits_what_none_admits() -> None:
+    """``false`` refuses nothing absence would accept, so writing it out is no tightening; it
+    was reported as a new bound, breaking, which a reviewer learns to stop reading."""
+    at_most, at_least = {"type": "integer", "maximum": 10}, {"type": "integer", "minimum": 1}
+    assert lines(post(at_most), post({**at_most, "exclusiveMaximum": False})) == [
+        "POST /things: request body exclusiveMaximum none -> False"
+    ]
+    assert lines(post(at_least), post({**at_least, "exclusiveMinimum": False})) == [
+        "POST /things: request body exclusiveMinimum none -> False"
+    ]
+    assert lines(post({**at_least, "exclusiveMinimum": False}), post(at_least)) == [
+        "POST /things: request body exclusiveMinimum False -> none"
+    ]
+    # A number stays a number: 0 is a bound in 3.1, not 3.0's false.
+    assert lines(post({"type": "integer"}), post({"type": "integer", "exclusiveMaximum": 0})) == [
+        "BREAKING POST /things: request body exclusiveMaximum none -> 0"
+    ]
+
+
 def test_a_document_nested_past_the_comparison_is_red_rather_than_a_traceback(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:

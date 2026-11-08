@@ -242,6 +242,10 @@ decision, 0001 onwards.
   the rendered control plane declares `CorsPolicy.disabled(...)`, so an origin listed there was
   still refused by the browser. They now name `CorsPolicy.allow([...])` in
   `control_plane/__init__.py`, and say what the variable is for.
+- **`{"exclusiveMaximum": false}` is not a breaking change to the API contract (ADR 0194).** An
+  OpenAPI 3.0 exclusive bound written `false` admits exactly what no bound admits, but the
+  contract check read it appearing as a new bound and labelled it breaking. It is now a line that
+  breaks nothing, for `exclusiveMinimum` too; a number, `0` included, is still a 3.1 bound.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
