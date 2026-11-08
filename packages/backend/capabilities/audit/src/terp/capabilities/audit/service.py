@@ -91,26 +91,6 @@ def list_audit_events(
     return list(rows), int(total)
 
 
-def local_midnights(
-    zone: ZoneInfo, *, days: int, now: datetime.datetime
-) -> list[datetime.datetime]:
-    """The ``days + 1`` boundaries of the last *days* calendar days in *zone*, in UTC.
-
-    Day ``i`` runs from ``boundaries[i]`` up to ``boundaries[i + 1]``, and the last day is
-    today in *zone*, so the final boundary is tomorrow's midnight there. Each midnight is
-    made in the zone and only then converted, so a day that daylight saving makes 23 or 25
-    hours long keeps its real length.
-    """
-    today = now.astimezone(zone).date()
-    first = today - datetime.timedelta(days=days - 1)
-    return [
-        datetime.datetime.combine(
-            first + datetime.timedelta(days=offset), datetime.time(), tzinfo=zone
-        ).astimezone(datetime.UTC)
-        for offset in range(days + 1)
-    ]
-
-
 def audit_activity(
     session: Session,
     *,
@@ -183,6 +163,5 @@ __all__ = [
     "ACTIVITY_TOP_TARGETS",
     "audit_activity",
     "list_audit_events",
-    "local_midnights",
     "resolve_time_zone",
 ]

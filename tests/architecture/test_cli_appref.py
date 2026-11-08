@@ -16,7 +16,7 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli._appref import load_app, push_app_root  # noqa: E402  (import after sys.path setup)
+from terp.cli._appref import load_app, push_app_root  # import after sys.path setup
 
 _APP = """\
 from terp.core import create_app

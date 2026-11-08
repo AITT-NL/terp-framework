@@ -185,7 +185,7 @@ class _Catalogue:
         ):
             if marker in query:
                 return _Rows(self.tables.get(key, []))
-        raise AssertionError(query)  # pragma: no cover - every query is one of the above
+        raise AssertionError(query)  # every query is one of the above
 
 
 _NOTE = {

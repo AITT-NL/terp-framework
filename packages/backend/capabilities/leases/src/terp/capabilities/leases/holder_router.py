@@ -110,7 +110,7 @@ def build_holder_router(resolve_holder: HolderResolver) -> APIRouter:
                 "this lease is no longer held at that epoch; stop working on the resource "
                 "— it has lapsed or been re-granted"
             )
-        assert renewed.expires_at is not None  # noqa: S101 - a renewed lease always has one
+        assert renewed.expires_at is not None  # a renewed lease always has one
         return LeaseHeartbeatAccepted(
             resource_kind=kind,
             resource_key=key,

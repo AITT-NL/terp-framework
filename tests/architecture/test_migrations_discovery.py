@@ -285,7 +285,7 @@ def test_a_listed_revision_that_cannot_be_statted_is_refused(
 
     monkeypatch.setattr(pathlib.Path, "stat", stat_past_the_limit)
     with pytest.raises(MigrationDiscoveryError) as refused:
-        tree.has_revision_files  # noqa: B018 - the property is the call under test
+        tree.has_revision_files  # the property is the call under test
     assert "'probe' migration history lists 4f1c9d3a7b02_create_probe.py" in str(refused.value)
 
 
@@ -314,7 +314,7 @@ def test_a_short_unreadable_revision_is_refused_without_blaming_the_path_length(
 
     monkeypatch.setattr(pathlib.Path, "stat", locked)
     with pytest.raises(MigrationDiscoveryError) as refused:
-        tree.has_revision_files  # noqa: B018
+        tree.has_revision_files
     assert "the file cannot be opened" in str(refused.value)
     assert "260" not in str(refused.value)
 

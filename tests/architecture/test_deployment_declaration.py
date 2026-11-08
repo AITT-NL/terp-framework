@@ -411,7 +411,7 @@ def test_a_link_that_leaves_the_checkout_is_refused(tmp_path) -> None:
     root = project(tmp_path, raw)
     try:
         os.symlink(outside, root / "linked.yml")
-    except OSError:  # pragma: no cover - a Windows account without the link privilege
+    except OSError:  # a Windows account without the link privilege
         pytest.skip("this account cannot create a symbolic link")
     assert "resolves outside the checkout" in _readable_messages(root)
 

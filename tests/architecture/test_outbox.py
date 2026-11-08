@@ -835,7 +835,7 @@ def test_the_outbox_registers_its_backlog_as_a_health_detail(engine: object) -> 
     """Installing the distribution is the whole adoption step, as with every other
     capability seam — the capability shipped no router and no operator surface at all,
     so nothing anywhere could report that nothing was draining it."""
-    import terp.capabilities.outbox  # noqa: F401  (registers at import)
+    import terp.capabilities.outbox  # registers at import
     from terp.core.health import health_details
 
     detail = health_details()["outbox"]
@@ -997,7 +997,7 @@ def test_a_second_different_detail_under_one_name_is_refused(
     unreliable in exactly the way it exists to fix."""
     from terp.core.health import register_health_detail
 
-    probe = lambda session: {}  # noqa: E731
+    probe = lambda session: {}
     register_health_detail("dup", probe)
     register_health_detail("dup", probe)  # idempotent
     with pytest.raises(ValueError, match="already registered"):

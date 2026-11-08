@@ -161,8 +161,12 @@ store can read a range.
 
 ### 6. What does not change
 
-`storage_key` never leaves the API: a provider's link embeds the blob's address as the provider's
-own URL, which is the provider's business and expires with the link. `FileRead` is unchanged.
+`FileRead` still carries no `storage_key`, and the API's own routes never show one: an app-signed
+link carries a sealed token, never the key. A provider's link does carry it (amended in 0.39.0,
+which corrected "never leaves the API"): the blob's address is the path of the URL the provider
+signs, so whoever holds the link learns the key. On a store whose blobs are private, which a
+deployment must keep them, the key opens nothing without a signature, and the signature expires
+with the link. `FileRead` is unchanged.
 The upload path, the scanner, the content-type allowlist and the delete are unchanged. A site
 built from ADR 0198's recipe still copies the media it shows, because a link expires and a
 built page does not.

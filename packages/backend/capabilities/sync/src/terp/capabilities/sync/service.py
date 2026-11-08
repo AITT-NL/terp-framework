@@ -408,7 +408,7 @@ class SyncService(BaseService[SyncMapping, SyncMappingDraft, SyncMappingUpdate])
                 remote_id=remote_id,
                 action=action,
             )
-        except Exception as exc:  # noqa: BLE001 - a bad record is logged, not fatal to the run
+        except Exception as exc:  # a bad record is logged, not fatal to the run
             counts.failed += 1
             record_sync_log(
                 session,

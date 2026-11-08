@@ -1773,7 +1773,7 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
         importlib.invalidate_caches()
         module = importlib.import_module(module_name)
         plane = getattr(module, attr, None)
-    except Exception as exc:  # noqa: BLE001 - any import failure is the app's answer
+    except Exception as exc:  # any import failure is the app's answer
         return 1, (
             f"{_CONTROL_PLANE_REF} could not be imported, so what this app declares "
             f"cannot be established: {type(exc).__name__}: {exc}"

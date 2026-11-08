@@ -26,7 +26,7 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli import main, reap_leases_command, render_leases  # noqa: E402
+from terp.cli import main, reap_leases_command, render_leases
 
 # An app that wires the durable store, mounts the leases module, declares a recovery for its
 # own queue table, and leaves one row `claimed` under a lease that has already lapsed — the

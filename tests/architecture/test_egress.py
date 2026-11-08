@@ -201,7 +201,7 @@ def test_one_bad_address_among_several_refuses_the_whole_target() -> None:
 
 
 def test_an_ip_literal_host_skips_dns_and_is_still_checked() -> None:
-    def _never(_host: str) -> list[str]:  # pragma: no cover - must not be called
+    def _never(_host: str) -> list[str]:  # must not be called
         raise AssertionError("an IP literal must not be resolved")
 
     client = _client(

@@ -210,7 +210,7 @@ def test_the_seed_renders_the_template_s_own_files_byte_for_byte(
         if path not in files:
             continue
         rendered = files[path].replace(_SLUG.encode(), _PLACEHOLDER.encode())
-        if _WRITE and path in _WRITTEN_FROM_THE_RENDER:  # pragma: no cover - run by hand
+        if _WRITE and path in _WRITTEN_FROM_THE_RENDER:  # run by hand
             template.write_bytes(rendered)
         text = answer_files(template.read_bytes().decode("ascii"), use_files, frontend=frontend)
         assert text.encode("ascii") == rendered, _not_the_render(path, template)
@@ -276,7 +276,7 @@ def test_a_golden_sample_renders_exactly_its_expected_files(name: str) -> None:
     files = _render(name)
     folder = _GOLDENS / name
     meta = json.loads((folder / "sample.json").read_text(encoding="utf-8"))
-    if _WRITE:  # pragma: no cover - the writer is run by hand, and its diff reviewed
+    if _WRITE:  # the writer is run by hand, and its diff reviewed
         (folder / "expected").mkdir(exist_ok=True)
         (folder / "expected" / PROFILE).write_bytes(files[PROFILE])
         meta["renders"] = list(files)

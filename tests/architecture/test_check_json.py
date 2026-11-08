@@ -20,14 +20,14 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.arch import (  # noqa: E402  (import after sys.path setup)
+from terp.arch import (  # import after sys.path setup
     GUIDE_TOPIC_BY_RULE,
     assert_app_clean,
     guide_topic_for,
     ungoverned_marker_violations,
 )
-from terp.arch.rules import _ALL_RULES  # noqa: E402
-from terp.cli import (  # noqa: E402
+from terp.arch.rules import _ALL_RULES
+from terp.cli import (
     check_report,
     extra_scan_roots,
     gate_root,

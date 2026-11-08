@@ -16,13 +16,10 @@ import pytest
 from sqlmodel import Session, create_engine
 
 from terp.core import ValidationFailedError
+from terp.core.aggregation import Window, window_bounds
 
 from terp.capabilities.audit import AuditEvent, audit_activity
-from terp.capabilities.audit.service import (
-    ACTIVITY_TOP_TARGETS,
-    local_midnights,
-    resolve_time_zone,
-)
+from terp.capabilities.audit.service import ACTIVITY_TOP_TARGETS, resolve_time_zone
 
 AMSTERDAM = ZoneInfo("Europe/Amsterdam")
 UTC = datetime.UTC
@@ -53,7 +50,8 @@ def record(session: Session, when: datetime.datetime, action: str = "updated", t
 def test_a_day_keeps_its_length_across_a_daylight_saving_change() -> None:
     # Amsterdam leaves summer time at 01:00 UTC on 25 October 2026, so that day is 25 hours
     # long: its midnight is 22:00 UTC the evening before, and the next one 23:00 UTC.
-    bounds = local_midnights(AMSTERDAM, days=3, now=at(2026, 10, 27, 12))
+    days = Window("created", datetime.date(2026, 10, 25), datetime.date(2026, 10, 27), AMSTERDAM, "day")
+    bounds = window_bounds(days, AMSTERDAM)
     assert bounds == [
         at(2026, 10, 24, 22),
         at(2026, 10, 25, 23),

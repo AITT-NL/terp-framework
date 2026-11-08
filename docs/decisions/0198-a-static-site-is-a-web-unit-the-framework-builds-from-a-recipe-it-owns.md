@@ -4,12 +4,15 @@
   reviewed, was reviewed on 2026-11-04 and kept, with the build refusing what its policy would
   break. Nothing is built yet: the Terp Standard's schema word, the generator's second web
   build, the executors and the signer that accept its render, and Studio's builder follow as
-  changes of their own, in the order decision 7 gives.
+  changes of their own, in the order decision 7 gives. Revised 2026-11-08: it amends ADR 0197's
+  item 3 (the deploy side; item 5 before that list was cut), relies on the reference site where
+  it named a starter that list no longer holds, and says that its build-time refusal holds for a
+  site built with its image, not yet for one the undecided managed-content rebuild builds.
 - **Date:** 2026-11-04. 0182 and 0183 are reserved for other records, 0184 to 0193 are taken,
   and 0194 to 0197 are the series this extends.
 - **Relates:** applies [ADR 0197](0197-a-public-site-is-a-client-of-an-app-and-the-framework-defines-its-socket.md)
   (a site is a separate client and deploys as a unit of the app's deployment), and amends its
-  *How it will be held*, item 5 (the deploy side lands in the workbench and the runner);
+  *How it will be held*, item 3 (the deploy side lands in the workbench and the runner);
   amends [ADR 0187](0187-in-the-generated-state-the-framework-renders-the-build-files.md)
   decision 1 (three generated files, and one fact of the tree as input), decision 5 (a second
   `web` unit refused, the image names constant), decision 6 (a web image's SBOM read from the
@@ -123,10 +126,13 @@ content needs, and two consequences are now part of the recipe:
 - **What the policy forbids is refused when the image is built.** A static-site generator may
   inline a small stylesheet, or a script that wakes a page's interactive parts, and the policy
   refuses both in the browser, where the failure is a page that renders wrong with nothing in
-  any log. So stage 1 refuses such a build (decision 2), and the site starter configures its
-  generator to write every style and script as a file. Allowing inline content by hash was
-  the alternative; it makes the policy depend on each build's output, which is a parameter by
-  another name.
+  any log. So stage 1 refuses such a build (decision 2), and the reference site configures its
+  generator to write every style and script as a file. That refusal holds for a site built with
+  its image. A site rebuilt from content the app publishes is built by the managed-content
+  rebuild, which this record leaves undecided (decision 2), so nothing refuses its output yet:
+  the record that decides the rebuild carries the same refusal into it. Allowing inline content
+  by hash was the alternative; it makes the policy depend on each build's output, which is a
+  parameter by another name.
 
 A site that needs another policy, for a third-party script, an inline style or script, a form
 that posts or a browser call to the app, is `own`. The policy is stricter than the SPA's,
@@ -233,7 +239,7 @@ then the app's pin.
   and the manifest records that lock and the hosts it fetches from, as it does the frontend's.
 - **ADR 0187 decision 9.** The fixed list grows again, by decision 4's two entries, in the order
   that item sets (decision 7).
-- **ADR 0197, *How it will be held*, item 5,** puts the deploy side, a static `web` recipe,
+- **ADR 0197, *How it will be held*, item 3,** puts the deploy side, a static `web` recipe,
   more than one `web` unit per app and an on-demand rebuild, in the workbench and the runner.
   The first two are this record's instead: a word in the standard and a render in the
   framework's generator, which the executors, the signer and Studio then follow (decision 7).

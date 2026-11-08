@@ -262,7 +262,7 @@ def deliver_webhook(ctx: JobContext, payload: WebhookDeliveryPayload) -> None:
     }
     try:
         response = active_webhook_sender()(pinned, body, headers)
-    except Exception as exc:  # noqa: BLE001 - any transport error becomes a recorded, retried failure
+    except Exception as exc:  # any transport error becomes a recorded, retried failure
         record_delivery(
             ctx.session,
             subscription_id=subscription.id,

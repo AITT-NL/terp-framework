@@ -66,7 +66,7 @@ def test_create_app_builds_with_policy() -> None:
 def test_create_app_refuses_route_registration_after_composition() -> None:
     app = create_app([])
 
-    def endpoint() -> dict:  # pragma: no cover - never called
+    def endpoint() -> dict:  # never called
         return {}
 
     for action in (
@@ -155,7 +155,7 @@ def test_create_app_refuses_middleware_registration_after_composition() -> None:
     # registration spellings fail closed — create_app(middleware=[...]) is the seam.
     app = create_app([])
 
-    async def http_middleware(request, call_next):  # pragma: no cover - never called
+    async def http_middleware(request, call_next):  # never called
         return await call_next(request)
 
     for action in (
@@ -255,7 +255,7 @@ def test_dependency_overrides_stay_writable_in_the_local_environment() -> None:
     # keeps the writable map, so a consumer's test suite can override get_session.
     app = create_app([])
 
-    def _sentinel() -> None:  # pragma: no cover - never called
+    def _sentinel() -> None:  # never called
         return None
 
     app.dependency_overrides[get_session] = _sentinel
@@ -833,14 +833,14 @@ def test_a_route_may_not_require_a_permission_the_control_plane_does_not_declare
     """
     from terp.core import mark_required_permission
 
-    def holds_it() -> None:  # pragma: no cover - never called; only its marker is read
+    def holds_it() -> None:  # never called; only its marker is read
         return None
 
     router = APIRouter()
 
     @router.post("/act", response_model=str, dependencies=[Depends(mark_required_permission(holds_it, "widgets.write"))])
     @route_policy(Policy.public_write(reason="a fixture that probes this route without a token"))
-    def act() -> str:  # pragma: no cover - never called
+    def act() -> str:  # never called
         return "ok"
 
     spec = ModuleSpec(name="gated", router=router, policy=Policy.default())
@@ -869,7 +869,7 @@ def test_the_undeclared_permission_gate_sees_a_dependency_in_the_signature_too()
     """
     from terp.core import mark_required_permission
 
-    def holds_it() -> None:  # pragma: no cover - never called; only its marker is read
+    def holds_it() -> None:  # never called; only its marker is read
         return None
 
     marked = mark_required_permission(holds_it, "widgets.write")
@@ -877,13 +877,13 @@ def test_the_undeclared_permission_gate_sees_a_dependency_in_the_signature_too()
     signature_router = APIRouter()
 
     @signature_router.post("/act", response_model=str)
-    def act(_: None = Depends(marked)) -> str:  # pragma: no cover - never called
+    def act(_: None = Depends(marked)) -> str:  # never called
         return "ok"
 
     declared_router = APIRouter()
 
     @declared_router.post("/act", response_model=str, dependencies=[Depends(marked)])
-    def act_declared() -> str:  # pragma: no cover - never called
+    def act_declared() -> str:  # never called
         return "ok"
 
     for router in (signature_router, declared_router):

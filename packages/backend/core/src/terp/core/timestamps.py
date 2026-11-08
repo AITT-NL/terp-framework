@@ -57,7 +57,7 @@ from contextvars import ContextVar
 from datetime import UTC, date, datetime
 from typing import Annotated, Any, cast
 
-from pydantic import BaseModel, GetCoreSchemaHandler, TypeAdapter, ValidationError, ValidationInfo
+from pydantic import BaseModel, GetCoreSchemaHandler, TypeAdapter, ValidationError
 from pydantic.dataclasses import is_pydantic_dataclass
 from pydantic_core import CoreSchema, PydanticCustomError, SchemaError, SchemaValidator, core_schema
 
@@ -107,13 +107,14 @@ def _as_utc_when_naive(value: datetime) -> datetime:
     return value if value.utcoffset() is not None else value.replace(tzinfo=UTC)
 
 
-def refuse_timestamp_text_without_offset(value: object, info: ValidationInfo) -> object:
+def refuse_timestamp_text_without_offset(value: object) -> object:
     """Refuse timestamp text that names no instant; hand everything else to the type.
 
     It runs in front of every ``datetime`` a ``BaseSchema`` validates. Text that reads as a
     date and time without an offset is refused, error type ``timestamp_offset_required``. Text
     that is no timestamp at all goes on to the type, whose own error says so. An object and a
-    number go on unjudged, and so does text the framework wrote itself.
+    number go on unjudged, and so does text the framework wrote itself. It takes the value
+    alone, so nothing a caller hands the validation, a context included, ever reaches it.
     """
     if not isinstance(value, str | bytes | bytearray) or _SERVER_TEXT.get():
         return value
@@ -232,7 +233,7 @@ class _Holding:
         if _is_judged(schema) or _is_escape(schema) or _is_local_time(schema):
             return schema
         if kind == "datetime":
-            return core_schema.with_info_before_validator_function(
+            return core_schema.no_info_before_validator_function(
                 refuse_timestamp_text_without_offset, schema
             )
         if kind == "definition-ref":
@@ -382,7 +383,7 @@ class _Instant:
     def __get_pydantic_core_schema__(
         self, source: Any, handler: GetCoreSchemaHandler
     ) -> CoreSchema:
-        return core_schema.with_info_before_validator_function(
+        return core_schema.no_info_before_validator_function(
             refuse_timestamp_text_without_offset, handler(source)
         )
 

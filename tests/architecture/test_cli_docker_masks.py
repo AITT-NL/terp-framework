@@ -17,8 +17,8 @@ import pytest
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "packages" / "backend" / "cli" / "src"))
 
-from terp.cli import run_docker_dev_command  # noqa: E402
-from terp.cli.docker_masks import (  # noqa: E402
+from terp.cli import run_docker_dev_command
+from terp.cli.docker_masks import (
     clear_stale_masks,
     containers,
     stale_volumes,

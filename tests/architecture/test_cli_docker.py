@@ -18,8 +18,8 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli import main, run_docker_dev_command  # noqa: E402
-from terp.cli.docker import (  # noqa: E402
+from terp.cli import main, run_docker_dev_command
+from terp.cli.docker import (
     _KILL,
     _capture,
     _fingerprint,

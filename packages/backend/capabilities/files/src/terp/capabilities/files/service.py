@@ -55,7 +55,6 @@ from typing import BinaryIO, ClassVar
 from sqlmodel import Session, SQLModel
 
 from terp.core import (
-    AppError,
     AuditAction,
     BaseService,
     NotFoundError,
@@ -63,17 +62,17 @@ from terp.core import (
 )
 
 from terp.capabilities.files.content_types import (
+    SNIFF_LEN,
     ContentTypeMalformedError,
     ContentTypeMismatchError,
     UnsupportedContentTypeError,
     active_allowed_content_types,
     configure_allowed_content_types,
     reset_allowed_content_types,
-    _SNIFF_LEN,
-    _ensure_bytes_match_declared_type,
-    _ensure_content_type_allowed,
-    _ensure_one_media_type,
-    _served_media_type,
+    ensure_bytes_match_declared_type,
+    ensure_content_type_allowed,
+    ensure_one_media_type,
+    served_media_type,
 )
 from terp.capabilities.files.links import (
     SIGNED_LINK_PATH,
@@ -106,7 +105,7 @@ def _new_storage_key() -> str:
 class _PrefixedReader:
     """Replays an already-peeked *prefix* ahead of the remaining *source* stream.
 
-    The sniff check (:func:`_ensure_bytes_match_declared_type`) consumes the first
+    The sniff check (:func:`ensure_bytes_match_declared_type`) consumes the first
     bytes of an upload before any byte lands in storage; this wrapper hands those
     bytes back first, so the stored blob (and its streamed digest / size) covers
     exactly the full upload.
@@ -209,14 +208,14 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
         told by ``scan_state`` on the response. With no scanner registered the verdict
         is ``not_scanned`` and nothing about this path changes.
         """
-        _ensure_one_media_type(content_type)
-        _ensure_content_type_allowed(content_type)
+        ensure_one_media_type(content_type)
+        ensure_content_type_allowed(content_type)
         selected = profile if profile is not None else type(self).storage_profile
         backend = resolve_storage_backend(selected)
         # Magic-byte sniff (ADR 0076): peek the head, refuse a declared type whose
         # known signature the bytes lack — before any byte lands in the backend.
-        head = source.read(_SNIFF_LEN)
-        _ensure_bytes_match_declared_type(content_type, head)
+        head = source.read(SNIFF_LEN)
+        ensure_bytes_match_declared_type(content_type, head)
         key = _new_storage_key()
         reader = _DigestingReader(_PrefixedReader(head, source), max_bytes)
         try:
@@ -378,7 +377,7 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
         url = resolve_storage_backend(row.storage_profile).link(
             row.storage_key,
             ttl=lifetime,
-            content_type=_served_media_type(row.content_type),
+            content_type=served_media_type(row.content_type),
             disposition=content_disposition(row.filename, inline=shown_inline),
         )
         if url is None:

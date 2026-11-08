@@ -30,7 +30,7 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel
-from sqlalchemy import Integer, and_, distinct, func, literal, or_, union_all
+from sqlalchemy import and_, distinct, func, literal, or_
 from sqlalchemy import select as sa_select
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlmodel import Session, select
@@ -80,6 +80,11 @@ class Measure:
             raise TypeError(f"Measure name {self.name!r} must be lower_snake_case.")
         if self.op != "count" and self.column is None:
             raise TypeError(f"Measure {self.name!r} ({self.op}) needs the column it aggregates.")
+        if self.op == "count" and self.column is not None:
+            raise TypeError(
+                f"Measure {self.name!r} counts rows, so it takes no column: declare "
+                f"Measure({self.name!r}) to count rows, or op='count_distinct' to count a column's values."
+            )
 
 
 @dataclass(frozen=True)

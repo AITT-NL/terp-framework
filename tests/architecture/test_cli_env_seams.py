@@ -23,16 +23,16 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli.envschema import (  # noqa: E402
+from terp.cli.envschema import (
     MAX_SERVICES,
     app_env_file_name,
     declared_services,
     declared_variables,
     manifest_findings,
 )
-from terp.cli.envrequired import REQUIRED_IN_VALUES, required_in  # noqa: E402
-from terp.cli import envseams  # noqa: E402
-from terp.cli.envseams import (  # noqa: E402
+from terp.cli.envrequired import REQUIRED_IN_VALUES, required_in
+from terp.cli import envseams
+from terp.cli.envseams import (
     _forwarded_env_files,
     _is_loopback,
     _read_env_file,

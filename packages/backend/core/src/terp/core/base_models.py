@@ -305,7 +305,7 @@ class BaseTable(UUIDPrimaryKeyMixin, TimestampMixin, SQLModel):
     )
 
     @declared_attr.directive
-    def __mapper_args__(cls) -> dict[str, Any]:  # noqa: N805
+    def __mapper_args__(cls) -> dict[str, Any]:
         # Resolves against each concrete subclass' own ``__table__``.
         return {"version_id_col": cls.__table__.c.version}  # type: ignore[attr-defined]
 

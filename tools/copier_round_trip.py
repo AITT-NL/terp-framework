@@ -218,7 +218,7 @@ def state(root: pathlib.Path, step: str, wanted: str | None, declared: str) -> N
 
 def _before_the_question(tpl: pathlib.Path) -> None:
     """Make *tpl* the template as it was before it asked ``deploy_build``."""
-    import yaml  # noqa: PLC0415 - only this step reads YAML
+    import yaml  # only this step reads YAML
 
     config = yaml.safe_load((tpl / "copier.yml").read_text(encoding="utf-8"))
     require("deploy_build" in config, "template/copier.yml no longer asks deploy_build")

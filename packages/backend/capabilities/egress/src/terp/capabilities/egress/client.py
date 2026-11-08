@@ -91,7 +91,7 @@ def send_pinned(
     followed — a followed redirect is a second, unvalidated target, which would put the
     SSRF check back at the mercy of the far end.
     """
-    import httpx  # noqa: PLC0415 - load the HTTP adapter only when the transport is used  # arch-allow-no-raw-outbound-http: this IS the sanctioned egress seam the rule points every other package at; it cannot reach the network through itself
+    import httpx  # load the HTTP adapter only when the transport is used  # arch-allow-no-raw-outbound-http: this IS the sanctioned egress seam the rule points every other package at; it cannot reach the network through itself
 
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be finite and positive")
@@ -232,7 +232,7 @@ class EgressClient:
             return
         try:
             self._observer(attempt)
-        except Exception:  # noqa: BLE001 - an observer never changes the outcome
+        except Exception:  # an observer never changes the outcome
             # Not silence: an observer that never works should be discoverable. It just
             # must not be discoverable by breaking the call it was watching.
             _log.debug("egress observer raised for %s", attempt.host, exc_info=True)
@@ -299,7 +299,7 @@ class EgressClient:
                 )
             )
             raise
-        except Exception as exc:  # noqa: BLE001 - every transport error is one typed failure
+        except Exception as exc:  # every transport error is one typed failure
             self._observe(
                 EgressAttempt(
                     method=method.upper(),

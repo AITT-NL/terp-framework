@@ -15,7 +15,7 @@ import sys
 _ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT / "tools"))
 
-from generate_rule_docs import _DOCS, generate  # noqa: E402
+from generate_rule_docs import _DOCS, generate
 
 
 def test_generated_rule_docs_match_the_catalog() -> None:

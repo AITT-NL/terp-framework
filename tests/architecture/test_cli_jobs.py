@@ -23,7 +23,7 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli import (  # noqa: E402
+from terp.cli import (
     main,
     render_jobs,
     run_job_command,

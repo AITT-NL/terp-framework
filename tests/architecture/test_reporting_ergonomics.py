@@ -58,7 +58,7 @@ class _VisibleNoteService(_NoteService):
     """A service whose rows are scoped — the case ``find`` must not widen."""
 
     def base_query(self):  # type: ignore[no-untyped-def]
-        return select(_Note).where(_Note.archived == False)  # noqa: E712
+        return select(_Note).where(_Note.archived == False)
 
 
 @pytest.fixture

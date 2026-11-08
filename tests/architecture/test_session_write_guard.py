@@ -140,7 +140,7 @@ def test_get_on_unscoped_model_uses_the_fast_path(
     fetched = guarded_session.get(_GuardWidget, created.id)
     assert fetched is not None and fetched.id == created.id
     # A non-class first argument falls straight through to the parent (and errors there).
-    with pytest.raises(Exception):  # noqa: B017 - parent get() rejects a non-entity
+    with pytest.raises(Exception):  # parent get() rejects a non-entity
         guarded_session.get("not-a-model", created.id)
 
 

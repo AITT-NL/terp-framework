@@ -143,7 +143,7 @@ class RedactingFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             self._redact(record)
-        except Exception as exc:  # noqa: BLE001 - a failing redaction withholds, never raises
+        except Exception as exc:  # a failing redaction withholds, never raises
             _withhold(record, exc)
         return True
 
@@ -228,7 +228,7 @@ class StructuredFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         try:
             return self._render(record)
-        except Exception as exc:  # noqa: BLE001 - a log call must never raise
+        except Exception as exc:  # a log call must never raise
             return _failure_line(record, exc)
 
     def _render(self, record: logging.LogRecord) -> str:
@@ -295,7 +295,7 @@ class _StructuredStreamHandler(logging.StreamHandler):
     more is attempted in the record's own shape, and dropped if that fails too.
     """
 
-    def handleError(self, record: logging.LogRecord) -> None:  # noqa: N802 - stdlib API
+    def handleError(self, record: logging.LogRecord) -> None:  # stdlib API
         try:
             self.stream.write(_failure_line(record, OSError("the log stream refused a write")))
             self.stream.write(self.terminator)

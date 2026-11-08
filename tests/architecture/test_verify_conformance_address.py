@@ -24,10 +24,10 @@ import pytest
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "packages" / "backend" / "cli" / "src"))
 
-from terp.cli import main, verify  # noqa: E402
-from terp.cli.dev import DEFAULT_WEB_PORT  # noqa: E402
-from terp.cli.ports import render_block  # noqa: E402
-from terp.cli.verify import (  # noqa: E402
+from terp.cli import main, verify
+from terp.cli.dev import DEFAULT_WEB_PORT
+from terp.cli.ports import render_block
+from terp.cli.verify import (
     CONFORMANCE_BASE_URL_ENV,
     VerifyCheck,
     conformance_address,

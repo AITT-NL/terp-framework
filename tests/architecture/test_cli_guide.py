@@ -17,7 +17,7 @@ import pytest
 _CLI_SRC = pathlib.Path(__file__).resolve().parents[2] / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli import guide, guide_choices, guide_topics, main  # noqa: E402  (import after sys.path setup)
+from terp.cli import guide, guide_choices, guide_topics, main  # import after sys.path setup
 
 # Derived from the live CLI registry — not hand-duplicated — so a new topic is covered
 # automatically (and the rules topic is generated; see test_docs_parity.py).

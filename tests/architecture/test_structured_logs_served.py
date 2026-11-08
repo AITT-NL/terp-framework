@@ -190,7 +190,7 @@ def _serve(
     flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
     # The child keeps its own copies of the two handles; this process closes its own.
     with stdout.open("wb") as out, stderr.open("wb") as err:
-        process = subprocess.Popen(  # noqa: S603 - the template's own production command
+        process = subprocess.Popen(  # the template's own production command
             [sys.executable, "-m", "uvicorn", f"{module}:app", "--host", "127.0.0.1",
              "--port", str(port), "--timeout-graceful-shutdown", "8"],
             cwd=tmp_path,
@@ -210,7 +210,7 @@ def _stop(process: subprocess.Popen[bytes]) -> None:
         process.send_signal(signal.SIGTERM)
     try:
         process.wait(timeout=30)
-    except subprocess.TimeoutExpired:  # pragma: no cover - only a hung server lands here
+    except subprocess.TimeoutExpired:  # only a hung server lands here
         process.kill()
         raise
 
@@ -449,7 +449,7 @@ def test_a_refused_production_boot_is_a_terp_log_record(tmp_path: Path) -> None:
 def test_a_refused_configuration_is_a_record_that_does_not_print_it(tmp_path: Path) -> None:
     stdout, stderr = tmp_path / "stdout.log", tmp_path / "stderr.log"
     with stdout.open("wb") as out, stderr.open("wb") as err:
-        result = subprocess.run(  # noqa: S603 - the interpreter running this suite
+        result = subprocess.run(  # the interpreter running this suite
             [sys.executable, "-c", "import terp.core"],
             cwd=tmp_path,
             env=_environment(SECRET_KEY="short-and-weak"),
