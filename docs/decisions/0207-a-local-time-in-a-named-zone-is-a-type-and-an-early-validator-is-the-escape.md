@@ -71,7 +71,16 @@ sends the offset, as `DateTimeInput` does. A declaration is checked when it is m
   ever changed: every place began on its own mean solar time and has moved since, while UTC and
   a fixed offset never have. Reading a time in UTC is `NaiveMeansUtc`'s, which the rule counts,
   so the type does not offer it unmarked. A place that keeps UTC today, such as
-  `Atlantic/Reykjavik`, is still a place;
+  `Atlantic/Reykjavik`, is still a place.
+  **Amended in 0.39.0, before release: a place is judged by its name.** Judged by the zone's
+  history, the answer was the host's: the `tzdata` package reads `EST`, `MST` and `HST` as
+  Panama, Phoenix and Honolulu from its 2024b release, where many a host's own database keeps
+  them fixed offsets, so an app passed its tests on one host and failed at import on another. A
+  place is now a name of the form Area/Location, under an area other than `Etc`, that the pinned
+  `tzdata` package holds; the history check stays behind it. A name without an area (`EST`,
+  `UTC`, `CET`, `Japan`, the host's `localtime`) is refused on every host, and so is a name only
+  one host's database holds (`posix/Europe/Amsterdam`). An old name with an area, such as
+  `US/Eastern`, is still a place;
 - `LocalTimeIn` on anything but a plain `datetime`, or after other metadata, raises a
   `TypeError` that says where it goes: directly after `datetime`.
 

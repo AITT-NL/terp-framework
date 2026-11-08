@@ -14,6 +14,7 @@ import types
 from datetime import UTC, datetime
 from importlib.resources import files
 from typing import Annotated, Any
+import zoneinfo
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -23,6 +24,8 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, NaiveDatetime, TypeA
 
 from terp.core import BaseSchema, BootError, LocalTimeIn, ModuleSpec, Policy, create_app
 from terp.core.local_time import _instant_in
+
+_CENTURIES = tuple(datetime(year, 1, 1, tzinfo=UTC) for year in (1800, 1900, 2000))
 
 Amsterdam = Annotated[datetime, LocalTimeIn("Europe/Amsterdam")]
 
@@ -251,6 +254,37 @@ def test_a_key_that_names_no_place_is_refused_and_points_to_the_escape(zone: str
     with pytest.raises(ValueError, match="names no place's wall time") as caught:
         LocalTimeIn(zone)
     assert "NaiveMeansUtc" in str(caught.value)
+
+
+@pytest.fixture
+def without_a_host_database() -> Any:
+    """zoneinfo as it reads on Windows or a slim image: from the pinned tzdata package alone."""
+    zoneinfo.reset_tzpath(to=[])
+    ZoneInfo.clear_cache()
+    yield
+    zoneinfo.reset_tzpath()
+    ZoneInfo.clear_cache()
+
+
+@pytest.mark.parametrize("zone", ["EST", "MST", "HST", "Japan", "CET"])
+def test_a_name_without_a_place_is_refused_on_every_host(zone: str, without_a_host_database: Any) -> None:
+    """The tzdata package reads EST, MST and HST as Panama, Phoenix and Honolulu from 2024b,
+    where many a host's own database keeps them fixed offsets: judged by the zone's history they
+    were accepted on one host and refused on another, so an app passed its tests on one and
+    failed at import on the next. A place is named Area/Location, judged by the name."""
+    assert len({moment.astimezone(ZoneInfo("EST")).utcoffset() for moment in _CENTURIES}) > 1, (
+        "the package reads EST as a place's zone, which is what made the history disagree"
+    )
+    with pytest.raises(ValueError, match="names no place's wall time") as caught:
+        LocalTimeIn(zone)
+    assert "Area/Location" in str(caught.value)
+
+
+def test_a_name_only_one_host_s_database_holds_is_refused_everywhere() -> None:
+    """A host's own directories (posix/, right/) are no zone the pinned data holds."""
+    with pytest.raises(ValueError, match="names no place's wall time|names no time zone this server knows"):
+        LocalTimeIn("posix/Europe/Amsterdam")
+    assert LocalTimeIn("US/Eastern").zone == "US/Eastern", "an old Area/Location name is still a place"
 
 
 @pytest.mark.parametrize("zone", ["localtime", "posixrules"])

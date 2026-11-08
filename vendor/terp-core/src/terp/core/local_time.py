@@ -17,15 +17,13 @@ the type's own reader.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from functools import cache
+from importlib.resources import files
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, PydanticCustomError, core_schema
-
-#: Keys that name the host's own setting rather than a zone: each host reads them its own way.
-_HOST_KEYS = frozenset({"localtime", "posixrules"})
-
 
 #: Instants across a zone's history, twice a year: enough to tell a place from a fixed offset,
 #: and one zone from another.
@@ -42,10 +40,29 @@ def _keeps_one_offset(zone: ZoneInfo) -> bool:
     return len({moment.astimezone(zone).utcoffset() for moment in _MOMENTS}) == 1
 
 
+@cache
+def _pinned_keys() -> frozenset[str]:
+    """Every key of the ``tzdata`` package ``terp-core`` pins: the same list on every host."""
+    return frozenset(files("tzdata").joinpath("zones").read_text(encoding="utf-8").split())
+
+
 def _names_a_place(zone: str) -> ZoneInfo | None:
-    """The zone *zone* names, when it is a place's; ``None`` for UTC, a fixed offset or the host."""
+    """The zone *zone* names, when it is a place's; ``None`` for UTC, a fixed offset or the host.
+
+    A place is named Area/Location, as the IANA database files it, under an area other than
+    ``Etc``, which holds UTC and the fixed offsets; and the name must be one the pinned ``tzdata``
+    package holds. Both are judged on the name, the same on every host. The host's own database
+    cannot judge it: the package's releases from 2024b read ``EST``, ``MST`` and ``HST`` as
+    Panama, Phoenix and Honolulu, where many a host still reads fixed offsets, so an app passed
+    its tests on one host and failed at import on another. A name without an area (``EST``,
+    ``UTC``, ``Japan``, the host's ``localtime``) is refused everywhere; its place has a name of
+    its own (``America/Panama``, ``Asia/Tokyo``).
+    """
+    area, _, location = zone.partition("/")
+    if not location or area == "Etc" or zone not in _pinned_keys():
+        return None
     place = ZoneInfo(zone)
-    return None if zone.casefold() in _HOST_KEYS or _keeps_one_offset(place) else place
+    return None if _keeps_one_offset(place) else place
 
 
 def _reads_its_place(marker: LocalTimeIn) -> bool:
@@ -116,8 +133,9 @@ class LocalTimeIn:
     whose message names both instants it could be.
 
     The zone names the instant, so this is no escape, and it is held to that. A key that names
-    no place, which is UTC under any name, a fixed offset, or the host's own setting, is
-    refused when declared: reading a time in UTC is ``NaiveMeansUtc``'s, which the
+    no place, which is UTC under any name, a fixed offset, an old abbreviation such as ``EST``,
+    or the host's own setting, is refused when declared, judged by its name the same way on
+    every host: reading a time in UTC is ``NaiveMeansUtc``'s, which the
     ``request_timestamps_carry_their_offset`` rule counts. The type cannot be subclassed and
     refuses a change through its attributes, since the timestamp boundary trusts its reader by
     its own function; it reads the zone again too, so one swapped behind the type's back with
@@ -137,9 +155,10 @@ class LocalTimeIn:
             ) from exc
         if _names_a_place(zone) is None:
             raise ValueError(
-                f"LocalTimeIn({zone!r}) names no place's wall time, but UTC, a fixed offset or "
-                "the host's own setting; name the zone of a place, for example "
-                "'Europe/Amsterdam'. A sender known to send UTC without saying so takes "
+                f"LocalTimeIn({zone!r}) names no place's wall time, but UTC, a fixed offset, an "
+                "old abbreviation or the host's own setting; name a place as Area/Location, the "
+                "way the IANA database files it, for example 'Europe/Amsterdam' or "
+                "'America/Panama'. A sender known to send UTC without saying so takes "
                 "NaiveMeansUtc, which the request_timestamps_carry_their_offset rule counts"
             )
         object.__setattr__(self, "_zone", place)
