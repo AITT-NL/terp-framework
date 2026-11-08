@@ -1,6 +1,6 @@
 # 0197 — A public site is a client of an app, and the framework defines the socket it plugs into
 
-- **Status:** Proposed (awaiting review). Amends [ADR 0123](0123-marketing-websites-are-not-a-terp-application-kind.md)
+- **Status:** Accepted on 2026-11-08 by the owner. Amends [ADR 0123](0123-marketing-websites-are-not-a-terp-application-kind.md)
   §4, the closing paragraph of §1 and the first of its consequences, and keeps the reasoning
   of its §1–3 and all of §5. Revised 2026-11-03 after review: a site reads published content
   from a public route with no credential in its build, it claims no conformance level, and
