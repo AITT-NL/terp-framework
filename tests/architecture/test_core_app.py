@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import copy
 import logging
-import uuid
 
 import pytest
 from fastapi import APIRouter, Depends, FastAPI, Request
@@ -16,7 +15,7 @@ from fastapi.testclient import TestClient
 from starlette.middleware import Middleware
 from starlette.routing import Route
 
-from terp.core.app import build_guard, register_error_handlers
+from terp.core.app import register_error_handlers
 from terp.core.pagination import MAX_SKIP, PaginationDep
 from terp.core import (
     ADMIN,
@@ -39,7 +38,6 @@ from terp.core import (
     PermissionModel,
     Policy,
     route_policy,
-    Principal,
     Role,
     SecurityConfig,
     VIEWER,

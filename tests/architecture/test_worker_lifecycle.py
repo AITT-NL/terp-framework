@@ -25,7 +25,7 @@ import sys
 import textwrap
 import time
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from threading import Event
 

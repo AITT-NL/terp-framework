@@ -242,7 +242,7 @@ ongeauditeerde write geeft `UnauditedWriteError`.
 ### 4.9 Supply-chain-hygiëne
 
 Gepinde dependencies + lockfiles, secret scanning, en generieke CI-backstops
-(ADR 0033): ruff bandit (`S`-regels), import-linter-contract op de layer-0-grens,
+(ADR 0033): ruff bandit (`S`-regels) en pyflakes (`F`), import-linter-contract op de layer-0-grens,
 en advisory `pip-audit` + `deptry` — CI-only, zonder de harness te verzwakken.
 
 ---

@@ -17,7 +17,7 @@ from terp.capabilities.audit import AuditEvent, persist_audit
 
 
 def test_persist_audit_stores_a_record_without_a_request_id() -> None:
-    import terp.capabilities.audit.models  # register the table
+    import terp.capabilities.audit.models  # noqa: F401 - registers the table
 
     engine = create_engine(
         "sqlite://",

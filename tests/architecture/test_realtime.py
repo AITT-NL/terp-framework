@@ -32,7 +32,6 @@ from terp.capabilities.realtime import (
     InMemoryRealtimeBroker,
     RealtimeBroker,
     RealtimeChannel,
-    RealtimeUnavailableError,
     SharedBrokerRequiredError,
     SubscriptionEnded,
     clear_channels,

@@ -4016,7 +4016,7 @@ def _render_text(plane: ControlPlane, specs: Sequence[ModuleSpec]) -> str:
     lines.append(f"  cors {_cors_label(plane.security.cors)}")
     rate_limit = plane.security.rate_limit
     lines.append(
-        f"  rate_limit "
+        "  rate_limit "
         + (
             f"{rate_limit.requests}/{rate_limit.window_seconds}s"
             if rate_limit.enabled

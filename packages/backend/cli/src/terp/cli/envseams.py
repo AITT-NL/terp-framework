@@ -725,7 +725,7 @@ def run_env_seams_check(project_root: pathlib.Path) -> tuple[int, str]:
         lines += [
             "",
             "Compose resolves `environment:` over `env_file:`, so a name in both is",
-            f"supplied by the developer's .env (or a compose default) and never by the",
+            "supplied by the developer's .env (or a compose default) and never by the",
             f"{APP_ENV_FILE} Studio renders -- in every environment, including one with no",
             ".env at all, where `${VAR:-}` still wins with an empty string.",
             "",
@@ -737,7 +737,7 @@ def run_env_seams_check(project_root: pathlib.Path) -> tuple[int, str]:
         lines += [
             "",
             f"{APP_ENV_EXAMPLE_FILE} is the one file in this seam a human maintains, and",
-            f"the manifest is its allow-list: one entry per declared name, no others, and",
+            "the manifest is its allow-list: one entry per declared name, no others, and",
             'an empty value for anything declared "format": "secret" -- this file is',
             "committed.",
         ]

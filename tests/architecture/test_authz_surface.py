@@ -26,7 +26,6 @@ from terp.cli.authz_surface import (
 )
 from terp.cli.verify import _run_authz_surface
 from terp.core import (
-    VIEWER,
     ControlPlane,
     ModuleSpec,
     Permission,

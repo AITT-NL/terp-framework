@@ -16,7 +16,7 @@
     "cli/src/terp/cli/version.py": 751,
     "cli/src/terp/cli/workbench.py": 527,
     "core/src/terp/core/_internal/middleware.py": 968,
-    "core/src/terp/core/app.py": 2359,
+    "core/src/terp/core/app.py": 2356,
     "core/src/terp/core/base_service.py": 788,
     "core/src/terp/core/jobs.py": 524,
     "core/src/terp/core/leases.py": 784

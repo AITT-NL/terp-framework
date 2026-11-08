@@ -69,14 +69,10 @@ publish that fixture: same behaviour, same skip, now nameable from an app's own 
 
 from __future__ import annotations
 
-import contextlib
-import dataclasses
-import re
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Protocol
 
 import pytest
-from sqlalchemy import event as sa_event
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from terp.core.audit import AuditPolicy, AuditSink

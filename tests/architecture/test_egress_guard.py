@@ -451,7 +451,7 @@ def test_importing_uvloop_after_install_is_refused() -> None:
     install_egress_guard(EgressGuard())
     # The statement uvicorn's loop setup runs; refused whether or not uvloop is installed.
     with pytest.raises(EgressGuardUnsupportedError, match="uvloop is being imported"):
-        import uvloop
+        import uvloop  # noqa: F401 - the import is what is refused
     assert "uvloop" not in sys.modules
     with pytest.raises(EgressGuardUnsupportedError):
         sys.audit("import", "uvloop.loop", None, None, None, None)

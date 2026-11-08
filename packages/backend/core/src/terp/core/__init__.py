@@ -192,11 +192,7 @@ from terp.core.permissions import (
     register_module_rank_projector,
     register_permission_projector,
 )
-from terp.core.operations import (
-    OperationCatalog,
-    OperationCoverage,
-    OperationDefinition,
-)
+from terp.core.operations import OperationCatalog, OperationCoverage, OperationDefinition
 from terp.core.references import (
     OnDelete,
     Ref,
@@ -342,6 +338,7 @@ __all__ = [
     "MigrationTree",
     "Misfire",
     "ModuleAccess",
+    "ModuleRankProjector",
     "ModuleSpec",
     "NaiveMeansUtc",
     "NotFoundError",
@@ -463,6 +460,7 @@ __all__ = [
     "personal_columns",
     "personal_field_names",
     "personal_fields",
+    "project_module_ranks",
     "project_permissions",
     "purge_free_leases",
     "read_only",
@@ -475,6 +473,7 @@ __all__ = [
     "register_log_tenant_reader",
     "register_mandatory_store",
     "register_object_authz_predicate",
+    "register_module_rank_projector",
     "register_owner_read_scope",
     "register_permission_projector",
     "register_scope_predicate",

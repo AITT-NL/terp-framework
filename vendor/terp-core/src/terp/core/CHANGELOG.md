@@ -138,6 +138,11 @@ decision, 0001 onwards.
   `trusted_proxy_hops` say to put a reverse proxy, a load balancer or an ingress in front of the
   `api` unit, and to count it there.
 
+- **`terp.core.__all__` names `ModuleRankProjector`, `project_module_ranks` and
+  `register_module_rank_projector`.** The identity and access capabilities import the two
+  functions from `terp.core`, and the type is what the second one takes, but `__all__` named
+  only their permission counterparts, so pyflakes read the three as unused imports.
+
 ### Fixed
 
 - **A signed release no longer calls a lane passed that judged nothing (ADRs 0200, 0202).** The

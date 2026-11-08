@@ -46,7 +46,6 @@ from terp.capabilities.auth.operations import (
     AUTH_LOGOUT,
     AUTH_ME,
     AUTH_REFRESH,
-    AUTH_TOKEN,
 )
 from terp.capabilities.auth.refresh import (
     clear_refresh_cookie,
@@ -54,7 +53,6 @@ from terp.capabilities.auth.refresh import (
 )
 from terp.capabilities.auth.schemas import (
     AccessToken,
-    ClientCredentialsRequest,
     CurrentUser,
     LoginRequest,
 )

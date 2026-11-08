@@ -11,7 +11,7 @@ wiring — including the fail-closed boot refusal of an unmarked per-instance st
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 
 import pytest
 from fastapi import APIRouter

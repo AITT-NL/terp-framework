@@ -20,7 +20,7 @@ from terp.core import BaseSchema, BaseTable, BaseUpdateSchema
 from terp.core.audit import AuditAction, AuditRecord, set_audit_sink
 
 from terp.capabilities.access import AccessService
-from terp.capabilities.access.models import Grant  # register table
+from terp.capabilities.access.models import Grant  # noqa: F401 - registers the table
 from terp.capabilities.tenancy import (
     TenantScopedMixin,
     TenantScopedService,

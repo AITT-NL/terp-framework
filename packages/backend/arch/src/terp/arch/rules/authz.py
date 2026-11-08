@@ -12,7 +12,6 @@ import pathlib
 from terp.arch._ast import base_name, iter_python_files, parse
 from terp.arch.rules._support import (
     ArchViolation,
-    _MUTATING_HTTP_METHODS,
     _POLICY_AUTHZ_KEYWORDS,
     _module_under,
     _rel,
@@ -104,7 +103,6 @@ def check_no_adhoc_permission_literals(
 from terp.arch.rules._policy_source import (
     DEFAULT_ROLE_RANKS,
     has_mutating_route,
-    methods_kwarg_has_mutation,
     module_policy_calls,
     policy_kwarg,
     static_default_rank,

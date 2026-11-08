@@ -226,7 +226,6 @@ def run_worker_command(
         sys.path.insert(0, root)
     _load_app(app_ref)
 
-    from sqlmodel import Session
 
     try:
         from terp.capabilities.outbox import OutboxWorker
@@ -280,7 +279,6 @@ def _default_scheduler() -> object:
     ``start`` blocks the main thread), driving each schedule's tick through the jobs seam.
     Requires the ``terp-cap-scheduler-apscheduler`` capability.
     """
-    from sqlmodel import Session
 
     try:
         from apscheduler.schedulers.blocking import BlockingScheduler

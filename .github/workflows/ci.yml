@@ -325,8 +325,8 @@ jobs:
         run: uv run pytest -m release_lane tests/release_lane -rA -s
 
   # Generic, tool-independent backstops layered ON TOP of the gate — they never
-  # replace terp-arch. Blocking: ruff bandit (`S`) + the import-linter layer-0
-  # contract (mirrors test_core_boundary). Advisory (continue-on-error): a missing
+  # replace terp-arch. Blocking: ruff bandit (`S`) and pyflakes (`F`) + the
+  # import-linter layer-0 contract (mirrors test_core_boundary). Advisory (continue-on-error): a missing
   # advisory wheel or a fresh CVE shouldn't break the gate green-ness.
   generic-checks:
     runs-on: ubuntu-latest
@@ -345,7 +345,7 @@ jobs:
       - name: Set up Python
         run: uv python install 3.14
 
-      - name: ruff — security backstop (bandit `S`), repo-wide
+      - name: ruff — security backstop (bandit `S`) and pyflakes (`F`), repo-wide
         run: uv run --group lint ruff check .
 
       - name: import-linter — terp.core layer-0 contract

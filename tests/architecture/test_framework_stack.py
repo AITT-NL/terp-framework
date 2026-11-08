@@ -40,7 +40,7 @@ from terp.core._internal.session_guard import WriteGuardedSession
 import terp.capabilities.access.models  # register Grant table
 import terp.capabilities.audit.models  # register AuditEvent table
 from terp.capabilities.audit.models import AuditEvent
-import terp.capabilities.identity.models  # register User table
+import terp.capabilities.identity.models  # noqa: F401 - registers the User table
 from terp.capabilities.access import (
     ACCESS_ASSIGN_MODULE_ROLE,
     ACCESS_CREATE_GRANT,
@@ -185,7 +185,7 @@ def _client(app: FastAPI, subject: uuid.UUID, role: Roles) -> TestClient:
 # auth login / logout + identity authenticate / token epoch
 # --------------------------------------------------------------------------- #
 def test_login_logout_round_trip_and_revocation(app: FastAPI, engine: Engine) -> None:
-    admin = _provision(engine, "admin@x.test", Roles.ADMIN)
+    _provision(engine, "admin@x.test", Roles.ADMIN)
     anon = TestClient(app)
     ok = anon.post("/api/v1/auth/login", json={"email": "admin@x.test", "password": _PASSWORD})
     assert ok.status_code == 200, ok.text

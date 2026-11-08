@@ -105,11 +105,8 @@ from terp.core.routing import (
     request_method,
     route_permission_names,
 )
-from terp.core.throttling import (
-    InMemoryThrottleStore,
-    ThrottleStore,
-    is_shared_throttle_store,
-)
+from terp.core.security import RateLimit, SecurityConfig
+from terp.core.throttling import InMemoryThrottleStore, ThrottleStore, is_shared_throttle_store
 from terp.core.permissions import LabelCoverage, PermissionModel, Role, as_role
 
 _logger = logging.getLogger("terp.core")

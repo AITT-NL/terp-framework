@@ -835,7 +835,7 @@ def test_the_outbox_registers_its_backlog_as_a_health_detail(engine: object) -> 
     """Installing the distribution is the whole adoption step, as with every other
     capability seam — the capability shipped no router and no operator surface at all,
     so nothing anywhere could report that nothing was draining it."""
-    import terp.capabilities.outbox  # registers at import
+    import terp.capabilities.outbox  # noqa: F401 - registers at import
     from terp.core.health import health_details
 
     detail = health_details()["outbox"]
