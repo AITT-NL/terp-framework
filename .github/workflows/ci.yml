@@ -244,6 +244,7 @@ jobs:
           tests/architecture/test_aggregation.py
           tests/architecture/test_core_table_reads.py
           tests/architecture/test_personal_data.py
+          tests/architecture/test_refused_delete.py
           tests/architecture/test_utc_datetime.py
           tests/architecture/test_readiness_postgres.py
           tests/architecture/test_schema_window.py
