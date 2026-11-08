@@ -29,10 +29,21 @@ _NAIVE_MEANS_UTC = "NaiveMeansUtc"
 #: The boundary's own machinery; an app takes the escape from ``terp.core``.
 _TIMESTAMPS_MODULE = "terp.core.timestamps"
 
-#: The packages the framework scans that implement the boundary rather than use it: the one
-#: that defines the boundary and its escape, and the one that defines this rule, which names
-#: both as the data it matches.
-_IMPLEMENTING_PACKAGES = frozenset({"terp.core", "terp.arch"})
+#: The files that implement the boundary rather than use it, by package and path: they define
+#: the refusal and its escape, put the refusal where it holds, or name the escape as the data
+#: this rule matches. Every other file of those packages is held like an app's (amended in
+#: 0.39.0: the rule skipped both packages whole, so a new module of either went uncounted).
+_IMPLEMENTING_FILES = {
+    "terp.core": frozenset({
+        "core/timestamps.py",  # the refusal, its escape and Instant
+        "core/__init__.py",  # the public surface, which exports the escape
+        "core/base_models.py",  # BaseSchema's hook, which puts the refusal in front of a timestamp
+        "core/filtering.py",  # a declared filter's bound, refused the same way
+        "core/route_timestamps.py",  # create_app's walk over every route's parameters
+        "core/_internal/job_runtime.py",  # reads back the payload text the framework wrote
+    }),
+    "terp.arch": frozenset({"arch/rules/request_timestamps.py"}),  # this rule, which names both
+}
 
 _ESCAPE_MESSAGE = (
     "NaiveMeansUtc reads a timestamp with no UTC offset as UTC, so a sender in any other "
@@ -268,8 +279,7 @@ def check_request_timestamps_carry_their_offset(
     validator on a timestamp field (ADR 0207), which reads the text before the type does: a
     wall time in a named zone is ``LocalTimeIn``'s, which names the instant.
     """
-    if package in _IMPLEMENTING_PACKAGES:
-        return []  # the boundary's own implementation, and this rule's, is neither's user
+    implementing = _IMPLEMENTING_FILES.get(package, frozenset())
     root = pathlib.Path(app_root)
     violations: list[ArchViolation] = []
     files = [(path, parse(path)) for path in iter_python_files(root)]
@@ -277,6 +287,8 @@ def check_request_timestamps_carry_their_offset(
     imported = imports_of_early_validators(files, root)
     for path, tree in files:
         rel = _rel(path, root)
+        if pathlib.PurePath(rel).as_posix() in implementing:
+            continue  # the boundary's own implementation is not its user
         findings = _escape_findings(tree)
         for line, message in _early_validator_findings(tree, imported[path]).items():
             findings.setdefault(line, message)

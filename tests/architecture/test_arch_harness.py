@@ -2270,12 +2270,12 @@ def test_request_timestamps_carry_their_offset(tmp_path: pathlib.Path) -> None:
         "class ReadingCreate(BaseSchema):\n    taken_at: datetime\n"
     ) == []
 
-    # terp.core, which defines the boundary and its escape, and terp.arch, which defines this
-    # rule and names both as the data it matches, are neither's user.
+    # Only the files that implement the boundary are exempt (test_early_timestamp_validators):
+    # any other module of terp.core or terp.arch is held like an app's.
     _write(app, "modules/notes/schemas.py", "from terp.core.timestamps import require_offset\n")
-    assert check_request_timestamps_carry_their_offset(app, package="terp.core") == []
+    assert len(check_request_timestamps_carry_their_offset(app, package="terp.core")) == 1
     _write(app, "modules/notes/schemas.py", "ESCAPE = 'NaiveMeansUtc'\nMODULE = 'terp.core.timestamps'\n")
-    assert check_request_timestamps_carry_their_offset(app, package="terp.arch") == []
+    assert len(check_request_timestamps_carry_their_offset(app, package="terp.arch")) == 2
 
     # A plain timestamp field passes, and the message names the marker and the budget.
     (( _, message),) = findings(

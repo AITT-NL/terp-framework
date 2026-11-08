@@ -91,6 +91,12 @@ decision, 0001 onwards.
   value the refusal never sees. The metaclass refuses it as it refuses the two hooks, and the
   `TypeError` names where that work goes instead: a `model_validator(mode="after")`.
 
+- **`backend/request_timestamps_carry_their_offset` exempts only the files that implement the
+  boundary.** It skipped `terp.core` and `terp.arch` whole, so a new module of either that read
+  timestamp text early, or reached `terp.core.timestamps`, went uncounted. It now exempts the six
+  files of `terp.core` that define the refusal and its escape or put the refusal in place, and this
+  rule's own module in `terp.arch`; every other module of both is held like an app's.
+
 ### Fixed
 
 - **A signed release no longer calls a lane passed that judged nothing (ADRs 0200, 0202).** The
