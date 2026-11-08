@@ -314,10 +314,9 @@ describe("the check report (--format check-report, app-check-report.schema.json)
     const { envelope } = renderEnvelope(results, path.resolve("."), { layoutContract: true });
     const report = asCheckReport(envelope);
     expect(report.terp_check_report).toBe(1);
-    // The certified spec version rides every report. Shape only here — the
+    // The report format's release rides every report. Shape only here: the
     // equality lock against the pinned @terpjs/spec lives in the framework gate
-    // (test_check_json.py), because certification runs THIS suite against
-    // candidate spec releases whose version is allowed to be newer.
+    // (test_check_json.py), beside the lock on terp.arch.SPEC_VERSION.
     expect(report.spec_version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(report.checker.tool).toBe("@terpjs/eslint-boundaries");
     expect(report.checker.version).toMatch(/^\d+\.\d+\.\d+$/);

@@ -962,7 +962,9 @@ frontend design-system track below.
       its open questions: closing an account asks for its second factor, a loosened response
       bound is breaking, `terp secrets reseal` works in batches and passes over held rows, an
       exception handler added after `create_app` is refused, and the lint runs pyflakes.
-- [ ] Owed: the Studio's pin to 0.39.0. It pins 0.38.0.
+- [x] The Studio pins 0.39.0 (terp-studio#173).
+- [ ] 0.40.0, unreleased: on terp-spec 0.44.0, the release that holds only the contracts. The
+      signer image and `terp promote` that read a release made with it must be 0.40.0 or later.
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
       every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
       the template's two `AGENTS.md` files, the repository's own and the react-core README.

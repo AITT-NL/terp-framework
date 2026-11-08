@@ -88,12 +88,17 @@ with its catalog entry, its corpus cases and its regenerated rule page
 What the framework still takes from terp-spec are the contracts more than one program reads:
 the deployment, workbench and layout declarations, the check-report and findings formats, the
 assurance profile and the conversation stream. Adopting a new contracts release means moving
-**four** declarations together, which is what ADR 0082 asks: the two pins (`pyproject.toml`'s
-dev group and `packages/frontend/eslint-boundaries/package.json`) and the two constants that
+**six** declarations together, which is what ADR 0082 asks: the two pins (`pyproject.toml`'s
+dev group and `packages/frontend/eslint-boundaries/package.json`), the two constants that
 name the check-report format the toolchain writes (`terp.arch.SPEC_VERSION` and the ESLint
-adapter's `SPEC_VERSION` in `packages/frontend/eslint-boundaries/src/spec.js`) — then re-lock
-both lockfiles, and move the mirrored schemas' `SPEC_RELEASE` where the release changes a
-mirrored file. `test_repo_split_readiness.py` fails the build if they skew.
+adapter's `SPEC_VERSION` in `packages/frontend/eslint-boundaries/src/spec.js`), and the
+`SPEC_RELEASE` of the two mirrored declarations (`terp.arch.deployment` and
+`terp.arch.workbench`), which moves with the pin even when the release leaves their files as
+they were; copy over any file it changed. Then re-lock `package-lock.json` (`uv.lock` is not
+tracked) and keep `@terpjs/spec` at the root of it: re-locking can place the new release
+under the workspace instead, and the readiness test reads the root entry.
+`test_repo_split_readiness.py`, `test_check_json.py` and the two mirror tests fail the build
+if any of them skew.
 
 **An assurance lane may be realised here ahead of the release that declares it.** The lane
 vocabulary is pinned in two places — the schema's enum and `ASSURANCE_LANES` here — and

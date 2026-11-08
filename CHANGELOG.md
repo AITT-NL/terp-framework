@@ -10,6 +10,30 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.40.0 — unreleased
+
+### Changed
+
+- **On terp-spec 0.44.0, the release that holds only the contracts.** Both pins move:
+  `terp-spec` in `pyproject.toml` and `@terpjs/spec` in `@terpjs/eslint-boundaries`, with
+  `terp.arch.SPEC_VERSION`, the JS `SPEC_VERSION` and both mirrors' `SPEC_RELEASE`. 0.44.0
+  removes the rule catalog, its corpus and the runtime security cases, which live here since
+  0.38.0 (ADR 0203), and the scorecard format, which that release retired; nothing here read
+  any of them from the package any more. Every file the framework does read is 0.43.0's byte
+  for byte, except the check-report schema, whose descriptions now say what the toolchain
+  already writes: `spec_version` names the release of the report format, and the checker's
+  version names the catalog the rule ids resolve against. The two docstrings that still
+  described `spec_version` the old way follow it, and `docs/RELEASING.md` lists the six
+  declarations a contracts release moves.
+
+### Upgrade notes
+
+- **A release made with 0.40.0 names terp-spec 0.44.0.** The signer refuses a commit whose
+  pinned `terp-arch` reads a newer standard than its own, and `terp promote` refuses a release
+  declared against one, so update the signer image and `terp promote` to 0.40.0 before you
+  sign or promote the first app that upgrades. The deployment and workbench declarations are
+  unchanged, so an app's own files need nothing.
+
 ## 0.39.0 — 2026-11-08
 
 ### Added
