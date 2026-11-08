@@ -227,6 +227,15 @@ decision, 0001 onwards.
   (Samoa, 30 December 2011) was labelled as the next one. Each now answers. A declaration the
   database cannot answer at all (a `sum` of text, a `max` of a UUID or a boolean, a group keyed by
   JSON) is refused when the class is defined, naming what to count instead.
+- **`frontend/timestamp-inputs-carry-their-offset` follows a `type` however it is spelled
+  inline (ADR 0206).** The rule read only a string or a plain template as the attribute's direct
+  value, so `type={withTime ? "datetime-local" : "date"}`, `?? "datetime-local"`,
+  `"datetime-local" as const`, `satisfies` and `"datetime-" + "local"` each passed, while its
+  catalog entry said "an expression". It is now a plugin rule of its own,
+  `terp/timestamp-inputs-carry-their-offset`, that follows every string the expression can be:
+  each branch of a conditional and of `??`, `||` and `&&`, a concatenation, a template, and the
+  expression under `as`, `satisfies` and `!`. Its marker is unchanged. A value read from a name,
+  a spread props object and `createElement` stay outside it, recorded as its residuals.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
