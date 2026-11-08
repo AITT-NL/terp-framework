@@ -2529,13 +2529,13 @@ def create_app(
         prefix="/health",
     )
     _mount_root_signpost(app, title=title, docs=not hide_docs)
-    # The contract-shape gate runs against the finished document — after every
-    # module router, capability router, and the health router are mounted — so
-    # nothing that serialises into the contract can arrive after it looked.
-    # Once every router is mounted, the framework's own included (ADR 0208).
+    # Every route's timestamps are judged once every router is mounted, the framework's
+    # own included, so no route reads one the check did not see (ADR 0208).
     timestamps_refusal = request_timestamps_refusal(app.routes)
     if timestamps_refusal is not None:
         raise BootError(timestamps_refusal)
+    # The contract-shape gate runs against the finished document, after every router is
+    # mounted, so nothing that serialises into the contract can arrive after it looked.
     reject_positional_tuple_schemas(app)
     # Introspection seam (a view, never a control — ADR 0011): record the specs this
     # app actually mounted (client modules AND every discovered capability router) and
