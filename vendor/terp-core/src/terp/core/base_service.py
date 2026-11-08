@@ -30,7 +30,7 @@ are auto-honored traits) — create/update are inherited unchanged.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, ClassVar, Generic, TypeVar
 
@@ -50,6 +50,7 @@ from terp.core.base_models import (
     BaseUpdateSchema,
     OwnedMixin,
     SoftDeleteMixin,
+    _with_offsets,
 )
 from terp.core import aggregation
 from terp.core.aggregation import AggregateGroup, Dimension, Measure, Statistics, TimeBucket, Window
@@ -75,7 +76,7 @@ from terp.core.pagination import (
     decode_cursor,
     encode_cursor,
 )
-from terp.core.personal import withhold_personal_values
+from terp.core.personal import held_personal_values, withhold_values
 from terp.core.scoping import apply_row_scope
 from terp.core._internal.session_guard import (
     enter_write_unit,
@@ -579,9 +580,11 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
             entity.modified_by_id = actor
         if isinstance(entity, OwnedMixin) and action is AuditAction.CREATED:
             entity.owner_id = audit_actor_ctx.get()
+        held: set[str] = set()
         with enter_write_unit() as outermost:
             try:
                 session.add(entity)
+                held |= _personal_in_flight(session, entity)
                 emit_audit(
                     session,
                     action=action,
@@ -590,6 +593,7 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
                 )
                 with forbid_session_writes():
                     self._after_write(session, entity, action)
+                held |= _personal_in_flight(session, entity)
                 if not outermost:
                     # A nested write joins the outermost unit of work: flush now so
                     # constraint errors map to the same uniform 409 path, but defer
@@ -601,7 +605,7 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
                 # A unique / referential constraint violation becomes a uniform
                 # 409 envelope instead of a leaked 500, whether it surfaces during
                 # nested flush or outer commit; the raw detail rides log_context.
-                detail = _integrity_detail(exc, session, entity)
+                detail = _integrity_detail(exc, held | _personal_in_flight(session, entity))
                 if outermost:
                     session.rollback()
                 raise ConflictError(
@@ -636,8 +640,10 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         """Hard-delete *entity*, emitting its ``DELETED`` audit record in the same transaction."""
         self._refuse_if_append_only(AuditAction.DELETED)
         self._authorize_object_write(entity, AuditAction.DELETED)
+        held: set[str] = set()
         with enter_write_unit() as outermost:
             try:
+                held |= _personal_in_flight(session, entity)
                 emit_audit(
                     session,
                     action=AuditAction.DELETED,
@@ -647,6 +653,7 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
                 with forbid_session_writes():
                     self._after_write(session, entity, AuditAction.DELETED)
                 session.delete(entity)
+                held |= _personal_in_flight(session, entity)
                 if not outermost:
                     # Nested delete joins the outermost unit; flush now so
                     # constraint errors map to the same uniform 409 path, but defer
@@ -659,7 +666,7 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
                 # becomes a uniform 409 envelope instead of a leaked 500, whether it
                 # surfaces during nested flush or outer commit; the raw detail rides
                 # log_context.
-                detail = _integrity_detail(exc, session, entity)
+                detail = _integrity_detail(exc, held | _personal_in_flight(session, entity))
                 if outermost:
                     session.rollback()
                 raise ConflictError(
@@ -699,13 +706,15 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         serializer of a JSON column cannot encode — so a typed document died at flush
         with a ``TypeError`` naming neither the field nor the fix. Fields backed by a
         JSON column are dumped in ``json`` mode instead; everything else is unchanged,
-        so a plain column still receives its native Python value.
+        so a plain column still receives its native Python value. A naive ``datetime``
+        in such a document is written as UTC, with its offset (ADR 0205), or it would
+        read back as text its own schema refuses.
         """
         payload = data.model_dump(exclude_unset=exclude_unset)
         json_fields = _json_column_fields(self.model) & payload.keys()
         if json_fields:
             encoded = data.model_dump(mode="json", exclude_unset=exclude_unset)
-            payload.update({field: encoded[field] for field in json_fields})
+            payload.update({field: _with_offsets(payload[field], encoded[field]) for field in json_fields})
         return self._without_managed_columns(payload)
 
     def create(self, session: Session, data: CreateT) -> ModelT:
@@ -751,26 +760,29 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
             self._remove(session, entity)
 
 
-def _integrity_detail(exc: IntegrityError, session: Session, entity: object) -> str:
+def _personal_in_flight(session: Session, entity: object) -> frozenset[str]:
+    """The declared personal values the rows of this write hold, read while they hold them.
+
+    A refused flush expires the rows in it while their session waits for its rollback, and an
+    expired row holds nothing to withhold. So the write chokepoint reads them before it
+    flushes, and again when a refusal arrives, for whatever is still in hand (ADR 0190).
+    """
+    rows = [entity]
+    if isinstance(session, Session):
+        rows.extend((*session.new, *session.dirty, *session.deleted))
+    return frozenset(value for row in rows if isinstance(row, SQLModel) for value in held_personal_values(row))
+
+
+def _integrity_detail(exc: IntegrityError, held: Iterable[str]) -> str:
     """The database's refusal as text, without the personal values of the rows it was about.
 
     The framework's engines keep SQLAlchemy from repeating the statement's parameters, but
     the database's own detail repeats the conflicting key (``Key (email)=(...) already
     exists``), and a session on another engine still carries the parameters, so a refused
-    signup would write the address into the log. The rows in flight are in hand, so their
-    declared personal values are what is removed (ADR 0190); read before the rollback, which
-    empties the session of them.
+    signup would write the address into the log. The rows in flight were in hand, so their
+    declared personal values, *held*, are what is removed (ADR 0190).
     """
-    text = str(exc)
-    in_flight = [entity]
-    if isinstance(session, Session):
-        in_flight.extend((*session.new, *session.dirty, *session.deleted))
-    seen: set[int] = set()
-    for row in in_flight:
-        if isinstance(row, SQLModel) and id(row) not in seen:
-            seen.add(id(row))
-            text = withhold_personal_values(text, row)
-    return text
+    return withhold_values(str(exc), held)
 
 
 __all__ = ["BaseService"]

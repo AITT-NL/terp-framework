@@ -131,11 +131,18 @@ function fieldsIn(instant: number, zone: string): Fields {
   };
 }
 
-/** How many minutes *zone* runs ahead of UTC at *instant*. */
-function offsetMinutes(instant: number, zone: string): number {
-  const fields = fieldsIn(instant, zone);
-  const asUtc = Date.UTC(fields.year, fields.month - 1, fields.day, fields.hour, fields.minute, fields.second);
-  return Math.round((asUtc - Math.floor(instant / 1000) * 1000) / MINUTE);
+/** The UTC instant of a calendar date and wall time, in any year: 0 to 99 included. */
+function utcMillis(fields: Fields): number {
+  // Date.UTC reads a year from 0 to 99 as 1900 plus it, which turns a year being retyped
+  // into another century, so the year is set on its own.
+  const date = new Date(Date.UTC(2000, 0, 1, fields.hour, fields.minute, fields.second));
+  date.setUTCFullYear(fields.year, fields.month - 1, fields.day);
+  return date.getTime();
+}
+
+/** How far *zone* runs ahead of UTC at *instant*, in milliseconds: a zone once ran by seconds. */
+function offsetMillis(instant: number, zone: string): number {
+  return utcMillis(fieldsIn(instant, zone)) - Math.floor(instant / 1000) * 1000;
 }
 
 function pad(value: number, width = 2): string {
@@ -162,24 +169,35 @@ function instantOf(wall: string, zone: string): string | null {
     return null;
   }
   const [, year, month, day, hour, minute, second] = match;
-  const local = Date.UTC(+year, +month - 1, +day, +hour, +minute, second === undefined ? 0 : +second);
+  const local = utcMillis({
+    year: +year,
+    month: +month,
+    day: +day,
+    hour: +hour,
+    minute: +minute,
+    second: second === undefined ? 0 : +second,
+  });
   // The offsets on either side of any change of the clocks near this wall time; each is a
   // candidate, and it names this wall time if the zone runs at that offset at that instant.
-  const before = offsetMinutes(local - DAY, zone);
-  const after = offsetMinutes(local + DAY, zone);
+  const before = offsetMillis(local - DAY, zone);
+  const after = offsetMillis(local + DAY, zone);
   const fits = [before, after]
-    .map((offset) => local - offset * MINUTE)
-    .filter((candidate) => offsetMinutes(candidate, zone) * MINUTE === local - candidate);
+    .map((offset) => local - offset)
+    .filter((candidate) => offsetMillis(candidate, zone) === local - candidate);
   // Repeated, both fit and the earlier is taken; skipped, none fits and the offset before the
   // gap carries the wall time past it.
-  const instant = fits.length > 0 ? Math.min(...fits) : local - before * MINUTE;
+  const instant = fits.length > 0 ? Math.min(...fits) : local - before;
   return rfc3339(instant, zone);
 }
 
-/** *instant* as an RFC 3339 date and time in *zone*, with the zone's offset at that instant. */
+/** *instant* as an RFC 3339 date and time in *zone*, with the zone's offset at that instant.
+ *
+ * RFC 3339 writes an offset in whole minutes. Where the zone then ran by seconds (Monrovia,
+ * until 1972), the same instant is written in UTC instead, so it is never moved. */
 function rfc3339(instant: number, zone: string): string {
-  const fields = fieldsIn(instant, zone);
-  const offset = offsetMinutes(instant, zone);
+  const exact = offsetMillis(instant, zone) % MINUTE === 0;
+  const fields = fieldsIn(instant, exact ? zone : "UTC");
+  const offset = exact ? offsetMillis(instant, zone) / MINUTE : 0;
   const magnitude = Math.abs(offset);
   const suffix =
     offset === 0

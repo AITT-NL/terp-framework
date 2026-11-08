@@ -414,6 +414,28 @@ def test_duplicate_email_maps_to_conflict(engine: Engine) -> None:
             UsersService().create(session, UserProvision(email="dup@x.test", password=_PASSWORD, role=Roles.EDITOR))
 
 
+def test_one_mailbox_is_one_account_in_any_spelling(engine: Engine) -> None:
+    # The unique index is on the exact spelling, and provisioning did not fold case, so an
+    # administrator could open a second account for a mailbox self-service had (ADR 0196).
+    from terp.capabilities.users import UserAdminUpdate
+    from terp.capabilities.users.service import AddressTakenError
+
+    service = UsersService()
+    with Session(engine) as session:
+        member = service.create(session, UserProvision(email="Member@Example.test", password=_PASSWORD, role=Roles.VIEWER))
+        other = service.create(session, UserProvision(email="other@example.test", password=_PASSWORD, role=Roles.VIEWER))
+        with pytest.raises(AddressTakenError):
+            service.create(session, UserProvision(email="member@example.test", password=_PASSWORD, role=Roles.VIEWER))
+        with pytest.raises(AddressTakenError):
+            service.update(session, other.id, UserAdminUpdate(email="MEMBER@example.test", version=other.version))
+        assert service.ensure_user(
+            session, UserProvision(email="member@EXAMPLE.test", password=_PASSWORD, role=Roles.VIEWER)
+        ).id == member.id
+        # An account may respell its own address.
+        respelled = service.update(session, member.id, UserAdminUpdate(email="member@example.test", version=member.version))
+        assert respelled.email == "member@example.test"
+
+
 def test_users_update_guards_and_session_writes(engine: Engine) -> None:
     from terp.core import StaleDataError
 

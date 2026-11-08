@@ -174,7 +174,12 @@ class FilterField:
     def _compare(self, op: str, value: object) -> ColumnElement[bool]:
         column = self.column
         if self.zone is not None and _is_day(value):
-            start, end = _day_in(cast("date", value), ZoneInfo(self.zone))
+            try:
+                start, end = _day_in(cast("date", value), ZoneInfo(self.zone))
+            except OverflowError as exc:  # the first or the last day a timestamp holds
+                raise ValidationFailedError(
+                    f"Filter {self.name!r} is outside the range of a timestamp."
+                ) from exc
             if op == "eq":
                 return and_(column >= start, column < end)
             if op == "ne":

@@ -24,15 +24,19 @@ DIGEST = "sha256:" + "1" * 64
 CONTROL_PLANE = {"schedules": [{"name": "nightly.sync", "cron": "0 3 * * *", "job": "sync.pull", "extra": "x"}]}
 
 #: Every check of the release profile, green: what the gate records of a green run.
-CHECKS = [{"id": check.id, "ok": True} for check in PROFILES["release"]]
+CHECKS = [{"id": check.id, "ok": True, "applicable": True} for check in PROFILES["release"]]
 
 
-def _printed(red: tuple[str, ...] = (), *, app: tuple[str, ...] = (), said: str = "") -> bytes:
+def _printed(
+    red: tuple[str, ...] = (), *, app: tuple[str, ...] = (), said: str = "", inapplicable: tuple[str, ...] = ()
+) -> bytes:
     """What ``terp verify --profile release --format json`` prints: every check of the profile,
     then the app's own, each with more than the gate keeps of it."""
     checks = [
         {"id": check, "category": "test", "command": f"terp verify --only {check}", "scope": ["app/**"],
-         "ok": check not in red, "exit_code": int(check in red), "output_tail": said, "reports": []}
+         "ok": check not in red, "applicable": check not in inapplicable, "exit_code": int(check in red),
+         "output_tail": f"no conformance/ - {check} not applicable" if check in inapplicable else said,
+         "reports": []}
         for check in [*(check.id for check in PROFILES["release"]), *app]
     ]
     return json.dumps({"terp_verify": 1, "profile": "release", "ok": not red, "checks": checks}).encode()
@@ -79,7 +83,7 @@ def test_the_gate_runs_the_release_profile_then_reads_the_schedules_sealed(tmp_p
     credentials.write_text('{"auths": {}}', encoding="utf-8")
     document = gate.gate(repo, sha, _build(tmp_path, sha), pull_credentials=credentials)
     assert document == {
-        "terpReleaseGate": 2, "commit": sha,
+        "terpReleaseGate": 3, "commit": sha,
         "profile": {"name": "release", "ok": True, "checks": CHECKS}, "assurance": assurance_document(CHECKS),
         "schedules": [{"name": "nightly.sync", "cron": "0 3 * * *", "job": "sync.pull"}],
         "image": f"127.0.0.1:5000/rel/{PROJECT}-backend-prod@{DIGEST}",
@@ -133,10 +137,12 @@ def test_the_gate_records_every_check_and_the_claim_of_one_run(tmp_path: pathlib
     document = gate.gate(repo, sha, _build(tmp_path, sha))
     assert len(runs.ran(sys.executable, "-c")) == 1, "the release profile runs once, for both verdicts"
     checks = document["profile"]["checks"]
-    assert document["terpReleaseGate"] == 2 and document["profile"]["ok"] is False
+    assert document["terpReleaseGate"] == 3 and document["profile"]["ok"] is False
     assert [check["id"] for check in checks] == [*(check.id for check in PROFILES["release"]), "domain-invariants"]
     assert [check["id"] for check in checks if not check["ok"]] == ["api-contract", "domain-invariants"]
-    assert all(sorted(check) == ["id", "ok"] for check in checks), "a check is its id and its verdict"
+    assert all(sorted(check) == ["applicable", "id", "ok"] for check in checks), (
+        "a check is its id, its verdict and whether it had anything to judge"
+    )
     assert composed == [checks], "the claim is composed from the very checks the document records"
     assert document["assurance"] == assurance_document(checks) and document["assurance"]["ok"] is True
     assert said not in canonical(document).decode(), "nothing a check printed reaches the document"
@@ -161,6 +167,24 @@ def test_what_a_red_check_printed_goes_to_the_gate_s_own_log_and_nowhere_else(
     assert said not in canonical(document).decode()
 
 
+def test_a_check_with_nothing_to_judge_is_recorded_so_and_its_lane_is_not_run(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    """ADR 0202 decision 4: an app with no conformance suite has nothing for the suite to judge.
+    The gate records that, so the lane the suite alone composes is not-run in the claim it writes,
+    as ``terp verify`` says, and the gate's log says why rather than staying silent about it."""
+    repo = tmp_path / "repo"
+    sha = committed_app(repo)
+    monkeypatch.setattr(gate, "run", _runs(printed=_printed(inapplicable=("conformance",))))
+    document = gate.gate(repo, sha, _build(tmp_path, sha))
+    [suite] = [check for check in document["profile"]["checks"] if check["id"] == "conformance"]
+    assert suite == {"id": "conformance", "ok": True, "applicable": False}
+    lanes = {lane["id"]: lane for lane in document["assurance"]["lanes"]}
+    assert lanes["blackbox-conformance"] == {"id": "blackbox-conformance", "status": "not-run", "checks": []}
+    assert "verify: conformance not applicable: no conformance/ - conformance not applicable" in capsys.readouterr().out
+    gate.require_passed(document, gate.APPLICABLE_SINCE)
+
+
 def _verdict(**changes) -> bytes:  # type: ignore[no-untyped-def]
     printed = json.loads(_printed())
     for key, value in changes.items():
@@ -181,6 +205,8 @@ def _verdict(**changes) -> bytes:  # type: ignore[no-untyped-def]
         _verdict(checks=lambda checks: [*checks, {"ok": True}]),
         _verdict(checks=lambda checks: [*checks, "x"]),
         _verdict(checks=lambda checks: [*checks, {"id": "x", "ok": False}]),
+        _verdict(checks=lambda checks: [{key: value for key, value in check.items() if key != "applicable"} for check in checks]),
+        _verdict(checks=lambda checks: [{**check, "applicable": "yes"} for check in checks]),
         _verdict(ok=False),
         _verdict(ok="yes"),
     ],

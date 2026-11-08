@@ -58,6 +58,7 @@ from terp.core import (
     route_policy,
 )
 
+from terp.capabilities.files.content_types import _served_media_type
 from terp.capabilities.files.links import LINK_TTL_MAX, content_disposition
 from terp.capabilities.files.models import CONTENT_TYPE_MAX, FILENAME_MAX, File
 from terp.capabilities.files.operations import (
@@ -188,27 +189,15 @@ def _byte_range(header: str | None, size: int) -> tuple[int, int] | None:
     return first, last
 
 
-def _skip_to(stream: BinaryIO, offset: int) -> None:
-    """Position *stream* at *offset*: a seek where the stream can, a read-and-discard where it cannot."""
-    seekable = getattr(stream, "seekable", None)
-    if callable(seekable) and seekable():
-        stream.seek(offset)
-        return
-    while offset > 0:
-        chunk = stream.read(min(_DOWNLOAD_CHUNK_BYTES, offset))
-        if not chunk:
-            return
-        offset -= len(chunk)
-
-
-def _serve(row: File, stream: BinaryIO, request: Request, *, inline: bool = False) -> Response:
-    """The bytes of *row* from *stream*, whole or the one range the request asks for (ADR 0201).
+def _serve(row: File, request: Request, *, inline: bool = False) -> Response:
+    """The bytes of servable *row*, whole or the one range the request asks for (ADR 0201).
 
     Every answer says ``Accept-Ranges: bytes``; a satisfiable single range is a ``206`` with
     ``Content-Range``; a range the file cannot satisfy is a ``416`` naming the size; anything
     else is the whole file with ``200``. The stored size is append-only and derived from the
     streamed bytes at create time, so it is authoritative for both lengths, and a blob
-    truncated out-of-band surfaces as a protocol error instead of a silently short body.
+    truncated out-of-band surfaces as a protocol error instead of a silently short body. The
+    range is read before the bytes are opened, so the store is asked for that range alone.
     """
     headers = {
         "Content-Disposition": content_disposition(row.filename, inline=inline),
@@ -217,22 +206,23 @@ def _serve(row: File, stream: BinaryIO, request: Request, *, inline: bool = Fals
     try:
         part = _byte_range(request.headers.get("range"), row.size)
     except _UnsatisfiableRange:
-        stream.close()
         return Response(
             status_code=416,
             headers={"Content-Range": f"bytes */{row.size}", "Accept-Ranges": "bytes"},
         )
+    stream = _service.open_content(row, part)
     if part is None:
         headers["Content-Length"] = str(row.size)
-        return StreamingResponse(_iter_blob(stream), media_type=row.content_type, headers=headers)
+        return StreamingResponse(
+            _iter_blob(stream), media_type=_served_media_type(row.content_type), headers=headers
+        )
     first, last = part
-    _skip_to(stream, first)
     headers["Content-Length"] = str(last - first + 1)
     headers["Content-Range"] = f"bytes {first}-{last}/{row.size}"
     return StreamingResponse(
         _iter_blob(stream, last - first + 1),
         status_code=206,
-        media_type=row.content_type,
+        media_type=_served_media_type(row.content_type),
         headers=headers,
     )
 
@@ -308,15 +298,14 @@ def read_link(
     session: SessionDep,
     request: Request,
 ) -> Response:
-    row, stream, inline = _service.open_link_stream(session, token)
-    return _serve(row, stream, request, inline=inline)
+    row, inline = _service.linked(session, token)
+    return _serve(row, request, inline=inline)
 
 
 @router.get("/{file_id}/content")  # arch-allow-routes-declare-response-model: binary download — the bytes stream out through a StreamingResponse (stored media type + sanitized attachment disposition), never a serialized ORM object
 @operation(FILES_DOWNLOAD)
 def download_file(file_id: uuid.UUID, session: SessionDep, request: Request) -> Response:
-    row, stream = _service.open_stream(session, file_id)
-    return _serve(row, stream, request)
+    return _serve(_service.servable(session, file_id), request)
 
 
 @router.get("/{file_id}/link", response_model=FileLinkRead)
@@ -360,9 +349,11 @@ module = ModuleSpec(
     max_request_bytes=MAX_UPLOAD_BYTES + _MULTIPART_HEADROOM_BYTES,
     # The one public route verifies a credential (the sealed link token), so it declares
     # its own rate limit (ADR 0138). Opening a sealed token is cheap, and a player makes
-    # many range requests over one session, so the general allowance is the right cap;
-    # declaring it here is what makes it visible beside the route it protects.
-    rate_limit={"/link": RateLimit()},
+    # many range requests over one session, so the application's general limit is the
+    # right cap, counted in a bucket of its own so a player's reads never spend the rest
+    # of the API's allowance. RateLimit.general() follows the general limit wherever the
+    # application sets it; a number here would stay at the framework's default.
+    rate_limit={"/link": RateLimit.general()},
 )
 
 

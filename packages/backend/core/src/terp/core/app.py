@@ -426,6 +426,8 @@ def register_error_handlers(app: FastAPI) -> None:
 _APP_ROUTE_MUTATORS = frozenset(
     {
         "mount",
+        "host",
+        "frontend",
         "include_router",
         "add_route",
         "add_api_route",
@@ -538,6 +540,52 @@ def freeze_dependency_overrides(app: FastAPI) -> None:
     app.dependency_overrides = _FrozenDependencyOverrides(app.dependency_overrides)
 
 
+class _Frozen(list):  # type: ignore[type-arg]
+    """A list the composed app reads and nothing may change: its routes, hooks or middleware.
+
+    Refusing each registration method by name leaves every spelling nobody listed, and a
+    method called on its class with the router passed in, which reaches the list all the
+    same. Every one of them ends in a change to a list, so the list itself refuses it. A copy
+    is a plain list again.
+    """
+
+    def __init__(self, items: list[object], refusal: str) -> None:
+        super().__init__(items)
+        self._refusal = refusal
+
+    def _refused(self, *_args: object, **_kwargs: object) -> None:
+        raise BootError(
+            f"{self._refusal} added after create_app() composed the app is refused, by any "
+            f"spelling: {_FROZEN_REMEDY}"
+        )
+
+    def __reduce_ex__(self, _protocol: object) -> tuple[type[list], tuple[list[object]]]:  # type: ignore[override]
+        return list, (list(self),)
+
+    append = extend = insert = remove = pop = clear = sort = reverse = _refused
+    __setitem__ = __delitem__ = __iadd__ = __imul__ = _refused
+
+
+_FROZEN_REMEDY = (
+    "it would run outside the policy guard and the checks create_app() made of what it read. "
+    "Declare routes on a module APIRouter, lifecycle work through the sanctioned seams and "
+    "middleware with create_app(middleware=[...]), before create_app() runs"
+)
+
+
+def _freeze_lists(app: FastAPI, routers: Sequence[object]) -> None:
+    """Freeze every list the composed *app* and its mounted *routers* read requests through."""
+    for router in routers:
+        router.routes = _Frozen(router.routes, "a route")  # type: ignore[attr-defined]
+        groups = getattr(router, "_low_priority_routes", [])  # FastAPI's frontend routes
+        for group in groups:
+            group.routes = _Frozen(group.routes, "a frontend route")
+        router._low_priority_routes = _Frozen(groups, "a frontend route")  # type: ignore[attr-defined]
+    app.router.on_startup = _Frozen(app.router.on_startup, "a startup handler")
+    app.router.on_shutdown = _Frozen(app.router.on_shutdown, "a shutdown handler")
+    app.user_middleware = _Frozen(app.user_middleware, "middleware")
+
+
 def _mounted_routers(routes: Sequence[object]) -> Iterator[object]:
     """Every router *routes* include, at any depth: a module's, and one it includes itself."""
     for route in routes:
@@ -558,20 +606,23 @@ def freeze_app_route_registration(app: FastAPI) -> None:
     So is one on a router the app mounted: FastAPI serves an included router live, so a
     route added to it afterwards would be served without one of the checks ``create_app``
     ran on every route it read (ADR 0208). Middleware registration is refused on the same
-    footing. The dependency-override
-    map is frozen only outside the ``local`` environment: overrides are the
-    sanctioned *test* seam (a local test suite overrides ``get_session`` against a
-    scratch engine), while a deployed app must never rebind its auth / session seams
-    post-composition.
+    footing. The lists the app reads requests through, every router's routes, FastAPI's
+    frontend routes, the lifecycle hooks and the middleware, refuse a change themselves, so
+    a spelling nobody listed fails closed too. The dependency-override map is frozen only
+    outside the ``local`` environment: overrides are the sanctioned *test* seam (a local test
+    suite overrides ``get_session`` against a scratch engine), while a deployed app must
+    never rebind its auth / session seams post-composition.
     """
     for target_name, target in (("app", app), ("app.router", app.router)):
         for method in _APP_ROUTE_MUTATORS:
             if hasattr(target, method):
                 setattr(target, method, _refuse_route_mutation(f"{target_name}.{method}"))
-    for router in _mounted_routers(app.router.routes):
+    mounted = list(_mounted_routers(app.router.routes))
+    for router in mounted:
         for method in _APP_ROUTE_MUTATORS:
             if hasattr(router, method):
                 setattr(router, method, _refuse_late_route(method))
+    _freeze_lists(app, (app.router, *mounted))
     freeze_app_middleware_registration(app)
     if get_settings().ENVIRONMENT != "local":
         freeze_dependency_overrides(app)
@@ -784,12 +835,15 @@ def _rate_limit_override_map(
     re-declare the routes it cares about; that is a decision it makes, rather than one
     made for it by a sort order.
     """
+    general = config.rate_limit
     overrides: dict[str, tuple[int, int]] = {}
     for spec in specs:
         if spec.router is None:
             continue
-        for route, limit in spec.rate_limit:
+        for route, declared in spec.rate_limit:
             suffix = "" if route == "/" else route
+            # RateLimit.general() follows the application's general limit, in its own bucket.
+            limit = declared.resolved(general)
             overrides[f"/api/v1/{spec.name}{suffix}"] = (
                 limit.requests,
                 limit.window_seconds,
@@ -810,7 +864,8 @@ def _rate_limit_override_map(
         if any(key == prefix or key.startswith(prefix + "/") for prefix in app_prefixes)
     ]:
         del overrides[covered]
-    for prefix, limit in config.rate_limit_overrides:
+    for prefix, declared in config.rate_limit_overrides:
+        limit = declared.resolved(general)
         overrides[prefix] = (limit.requests, limit.window_seconds)
     return overrides
 
@@ -1539,11 +1594,12 @@ def _warn_loosened_capability_limit_in_production(
             continue
         for route, limit in spec.rate_limit:
             suffix = "" if route == "/" else route
-            declared[f"/api/v1/{spec.name}{suffix}"] = limit
+            declared[f"/api/v1/{spec.name}{suffix}"] = limit.resolved(config.rate_limit)
     # Keyed on the prefix alone: `RateLimit` is a frozen dataclass without `order=True`,
     # so two entries sharing a prefix would fall through to comparing `RateLimit`s and
     # raise `TypeError` at production boot instead of anything a reader can act on.
-    for prefix, limit in sorted(config.rate_limit_overrides, key=lambda item: item[0]):
+    for prefix, overriding in sorted(config.rate_limit_overrides, key=lambda item: item[0]):
+        limit = overriding.resolved(config.rate_limit)
         loosened = sorted(
             key
             for key, capped in declared.items()

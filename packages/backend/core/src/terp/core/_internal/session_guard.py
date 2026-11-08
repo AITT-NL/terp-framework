@@ -26,16 +26,19 @@ protecting the guard itself).
 
 Reads stay unguarded for *writes* but are **row-scoped**. The ORM execution hook applies
 criteria to each entity, including aliases and relationship loaders, and to every mapped
-entity an aggregate reaches. Only a column refresh of an already-loaded instance is
-exempt, so the write chokepoint can refresh a just-soft-deleted row without granting the
-exemption to relationship reads. ``get`` also checks visibility before its identity-map
-fast path. A read that reaches a row-scoped table only through its Core ``Table`` names no
-mapped entity to take that criteria, so the hook refuses it with
-:class:`UnscopedReadError` instead of running it unscoped (ADR 0204 decision 6). ``flush`` is
-intentionally **not** write-guarded so SQLAlchemy autoflush keeps working — nothing a
-guarded session flushes is durable without the guarded ``commit`` (the request session is
-rolled back on close), and ``add`` / ``delete`` are already refused outside the scope, so
-no new or deleted row can be staged outside it.
+entity a read names, wherever it names it: an aggregate's, and one in a loader option, a
+``VALUES`` row or a column property of a model it loads. Only a column refresh of an
+already-loaded instance is exempt, so the write chokepoint can refresh a just-soft-deleted
+row without granting the exemption to relationship reads. ``get`` also checks visibility
+before its identity-map fast path. A read that reaches a row-scoped table only through its
+Core ``Table`` names no mapped entity to take that criteria, and literal SQL cannot be read
+at all, so the hook refuses either with :class:`UnscopedReadError` instead of running it
+unscoped (ADR 0204 decision 6). A ``SELECT`` that carries an ``INSERT``, ``UPDATE`` or
+``DELETE`` in a CTE is a write, not a read. ``flush`` is intentionally **not**
+write-guarded so SQLAlchemy autoflush keeps working — nothing a guarded session flushes is
+durable without the guarded ``commit`` (the request session is rolled back on close), and
+``add`` / ``delete`` are already refused outside the scope, so no new or deleted row can be
+staged outside it.
 """
 
 from __future__ import annotations
@@ -48,11 +51,16 @@ from typing import Any
 from sqlalchemy import Select, event
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import ORMExecuteState, with_loader_criteria
-from sqlalchemy.sql import visitors
 from sqlalchemy.sql.util import ClauseAdapter
 from sqlmodel import Session, SQLModel, select
 
-from terp.core.scoping import _core_only_reads, apply_row_scope
+from terp.core.scoping import (
+    _core_only_reads,
+    _entities_in,
+    _mapping_sql,
+    _writes,
+    apply_row_scope,
+)
 
 # Dynamic-scope flag: True only while BaseService._save / _remove are persisting.
 # A ContextVar (not a session attribute) so the scope follows the call stack — the
@@ -112,16 +120,30 @@ class ReadOnlyRequestError(RuntimeError):
 
 
 class UnscopedReadError(RuntimeError):
-    """A read reached a row-scoped table only through its Core ``Table`` (ADR 0204 decision 6).
+    """A read reaches what the request session cannot scope (ADR 0204 decision 6).
 
     The request session scopes a read by attaching soft-delete and the registered row
-    predicates to each **mapped entity** the statement reaches. ``Model.__table__.c.amount``,
-    ``select_from(Model.__table__)``, a Core alias of that table or a ``table("name")``
-    reference reaches the rows without one, so there is nothing to attach the scope to and
-    the read would return soft-deleted or another tenant's rows. Refused before it runs. Like
-    :class:`UnauditedWriteError` it is a *programming* error and surfaces as a generic 500:
-    read through the model, on the service's ``base_query()`` or a declared aggregate.
+    predicates to each **mapped entity** a SELECT names. ``Model.__table__.c.amount``,
+    ``select_from(Model.__table__)``, a Core alias or sample of that table, a ``table("name")``
+    in any case or schema, or a column property that reads it so, reaches the rows without
+    one, so there is nothing to attach the scope to and the read would return soft-deleted or
+    another tenant's rows. Literal SQL, wherever the statement holds it, and a FROM element
+    the session does not know are refused with them: it can neither read nor scope them.
+    Refused before it runs. Like :class:`UnauditedWriteError` it is a *programming* error and
+    surfaces as a generic 500: read through the model, on the service's ``base_query()`` or a
+    declared aggregate.
     """
+
+
+#: Why a read was refused and what to do instead, after the list of what it reaches.
+_UNSCOPED_READ_REMEDY = (
+    "The session applies soft-delete, tenant and owner scope to every mapped entity a read "
+    "names, wherever it names it, so it cannot reach a table read through Core, literal SQL, "
+    "or a FROM element it does not know. Read it through the model: the service's "
+    "base_query(), or a declared aggregate (terp guide aggregates), never Model.__table__ or "
+    "literal SQL. A many-to-many whose link table is row-scoped maps the link as an "
+    "association object instead of a secondary table."
+)
 
 
 @contextlib.contextmanager
@@ -256,14 +278,15 @@ def _require_write_scope(operation: str) -> None:
 
 
 def _is_read_statement(statement: Any) -> bool:
-    """True for a ``SELECT`` (a read); every other statement is treated as a write.
+    """True for a ``SELECT`` that writes nothing (a read); every other statement is a write.
 
     Fail-closed: only a recognised :class:`sqlalchemy.Select` (including SQLModel's
-    ``SelectOfScalar``, a subclass) is a read. Anything else handed to ``execute`` /
-    ``exec`` — a Core ``insert`` / ``update`` / ``delete``, a raw ``text(...)`` —
-    requires the write scope.
+    ``SelectOfScalar``, a subclass) is a read, and only when no part of it writes: a
+    ``SELECT`` that carries an ``INSERT``, ``UPDATE`` or ``DELETE`` in a CTE runs it.
+    Anything else handed to ``execute`` / ``exec`` — a Core ``insert`` / ``update`` /
+    ``delete``, a raw ``text(...)`` — requires the write scope.
     """
-    return isinstance(statement, Select)
+    return isinstance(statement, Select) and not _writes(statement)
 
 
 class WriteGuardedSession(Session):
@@ -375,7 +398,7 @@ class WriteGuardedSession(Session):
 
 @event.listens_for(WriteGuardedSession, "do_orm_execute")
 def _scope_orm_read(state: ORMExecuteState) -> None:
-    """Apply the current row scope to roots and every reachable relationship entity.
+    """Apply the current row scope to every entity a read names and every one related to it.
 
     Criteria are built at execution time and also propagate to relationship
     loaders. A later load is narrowed by the current scope as well as the original
@@ -388,22 +411,24 @@ def _scope_orm_read(state: ORMExecuteState) -> None:
         return
     pending = list(state.all_mappers)
     aliases = {}
-    # Include entities used only by a JOIN, predicate or nested SELECT: they can
-    # disclose scoped rows even when the result projects only an unscoped parent.
-    for element in visitors.iterate(state.statement):
-        inspected = sa_inspect(getattr(element, "entity_namespace", None), raiseerr=False)
-        if inspected is not None and getattr(inspected, "is_aliased_class", False):
-            aliases[inspected] = None
-            pending.append(inspected.mapper)
-        elif inspected is not None and getattr(inspected, "is_mapper", False):
-            pending.append(inspected)
+    # Include entities used only by a JOIN, predicate, nested SELECT, loader option or
+    # VALUES row, and those a column property of a reached model names: they can disclose
+    # scoped rows even when the result projects only an unscoped parent.
+    sources = [state.statement]
     seen = set()
-    while pending:
+    while sources or pending:
+        if sources:
+            for inspected in _entities_in(sources.pop()):
+                if inspected.is_aliased_class:
+                    aliases[inspected] = None
+                pending.append(inspected.mapper)
+            continue
         mapper = pending.pop()
         if mapper in seen:
             continue
         seen.add(mapper)
         pending.extend(relation.mapper for relation in mapper.relationships)
+        sources.extend(sql for sql, _place in _mapping_sql(mapper))
         model = mapper.class_
         if not issubclass(model, SQLModel):
             continue
@@ -412,14 +437,11 @@ def _scope_orm_read(state: ORMExecuteState) -> None:
             state.statement = state.statement.options(
                 with_loader_criteria(model, scoped.whereclause)
             )
-    unscoped = _core_only_reads(state.statement)
+    unscoped = _core_only_reads(state.statement, seen)
     if unscoped:
         raise UnscopedReadError(
-            f"A read reached {', '.join(unscoped)} through Core, where the request session "
-            "cannot apply soft-delete, tenant or owner scope. Read it through the model: the "
-            "service's base_query(), or a declared aggregate (terp guide aggregates), never "
-            "Model.__table__ or literal SQL. A many-to-many whose link table is row-scoped "
-            "maps the link as an association object instead of a secondary table."
+            f"A read reaches what the request session cannot scope: {'; '.join(unscoped)}. "
+            f"{_UNSCOPED_READ_REMEDY}"
         )
     # An explicit alias in an explicit JOIN needs criteria referring to that
     # selectable, rather than columns from the original table. Implicit aliases

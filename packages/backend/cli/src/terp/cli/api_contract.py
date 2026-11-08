@@ -72,9 +72,27 @@ _MEDIA_KEYS = ("schema",)
 _ROOT = ("openapi", "info")
 
 
+class ContractNotAFileError(ValueError):
+    """The contract's place holds something other than a file of its own."""
+
+
 def read_contract(root: pathlib.Path) -> dict[str, Any]:
-    """The committed contract as a document; raises ``ValueError`` when it is not one."""
-    text = (root / CONTRACT_ARTIFACT).read_text(encoding="utf-8")
+    """The committed contract as a document; raises ``ValueError`` when it is not one.
+
+    Only a regular file is read. A symbolic link is refused, never followed: git commits the
+    link's own text, so a release would carry that text (ADR 0194) while this check held the
+    app to the file the link points to. Anything else that is not a file is refused before it
+    is opened, since a pipe would hold the check open for good.
+    """
+    path = root / CONTRACT_ARTIFACT
+    if path.is_symlink():
+        raise ContractNotAFileError(
+            f"{CONTRACT_ARTIFACT} is a symbolic link, and git commits a link's own text: a "
+            "release would carry that text, not the contract this check reads"
+        )
+    if path.exists() and not path.is_file():
+        raise ContractNotAFileError(f"{CONTRACT_ARTIFACT} is not a regular file")
+    text = path.read_text(encoding="utf-8")
     document = json.loads(text)
     if not isinstance(document, dict):
         raise ValueError(f"{CONTRACT_ARTIFACT} is not a JSON object")

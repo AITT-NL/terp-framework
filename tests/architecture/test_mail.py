@@ -1003,7 +1003,10 @@ def test_no_relay_in_development_logs_each_message_instead_of_sending_it(
     message_id = send_mail(None, _message())  # type: ignore[arg-type]
     assert message_id.endswith("@mail.invalid>")
 
-    payload = MailJobPayload(**_message().model_dump(), message_id=message_id)
+    # The payload as the queue stores it, and the worker reads it: sealed.
+    payload = MailJobPayload.model_validate(
+        MailJobPayload(**_message().model_dump(), message_id=message_id).model_dump(mode="json")
+    )
     caplog.clear()
     with caplog.at_level(logging.INFO, logger="terp.capabilities.mail"):
         deliver_mail(JobContext(session=None), payload)  # type: ignore[arg-type]

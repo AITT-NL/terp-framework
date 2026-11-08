@@ -96,9 +96,9 @@ class Settings(BaseSettings):
     # live in two lists because what each keeps readable lasts for a different time:
     #
     # - SECRET_KEY_FALLBACKS only VERIFIES a signature (an access token, the digest a
-    #   refresh session is looked up by), and only inside that signature's own lifetime.
-    #   Drop it once the longest of those lifetimes has passed since the deploy that
-    #   added it.
+    #   refresh session or a mailed self-service link is looked up by), and only inside
+    #   that signature's own lifetime. Drop it once the longest of those lifetimes has
+    #   passed since the deploy that added it.
     # - SECRET_KEY_DECRYPT_FALLBACKS only DECRYPTS a value sealed at rest (sealed config,
     #   webhook signing secrets, MFA enrolments). Drop it once `terp secrets reseal`
     #   reports nothing left under it.

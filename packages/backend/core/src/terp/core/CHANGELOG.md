@@ -31,11 +31,18 @@ decision, 0001 onwards.
   `local_time_repeated`, whose message names both instants it could be, and one outside the
   years 1 to 9999 as UTC is `timestamp_out_of_range`. The zone is declared on the field. One the
   server does not know is refused when declared, and so is one that names no place: UTC under
-  any name, a fixed offset, or the host's own setting. Reading a time as UTC stays
-  `NaiveMeansUtc`'s. The type cannot be subclassed or changed once declared, and the timestamp
-  boundary trusts only the reader the type had when the framework loaded. Its published
+  any name, a fixed offset, an old abbreviation such as `EST`, or the host's own setting. A
+  place is named Area/Location, under an area other than `Etc`, and is judged by that name
+  against the pinned `tzdata` package, so the answer is the same on every host. Reading a time
+  as UTC stays `NaiveMeansUtc`'s. The type cannot be subclassed and refuses a change, and the timestamp
+  boundary trusts only the reader the type had when the framework loaded, reading its zone again
+  so that one swapped with `object.__setattr__` before the app starts is refused. Its published
   contract is a `datetime`'s. It is no escape: a `BaseSchema` leaves it to its own reader, and
   judges the fields beside it as before.
+- **`RateLimit.general()`: the application's general limit, counted in a bucket of its own
+  (ADR 0138).** A module declares it for a route whose requests cost what ordinary ones do but
+  should not spend the rest of the API's allowance, and an application may name it in
+  `rate_limit_overrides` too; it follows `SecurityConfig.rate_limit` wherever that is set.
 
 ### Changed
 
@@ -58,7 +65,9 @@ decision, 0001 onwards.
   timestamp field (ADR 0207).** Such a validator reads the text before the type does, so it can
   read a time with no offset in a zone of its own choosing. The rule counts:
   - a `BeforeValidator`, `WrapValidator` or `PlainValidator` in an `Annotated` type that reads a
-    timestamp, where the type is spelled and at each use of a type alias that carries it;
+    timestamp, where the type is spelled and at each use of a type alias that carries it, in the
+    module that declares it and in every module of the app that imports it, by name, under
+    another name, as a module's attribute or through a re-export;
   - a `field_validator` in `before`, `wrap` or `plain` mode, or Pydantic 1's `validator` with
     `pre=True`, written as a decorator or a call in the body of a class or of a base in the same
     file, on a timestamp field.
@@ -69,17 +78,250 @@ decision, 0001 onwards.
   records four residuals. The rule's walks no longer recurse, so no file the parser takes can
   exhaust its stack.
 
+### Fixed
+
+- **A signed release no longer calls a lane passed that judged nothing (ADRs 0200, 0202).** The
+  release gate kept each check's id and verdict and dropped whether it had anything to judge.
+  So for an app with no conformance suite, an API-only app among them, the claim `sign` signed
+  said `blackbox-conformance: passed`, where `terp verify --format assurance` says `not-run`.
+  The gate document is version 3 from this release: every check records `applicable`, and the
+  gate's log says why a check had nothing to judge. `sign` reads version 3 from a commit
+  pinning `terp-cli` 0.39.0 or later, refuses a check that does not say, and refuses a claim its
+  checks do not compose. A commit pinning 0.36.1 to 0.38.x is still read as version 2.
+- **`terp verify` no longer skips a check because a directory is missing (ADR 0202).** A
+  framework npm check was "not applicable" whenever its workspace directory was absent. So a
+  Terp frontend kept outside `frontend/` turned the security lint, the typecheck, the build and
+  the npm audit green, and an app's own `[[tool.terp.verify.checks]]` entry with a mistyped
+  `--prefix` passed too. Now a check is not applicable only when no manifest anywhere depends
+  on the package that marks its workspace (`@terpjs/react-core`, `@terpjs/conformance`).
+  Otherwise it is red and names where the workspace is. An app's own check is never not
+  applicable: a missing workspace is red, naming the path. A `frontend/` without its
+  `package.json` is red for `frontend-tests` too, as it already was for the other checks.
+- **The request session scopes or refuses every read, not only the shapes it knew (ADR
+  0204).** The Core-read refusal recognised a column or FROM of `Model.__table__`, a Core alias
+  and `table("name")`, and let every other shape through. A literal column holding a subquery, a
+  `text()` subquery, a `table()` in another case or schema, a copy or a sample of the table, a
+  table inside a parenthesised join, a prefix, a suffix and a hint each read soft-deleted rows,
+  on both dialects. So did a model named only in a column property, a loader option or a
+  `VALUES` row, even through its entity: the session never looked there, so it attached no
+  scope. Now it finds an entity wherever a read names it and scopes it there, and it passes only
+  the shapes it can scope. Literal SQL is refused wherever the statement writes it, unless it is
+  a name, a number or `*`. A table is matched to its models by name, case folded and in any
+  schema. A FROM element of a kind the session does not know is refused. A `VALUES` list and a
+  function's rows pass.
+- **A statistic refuses a field declared personal however its declaration reads it (ADR
+  0204).** The check read only the attribute a dimension, a time bucket, a value-derived measure
+  or a filter names, so `func.lower(User.email)`, a `cast`, a label, an alias,
+  `User.__table__.c.email` and a subquery's column over the address each passed it: a statistic
+  could be grouped by an address, a group per person, or narrowed by one under a function. Each
+  is now walked down to the columns it stands for and matched to the models that map them, by
+  name. Literal SQL or a bare column name in one is refused as possibly personal.
+- **An upload's content type must be one media type (ADR 0201).** The files capability judged a
+  content type by what came before its first `;`, so `image/png, text/html` passed an `image/*`
+  allowlist, met no signature check and was shown inline as an image, and was served back raw
+  as the `Content-Type`, where a browser takes the last type of a list and renders HTML on the
+  API's origin. Upload now refuses anything but one media type, with parameters and without a comma,
+  with a 415 of code `content_type_malformed` before any byte lands. The inline rule and the
+  served type judge the parsed value, so a row stored earlier with a list is served as
+  `application/octet-stream`, as an attachment.
+- **Nothing reaches a composed app by a spelling the freeze did not list.** The composition
+  freeze refused registration methods by name, so `router.host(...)`, FastAPI's
+  `router.frontend(...)`, `APIRouter.add_api_route(router, ...)` called on the class, and a
+  route appended to `router.routes` were each served after `create_app` returned, without the
+  module guard, on the app and on every router it mounted. A startup hook and middleware
+  reached the app the same way. The lists the app reads requests through now refuse a change
+  themselves: every router's routes, FastAPI's frontend routes, the lifecycle hooks and the
+  middleware.
+- **Requests about an address never hold up its owner's sign-in (ADR 0196).** A sign-up or a
+  password-reset request counted in the throttle under the bare address, the key sign-in's
+  backstop reads, and an app commonly shares one store between them. So fifty callers asking
+  once each about an address locked its owner out of signing in for five minutes, as often as
+  they liked. Such a request now counts under a namespace of its own.
+- **A refused change to a stored row no longer logs the personal values it carried (ADR
+  0190).** The write chokepoint withheld a row's declared personal values from the database's
+  refusal, but read them after the refused flush, which had expired a stored row by then. So a
+  change that collided with another row's unique address logged that address in the 409's
+  detail, on SQLite in the statement's parameters and on PostgreSQL in its own
+  `Key (email)=(...)`. The values are read before the flush now, and withheld in any case the
+  database repeats them.
+- **A statistic's caps are judged before its work is done, and a `skip` no database takes is a
+  400 (ADR 0204).** A series counted its steps by building every bound first, so a window of
+  every day from year 1 to 9999 took seconds and hundreds of megabytes before the cap refused
+  it. The steps are counted arithmetically now, and no bound is built for a window the caps
+  refuse. A `skip` past the largest offset a database takes, 2^63 - 1, on a list or a
+  statistic, failed in the driver as a 500 and is a 400 now.
+- **A naive timestamp in a JSON column is stored as UTC, and its document reads back (ADR
+  0205).** 0.38.0's refusal of timestamp text without an offset (ADR 0206) also judges a
+  document read back from a JSON column, where a timestamp is text. A naive `datetime` the
+  server put in such a document was stored as text without an offset, so the document failed its
+  own `BaseSchema` on the way out, which the 0.38.0 notes said of no row read back. Such a value
+  is now written as the UTC instant it names, with its offset.
+- **A zoned calendar-day filter at the first or the last day a timestamp holds is a 400 (ADR
+  0206).** A filter that reads a day in a declared zone overflowed into a 500 for 1 January of
+  year 1 east of UTC, whose midnight is in year 0, and for 31 December 9999, whose next day is
+  in no year. Both are refused as a bound outside the range of a timestamp, naming the filter.
+- **`DateTimeInput` keeps a year below 100 in its own century, and never moves an instant
+  (react-core).** It built instants with `Date.UTC`, which reads a year from 0 to 99 as 1900
+  plus it, so while someone retyped the year of 2026 the field sent 1902 and 1920. And it
+  rounded a zone's offset to whole minutes, so a time picked where the zone then ran by seconds
+  (Monrovia until 1972, at -0:44:30) was sent 30 seconds off. A year is now set on its own, the
+  offset is exact, and where it has seconds, which RFC 3339 cannot write, the instant is sent in
+  UTC.
+- **A mistyped password at `/me/close` no longer signs a web user out (ADR 0196).** The route
+  answered a wrong password with a 401, which `createAuthClient` reads as an expired session: it
+  refreshed, replayed the request, a second counted failure, and signed the person out. A wrong
+  password is now a 403 of code `password_not_confirmed` that names the fix, and still counts
+  toward the route's backoff.
+- **`terp secrets reseal` changes nothing in a JSON document but the values it re-seals (ADR
+  0199).** It read a document as an object and wrote it back, so a number beyond a float's
+  precision came back as the nearest float: on PostgreSQL, `1234567890.123456789012` became
+  `1234567890.1234567`. It now rewrites only the sealed string tokens in the document's own
+  text, as a key or a value, and writes that text back as JSON, every other byte as it was.
+- **One mailbox is one account in any spelling, for an administrator too (ADR 0196).**
+  Self-service compared addresses without regard to case, but provisioning did not, and the
+  database's unique index is on the exact spelling: an administrator could open
+  `member@example.test` beside a self-service `Member@Example.test`. Creating an account, or
+  changing one's address, for an address another account holds in any spelling is now a 409,
+  `address_taken`, and `ensure_user` and `terp user create` find the account in any spelling.
+- **The contract check names a changed default beside a reference on every run (ADR 0194).**
+  A pair of references already being compared was taken as equal before the keys written beside
+  it were compared, so whether a changed `default` there was reported depended on the order the
+  walk met its places, which the hash seed set: five seeds of eight read "0 breaking". The exact
+  pin always turned the check red; the report now names the change on every seed.
+- **An API contract committed as a symbolic link is refused, by the check and by `sign` (ADR
+  0194).** The `api-contract` check followed a link at `openapi.json` and held the app to the
+  file at its other end, while git commits a link's own text, so the signed release carried a
+  path where the contract should be. The check is now red for a link, and for anything else that
+  is not a regular file, and names how to commit the file itself; `sign` refuses a commit whose
+  contract is a link.
+- **A `Range` request on S3 or Azure asks the store for that range, and Azure never reads its
+  first 32 MiB at once (ADR 0201).** The content route opened the whole blob and read forward to
+  the range, so a seek far into a large object on either store fetched every byte before it, and
+  Azure's own downloader fetched the first 32 MiB of a blob on every open before it returned. The
+  storage port has a second method with a default, `open_range(key, *, offset, length)`: S3
+  reads a range with one ranged `GET`, and Azure reads every blob in windows of at most 4 MiB as
+  the stream is read, each window after the first naming the blob's ETag. `FileService` gains
+  `servable`, `open_content` and `linked`, the two halves of `open_stream` and
+  `open_link_stream`, which keep their behaviour.
+- **An S3 link is good for as long as it says (ADR 0201).** A URL signed with temporary
+  credentials, a role's or an instance profile's, stops working when they expire, whatever its
+  own expiry says, so a link could die before the `expires_at` the service reported. The S3
+  adapter now hands out its own link only when the credentials it signs with outlive it, and
+  otherwise leaves the bytes to the API behind an app-signed link for the whole lifetime.
+- **An S3 network failure is the typed 502 (ADR 0201).** A refused connection, a timeout or
+  credentials that could not be refreshed raise botocore's `BotoCoreError`, not one of the
+  classes the client carries, so they escaped every operation of the S3 adapter as a 500 with
+  its trace. They are now the typed `file_storage_failed` 502, with botocore's text in
+  `log_context`.
+- **The public files link route follows the application's general rate limit (ADR 0138).** It
+  declared `RateLimit()`, the framework's default of 240 a minute, in a bucket of its own, so an
+  application that set its general limit to 60 left that one public route at 240, while the
+  comment beside it said it followed the general limit. `RateLimit.general()` now declares the
+  application's general limit counted in a bucket of its own, and the route declares that.
+- **Statistics a service could declare and never answer now answer, or are refused when declared
+  (ADR 0204).** A dimension over a UUID column, though every Terp id is one, and `max` over a text
+  column were each a 500 on every request: the group refused the value the database returned. A
+  series of more than 500 steps failed on SQLite, which reads at most 500 terms of one compound
+  `SELECT`. The points cap counted the page size asked even with no dimension, so a year of days
+  over the whole scope was refused at the default page size. And a day the zone skipped entirely
+  (Samoa, 30 December 2011) was labelled as the next one. Each now answers. A declaration the
+  database cannot answer at all (a `sum` of text, a `max` of a UUID or a boolean, a group keyed by
+  JSON) is refused when the class is defined, naming what to count instead.
+- **`frontend/timestamp-inputs-carry-their-offset` follows a `type` however it is spelled
+  inline (ADR 0206).** The rule read only a string or a plain template as the attribute's direct
+  value, so `type={withTime ? "datetime-local" : "date"}`, `?? "datetime-local"`,
+  `"datetime-local" as const`, `satisfies` and `"datetime-" + "local"` each passed, while its
+  catalog entry said "an expression". It is now a plugin rule of its own,
+  `terp/timestamp-inputs-carry-their-offset`, that follows every string the expression can be:
+  each branch of a conditional and of `??`, `||` and `&&`, a concatenation, a template, and the
+  expression under `as`, `satisfies` and `!`. Its marker is unchanged. A value read from a name,
+  a spread props object and `createElement` stay outside it, recorded as its residuals.
+- **The template names the setting that allows a browser origin (ADR 0202).** An API-only app's
+  README and AGENTS.md, and both variants' `.env.example`, said to list a browser client's origin
+  in `BACKEND_CORS_ORIGINS`. That variable allows nothing: it is read only to refuse `*`, while
+  the rendered control plane declares `CorsPolicy.disabled(...)`, so an origin listed there was
+  still refused by the browser. They now name `CorsPolicy.allow([...])` in
+  `control_plane/__init__.py`, and say what the variable is for.
+- **`{"exclusiveMaximum": false}` is not a breaking change to the API contract (ADR 0194).** An
+  OpenAPI 3.0 exclusive bound written `false` admits exactly what no bound admits, but the
+  contract check read it appearing as a new bound and labelled it breaking. It is now a line that
+  breaks nothing, for `exclusiveMinimum` too; a number, `0` included, is still a 3.1 bound.
+- **The key-rotation guide keeps mailed account links working (ADR 0189).** A self-service
+  link's row is found by a digest keyed under the key it was mailed under, so it needs
+  `SECRET_KEY_FALLBACKS` for as long as the link lives: a day for a sign-up link by default.
+  Step 4 of `terp guide secrets` dropped the list after fifteen minutes on an app without refresh
+  sessions, and every link mailed before the rotation stopped working. It now waits for the
+  longest of the refresh session, the self-service links and fifteen minutes.
+- **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
+  session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
+  PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the
+  write scope, as the statement it carries does.
+
+
+### Removed
+
+- **The plaintext reader of a queued mail (ADR 0199).** 0.36.1 read a mail an earlier release
+  had stored in plaintext so that it still delivered, and ADR 0199 said 0.37.0 would remove that
+  reader; 0.37.0 and 0.38.0 shipped it anyway. The worker now reads a mail sealed or not at all: a stored
+  row in the plaintext form fails with `MailPlaintextRetiredError` (`mail_plaintext_retired`),
+  naming the remedy, and dead-letters with nothing sent. A caller that enqueues the message's
+  fields still queues it sealed.
+
 ### Upgrade notes
 
+- **A Terp frontend or conformance suite kept outside `frontend/` or `conformance/` now turns
+  `terp verify` red** where it was skipped. Move it into place. An app's own declared npm
+  check whose `--prefix` names a missing directory is red too: correct the path.
 - **A plain `datetime` route parameter, or a request body that is or nests a class that is not
   a `BaseSchema` holding one, now stops the app from starting.** A declared filter's timestamp
   parameter is the common case: type it `Instant`. Type the wall time of a place
   `Annotated[datetime, LocalTimeIn("<zone>")]`, and keep `NaiveMeansUtc` with the rule's marker
   for a sender known to send UTC without saying so. Make a class that holds a timestamp a
   `BaseSchema`, or type its field `Instant`.
-- **A route added to a router after `create_app` mounted it is refused.** Declare every route
-  before `create_app` runs.
-
+- **A route added to a router after `create_app` mounted it is refused,** by any spelling, and
+  so is a startup or shutdown hook or middleware added to the composed app. Declare every route
+  before `create_app` runs, and pass middleware to `create_app(middleware=[...])`.
+- **A read on the request session that writes literal SQL, reads a row-scoped table through Core
+  in any of the shapes above, or reads a FROM element the session does not know now fails with
+  `UnscopedReadError`** where it ran unscoped. Write it with SQLAlchemy's constructs on the
+  service's `base_query()`, or as a declared aggregate (`terp guide aggregates`). A column
+  property, a loader option or a `VALUES` row that names a model through its entity is now
+  scoped, so a count or sum it computed leaves soft-deleted and other tenants' rows out. A view
+  or a function in the database is still read like any table or function, so it scopes the rows
+  it reads in its own SQL.
+- **A statistic declared over an expression that reads a field declared personal, or over
+  literal SQL or a bare column name, is refused when its class is defined**, and a filter whose
+  column reads one is refused when it narrows a statistic. Group, bucket or sum by a field that
+  is not personal, or count it.
+- **An upload whose content type is not one media type is refused with a 415**
+  (`content_type_malformed`), where it was stored. A file stored earlier with such a type is
+  served as `application/octet-stream`.
+- **A document stored in a JSON column before 0.39.0, with a timestamp that has no offset,
+  fails its `BaseSchema` when it is read back.** Rewrite those values with their offset (`Z` for
+  UTC) in a data migration, or read them through `NaiveMeansUtc` in the schema that reads the
+  document, with the rule's marker, until they are rewritten.
+- **`POST /accounts/me/close` answers a wrong password with a 403, `password_not_confirmed`,**
+  where it answered a 401. A client that branched on the 401 reads the new code.
+- **Provisioning refuses an address another account holds in another spelling** with a 409,
+  `address_taken`. Accounts already open under two spellings of one address stay as they are;
+  find them with a query that groups `identity_user.email` by `lower(email)`.
+- **A storage adapter of your own can read a range itself.** `StorageBackend.open_range(key, *,
+  offset, length)` has a default that opens the whole blob and moves to the offset, so an adapter
+  written against 0.38 keeps working unchanged. Where your store can read a range, override it:
+  a seek into a large file then costs the bytes it serves.
+- **An S3 profile on a role's credentials may serve some links through the API.** Where the
+  credentials expire before a link would, the link is now the app-signed one the API serves
+  rather than a presigned URL that stops working early. To keep the bytes on S3, give the role a
+  session longer than your longest link (24 hours at most).
+- **A statistic over a column type the database cannot aggregate is refused when declared.** A
+  `sum` or `avg` over anything but numbers, a `min` or `max` over a UUID, a boolean or JSON, and a
+  dimension over JSON or bytes now raise `TypeError` when the service class is defined. Each of
+  them failed on every request on PostgreSQL before; count the column, or count its distinct
+  values, instead.
+- **From 0.36.0 or earlier, let the outbox drain before you upgrade.** A mail a release before
+  0.36.1 queued in plaintext is no longer read: its job fails with `mail_plaintext_retired`, and
+  it dead-letters with nothing sent. Run `terp outbox backlog` on the old release until it shows
+  nothing pending, then upgrade. A deployment already on 0.36.1 or later has no such row left.
 - **An early validator of your own on a timestamp field now turns the gate red.** Where it read
   the wall time of a known place, type the field `Annotated[datetime, LocalTimeIn("<zone>")]`.
   Where it only checked the instant, make it an after validator. Where it must keep reading the

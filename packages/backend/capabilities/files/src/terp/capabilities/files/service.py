@@ -21,7 +21,9 @@ the storage backend registered under the file's **storage profile** (ADR 0057):
   resolves the metadata (so an invisible row 404s before any storage I/O), then a readable
   stream (``open_stream``, for the streamed download) or the full bytes (``load``, a
   buffered convenience for the serve-through read) are fetched from the backend the **row
-  itself** names; a missing blob maps to a typed 404 rather than a stack trace.
+  itself** names; a missing blob maps to a typed 404 rather than a stack trace. The two
+  halves are :meth:`FileService.servable` and :meth:`FileService.open_content`, which the
+  download routes call apart, so a ``Range`` request asks the store for its range alone.
 * :meth:`FileService.load_for` — the serve-through delegation read (ADR 0057): serve a
   file through an already-authorized referencing row, fail-closed on any column not
   declared with :func:`~terp.capabilities.files.FileRef`.
@@ -61,6 +63,7 @@ from terp.core import (
 )
 
 from terp.capabilities.files.content_types import (
+    ContentTypeMalformedError,
     ContentTypeMismatchError,
     UnsupportedContentTypeError,
     active_allowed_content_types,
@@ -69,6 +72,8 @@ from terp.capabilities.files.content_types import (
     _SNIFF_LEN,
     _ensure_bytes_match_declared_type,
     _ensure_content_type_allowed,
+    _ensure_one_media_type,
+    _served_media_type,
 )
 from terp.capabilities.files.links import (
     SIGNED_LINK_PATH,
@@ -204,6 +209,7 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
         told by ``scan_state`` on the response. With no scanner registered the verdict
         is ``not_scanned`` and nothing about this path changes.
         """
+        _ensure_one_media_type(content_type)
         _ensure_content_type_allowed(content_type)
         selected = profile if profile is not None else type(self).storage_profile
         backend = resolve_storage_backend(selected)
@@ -262,16 +268,42 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
         owns the returned stream and must close it (the download route iterates then closes
         it; :meth:`load` reads and closes it).
         """
+        row = self.servable(session, file_id)
+        return row, self.open_content(row)
+
+    def servable(self, session: Session, file_id: uuid.UUID) -> File:
+        """The row of a file whose bytes may be served to this caller; typed errors otherwise.
+
+        ``get`` honours the row scope, so an invisible row is a 404, and a quarantined one is
+        refused: the checks :meth:`open_stream` makes, without opening anything yet.
+        """
         row = self.get(session, file_id)
         ensure_servable(row.scan_state)
+        return row
+
+    def open_content(self, row: File, part: tuple[int, int] | None = None) -> BinaryIO:
+        """A stream of *row*'s bytes: all of them, or the *part* ``(first, last)`` inclusive.
+
+        A part is read through the backend's ``open_range``, so a store that reads a range
+        itself serves only that range (ADR 0201). The quarantine verdict is checked again
+        here, so a row that reached this method another way is still refused. A blob gone
+        from its backend is the typed 404 :meth:`open_stream` gives; the caller closes the
+        stream.
+        """
+        ensure_servable(row.scan_state)
+        backend = resolve_storage_backend(row.storage_profile)
         try:
-            stream = resolve_storage_backend(row.storage_profile).open(row.storage_key)
+            if part is None:
+                return backend.open(row.storage_key)
+            first, last = part
+            if not 0 <= first <= last:
+                raise ValueError(f"a part of a file runs from its first byte to its last: {part}")
+            return backend.open_range(row.storage_key, offset=first, length=last - first + 1)
         except FileNotFoundError as exc:
             raise NotFoundError(
                 "The file's content is no longer available.",
-                log_context={"file_id": str(file_id)},
+                log_context={"file_id": str(row.id)},
             ) from exc
-        return row, stream
 
     def load(self, session: Session, file_id: uuid.UUID) -> tuple[File, bytes]:
         """The metadata row plus its full bytes — a buffered convenience over :meth:`open_stream`.
@@ -346,7 +378,7 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
         url = resolve_storage_backend(row.storage_profile).link(
             row.storage_key,
             ttl=lifetime,
-            content_type=row.content_type,
+            content_type=_served_media_type(row.content_type),
             disposition=content_disposition(row.filename, inline=shown_inline),
         )
         if url is None:
@@ -392,14 +424,21 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
         (an actor-less read is not narrowed, by that scope's own rule); the authorization
         was the mint, and the expiry bounds it.
         """
+        row, inline = self.linked(session, token)
+        return row, self.open_content(row), inline
+
+    def linked(self, session: Session, token: str) -> tuple[File, bool]:
+        """The servable row a live app-signed *token* names, and whether to show it inline.
+
+        The checks :meth:`open_link_stream` makes, without opening anything yet.
+        """
         opened = open_link(token)
         if opened is None:
             raise NotFoundError(
                 "The link is not valid.", log_context={"reason": "link_not_honoured"}
             )
         file_id, inline = opened
-        row, stream = self.open_stream(session, file_id)
-        return row, stream, inline
+        return self.servable(session, file_id), inline
 
     def remove(self, session: Session, file_id: uuid.UUID) -> None:
         """Delete a file: its bytes and its metadata row as one atomic, owner-gated unit.
@@ -436,6 +475,7 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
 
 
 __all__ = [
+    "ContentTypeMalformedError",
     "ContentTypeMismatchError",
     "FileService",
     "UnsupportedContentTypeError",

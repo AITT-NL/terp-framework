@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import ast
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 
 from terp.arch._ast import base_name
-from terp.arch.rules.datetimes import _bound_names
+from terp.arch.rules.datetimes import _bound_names, _dotted
 
 _EARLY_VALIDATOR_MESSAGE = (
     "a before, wrap or plain validator on a timestamp field reads its text before the "
@@ -195,7 +195,41 @@ def _spelling(tree: ast.Module) -> _Spelling:
     return spelling
 
 
-def _early_in(node: ast.AST, spelling: _Spelling, kinds: frozenset[str], instances: set[str]) -> list[ast.expr]:
+@dataclasses.dataclass(frozen=True)
+class Imported:
+    """What one file takes from the app's other modules: their early validators, and the types
+    that carry one (ADR 0207).
+
+    *instances* and *carriers* are the names this file binds to them by an import. *modules*
+    maps each name this file binds by an import to the absolute module it may be, so a module
+    attribute (``types.LocalStamp``) is read as the qualified name it reaches, and the
+    qualified sets say which of those are a validator and which a carrier.
+    """
+
+    instances: frozenset[str] = frozenset()
+    carriers: frozenset[str] = frozenset()
+    modules: Mapping[str, str] = dataclasses.field(default_factory=dict)
+    qualified_instances: frozenset[str] = frozenset()
+    qualified_carriers: frozenset[str] = frozenset()
+
+    def _qualified(self, node: ast.AST) -> str | None:
+        dotted = _dotted(node) if isinstance(node, ast.Attribute) else None
+        head, _, rest = (dotted or "").partition(".")
+        module = self.modules.get(head)
+        return None if module is None or not rest else f"{module}.{rest}"
+
+    def is_instance(self, node: ast.AST) -> bool:
+        return self._qualified(node) in self.qualified_instances
+
+    def is_carrier(self, node: ast.AST) -> bool:
+        return (isinstance(node, ast.Name) and node.id in self.carriers) or (
+            self._qualified(node) in self.qualified_carriers
+        )
+
+
+def _early_in(
+    node: ast.AST, spelling: _Spelling, kinds: frozenset[str], instances: set[str], imported: Imported
+) -> list[ast.expr]:
     """The early validators *node* attaches to a timestamp, when it is an ``Annotated`` type."""
     if not (isinstance(node, ast.Subscript) and base_name(node.value) in spelling.annotated):
         return []
@@ -207,6 +241,7 @@ def _early_in(node: ast.AST, spelling: _Spelling, kinds: frozenset[str], instanc
         for item in elements[1:]
         if (isinstance(item, ast.Call) and base_name(item.func) in kinds)
         or (isinstance(item, ast.Name) and item.id in instances)
+        or imported.is_instance(item)
     ]
 
 
@@ -220,8 +255,11 @@ def _bound_to_a_call(tree: ast.Module, callees: frozenset[str]) -> set[str]:
     return bound
 
 
-def _early_types(tree: ast.Module, spelling: _Spelling, kinds: frozenset[str], instances: set[str]) -> set[str]:
-    """The names this file binds to a type that carries an early validator on a timestamp."""
+def _early_types(
+    tree: ast.Module, spelling: _Spelling, kinds: frozenset[str], instances: set[str], imported: Imported
+) -> set[str]:
+    """The names this file binds to a type that carries an early validator on a timestamp: one
+    it spells, or one of the app's other modules declares and this file imports."""
     bound: set[str] = set()
     grown = True
     while grown:
@@ -232,12 +270,24 @@ def _early_types(tree: ast.Module, spelling: _Spelling, kinds: frozenset[str], i
             if spelled is None or set(targets) <= bound:
                 continue
             if any(
-                _early_in(inner, spelling, kinds, instances) or (isinstance(inner, ast.Name) and inner.id in bound)
+                _early_in(inner, spelling, kinds, instances, imported)
+                or (isinstance(inner, ast.Name) and inner.id in bound)
+                or imported.is_carrier(inner)
                 for inner in [*ast.walk(spelled), *_quoted_nodes(spelled)]
             ):
                 bound.update(targets)
                 grown = True
     return bound
+
+
+def early_names(tree: ast.Module, imported: Imported) -> tuple[set[str], set[str]]:
+    """The names this file binds to an early validator, and to a type that carries one, its
+    imports included: what another module of the app takes when it imports them."""
+    spelling = _spelling(tree)
+    kinds = _aliases(tree, _EARLY_VALIDATORS)
+    instances = _bound_to_a_call(tree, kinds) | imported.instances
+    carriers = _early_types(tree, spelling, kinds, instances, imported) | imported.carriers
+    return instances, carriers
 
 
 def _lineage(cls: ast.ClassDef, classes: dict[str, list[ast.ClassDef]]) -> list[ast.ClassDef]:
@@ -308,7 +358,7 @@ def _covers_a_timestamp(call: ast.Call, fields: set[str]) -> bool:
     )
 
 
-def _early_validator_findings(tree: ast.Module) -> dict[int, str]:
+def _early_validator_findings(tree: ast.Module, imported: Imported | None = None) -> dict[int, str]:
     """Each line that declares, or uses, an app's own early validator on a timestamp (ADR 0207).
 
     A ``before``, ``wrap`` or ``plain`` validator sees a timestamp's text before its type does,
@@ -316,7 +366,8 @@ def _early_validator_findings(tree: ast.Module) -> dict[int, str]:
     no offset in a zone of its own choosing. It counts where it is declared: as a
     ``BeforeValidator``, ``WrapValidator`` or ``PlainValidator``, or a name bound to one, in an
     ``Annotated`` type that reads a timestamp, wherever that type is spelled, and at each use of
-    a name bound to such a type, as each use of ``NaiveMeansUtc`` counts; and as a
+    a name bound to such a type, as each use of ``NaiveMeansUtc`` counts, in this file or in
+    any module of the app that imports it (*imported*); and as a
     ``field_validator`` in one of those modes, or Pydantic 1's ``validator`` with ``pre=True``,
     written in the body of a class or of a base this file defines, on a field that class or one
     of those bases declares as a timestamp. A validator of the whole model sees the body, not a
@@ -327,14 +378,15 @@ def _early_validator_findings(tree: ast.Module) -> dict[int, str]:
     def early(node: ast.AST) -> None:
         findings.setdefault(getattr(node, "lineno", 0), _EARLY_VALIDATOR_MESSAGE)
 
+    imported = imported or Imported()
     spelling = _spelling(tree)
     kinds = _aliases(tree, _EARLY_VALIDATORS)
-    instances = _bound_to_a_call(tree, kinds)
-    carriers = _early_types(tree, spelling, kinds, instances)
+    instances, carriers = early_names(tree, imported)
     for node in [*ast.walk(tree), *_quoted_nodes(tree)]:
-        for item in _early_in(node, spelling, kinds, instances):
+        for item in _early_in(node, spelling, kinds, instances, imported):
             early(item)
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in carriers:
+        loaded = isinstance(node, ast.Name | ast.Attribute) and isinstance(node.ctx, ast.Load)
+        if loaded and ((isinstance(node, ast.Name) and node.id in carriers) or imported.is_carrier(node)):
             early(node)
 
     field_validators = _aliases(tree, frozenset({"field_validator"}))

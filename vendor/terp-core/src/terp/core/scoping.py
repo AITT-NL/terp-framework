@@ -12,16 +12,29 @@ override silently drops soft-delete / tenant scoping" footgun (ADR 0017).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+import re
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
-from sqlalchemy import Select, Table, event, or_
+from sqlalchemy import Column, Select, Table, event, literal_column, or_
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Mapper
-from sqlalchemy.sql import visitors
-from sqlalchemy.sql.elements import TextClause
-from sqlalchemy.sql.expression import Alias, TableClause
-from sqlalchemy.sql.selectable import CTE, Exists, Join, ScalarSelect, SelectBase, Subquery
+from sqlalchemy.sql.dml import UpdateBase
+from sqlalchemy.sql.elements import ClauseElement, ColumnClause, TextClause
+from sqlalchemy.sql.expression import FunctionElement, TableClause
+from sqlalchemy.sql.selectable import (
+    CTE,
+    AliasedReturnsRows,
+    CompoundSelect,
+    Exists,
+    FromGrouping,
+    Join,
+    ScalarSelect,
+    SelectBase,
+    Subquery,
+    TextualSelect,
+    Values,
+)
 from sqlmodel import Session, SQLModel, select
 from sqlmodel.main import default_registry
 from sqlmodel.sql.expression import SelectOfScalar
@@ -259,32 +272,31 @@ def _forget_mapped_tables(mapper: Mapper[Any], class_: type) -> None:
     _mapped.clear()
 
 
-def _mapped_tables() -> tuple[dict[Any, list[type]], dict[tuple[str | None, str], list[type]]]:
-    """Each mapped table's models, by the Table itself and by its schema and name."""
+def _mapped_tables() -> tuple[dict[Any, list[type]], dict[str, list[type]]]:
+    """Each mapped table's models, by the Table itself and by its name, case folded."""
     if not _mapped:
         by_table: dict[Any, list[type]] = {}
-        by_name: dict[tuple[str | None, str], list[type]] = {}
+        by_name: dict[str, list[type]] = {}
         for mapper in default_registry.mappers:
             for table in mapper.tables:
                 by_table.setdefault(table, []).append(mapper.class_)
-                by_name.setdefault((getattr(table, "schema", None), table.name), []).append(mapper.class_)
+                by_name.setdefault(table.name.casefold(), []).append(mapper.class_)
         _mapped.update(by_table=by_table, by_name=by_name)
     return _mapped["by_table"], _mapped["by_name"]
 
 
 def _models_of(table: Any) -> list[type]:
-    """The models mapped onto *table*; a ``table("name")`` matches the name in any schema."""
+    """The models mapped onto *table*, or onto any table of its name.
+
+    Matched by name alone, case folded and in any schema: a ``table("NAME")``, a copy of the
+    Table in another ``MetaData`` or under its schema's own name reaches the same rows, and a
+    database folds an unquoted name. Matching a same-named table in another schema too errs
+    toward a refusal, never toward an unscoped read.
+    """
     by_table, by_name = _mapped_tables()
     if table in by_table:
         return by_table[table]
-    name = getattr(table, "name", None)
-    schema = getattr(table, "schema", None)
-    return [
-        model
-        for (key_schema, key_name), models in by_name.items()
-        if key_name == name and (schema is None or key_schema == schema)
-        for model in models
-    ]
+    return by_name.get(str(getattr(table, "name", "")).casefold(), [])
 
 
 def _row_scoped(models: list[type]) -> list[type]:
@@ -308,43 +320,168 @@ def _orm_named_tables(select_: Any) -> set[Any]:
     return named
 
 
+#: Literal SQL the session can read: a bare name, a dotted one, a number or ``*`` (what
+#: ``func.count()`` and ``exists()`` write). Anything longer can hold a SELECT of its own.
+_PLAIN_LITERAL = re.compile(r"[\w.]+|\*")
+
+
+def _option_sql(option: Any) -> Iterator[Any]:
+    """The SQL a loader option writes into a read: its criteria, and an expression it loads."""
+    criteria = getattr(option, "where_criteria", None)  # with_loader_criteria
+    if isinstance(criteria, ClauseElement):
+        yield criteria
+    for load in getattr(option, "context", ()):  # a relationship's .and_(), with_expression()
+        yield from getattr(load, "_extra_criteria", ())
+
+
+def _elements(statement: Any, place: str | None = None) -> Iterator[tuple[Any, str | None]]:
+    """Every element *statement* writes into its SQL, with where it stands.
+
+    SQLAlchemy's own walk (``get_children``) leaves out a statement's prefixes, suffixes and
+    hints, the rows of a ``VALUES`` list and the SQL its loader options carry, though each is
+    written into the SQL; they are walked here too, a hint (plain text) as a literal column.
+    An element reached through a ``VALUES`` row or a loader option comes with that place, and
+    every other one with *place*, so that a refusal can say where it stands.
+    """
+    pending = [(statement, place)]
+    while pending:
+        element, at = pending.pop()
+        yield element, at
+        pending.extend((child, at) for child in element.get_children())
+        texts = [*getattr(element, "_prefixes", ()), *getattr(element, "_suffixes", ())]
+        pending.extend((part, at) for part, _dialect in texts)
+        hints = [*getattr(element, "_hints", {}).values()]
+        hints.extend(hint for _dialect, hint in getattr(element, "_statement_hints", ()))
+        pending.extend((literal_column(hint), at) for hint in hints)
+        if isinstance(element, Values):
+            rows = (value for data in element._data for row in data for value in row)
+            pending.extend((value, at or "a VALUES list") for value in rows if isinstance(value, ClauseElement))
+        for option in getattr(element, "_with_options", ()):
+            pending.extend((sql, at or "a loader option") for sql in _option_sql(option))
+
+
+def _mapping_sql(mapper: Any) -> list[tuple[Any, str]]:
+    """The SQL *mapper* writes into every load of its model beyond its columns, and where.
+
+    A column property that is more than a column, a count of a model's children say, is a
+    query of its own in every SELECT that loads the model, though the statement never shows it.
+    """
+    return [
+        (prop.expression, f"the column property {mapper.class_.__name__}.{prop.key}")
+        for prop in mapper.column_attrs
+        if not all(isinstance(column, Column) for column in prop.columns)
+    ]
+
+
+def _entities_in(statement: Any) -> Iterator[Any]:
+    """Each mapper or ORM alias *statement* names, wherever it writes SQL.
+
+    The request session attaches the row scope to each of them (the session guard's
+    execution hook), so an entity named only in a loader option, a ``VALUES`` row or a
+    column property is scoped as one in the statement's own clauses is.
+    """
+    for element, _place in _elements(statement):
+        inspected = sa_inspect(getattr(element, "entity_namespace", None), raiseerr=False)
+        if getattr(inspected, "is_aliased_class", False) or getattr(inspected, "is_mapper", False):
+            yield inspected
+
+
+def _writes(statement: Any) -> bool:
+    """Whether *statement* holds an ``INSERT``, ``UPDATE`` or ``DELETE`` anywhere (a CTE's)."""
+    return any(isinstance(element, UpdateBase) for element, _place in _elements(statement))
+
+
 def _from_leaves(from_: Any) -> Iterator[Any]:
-    if isinstance(from_, Join):
-        yield from _from_leaves(from_.left)
-        yield from _from_leaves(from_.right)
-    else:
-        yield from_
+    """The FROM elements *from_* reads, through every join and parenthesised group of joins."""
+    pending = [from_]
+    while pending:
+        element = pending.pop()
+        if isinstance(element, Join):
+            pending.extend((element.left, element.right))
+        elif isinstance(element, FromGrouping):
+            pending.append(element.element)
+        else:
+            yield element
 
 
-def _core_only_reads(statement: Any) -> list[str]:
-    """What *statement* reads through Core where the row scope cannot reach, by name.
+def _literal_sql(element: Any) -> bool:
+    """Whether *element* is SQL written as text that is more than a name.
 
-    Judged per SELECT, nested ones included: a row-scoped table in a SELECT's FROM list must
-    be named by a mapped entity **in that same SELECT**, which is what the loader criteria
-    attach to. A mapped entity elsewhere in the statement does not scope it: a parent's
-    relationship to a child reaches the child's mapper without covering a Core join to the
-    child's table. An alias counts only when an ORM alias names it in that SELECT (the hook
-    scopes those through its adapter); a Core alias, and literal SQL in a FROM, never can.
+    A ``text().columns()`` select is judged by its text, which the walk reaches beneath it.
+    """
+    if isinstance(element, TextClause):
+        return not _PLAIN_LITERAL.fullmatch(element.text)
+    return isinstance(element, ColumnClause) and element.is_literal and not _PLAIN_LITERAL.fullmatch(element.name)
+
+
+def _at(item: str, place: str | None) -> str:
+    return item if place is None else f"{item}, in {place}"
+
+
+def _unscoped_from(leaf: Any, named: set[Any], place: str | None) -> list[str]:
+    """What *leaf*, one FROM element of a SELECT, reads that no row scope reaches.
+
+    *named* holds the tables a mapped entity of that SELECT names, and *place* where the
+    SELECT stands outside the statement's own clauses, for the refusal to say.
+    """
+    if "parententity" in getattr(leaf, "_annotations", {}):
+        return []  # an ORM entity's own FROM (a joined eager load's alias, say)
+    base = leaf
+    while isinstance(base, AliasedReturnsRows):
+        base = base.element
+    if isinstance(base, Select | CompoundSelect | Values | FunctionElement):
+        # A nested SELECT is judged on its own, and the rows of a VALUES list and the
+        # arguments of a function are walked with the rest of the statement.
+        return []
+    if isinstance(base, TextualSelect | TextClause):
+        return [_at("literal SQL", place)]
+    if not isinstance(base, TableClause):
+        return [_at(f"a FROM element it does not know ({type(leaf).__name__})", place)]
+    if leaf in named:
+        return []
+    return [_at(f"{model.__name__} through Core", place) for model in _row_scoped(_models_of(base))]
+
+
+def _core_only_reads(statement: Any, mappers: Iterable[Any] = ()) -> list[str]:
+    """What *statement* reads that the row scope cannot reach, each by what it is.
+
+    Only the shapes the session can scope pass; anything else is refused, so a shape nobody
+    listed fails closed rather than open. Judged per SELECT, nested ones included: a
+    row-scoped table in a SELECT's FROM list must be named by a mapped entity **in that same
+    SELECT**, which is what the loader criteria attach to. A mapped entity elsewhere in the
+    statement does not scope it: a parent's relationship to a child reaches the child's
+    mapper without covering a Core join to the child's table. A FROM element is:
+
+    * an ORM entity's own FROM (a joined eager load's alias, say): scoped;
+    * a subquery or CTE of a SELECT or a compound of them: judged as its own SELECTs;
+    * a table, or any alias or sample of one, through every join and parenthesised group:
+      scoped only when an ORM entity or alias of that same SELECT names it, and matched to its
+      models by name alone, case folded and in any schema;
+    * a ``VALUES`` list, or a function's rows: walked with the rest of the statement;
+    * anything else, and literal SQL anywhere in the statement (``text()``, a ``text()``
+      subquery, a literal column, a prefix, suffix or hint that is more than a name):
+      refused, since the session can neither read nor scope it.
+
+    The same holds wherever the read writes SQL: in a loader option, a ``VALUES`` row, and
+    each column property of *mappers* (the mappers the read reaches), whose SQL every load of
+    its model carries. The session attaches the criteria to an entity named in any of them.
     """
     found: set[str] = set()
-    for select_ in visitors.iterate(statement):
-        if not isinstance(select_, Select):
-            continue
-        named: set[Any] | None = None
-        for from_ in select_.get_final_froms():
-            for leaf in _from_leaves(from_):
-                if isinstance(leaf, TextClause):
-                    found.add("a literal SQL FROM")
-                    continue
-                if "parententity" in getattr(leaf, "_annotations", {}):
-                    continue  # an ORM entity's own FROM (a joined eager load's alias, say)
-                base = leaf.element if isinstance(leaf, Alias) else leaf
-                if not isinstance(base, TableClause):
-                    continue
-                named = _orm_named_tables(select_) if named is None else named
-                if leaf in named:
-                    continue
-                found.update(model.__name__ for model in _row_scoped(_models_of(base)))
+    sources: list[tuple[Any, str | None]] = [(statement, None)]
+    for mapper in mappers:
+        sources.extend(_mapping_sql(mapper))
+    for source, place in sources:
+        for element, at in _elements(source, place):
+            if _literal_sql(element):
+                found.add(_at("literal SQL", at))
+                continue
+            if not isinstance(element, Select):
+                continue
+            named: set[Any] | None = None
+            for from_ in element.get_final_froms():
+                for leaf in _from_leaves(from_):
+                    named = _orm_named_tables(element) if named is None else named
+                    found.update(_unscoped_from(leaf, named, at))
     return sorted(found)
 
 

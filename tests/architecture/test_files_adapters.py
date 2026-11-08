@@ -4,7 +4,9 @@ Each adapter is driven through the SDK's own offline surface rather than a netwo
 ``boto3``'s real client under botocore's stubber (the presigner runs for real, the wire calls
 are stubbed), Azure Blob through a container-client fake whose shape is checked against the
 real ``ContainerClient``, with the SDK's real SAS signer, delegation-key type and exception
-classes. What is held: the port's round trip and idempotent delete on each, a vanished blob as
+classes. What is held: the port's round trip and idempotent delete on each, a range read by the
+store itself (one ranged ``GET`` on S3, bounded windows that name the blob's ETag on Azure, which
+never reads its first 32 MiB at once), a vanished blob as
 ``FileNotFoundError`` (the service's typed 404), a provider failure as the typed 502 with the
 provider's text kept in ``log_context``, a link that carries the download's media type and
 disposition and expires when asked, the Azure signing precedence (delegation key, then account
@@ -26,9 +28,12 @@ from typing import Any
 
 import boto3
 import pytest
-from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
-from azure.storage.blob import ContainerClient, StorageStreamDownloader, UserDelegationKey
+from azure.core import MatchConditions
+from azure.core.exceptions import HttpResponseError, ResourceModifiedError, ResourceNotFoundError
+from azure.storage.blob import BlobClient, ContainerClient, StorageStreamDownloader, UserDelegationKey
 from botocore.config import Config
+from botocore.credentials import Credentials, RefreshableCredentials
+from botocore.exceptions import EndpointConnectionError
 from botocore.stub import Stubber
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
@@ -140,6 +145,56 @@ def test_s3_maps_a_missing_key_to_not_found_and_anything_else_to_the_typed_error
     assert deleted.value.log_context["operation"] == "delete"
 
 
+def test_s3_reads_a_range_with_one_ranged_get(session: Session, s3: tuple[S3Storage, Stubber]) -> None:
+    """A range was read from byte 0 and discarded up to its start: a seek far into a large
+    object fetched everything before it. The store now reads the range itself."""
+    backend, stub = s3
+    register_storage_backend("s3-media", backend)
+    stub.add_response("put_object", {})
+    row = FileService().store(
+        session, filename="a.txt", content_type="text/plain", source=io.BytesIO(_CONTENT), profile="s3-media"
+    )
+    expected = {"Bucket": "media", "Key": row.storage_key, "Range": "bytes=10-12"}
+    stub.add_response("get_object", {"Body": io.BytesIO(_CONTENT[10:13])}, expected)
+    with FileService().open_content(row, (10, 12)) as stream:
+        assert stream.read() == _CONTENT[10:13]
+    stub.add_client_error("get_object", service_error_code="NoSuchKey", http_status_code=404)
+    with pytest.raises(FileNotFoundError):
+        backend.open_range("gone", offset=0, length=1)
+
+
+def test_s3_maps_a_network_failure_to_the_typed_error_too(
+    monkeypatch: pytest.MonkeyPatch, s3: tuple[S3Storage, Stubber]
+) -> None:
+    """A refused connection or a timeout is botocore's own error, not a ``ClientError``: it
+    escaped every operation as a 500 with its trace instead of the typed 502."""
+    backend, _ = s3
+
+    def unreachable(*_args: Any, **_kwargs: Any) -> Any:
+        raise EndpointConnectionError(endpoint_url="https://media.s3.eu-west-1.amazonaws.com")
+
+    for name in ("upload_fileobj", "get_object", "delete_object", "generate_presigned_url"):
+        monkeypatch.setattr(backend._client, name, unreachable)
+    for operation, call in (
+        ("put", lambda: backend.put("ab/k", io.BytesIO(_CONTENT))),
+        ("open", lambda: backend.open("ab/k")),
+        ("open", lambda: backend.open_range("ab/k", offset=0, length=1)),
+        ("delete", lambda: backend.delete("ab/k")),
+        ("link", lambda: backend.link("ab/k", ttl=timedelta(minutes=1), content_type="text/plain", disposition="attachment")),
+    ):
+        with pytest.raises(FileStorageError) as failed:
+            call()
+        assert failed.value.log_context["operation"] == operation
+        assert "Could not connect" in failed.value.log_context["error"]
+        assert "Could not connect" not in failed.value.message
+
+
+def test_s3_fails_closed_at_construction_without_the_extra(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "botocore.exceptions", None)
+    with pytest.raises(StorageSdkMissingError, match=r"terp-cap-files\[s3\]"):
+        S3Storage(SimpleNamespace(exceptions=SimpleNamespace(NoSuchKey=KeyError, ClientError=OSError)), bucket="media")
+
+
 def test_s3_links_with_a_presigned_get_carrying_type_disposition_and_expiry(
     s3: tuple[S3Storage, Stubber],
 ) -> None:
@@ -161,6 +216,44 @@ def test_s3_bounds_a_link_lifetime_like_every_link(s3: tuple[S3Storage, Stubber]
         backend.link("ab/k", ttl=LINK_TTL_MAX + timedelta(seconds=1), content_type="text/plain", disposition="attachment")
 
 
+def _temporary(expires_in: timedelta) -> RefreshableCredentials:
+    """A role's credentials, as botocore holds them: a session token and its expiry."""
+    metadata = {
+        "access_key": "ASIAEXAMPLE",
+        "secret_key": "example-secret",
+        "token": "session-token",
+        "expiry_time": (datetime.now(UTC) + expires_in).isoformat(),
+    }
+    return RefreshableCredentials.create_from_metadata(metadata, refresh_using=lambda: metadata, method="assume-role")
+
+
+def test_s3_hands_out_no_link_its_credentials_would_not_outlive(session: Session, s3: tuple[S3Storage, Stubber]) -> None:
+    """A URL signed with temporary credentials stops working when they expire, whatever its own
+    expiry says, so a link from a role's credentials died before the ``expires_at`` the service
+    reported. Such a link is now handed out only when the credentials outlive it; otherwise the
+    API serves the bytes behind its own link, for the whole lifetime."""
+    backend, _ = s3
+    signer = backend._client._request_signer  # where botocore keeps the credentials it signs with
+    signer._credentials = _temporary(timedelta(hours=2))
+    url = backend.link("ab/k", ttl=timedelta(hours=1), content_type="text/plain", disposition="attachment")
+    assert url is not None and "X-Amz-Security-Token=session-token" in url
+    assert backend.link("ab/k", ttl=timedelta(hours=2), content_type="text/plain", disposition="attachment") is None
+
+    register_storage_backend("s3-media", backend)
+    _, stub = s3
+    stub.add_response("put_object", {})
+    row = FileService().store(
+        session, filename="a.txt", content_type="text/plain", source=io.BytesIO(_CONTENT), profile="s3-media"
+    )
+    assert FileService().link(session, row.id, ttl=timedelta(hours=3)).url.startswith("/api/v1/files/link/")
+
+    # A session token whose expiry cannot be read, and a client with no credentials, sign nothing.
+    signer._credentials = Credentials("ASIAEXAMPLE", "example-secret", "session-token")
+    assert backend.link("ab/k", ttl=timedelta(minutes=1), content_type="text/plain", disposition="attachment") is None
+    signer._credentials = None
+    assert backend.link("ab/k", ttl=timedelta(minutes=1), content_type="text/plain", disposition="attachment") is None
+
+
 def test_the_service_hands_out_the_provider_link_for_a_row_on_an_s3_profile(
     session: Session, s3: tuple[S3Storage, Stubber]
 ) -> None:
@@ -180,13 +273,14 @@ def test_the_service_hands_out_the_provider_link_for_a_row_on_an_s3_profile(
 # Azure Blob: a container fake shaped like the SDK's client, the SDK's own signer
 # --------------------------------------------------------------------------- #
 class _Downloader:
-    """What ``download_blob`` returns: it reads in sizes, and nothing else the adapter uses."""
+    """What ``download_blob`` returns: the bytes of the range asked for, and the blob's ETag."""
 
-    def __init__(self, data: bytes) -> None:
-        self._buffer = io.BytesIO(data)
+    def __init__(self, data: bytes, etag: str) -> None:
+        self._data = data
+        self.properties = SimpleNamespace(etag=etag)
 
-    def read(self, size: int = -1) -> bytes:
-        return self._buffer.read(size)
+    def readall(self) -> bytes:
+        return self._data
 
 
 class _Container:
@@ -199,7 +293,11 @@ class _Container:
     def __init__(self, credential: Any = None) -> None:
         self.credential = credential
         self.blobs: dict[str, bytes] = {}
+        self.etags: dict[str, str] = {}
+        self.versions = 0
         self.failing: HttpResponseError | None = None
+        #: Each read asked of the service: ``(offset, length, etag)``.
+        self.reads: list[tuple[int | None, int | None, str | None]] = []
 
     def _maybe_fail(self) -> None:
         if self.failing is not None:
@@ -212,12 +310,31 @@ class _Container:
         while chunk := data.read(8):  # the SDK streams a file-like body; so does the fake
             chunks.append(chunk)
         self.blobs[name] = b"".join(chunks)
+        self.versions += 1
+        self.etags[name] = f'"0x{self.versions}"'
 
-    def download_blob(self, blob: str) -> _Downloader:
+    def download_blob(
+        self, blob: str, offset: int | None = None, length: int | None = None, **kwargs: Any
+    ) -> _Downloader:
+        self._maybe_fail()
+        self.reads.append((offset, length, kwargs.get("etag")))
+        if blob not in self.blobs:
+            raise ResourceNotFoundError("The specified blob does not exist.")
+        if "etag" in kwargs:
+            assert kwargs["match_condition"] is MatchConditions.IfNotModified
+            if kwargs["etag"] != self.etags[blob]:
+                raise ResourceModifiedError("The condition specified using HTTP conditional header(s) is not met.")
+        data = self.blobs[blob]
+        start = offset or 0
+        if start >= len(data) > 0:  # the service refuses a range that starts past the end
+            raise HttpResponseError("The range specified is invalid for the current size of the resource.")
+        return _Downloader(data[start : None if length is None else start + length], self.etags[blob])
+
+    def _properties(self, blob: str) -> Any:
         self._maybe_fail()
         if blob not in self.blobs:
             raise ResourceNotFoundError("The specified blob does not exist.")
-        return _Downloader(self.blobs[blob])
+        return SimpleNamespace(size=len(self.blobs[blob]), etag=self.etags[blob])
 
     def delete_blob(self, blob: str) -> None:
         self._maybe_fail()
@@ -226,7 +343,10 @@ class _Container:
         del self.blobs[blob]
 
     def get_blob_client(self, blob: str) -> Any:
-        return SimpleNamespace(url=f"{self.url}/{urllib.parse.quote(blob)}")
+        return SimpleNamespace(
+            url=f"{self.url}/{urllib.parse.quote(blob)}",
+            get_blob_properties=lambda: self._properties(blob),
+        )
 
 
 class _DelegatingService:
@@ -254,12 +374,14 @@ def test_the_container_fake_is_shaped_like_the_sdk_client() -> None:
         ("upload_blob", "name"),
         ("upload_blob", "data"),
         ("download_blob", "blob"),
+        ("download_blob", "offset"),
+        ("download_blob", "length"),
         ("delete_blob", "blob"),
         ("get_blob_client", "blob"),
     ):
         assert parameter in inspect.signature(getattr(ContainerClient, method)).parameters
         assert parameter in inspect.signature(getattr(_Container, method)).parameters
-    assert "size" in inspect.signature(StorageStreamDownloader.read).parameters
+    assert callable(StorageStreamDownloader.readall) and callable(BlobClient.get_blob_properties)
     real = ContainerClient("https://acct.blob.core.windows.net", "media", credential=_ACCOUNT_KEY)
     assert (real.account_name, real.container_name, real.url) == ("acct", "media", _Container.url)
     assert real.credential.account_key == _ACCOUNT_KEY  # the shared-key path reads this
@@ -287,6 +409,56 @@ def test_azure_round_trips_streams_and_deletes_idempotently() -> None:
         backend.open("ab/k")
 
 
+def test_azure_reads_a_range_from_the_store_and_every_blob_a_window_at_a_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The SDK's downloader fetched its first 32 MiB before it returned, and a range was read
+    from byte 0 and discarded up to its start. Each request now reads one bounded window, a
+    range starts where it starts, and an open reads nothing until it is read."""
+    monkeypatch.setattr(azure_blob, "_WINDOW_BYTES", 8)
+    container = _Container()
+    backend = AzureBlobStorage(container)
+    backend.put("ab/k", io.BytesIO(_CONTENT))
+    etag = container.etags["ab/k"]
+
+    with backend.open_range("ab/k", offset=20, length=10) as stream:
+        assert container.reads == [(20, 8, None)], "the first window is read when the range is opened"
+        assert stream.read() == _CONTENT[20:30]
+    assert container.reads == [(20, 8, None), (28, 2, etag)]
+
+    container.reads.clear()
+    with backend.open("ab/k") as stream:
+        assert container.reads == [], "an open reads the blob's properties, not its bytes"
+        assert stream.read(3) == _CONTENT[:3] and stream.read() == _CONTENT[3:]
+    assert container.reads == [(offset, min(8, len(_CONTENT) - offset), etag) for offset in range(0, len(_CONTENT), 8)]
+
+    # A range that runs past the blob's end stops where the blob does, at the first window
+    # or a later one, rather than asking the service for bytes past it.
+    for offset, reads in ((30, [(30, 8, None)]), (24, [(24, 8, None), (32, 8, etag)])):
+        container.reads.clear()
+        with backend.open_range("ab/k", offset=offset, length=20) as stream:
+            assert stream.read() == _CONTENT[offset:]
+        assert container.reads == reads
+    with pytest.raises(FileNotFoundError):
+        backend.open_range("gone", offset=0, length=1)
+
+
+def test_azure_fails_a_read_whose_blob_was_replaced_between_two_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every window after the first names the blob's ETag, so two versions never splice."""
+    monkeypatch.setattr(azure_blob, "_WINDOW_BYTES", 8)
+    container = _Container()
+    backend = AzureBlobStorage(container)
+    backend.put("ab/k", io.BytesIO(_CONTENT))
+    stream = backend.open_range("ab/k", offset=0, length=len(_CONTENT))
+    backend.put("ab/k", io.BytesIO(_CONTENT.upper()))
+    assert stream.read(8) == _CONTENT[:8]
+    with pytest.raises(FileStorageError) as failed:
+        stream.read(8)
+    assert failed.value.log_context["operation"] == "open"
+    assert "condition" in failed.value.log_context["error"]
+    stream.close()
+
+
 def test_azure_maps_a_provider_failure_to_the_typed_error_with_the_text_kept_out_of_the_message() -> None:
     container = _Container()
     backend = AzureBlobStorage(container)
@@ -294,6 +466,7 @@ def test_azure_maps_a_provider_failure_to_the_typed_error_with_the_text_kept_out
     for operation, call in (
         ("put", lambda: backend.put("ab/k", io.BytesIO(_CONTENT))),
         ("open", lambda: backend.open("ab/k")),
+        ("open", lambda: backend.open_range("ab/k", offset=0, length=1)),
         ("delete", lambda: backend.delete("ab/k")),
     ):
         with pytest.raises(FileStorageError) as failed:

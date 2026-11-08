@@ -15,7 +15,9 @@ from decimal import Decimal
 import pytest
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
-from sqlalchemy import DateTime, Numeric
+from sqlalchemy import JSON, Boolean, DateTime, MetaData, Numeric, String, cast, column, func, literal_column, text, type_coerce
+from sqlalchemy.types import NullType
+from sqlalchemy.orm import aliased
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 from terp.core import (
@@ -45,7 +47,8 @@ from terp.core import (
     create_app,
     resolve_time_zone,
 )
-from terp.core.aggregation import declaration_refusal, window_bounds
+from terp.core import aggregation
+from terp.core.aggregation import declaration_refusal, window_bounds, window_steps
 from terp.core.db import get_session
 from terp.core._internal.session_guard import WriteGuardedSession
 
@@ -309,6 +312,31 @@ def test_window_bounds_cut_a_window_into_its_steps() -> None:
         "2026-03-03",
     ]
     assert len(window_bounds(Window("sold", dt.date(2026, 1, 1), dt.date(2026, 1, 1), zone), zone)) == 2
+    with pytest.raises(ValidationFailedError, match="end is on or after its start"):
+        window_bounds(Window("sold", dt.date(2026, 1, 2), dt.date(2026, 1, 1), zone, "day"), zone)
+
+
+@pytest.mark.parametrize("step", ["day", "week", "month"])
+def test_a_window_s_steps_are_counted_as_they_are_built(step: str) -> None:
+    # The caps are judged on the count, before a bound exists, so it must be the bounds' own.
+    zone = resolve_time_zone("UTC")
+    first = dt.date(2026, 1, 1)
+    for start in (first + dt.timedelta(days=offset) for offset in range(0, 40, 3)):
+        for length in (0, 1, 6, 7, 8, 27, 31, 59, 60, 400):
+            window = Window("sold", start, start + dt.timedelta(days=length), zone, step)
+            assert window_steps(window) == len(window_bounds(window, zone)) - 1, (start, length)
+
+
+def test_a_window_of_millennia_is_refused_before_a_bound_is_built(engine, monkeypatch) -> None:
+    # Building every day from year 1 to 9999 took seconds and hundreds of megabytes before the
+    # cap refused it; the count is arithmetic now, and no bound is built for a refused window.
+    def built(*_args: object) -> None:  # pragma: no cover - the test fails if it is reached
+        raise AssertionError("a bound was built for a window the caps refuse")
+
+    monkeypatch.setattr(aggregation, "window_bounds", built)
+    window = Window("sold", dt.date(1, 1, 1), dt.date(9999, 12, 30), "UTC", "day")
+    with WriteGuardedSession(engine) as session, pytest.raises(ValidationFailedError, match="holds 3652058 days"):
+        Sales().aggregate(session, measures=["sales"], window=window)
 
 
 # ---- refusals at the request ------------------------------------------------------------
@@ -362,11 +390,33 @@ def test_a_step_the_bucket_does_not_offer_is_refused(engine) -> None:
         (lambda: Statistics(measures=(Measure("x"),), time_buckets=(TimeBucket("born", Sale.birth_date),)), "buckets by 'born', a field declared personal"),
         (lambda: Statistics(measures=(Measure("latest_email", Sale.buyer_email, op="max"),)), "max over a field declared personal"),
         (lambda: Statistics(measures=(Measure("born", Sale.birth_date, op="min"),)), "min over a field declared personal"),
+        # Each of these failed on every request on PostgreSQL, and a sum of text read 0 on SQLite.
+        (lambda: Statistics(measures=(Measure("regions", Sale.region, op="sum"),)), "sum over a str column, and sum adds up numbers only"),
+        (lambda: Statistics(measures=(Measure("latest", Sale.id, op="max"),)), "max over a UUID column, and max orders numbers, text and times only"),
+        (lambda: Statistics(measures=(Measure("any", cast(Sale.units, Boolean), op="max"),)), "max over a bool column"),
+        (lambda: Statistics(measures=(Measure("mean", cast(Sale.units, Boolean), op="avg"),)), "avg over a bool column"),
+        (lambda: Statistics(measures=(Measure("x"),), dimensions=(Dimension("payload", cast(Sale.region, JSON)),)), "groups by 'payload', a dict column"),
     ],
 )
 def test_a_declaration_that_could_not_be_honoured_is_refused_when_made(declare, words: str) -> None:
     with pytest.raises(TypeError, match=words):
         declare()
+
+
+def test_a_type_the_statistic_cannot_read_is_left_to_the_database() -> None:
+    from types import SimpleNamespace
+
+    from terp.core.aggregation_types import value_type
+
+    class Undeclared:
+        @property
+        def python_type(self) -> type:
+            raise NotImplementedError
+
+    assert value_type(SimpleNamespace(type=Undeclared())) is None
+    assert value_type(type_coerce(Sale.units, NullType())) is None
+    assert value_type(Sale.region) is str, "a decorator is read as the type it stores"
+    Statistics(measures=(Measure("odd", type_coerce(Sale.units, NullType()), op="sum"),))
 
 
 def test_a_service_that_would_hand_back_a_persons_value_is_refused_when_defined() -> None:
@@ -375,6 +425,45 @@ def test_a_service_that_would_hand_back_a_persons_value_is_refused_when_defined(
         class LeakySales(BaseService[Sale, SaleCreate, SaleUpdate]):
             model = Sale
             measures = (Measure("spend", Sale.birth_date, op="sum"),)
+
+
+PERSONAL_EXPRESSIONS = {
+    "under a function": lambda: func.lower(Sale.buyer_email),
+    "under a cast": lambda: cast(Sale.buyer_email, String),
+    "under a label": lambda: Sale.buyer_email.label("who"),
+    "through the Core table": lambda: Sale.__table__.c.buyer_email,  # type: ignore[attr-defined]
+    "through a copy of the table": lambda: Sale.__table__.to_metadata(MetaData()).c.buyer_email,  # type: ignore[attr-defined]
+    "through an ORM alias": lambda: aliased(Sale).buyer_email,
+    "through a Core alias": lambda: Sale.__table__.alias().c.buyer_email,  # type: ignore[attr-defined]
+    "in a subquery's column": lambda: select(func.lower(Sale.buyer_email).label("who")).subquery().c.who,
+}
+
+
+@pytest.mark.parametrize("shape", sorted(PERSONAL_EXPRESSIONS))
+def test_a_personal_field_is_refused_wherever_an_expression_reads_it(shape: str) -> None:
+    # Each of these grouped by the buyer's address, a group per person, until it was refused.
+    expression = PERSONAL_EXPRESSIONS[shape]()
+    with pytest.raises(TypeError, match=r"groups by 'who', a field declared personal \(Sale\.buyer_email\)"):
+        Statistics(measures=(Measure("x"),), dimensions=(Dimension("who", expression),))
+    with pytest.raises(TypeError, match=r"buckets by 'when', a field declared personal \(Sale\.buyer_email\)"):
+        Statistics(measures=(Measure("x"),), time_buckets=(TimeBucket("when", expression),))
+    with pytest.raises(TypeError, match=r"as max over a field declared personal \(Sale\.buyer_email\)"):
+        Statistics(measures=(Measure("latest", expression, op="max"),))
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [literal_column("buyer_email"), column("buyer_email"), text("buyer_email")],
+    ids=["literal column", "bare name", "text"],
+)
+def test_sql_that_names_no_model_column_is_refused_as_possibly_personal(expression) -> None:
+    with pytest.raises(TypeError, match="groups by 'who', SQL that names no model column"):
+        Statistics(measures=(Measure("x"),), dimensions=(Dimension("who", expression),))
+
+
+def test_an_expression_over_fields_that_are_not_personal_is_declared() -> None:
+    lowered = Statistics(measures=(Measure("x"),), dimensions=(Dimension("region", func.lower(Sale.region)),))
+    assert lowered.dimensions[0].name == "region"
 
 
 def test_only_counts_may_run_over_personal_data() -> None:
@@ -422,6 +511,21 @@ def test_a_statistic_is_never_narrowed_by_a_personal_filter(engine) -> None:
     assert total == 3 and len(rows) == 3
 
 
+class LoweredBuyerSales(Sales):
+    """The list may filter by the buyer's address under a function; a statistic still may not."""
+
+    filterable = (*Sales.filterable, FilterField("buyer", func.lower(Sale.buyer_email), op="contains"))
+
+
+def test_a_statistic_is_never_narrowed_by_an_expression_of_a_personal_field(engine) -> None:
+    with WriteGuardedSession(engine) as session:
+        refused = r"Filter 'buyer' narrows by a field declared personal \(Sale\.buyer_email\)"
+        with pytest.raises(ValidationFailedError, match=refused):
+            LoweredBuyerSales().aggregate(session, measures=["sales"], filters={"buyer": "a@"})
+        _, total = LoweredBuyerSales().list(session, skip=0, limit=10, filters={"buyer": "a@"})
+    assert total == 3
+
+
 def test_a_page_of_series_is_capped_by_its_points(engine) -> None:
     statistics = Statistics(
         measures=(Measure("sales"),),
@@ -435,6 +539,70 @@ def test_a_page_of_series_is_capped_by_its_points(engine) -> None:
             aggregate(session, select(Sale), statistics, measures=["sales"], by=["region"], window=window, limit=3)
         groups, _ = aggregate(session, select(Sale), statistics, measures=["sales"], by=["region"], window=window, limit=1)
     assert len(groups[0].series or []) == 31
+
+
+class IdSales(Sales):
+    """Grouped by the id every Terp row has, with a maximum over text."""
+
+    measures = (Measure("sales"), Measure("last_region", Sale.region, op="max"))
+    dimensions = (Dimension("sale", Sale.id),)
+
+
+def test_a_group_by_an_id_and_a_maximum_of_text_answer(engine) -> None:
+    """Each was a 500 on every request: the values came back as a UUID and as text, which the
+    group refused, though every Terp id is a UUID."""
+    with WriteGuardedSession(engine) as session:
+        groups, total = IdSales().aggregate(session, measures=["sales"], by=["sale"], limit=5)
+        whole, _ = IdSales().aggregate(session, measures=["last_region"])
+    assert total == 6 and all(isinstance(group.dimensions["sale"], uuid.UUID) for group in groups)
+    assert whole[0].measures == {"last_region": "south"}
+
+
+def test_a_series_without_a_dimension_is_one_group_to_the_points_cap(engine) -> None:
+    """Without a dimension there is one group, but the cap counted the page size asked for, so
+    a year of days over the whole scope was refused at the default page size."""
+    statistics = Statistics(
+        measures=(Measure("sales"),),
+        dimensions=(Dimension("region", Sale.region),),
+        time_buckets=(TimeBucket("sold", Sale.sold_at, steps=("day",)),),
+        max_points=60,
+    )
+    window = Window("sold", dt.date(2026, 10, 1), dt.date(2026, 10, 31), AMSTERDAM, "day")
+    with WriteGuardedSession(engine) as session:
+        groups, _ = aggregate(session, select(Sale), statistics, measures=["sales"], window=window, limit=3)
+    assert len(groups) == 1 and len(groups[0].series or []) == 31
+
+
+class LongSales(Sales):
+    time_buckets = (TimeBucket("sold", Sale.sold_at, steps=("day",), max_buckets=800),)
+
+
+def test_a_series_longer_than_one_compound_select_of_sqlite_answers(engine) -> None:
+    """SQLite reads at most 500 terms of one compound SELECT, and the steps were one."""
+    window = Window("sold", dt.date(2025, 1, 1), dt.date(2026, 12, 31), "UTC", "day")
+    with WriteGuardedSession(engine) as session:
+        groups, _ = LongSales().aggregate(session, measures=["sales"], window=window, limit=1)
+    series = groups[0].series or []
+    assert len(series) == 730
+    counted = {point.date.isoformat(): point.measures["sales"] for point in series if point.measures["sales"]}
+    assert counted == {"2026-10-01": 1, "2026-10-15": 2, "2026-10-25": 1, "2026-11-02": 1, "2026-11-03": 1}
+
+
+def test_a_day_the_zone_skipped_is_labelled_by_its_own_date(engine) -> None:
+    """Samoa skipped 30 December 2011. Its step began where the 31st did and was labelled the
+    31st, so the series named one day twice and the 30th not at all."""
+    window = Window("sold", dt.date(2011, 12, 28), dt.date(2012, 1, 1), "Pacific/Apia", "day")
+    with WriteGuardedSession(engine) as session:
+        groups, _ = Sales().aggregate(session, measures=["sales"], window=window)
+    series = groups[0].series or []
+    assert [point.date.isoformat() for point in series] == [
+        "2011-12-28",
+        "2011-12-29",
+        "2011-12-30",
+        "2011-12-31",
+        "2012-01-01",
+    ]
+    assert series[2].start == series[3].start, "a skipped day has no instant of its own"
 
 
 def test_the_response_model_is_typed_by_the_declarations() -> None:
@@ -510,6 +678,7 @@ def test_a_statistics_route_answers_a_typed_page(client) -> None:
         ({"measures": ["sales"] * 17}, 422, "measures"),
         ({"measures": "Sales;drop"}, 422, "measures"),
         ({"measures": "sales", "zone": "x" * 65}, 422, "zone"),
+        ({"measures": "sales", "skip": str(10**20)}, 400, "starts at row 9223372036854775807 at the latest"),
     ],
 )
 def test_a_statistics_route_refuses_what_it_cannot_answer(client, params: dict, status: int, words: str) -> None:

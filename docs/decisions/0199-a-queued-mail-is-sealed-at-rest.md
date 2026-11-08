@@ -112,6 +112,14 @@ and a half of backoff. The reader stays through the 0.36 releases and is removed
 whose upgrade note asks a deployment coming from 0.36.0 or earlier to let `terp outbox backlog`
 show nothing pending first.
 
+**Amended in 0.39.0: the reader is removed now.** 0.37.0 and 0.38.0 shipped it with neither the
+removal nor the note. From 0.39.0 the worker reads a mail sealed or not at all: a stored row in
+the plaintext form fails its job with `MailPlaintextRetiredError` (`mail_plaintext_retired`),
+which names the remedy, and retries and dead-letters with nothing sent. The plaintext form stays
+an input: a caller that enqueues the message's fields, `terp jobs run mail.message.send`
+included, still queues it sealed, since the payload is sealed when it is written. 0.39.0's
+upgrade note carries the advice above.
+
 Rows an earlier release already dispatched or dead-lettered are not rewritten. The worker never
 reads them again and the re-seal moves sealed values only, so their recipients and text stay in
 plaintext until the rows are removed. The tokens in them stop working once the longest link

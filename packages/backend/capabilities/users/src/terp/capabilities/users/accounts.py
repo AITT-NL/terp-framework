@@ -37,6 +37,19 @@ from terp.capabilities.users.self_service import AccountDeletion, SelfService
 from terp.capabilities.users.service import UsersService
 
 
+class PasswordNotConfirmedError(AppError):
+    """403 — the password given to confirm an action is not the account's.
+
+    Not a 401: the caller's session is valid, and a client that reads a 401 as an expired
+    session refreshes, replays the request (a second counted failure) and signs the person out
+    for a mistyped password.
+    """
+
+    status_code = 403
+    code = "password_not_confirmed"
+    default_message = "That is not this account's password. Enter the password you sign in with."
+
+
 class AccountSignsInElsewhereError(AppError):
     """409 — the account has no password here: it signs in through an identity provider."""
 
@@ -184,7 +197,7 @@ class AccountsService:
         if user.hashed_password is None:
             raise AccountSignsInElsewhereError()
         if not verify_password(password, user.hashed_password):
-            raise AuthenticationError()
+            raise PasswordNotConfirmedError()
         self._users.close_account(
             session, user.id, remove=self._declaration.deletion is AccountDeletion.REMOVE
         )
@@ -205,4 +218,4 @@ def _user_for(users: UsersService, session: Session, claims: dict[str, Any] | No
         return None
 
 
-__all__ = ["AccountSignsInElsewhereError", "AccountsService"]
+__all__ = ["AccountSignsInElsewhereError", "AccountsService", "PasswordNotConfirmedError"]

@@ -166,14 +166,36 @@ class CorsPolicy:
 
 @dataclass(frozen=True)
 class RateLimit:
-    """A fixed-window request-rate cap; ``requests <= 0`` disables it."""
+    """A fixed-window request-rate cap; ``requests <= 0`` disables it.
+
+    :meth:`general` is a declaration rather than a number: the application's general limit,
+    counted in a bucket of its own (ADR 0138). It is read where a module's declarations and an
+    application's overrides are merged, so it follows whatever the application sets.
+    """
 
     requests: int = 240
     window_seconds: int = 60
+    #: Read as the application's general limit where it is declared: :meth:`general`.
+    follows_general: bool = False
 
     def __post_init__(self) -> None:
         if self.window_seconds <= 0:
             raise ValueError("RateLimit.window_seconds must be positive")
+
+    @classmethod
+    def general(cls) -> RateLimit:
+        """The application's general limit, counted in a bucket of its own (ADR 0138).
+
+        For a route whose requests cost what ordinary ones do, but which should not spend
+        the rest of the API's allowance: a media link a player reads with many range
+        requests. A number written instead holds the route to the framework's default even
+        where the application set its general limit tighter.
+        """
+        return cls(follows_general=True)
+
+    def resolved(self, general: RateLimit) -> RateLimit:
+        """This limit, with :meth:`general` read as the application's *general* limit."""
+        return general if self.follows_general else self
 
     @property
     def enabled(self) -> bool:
@@ -260,6 +282,11 @@ class SecurityConfig:
             raise ValueError("SecurityConfig.request_id_header must be a non-empty header name")
         if self.trusted_proxy_hops < 0:
             raise ValueError("SecurityConfig.trusted_proxy_hops must be zero or positive")
+        if self.rate_limit.follows_general:
+            raise ValueError(
+                "SecurityConfig.rate_limit is the general limit itself; give it numbers "
+                "(RateLimit(requests=..., window_seconds=...)), not RateLimit.general()"
+            )
         for prefix, _limit in self.rate_limit_overrides:
             if not prefix.startswith("/"):
                 raise ValueError(

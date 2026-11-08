@@ -37,7 +37,7 @@ from terp.core.app import register_error_handlers
 from terp.core.db import get_session
 from terp.core.jobs import configure_jobs, reset_jobs_runtime
 
-from terp.capabilities.auth import hash_password, verify_password
+from terp.capabilities.auth import LoginThrottle, hash_password, verify_password
 from terp.capabilities.identity import AccountToken, IdentityService, RefreshToken, RefreshTokenService, User
 from terp.capabilities.mail import MAIL_SEND, CapturingMailTransport, MailMessage, MailSettings, configure_mail, reset_mail
 from terp.capabilities.users import (
@@ -393,7 +393,10 @@ def test_closing_an_account_takes_the_password_scrubs_it_and_ends_every_session(
     with WriteGuardedSession(engine) as session:
         RefreshTokenService().issue(session, user_id)
     client = _client(engine, principal=Principal(id=user_id, role=Roles.VIEWER))
-    assert client.post(_CLOSE, json={"password": "not the password"}).status_code == 401
+    mistyped = client.post(_CLOSE, json={"password": "not the password"})
+    # A 403 that names the fix, never a 401: a client takes a 401 for an expired session,
+    # refreshes, replays and signs the person out for a mistyped password.
+    assert (mistyped.status_code, mistyped.json()["code"]) == (403, "password_not_confirmed")
     assert client.post(_CLOSE, json={"password": _PASSWORD}).status_code == 204
     (user,) = _rows(engine, User)
     assert (user.is_active, user.hashed_password, user.token_version) == (False, None, 1)
@@ -509,7 +512,20 @@ def test_repeated_requests_and_failed_redemptions_back_off(engine: Any, mail: Ca
     assert guesses[0] == 400 and 429 in guesses, guesses
     closing = _client(engine, principal=Principal(id=_user(engine, "c@example.test"), role=Roles.VIEWER))
     attempts = [closing.post(_CLOSE, json={"password": "wrong"}).status_code for _ in range(8)]
-    assert attempts[0] == 401 and 429 in attempts, attempts
+    assert attempts[0] == 403 and 429 in attempts, attempts
+
+
+@pytest.mark.parametrize("path", [_SIGN_UP, _RESET])
+def test_requests_about_an_address_never_hold_up_its_sign_in(engine: Any, mail: CapturingMailTransport, path: str) -> None:
+    # A shared store is the common deployment. Requests about an address counted under the
+    # address itself, the key sign-in's backstop reads, so enough callers asking once each
+    # locked its owner out of signing in. They count in a namespace of their own now.
+    store = InMemoryThrottleStore()
+    client = _client(engine, throttle_store=store)
+    for caller in range(50):
+        asker = TestClient(client.app, client=(f"10.2.0.{caller}", 50000))
+        assert asker.post(path, json={"email": "owner@example.test"}).status_code == 202
+    LoginThrottle(store=store).check("owner@example.test", source="10.9.9.9")  # not backed off
 
 
 def test_bad_tokens_from_many_callers_never_hold_up_an_honest_one(engine: Any, mail: CapturingMailTransport) -> None:

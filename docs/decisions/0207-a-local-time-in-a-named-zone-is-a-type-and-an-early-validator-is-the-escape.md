@@ -20,7 +20,7 @@ a local time in that zone, and one with an offset is the instant it names. Eithe
 arrives as an instant, aware and in UTC. A wall time the clocks skip in the zone, or repeat, is
 refused, since it names no instant or two. A place names the instant, so the type is no escape,
 and it is held to that: a zone that names no place, such as UTC under any name, is refused when
-declared, and the type cannot be subclassed or changed.
+declared, the type cannot be subclassed, and an instance refuses a change.
 
 What is the escape is an app's own validator that reads a timestamp's text before its type
 does. The `request_timestamps_carry_their_offset` rule now counts a `before`, `wrap` or `plain`
@@ -71,7 +71,16 @@ sends the offset, as `DateTimeInput` does. A declaration is checked when it is m
   ever changed: every place began on its own mean solar time and has moved since, while UTC and
   a fixed offset never have. Reading a time in UTC is `NaiveMeansUtc`'s, which the rule counts,
   so the type does not offer it unmarked. A place that keeps UTC today, such as
-  `Atlantic/Reykjavik`, is still a place;
+  `Atlantic/Reykjavik`, is still a place.
+  **Amended in 0.39.0, before release: a place is judged by its name.** Judged by the zone's
+  history, the answer was the host's: the `tzdata` package reads `EST`, `MST` and `HST` as
+  Panama, Phoenix and Honolulu from its 2024b release, where many a host's own database keeps
+  them fixed offsets, so an app passed its tests on one host and failed at import on another. A
+  place is now a name of the form Area/Location, under an area other than `Etc`, that the pinned
+  `tzdata` package holds; the history check stays behind it. A name without an area (`EST`,
+  `UTC`, `CET`, `Japan`, the host's `localtime`) is refused on every host, and so is a name only
+  one host's database holds (`posix/Europe/Amsterdam`). An old name with an area, such as
+  `US/Eastern`, is still a place;
 - `LocalTimeIn` on anything but a plain `datetime`, or after other metadata, raises a
   `TypeError` that says where it goes: directly after `datetime`.
 
@@ -104,9 +113,14 @@ The type's reader runs behind the timestamp, as `NaiveMeansUtc`'s does. A `BaseS
 that node as the type built it, and knows it by the reader's own function, bound to an instance
 of the type itself, as it knows the escape's node by its function. Any other function, bound to
 anything, is not trusted, and the timestamp in front of it is judged as before. The type cannot
-be subclassed, and an instance cannot be changed once declared, so the reader the walk trusts is
-the one the type defines. The walk takes that reader when the framework loads, before any app
-code runs, so a function put on the class afterwards is not it either. The fields beside it are
+be subclassed, and an instance refuses a change through its attributes, so the reader the walk
+trusts is the one the type defines. The walk takes that reader when the framework loads, before
+any app code runs, so a function put on the class afterwards is not it either. Python lets
+`object.__setattr__` reach past an instance's refusal, so the walk also reads the zone again: the
+zone the reader uses must give the offsets of the zone its name gives, and that zone must be a
+place's, or the reader is not trusted. That holds when a schema is built and when `create_app`
+reads every route, so a zone swapped before the app starts is refused. Code that rewrites the
+framework's own functions while the app runs is beyond any check of this kind. The fields beside it are
 judged as before, and the rule does not count it.
 
 Its JSON schema is a `datetime`'s, `format: date-time`, as `NaiveMeansUtc`'s is. The contract
@@ -122,7 +136,11 @@ The rule counts each of these:
   `datetime`, `AwareDatetime` and Pydantic's other datetime types, in a union, a list or a
   quoted annotation;
 - each use of a name bound to such a type, as each use of a name bound to `NaiveMeansUtc`
-  counts, so one marker never covers more than one field;
+  counts, so one marker never covers more than one field. That holds across the app's
+  modules: a type, or a validator, one module declares is counted at each use in every module
+  that imports it, by name, under another name, as a module's attribute or through a re-export
+  (amended in 0.39.0, before release: the rule read one file at a time and counted such a type
+  once, where it was declared, so one marker there covered every field that imported it);
 - a `field_validator` in `before`, `wrap` or `plain` mode, or Pydantic 1's `validator` with
   `pre=True`, written as a decorator or a call in the body of a class or of a base the same file
   defines, on a field that class or one of those bases declares as a timestamp. The field may be
@@ -208,3 +226,8 @@ An independent review of the first build found:
   file the parser takes. Its walks now keep their own lists.
 - **The remedy in `BaseSchema`'s refusal of a taken hook** named the type as if it were a type,
   and now spells the declaration.
+
+A second review, of 0.39.0 before its release, found that `object.__setattr__` swapped a declared
+instance's zone past its refusal of a change, for UTC say, and the walk still trusted its reader,
+which then read a time without an offset as UTC. The walk now reads the zone again (decision 3),
+and this record no longer says an instance cannot be changed.

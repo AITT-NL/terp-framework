@@ -12,7 +12,7 @@ A browser's local date-and-time control hands the page a wall time with no UTC o
 
 ## How Terp realises this
 
-Any JSX `type` attribute whose value is `datetime-local` is refused, on `Input`, a raw `input` or a wrapper that passes it on, in any letter case (the browser reads the type case-insensitively), as a string, an expression or a plain template. The reference stack ships `DateTimeInput` from `@terpjs/react-core`: it shows an RFC 3339 instant as wall time in a zone, the browser's own or one it is given, and sends what is picked as an RFC 3339 instant with that zone's offset; a wall time the clocks skip moves past the gap, and one they repeat is the earlier. A calendar day (`type="date"`) and a time of day (`type="time"`) name no instant and are not this rule's concern. The runtime half is the server's: a BaseSchema refuses timestamp text without an offset with a 422 (ADR 0206). A field that truly holds a wall time with a named zone, read as text by the API, keeps the control with the marker and its reason.
+Any JSX `type` attribute whose value can be `datetime-local` is refused, on `Input`, a raw `input` or a wrapper that passes it on, in any letter case (the browser reads the type case-insensitively). The value is followed wherever it is spelled inline: a string, a template, a branch of a conditional or of `??`, `||` and `&&`, a concatenation of those, the last of a comma sequence, and the expression under `as const`, `satisfies` or `!`. A value read from a name, a call or a member, a props object spread onto the element, `createElement` and a type set through the DOM are not followed; its residuals say so. The reference stack ships `DateTimeInput` from `@terpjs/react-core`: it shows an RFC 3339 instant as wall time in a zone, the browser's own or one it is given, and sends what is picked as an RFC 3339 instant with that zone's offset; a wall time the clocks skip moves past the gap, and one they repeat is the earlier. A calendar day (`type="date"`) and a time of day (`type="time"`) name no instant and are not this rule's concern. The runtime half is the server's: a BaseSchema refuses timestamp text without an offset with a 422 (ADR 0206). A field that truly holds a wall time with a named zone, read as text by the API, keeps the control with the marker and its reason.
 
 ## If you really need an exception
 
@@ -32,7 +32,7 @@ A check precise enough to have no false positives has limits. This
 rule's limits are recorded as data (its corpus's `RESIDUALS.json`), so
 where detection ends is a statement rather than a guess:
 
-- a type reached through a spread or a variable (`type={kind}`), and an input whose type is set through the DOM rather than in JSX, are not resolved to the local date-and-time control
+- a type read from a name, a call or a member (`type={kind}`), a props object spread onto the element, `createElement`, and an input whose type is set through the DOM rather than in JSX, are not resolved to the local date-and-time control
 
 **These are not exemptions.** The rule governs those forms exactly as it
 governs any other — a checker is simply not required to find them, so
@@ -42,5 +42,5 @@ adding the corpus case that contracts it.
 ## Enforcement
 
 - Checked while the app runs? Yes — the framework also enforces this while the app runs (fail closed).
-- `build-time`: `@terpjs/eslint-boundaries` — `BOUNDARY_SPEC.restrictLocalDateTimeInput`
+- `build-time`: `@terpjs/eslint-boundaries` — `terp/timestamp-inputs-carry-their-offset`
 - `runtime`: `terp.core` — `refuse_timestamp_text_without_offset`

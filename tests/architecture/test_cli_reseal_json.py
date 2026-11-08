@@ -27,7 +27,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from sqlalchemy import JSON, Column, Engine, Integer, MetaData, String, Table, create_engine, insert, select
+from sqlalchemy import JSON, Column, Engine, Integer, MetaData, String, Table, Text, cast, create_engine, insert, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Session
 
@@ -35,7 +35,7 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLI_SRC = _REPO_ROOT / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli.reseal import ResealReport, _render, survey  # noqa: E402
+from terp.cli.reseal import ResealReport, _as_document, _render, survey  # noqa: E402
 
 from terp.core import (  # noqa: E402
     JobCatalog,
@@ -239,6 +239,33 @@ def test_every_sealed_string_in_a_document_is_judged_and_only_a_fallback_is_rewr
     assert unreadable in _sealed_strings(after) and doc["current"] in _sealed_strings(after)
     monkeypatch.setattr(settings, "SECRET_KEY_DECRYPT_FALLBACKS", [])
     assert {check_sealed_value(v).state for v in _sealed_strings(after) if v != unreadable} == {SealState.CURRENT}
+
+
+def test_every_byte_a_reseal_has_no_reason_to_change_is_left_as_it_was(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Read as an object and written back, the document lost what a float does not keep:
+    # 1234567890.123456789012 came back as 1234567890.1234567 beside the value being re-sealed.
+    register_decrypt_call_site(_opened)
+    mapping = MetaData()
+    documents = _documents(mapping)
+    mapping.create_all(engine)
+    old = encrypt_config("one")
+    _rotate(monkeypatch)
+    text = json.dumps({"precise": 0, "ends": 'a quote then "' + old, "sealed": old}).replace(
+        '"precise": 0', '"precise": 1234567890.123456789012'
+    )
+    with engine.begin() as conn:
+        conn.execute(insert(documents).values(id=1, doc=_as_document(conn, documents.c.doc, text)))
+    written = survey(engine, write=True, metadata=mapping)
+    assert _counts(written, "cli_reseal_documents", "doc") == {"resealed": 1}
+    with engine.connect() as conn:
+        stored = conn.execute(select(cast(documents.c.doc, Text))).scalar_one()
+        after = conn.execute(select(documents.c.doc)).scalar_one()
+    assert "1234567890.123456789012" in stored
+    # A string that only ends in the sealed text is not the sealed value, and is left alone.
+    assert after["ends"] == 'a quote then "' + old and after["sealed"] != old
+    assert _opened(after["sealed"]) == "one"
 
 
 # --------------------------------------------------------------------------- #

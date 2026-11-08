@@ -17,11 +17,23 @@ from terp.cli.api_contract_shapes import Change
 UPPER_BOUNDS = ("maxLength", "maximum", "exclusiveMaximum", "maxItems")
 LOWER_BOUNDS = ("minLength", "minimum", "exclusiveMinimum", "minItems")
 
+#: The bounds OpenAPI 3.0 writes as a boolean beside ``maximum`` or ``minimum``.
+_EXCLUSIVE = frozenset({"exclusiveMaximum", "exclusiveMinimum"})
+
+
+def _admits_the_bound(key: str, value: Any) -> bool:
+    """Whether *value* of *key* refuses nothing: no exclusive bound, or 3.0's ``false``."""
+    return key in _EXCLUSIVE and (value is None or value is False)
+
 
 def diff_bounds(where: str, subject: str, before: Mapping[str, Any], after: Mapping[str, Any]) -> Iterator[Change]:
     for key in UPPER_BOUNDS:
         old, new = before.get(key), after.get(key)
         if _same_value(old, new):
+            continue
+        if _admits_the_bound(key, old) and _admits_the_bound(key, new):
+            # 3.0's ``false`` admits exactly what absence admits: the text changed, not the shape.
+            yield Change(False, where, f"{subject} {key} {_shown(old)} -> {_shown(new)}")
             continue
         if _excludes(old, new):
             yield Change(True, where, f"{subject} {key} {old if old is not None else 'none'} -> {new}")
@@ -32,6 +44,9 @@ def diff_bounds(where: str, subject: str, before: Mapping[str, Any], after: Mapp
     for key in LOWER_BOUNDS:
         old, new = before.get(key), after.get(key)
         if _same_value(old, new):
+            continue
+        if _admits_the_bound(key, old) and _admits_the_bound(key, new):
+            yield Change(False, where, f"{subject} {key} {_shown(old)} -> {_shown(new)}")
             continue
         if _excludes(old, new):
             yield Change(True, where, f"{subject} {key} {old if old is not None else 'none'} -> {new}")
@@ -45,6 +60,10 @@ def diff_bounds(where: str, subject: str, before: Mapping[str, Any], after: Mapp
             yield Change(True, where, f"{subject} must now match {new_pattern!r}")
         else:
             yield Change(False, where, f"{subject} no longer has to match {old_pattern!r}")
+
+
+def _shown(value: Any) -> str:
+    return "none" if value is None else str(value)
 
 
 def _number(value: Any) -> float:

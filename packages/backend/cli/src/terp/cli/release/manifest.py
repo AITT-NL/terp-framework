@@ -57,9 +57,19 @@ def carried_contract(tree: Tree) -> dict[str, dict[str, str]]:
     another repository pins a release to read it. The signature vouches for the file, not for
     the app serving it: the ``api-contract`` check holds the file to the app, and ``sign``
     does not require that check, whose verdict is in no lane of the claim it reads. An app
-    that has not adopted the contract carries none, and its manifest is unchanged.
+    that has not adopted the contract carries none, and its manifest is unchanged. A contract
+    committed as a symbolic link is refused: the commit holds only the link's text, which is
+    not a contract, and the check reads the file it points to instead.
     """
-    return {"contract": _file(tree, CONTRACT_ARTIFACT)} if tree.has(CONTRACT_ARTIFACT) else {}
+    if not tree.has(CONTRACT_ARTIFACT):
+        return {}
+    if tree.entries[CONTRACT_ARTIFACT].link:
+        raise ReleaseError(
+            f"{CONTRACT_ARTIFACT} is committed as a symbolic link, so the release would carry "
+            "the link's own text in place of the API contract (ADR 0194): commit the contract "
+            f"itself - remove the link, then uv run terp openapi, then commit {CONTRACT_ARTIFACT}"
+        )
+    return {"contract": _file(tree, CONTRACT_ARTIFACT)}
 
 
 def _base_images(tree: Tree, plan: Plan) -> list[dict[str, str]]:

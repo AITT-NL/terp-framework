@@ -1,6 +1,6 @@
 # 0201 — A file's bytes are handed out from where they rest
 
-- **Status:** Accepted; built in 0.36.1.
+- **Status:** Accepted; built in 0.36.1. Decision 3 amended in 0.39.0 (see there).
 - **Date:** 2026-11-05.
 - **Relates:** [ADR 0056](0056-files-capability.md) (the capability), [ADR 0057](0057-files-storage-profiles-and-references.md)
   (named profiles, `FileRef` and the serve-through read this extends),
@@ -78,6 +78,24 @@ client's small surface, checked against the real client's shape, with the SDK's 
 exception types; running either against an emulator in the conformance lane is a later change
 of its own.
 
+**Amended in 0.39.0: an S3 link never outlives its signature.** A URL signed with temporary
+credentials (a role's, an instance profile's, an SSO session's) stops working when they expire,
+whatever its own expiry says, so a link could die before the `expires_at` the service reported.
+The S3 adapter now signs only when the credentials it signs with outlive the link by a minute,
+judged after botocore refreshes credentials about to lapse and before the URL is signed; where
+they do not, where a session token's expiry cannot be read, and where the client holds no
+credentials, it hands out none and the API serves the bytes behind an app-signed link for the
+whole lifetime. Long-term keys carry no token and sign as before. botocore reads a client's
+credentials only through its private `_get_credentials`; were that removed, links would come
+from the API, never from credentials nobody judged. A deployment whose links should come from
+the store gives its role a session longer than its longest link.
+
+**Amended in 0.39.0: a network failure is the typed 502 too.** The classes the S3 client
+carries are the store's own answers; a refused connection, a timeout or credentials that could
+not be refreshed raise botocore's `BotoCoreError` instead, which escaped every operation as a
+500. The adapter now imports that one class when it is built, and fails at boot with the install
+line where the extra is missing, as the Azure adapter does.
+
 ### 3. A link is minted where a download is authorized
 
 `FileService.link(session, file_id, *, ttl=None, inline=False) -> FileLink` runs the same checks as
@@ -95,14 +113,27 @@ rather than saved, and is honoured only for a type a browser renders without run
 in it (image, audio, video, PDF): a stored HTML page is an attachment whatever was asked, so
 nothing a user uploaded is ever rendered on the API's own origin.
 
+**Amended in 0.39.0.** A review found that a content type was judged by what came before its
+first `;`. So `image/png, text/html` passed an `image/*` allowlist, met no signature check, since
+none is listed for it, was shown inline as an image, and was served back raw as the
+`Content-Type`, where a browser takes the last type of a list and renders HTML. An upload's
+content type must now be one media type, a type and a subtype with parameters (RFC 9110) and no
+comma anywhere, or it is refused with a 415, `content_type_malformed`, before any byte lands. The
+inline rule and the served `Content-Type` judge the parsed type: a row an earlier release stored
+with a list is served as `application/octet-stream`, as an attachment, and handed to a store's
+own link the same way.
+
 ### 4. Where the backend cannot link, the capability signs one
 
 For the local adapter, and for a store whose credentials cannot sign, the service mints an
 **app-signed link**: a token sealed under a sealing domain of its own (`files.link`) carrying
 the file id, the expiry and whether the bytes are shown inline, served at
 `GET /api/v1/files/link/{token}`. That route is declared `Policy.public(reason=...)` on the
-route (ADR 0148), with its own rate limit (ADR 0138), and it is the only public route of the
-capability. It opens the token, refuses an expired, altered or foreign one with a 404 that does
+route (ADR 0148), with its own rate limit (ADR 0138): the application's general limit,
+`RateLimit.general()`, counted in a bucket of its own, so a player's range requests never spend
+the rest of the API's allowance (amended in 0.39.0: it declared `RateLimit()`, the framework's
+default, which stayed 240 a minute where an application set its general limit tighter). It is
+the only public route of the capability. It opens the token, refuses an expired, altered or foreign one with a 404 that does
 not say which (a token longer than any it mints is refused by the path's length cap before it
 is read), runs `ensure_servable` again (a verdict can change after a link was minted), and
 streams with `Range` support. The token is the secret:
@@ -115,6 +146,18 @@ The authenticated content route and the app-signed route honour one `bytes=` ran
 satisfy, and a multi-range request answered whole with `200`, as RFC 9110 allows. The local
 adapter's stream seeks; a stream that cannot seek is read and discarded up to the offset, which
 only an adapter that neither links nor seeks would pay.
+
+**Amended in 0.39.0: the store reads the range.** The last sentence was wrong. The
+authenticated content route serves the bytes of every profile, a store that links included, and
+both shipped adapters return a stream that cannot seek: a seek far into a large object fetched
+every byte before it, and Azure's own downloader fetched its first 32 MiB on every open before
+it returned at all. The route now reads the range before it opens the bytes, and the port has a
+second method with a default, `open_range(key, *, offset, length)`. The default opens the whole
+blob and moves to the offset, as before; the S3 adapter overrides it with one ranged `GET`, and
+the Azure adapter reads every blob in windows of at most 4 MiB, one request each as the stream
+is read, every window after the first naming the blob's ETag so two versions never splice into
+one body. An adapter of an app's own keeps working unchanged, and overrides `open_range` when its
+store can read a range.
 
 ### 6. What does not change
 

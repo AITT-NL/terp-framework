@@ -304,6 +304,39 @@ describe("terpBoundaries", () => {
     ).toEqual([]);
   });
 
+  it("refuses a datetime-local type however it is spelled inline", async () => {
+    // The catalog says "an expression": a selector read only a string or a plain template as
+    // the attribute's direct value, so each of these passed.
+    for (const spelling of [
+      '"datetime-local"',
+      '{"DATETIME-LOCAL"}',
+      "{`datetime-local`}",
+      '{withTime ? "datetime-local" : "date"}',
+      '{"datetime-local" as const}',
+      '{"datetime-local" satisfies string}',
+      '{kind ?? "datetime-local"}',
+      '{withTime && "datetime-local"}',
+      '{"datetime-" + "local"}',
+      '{`datetime-${"local"}`}',
+      '{`${withTime ? "datetime-" : "x"}local`}',
+      '{(0, "datetime-local")}',
+    ]) {
+      const found = await lint(`export const W = ({ withTime, kind }) => <Input type=${spelling} />;`);
+      expect(found, spelling).toContain("terp/timestamp-inputs-carry-their-offset");
+    }
+    for (const spelling of ['"date"', '{withTime ? "date" : "time"}', "{kind}", '{"datetime" + "-local-ish"}']) {
+      const found = await lint(`export const W = ({ withTime, kind }) => <Input type=${spelling} />;`);
+      expect(found, spelling).not.toContain("terp/timestamp-inputs-carry-their-offset");
+    }
+  });
+
+  it("follows a concatenation's branches only so far", async () => {
+    const branch = '(a ? "x" : "y")';
+    const many = Array.from({ length: 8 }, () => branch).join(" + ");
+    const found = await lint(`export const W = ({ a }) => <Input type={${many} + "datetime-local"} />;`);
+    expect(found).not.toContain("terp/timestamp-inputs-carry-their-offset");
+  });
+
   it("flags static javascript href/src values without rejecting dynamic URLs", async () => {
     expect(await lint('export const W = () => <a href=" javascript:alert(1)">bad</a>;')).toContain(
       "terp/no-unsafe-href",

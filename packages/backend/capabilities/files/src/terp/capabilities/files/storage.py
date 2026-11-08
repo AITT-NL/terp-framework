@@ -3,7 +3,8 @@
 The files capability owns all *metadata* in the platform database; the *bytes* flow through
 this port (the engine-adapter pattern of ADR 0046/0048 applied to storage): a tiny
 :class:`StorageBackend` ABC with exactly ``put`` / ``open`` / ``delete`` (streaming through
-readable binary objects, ADR 0066), and a registry of
+readable binary objects, ADR 0066) to implement, ``open_range`` for an adapter that reads a
+part of a blob itself, and a registry of
 **storage profiles** — named backend instances installed at the composition root
 (:func:`register_storage_backend`) and resolved fail-closed by name
 (:func:`resolve_storage_backend`). One provider class serves many uses: the same
@@ -33,6 +34,10 @@ from datetime import timedelta
 from typing import BinaryIO, Final
 
 from terp.core import AppError
+
+#: How much the default :meth:`StorageBackend.open_range` reads and discards at a time, on a
+#: stream that cannot seek: one bounded buffer, never the bytes before the range at once.
+_SKIP_CHUNK_BYTES: Final[int] = 64 * 1024
 
 # The profile every file rides unless a service / call selects another; also the hard cap
 # mirrored by the ``File.storage_profile`` column (a profile name is code-side vocabulary,
@@ -90,7 +95,8 @@ class StorageBackend(abc.ABC):
     stream positioned at the start of the blob, or raises :class:`FileNotFoundError` for an
     unknown key (the service maps it to a typed 404); the caller closes the stream.
     ``delete`` is **idempotent** (removing an unknown key is a no-op, so a compensation /
-    retry can never fail on an already-gone blob).
+    retry can never fail on an already-gone blob). ``open_range`` has a default that works
+    for every adapter; one that can read a part of a blob from its store overrides it.
     """
 
     @abc.abstractmethod
@@ -100,6 +106,23 @@ class StorageBackend(abc.ABC):
     @abc.abstractmethod
     def open(self, key: str) -> BinaryIO:
         """Return a readable binary stream for *key*; raise ``FileNotFoundError`` if absent."""
+
+    def open_range(self, key: str, *, offset: int, length: int) -> BinaryIO:
+        """A readable stream of *key*'s bytes from *offset*, *length* of them (ADR 0201).
+
+        The caller reads *length* bytes and closes the stream; raise ``FileNotFoundError``
+        for an unknown key, as :meth:`open` does. The default opens the whole blob and moves
+        to *offset*: by a seek where the stream can, by reading past the bytes before it where
+        it cannot. An adapter whose store reads a range itself overrides it, so a range far
+        into a large blob costs that range rather than every byte before it.
+        """
+        stream = self.open(key)
+        try:
+            _skip_to(stream, offset)
+        except BaseException:
+            stream.close()
+            raise
+        return stream
 
     @abc.abstractmethod
     def delete(self, key: str) -> None:
@@ -118,6 +141,23 @@ class StorageBackend(abc.ABC):
         read; it decides where the bytes come from.
         """
         return None
+
+
+def _skip_to(stream: BinaryIO, offset: int) -> None:
+    """Position *stream* at *offset*: a seek where it can, a bounded read-and-discard where not.
+
+    A stream that ends first stops the skip, so a blob shorter than its row says gives a
+    short body, which the response's length turns into a protocol error, never a hang.
+    """
+    seekable = getattr(stream, "seekable", None)
+    if callable(seekable) and seekable():
+        stream.seek(offset)
+        return
+    while offset > 0:
+        chunk = stream.read(min(_SKIP_CHUNK_BYTES, offset))
+        if not chunk:
+            return
+        offset -= len(chunk)
 
 
 class LocalFilesystemStorage(StorageBackend):
