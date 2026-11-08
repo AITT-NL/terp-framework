@@ -113,6 +113,16 @@ decision, 0001 onwards.
   changed are now breaking on a response, as a new `enum` value is. A bound that tightens a
   response is named without the label.
 
+- **`terp secrets reseal` works a batch of rows at a time, and passes over a row another
+  transaction holds (ADR 0189).** It ran one transaction per table, so every row it re-sealed
+  stayed locked until the whole table was done, and a worker settling a queued mail in the
+  outbox waited for the run, however large the table. A table is now read in primary-key order,
+  500 rows at a time, and each batch commits on its own. The rows a batch re-seals are locked
+  with `FOR UPDATE SKIP LOCKED` just before they are written, so a row a worker or the running
+  app holds is never waited for: its values under a fallback are counted in a new `held` column
+  (`held` in `--format json`), the run exits 1, and the next run re-seals them. A batch that
+  cannot be written rolls back alone; the batches before it keep their re-seal and are counted.
+
 ### Fixed
 
 - **A signed release no longer calls a lane passed that judged nothing (ADRs 0200, 0202).** The

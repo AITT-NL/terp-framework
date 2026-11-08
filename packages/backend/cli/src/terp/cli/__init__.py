@@ -362,7 +362,7 @@ Both are comma-separated. The procedure, in this order:
   2. Run `terp secrets reseal` where the app runs (its own container, its own
      environment). It rewrites every value sealed under a fallback under SECRET_KEY,
      one nested in a JSON column included (a queued mail in the outbox, ADR 0199),
-     one transaction per table, refuses while a migration is pending, is safe to run
+     one transaction per batch, refuses while a migration is pending, is safe to run
      twice, and exits 0 only when nothing is left. `--check` counts and writes nothing.
   3. Drop SECRET_KEY_DECRYPT_FALLBACKS once reseal reports nothing left. Keep the old
      key itself while a backup sealed under it may still be restored: restoring one

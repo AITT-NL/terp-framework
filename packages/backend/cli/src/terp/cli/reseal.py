@@ -25,11 +25,19 @@ it. This command is how an operator gets there, and how they know they have:
   configured key at all; the exit status is 0 only when every sealed value opens under
   ``SECRET_KEY``.
 
-Three properties make it safe to run against a live database:
+Four properties make it safe to run against a live database:
 
-* **One transaction per table.** A table that cannot be written (a trigger refusing
-  the update, a lost connection) rolls back whole and is reported; the tables before
-  and after it keep their re-seal.
+* **One transaction per batch of rows.** A table is read in primary-key order,
+  :data:`BATCH_ROWS` rows at a time, and each batch commits on its own, so a run holds a
+  row's lock from the moment it re-seals that row until its batch commits, and never for
+  a whole table the workers are using. A batch that cannot be written (a trigger refusing
+  the update, a lost connection) rolls back and is reported, and nothing after it in that
+  table is read; the batches and the tables before it keep their re-seal.
+* **A row another transaction holds is skipped, never waited for.** The rows a batch
+  re-seals are locked with ``FOR UPDATE SKIP LOCKED`` just before they are written, so a
+  row a worker or the running app holds locked is passed over. Its values under a
+  fallback are counted as held, which keeps the verdict from being clean, and the next
+  run re-seals them. SQLite has no row locks: its writers take turns.
 * **Compare-and-swap per value.** The update matches the value it read, so a value
   the running app rewrote in the meantime — sealed under ``SECRET_KEY`` already — is
   never overwritten with the stale copy; it is counted as changed, and the next run
@@ -53,65 +61,39 @@ import functools
 import json
 import pathlib
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
 from terp.cli._appref import load_app, push_app_root
+from terp.cli.reseal_report import ColumnTally, ResealReport
+from terp.cli.reseal_report import render as _render
 from terp.cli.schema import import_declared_models
 
 if TYPE_CHECKING:
     from sqlalchemy import Column, Connection, Engine, MetaData, Table
 
-__all__ = ["ColumnTally", "ResealReport", "reseal_command", "survey"]
+__all__ = ["BATCH_ROWS", "ColumnTally", "ResealReport", "reseal_command", "survey"]
 
 #: The format every sealing domain writes (``terp.core.secrets``). Matched with LIKE to
 #: find the candidates; the domains, not the prefix, decide what a value is.
 _SEALED_PREFIX = "enc:v1:"
+
+#: Rows read, judged and re-sealed per transaction.
+BATCH_ROWS = 500
 
 #: Exit statuses. 1 is "something still needs attention"; 2 is "did not run".
 _EXIT_CLEAN, _EXIT_REMAINS, _EXIT_REFUSED = 0, 1, 2
 
 
 @dataclass
-class ColumnTally:
-    """One column's sealed values, by the key each opens under."""
+class _Owed:
+    """One re-seal a batch owes: *value* into *column*, where *read* still holds."""
 
-    table: str
-    column: str
-    current: int = 0  # opens under SECRET_KEY
-    resealed: int = 0  # rewritten under SECRET_KEY by this run
-    fallback: int = 0  # still opens only under a SECRET_KEY_DECRYPT_FALLBACKS entry
-    unreadable: int = 0  # opens under no configured key, in no registered domain
-    changed: int = 0  # rewritten by someone else between this run's read and its write
-
-    @property
-    def found(self) -> int:
-        return self.current + self.resealed + self.fallback + self.unreadable + self.changed
-
-
-@dataclass
-class ResealReport:
-    """What one run found, wrote and could not reach."""
-
-    wrote: bool
-    columns: list[ColumnTally]
-    failed: dict[str, str]  # table -> why it was rolled back
-    skipped: dict[str, str] = field(default_factory=dict)  # table -> why nothing was re-sealed
-
-    def total(self, name: str) -> int:
-        return sum(getattr(tally, name) for tally in self.columns)
-
-    @property
-    def clean(self) -> bool:
-        """Every sealed value found opens under ``SECRET_KEY``, and every table was read.
-
-        A skipped table was read, so its values are in the totals: one that still needs a
-        fallback keeps the report from being clean, and one that opens under ``SECRET_KEY``
-        needs nothing.
-        """
-        return not self.failed and not any(
-            self.total(name) for name in ("fallback", "unreadable", "changed")
-        )
+    column: Column[Any]
+    read: Any  # the comparison that matches the value as this run read it
+    value: Any
+    tally: ColumnTally
+    count: int = 1  # the sealed values it re-seals: one, or every one in a document
 
 
 def _kind(column: Column[Any]) -> Any:
@@ -174,24 +156,10 @@ def _swap(
     return result.rowcount == 1
 
 
-def _settle(
-    conn: Connection,
-    table: Table,
-    where: list[Any],
-    column: Column[Any],
-    stored: str,
-    tally: ColumnTally,
-    *,
-    write: bool,
-) -> None:
-    """Count one sealed value, and with *write* re-seal it if it needs a fallback."""
+def _settle(column: Column[Any], stored: str, tally: ColumnTally, *, write: bool) -> _Owed | None:
+    """Count one sealed value; with *write*, return its re-seal if it needs a fallback."""
     resealed = _judge(stored, tally, write=write)
-    if resealed is None:
-        return
-    if _swap(conn, table, where, column == stored, column, resealed):
-        tally.resealed += 1
-    else:
-        tally.changed += 1
+    return None if resealed is None else _Owed(column, column == stored, resealed, tally)
 
 
 def _resealed(value: Any, settle: Callable[[str], str]) -> Any:
@@ -234,16 +202,9 @@ def _as_document(conn: Connection, column: Column[Any], text: str) -> Any:
 
 
 def _settle_document(
-    conn: Connection,
-    table: Table,
-    where: list[Any],
-    column: Column[Any],
-    text: str,
-    tally: ColumnTally,
-    *,
-    write: bool,
-) -> None:
-    """Count every sealed value in one JSON document; with *write*, re-seal those under a fallback.
+    conn: Connection, column: Column[Any], text: str, tally: ColumnTally, *, write: bool
+) -> _Owed | None:
+    """Count every sealed value in one JSON document; with *write*, return the re-seal it owes.
 
     The document is read as text, so the swap can match the text it read. A document that
     does not parse holds the sealed format somewhere no walk can reach, so it is counted as
@@ -255,7 +216,7 @@ def _settle_document(
         document = json.loads(text)
     except ValueError:
         tally.unreadable += 1
-        return
+        return None
     pending: dict[str, str] = {}
     found = 0
 
@@ -270,50 +231,112 @@ def _settle_document(
 
     _resealed(document, settle)
     if not pending:
-        return
+        return None
     rewritten = _as_document(conn, column, _rewrite_strings(text, pending))
-    if _swap(conn, table, where, cast(column, Text) == text, column, rewritten):
-        tally.resealed += found
-    else:
-        tally.changed += found
+    return _Owed(column, cast(column, Text) == text, rewritten, tally, found)
 
 
-def _survey_table(conn: Connection, table: Table, *, write: bool) -> list[ColumnTally]:
-    """Every sealed value in *table*, counted and (with *write*) re-sealed.
+def _matching(primary: list[Column[Any]], keys: list[tuple[Any, ...]]) -> Any:
+    """The rows whose primary key is one of *keys*."""
+    from sqlalchemy import tuple_
 
-    A table with no primary key is counted and never written: without a key, an update
-    that matches a row matches every row holding the same value. A JSON column is read as
-    its text form, and only a row whose text holds the sealed format somewhere is walked.
+    if len(primary) == 1:
+        return primary[0].in_([key[0] for key in keys])
+    return tuple_(*primary).in_(keys)
+
+
+def _after(primary: list[Column[Any]], key: tuple[Any, ...] | None) -> Any:
+    """The rows after *key* in primary-key order: every row, before the first batch."""
+    from sqlalchemy import literal, true, tuple_
+
+    if key is None:
+        return true()
+    if len(primary) == 1:
+        return primary[0] > key[0]
+    return tuple_(*primary) > tuple_(*(literal(value, column.type) for column, value in zip(primary, key, strict=True)))
+
+
+def _reseal_rows(conn: Connection, table: Table, primary: list[Column[Any]], owed: dict[tuple[Any, ...], list[_Owed]]) -> None:
+    """Re-seal what a batch owes, in the rows no other transaction holds.
+
+    The rows are locked with ``FOR UPDATE SKIP LOCKED`` just before they are written, so a
+    row a worker holds is passed over rather than waited for. Its values are counted as
+    held; a row gone since the read had its values changed under the run.
+    """
+    from sqlalchemy import select
+
+    keys = list(owed)
+    locked = {tuple(row) for row in conn.execute(select(*primary).where(_matching(primary, keys)).with_for_update(skip_locked=True))}
+    there = locked if len(locked) == len(keys) else {tuple(row) for row in conn.execute(select(*primary).where(_matching(primary, keys)))}
+    for key, writes in owed.items():
+        where = [column == value for column, value in zip(primary, key, strict=True)]
+        for owing in writes:
+            if key not in locked and key in there:
+                owing.tally.held += owing.count
+            elif key in locked and _swap(conn, table, where, owing.read, owing.column, owing.value):
+                owing.tally.resealed += owing.count
+            else:  # rewritten since the read, or the row is gone
+                owing.tally.changed += owing.count
+
+
+def _survey_table(engine: Engine, table: Table, tallies: dict[str, ColumnTally], *, write: bool, batch: int) -> None:
+    """Count every sealed value in *table* into *tallies*, and with *write* re-seal them.
+
+    Rows are read in primary-key order, *batch* at a time, each batch in a transaction of
+    its own whose counts join *tallies* once it commits. A table with no primary key is read
+    in one statement and never written: without a key, an update that matches a row matches
+    every row holding the same value. A JSON column is read as its text form, and only a row
+    whose text holds the sealed format somewhere is walked.
     """
     from sqlalchemy import Text, cast, inspect, or_, select
 
     columns = [column for column in table.columns if _holds_text(column)]
     documents = [column for column in table.columns if _holds_json(column)]
+    if not (columns or documents):
+        return
+    with engine.connect() as conn:
+        if not inspect(conn).has_table(table.name, schema=table.schema):
+            return
+    tallies.update({column.name: ColumnTally(table.name, column.name) for column in [*columns, *documents]})
     primary = list(table.primary_key.columns)
     write = write and bool(primary)
-    if not (columns or documents) or not inspect(conn).has_table(table.name, schema=table.schema):
-        return []
-    tallies = {column.name: ColumnTally(table.name, column.name) for column in [*columns, *documents]}
     texts = [cast(document, Text) for document in documents]
-    rows = conn.execute(
-        select(*primary, *columns, *texts).where(
-            or_(
-                *(column.like(f"{_SEALED_PREFIX}%") for column in columns),
-                *(text.like(f'%"{_SEALED_PREFIX}%') for text in texts),
-            )
+    sealed = select(*primary, *columns, *texts).where(
+        or_(
+            *(column.like(f"{_SEALED_PREFIX}%") for column in columns),
+            *(text.like(f'%"{_SEALED_PREFIX}%') for text in texts),
         )
-    ).all()
-    for row in rows:
-        where = [key == value for key, value in zip(primary, row[: len(primary)], strict=True)]
-        values = row[len(primary) :]
-        for column, stored in zip(columns, values[: len(columns)], strict=True):
-            if isinstance(stored, str) and stored.startswith(_SEALED_PREFIX):
-                _settle(conn, table, where, column, stored, tallies[column.name], write=write)
-        for document, text in zip(documents, values[len(columns) :], strict=True):
-            if text is not None and f'"{_SEALED_PREFIX}' in text:
-                tally = tallies[document.name]
-                _settle_document(conn, table, where, document, text, tally, write=write)
-    return [tally for tally in tallies.values() if tally.found]
+    )
+    last: tuple[Any, ...] | None = None
+    while True:
+        counted = {name: ColumnTally(table.name, name) for name in tallies}
+        with engine.begin() as conn:
+            page = sealed.where(_after(primary, last)).order_by(*primary).limit(batch) if primary else sealed
+            rows = conn.execute(page).all()
+            owed: dict[tuple[Any, ...], list[_Owed]] = {}
+            for row in rows:
+                values = row[len(primary) :]
+                found = [
+                    *(
+                        _settle(column, stored, counted[column.name], write=write)
+                        for column, stored in zip(columns, values[: len(columns)], strict=True)
+                        if isinstance(stored, str) and stored.startswith(_SEALED_PREFIX)
+                    ),
+                    *(
+                        _settle_document(conn, document, text, counted[document.name], write=write)
+                        for document, text in zip(documents, values[len(columns) :], strict=True)
+                        if text is not None and f'"{_SEALED_PREFIX}' in text
+                    ),
+                ]
+                if writes := [owing for owing in found if owing is not None]:
+                    owed[tuple(row[: len(primary)])] = writes
+            if owed:
+                _reseal_rows(conn, table, primary, owed)
+        for name, part in counted.items():
+            tallies[name].add(part)
+        if not primary or len(rows) < batch:
+            return
+        last = tuple(rows[-1][: len(primary)])
 
 
 #: Why a table that holds sealed values had none of them re-sealed.
@@ -348,8 +371,10 @@ def _unmapped_tables(conn: Connection, metadata: MetaData) -> list[Table]:
     ]
 
 
-def survey(engine: Engine, *, write: bool, metadata: MetaData | None = None) -> ResealReport:
-    """Walk every mapped table once, in one transaction per table, then read the rest.
+def survey(
+    engine: Engine, *, write: bool, metadata: MetaData | None = None, batch: int = BATCH_ROWS
+) -> ResealReport:
+    """Walk every mapped table, *batch* rows per transaction, then read the rest.
 
     *metadata* is the app's mapping, ``SQLModel.metadata`` unless a caller names another.
     A table the database holds and the app does not map is read too, never written.
@@ -361,14 +386,14 @@ def survey(engine: Engine, *, write: bool, metadata: MetaData | None = None) -> 
     report = ResealReport(wrote=write, columns=[], failed={})
 
     def read(table: Table, *, writable: bool, skipped: str | None) -> None:
+        tallies: dict[str, ColumnTally] = {}
         try:
-            with engine.begin() as conn:
-                tallies = _survey_table(conn, table, write=write and writable)
+            _survey_table(engine, table, tallies, write=write and writable, batch=batch)
         except SQLAlchemyError as exc:
             report.failed[table.name] = _failure(exc)
-            return
-        report.columns.extend(tallies)
-        if tallies and skipped is not None:
+        found = [tally for tally in tallies.values() if tally.found]
+        report.columns.extend(found)
+        if found and skipped is not None:
             report.skipped[table.name] = skipped
 
     for table in mapping.sorted_tables:
@@ -383,55 +408,6 @@ def survey(engine: Engine, *, write: bool, metadata: MetaData | None = None) -> 
     for table in unmapped:
         read(table, writable=False, skipped=_UNMAPPED)
     return report
-
-
-def _render(report: ResealReport) -> str:
-    """The operator's report: one line per column that holds sealed values, then a verdict."""
-    headings = ("column", "current", "re-sealed", "fallback", "unreadable", "changed")
-    fields = ("current", "resealed", "fallback", "unreadable", "changed")
-    lines = [(f"{tally.table}.{tally.column}", *(getattr(tally, f) for f in fields))
-             for tally in report.columns]
-    lines.append(("total", *(report.total(field) for field in fields)))
-    width = max(len(str(line[0])) for line in [headings, *lines])
-    out = ["Re-sealed under SECRET_KEY:" if report.wrote else "Checked; nothing was written:", ""]
-    for line in [headings, *lines]:
-        out.append(f"  {line[0]:<{width}}" + "".join(f"  {cell:>10}" for cell in line[1:]))
-    out.append("")
-    for table, reason in report.failed.items():
-        out.append(f"Could not re-seal {table} ({reason}); nothing in it was written.")
-    for table, reason in report.skipped.items():
-        out.append(
-            f"Read {table} but re-sealed nothing in it: {reason}. Its values are counted "
-            "above; re-seal any that need a fallback through the code that owns it."
-        )
-    if report.total("fallback"):
-        out.append(
-            f"{report.total('fallback')} value(s) still open only under "
-            "SECRET_KEY_DECRYPT_FALLBACKS. Run `terp secrets reseal` without --check, and "
-            "keep the fallbacks until it reports none."
-        )
-    if report.total("unreadable"):
-        out.append(
-            f"{report.total('unreadable')} value(s) open under no configured key: sealed "
-            "under a key no longer listed, or damaged. Add the key they were sealed under "
-            "to SECRET_KEY_DECRYPT_FALLBACKS and run again, or enter them anew."
-        )
-    if report.total("changed"):
-        out.append(
-            f"{report.total('changed')} value(s) changed while being re-sealed; run again "
-            "to judge them."
-        )
-    if report.clean:
-        out.append(
-            "Every sealed value opens under SECRET_KEY: SECRET_KEY_DECRYPT_FALLBACKS can "
-            "come out of the environment. Keep each key it held for as long as a backup "
-            "sealed under it may still be restored."
-        )
-    out.append(
-        "SECRET_KEY_FALLBACKS only verifies signatures and is not judged here; drop it once "
-        "the longest signature lifetime has passed (`terp guide secrets`)."
-    )
-    return "\n".join(out)
 
 
 def reseal_command(

@@ -4,8 +4,9 @@
   [ADR 0076](0076-webhook-secret-sealing-jwt-rotation-audit-append-only-and-upload-sniffing.md)
   §2: `SECRET_KEY_FALLBACKS` stays verify-only, and a decrypt-only `SECRET_KEY_DECRYPT_FALLBACKS`
   joins it. Held by `tests/architecture/test_key_rotation.py` (both lists, the derivations, the
-  verification window, the production refusals) and `tests/architecture/test_cli_reseal.py`
-  (`terp secrets reseal`). §5, the table of §1 and the consequence on the re-seal's reach are
+  verification window, the production refusals), `tests/architecture/test_cli_reseal.py`
+  (`terp secrets reseal`) and `test_cli_reseal_batches.py` (its batches and the rows it passes
+  over, on SQLite and on PostgreSQL). §5, the table of §1 and the consequence on the re-seal's reach are
   extended by [ADR 0199](0199-a-queued-mail-is-sealed-at-rest.md) (proposed 2026-11-04): the
   re-seal walks JSON columns too, and a queued mail is a sealed value of its own domain.
 - **Date:** 2026-10-22
@@ -131,8 +132,16 @@ the `enc:v1:` format goes to `check_sealed_value`, which names the domain and th
 and, when that key is a fallback, hands back the value re-sealed under `SECRET_KEY`; the plaintext
 never reaches the command. What needed a fallback is rewritten.
 
-- **One transaction per table.** A table that cannot be written rolls back whole and is reported;
-  the others keep their re-seal.
+- **One transaction per batch of rows** (amended in 0.39.0: it was one per table, which kept every
+  row it re-sealed locked until the whole table was done, and a worker writing any of them waited
+  for the run). A table is read in primary-key order, 500 rows at a time, and each batch commits on
+  its own. A batch that cannot be written rolls back and is reported, and nothing after it in that
+  table is read; the batches and the tables before it keep their re-seal.
+- **A row another transaction holds is passed over, never waited for** (added in 0.39.0). The rows
+  a batch re-seals are locked with `FOR UPDATE SKIP LOCKED` just before they are written. The
+  values under a fallback in a row a worker or the running app holds are counted as held, which
+  keeps the verdict from being clean, and the next run re-seals them. SQLite has no row locks: its
+  writers take turns.
 - **Compare-and-swap per value.** The update matches the value it read, so one the running app
   rewrote meanwhile is never overwritten; it is reported, and the next run judges it.
 - **Nothing else moves.** A re-seal changes no value, only its key, so it writes no audit record,

@@ -143,11 +143,11 @@ with only its sealed values replaced, every other key and value as it was read. 
 does not parse, which SQLite's text storage allows, is counted as one value no key opens, so a
 report is never clean while one is there.
 
-Every other guarantee of ADR 0189 §5 holds as it was: one transaction per table; a
-compare-and-swap per value, which for a document is per document; nothing else moves, so no
-audit record, no `onupdate` column and no version counter; a table with no primary key, or one
-the app does not map, read and counted and never written; and a refusal while a migration is
-pending.
+Every other guarantee of ADR 0189 §5 holds as it was: one transaction per table (per batch of
+rows since 0.39.0); a compare-and-swap per value, which for a document is per document; nothing
+else moves, so no audit record, no `onupdate` column and no version counter; a table with no
+primary key, or one the app does not map, read and counted and never written; and a refusal
+while a migration is pending.
 
 The re-seal judges a queued mail with the mail capability's domain, which is built when the
 capability is imported. Loading the app imports it: an app that sends mail declares its relay
