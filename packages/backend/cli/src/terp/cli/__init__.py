@@ -349,7 +349,10 @@ ROTATING `SECRET_KEY` (ADR 0189). Nothing is ever signed or sealed with an old k
 keys only verify or only decrypt, from two lists that run on two different clocks:
 
   SECRET_KEY_FALLBACKS          verifies signatures only: an access token for 15 minutes
-                                after it was issued, a refresh session until it expires
+                                after it was issued, a refresh session until it expires,
+                                and a self-service link mailed before the rotation, whose
+                                row is found by a digest under the key it was sent under,
+                                until the link expires
   SECRET_KEY_DECRYPT_FALLBACKS  decrypts sealed values only, until they are re-sealed
 
 Both are comma-separated. The procedure, in this order:
@@ -367,8 +370,11 @@ Both are comma-separated. The procedure, in this order:
      the fallback sooner than its lifetime (a day for a sign-up link by default) only
      makes such a link stop working, and its owner asks for a new one.
   4. Drop SECRET_KEY_FALLBACKS once the longest signature lifetime has passed since
-     step 1: REFRESH_TOKEN_TTL_SECONDS if the app issues refresh sessions, 15 minutes
-     if not. Dropping it sooner loses nothing; it signs out sessions still on the old key.
+     step 1: the longest of REFRESH_TOKEN_TTL_SECONDS if the app issues refresh sessions,
+     the self-service links' lifetimes if it mails them (sign_up_ttl, a day by default,
+     and reset_ttl, an hour), and 15 minutes. Dropping it sooner loses no data: it signs
+     out the sessions still on the old key, and a link mailed before step 1 stops
+     working, so its owner asks for a new one.
 
 A key you believe has leaked goes in SECRET_KEY_DECRYPT_FALLBACKS only, never in
 SECRET_KEY_FALLBACKS: whoever holds it could sign a token the fallback would honour,

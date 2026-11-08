@@ -246,6 +246,12 @@ decision, 0001 onwards.
   OpenAPI 3.0 exclusive bound written `false` admits exactly what no bound admits, but the
   contract check read it appearing as a new bound and labelled it breaking. It is now a line that
   breaks nothing, for `exclusiveMinimum` too; a number, `0` included, is still a 3.1 bound.
+- **The key-rotation guide keeps mailed account links working (ADR 0189).** A self-service
+  link's row is found by a digest keyed under the key it was mailed under, so it needs
+  `SECRET_KEY_FALLBACKS` for as long as the link lives: a day for a sign-up link by default.
+  Step 4 of `terp guide secrets` dropped the list after fifteen minutes on an app without refresh
+  sessions, and every link mailed before the rotation stopped working. It now waits for the
+  longest of the refresh session, the self-service links and fifteen minutes.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the

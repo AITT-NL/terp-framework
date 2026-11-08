@@ -465,3 +465,20 @@ def test_the_module_recipe_carries_the_codegen_chain_in_order() -> None:
         f"the codegen steps are out of order in terp guide module: "
         f"{sorted(zip(positions, chain))}"
     )
+
+
+def test_the_rotation_guide_waits_out_every_signature_a_fallback_keeps_alive() -> None:
+    """A mailed self-service link is found by a digest under the key it was sent under, so
+    ``SECRET_KEY_FALLBACKS`` keeps it alive. Step 4 left it out, and following the guide on an
+    app without refresh sessions dropped the list after fifteen minutes, killing every link
+    mailed before the rotation. The fields it names are the declaration's own."""
+    import dataclasses
+
+    from terp.capabilities.users.self_service import SelfService
+
+    fields = {field.name for field in dataclasses.fields(SelfService)}
+    step_four = guide("secrets").split("  4. Drop SECRET_KEY_FALLBACKS", 1)[1].split("\n\n", 1)[0]
+    for lifetime in ("REFRESH_TOKEN_TTL_SECONDS", "sign_up_ttl", "reset_ttl", "15 minutes"):
+        assert lifetime in step_four, lifetime
+    assert {"sign_up_ttl", "reset_ttl"} <= fields
+
