@@ -724,19 +724,12 @@ _SPLIT_RECIPE = (
 # composed app object: verb decorators plus the generic/imperative spellings, and
 # the lifecycle hooks (ungated executable registration on the app).
 _APP_ROUTE_ATTRS = _HTTP_METHODS | frozenset(
-    {
-        "head",
-        "options",
-        "trace",
-        "route",
-        "api_route",
-        "add_api_route",
-        "websocket",
-        "websocket_route",
-        "on_event",
-        "add_event_handler",
-    }
-)
+    {"head", "options", "trace", "route", "api_route", "add_api_route", "websocket", "websocket_route"}
+) | frozenset({"on_event", "add_event_handler"})
+
+# An exception handler on the composed app answers for every route in place of the error
+# envelope create_app installed (ADR 0208): refused there too, with a remedy of its own.
+_APP_HANDLER_ATTRS = frozenset({"exception_handler", "add_exception_handler"})
 
 
 def _create_app_names(tree: ast.Module) -> set[str]:
@@ -867,7 +860,7 @@ def check_no_raw_app_routes(
                     )
                 )
             elif (
-                attr in _APP_ROUTE_ATTRS
+                attr in _APP_ROUTE_ATTRS | _APP_HANDLER_ATTRS
                 and _receiver_root_name(node.func.value) in app_names
             ):
                 receiver = _receiver_root_name(node.func.value) or "app"
@@ -878,7 +871,11 @@ def check_no_raw_app_routes(
                         node.lineno,
                         f"route registered on the composed app ({receiver}.{attr}); "
                         "it bypasses the module policy guard (no authentication, no role "
-                        "check) -- declare it on a module router instead",
+                        "check) -- declare it on a module router instead"
+                        if attr in _APP_ROUTE_ATTRS
+                        else f"exception handler registered on the composed app ({receiver}.{attr}); "
+                        "it answers in place of the uniform error envelope -- raise a typed "
+                        "AppError subclass instead, which the envelope renders with its code",
                     )
                 )
     return violations

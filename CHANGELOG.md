@@ -123,6 +123,15 @@ decision, 0001 onwards.
   (`held` in `--format json`), the run exits 1, and the next run re-seals them. A batch that
   cannot be written rolls back alone; the batches before it keep their re-seal and are counted.
 
+- **An exception handler added after `create_app` is refused, at startup and at build time (ADR
+  0208).** A handler registered on the composed app answered for every route in place of the
+  uniform error envelope, so one for `Exception` could repeat an unexpected exception's text and
+  one for an `AppError` could drop its code. Every way to add one writes the app's handler map,
+  which now raises a `BootError` that names the remedy: raise a typed `AppError` subclass, which
+  the envelope renders. `backend/no_raw_app_routes` refuses `exception_handler` and
+  `add_exception_handler` on the composed app too. The freeze moves from `terp.core.app` to
+  `terp.core.composition_freeze`, under the names the catalog cites.
+
 ### Fixed
 
 - **A signed release no longer calls a lane passed that judged nothing (ADRs 0200, 0202).** The
@@ -398,6 +407,9 @@ decision, 0001 onwards.
   Closing an account that enrolled one then answers a 403, `second_factor_required`, until the
   code comes with the password. An app that leaves `second_factor` unset closes accounts with the
   password alone, as before.
+- **An exception handler registered on the app `create_app` returned is refused.** Raise a typed
+  `AppError` subclass with its own `status_code`, `code` and `default_message` instead; the
+  envelope renders it.
 
 ## 0.38.0 — 2026-11-07
 
