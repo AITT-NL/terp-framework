@@ -54,9 +54,10 @@ def carried_contract(tree: Tree) -> dict[str, dict[str, str]]:
 
     ADR 0194: the committed ``openapi.json`` rides in the signed manifest, so a release names
     the contract its commit holds under the same signature as its images, and a client in
-    another repository pins a release to read it. The signature vouches for the file, not for
-    the app serving it: the ``api-contract`` check holds the file to the app, and ``sign``
-    does not require that check, whose verdict is in no lane of the claim it reads. An app
+    another repository pins a release to read it. The ``api-contract`` check holds the file to
+    the app, and it is a check of the release profile, so ``sign`` signs a commit pinning
+    0.36.1 or later only from a gate where it passed (ADR 0200); an earlier pin's gate is held
+    to its claim alone, which no lane of reads that check. An app
     that has not adopted the contract carries none, and its manifest is unchanged. A contract
     committed as a symbolic link is refused: the commit holds only the link's text, which is
     not a contract, and the check reads the file it points to instead.
