@@ -34,7 +34,7 @@ from azure.storage.blob import BlobClient, ContainerClient, StorageStreamDownloa
 from botocore.config import Config
 from botocore.credentials import Credentials, RefreshableCredentials
 from botocore.exceptions import EndpointConnectionError
-from botocore.stub import Stubber
+from botocore.stub import ANY, Stubber
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
@@ -97,6 +97,15 @@ def s3() -> Iterator[tuple[S3Storage, Stubber]]:
         stub.assert_no_pending_responses()
 
 
+def _expect_put(stub: Stubber, key: Any = ANY) -> None:
+    """A managed upload's one ``PutObject``, into the profile's bucket under *key*.
+
+    The body arrives as the transfer's own chunk reader, and the SDK adds the checksum it
+    computes; the bucket and the key are what the adapter decides.
+    """
+    stub.add_response("put_object", {}, {"Bucket": "media", "Key": key, "Body": ANY, "ChecksumAlgorithm": ANY})
+
+
 def test_s3_refuses_a_client_that_is_not_s3_and_an_empty_bucket() -> None:
     with pytest.raises(ValueError, match="bucket"):
         S3Storage(_s3_client(), bucket="")
@@ -106,7 +115,7 @@ def test_s3_refuses_a_client_that_is_not_s3_and_an_empty_bucket() -> None:
 
 def test_s3_round_trips_through_the_sdk_and_deletes_idempotently(s3: tuple[S3Storage, Stubber]) -> None:
     backend, stub = s3
-    stub.add_response("put_object", {})
+    _expect_put(stub, "ab/k")
     stub.add_response("get_object", {"Body": io.BytesIO(_CONTENT)}, {"Bucket": "media", "Key": "ab/k"})
     stub.add_response("delete_object", {}, {"Bucket": "media", "Key": "ab/k"})
     stub.add_response("delete_object", {}, {"Bucket": "media", "Key": "ab/k"})
@@ -150,7 +159,7 @@ def test_s3_reads_a_range_with_one_ranged_get(session: Session, s3: tuple[S3Stor
     object fetched everything before it. The store now reads the range itself."""
     backend, stub = s3
     register_storage_backend("s3-media", backend)
-    stub.add_response("put_object", {})
+    _expect_put(stub)
     row = FileService().store(
         session, filename="a.txt", content_type="text/plain", source=io.BytesIO(_CONTENT), profile="s3-media"
     )
@@ -241,7 +250,7 @@ def test_s3_hands_out_no_link_its_credentials_would_not_outlive(session: Session
 
     register_storage_backend("s3-media", backend)
     _, stub = s3
-    stub.add_response("put_object", {})
+    _expect_put(stub)
     row = FileService().store(
         session, filename="a.txt", content_type="text/plain", source=io.BytesIO(_CONTENT), profile="s3-media"
     )
@@ -259,7 +268,7 @@ def test_the_service_hands_out_the_provider_link_for_a_row_on_an_s3_profile(
 ) -> None:
     backend, stub = s3
     register_storage_backend("s3-media", backend)
-    stub.add_response("put_object", {})
+    _expect_put(stub)
     row = FileService().store(
         session, filename="a.txt", content_type="text/plain", source=io.BytesIO(_CONTENT), profile="s3-media"
     )
@@ -509,11 +518,15 @@ def test_azure_signs_with_a_user_delegation_key_first_and_keeps_it_until_a_link_
     assert expiry - start == azure_blob._DELEGATION_KEY_LIFETIME + azure_blob._DELEGATION_KEY_SKEW
     assert expiry - datetime.now(UTC) > LINK_TTL_MAX  # the longest link fits inside the key
 
-    # A day later the cached key would expire before a new link: it is replaced.
-    later = datetime.now(UTC) + azure_blob._DELEGATION_KEY_LIFETIME
-    monkeypatch.setattr(azure_blob, "_now", lambda: later)
-    third = backend.link("ab/k", ttl=timedelta(hours=1), content_type="image/png", disposition="inline")
-    assert third is not None and len(service.requests) == 2
+    # The key still has an hour to live: a link inside that hour keeps it, and one that would
+    # outlive it replaces it then, though the key has not expired. Replacing it only once it
+    # had expired would sign a link the service refuses before its own expiry.
+    nearly = expiry - timedelta(hours=1)
+    monkeypatch.setattr(azure_blob, "_now", lambda: nearly)
+    assert backend.link("ab/k", ttl=timedelta(minutes=30), content_type="image/png", disposition="inline")
+    assert len(service.requests) == 1, "a link inside the key's life keeps it"
+    assert backend.link("ab/k", ttl=timedelta(hours=2), content_type="image/png", disposition="inline")
+    assert len(service.requests) == 2, "a link that would outlive the key replaces it while it still lives"
 
 
 def test_azure_links_a_container_client_built_from_a_sas_url_with_one_query() -> None:
