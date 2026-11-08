@@ -543,10 +543,10 @@ def freeze_dependency_overrides(app: FastAPI) -> None:
 class _Frozen(list):  # type: ignore[type-arg]
     """A list the composed app reads and nothing may change: its routes, hooks or middleware.
 
-    Refusing each registration method by name leaves every spelling nobody listed, and a
-    method called on its class with the router passed in, which reaches the list all the
-    same. Every one of them ends in a change to a list, so the list itself refuses it. A copy
-    is a plain list again.
+    Every registration method, of any name or called on its class, changes a list through the
+    list's own methods, so the list refuses it. ``list``'s methods called on it directly, or
+    another list in its place, reach past that, as ``object.__setattr__`` reaches past
+    ``LocalTimeIn``'s (ADR 0208). A copy is a plain list again.
     """
 
     def __init__(self, items: list[object], refusal: str) -> None:
@@ -555,8 +555,8 @@ class _Frozen(list):  # type: ignore[type-arg]
 
     def _refused(self, *_args: object, **_kwargs: object) -> None:
         raise BootError(
-            f"{self._refusal} added after create_app() composed the app is refused, by any "
-            f"spelling: {_FROZEN_REMEDY}"
+            f"{self._refusal} added after create_app() composed the app is refused: "
+            f"{_FROZEN_REMEDY}"
         )
 
     def __reduce_ex__(self, _protocol: object) -> tuple[type[list], tuple[list[object]]]:  # type: ignore[override]
@@ -602,16 +602,16 @@ def freeze_app_route_registration(app: FastAPI) -> None:
     ``no_adhoc_middleware`` and ``no_dependency_overrides``). ``create_app`` is the
     only code path allowed to mount routers because it injects the module policy
     guard at mount time. Once the app is composed, route mutation on the app or its
-    underlying router is a guard bypass, so every registration spelling fails closed.
+    underlying router is a guard bypass, so every registration method fails closed.
     So is one on a router the app mounted: FastAPI serves an included router live, so a
     route added to it afterwards would be served without one of the checks ``create_app``
     ran on every route it read (ADR 0208). Middleware registration is refused on the same
-    footing. The lists the app reads requests through, every router's routes, FastAPI's
-    frontend routes, the lifecycle hooks and the middleware, refuse a change themselves, so
-    a spelling nobody listed fails closed too. The dependency-override map is frozen only
-    outside the ``local`` environment: overrides are the sanctioned *test* seam (a local test
-    suite overrides ``get_session`` against a scratch engine), while a deployed app must
-    never rebind its auth / session seams post-composition.
+    footing. The lists the app reads requests through (every router's routes, FastAPI's
+    frontend routes, the lifecycle hooks, the middleware) refuse a change through their own
+    methods, so a registration method nobody listed fails closed too. The override map is
+    frozen only outside ``local``: overrides are the sanctioned *test* seam (a local suite
+    overrides ``get_session`` against a scratch engine), while a deployed app must never
+    rebind its auth / session seams post-composition.
     """
     for target_name, target in (("app", app), ("app.router", app.router)):
         for method in _APP_ROUTE_MUTATORS:

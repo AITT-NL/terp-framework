@@ -179,5 +179,11 @@ methods by name and so missed `host` and `frontend` (FastAPI's), a method called
 with the router passed in, and the route list itself. A route added any of those ways was served
 without the module guard, on the app as on a mounted router. The lists now refuse a change
 themselves (decision 2), and so do the lifecycle hooks and the middleware, which the same
-spellings reached.
+spellings reached. What the lists refuse is a change through their own methods, which every
+registration method makes, by whatever name and however it is called. Code that calls `list`'s
+methods on one directly (`list.append(router.routes, route)`), or puts another list in its
+place, reaches past that, as `object.__setattr__` reaches past `LocalTimeIn`'s refusal: the
+freeze stops a late registration, not code written to defeat it. A tuple would refuse the first,
+but Starlette builds the middleware stack by adding lists to the middleware's own, so these stay
+lists.
 - **A path convertor of the app's own** is recorded as a limit (decision 4).
