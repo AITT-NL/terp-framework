@@ -25,7 +25,7 @@ import yaml
 
 from terp.arch.deployment import SCHEMA_FILE, SPEC_RELEASE, published_table
 from terp.arch.deployment import _jsonschema as jsonschema
-from terp.arch.deployment import reader
+from terp.arch.deployment import reader, standard
 from terp.arch.deployment.datastores import (
     DatastoreTableError,
     load_table,
@@ -115,6 +115,31 @@ def test_the_reader_reads_exactly_the_fields_the_schema_declares() -> None:
     assert reader.SUPPORTED_VERSIONS == {schema["else"]["properties"]["schemaVersion"]["const"]}
     assert set(reader.role_resolved_fields()) <= set(unit)
     assert set(reader._DECLARED_KEYS) == set(schema["else"]["properties"]) - {"schemaVersion"}
+
+
+#: The generator block's words at terp-spec 0.40.0, the release the signer's floor (terp-arch
+#: 0.35.0) mirrors and so the oldest a signed release can name: read from that release's schema.
+_GENERATOR_WORDS_AT_THE_FLOOR = {"systemPackages"}
+
+
+def test_each_generator_word_newer_than_the_floor_names_its_release() -> None:
+    """``terp promote`` reads an older release's declaration with this schema, and refuses a word
+    the older release does not have by :data:`standard.WORDS_SINCE`. So the table holds exactly the
+    generator words this reader reads that the floor's release did not have, each at a release no
+    newer than the mirror's, and a declaration using one reads into the typed declaration."""
+    generator = reader.schema()["else"]["properties"]["generator"]["properties"]
+    newer = {f"generator.{word}" for word in set(generator) - _GENERATOR_WORDS_AT_THE_FLOOR}
+    assert {path for path in standard.WORDS_SINCE if path.startswith("generator.")} == newer
+    assert all(standard._release(release) <= standard._release(SPEC_RELEASE) for release in standard.WORDS_SINCE.values())
+    raw = json.loads((_REPO / "tests" / "architecture" / "generator_goldens" / "static-site" / "deployment.json").read_text(encoding="utf-8"))
+    declared, findings = reader.read(raw, published_table())
+    assert findings == [] and declared is not None and declared.recipes == (("site", "static-site"),)
+    assert standard.words_newer_than(raw, "0.44.0") == ["generator.recipes (terp-spec 0.45.0)"]
+    assert standard.words_newer_than(raw, "0.45.0") == standard.words_newer_than({"generator": {}}, "0.40.0") == []
+    assert standard.words_newer_than("not an object", "0.40.0") == []
+    for number in ("next", "0.45.0rc1"):
+        with pytest.raises(ValueError, match="is not a Terp Standard release number"):
+            standard.words_newer_than(raw, number)
 
 
 def test_the_roles_share_the_development_declaration_s_words() -> None:

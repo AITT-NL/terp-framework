@@ -6,8 +6,14 @@ against the public keys it is given, then reads the manifest it signs:
 * the Terp Standard release the declaration was written against may be any up to this
   toolchain's own with the same ``schemaVersion``; only a newer one is refused, so a rollback
   across a spec-pin move needs no older CLI;
-* the carried declaration is read with this toolchain's reader against the manifest's own
-  ``datastores`` record, so a datastore version a newer table retired still rolls back;
+* the carried declaration is read with this toolchain's reader, which holds one schema, its own
+  release's, so two things that schema cannot say are checked first: a release named as this
+  one must record this schema's SHA-256 (``inputs.spec.schemaSha256``), and a declaration
+  written against an older release must use no word that release does not have
+  (:data:`terp.arch.deployment.standard.WORDS_SINCE`). An executor that carries several releases
+  reads each with its own schema; this one carries one (ADR 0187 decision 6, amended);
+* the declaration is read against the manifest's own ``datastores`` record, so a datastore
+  version a newer table retired still rolls back;
 * ``--require-generated`` refuses a manifest whose ``build`` is not ``generated``;
 * a generated profile is audited without being rendered: over its parsed keys and scalars,
   every ``$`` is half of a ``$$`` or one of the generator's fixed interpolations at its place,
@@ -50,6 +56,7 @@ from terp.arch.deployment import (
 from terp.arch.deployment.datastores import read_table
 from terp.arch.deployment.generator import RELEASE_TAG_VARIABLE, escape_findings
 from terp.arch.deployment.reader import SPEC_RELEASE
+from terp.arch.deployment.standard import schema_sha256, words_newer_than
 from terp.arch.deployment.tables import Tables
 from terp.cli.release import dsse
 from terp.cli.release._common import DOCKER_NAMES, ReleaseError, os_environment, output_of, require, run
@@ -115,10 +122,19 @@ def load(envelope: bytes, public_keys: Sequence[bytes], *, require_generated: bo
     payload, keyid = dsse.verify(envelope, keys)
     manifest = parse(payload)
     given = manifest["inputs"]
-    if version_key(str(given["spec"]["release"])) > version_key(SPEC_RELEASE):
+    release = str(given["spec"]["release"])
+    if version_key(release) > version_key(SPEC_RELEASE):
         raise ReleaseError(
-            f"the release was declared against Terp Standard {given['spec']['release']}, newer than "
+            f"the release was declared against Terp Standard {release}, newer than "
             f"{SPEC_RELEASE}, the release this terp promote reads: update the toolchain"
+        )
+    recorded = given["spec"].get("schemaSha256")
+    if version_key(release) == version_key(SPEC_RELEASE) and recorded != schema_sha256():
+        raise ReleaseError(
+            f"the release was declared against Terp Standard {release}, the release this terp "
+            f"promote reads, with a schema whose SHA-256 is {recorded!r}, and the schema this "
+            f"terp promote holds for {release} is {schema_sha256()}: the two disagree on what "
+            f"that release is, so cut the release again with a toolchain at {release}"
         )
     if require_generated and given["build"] != "generated":
         raise ReleaseError(f'--require-generated: the release says "build": "{given["build"]}"')
@@ -127,6 +143,14 @@ def load(envelope: bytes, public_keys: Sequence[bytes], *, require_generated: bo
         raw = json.loads(given["declaration"]["content"])
     except ValueError as exc:
         raise ReleaseError("the carried declaration or datastore record cannot be read", cause=str(exc)) from exc
+    newer = words_newer_than(raw, release)
+    if newer:
+        raise ReleaseError(
+            f"the carried deployment.json uses {', '.join(newer)}, which Terp Standard {release}, "
+            "the release it was declared against, does not have, and this terp promote reads it "
+            "with a newer schema that would honour what that release's own reader refuses: cut "
+            "the release again with a toolchain at the release named beside each word"
+        )
     declared, findings = read(raw, table)
     if findings:
         raise ReleaseError(

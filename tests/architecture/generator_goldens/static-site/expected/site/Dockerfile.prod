@@ -4,9 +4,10 @@
 #
 # Static site image (ADR 0198): the static-site recipe. Stage 1 builds site/ over the exact
 # tree site/package-lock.json records, with no build argument, no secret and none of the
-# app's environment, and refuses a page the policy below would break in a browser. Stage 2
-# serves site/dist/ from a non-root nginx whose server configuration this file carries: the
-# site proxies nothing, so a page reaches nothing of the app, and the policy is the recipe's.
+# app's environment, and refuses a page in whose markup it finds what the policy below would
+# break in a browser. Stage 2 serves site/dist/ from a non-root nginx whose server
+# configuration this file carries: the site proxies nothing, so a page reaches nothing of the
+# app, and the policy is the recipe's.
 #
 # No package's lifecycle script runs: `npm ci --ignore-scripts` installs without running any
 # install hook, and the site is built with no network and no pre- or post-script. A site that
@@ -33,12 +34,397 @@ COPY site/ ./
 # With no network: the build reads only what `npm ci` installed and the source.
 RUN --network=none npm run build --ignore-scripts
 
-# The policy refuses inline script and style in the browser, where a page that breaks leaves
-# nothing in any log, so the build refuses them first, naming each file and its first tag.
+# The policy refuses inline script and style, a script, stylesheet, frame, image or media
+# from another origin, and more in the browser, where a page that breaks leaves nothing in
+# any log. This looks for those in each page's markup first and refuses the build where it
+# finds one, naming the file, its first such tag and what to change. The policy is the
+# control: the check finds what it can see before the image is made, and a pass is no promise.
 COPY <<"TERP_SITE_CHECK" /usr/local/lib/terp-site-check.mjs
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
+// What an HTML parser reads as text inside these, where they stand in a page's HTML content.
+const RAW = new Set([
+  "iframe", "noembed", "noframes", "noscript", "plaintext", "script", "style", "textarea",
+  "title", "xmp",
+]);
+// HTML elements a browser never leaves open.
+const VOID = new Set([
+  "area", "base", "basefont", "bgsound", "br", "col", "embed", "frame", "hr", "image", "img",
+  "input", "keygen", "link", "meta", "param", "source", "track", "wbr",
+]);
+// The start tags that end SVG or MathML content, read as HTML again.
+const BREAKOUT = new Set([
+  "b", "big", "blockquote", "body", "br", "center", "code", "dd", "div", "dl", "dt", "em",
+  "embed", "h1", "h2", "h3", "h4", "h5", "h6", "head", "hr", "i", "img", "li", "listing", "menu",
+  "meta", "nobr", "ol", "p", "pre", "ruby", "s", "small", "span", "strong", "strike", "sub", "sup",
+  "table", "tt", "u", "ul", "var",
+]);
+// The namespaces whose markup a browser renders, by URI; anything else in an XML file is data.
+const NAMESPACES = {
+  "http://www.w3.org/1999/xhtml": "html",
+  "http://www.w3.org/2000/svg": "svg",
+  "http://www.w3.org/1998/Math/MathML": "math",
+};
+const XLINK = "http://www.w3.org/1999/xlink";
+const SPACE = /[\t\n\f\r ]/;
+
+// The named character references a URL can be spelled with: ASCII punctuation and spaces. A
+// letter has no name, only a number, and every number is decoded.
+const NAMED = {
+  Tab: "\t", NewLine: "\n", excl: "!", quot: '"', QUOT: '"', num: "#", dollar: "$",
+  percnt: "%", amp: "&", AMP: "&", apos: "'", lpar: "(", rpar: ")", ast: "*", midast: "*",
+  plus: "+", comma: ",", period: ".", sol: "/", colon: ":", semi: ";", lt: "<", LT: "<",
+  equals: "=", gt: ">", GT: ">", quest: "?", commat: "@", lsqb: "[", lbrack: "[", bsol: "\\",
+  rsqb: "]", rbrack: "]", Hat: "^", lowbar: "_", UnderBar: "_", grave: "`",
+  DiacriticalGrave: "`", lcub: "{", lbrace: "{", verbar: "|", vert: "|", VerticalLine: "|",
+  rcub: "}", rbrace: "}", nbsp: "\u00a0", NonBreakingSpace: "\u00a0", fjlig: "fj",
+};
+
+// A value as the browser reads it: every character reference decoded, a number with or
+// without its semicolon, as the HTML tokenizer decodes one in an attribute.
+function decode(text) {
+  return text.replace(/&(?:#[xX]([0-9a-fA-F]+);?|#([0-9]+);?|([A-Za-z][A-Za-z0-9]*);)/g, (whole, hex, dec, name) => {
+    if (name !== undefined) return NAMED[name] ?? whole;
+    const point = hex !== undefined ? parseInt(hex, 16) : parseInt(dec, 10);
+    const valid = point > 0 && point <= 0x10ffff && !(point >= 0xd800 && point <= 0xdfff);
+    return valid ? String.fromCodePoint(point) : "\ufffd";
+  });
+}
+
+// Where the content of element *name* ends, from *at*: its end tag, or the end of the page.
+// *missing* remembers, per name, where a search already found none, so no search repeats.
+const closers = new Map();
+function closing(html, name, at, missing) {
+  if (at >= (missing.get(name) ?? Infinity)) return html.length;
+  if (!closers.has(name)) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    closers.set(name, new RegExp(`</${escaped}(?=[\\t\\n\\f\\r />])`, "gi"));
+  }
+  const close = closers.get(name);
+  close.lastIndex = at;
+  const found = close.exec(html);
+  if (found === null) missing.set(name, at);
+  return found === null ? html.length : found.index;
+}
+
+// A tag's attributes as the HTML tokenizer reads them, from just after its name: each name
+// (in lower case where *fold*) with its value; where the tag ends; and whether it closes itself.
+// Each state is the tokenizer's: after a "/" or a quoted value, any other character starts the
+// next name, so "/ =" starts one named "=".
+function readTag(html, at, fold = true) {
+  const attrs = [];
+  let name = "";
+  let value = "";
+  let state = "before";
+  const flush = () => {
+    if (name) attrs.push([fold ? name.toLowerCase() : name, value]);
+    name = "";
+    value = "";
+  };
+  for (let i = at; i < html.length; i += 1) {
+    const c = html[i];
+    if (state === "before") {
+      if (SPACE.test(c)) continue;
+      if (c === "/" || c === ">") {
+        state = "after";
+        i -= 1;
+      } else {
+        name = c;
+        state = "name";
+      }
+    } else if (state === "name") {
+      if (SPACE.test(c) || c === "/" || c === ">") {
+        state = "after";
+        i -= 1;
+      } else if (c === "=") state = "value";
+      else name += c;
+    } else if (state === "after") {
+      if (SPACE.test(c)) continue;
+      if (c === "/") {
+        flush();
+        state = "closing";
+      } else if (c === "=") state = "value";
+      else if (c === ">") {
+        flush();
+        return [attrs, i, false];
+      } else {
+        flush();
+        name = c;
+        state = "name";
+      }
+    } else if (state === "value") {
+      if (SPACE.test(c)) continue;
+      if (c === '"' || c === "'") state = c;
+      else if (c === ">") {
+        flush();
+        return [attrs, i, false];
+      } else {
+        value = c;
+        state = "unquoted";
+      }
+    } else if (state === '"' || state === "'") {
+      if (c === state) {
+        flush();
+        state = "quoted";
+      } else value += c;
+    } else if (state === "unquoted") {
+      if (SPACE.test(c)) {
+        flush();
+        state = "before";
+      } else if (c === ">") {
+        flush();
+        return [attrs, i, false];
+      } else value += c;
+    } else if (state === "quoted" && SPACE.test(c)) state = "before";
+    else if (state === "quoted" && c === "/") state = "closing";
+    else if (c === ">") return [attrs, i, state === "closing"];
+    else {
+      state = "before";
+      i -= 1;
+    }
+  }
+  flush();
+  return [attrs, html.length, false];
+}
+
+// SVG's and MathML's HTML integration points, and MathML's text integration points, where a
+// browser reads HTML again.
+const integration = (node) =>
+  (node.ns === "svg" && ["foreignobject", "desc", "title"].includes(node.name)) ||
+  (node.ns === "math" && node.name === "annotation-xml" &&
+    /^(?:text\/html|application\/xhtml\+xml)$/i.test(node.encoding ?? ""));
+const textIntegration = (node) => node.ns === "math" && ["mi", "mo", "mn", "ms", "mtext"].includes(node.name);
+
+// The open elements of an HTML page's SVG and MathML content, from its outermost <svg> or
+// <math>, by the tree builder's rules for what this reading needs: the namespace a start tag
+// is read in, and whether any such content is still open. Where a browser's rules for an end
+// tag would close more than this models (an HTML end tag that closes the elements around its
+// own, or one that ends SVG or MathML from the HTML inside it), this closes less, and so reads
+// on as markup.
+class Foreign {
+  constructor() {
+    this.stack = [];
+    this.html = [];
+    this.at = new Map();
+  }
+
+  get open() {
+    return this.stack.length > 0;
+  }
+
+  push(node) {
+    if (node.ns === "html") this.html.push(this.stack.length);
+    else if (this.at.has(node.name)) this.at.get(node.name).push(this.stack.length);
+    else this.at.set(node.name, [this.stack.length]);
+    this.stack.push(node);
+  }
+
+  cut(length) {
+    while (this.stack.length > length) {
+      const node = this.stack.pop();
+      (node.ns === "html" ? this.html : this.at.get(node.name)).pop();
+    }
+  }
+
+  // Whether the current node is SVG or MathML content and no integration point.
+  inForeign() {
+    const node = this.stack[this.stack.length - 1];
+    return node !== undefined && node.ns !== "html" && !integration(node) && !textIntegration(node);
+  }
+
+  start(name, attrs, selfClosing) {
+    const node = this.stack[this.stack.length - 1];
+    const asHtml = node === undefined || node.ns === "html" || integration(node) ||
+      (textIntegration(node) && name !== "mglyph" && name !== "malignmark") ||
+      (node.ns === "math" && node.name === "annotation-xml" && name === "svg");
+    if (asHtml && (name === "svg" || name === "math")) {
+      if (!selfClosing) this.push({ name, ns: name });
+    } else if (asHtml) {
+      if (node !== undefined && !VOID.has(name)) this.push({ name, ns: "html" });
+    } else if (BREAKOUT.has(name) || (name === "font" && attrs.some(([attribute]) => ["color", "face", "size"].includes(attribute)))) {
+      while (this.inForeign()) this.cut(this.stack.length - 1);
+      this.start(name, attrs, selfClosing);
+    } else if (!selfClosing) {
+      const encoding = attrs.find(([attribute]) => attribute === "encoding");
+      this.push({ name, ns: node.ns, encoding: encoding === undefined ? undefined : decode(encoding[1]) });
+    }
+  }
+
+  // An end tag closes the current HTML element of its name; the SVG or MathML element of its
+  // name above the topmost HTML element, with all above it, where SVG or MathML is current;
+  // and </br> or </p> there closes that content up to the HTML around it.
+  end(name) {
+    const node = this.stack[this.stack.length - 1];
+    if (node === undefined) return;
+    if (node.ns === "html") {
+      if (node.name === name) this.cut(this.stack.length - 1);
+    } else if (name === "br" || name === "p") {
+      while (this.inForeign()) this.cut(this.stack.length - 1);
+    } else {
+      const named = this.at.get(name) ?? [];
+      const found = named.length ? named[named.length - 1] : -1;
+      if (found > (this.html.length ? this.html[this.html.length - 1] : -1)) this.cut(found);
+    }
+  }
+}
+
+// An XML file's internal DTD subset, whose entities a browser expands into the page and the
+// check does not read: refused wherever the prolog declares one, in one pass over the prolog.
+function internalSubset(xml) {
+  let at = xml.charCodeAt(0) === 0xfeff ? 1 : 0;
+  for (;;) {
+    while (at < xml.length && SPACE.test(xml[at])) at += 1;
+    const [open, close] = xml.startsWith("<?", at) ? ["<?", "?>"] : xml.startsWith("<!--", at) ? ["<!--", "-->"] : [null, null];
+    if (open === null) break;
+    const end = xml.indexOf(close, at + open.length);
+    if (end === -1) return null;
+    at = end + close.length;
+  }
+  if (xml.slice(at, at + 9).toUpperCase() !== "<!DOCTYPE") return null;
+  let quote = null;
+  for (let i = at + 9; i < xml.length; i += 1) {
+    const c = xml[i];
+    if (quote !== null) {
+      if (c === quote) quote = null;
+    } else if (c === '"' || c === "'") quote = c;
+    else if (c === "[") {
+      return "<!DOCTYPE> declares an internal subset, whose entities a browser expands into the page and the check does not read: write each entity's text where it is used and remove the subset (an SVG or XHTML file needs none)";
+    } else if (c === ">") return null;
+  }
+  return null;
+}
+
+// The first element of *source* whose markup the policy breaks in a browser, as the refusal's
+// text, or null. *xml* reads it as an XML file: no raw text, CDATA and processing instructions
+// to their ends, and each element and attribute by the namespace its prefix is bound to.
+export function firstOffense(source, xml) {
+  if (xml) {
+    const subset = internalSubset(source);
+    if (subset !== null) return subset;
+  }
+  const html = source;
+  const foreign = new Foreign();
+  // A browser may ignore a raw-text element's start tag inside a <select> or after a
+  // <frameset> and read what follows as markup, so there the check skips no raw text.
+  let select = 0;
+  let frameset = false;
+  // In an XML file, each prefix's bindings, innermost last ("" the default namespace), and
+  // the prefixes each open element declares.
+  const bound = new Map();
+  const declared = [];
+  const uriOf = (prefix) => bound.get(prefix)?.at(-1) ?? null;
+  const missing = new Map();
+  const comment = /--!?>/g;
+  const tagOpen = xml ? /^<(\/?)([^\t\n\f\r />!?][^\t\n\f\r />]*)/ : /^<(\/?)([A-Za-z][^\t\n\f\r />]*)/;
+  let at = 0;
+  while ((at = html.indexOf("<", at)) !== -1) {
+    if (html.startsWith("<!--", at)) {
+      // A comment ends where a browser ends it: "<!-->" and "<!--->" at once, else the first
+      // "-->" or "--!>", found in one search from where it starts.
+      const body = at + 4;
+      if (html[body] === ">" || html.startsWith("->", body)) {
+        at = html.indexOf(">", body) + 1;
+        continue;
+      }
+      comment.lastIndex = body;
+      const close = comment.exec(html);
+      at = close === null ? html.length : close.index + close[0].length;
+      continue;
+    }
+    const head = tagOpen.exec(html.slice(at, at + 256));
+    if (head === null) {
+      // In an XML file a CDATA section runs to "]]>" and a processing instruction to "?>".
+      // Anywhere else a doctype, a CDATA section or a processing instruction runs to its first
+      // ">", as an HTML parser reads it. Any other "<" is text.
+      const [open, close] = !xml ? [null, null] : html.startsWith("<![CDATA[", at) ? ["<![CDATA[", "]]>"]
+        : html.startsWith("<?", at) ? ["<?", "?>"] : [null, null];
+      if (open !== null) {
+        const end = html.indexOf(close, at + open.length);
+        const instruction = html.slice(at, end === -1 ? html.length : end + close.length);
+        at += instruction.length;
+        const why = open === "<?" ? instructionOffense(instruction) : null;
+        if (why !== null) return `${shown(instruction)} ${why}`;
+        continue;
+      }
+      const markup = html[at + 1] === "!" || html[at + 1] === "?";
+      const end = markup ? html.indexOf(">", at) : -1;
+      at = markup ? (end === -1 ? html.length : end + 1) : at + 1;
+      continue;
+    }
+    const [attrs, end, selfClosing] = readTag(html, at + head[0].length, !xml);
+    const tag = html.slice(at, end + 1);
+    at = end + 1;
+    let name;
+    let decoded;
+    if (xml) {
+      if (head[1]) {
+        for (const prefix of declared.pop() ?? []) bound.get(prefix).pop();
+        continue;
+      }
+      const mine = [];
+      for (const [attribute, written] of attrs) {
+        if (attribute !== "xmlns" && !attribute.startsWith("xmlns:")) continue;
+        const prefix = attribute.slice(6);
+        if (!bound.has(prefix)) bound.set(prefix, []);
+        bound.get(prefix).push(decode(written));
+        mine.push(prefix);
+      }
+      const colon = head[2].indexOf(":");
+      const uri = uriOf(colon === -1 ? "" : head[2].slice(0, colon));
+      name = head[2].slice(colon + 1).toLowerCase();
+      // An unprefixed attribute by its name, an XLink one as xlink:<name>; a declaration or
+      // another namespace's attribute does nothing on an element a browser renders.
+      decoded = [];
+      for (const [attribute, written] of attrs) {
+        const split = attribute.indexOf(":");
+        if (attribute === "xmlns" || attribute.startsWith("xmlns:")) continue;
+        if (split === -1) decoded.push([attribute.toLowerCase(), decode(written)]);
+        else if (uriOf(attribute.slice(0, split)) === XLINK) {
+          decoded.push([`xlink:${attribute.slice(split + 1).toLowerCase()}`, decode(written)]);
+        }
+      }
+      if (selfClosing) for (const prefix of mine) bound.get(prefix).pop();
+      else declared.push(mine);
+      if (NAMESPACES[uri] === undefined) continue;
+    } else {
+      name = head[2].toLowerCase();
+      if (head[1]) {
+        if (name === "select" && !foreign.open) select = Math.max(0, select - 1);
+        foreign.end(name);
+        continue;
+      }
+      if (name === "select" && !foreign.open) select += 1;
+      if (name === "frameset" && !foreign.open) frameset = true;
+      foreign.start(name, attrs, selfClosing);
+      decoded = attrs.map(([attribute, written]) => [attribute, decode(written)]);
+    }
+    let content = () => "";
+    if (!xml && !foreign.open && select === 0 && !frameset && RAW.has(name)) {
+      // HTML content outside SVG and MathML: what a browser reads as this element's text.
+      const close = closing(html, name, at, missing);
+      const text = html.slice(at, close);
+      content = () => text;
+      at = close;
+    } else if ((name === "script" || name === "style") && !selfClosing) {
+      // Read on as markup, its text looked at only where the policy asks what it holds.
+      const [from, closer] = [at, xml ? head[2] : name];
+      content = () => decode(html.slice(from, closing(html, closer, from, missing)).replace(/<!\[CDATA\[|\]\]>/g, ""));
+    }
+    const why = offense(name, decoded, content);
+    if (why !== null) return `${shown(tag)} ${why}`;
+  }
+  return null;
+}
+
+// The files a browser renders as a document when nginx serves them: text/html (.html, .htm,
+// .shtml), and the XML types the image's mime.types names (.xhtml, .svg, .xml, .rss, .atom,
+// .kml, .xspf; not .svgz, compressed bytes served with no encoding a browser could undo), in
+// which a browser renders the XHTML, SVG and MathML they hold.
+const DOCUMENT = /\.(?:html?|shtml|xhtml|svg|xml|rss|atom|kml|xspf)$/i;
+const XML = /\.(?:xhtml|svg|xml|rss|atom|kml|xspf)$/i;
+
+// The script types that run; a data block such as application/ld+json runs as nothing.
 const RUNS = new Set([
   "", "module", "importmap", "speculationrules", "application/ecmascript",
   "application/javascript", "application/x-ecmascript", "application/x-javascript",
@@ -46,142 +432,227 @@ const RUNS = new Set([
   "text/javascript1.2", "text/javascript1.3", "text/javascript1.4", "text/javascript1.5",
   "text/jscript", "text/livescript", "text/x-ecmascript", "text/x-javascript",
 ]);
-const RAW = new Set([
-  "iframe", "noembed", "noframes", "noscript", "plaintext", "script", "style", "textarea",
-  "title", "xmp",
+// Every attribute that holds a URL a browser fetches or navigates to.
+const URLS = new Set([
+  "action", "archive", "background", "cite", "classid", "codebase", "data", "dynsrc",
+  "formaction", "href", "icon", "longdesc", "lowsrc", "manifest", "ping", "poster", "profile",
+  "src", "srcset", "xlink:href",
 ]);
-const URLS = new Set(["action", "formaction", "href", "src", "xlink:href"]);
-const SPACE = /[\t\n\f\r ]/;
+// Of those, the ones that hold a list, each item a URL of its own.
+const LISTS = { archive: /[\s,]+/, ping: /\s+/, srcset: /,/ };
+// What an element loads as the page renders, by attribute, as the kind of load the policy
+// holds it to. A link and a script are read on their own below.
+const LOADS = {
+  img: [["src", "image"], ["srcset", "image"]],
+  image: [["src", "image"], ["srcset", "image"], ["href", "image"], ["xlink:href", "image"]],
+  feimage: [["href", "image"], ["xlink:href", "image"]],
+  source: [["src", "media"], ["srcset", "image"]],
+  video: [["src", "media"], ["poster", "image"]],
+  audio: [["src", "media"]],
+  track: [["src", "media"]],
+  iframe: [["src", "frame"]],
+  frame: [["src", "frame"]],
+  use: [["href", "use"], ["xlink:href", "use"]],
+  body: [["background", "image"]],
+  table: [["background", "image"]],
+  td: [["background", "image"]],
+  th: [["background", "image"]],
+};
+// What a <link rel="preload"> fetches, by its as=, as the kind of load.
+const PRELOADS = {
+  audio: "media", fetch: "connect", font: "font", image: "image", json: "connect",
+  script: "script", style: "style", track: "media", video: "media", worker: "script",
+};
+// Each kind of load: what the page does, why it fails, and what to change. ALLOWED holds the
+// one scheme besides the site's own that a kind may load: data: for an image or an icon, as
+// the policy's img-src allows, and about: for a frame, which loads no other origin.
+const KINDS = {
+  image: ["loads an image from", "the policy's img-src 'self' data: refuses", "copy the image into the site's build and load it by its path"],
+  icon: ["loads an icon from", "the policy's img-src 'self' data: refuses", "copy the icon into the site's build and link it by its path"],
+  media: ["loads media from", "the policy's default-src 'self' refuses", "copy the file into the site's build and load it by its path"],
+  font: ["loads a font from", "the policy's font-src 'self' refuses", "copy the font into the site's build and load it by its path"],
+  connect: ["fetches from", "the policy's connect-src 'self' refuses", "copy the file into the site's build and fetch it by its path"],
+  script: ["loads its script from", "the policy's script-src 'self' refuses", "copy the script into the site's build and load it by its path"],
+  style: ["loads a stylesheet from", "the policy's style-src 'self' refuses", "copy the stylesheet into the site's build and link it by its path"],
+  sheet: ["loads a stylesheet from", "the policy's style-src 'self' refuses", "copy the stylesheet into the site's build and name it by its path"],
+  xslt: ["loads an XSLT stylesheet from", "the policy's script-src 'self' refuses", "copy the stylesheet into the site's build and name it by its path"],
+  frame: ["frames", "the policy's default-src 'self' refuses", "link to the page instead, or frame one of the site's own"],
+  use: ["uses a drawing from", "a browser loads into <use> from the page's own origin alone", "copy the drawing into the site's build and use it by its path"],
+  manifest: ["loads its manifest from", "the policy's default-src 'self' refuses", "copy the manifest into the site's build and link it by its path"],
+};
+const ALLOWED = { image: "data", icon: "data", frame: "about" };
 
-function readTag(html, at) {
-  const attrs = [];
-  let name = "";
-  let value = "";
-  let state = "between";
-  const flush = () => {
-    if (name) attrs.push([name.toLowerCase(), value]);
-    name = "";
-    value = "";
-  };
-  for (let i = at; i < html.length; i += 1) {
-    const c = html[i];
-    if (state === "dq" || state === "sq") {
-      if (c === (state === "dq" ? '"' : "'")) {
-        flush();
-        state = "between";
-      } else value += c;
-    } else if (state === "unquoted") {
-      if (SPACE.test(c)) {
-        flush();
-        state = "between";
-      } else if (c === ">") {
-        flush();
-        return [attrs, i];
-      } else value += c;
-    } else if (state === "before") {
-      if (c === '"') state = "dq";
-      else if (c === "'") state = "sq";
-      else if (c === ">") {
-        flush();
-        return [attrs, i];
-      } else if (!SPACE.test(c)) {
-        value = c;
-        state = "unquoted";
-      }
-    } else if (c === ">") {
-      flush();
-      return [attrs, i];
-    } else if (c === "=" && state !== "between") state = "before";
-    else if (SPACE.test(c) || c === "/") {
-      if (state === "name") state = "after";
-    } else if (state === "name") name += c;
-    else {
-      flush();
-      name = c;
-      state = "name";
-    }
+// A URL with every control character and space gone, wherever it stands: a URL parser drops
+// tabs and newlines anywhere and the rest at either end, and dropping more refuses more.
+const bare = (url) => url.replace(/[\x00- ]/g, "");
+const scriptsUrl = (url) => bare(url).toLowerCase().startsWith("javascript:");
+// Whether an attribute's value, or any item of a list one holds, is a javascript: URL.
+const scriptsValue = (attribute, written) =>
+  scriptsUrl(written) || (attribute in LISTS && written.split(LISTS[attribute]).some(scriptsUrl));
+
+// What a URL names beyond a path on the site's own origin, or null: a scheme, or a host. The
+// build cannot know its own host, so a URL that names one is another. *allowed* is the one
+// other scheme a kind of load may take.
+function elsewhere(url, allowed = null) {
+  const plain = bare(url);
+  const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):/.exec(plain);
+  if (scheme !== null) {
+    const name = scheme[1].toLowerCase();
+    if (name === allowed) return null;
+    return name === "data" ? "a data: URL" : `another origin (${name}:)`;
   }
-  flush();
-  return [attrs, html.length];
+  return /^[\\/]{2}/.test(plain) ? "another host" : null;
 }
 
-function offense(name, attrs, content) {
-  const named = new Map(attrs);
-  if (name === "script" && !named.has("src") && content.trim()) {
-    const type = (named.get("type") ?? "").split(";")[0].trim().toLowerCase();
-    if (RUNS.has(type)) return "is an inline script";
-  }
-  if (name === "style" && content.trim()) return "is a <style> element";
-  for (const [attribute, written] of attrs) {
-    if (attribute === "style" && written.trim()) return "carries a style attribute";
-    if (/^on[a-z]+$/.test(attribute) && written.trim()) return `carries the event handler ${attribute}`;
-    const url = written.replace(/[\u0000- ]/g, "").toLowerCase();
-    if (URLS.has(attribute) && url.startsWith("javascript:")) return `points ${attribute} at javascript:`;
-  }
-  return null;
-}
-
-export function firstOffense(html) {
+// The URL of each candidate of a srcset, its descriptors left behind.
+function candidates(srcset) {
+  const found = [];
   let at = 0;
-  while ((at = html.indexOf("<", at)) !== -1) {
-    if (html.startsWith("<!--", at)) {
-      // A comment ends where a browser ends it: "<!-->" and "<!--->" at once, else the first
-      // "-->" or "--!>". Reading on to a later "-->" would pass the markup in between unread.
-      const body = at + 4;
-      if (html[body] === ">" || html.startsWith("->", body)) {
-        at = html.indexOf(">", body) + 1;
-        continue;
+  while (at < srcset.length) {
+    while (at < srcset.length && /[\s,]/.test(srcset[at])) at += 1;
+    const start = at;
+    while (at < srcset.length && !/\s/.test(srcset[at])) at += 1;
+    let url = srcset.slice(start, at);
+    if (url.endsWith(",")) url = url.replace(/,+$/, "");
+    else while (at < srcset.length && srcset[at] !== ",") at += 1;
+    if (url) found.push(url);
+  }
+  return found;
+}
+
+// The refusal for a load of *kind* from *there*.
+const loaded = (kind, there) => {
+  const [what, why, remedy] = KINDS[kind];
+  return `${what} ${there}, which ${why}: ${remedy}`;
+};
+
+// A tag as a refusal quotes it: whole, or its first 117 characters.
+const shown = (tag) => (tag.length > 120 ? `${tag.slice(0, 117)}...` : tag);
+
+// An xml-stylesheet processing instruction that loads its stylesheet from elsewhere: CSS,
+// which style-src holds, or XSLT, which script-src holds.
+function instructionOffense(instruction) {
+  if (!/^<\?xml-stylesheet[\t\n\r ]/.test(instruction)) return null;
+  const [attrs] = readTag(instruction.replace(/\?>$/, ">"), 16);
+  const named = new Map(attrs.reverse());
+  const there = named.has("href") ? elsewhere(decode(named.get("href"))) : null;
+  return there === null ? null : loaded(/xsl|xml/i.test(named.get("type") ?? "") ? "xslt" : "sheet", there);
+}
+
+// Every element whose markup the policy breaks in a browser, as a reason and what to change.
+// *content* gives the element's text, for the two whose text the policy refuses.
+function offense(name, attrs, content) {
+  const named = new Map();
+  for (const [attribute, written] of attrs) if (!named.has(attribute)) named.set(attribute, written);
+  for (const [attribute, written] of attrs) {
+    if (attribute === "style" && written.trim()) {
+      return "carries a style attribute: move the declaration to a stylesheet the page loads";
+    }
+    if (/^on[a-z]+$/.test(attribute) && written.trim()) {
+      return `carries the event handler ${attribute}: attach the listener from a script file`;
+    }
+    if (URLS.has(attribute) && scriptsValue(attribute, written)) {
+      return `points ${attribute} at a javascript: URL: link to a page, or attach the behaviour from a script file`;
+    }
+  }
+  const animated = bare(named.get("attributename") ?? "").toLowerCase();
+  if (URLS.has(animated)) {
+    for (const attribute of ["from", "to", "by", "values"]) {
+      if ((named.get(attribute) ?? "").split(";").some(scriptsUrl)) {
+        return `animates ${animated} to a javascript: URL: remove the animation, or animate it to a page`;
       }
-      const dash = html.indexOf("-->", body);
-      const bang = html.indexOf("--!>", body);
-      const end = dash === -1 ? bang : bang === -1 ? dash : Math.min(dash, bang);
-      at = end === -1 ? html.length : end + (end === bang ? 4 : 3);
-      continue;
     }
-    const head = /^<(\/?)([A-Za-z][^\t\n\f\r />]*)/.exec(html.slice(at, at + 256));
-    if (head === null) {
-      // A doctype, a CDATA section or a processing instruction runs to its first ">";
-      // any other "<" is text.
-      const markup = html[at + 1] === "!" || html[at + 1] === "?";
-      const end = markup ? html.indexOf(">", at) : -1;
-      at = markup ? (end === -1 ? html.length : end + 1) : at + 1;
-      continue;
+  }
+  const refresh = (named.get("http-equiv") ?? "").trim().toLowerCase() === "refresh";
+  if (name === "meta" && refresh && scriptsUrl((named.get("content") ?? "").replace(/^[^;,]*[;,]\s*(?:url\s*=\s*)?['"]?/i, ""))) {
+    return "refreshes to a javascript: URL: refresh to a page, or remove it";
+  }
+  if (name === "script") {
+    const runs = RUNS.has((named.get("type") ?? "").split(";")[0].trim().toLowerCase());
+    const source = named.get("src") ?? named.get("href") ?? named.get("xlink:href");
+    const there = source === undefined ? null : elsewhere(source);
+    if (runs && there !== null) return loaded("script", there);
+    if (runs && source === undefined && content().trim()) {
+      return "is an inline script: write it to a file the page loads with src";
     }
-    const [attrs, end] = readTag(html, at + head[0].length);
-    const name = head[2].toLowerCase();
-    const tag = html.slice(at, end + 1);
-    at = end + 1;
-    if (head[1]) continue;
-    let content = "";
-    if (RAW.has(name)) {
-      const close = new RegExp(`</${name}(?=[\\t\\n\\f\\r />])`, "i").exec(html.slice(at));
-      content = close === null ? html.slice(at) : html.slice(at, at + close.index);
-      at = close === null ? html.length : at + close.index;
+  }
+  if (name === "style" && content().trim()) {
+    return "is a <style> element: write it to a stylesheet the page loads with <link rel=\"stylesheet\">";
+  }
+  if (name === "link" && named.has("href")) {
+    const rel = (named.get("rel") ?? "").toLowerCase().split(/[\t\n\f\r ]+/);
+    const kind = rel.includes("stylesheet") ? "style" : rel.includes("modulepreload") ? "script"
+      : rel.includes("preload") ? PRELOADS[(named.get("as") ?? "").trim().toLowerCase()] ?? null
+        : rel.includes("manifest") ? "manifest" : rel.includes("icon") ? "icon" : null;
+    const there = kind === null ? null : elsewhere(named.get("href"), ALLOWED[kind]);
+    if (there !== null) return loaded(kind, there);
+  }
+  const image = name === "input" && (named.get("type") ?? "").trim().toLowerCase() === "image";
+  for (const [attribute, kind] of image ? [["src", "image"]] : LOADS[name] ?? []) {
+    const written = named.get(attribute);
+    for (const url of written === undefined ? [] : attribute === "srcset" ? candidates(written) : [written]) {
+      const there = elsewhere(url, ALLOWED[kind]);
+      if (there !== null) return loaded(kind, there);
     }
-    const why = offense(name, attrs, content);
-    if (why !== null) return `${tag.length > 120 ? `${tag.slice(0, 117)}...` : tag} ${why}`;
+  }
+  if (named.has("srcdoc")) {
+    const inner = firstOffense(named.get("srcdoc"), false);
+    if (inner !== null) return `carries a srcdoc whose page holds ${inner}`;
+  }
+  if (name === "object" || name === "embed") {
+    return `is an <${name}> element, which the policy's object-src 'none' refuses: remove it`;
+  }
+  if (name === "base" && named.has("href")) {
+    return "sets the page's base URL, which the policy's base-uri 'none' refuses: remove it and write each URL whole";
+  }
+  for (const attribute of ["action", "formaction"]) {
+    const there = named.has(attribute) && (name === "form" || attribute === "formaction") ? elsewhere(named.get(attribute)) : null;
+    if (there !== null) {
+      return `submits a form to ${there}, which the policy's form-action 'self' refuses: a site built from the recipe has no form that posts, so remove it or build the site under "build": "own"`;
+    }
   }
   return null;
 }
 
-function pages(dir) {
-  return readdirSync(dir).flatMap((entry) => {
-    const path = join(dir, entry);
-    if (statSync(path).isDirectory()) return pages(path);
-    return /\.html?$/i.test(entry) ? [path] : [];
-  });
+// Every document under *dir*, in name order, and every symbolic link there, which the image
+// copies as a link and nginx follows wherever it points: the check cannot read what it serves.
+function documents(dir) {
+  return readdirSync(dir, { withFileTypes: true })
+    .sort((a, b) => (a.name < b.name ? -1 : 1))
+    .flatMap((entry) => {
+      const path = join(dir, entry.name);
+      if (entry.isSymbolicLink()) {
+        return [[path, "is a symbolic link, which the image copies as a link and nginx follows wherever it points, so the check cannot read what it serves: make the build write the file itself"]];
+      }
+      if (entry.isDirectory()) return documents(path);
+      return entry.isFile() && DOCUMENT.test(entry.name) ? [[path, null]] : [];
+    });
 }
 
 if (process.argv[2] !== undefined) {
-  const refused = pages(process.argv[2]).flatMap((page) => {
-    const why = firstOffense(readFileSync(page, "utf8"));
-    return why === null ? [] : [`site/${relative(".", page)}: ${why}`];
+  const root = process.argv[2];
+  const made = lstatSync(root, { throwIfNoEntry: false });
+  if (made === undefined || !made.isDirectory()) {
+    const what = made === undefined ? "does not exist" : made.isSymbolicLink() ? "is a symbolic link" : "is not a directory";
+    console.error(
+      `site/${root}/ ${what}: the static-site recipe serves the pages \`npm run build\` writes ` +
+        `there (terp-framework ADR 0198). Make the site's build write its pages to ${root}/, or ` +
+        `build the site under "build": "own".`,
+    );
+    process.exit(1);
+  }
+  const refused = documents(root).flatMap(([path, linked]) => {
+    const why = linked ?? firstOffense(readFileSync(path, "utf8"), XML.test(path));
+    return why === null ? [] : [`site/${relative(".", path)}: ${why}`];
   });
   for (const line of refused) console.error(line);
   if (refused.length) {
     console.error(
-      "The site's policy refuses inline script and style in the browser (terp-framework ADR " +
-        "0198): write each as a file the page loads, or build the site under \"build\": \"own\".",
+      "Each line is markup the site's content security policy breaks in a browser, where a page " +
+        "breaks with nothing in any log, or a file the check cannot read (terp-framework ADR " +
+        "0198). The policy is the control; the check only finds what it can see before deploy, " +
+        "and a page it passes is no promise: change each as its line says, or build the site " +
+        "under \"build\": \"own\".",
     );
     process.exit(1);
   }
@@ -198,6 +669,8 @@ server {
     # IPv4 alone: a [::] listen stops nginx on a host whose kernel has no IPv6.
     listen 8080;
     server_name _;
+    # No nginx version in a Server header or on an error page nginx writes.
+    server_tokens off;
 
     # site/dist/ and nothing else: the base image's own pages stay out of the root.
     root /usr/share/nginx/site;
@@ -212,10 +685,16 @@ server {
         return 200 "ok\n";
     }
 
-    # Content-hashed assets are immutable: the site's build writes them under /assets/.
+    # Content-hashed assets are immutable: the site's build writes them under /assets/. The
+    # document headers again, since this block's own add_header drops every inherited one,
+    # and an asset can be a document: an SVG opened on its own runs the script it holds.
     location /assets/ {
         add_header Cache-Control "public, max-age=31536000, immutable";
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" always;
         add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header Cross-Origin-Opener-Policy "same-origin" always;
+        add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
         try_files $uri =404;
     }
 

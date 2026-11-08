@@ -37,7 +37,10 @@
   accepted that day and built in 0.40.0: a web unit that names the `static-site` recipe gets a
   fourth generated file, `site/Dockerfile.prod`, and is the one second web unit that renders
   (decisions 1 and 5); the site image's SBOM is read from `site/package-lock.json` (decision
-  6); and the fixed list gains the site's port and image (decision 9).
+  6); and the fixed list gains the site's port and image (decision 9). Amended 2026-11-08 for
+  0.40.1: a web image's SBOM is read from the lock that image installs, and a web image with
+  none is refused; and `terp promote` checks the schema hash of its own release and refuses a
+  word an older declaration's release does not have (both decision 6).
 - **Date:** 2026-10-21
 - **Relates:** amends [ADR 0062](0062-production-deployment-profile.md) decisions 1 to 4, on top
   of its 2026-10-21 amendment; amends [ADR 0184](0184-a-deployment-declares-its-units.md)
@@ -560,6 +563,35 @@ generator's fixed interpolations, a closed list of variable and place the framew
 only extends (`terp.arch.deployment.generator.fixed_interpolations`, applied by
 `escape_findings`); the nested `DATABASE_URL` default is parsed exactly; any YAML tag is refused. It runs
 compose with an allowlisted environment, never its own.
+
+*Amended 2026-11-08, built in 0.40.1.* A web image's SBOM is read from the lock that image
+installs, whatever the build state. The release jobs chose a web image's lock by the
+`generator.recipes` word, which the reader refuses beside `own`, so under `own` every web image
+was planned with `frontend/package-lock.json`, and a site built by the app's own Dockerfile was
+signed with the SPA's packages as its SBOM. Each web image's lock is now the `package-lock.json`
+beside its Dockerfile, else the one at the root of its build context
+(`terp.cli.release._plan.npm_lock_of`). The plan refuses a web image with neither, naming both
+paths and `npm install` as the remedy, and `sign` repeats the refusal (step 1), since an SBOM
+read from nothing lists no package. That includes a web image that installs nothing from npm,
+such as one whose own Dockerfile copies pages built elsewhere into nginx: this release has no
+way to declare one, so it is refused. The manifest records exactly the planned locks under
+`inputs.locks` and their hosts under `fetches.npm`, and `terp verify`'s lock check and npm audit
+hold the same set, asked of the same rule (`terp.cli.release._plan.web_npm_locks`). A generated
+app's two web Dockerfiles stand beside the locks they install, so its plan is what it was.
+
+*Amended 2026-11-08, built in 0.40.1.* `terp promote` reads every release up to its own with the
+one schema its `terp-arch` holds, its own release's, so it checks the two things reading an older
+declaration with that schema cannot. When the release the manifest names is its own,
+`inputs.spec.schemaSha256` must be the SHA-256 of the schema it holds, the hash `sign` records of
+the pinned wheel's schema; a release named as this one that was checked against another schema is
+refused. When the release is older, a carried declaration that uses a word that release does not
+have is refused, because the newer schema would honour what the release's own reader refuses: one
+small table in `terp-arch`, `terp.arch.deployment.standard.WORDS_SINCE`, maps each word added after
+terp-spec 0.40.0 (the release the signer's floor mirrors) to the release that introduced it, and
+holds `generator.recipes` (terp-spec 0.45.0) today. Each refusal names its remedy, cutting the
+release again with a toolchain at the right release. An executor that carries several releases
+reads each with its own; one that carries one, as `terp promote` does, holds an older declaration
+to the words its release has.
 
 *Considered and rejected.*
 - **Gate, build and sign in one job**, or **build after the gate in its worktree.** The gate runs

@@ -71,8 +71,9 @@ def test_a_managed_app_whose_locks_answer_their_manifests_passes(tmp_path, monke
         "uv.lock answers pyproject.toml, frontend/package-lock.json answers "
         "frontend/package.json: the locks the production images install"
     )
-    # Each package manager is asked in its own words, offline, changing nothing.
-    assert asked == [list(lock.check) for lock in LOCKS]
+    # Each package manager is asked in its own words, offline, changing nothing: the backend's
+    # lock and the frontend's, and no site lock, since there is no site/package.json.
+    assert asked == [list(lock.check) for lock in LOCKS[:2]]
     assert all("--offline" in argv for argv in asked)
     assert "--dry-run" in asked[1] and "ci" in asked[1]
 
@@ -183,8 +184,57 @@ def test_an_app_with_nothing_to_lock_passes_with_a_reason(tmp_path) -> None:
     root = project(tmp_path, seed())
     assert run_locks_check(root) == (
         0,
-        "no pyproject.toml or frontend/package.json - nothing is locked here",
+        "no pyproject.toml, frontend/package.json or site/package.json - nothing is locked here",
     )
+
+
+def test_the_npm_locks_are_the_ones_a_release_reads() -> None:
+    """The generator's two by the release jobs' own constant, beside every lock the release plan
+    finds for a web image (test_release_build holds the two readings to each other), so each
+    check's scope is what decides those: the declaration, every profile, every package.json and
+    every lock."""
+    from terp.cli.release._locks import NPM_LOCKS, NPM_SCOPE
+
+    assert [lock.lock for lock in LOCKS] == ["uv.lock", *NPM_LOCKS]
+    assert NPM_LOCKS == ("frontend/package-lock.json", "site/package-lock.json")
+    locks_scope = next(check.scope for check in verify_module.PROFILES["quick"] if check.id == "locks")
+    audit_scope = next(check.scope for check in verify_module.PROFILES["release"] if check.id == "dependency-audit-npm")
+    for scope in (locks_scope, audit_scope):
+        assert {"deployment.json", *NPM_SCOPE} <= set(scope), scope
+    assert {"**/package.json", "**/package-lock.json", "**/*.yml", "**/*.yaml"} == set(NPM_SCOPE)
+
+
+def test_a_static_site_s_lock_is_held_as_the_frontend_s_is(tmp_path, monkeypatch) -> None:
+    """A static site's image installs site/package-lock.json with ``npm ci`` (ADR 0198), so a
+    stale one is an image that cannot be built, asked in npm's own words like the frontend's."""
+    root = _managed(tmp_path, **{"site/package.json": _PACKAGE, "site/package-lock.json": "{}"})
+    asked = _answers(monkeypatch)
+    code, output = run_locks_check(root)
+    assert code == 0
+    assert output == (
+        "uv.lock answers pyproject.toml, site/package-lock.json answers site/package.json: the "
+        "locks the production images install"
+    )
+    assert asked[1] == [
+        "npm", "--prefix", "site", "ci", "--dry-run", "--offline", "--ignore-scripts", "--no-audit",
+        "--no-fund",
+    ]
+
+
+def test_a_missing_or_stale_site_lock_refuses_a_managed_app_and_names_the_fix(
+    tmp_path, monkeypatch
+) -> None:
+    _answers(monkeypatch)
+    code, output = run_locks_check(_managed(tmp_path / "missing", **{"site/package.json": _PACKAGE}))
+    assert code == 1
+    assert "- site/package-lock.json is missing." in output
+    assert "Fix: npm --prefix site install, then commit site/package-lock.json." in output
+    _answers(monkeypatch, npm=1)
+    code, output = run_locks_check(
+        _managed(tmp_path / "stale", **{"site/package.json": _PACKAGE, "site/package-lock.json": "{}"})
+    )
+    assert code == 1
+    assert "- site/package-lock.json is stale against site/package.json" in output
 
 
 def test_the_check_is_in_every_profile_and_reached_by_its_own_runner(

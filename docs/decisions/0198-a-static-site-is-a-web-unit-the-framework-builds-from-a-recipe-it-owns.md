@@ -15,6 +15,9 @@
   item 3 (the deploy side; item 5 before that list was cut), relies on the reference site where
   it named a starter that list no longer holds, and says that its build-time refusal holds for a
   site built with its image, not yet for one the undecided managed-content rebuild builds.
+  Revised again on 2026-11-08, after review, for 0.40.1: the build-time refusal is a finder of
+  what the policy breaks and no promise, and the policy stays the control (decision 3, *The
+  check sits behind the policy*, and the consequences).
 - **Date:** 2026-11-04. 0182 and 0183 are reserved for other records, 0184 to 0193 are taken,
   and 0194 to 0197 are the series this extends.
 - **Relates:** applies [ADR 0197](0197-a-public-site-is-a-client-of-an-app-and-the-framework-defines-its-socket.md)
@@ -140,6 +143,26 @@ content needs, and two consequences are now part of the recipe:
   the record that decides the rebuild carries the same refusal into it. Allowing inline content
   by hash was the alternative; it makes the policy depend on each build's output, which is a
   parameter by another name.
+- **The check sits behind the policy** (recorded 2026-11-08, built in 0.40.1). The policy is the
+  control: a browser holds every page to it, whatever produced the page. The build-time check is
+  a finder. Before the image is made, it looks in each page's markup for what the policy would
+  break, so such a page fails in a build log rather than silently in a browser, and a page it
+  passes is no promise. It models a browser's reading of markup and is not a browser's parser:
+  it reads a tag's attributes by the tokenizer's states, decodes character references before it
+  judges a value, reads an iframe's `srcdoc` as a page, follows SVG and MathML content in and
+  out by the tree builder's rules for it, and reads the files nginx serves as documents by
+  their extension (`.html`, `.htm`, `.shtml`, `.xhtml`, `.svg`, `.xml`, `.rss`, `.atom`, `.kml`,
+  `.xspf`), the XML ones by namespace; it does not read a `.svgz`, which the policy alone holds. Where its reading could differ from a browser's it leans toward reading
+  markup, which costs a refusal now and then that a browser would not need. It looks for an
+  inline script or style, an event handler, a `javascript:` URL, a `<base href>`, an `<object>`
+  or `<embed>`, a form that submits to another origin, and a load from another origin or a
+  `data:` URL (a script, stylesheet, frame, image, media, SVG `use`, icon, manifest or preload;
+  an image may be a `data:` URL, as `img-src` allows). It refuses what it cannot read: an XML
+  file's internal DTD subset, whose entities a browser expands, and a symbolic link under
+  `dist/`, which nginx follows. It never reads CSS, what a script fetches or what an XSLT
+  stylesheet makes of a file, which the policy alone holds. So a page the check passes is no
+  reason to loosen the policy, and a page it misses is still refused in the browser: the check
+  makes some of the policy's failures visible early, and the policy decides.
 
 A site that needs another policy, for a third-party script, an inline style or script, a form
 that posts or a browser call to the app, is `own`. The policy is stricter than the SPA's,
@@ -258,8 +281,9 @@ then the app's pin.
   server config of its own, and every site built from the recipe has the same posture.
 - That posture is strict: a site built from the recipe ships no inline style or script, makes no
   browser call to the app, and has no form that posts (decision 3). Its build copies the media
-  its pages show, and refuses a page the policy would break, so the strictness costs a build
-  error with a file name rather than a broken page.
+  its pages show, and refuses a page in whose markup its check finds what the policy would
+  break, so wherever that check sees the strictness, it costs a build error with a file name
+  rather than a broken page.
 - The generator owns one more file, and only for an app that declares the recipe.
 - The fixed list of interpolations grows by two entries, so an app pins the framework release
   that renders a site only after the runner carries them and the signer image has moved to that
@@ -279,7 +303,8 @@ then the app's pin.
   `site/Dockerfile.prod` byte for byte; the golden samples hold the render, including the
   unchanged render without the word, and each passes the executor's escape audit, so a render
   that wrote an interpolation the fixed list lacks would fail. The image build refuses a site
-  whose HTML carries an inline script or style, naming the file.
+  whose documents carry what the policy breaks, naming the file and what to change: it finds
+  the breakage early, and is not the control (decision 3).
 - **Runtime:** the image serves the rendered headers and has no route to the app, the browser
   holds every page to that policy, and the deploy waits on the health path the profile probes.
   An executor deploys a site's profile only when every interpolation in it is on the fixed list.

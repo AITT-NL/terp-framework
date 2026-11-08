@@ -1,11 +1,15 @@
 """``terp verify --only locks`` — are the committed locks the ones the images can install?
 
 The template's production images install exactly the committed locks: the backend image
-runs ``uv sync --locked --no-dev`` and the web image ``npm ci`` (ADR 0062, amended). Both
-refuse a lock that is missing or that no longer answers its manifest, so a dependency
-added to ``pyproject.toml`` or ``frontend/package.json`` without re-locking is an image
-that cannot be built, and the first anyone hears of it is a deploy. This check says it on
-the gate, naming the file and the command that fixes it.
+runs ``uv sync --locked --no-dev``, the web image ``npm ci`` over ``frontend/``, and a static
+site's image ``npm ci`` over ``site/`` (ADR 0062, amended; ADR 0198). Each refuses a lock that
+is missing or that no longer answers its manifest, so a dependency added to
+``pyproject.toml`` or a ``package.json`` without re-locking is an image that cannot be built,
+and the first anyone hears of it is a deploy. This check says it on the gate, naming the
+file and the command that fixes it. The npm locks it asks about are the ones a release reads:
+the generator's two (:data:`terp.cli.release._locks.NPM_LOCKS`) where their ``package.json`` is,
+and every lock a web image is built from by the release plan's own rule
+(:func:`terp.cli.release._plan.web_npm_locks`), such as an own app's ``www/package-lock.json``.
 
 Whether a lock answers its manifest is the package manager's question, and each is asked
 it in its own words rather than through a second reading of its file format: ``uv lock
@@ -33,6 +37,8 @@ from __future__ import annotations
 import pathlib
 from dataclasses import dataclass
 
+from terp.cli.release._locks import NPM_LOCKS, npm_manifest, npm_workspace
+
 #: How many trailing lines of the package manager's own answer a refusal quotes.
 _TOOL_LINES = 8
 
@@ -51,21 +57,16 @@ class Lock:
     fix: str
 
 
-LOCKS: tuple[Lock, ...] = (
-    Lock(
-        manifest="pyproject.toml",
-        lock="uv.lock",
-        check=("uv", "lock", "--check", "--offline"),
-        install="uv sync --locked --no-dev",
-        fix="uv lock",
-    ),
-    Lock(
-        manifest="frontend/package.json",
-        lock="frontend/package-lock.json",
+def _npm(npm_lock: str) -> Lock:
+    """The check of *npm_lock*: ``npm ci``'s own answer in the workspace it lies in, offline."""
+    workspace = npm_workspace(npm_lock)
+    return Lock(
+        manifest=npm_manifest(npm_lock),
+        lock=npm_lock,
         check=(
             "npm",
             "--prefix",
-            "frontend",
+            workspace,
             "ci",
             "--dry-run",
             "--offline",
@@ -74,9 +75,35 @@ LOCKS: tuple[Lock, ...] = (
             "--no-fund",
         ),
         install="npm ci",
-        fix="npm --prefix frontend install",
+        fix=f"npm --prefix {workspace} install",
+    )
+
+
+#: The backend's lock, then the generator's two npm locks: each held only where its manifest
+#: exists. :func:`held` adds the lock of every web image the release plan builds.
+LOCKS: tuple[Lock, ...] = (
+    Lock(
+        manifest="pyproject.toml",
+        lock="uv.lock",
+        check=("uv", "lock", "--check", "--offline"),
+        install="uv sync --locked --no-dev",
+        fix="uv lock",
     ),
+    *(_npm(npm_lock) for npm_lock in NPM_LOCKS),
 )
+
+
+def held(project_root: pathlib.Path) -> list[Lock]:
+    """Every lock the production images install: :data:`LOCKS` where its manifest is, then the
+    lock of each web image the release plan builds, which its image installs whether or not the
+    manifest beside it is there."""
+    from terp.arch.deployment import published_table
+    from terp.cli.release._plan import web_npm_locks
+
+    present = [lock for lock in LOCKS if (project_root / lock.manifest).is_file()]
+    known = {lock.lock for lock in present}
+    planned = web_npm_locks(project_root, published_table())
+    return present + [_npm(npm_lock) for npm_lock in planned if npm_lock not in known]
 
 
 def _managed(project_root: pathlib.Path) -> str | None:
@@ -134,9 +161,10 @@ def run_locks_check(project_root: pathlib.Path) -> tuple[int, str]:
     """The ``locks`` verify runner: ``(exit_code, output)``."""
     from terp.cli.verify import NOTE_PREFIX
 
-    present = [lock for lock in LOCKS if (project_root / lock.manifest).is_file()]
+    present = held(project_root)
     if not present:
-        return 0, "no pyproject.toml or frontend/package.json - nothing is locked here"
+        manifests = [lock.manifest for lock in LOCKS]
+        return 0, f"no {', '.join(manifests[:-1])} or {manifests[-1]} - nothing is locked here"
     exempt = _managed(project_root)
     problems = [line for lock in present for line in _problem(project_root, lock)]
     if not problems:

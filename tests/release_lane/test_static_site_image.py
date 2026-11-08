@@ -12,7 +12,8 @@ render for an app that declares the recipe:
 * a path with no file is the site's own ``404.html``, with status 404, and so is anything under
   ``/api``, since the site proxies nothing, and the base image's own ``50x.html``, since the
   site is served from a root only its build fills;
-* ``/assets/`` is immutable;
+* ``/assets/`` is immutable, and carries the document headers too: an SVG there is a document
+  that runs the script it holds when it is opened on its own;
 * a page with an inline ``<style>`` fails the build, which names the file and the tag, so the
   image whose page a browser would have broken is never made.
 
@@ -78,6 +79,7 @@ SITE = {
     "site/src/404.html": _page("not here"),
     "site/src/assets/site.css": "p { margin: 0; }\n",
     "site/src/assets/site.js": 'document.documentElement.dataset.ready = "yes";\n',
+    "site/src/assets/mark.svg": '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>\n',
 }
 
 
@@ -175,6 +177,19 @@ def test_assets_are_immutable(site: tuple[str, int]) -> None:
     assert (status, body) == (200, SITE["site/src/assets/site.css"])
     assert headers["Cache-Control"] == "public, max-age=31536000, immutable"
     assert _get(port, "/assets/nope.css")[0] == 404
+
+
+def test_an_asset_carries_the_policy_a_page_does(site: tuple[str, int]) -> None:
+    """``/assets/`` declares its own ``Cache-Control``, so nginx gives it none of the headers it
+    would inherit: they are repeated there, because an SVG opened on its own is a document."""
+    _name, port = site
+    status, headers, _body = _get(port, "/assets/mark.svg")
+    assert (status, headers["Content-Type"]) == (200, "image/svg+xml")
+    assert headers["Content-Security-Policy"] == POLICY
+    assert headers["X-Content-Type-Options"] == "nosniff"
+    assert headers["Referrer-Policy"] == "no-referrer"
+    assert headers["Cross-Origin-Opener-Policy"] == "same-origin"
+    assert headers["Cache-Control"] == "public, max-age=31536000, immutable"
 
 
 def test_a_page_with_an_inline_style_fails_the_build_by_name(engine: None, tmp_path: pathlib.Path) -> None:
