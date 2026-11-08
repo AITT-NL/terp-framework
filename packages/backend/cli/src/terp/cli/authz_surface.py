@@ -151,6 +151,20 @@ def diff_authz_surface(baseline: dict[str, Any], current: dict[str, Any]) -> lis
         path, methods = key
         differences.append(f"{methods} {path}: gone from the surface")
 
+    # A module's own policy and access. The endpoint lines above test one method per route,
+    # so a route serving GET and POST can have its read tier lowered with no endpoint line
+    # moving; and a module that starts taking per-module roles lets an assignment lift a
+    # caller over a floor (ADR 0121) without any rung's answer changing in this view.
+    before_modules = {module["name"]: module for module in baseline.get("modules", ())}
+    after_modules = {module["name"]: module for module in current.get("modules", ())}
+    for name in sorted(before_modules.keys() & after_modules.keys()):
+        was, now = before_modules[name], after_modules[name]
+        for field in ("policy", "access"):
+            if was.get(field) != now.get(field):
+                differences.append(
+                    f"module {name}: {field} {was.get(field)!r} -> {now.get(field)!r}"
+                )
+
     # The ladder itself, last: a changed rank silently re-scores every floor above it.
     if baseline.get("roles") != current.get("roles"):
         differences.append(
@@ -158,7 +172,38 @@ def diff_authz_surface(baseline: dict[str, Any], current: dict[str, Any]) -> lis
         )
     if baseline.get("permissions") != current.get("permissions"):
         differences.append("the declared permissions or their floors changed")
+
+    # Anything the lines above do not name is still a change to who can reach what, or
+    # to the record of it. Passing it as "no difference" is the one answer this check
+    # must never give, so it is reported whole rather than itemised.
+    if not differences and baseline != current:
+        differences.append(
+            "the authorization surface changed in a way this check does not itemise; "
+            f"read the diff of {SURFACE_ARTIFACT} line by line"
+        )
     return differences
+
+
+def served_twice(surface: dict[str, Any]) -> list[str]:
+    """Every method and path that more than one route serves.
+
+    The router answers with the first route registered, while a diff keyed by method and
+    path compares whichever it met last, so a second route under an existing path can
+    serve a different policy with no line moving. The surface cannot say which route
+    answers, so each such pair is reported rather than resolved.
+    """
+    seen: dict[tuple[str, str], int] = {}
+    for module in surface.get("modules", ()):
+        for endpoint in module.get("endpoints", ()):
+            for method in endpoint.get("methods") or ["WS"]:
+                key = (method, endpoint["path"])
+                seen[key] = seen.get(key, 0) + 1
+    return [
+        f"{method} {path}: served by {count} routes; the first one registered answers, "
+        "and this check cannot say which that is"
+        for (method, path), count in sorted(seen.items())
+        if count > 1
+    ]
 
 
 def read_baseline(root: pathlib.Path) -> dict[str, Any] | None:
@@ -167,3 +212,77 @@ def read_baseline(root: pathlib.Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
+
+def check(project_root: pathlib.Path, app_ref: str, *, note_prefix: str) -> tuple[int, str]:
+    """The ``authz-surface`` verify check over one tree: ``(exit code, output)``.
+
+    The access graph already replays enforcement — every allowance in it is `decide`'s
+    own answer, from the function the kernel guard runs — so the platform could always
+    *say* who may reach what. What nothing did was notice when the answer changed.
+    Widening a module policy from a named permission to a role tier, dropping a
+    `require_permission`, adding an endpoint under a public mount: each is a one-line
+    edit that changes the authorization surface and left every gate green.
+
+    Adoption is opt-in and half-adoption impossible, the shape `api-docs-drift` settled
+    on: with no committed baseline this skips with a note naming the command that writes
+    one, because upgrading the framework must not turn an app's gate red for a feature
+    it never wired.
+
+    A widening is never *fixed* by regenerating. The baseline is a review artifact, and
+    the diff belongs in a pull request where somebody says yes — which is why the writer
+    is a separate, explicit command and never a `--fix` on this.
+
+    Once a tree pins its surface, what the check cannot see is red, never a pass: an app
+    that cannot be composed, a route the access graph cannot place, a method and path two
+    routes serve, and a difference no line of the diff names.
+    """
+    from terp.cli._appref import load_app, push_app_root
+    from terp.cli.access import build_access_graph_for_app
+
+    baseline = read_baseline(project_root)
+    if baseline is None:
+        return (
+            0,
+            f"{note_prefix}no {SURFACE_ARTIFACT} - the authorization surface is not "
+            f"pinned, drift check skipped (adopt with: {ADOPT_HINT})",
+        )
+    push_app_root(project_root)
+    try:
+        app = load_app(app_ref)
+    except (SystemExit, ImportError) as exc:
+        # The tree pins its surface, so an app that cannot be composed is an unchecked
+        # surface, not an absent one. Skipping here passed every change for as long as
+        # the app failed to import, which is the one moment nobody is looking.
+        return 1, (
+            f"{SURFACE_ARTIFACT} pins this app's authorization surface, but {app_ref} "
+            f"could not be composed ({exc}), so nothing was checked. Make the app "
+            "importable, or remove the baseline in a change a reviewer sees."
+        )
+    graph = build_access_graph_for_app(app)
+    current = authz_surface(graph)
+    # What the surface cannot see is refused before it is compared: a route the graph
+    # could not place (a router included inside a module's router, served under a path
+    # the graph cannot recover) and a method and path two routes serve. Either one makes
+    # "no difference" an answer about a surface that is not the one being served.
+    unseen = [
+        f"{','.join(route.get('methods') or ['WS'])} {route['path']}: served, but the "
+        "access graph cannot place it (a router included inside a module's router); "
+        "declare it on the module's own router"
+        for route in graph.get("omitted_routes") or ()
+    ] + served_twice(current)
+    if unseen:
+        listing = "\n".join(f"  - {line}" for line in unseen)
+        return 1, (
+            f"the authorization surface cannot be checked: {len(unseen)} route(s) are "
+            f"served in a way {SURFACE_ARTIFACT} cannot record:\n{listing}"
+        )
+    differences = diff_authz_surface(baseline, current)
+    if not differences:
+        return 0, f"{SURFACE_ARTIFACT} matches the composed authorization surface"
+    listing = "\n".join(f"  - {difference}" for difference in differences)
+    return 1, (
+        f"the authorization surface changed in {len(differences)} way(s) that "
+        f"{SURFACE_ARTIFACT} does not record:\n{listing}\n\n"
+        "If every line above is intended, re-generate the baseline IN THE SAME CHANGE "
+        f"so a reviewer sees the diff:\n  {ADOPT_HINT}"
+    )

@@ -31,10 +31,13 @@ from terp.core import (
     Permission,
     PermissionModel,
     Policy,
+    Roles,
     create_app,
 )
+from terp.core.routing import route_policy
 
 from fastapi import APIRouter
+from fastapi.testclient import TestClient
 
 _EXAMPLE = pathlib.Path(__file__).resolve().parents[2] / "apps" / "example"
 
@@ -323,14 +326,15 @@ def test_the_surface_format_is_reachable_through_the_renderer() -> None:
     assert render_access_graph(graph, "surface") != render_access_graph(graph, "json")
 
 
-def test_a_tree_with_no_importable_app_is_named_rather_than_silently_passed(
+def test_a_pinned_tree_whose_app_cannot_be_composed_is_red(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The platform's own checkout has a baseline-shaped tree and no `app.main`.
+    """A tree that commits a baseline has said its surface is pinned.
 
-    Skipped, but skipped *out loud*: a runner that returned a bare success here would
-    be indistinguishable from one that checked something, which is the failure mode the
-    whole adoption shape exists to avoid.
+    An app that cannot then be composed is a surface nobody checked. This was a skip
+    once, so every change passed for as long as the app failed to import, which is the
+    one moment nobody is looking. A tree with no baseline still skips earlier, with the
+    adopt command (`test_an_unadopted_project_is_skipped_with_the_adopt_command`).
     """
     import terp.cli.verify as verify_module
 
@@ -338,9 +342,168 @@ def test_a_tree_with_no_importable_app_is_named_rather_than_silently_passed(
     monkeypatch.setattr(verify_module, "_DEFAULT_APP_REF", "no.such.module:build")
 
     exit_code, output = _run_authz_surface(tmp_path)
-    assert exit_code == 0
-    assert "no importable" in output
+    assert exit_code == 1
     assert "no.such.module:build" in output
+    assert "nothing was checked" in output
+
+
+# --------------------------------------------------------------------------- #
+# what the surface cannot see is red, never a pass
+# --------------------------------------------------------------------------- #
+def _strict_router() -> APIRouter:
+    router = APIRouter()
+
+    @router.get("/thing")
+    def read_thing() -> dict:
+        return {"who": "strict"}
+
+    return router
+
+
+def _compose(router: APIRouter, policy: Policy | None = None):
+    return create_app(
+        [ModuleSpec(name="probe", router=router, policy=policy or Policy.default())],
+        control_plane=ControlPlane(),
+    )
+
+
+def _strict_app():
+    return _compose(_strict_router())
+
+
+def _shadowed_app():
+    """`GET /thing` twice, the public one registered first: that one answers."""
+    router = APIRouter()
+
+    @router.get("/thing")
+    @route_policy(Policy.public(reason="a shadow registered first"))
+    def shadow() -> dict:
+        return {"who": "shadow"}
+
+    @router.get("/thing")
+    def read_thing() -> dict:
+        return {"who": "strict"}
+
+    return _compose(router)
+
+
+def _nested_app():
+    """A public route on a router included inside the module's router."""
+    router = _strict_router()
+    nested = APIRouter()
+
+    @nested.get("/export")
+    @route_policy(Policy.public(reason="a nested export"))
+    def export() -> dict:
+        return {"who": "nested"}
+
+    router.include_router(nested, prefix="/deep")
+    return _compose(router)
+
+
+def _pin_the_strict_surface(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, ref: str):
+    import terp.cli.verify as verify_module
+
+    (tmp_path / SURFACE_ARTIFACT).write_text(
+        render_authz_surface(build_access_graph_for_app(_strict_app())), encoding="utf-8"
+    )
+    monkeypatch.setattr(verify_module, "_DEFAULT_APP_REF", ref)
+
+
+def test_a_path_two_routes_serve_is_red(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The router answers with the first route, the diff compared whichever it met last.
+
+    So a public route registered ahead of a guarded one at the same method and path
+    served anonymous callers while the diff saw nothing change.
+    """
+    _pin_the_strict_surface(
+        tmp_path, monkeypatch, "tests.architecture.test_authz_surface:_shadowed_app"
+    )
+    assert TestClient(_shadowed_app()).get("/api/v1/probe/thing").json() == {"who": "shadow"}
+
+    exit_code, output = _run_authz_surface(tmp_path)
+    assert exit_code == 1
+    assert "GET /api/v1/probe/thing: served by 2 routes" in output
+
+
+def test_a_route_the_graph_cannot_place_is_red(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The graph lists a nested router's route under `omitted_routes`, its leak alarm.
+
+    The surface dropped that list, so a public route served one router down passed as
+    no change at all.
+    """
+    _pin_the_strict_surface(
+        tmp_path, monkeypatch, "tests.architecture.test_authz_surface:_nested_app"
+    )
+    assert TestClient(_nested_app()).get("/api/v1/probe/deep/export").status_code == 200
+
+    exit_code, output = _run_authz_surface(tmp_path)
+    assert exit_code == 1
+    assert "GET /api/v1/probe/deep/export: served, but the access graph cannot place it" in output
+
+
+def _both_methods() -> APIRouter:
+    router = APIRouter()
+
+    @router.api_route("/both", methods=["GET", "POST"])
+    def both() -> dict:
+        return {}
+
+    return router
+
+
+def test_a_lowered_read_tier_on_a_route_serving_two_methods_is_reported() -> None:
+    """The graph judges one method per route, so the endpoint lines did not move.
+
+    The module's policy did, and it is compared now.
+    """
+    before = authz_surface(
+        build_access_graph_for_app(
+            _compose(_both_methods(), Policy(read=Roles.ADMIN, write=Roles.ADMIN))
+        )
+    )
+    after = authz_surface(
+        build_access_graph_for_app(
+            _compose(_both_methods(), Policy(read=Roles.VIEWER, write=Roles.ADMIN))
+        )
+    )
+    differences = diff_authz_surface(before, after)
+    assert any(line.startswith("module probe: policy ") for line in differences), differences
+
+
+def test_a_module_that_starts_taking_module_roles_is_reported() -> None:
+    """A per-module role can lift a caller over a floor (ADR 0121) with no rung's answer
+    changing in this view, so the module's `access` is compared on its own."""
+    before = authz_surface(_graph(Policy.default()))
+    after = copy.deepcopy(before)
+    _probe_module(after)["access"] = {
+        "assignable": True,
+        "label": "Probe",
+        "platform_reason": None,
+    }
+    differences = diff_authz_surface(before, after)
+    assert any(line.startswith("module probe: access ") for line in differences), differences
+
+
+def test_a_difference_no_line_names_is_still_reported() -> None:
+    """A rung losing reach on an unchanged requirement moves no itemised line.
+
+    Whatever the lines do not name is reported whole, because "no difference" is the one
+    answer this check must never give about a surface that changed.
+    """
+    before = authz_surface(_graph(Policy.default()))
+    after = copy.deepcopy(before)
+    endpoint = _probe_module(after)["endpoints"][0]
+    rung = next(role for role, reason in endpoint["by_role"].items() if reason == "allowed")
+    endpoint["by_role"][rung] = "rank"
+    assert diff_authz_surface(before, after) == [
+        "the authorization surface changed in a way this check does not itemise; "
+        f"read the diff of {SURFACE_ARTIFACT} line by line"
+    ]
 
 
 def test_the_verify_dispatcher_routes_the_check_to_its_runner(

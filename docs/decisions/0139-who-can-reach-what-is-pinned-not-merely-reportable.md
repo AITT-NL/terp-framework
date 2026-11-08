@@ -3,7 +3,11 @@
 - **Status:** Accepted and implemented. `terp inspect access --format surface` emits the
   authority baseline, the `authz-surface` verify check diffs the composed surface against
   a committed `authz-surface.json`, and `apps/example` commits one. Held by
-  `tests/architecture/test_authz_surface.py`.
+  `tests/architecture/test_authz_surface.py`. Revised 2026-11-08 (0.41.0): once a tree
+  commits a baseline, what the check cannot see is red, never a pass. That covers an app it
+  cannot compose, a route the access graph lists under `omitted_routes`, a method and path
+  two routes serve, a change to a module's `policy` or `access`, and any difference no line
+  names. Each of the first four let a widening through with an empty diff.
 - **Date:** 2026-09-15
 - **Relates:** [ADR 0121](0121-one-decision-one-function-the-access-graph-replays-the-guard.md)
   (the projection this reduces, and the reason it can be trusted),

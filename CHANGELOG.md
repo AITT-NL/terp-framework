@@ -10,6 +10,32 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.41.0 — unreleased
+
+### Security
+
+- **The `authz-surface` check no longer passes what it cannot see (ADR 0139).** Three
+  widenings each left the diff empty while an anonymous request was served:
+  - a public route registered ahead of a guarded one at the same method and path, because
+    the router answers with the first route and the diff compared the last;
+  - a public route on a router included inside a module's router, which the access graph
+    lists under `omitted_routes` and the surface dropped;
+  - a lowered read tier on a route that serves both GET and POST, because the graph judges
+    one method per route and a module's `policy` was never compared.
+
+  In a tree that commits `authz-surface.json`, each is now red: a route the graph cannot
+  place, a method and path two routes serve, and a change to a module's `policy` or
+  `access` (whether it takes per-module roles, ADR 0121). A difference no line names is
+  reported whole instead of passing as no change. An app the check cannot compose is red
+  too; it was a skip, so every change passed for as long as the app failed to import. A
+  tree with no baseline still skips with the command that writes one.
+
+### Upgrade notes
+
+- An app that commits `authz-surface.json` and includes a router inside a module's router
+  now fails `terp verify --only authz-surface` until that route moves onto the module's own
+  router. So does one that serves a method and path from two routes.
+
 ## 0.40.0 — 2026-11-08
 
 ### Added
