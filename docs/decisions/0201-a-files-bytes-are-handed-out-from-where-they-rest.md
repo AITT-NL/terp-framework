@@ -129,8 +129,11 @@ For the local adapter, and for a store whose credentials cannot sign, the servic
 **app-signed link**: a token sealed under a sealing domain of its own (`files.link`) carrying
 the file id, the expiry and whether the bytes are shown inline, served at
 `GET /api/v1/files/link/{token}`. That route is declared `Policy.public(reason=...)` on the
-route (ADR 0148), with its own rate limit (ADR 0138), and it is the only public route of the
-capability. It opens the token, refuses an expired, altered or foreign one with a 404 that does
+route (ADR 0148), with its own rate limit (ADR 0138): the application's general limit,
+`RateLimit.general()`, counted in a bucket of its own, so a player's range requests never spend
+the rest of the API's allowance (amended in 0.39.0: it declared `RateLimit()`, the framework's
+default, which stayed 240 a minute where an application set its general limit tighter). It is
+the only public route of the capability. It opens the token, refuses an expired, altered or foreign one with a 404 that does
 not say which (a token longer than any it mints is refused by the path's length cap before it
 is read), runs `ensure_servable` again (a verdict can change after a link was minted), and
 streams with `Range` support. The token is the secret:

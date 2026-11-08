@@ -835,12 +835,15 @@ def _rate_limit_override_map(
     re-declare the routes it cares about; that is a decision it makes, rather than one
     made for it by a sort order.
     """
+    general = config.rate_limit
     overrides: dict[str, tuple[int, int]] = {}
     for spec in specs:
         if spec.router is None:
             continue
-        for route, limit in spec.rate_limit:
+        for route, declared in spec.rate_limit:
             suffix = "" if route == "/" else route
+            # RateLimit.general() follows the application's general limit, in its own bucket.
+            limit = declared.resolved(general)
             overrides[f"/api/v1/{spec.name}{suffix}"] = (
                 limit.requests,
                 limit.window_seconds,
@@ -861,7 +864,8 @@ def _rate_limit_override_map(
         if any(key == prefix or key.startswith(prefix + "/") for prefix in app_prefixes)
     ]:
         del overrides[covered]
-    for prefix, limit in config.rate_limit_overrides:
+    for prefix, declared in config.rate_limit_overrides:
+        limit = declared.resolved(general)
         overrides[prefix] = (limit.requests, limit.window_seconds)
     return overrides
 
@@ -1590,11 +1594,12 @@ def _warn_loosened_capability_limit_in_production(
             continue
         for route, limit in spec.rate_limit:
             suffix = "" if route == "/" else route
-            declared[f"/api/v1/{spec.name}{suffix}"] = limit
+            declared[f"/api/v1/{spec.name}{suffix}"] = limit.resolved(config.rate_limit)
     # Keyed on the prefix alone: `RateLimit` is a frozen dataclass without `order=True`,
     # so two entries sharing a prefix would fall through to comparing `RateLimit`s and
     # raise `TypeError` at production boot instead of anything a reader can act on.
-    for prefix, limit in sorted(config.rate_limit_overrides, key=lambda item: item[0]):
+    for prefix, overriding in sorted(config.rate_limit_overrides, key=lambda item: item[0]):
+        limit = overriding.resolved(config.rate_limit)
         loosened = sorted(
             key
             for key, capped in declared.items()

@@ -84,3 +84,15 @@ the limit.
 The rate limit does not solve the distributed case, and no rate limit can. What it
 removes is the single-address version, where one caller could spend four minutes of
 server CPU every minute from a laptop.
+
+## Amendment (2026-11-08): a route may follow the general limit in a bucket of its own
+
+A capability whose route costs what an ordinary request does, but should not spend the rest of
+the API's allowance, wants the application's general limit counted apart. The files capability's
+public link route is the case: a player reads one file with many range requests. It declared
+`RateLimit()` for that, which is the framework's default of 240 a minute and not the
+application's general limit, so an application that set its general limit to 60 left that route
+at 240 while the comment beside it said otherwise. `RateLimit.general()` now says it: it is read
+as `SecurityConfig.rate_limit` where the declarations are merged, for a module's declaration and
+an application's override alike, and the production notice compares the numbers it resolves to.
+`SecurityConfig.rate_limit` itself cannot be declared that way.

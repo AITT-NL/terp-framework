@@ -22,9 +22,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, update
 
-from terp.core import NotFoundError, RateLimit, encrypt_config
+from terp.core import NotFoundError, RateLimit, SecurityConfig, encrypt_config
 from terp.core._internal.session_guard import WriteGuardedSession
-from terp.core.app import register_error_handlers
+from terp.core.app import _rate_limit_override_map, register_error_handlers
 from terp.core.db import get_session
 from terp.core.routing import declared_route_policy
 
@@ -280,8 +280,10 @@ def test_the_public_link_route_declares_its_posture_and_its_rate_limit() -> None
     policy = declared_route_policy(read_link)
     assert policy is not None and policy.authenticated is False
     assert "cannot send a bearer" in policy.public_reason
-    assert isinstance(dict(module.rate_limit)["/link"], RateLimit)
-    assert dict(module.rate_limit)["/link"].enabled
+    # The application's general limit, in a bucket of its own: a tighter one applies here too.
+    assert dict(module.rate_limit)["/link"] == RateLimit.general()
+    tight = SecurityConfig(rate_limit=RateLimit(requests=60, window_seconds=60))
+    assert _rate_limit_override_map([module], tight)["/api/v1/files/link"] == (60, 60)
 
 
 def test_a_link_is_minted_by_the_route_and_read_back_whole_or_by_range(engine: Any, session: Session, storage_root: Path) -> None:

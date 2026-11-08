@@ -37,6 +37,10 @@ decision, 0001 onwards.
   so that one swapped with `object.__setattr__` before the app starts is refused. Its published
   contract is a `datetime`'s. It is no escape: a `BaseSchema` leaves it to its own reader, and
   judges the fields beside it as before.
+- **`RateLimit.general()`: the application's general limit, counted in a bucket of its own
+  (ADR 0138).** A module declares it for a route whose requests cost what ordinary ones do but
+  should not spend the rest of the API's allowance, and an application may name it in
+  `rate_limit_overrides` too; it follows `SecurityConfig.rate_limit` wherever that is set.
 
 ### Changed
 
@@ -205,6 +209,11 @@ decision, 0001 onwards.
   classes the client carries, so they escaped every operation of the S3 adapter as a 500 with
   its trace. They are now the typed `file_storage_failed` 502, with botocore's text in
   `log_context`.
+- **The public files link route follows the application's general rate limit (ADR 0138).** It
+  declared `RateLimit()`, the framework's default of 240 a minute, in a bucket of its own, so an
+  application that set its general limit to 60 left that one public route at 240, while the
+  comment beside it said it followed the general limit. `RateLimit.general()` now declares the
+  application's general limit counted in a bucket of its own, and the route declares that.
 - **A SELECT that carries an `INSERT`, `UPDATE` or `DELETE` is a write (ADR 0015).** The request
   session took any `SELECT` for a read, so one carrying a data-modifying CTE ran it on
   PostgreSQL outside the audited write chokepoint, on a read-only request too. It now needs the

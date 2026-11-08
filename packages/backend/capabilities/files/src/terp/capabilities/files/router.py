@@ -349,9 +349,11 @@ module = ModuleSpec(
     max_request_bytes=MAX_UPLOAD_BYTES + _MULTIPART_HEADROOM_BYTES,
     # The one public route verifies a credential (the sealed link token), so it declares
     # its own rate limit (ADR 0138). Opening a sealed token is cheap, and a player makes
-    # many range requests over one session, so the general allowance is the right cap;
-    # declaring it here is what makes it visible beside the route it protects.
-    rate_limit={"/link": RateLimit()},
+    # many range requests over one session, so the application's general limit is the
+    # right cap, counted in a bucket of its own so a player's reads never spend the rest
+    # of the API's allowance. RateLimit.general() follows the general limit wherever the
+    # application sets it; a number here would stay at the framework's default.
+    rate_limit={"/link": RateLimit.general()},
 )
 
 
