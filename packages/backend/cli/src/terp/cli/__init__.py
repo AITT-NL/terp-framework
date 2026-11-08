@@ -1091,8 +1091,8 @@ Aggregates: counts and sums declared on the service, like filters (ADR 0204)
   column, a prefix, a suffix or a hint, unless it is only a name), and a FROM element the
   session does not know. A many-to-many whose link table is row-scoped is refused too: map
   the link as an association object.
-- On SQLite a timestamp is stored as its wall time without its offset: write instants in UTC
-  (every timestamp the framework stamps already is) and the steps are exact on both dialects.
+- A bucket's column is a UtcDateTime (the column rule requires one), which stores the UTC
+  instant on every dialect, SQLite included (ADR 0205), so the steps are exact on both.
 """,
     "leases": """\
 Leases: expiring, fenced custody of work (leases capability)
