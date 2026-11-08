@@ -1054,6 +1054,32 @@ def test_a_class_between_that_defines_a_hook_is_refused_when_defined() -> None:
                 return None
 
 
+def test_an_init_of_its_own_is_refused_when_defined_or_taken_from_ahead() -> None:
+    """An __init__ reads what a caller passes before the schema validates it, so it could turn
+    timestamp text without an offset into a value the refusal never sees."""
+    with pytest.raises(TypeError, match="defines __init__"):
+
+        class _Eager(BaseSchema):
+            at: datetime
+
+            def __init__(self, **data: Any) -> None:
+                super().__init__(**data)
+
+    class _Mixin:
+        def __init__(self, **data: Any) -> None:
+            super().__init__(**data)
+
+    with pytest.raises(TypeError, match=r"takes __init__ from .*_Mixin.*model_validator"):
+
+        class _Ahead(_Mixin, BaseSchema):
+            at: datetime
+
+    class _Behind(BaseSchema, _Mixin):  # Pydantic's own __init__ comes first, as on every schema
+        at: datetime
+
+    assert _refusals(_Behind, {"at": NAIVE})[0][1] == "timestamp_offset_required"
+
+
 def test_nothing_a_caller_hands_the_validation_reaches_the_refusal() -> None:
     """The framework once trusted text under a validation context of its own, which any caller
     can pass. Its trust is a context variable now, and the refusal is handed the value alone,

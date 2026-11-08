@@ -85,6 +85,12 @@ decision, 0001 onwards.
   `BeforeValidator(refuse_timestamp_text_without_offset)` works as before; a direct call that
   passes a second argument does not.
 
+- **A `BaseSchema` that defines `__init__`, or takes it from a class ahead of `BaseSchema`, is
+  refused when the class is defined (ADR 0206).** An `__init__` of its own reads what a caller
+  passes before the schema validates it, so it could turn timestamp text without an offset into a
+  value the refusal never sees. The metaclass refuses it as it refuses the two hooks, and the
+  `TypeError` names where that work goes instead: a `model_validator(mode="after")`.
+
 ### Fixed
 
 - **A signed release no longer calls a lane passed that judged nothing (ADRs 0200, 0202).** The
@@ -353,6 +359,8 @@ decision, 0001 onwards.
   Where it only checked the instant, make it an after validator. Where it must keep reading the
   text, keep it with `# arch-allow-request-timestamps-carry-their-offset: <reason>` and an entry
   in `escape-hatch-budget.json`.
+- **A `BaseSchema` with an `__init__` of its own is refused when the class is defined.** Move what
+  it does into a `model_validator(mode="after")`.
 
 ## 0.38.0 — 2026-11-07
 

@@ -89,7 +89,10 @@ kind and the type stops the aware kind. `BaseSchema`'s metaclass refuses, when a
 defined, any subclass that takes the schema hook or the subclass hook,
 `__get_pydantic_core_schema__` or `__pydantic_init_subclass__`, from anywhere but `BaseSchema`:
 by defining it, at any depth, or from a base listed ahead of `BaseSchema`. A class that took
-either would decide for itself and every class below it whether the refusal runs.
+either would decide for itself and every class below it whether the refusal runs. It refuses
+an `__init__` of the subclass's own the same way (amended in 0.39.0): one reads what a caller
+passes before the schema validates it, so it could turn timestamp text without an offset into a
+value the refusal never sees.
 
 ### 2. Only text is judged, and the framework trusts the text it wrote itself
 
