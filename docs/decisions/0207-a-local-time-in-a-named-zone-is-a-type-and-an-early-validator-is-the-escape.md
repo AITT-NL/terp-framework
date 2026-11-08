@@ -199,6 +199,13 @@ refusal.
   passes as the instant it is.
 - ADR 0206's other two 0.39.0 items remain: the startup check of a request body that is not a
   `BaseSchema`, and of a plain timestamp route parameter.
+- **A place that keeps UTC all year reads as UTC, unmarked: a known limit** (the owner accepted
+  it on 2026-11-08). `LocalTimeIn("Africa/Abidjan")` or `LocalTimeIn("Atlantic/Reykjavik")`
+  reads text without an offset as UTC, which is what `NaiveMeansUtc` does, and the rule does not
+  count it as the escape. It is accepted because the declaration names a place, which is what a
+  reviewer reads, and reads that place's wall time correctly: the day the place changes its
+  clocks, the type follows. Refusing every place whose offset is zero today would refuse a place
+  an app means. The rule's page records it among its residuals.
 
 ## What the review changed
 

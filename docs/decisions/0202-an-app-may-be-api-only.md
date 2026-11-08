@@ -67,6 +67,16 @@ nginx is the one hop; an API-only profile declares nothing in front of the `api`
 the platform's `0` holds everywhere, and the comment tells an operator who adds a proxy to
 count it. The template's test of this premise reads the rendered answer, not the raw file.
 
+**An API-only app expects a proxy in front of it in production** (added in 0.39.0; the owner
+decided it on 2026-11-08). With a `web` tier, nginx stands between a client and the app and
+times out a client that sends its request slowly. An API-only profile publishes uvicorn
+itself, which does not, so a client that trickles its headers holds a connection for as long
+as it likes. The profile is where production starts, not its edge: production puts a reverse
+proxy, a load balancer or an ingress in front of the `api` unit, as it would to terminate TLS,
+and counts it in `trusted_proxy_hops`. The template's README and its comment on
+`trusted_proxy_hops` say so. Nothing refuses the bare profile, because nothing the framework
+reads says what stands in front of a host.
+
 ### 4. A check is not applicable where its workspace does not exist
 
 Every `npm` check of the framework's runs through one seam. That seam answers *not

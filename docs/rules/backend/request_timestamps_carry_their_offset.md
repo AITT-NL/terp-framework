@@ -41,6 +41,7 @@ where detection ends is a statement rather than a guess:
 - a timestamp alias imported from another module (from app.types import Stamp) is not resolved to a timestamp, so an early validator on it, or on a field typed with it, is not counted
 - a validator of the whole model (model_validator in before or wrap mode, Pydantic 1's root_validator with pre=True) is not counted: it sees the body rather than a field, so counting it would mostly be noise (ADR 0206, Open)
 - a validator a schema gets only at run time is not resolved: create_model's __validators__, validators unpacked into the metadata (Annotated[datetime, *EARLY]), returned by a function of the app's own, or built with GetPydanticSchema, and a type whose own __get_pydantic_core_schema__ reads the text
+- a LocalTimeIn that names a place keeping UTC all year (Africa/Abidjan, Atlantic/Reykjavik) reads text without an offset as UTC, as the escape does, and is not counted as the escape: it names a place, which is what a reviewer reads, and reads that place's wall time correctly (ADR 0207, a known limit the owner accepted)
 
 **These are not exemptions.** The rule governs those forms exactly as it
 governs any other — a checker is simply not required to find them, so

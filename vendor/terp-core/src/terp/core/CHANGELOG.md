@@ -132,6 +132,12 @@ decision, 0001 onwards.
   `add_exception_handler` on the composed app too. The freeze moves from `terp.core.app` to
   `terp.core.composition_freeze`, under the names the catalog cites.
 
+- **The template says an API-only app expects a proxy in front of it in production (ADR 0202).**
+  Its profile publishes uvicorn itself, which neither terminates TLS nor times out a client that
+  sends its request slowly, as the web tier's nginx does. The README and the comment on
+  `trusted_proxy_hops` say to put a reverse proxy, a load balancer or an ingress in front of the
+  `api` unit, and to count it there.
+
 ### Fixed
 
 - **A signed release no longer calls a lane passed that judged nothing (ADRs 0200, 0202).** The
