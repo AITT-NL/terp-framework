@@ -381,8 +381,14 @@ jobs:
         env:
           GITLEAKS_VERSION: "8.30.1"
           GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+          GH_TOKEN: ${{ github.token }}
         run: |
-          curl -sSfL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          # The tarball comes through the REST API's asset endpoint, with this job's token,
+          # not the release page's download link: on 2026-11-08 that link answered every
+          # runner with a 504 for over an hour while the API served the same file. The
+          # SHA-256 pin is what makes either route trustworthy, so it stays the check.
+          gh release download "v${GITLEAKS_VERSION}" --repo gitleaks/gitleaks \
+            --pattern "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" --output gitleaks.tgz
           echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
           tar -xzf gitleaks.tgz gitleaks
           # --log-opts HEAD scopes the walk to the history UNDER TEST. Without it
