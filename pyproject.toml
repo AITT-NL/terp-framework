@@ -96,7 +96,7 @@ dev = [
     # through terp_spec.spec_dir(), never a repo path. The rules live in this
     # repository. Pinned to one exact release (ADR 0086) so the Python and npm pins
     # can be compared.
-    "terp-spec==0.43.0",
+    "terp-spec==0.44.0",
 ]
 # CI-only generic backstops (NOT part of the `pytest --cov=terp` gate; they
 # complement terp-arch, never replace it). Installed in CI; optional locally.

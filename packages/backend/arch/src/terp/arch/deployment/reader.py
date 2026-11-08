@@ -50,7 +50,7 @@ SCHEMA_FILE = "deployment-declaration.schema.json"
 #: The terp-spec release whose ``deployment-declaration.schema.json`` this mirror must
 #: equal byte for byte once that release is pinned
 #: (``tests/architecture/test_deployment_schema_mirror.py``).
-SPEC_RELEASE = "0.43.0"
+SPEC_RELEASE = "0.44.0"
 
 #: Versions this reader understands. A later file means the toolchain is behind, and
 #: saying so beats reading it with an earlier vocabulary.

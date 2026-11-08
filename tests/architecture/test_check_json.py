@@ -355,7 +355,7 @@ def test_spec_version_constants_match_the_pinned_spec() -> None:
 
     assert SPEC_VERSION == terp_spec.spec_version(), (
         "terp.arch.SPEC_VERSION must equal the pinned terp-spec release — bump the "
-        "constant together with the [tool.uv.sources] pin"
+        "constant together with the dev group's terp-spec pin in pyproject.toml"
     )
     spec_js = (
         _REPO_ROOT
@@ -368,7 +368,7 @@ def test_spec_version_constants_match_the_pinned_spec() -> None:
     match = _re.search(r'export const SPEC_VERSION = "([^"]+)"', spec_js)
     assert match is not None, "eslint-boundaries/src/spec.js must export SPEC_VERSION"
     assert match.group(1) == terp_spec.spec_version(), (
-        "@terpjs/eslint-boundaries SPEC_VERSION must equal the pinned @terp/spec release — "
+        "@terpjs/eslint-boundaries SPEC_VERSION must equal the pinned @terpjs/spec release — "
         "bump the constant together with the package.json pin"
     )
 

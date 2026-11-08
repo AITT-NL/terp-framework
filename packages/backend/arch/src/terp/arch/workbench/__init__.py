@@ -36,7 +36,7 @@ SCHEMA_FILE = "workbench-declaration.schema.json"
 
 #: The terp-spec release whose ``workbench-declaration.schema.json`` this mirror must
 #: equal byte for byte once that release is pinned.
-SPEC_RELEASE = "0.43.0"
+SPEC_RELEASE = "0.44.0"
 
 
 def _load() -> dict[str, Any]:

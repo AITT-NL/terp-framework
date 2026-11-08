@@ -3714,8 +3714,8 @@ def check_report_envelope(
 
     The spec's ``app-check-report.schema.json`` shape: one self-describing document a
     consumer joins to the catalog without knowing this toolchain — ``spec_version``
-    (the standard the rule ids resolve against), the checker identity, the run
-    verdict, the evaluated-rule inventory as **catalog ids** (``backend/<rule>``),
+    (the report format's release), the checker identity (its version names the catalog),
+    the run verdict, the evaluated-rule inventory as **catalog ids** (``backend/<rule>``),
     and findings in the finding format's shape (``fix_hint`` = the ``terp guide``
     recipe). The legacy ``--format json`` report keeps its published shape for
     existing consumers; this is the successor surface driving tools migrate to.

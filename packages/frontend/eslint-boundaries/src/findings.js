@@ -62,11 +62,13 @@ const PACKAGE_VERSION = JSON.parse(
 /**
  * Render a findings envelope as the Terp Standard **check report**
  * (`app-check-report.schema.json`, printed by `--format check-report`): the same
- * inventory and findings, self-described with the spec version the rule ids resolve
- * against, the checker identity, and the run verdict — so a consumer joins per-rule
- * verdicts to the catalog without knowing this toolchain. `unattributed.reported_as`
- * is omitted (never null) per the schema; `ok` covers the standard's own findings
- * (the process exit code stays the combined verdict, unattributed errors included).
+ * inventory and findings, self-described with the release of the report format, the
+ * checker identity (whose version names the catalog release the rule ids resolve
+ * against: the catalog ships with this package, ADR 0203), and the run verdict — so a
+ * consumer joins per-rule verdicts to the catalog without knowing this toolchain.
+ * `unattributed.reported_as` is omitted (never null) per the schema; `ok` covers the
+ * standard's own findings (the process exit code stays the combined verdict,
+ * unattributed errors included).
  */
 export function asCheckReport(envelope) {
   return {

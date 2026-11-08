@@ -207,7 +207,9 @@ def test_spec_lockfiles_resolved_the_pinned_release() -> None:
     )
     node = npm_lock.get("packages", {}).get("node_modules/@terpjs/spec")
     assert node is not None, (
-        "package-lock.json carries no @terpjs/spec entry — run `npm install`"
+        "package-lock.json carries no @terpjs/spec entry at its root (node_modules/@terpjs/spec) "
+        "— run `npm install`, and if it places the release under the workspace instead, move "
+        "that entry to the root key"
     )
     assert node.get("version") == pin, (
         f"package-lock.json resolved @terpjs/spec {node.get('version')!r}, not "
