@@ -30,7 +30,7 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel
-from sqlalchemy import Integer, and_, distinct, func, literal, or_, union_all
+from sqlalchemy import and_, distinct, func, literal, or_
 from sqlalchemy import select as sa_select
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlmodel import Session, select

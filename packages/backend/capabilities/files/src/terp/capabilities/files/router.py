@@ -59,9 +59,9 @@ from terp.core import (
     route_policy,
 )
 
-from terp.capabilities.files.content_types import _served_media_type
+from terp.capabilities.files.content_types import served_media_type
 from terp.capabilities.files.links import LINK_TTL_MAX, content_disposition
-from terp.capabilities.files.models import CONTENT_TYPE_MAX, FILENAME_MAX, File
+from terp.capabilities.files.models import CONTENT_TYPE_MAX, DEFAULT_FILENAME, FILENAME_MAX, File
 from terp.capabilities.files.operations import (
     FILES_DELETE,
     FILES_DOWNLOAD,
@@ -123,7 +123,6 @@ def reset_upload_limit() -> None:
 # The chunk size the download route pulls from the backend stream (bounded memory per read).
 _DOWNLOAD_CHUNK_BYTES: Final[int] = 64 * 1024
 
-_DEFAULT_FILENAME: Final[str] = "upload"
 _DEFAULT_CONTENT_TYPE: Final[str] = "application/octet-stream"
 
 
@@ -215,7 +214,7 @@ def _serve(row: File, request: Request, *, inline: bool = False) -> Response:
     if part is None:
         headers["Content-Length"] = str(row.size)
         return StreamingResponse(
-            _iter_blob(stream), media_type=_served_media_type(row.content_type), headers=headers
+            _iter_blob(stream), media_type=served_media_type(row.content_type), headers=headers
         )
     first, last = part
     headers["Content-Length"] = str(last - first + 1)
@@ -223,7 +222,7 @@ def _serve(row: File, request: Request, *, inline: bool = False) -> Response:
     return StreamingResponse(
         _iter_blob(stream, last - first + 1),
         status_code=206,
-        media_type=_served_media_type(row.content_type),
+        media_type=served_media_type(row.content_type),
         headers=headers,
     )
 
@@ -245,7 +244,7 @@ async def upload_file(request: Request, session: SessionDep) -> FileRead:
     if not isinstance(uploaded, UploadFile):
         raise ValidationFailedError("Upload a file part named 'file'.")
     file = uploaded
-    filename = file.filename or _DEFAULT_FILENAME
+    filename = file.filename or DEFAULT_FILENAME
     if len(filename) > FILENAME_MAX:
         raise ValidationFailedError(
             f"The filename exceeds the {FILENAME_MAX}-character limit."
