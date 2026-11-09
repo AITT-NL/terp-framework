@@ -31,7 +31,8 @@ from __future__ import annotations
 
 import json
 import pathlib
-from typing import Any
+import tomllib
+from typing import Any, NamedTuple
 
 #: The committed baseline, at the project root beside the other tracked artifacts.
 SURFACE_ARTIFACT = "authz-surface.json"
@@ -96,92 +97,15 @@ def render_authz_surface(graph: dict[str, Any]) -> str:
     return json.dumps(authz_surface(graph), indent=2, sort_keys=True) + "\n"
 
 
-def _endpoints(surface: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
-    """Every endpoint keyed by ``(path, methods)`` — the identity a diff compares on."""
-    found: dict[tuple[str, str], dict[str, Any]] = {}
-    for module in surface.get("modules", ()):
-        for endpoint in module.get("endpoints", ()):
-            key = (endpoint["path"], ",".join(endpoint.get("methods", ())) or "WS")
-            found[key] = endpoint
-    return found
-
-
 def diff_authz_surface(baseline: dict[str, Any], current: dict[str, Any]) -> list[str]:
     """Every authority difference, each phrased as the change a reviewer has to approve.
 
-    Ordered most-alarming first — a route that lost its requirement before one that
-    gained a new rung — because the first lines are the ones that get read.
+    The sentences of :func:`terp.cli.authz_changes.authority_changes`, which also says of
+    each whether it widens who can reach what (ADR 0209).
     """
-    differences: list[str] = []
+    from terp.cli.authz_changes import authority_changes
 
-    before, after = _endpoints(baseline), _endpoints(current)
-    for key in sorted(before.keys() & after.keys()):
-        was, now = before[key], after[key]
-        path, methods = key
-        if was["requirement"] != now["requirement"]:
-            differences.append(
-                f"{methods} {path}: requirement {was['requirement']!r} -> "
-                f"{now['requirement']!r}"
-            )
-        if was.get("extra_permissions") != now.get("extra_permissions"):
-            differences.append(
-                f"{methods} {path}: required grants "
-                f"{was.get('extra_permissions')} -> {now.get('extra_permissions')}"
-            )
-        widened = [
-            role
-            for role, reason in now.get("by_role", {}).items()
-            if reason in {"allowed", "allowed_in_module", "public"}
-            and was.get("by_role", {}).get(role)
-            not in {"allowed", "allowed_in_module", "public"}
-        ]
-        if widened:
-            differences.append(
-                f"{methods} {path}: now reachable by {sorted(widened)} "
-                "(it was not before)"
-            )
-
-    for key in sorted(after.keys() - before.keys()):
-        path, methods = key
-        differences.append(
-            f"{methods} {path}: NEW endpoint, requirement "
-            f"{after[key]['requirement']!r} - nothing has reviewed what it requires"
-        )
-    for key in sorted(before.keys() - after.keys()):
-        path, methods = key
-        differences.append(f"{methods} {path}: gone from the surface")
-
-    # A module's own policy and access. The endpoint lines above test one method per route,
-    # so a route serving GET and POST can have its read tier lowered with no endpoint line
-    # moving; and a module that starts taking per-module roles lets an assignment lift a
-    # caller over a floor (ADR 0121) without any rung's answer changing in this view.
-    before_modules = {module["name"]: module for module in baseline.get("modules", ())}
-    after_modules = {module["name"]: module for module in current.get("modules", ())}
-    for name in sorted(before_modules.keys() & after_modules.keys()):
-        was, now = before_modules[name], after_modules[name]
-        for field in ("policy", "access"):
-            if was.get(field) != now.get(field):
-                differences.append(
-                    f"module {name}: {field} {was.get(field)!r} -> {now.get(field)!r}"
-                )
-
-    # The ladder itself, last: a changed rank silently re-scores every floor above it.
-    if baseline.get("roles") != current.get("roles"):
-        differences.append(
-            f"the role ladder changed: {baseline.get('roles')} -> {current.get('roles')}"
-        )
-    if baseline.get("permissions") != current.get("permissions"):
-        differences.append("the declared permissions or their floors changed")
-
-    # Anything the lines above do not name is still a change to who can reach what, or
-    # to the record of it. Passing it as "no difference" is the one answer this check
-    # must never give, so it is reported whole rather than itemised.
-    if not differences and baseline != current:
-        differences.append(
-            "the authorization surface changed in a way this check does not itemise; "
-            f"read the diff of {SURFACE_ARTIFACT} line by line"
-        )
-    return differences
+    return [entry["change"] for entry in authority_changes(baseline, current)]
 
 
 def served_twice(surface: dict[str, Any]) -> list[str]:
@@ -213,8 +137,66 @@ def read_baseline(root: pathlib.Path) -> dict[str, Any] | None:
         return None
     return json.loads(path.read_text(encoding="utf-8"))
 
-def check(project_root: pathlib.Path, app_ref: str, *, note_prefix: str) -> tuple[int, str]:
-    """The ``authz-surface`` verify check over one tree: ``(exit code, output)``.
+#: The checks an app may pin (``[tool.terp.verify] pinned``): with the line, a missing
+#: artifact is red instead of a skip (ADR 0209).
+PINNABLE = frozenset({"authz-surface"})
+
+
+def pinned_problem(value: object) -> str:
+    """Why a ``[tool.terp.verify] pinned`` value is refused, or ``""`` when it is not."""
+    if value is None:
+        return ""
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        return "[tool.terp.verify] `pinned` must be a list of check ids"
+    unknown = sorted(set(value) - PINNABLE)
+    if unknown:
+        return (
+            f"[tool.terp.verify] `pinned` names {', '.join(unknown)}; only "
+            f"{', '.join(sorted(PINNABLE))} can be pinned"
+        )
+    return ""
+
+
+def is_pinned(root: pathlib.Path) -> bool:
+    """Whether the app's ``pyproject.toml`` pins ``authz-surface``.
+
+    `terp verify` has already refused an unreadable file or a bad value before any check
+    runs, so this only reads the answer.
+    """
+    try:
+        declared = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    table = ((declared.get("tool") or {}).get("terp") or {}).get("verify") or {}
+    pinned = table.get("pinned") if isinstance(table, dict) else None
+    return isinstance(pinned, list) and "authz-surface" in pinned
+
+
+class Verdict(NamedTuple):
+    """The check's answer: its exit code and output, and the fields `--format json` adds.
+
+    ``authority_state`` is one of ``not_pinned`` (no baseline and no pin: skipped),
+    ``missing`` (pinned, no baseline), ``unseen`` (something the check cannot see),
+    ``changed`` and ``matches``. ``authority_changes`` lists what changed, each entry
+    labelled ``widens``; ``authority_unseen`` lists what the check cannot see. The two are
+    kept apart because the second is code to fix and never a change to approve.
+    """
+
+    exit_code: int
+    output: str
+    fields: dict[str, Any]
+
+
+def _fields(state: str, changes=(), unseen=()) -> dict[str, Any]:
+    return {
+        "authority_state": state,
+        "authority_changes": list(changes),
+        "authority_unseen": list(unseen),
+    }
+
+
+def verdict(project_root: pathlib.Path, app_ref: str, note_prefix: str) -> Verdict:
+    """The ``authz-surface`` verify check over one tree.
 
     The access graph already replays enforcement — every allowance in it is `decide`'s
     own answer, from the function the kernel guard runs — so the platform could always
@@ -223,10 +205,10 @@ def check(project_root: pathlib.Path, app_ref: str, *, note_prefix: str) -> tupl
     `require_permission`, adding an endpoint under a public mount: each is a one-line
     edit that changes the authorization surface and left every gate green.
 
-    Adoption is opt-in and half-adoption impossible, the shape `api-docs-drift` settled
-    on: with no committed baseline this skips with a note naming the command that writes
-    one, because upgrading the framework must not turn an app's gate red for a feature
-    it never wired.
+    Adoption is opt-in for an app made before ADR 0209, the shape `api-docs-drift` settled
+    on: with no committed baseline and no `pinned` line this skips with a note naming the
+    command that writes one, because upgrading the framework must not turn an app's gate
+    red for a feature it never wired. The template pins every new app.
 
     A widening is never *fixed* by regenerating. The baseline is a review artifact, and
     the diff belongs in a pull request where somebody says yes — which is why the writer
@@ -238,13 +220,23 @@ def check(project_root: pathlib.Path, app_ref: str, *, note_prefix: str) -> tupl
     """
     from terp.cli._appref import load_app, push_app_root
     from terp.cli.access import build_access_graph_for_app
+    from terp.cli.authz_changes import authority_changes
 
     baseline = read_baseline(project_root)
     if baseline is None:
-        return (
+        if is_pinned(project_root):
+            return Verdict(
+                1,
+                f"this app pins its authorization surface ([tool.terp.verify] pinned) and "
+                f"has no {SURFACE_ARTIFACT}. Write it from the composed app and commit it:"
+                f"\n  {ADOPT_HINT}",
+                _fields("missing"),
+            )
+        return Verdict(
             0,
             f"{note_prefix}no {SURFACE_ARTIFACT} - the authorization surface is not "
             f"pinned, drift check skipped (adopt with: {ADOPT_HINT})",
+            _fields("not_pinned"),
         )
     push_app_root(project_root)
     try:
@@ -253,11 +245,13 @@ def check(project_root: pathlib.Path, app_ref: str, *, note_prefix: str) -> tupl
         # The tree pins its surface, so an app that cannot be composed is an unchecked
         # surface, not an absent one. Skipping here passed every change for as long as
         # the app failed to import, which is the one moment nobody is looking.
-        return 1, (
+        detail = (
             f"{SURFACE_ARTIFACT} pins this app's authorization surface, but {app_ref} "
             f"could not be composed ({exc}), so nothing was checked. Make the app "
             "importable, or remove the baseline in a change a reviewer sees."
         )
+        unseen = [{"kind": "not_composed", "detail": detail}]
+        return Verdict(1, detail, _fields("unseen", unseen=unseen))
     graph = build_access_graph_for_app(app)
     current = authz_surface(graph)
     # What the surface cannot see is refused before it is compared: a route the graph
@@ -265,24 +259,48 @@ def check(project_root: pathlib.Path, app_ref: str, *, note_prefix: str) -> tupl
     # the graph cannot recover) and a method and path two routes serve. Either one makes
     # "no difference" an answer about a surface that is not the one being served.
     unseen = [
-        f"{','.join(route.get('methods') or ['WS'])} {route['path']}: served, but the "
-        "access graph cannot place it (a router included inside a module's router); "
-        "declare it on the module's own router"
+        {
+            "kind": "unplaced",
+            "methods": list(route.get("methods") or ["WS"]),
+            "path": route["path"],
+            "detail": (
+                f"{','.join(route.get('methods') or ['WS'])} {route['path']}: served, but "
+                "the access graph cannot place it (a router included inside a module's "
+                "router); declare it on the module's own router"
+            ),
+        }
         for route in graph.get("omitted_routes") or ()
-    ] + served_twice(current)
+    ] + [{"kind": "served_twice", "detail": line} for line in served_twice(current)]
     if unseen:
-        listing = "\n".join(f"  - {line}" for line in unseen)
-        return 1, (
+        listing = "\n".join(f"  - {item['detail']}" for item in unseen)
+        return Verdict(
+            1,
             f"the authorization surface cannot be checked: {len(unseen)} route(s) are "
-            f"served in a way {SURFACE_ARTIFACT} cannot record:\n{listing}"
+            f"served in a way {SURFACE_ARTIFACT} cannot record:\n{listing}",
+            _fields("unseen", unseen=unseen),
         )
-    differences = diff_authz_surface(baseline, current)
-    if not differences:
-        return 0, f"{SURFACE_ARTIFACT} matches the composed authorization surface"
-    listing = "\n".join(f"  - {difference}" for difference in differences)
-    return 1, (
-        f"the authorization surface changed in {len(differences)} way(s) that "
+    changes = authority_changes(baseline, current, graph)
+    if not changes:
+        matches = f"{SURFACE_ARTIFACT} matches the composed authorization surface"
+        return Verdict(0, matches, _fields("matches"))
+    ordered = [entry for entry in changes if entry["widens"]] + [
+        entry for entry in changes if not entry["widens"]
+    ]
+    listing = "\n".join(
+        f"  - {'widens' if entry['widens'] else 'narrows'}: {entry['change']}"
+        for entry in ordered
+    )
+    return Verdict(
+        1,
+        f"the authorization surface changed in {len(changes)} way(s) that "
         f"{SURFACE_ARTIFACT} does not record:\n{listing}\n\n"
         "If every line above is intended, re-generate the baseline IN THE SAME CHANGE "
-        f"so a reviewer sees the diff:\n  {ADOPT_HINT}"
+        f"so a reviewer sees the diff:\n  {ADOPT_HINT}",
+        _fields("changed", changes=changes),
     )
+
+
+def check(project_root: pathlib.Path, app_ref: str, *, note_prefix: str) -> tuple[int, str]:
+    """:func:`verdict` without its JSON fields: ``(exit code, output)``."""
+    result = verdict(project_root, app_ref, note_prefix)
+    return result.exit_code, result.output

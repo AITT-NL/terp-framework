@@ -51,6 +51,8 @@ import textwrap
 import tomllib
 from dataclasses import dataclass
 
+from terp.cli.authz_surface import pinned_problem, verdict as _authz_verdict
+
 #: How much of a failing check's combined output the envelope keeps (fail-closed
 #: on unbounded output; enough to show the actual errors).
 _DEFAULT_APP_REF = "app.main:build"
@@ -931,12 +933,14 @@ def app_declared_checks(root: pathlib.Path) -> tuple[tuple[VerifyCheck, str], ..
     table = ((declared.get("tool") or {}).get("terp") or {}).get("verify") or {}
     if not isinstance(table, dict):
         raise _declaration_error("[tool.terp.verify] is not a table")
-    unknown = sorted(set(table) - {"checks"})
+    unknown = sorted(set(table) - {"checks", "pinned"})
     if unknown:
         raise _declaration_error(
-            f"[tool.terp.verify] has unknown key(s) {', '.join(unknown)}; the only "
-            "key is `checks`"
+            f"[tool.terp.verify] has unknown key(s) {', '.join(unknown)}; its keys are "
+            "`checks` and `pinned`"
         )
+    if problem := pinned_problem(table.get("pinned")):
+        raise _declaration_error(problem)
     entries = table.get("checks", [])
     if not isinstance(entries, list):
         raise _declaration_error("`checks` must be a list of tables")
@@ -1654,15 +1658,6 @@ def _job_actor_arrives_from_the_environment(project_root: pathlib.Path) -> bool:
     return _JOB_ACTOR_VARIABLE in declared_variables(project_root)
 
 
-def _run_authz_surface(project_root: pathlib.Path) -> tuple[int, str]:
-    """Refuse a change to who can reach what that no committed baseline accepted (ADR 0139).
-
-    The check is :func:`terp.cli.authz_surface.check`; this names the app it composes.
-    """
-    from terp.cli.authz_surface import check
-
-    return check(project_root, _DEFAULT_APP_REF, note_prefix=NOTE_PREFIX)
-
 def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
     """Refuse a tree whose declared control plane cannot boot in production.
 
@@ -2337,6 +2332,7 @@ def run_verify_command(
     for check in checks:
         print(f"verify: {check.id} ({check.command})", file=sys.stderr)
         reports: list[dict] = []
+        extra: dict[str, object] = {}
         if check.runner == "architecture":
             exit_code, output, reports = _run_architecture(project_root)
         elif check.runner == "platform-install":
@@ -2380,7 +2376,7 @@ def run_verify_command(
         elif check.runner == "production-readiness":
             exit_code, output = _run_production_readiness(project_root)
         elif check.runner == "authz-surface":
-            exit_code, output = _run_authz_surface(project_root)
+            exit_code, output, extra = _authz_verdict(project_root, _DEFAULT_APP_REF, NOTE_PREFIX)
         elif check.runner == "api-contract":
             from terp.cli.api_contract_check import run_api_contract_check
 
@@ -2411,6 +2407,7 @@ def run_verify_command(
                 "exit_code": exit_code,
                 "output_tail": output[-_OUTPUT_TAIL_CHARS:],
                 "reports": reports,
+                **extra,
             }
         )
 
