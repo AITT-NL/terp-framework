@@ -793,3 +793,19 @@ def test_what_cannot_be_ranked_is_a_widening_and_a_renamed_answer_is_not() -> No
     )
     assert renamed["widens"] is False
     assert "answers per rung changed" in renamed["change"]
+
+
+def test_an_unreadable_baseline_is_red_and_says_to_restore_it(tmp_path: pathlib.Path) -> None:
+    """An empty file is what a failed `> authz-surface.json` leaves behind. It was a crash;
+    now it is a red check that says to restore the committed file rather than write over
+    it, which would accept whatever the app serves now."""
+    (tmp_path / SURFACE_ARTIFACT).write_text("", encoding="utf-8")
+    result = verdict(tmp_path, "app.main:build", "note: ")
+    assert result.exit_code == 1
+    assert result.fields["authority_state"] == "unseen"
+    assert [item["kind"] for item in result.fields["authority_unseen"]] == ["unreadable_baseline"]
+    assert "Restore the committed file" in result.output
+    (tmp_path / SURFACE_ARTIFACT).write_text("[]", encoding="utf-8")
+    shaped = verdict(tmp_path, "app.main:build", "note: ")
+    assert (shaped.exit_code, shaped.fields["authority_state"]) == (1, "unseen")
+    assert "not a surface" in shaped.output

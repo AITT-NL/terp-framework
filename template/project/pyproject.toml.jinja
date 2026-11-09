@@ -86,6 +86,15 @@ dev = ["pytest>=8.0", "httpx2>=2.0", "pytest-cov>=5.0", "terp-arch==0.40.0", "ru
 [tool.terp.arch]
 app_packages = ["control_plane"]
 
+# Who can reach what is pinned (ADR 0209). `authz-surface.json` records which role reaches
+# which route, and `terp verify` refuses a change to that the file does not record; with
+# this line a missing file is refused too. Write it once from the composed app and commit it:
+#     uv run terp inspect access --app app.main:build --format surface > authz-surface.json
+# When the check reports a change, a person approves it before the file is written again, in
+# the same change, so the diff shows what they approved.
+[tool.terp.verify]
+pinned = ["authz-surface"]
+
 [tool.deptry]
 known_first_party = ["app", "control_plane"]
 

@@ -9,7 +9,9 @@
   because the first is code for the agent to fix and only the second is the owner's to
   approve. Revised 2026-11-08 after an independent review, which found three widenings the
   shipped check passed with an empty diff; those are fixed in 0.41.0 on their own (ADR 0139's
-  status).
+  status). Built in 0.41.0: `terp.cli.authz_changes` labels the changes, the JSON adds
+  `authority_state` beside the two lists, and an unreadable baseline is red rather than a
+  crash.
 - **Date:** 2026-11-08.
 - **Amends:** [ADR 0139](0139-who-can-reach-what-is-pinned-not-merely-reportable.md): its
   opt-in, for an app the template makes, and its consequence that labelling a change would be

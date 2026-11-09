@@ -7,7 +7,10 @@
   commits a baseline, what the check cannot see is red, never a pass. That covers an app it
   cannot compose, a route the access graph lists under `omitted_routes`, a method and path
   two routes serve, a change to a module's `policy` or `access`, and any difference no line
-  names. Each of the first four let a widening through with an empty diff.
+  names. Each of the first four let a widening through with an empty diff. Amended by
+  [ADR 0209](0209-a-new-app-pins-who-can-reach-what-and-the-check-names-each-widening.md)
+  in 0.41.0: the template pins every new app, and the check labels each change a widening
+  or a narrowing.
 - **Date:** 2026-09-15
 - **Relates:** [ADR 0121](0121-one-decision-one-function-the-access-graph-replays-the-guard.md)
   (the projection this reduces, and the reason it can be trusted),

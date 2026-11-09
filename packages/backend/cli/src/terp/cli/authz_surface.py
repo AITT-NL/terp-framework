@@ -222,7 +222,18 @@ def verdict(project_root: pathlib.Path, app_ref: str, note_prefix: str) -> Verdi
     from terp.cli.access import build_access_graph_for_app
     from terp.cli.authz_changes import authority_changes
 
-    baseline = read_baseline(project_root)
+    try:
+        baseline = read_baseline(project_root)
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        # An unreadable baseline is not an absent one: writing a fresh file over it would
+        # accept whatever the app serves now, unseen. It is restored, not replaced.
+        detail = (
+            f"{SURFACE_ARTIFACT} cannot be read ({exc}), so nothing was checked. Restore the "
+            "committed file from version control: writing it again would accept whatever the "
+            f"app serves now. Only a file never committed is written again:\n  {ADOPT_HINT}"
+        )
+        unseen = [{"kind": "unreadable_baseline", "detail": detail}]
+        return Verdict(1, detail, _fields("unseen", unseen=unseen))
     if baseline is None:
         if is_pinned(project_root):
             return Verdict(
@@ -238,6 +249,10 @@ def verdict(project_root: pathlib.Path, app_ref: str, note_prefix: str) -> Verdi
             f"pinned, drift check skipped (adopt with: {ADOPT_HINT})",
             _fields("not_pinned"),
         )
+    if not isinstance(baseline, dict):
+        detail = f"{SURFACE_ARTIFACT} is not a surface (a JSON object); restore it."
+        unseen = [{"kind": "unreadable_baseline", "detail": detail}]
+        return Verdict(1, detail, _fields("unseen", unseen=unseen))
     push_app_root(project_root)
     try:
         app = load_app(app_ref)

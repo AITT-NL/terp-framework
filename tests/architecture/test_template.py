@@ -148,6 +148,27 @@ def test_project_ships_ci_and_hatch_packaging() -> None:
     assert 'packages = ["app", "control_plane"]' in pyproject
 
 
+def test_a_new_app_pins_who_can_reach_what() -> None:
+    """ADR 0209: every app the template makes pins its authority surface.
+
+    The pin makes a missing baseline red, so it is held with what writes the baseline: the
+    README's setup, which writes it from the composed app (the template ships no copy of its
+    own, which would describe the surface instead of deriving it), the agents' rule never to
+    write it again to go green, and template acceptance, which writes it on every variant and
+    then holds the render to it.
+    """
+    pyproject = (_PROJECT / "pyproject.toml.jinja").read_text(encoding="utf-8")
+    assert '[tool.terp.verify]\npinned = ["authz-surface"]\n' in pyproject
+    write = "uv run terp inspect access --app app.main:build --format surface > authz-surface.json"
+    assert write in (_PROJECT / "README.md.jinja").read_text(encoding="utf-8")
+    assert not (_PROJECT / "authz-surface.json").exists()
+    agents = " ".join((_PROJECT / "AGENTS.md.jinja").read_text(encoding="utf-8").split())
+    assert "Never write it again to turn `uv run terp verify` green" in agents
+    acceptance = (_TEMPLATE.parent / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert write in acceptance
+    assert "uv run terp verify --only authz-surface" in acceptance
+
+
 def test_template_ships_no_prebuilt_domain_module() -> None:
     # The whole point of the retirement: no `{{ module_name }}` trees, backend or
     # frontend — an app is born with the platform surface only, and its first
