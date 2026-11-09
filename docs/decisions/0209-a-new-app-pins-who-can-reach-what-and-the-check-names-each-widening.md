@@ -1,16 +1,23 @@
 # 0209 — A new app pins who can reach what, and the check names each change that widens it
 
-- **Status:** Proposed on 2026-11-08, for the owner's review before anything is built. Revised
-  the same day after an independent review: it found three widenings the shipped check
-  passed with an empty diff, and those are fixed in 0.41.0 on their own (ADR 0139's status).
+- **Status:** Accepted on 2026-11-09 by the owner, with the three recommendations its review
+  put forward. A new app's first check is red until its baseline is written. A module list
+  may not depend on a setting, as a change of its own (*Open*). And only an owner approves
+  a widening (terp-studio ADR 0097). Before building, a check against how the pieces run
+  refined two points. `copier update` brings the `pinned` line to an existing app as well
+  (item 4). The JSON names what the check cannot see apart from what changed (item 3),
+  because the first is code for the agent to fix and only the second is the owner's to
+  approve. Revised 2026-11-08 after an independent review, which found three widenings the
+  shipped check passed with an empty diff; those are fixed in 0.41.0 on their own (ADR 0139's
+  status).
 - **Date:** 2026-11-08.
 - **Amends:** [ADR 0139](0139-who-can-reach-what-is-pinned-not-merely-reportable.md): its
   opt-in, for an app the template makes, and its consequence that labelling a change would be
   a second authorization model.
 - **Relates:** [ADR 0121](0121-a-module-role-is-an-assignment-not-a-policy.md) decision 4
   (what a rung grants is derived, never declared, and the access graph replays the guard), and
-  terp-studio's record of its half: a change that widens who can reach what waits for the
-  app's owner.
+  terp-studio ADR 0097, its half: a change that widens who can reach what waits for the app's
+  owner.
 
 ## Decision
 
@@ -77,11 +84,18 @@ setting is present is outside the surface unless that setting is present then.
    entry per change. Each entry carries what a person needs to read it: the module; the
    method and path; the operation's label where the route declares one, or `null`; the rungs
    that gain or lose reach, with `anonymous` for a public endpoint; the permissions involved,
-   with their labels; the sentence the text prints; and `widens`. Drift stays red either way.
-   The baseline is still regenerated in the same change, so the diff records what changed.
-4. **Upgrading stays green.** Without the `pinned` line, a tree with no baseline still skips with
-   its note. A framework release that adds an endpoint to a capability turns a pinned app's
-   check red, and that is intended: the app's owner has not seen the new endpoint.
+   with their labels; the sentence the text prints; and `widens`. What the check cannot see
+   goes in a list of its own, `authority_unseen`: a route the access graph cannot place, a
+   method and path two routes serve, an app it cannot compose. Those are code to fix, never a
+   change to approve, so a tool must not put them in front of an owner. Drift stays red
+   either way. The baseline is still regenerated in the same change, so the diff records what
+   changed.
+4. **Upgrading the packages stays green.** Only the template carries the pin, so a tree with no
+   baseline and no `pinned` line still skips with its note. An app that takes the template's
+   update with `copier update` gets the `pinned` line too, and its check then names the one
+   command that writes the baseline. A framework release that adds an endpoint to a
+   capability turns a pinned app's check red, and that is intended: the app's owner has not
+   seen the new endpoint.
 
 ## Consequences
 
@@ -96,7 +110,8 @@ setting is present is outside the surface unless that setting is present then.
 ## Open
 
 - **A module that only mounts under a setting.** The template mounts its OIDC routes only when
-  `OIDC_ISSUER` is set, so the check composes them only where that variable is set. Two ways
-  out: the check composes with the production settings it can name, or a module list may not
-  depend on a setting. My recommendation is the second, as a change of its own, because it
-  also makes the surface the same in every environment.
+  `OIDC_ISSUER` is set, so the check composes them only where that variable is set. The owner
+  decided on 2026-11-09 that a module list may not depend on a setting, which also makes the
+  surface the same in every environment. It is a change of its own, because mounting the OIDC
+  routes always needs a way for them to refuse while no provider is configured: today the
+  provider's configuration is validated when the app starts.
