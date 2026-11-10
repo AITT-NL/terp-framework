@@ -153,7 +153,11 @@ content needs, and two consequences are now part of the recipe:
   out by the tree builder's rules for it, and reads the files nginx serves as documents by
   their extension (`.html`, `.htm`, `.shtml`, `.xhtml`, `.svg`, `.xml`, `.rss`, `.atom`, `.kml`,
   `.xspf`), the XML ones by namespace; it does not read a `.svgz`, which the policy alone holds. Where its reading could differ from a browser's it leans toward reading
-  markup, which costs a refusal now and then that a browser would not need. It looks for an
+  markup, which costs a refusal now and then that a browser would not need. One refusal is of
+  that kind by design: a load or a form target written as a URL that names a host is refused
+  whichever host it is, because the build cannot know the site's own, although the policy's
+  `'self'` admits the site's own origin written in full. The refusal says that, and not that
+  the URL is another origin (corrected 2026-11-10). It looks for an
   inline script or style, an event handler, a `javascript:` URL, a `<base href>`, an `<object>`
   or `<embed>`, a form that submits to another origin, and a load from another origin or a
   `data:` URL (a script, stylesheet, frame, image, media, SVG `use`, icon, manifest or preload;

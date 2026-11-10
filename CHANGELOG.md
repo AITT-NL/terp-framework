@@ -82,6 +82,16 @@ decision, 0001 onwards.
   `npm install`, which writes an empty lock where no `package.json` stands. A generated app's
   plan is unchanged.
 
+- **The static site's check says why it refuses a URL that names a host (ADR 0198).** A
+  stylesheet, script, image or other load written as a full URL was refused as coming "from
+  another origin, which the policy refuses", and 0.41.0's upgrade note said the policy
+  already refused each such page in the browser. Neither is true of a page that links its own
+  files by their full URL, as a generator does once a site URL is configured: the policy's
+  `'self'` admits those. The build still refuses them, because it cannot know its own host,
+  and the refusal now says so: "a URL that names a host, which the policy refuses unless the
+  host is the site's own, which the build cannot know". The remedy is unchanged: load the file
+  by its path.
+
 ### Upgrade notes
 
 - **`terp release` refuses a web image whose lock it cannot name.** Under `"build": "own"`, a
