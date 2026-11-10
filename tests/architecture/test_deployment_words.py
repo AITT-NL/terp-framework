@@ -167,6 +167,35 @@ def test_the_development_compose_file_is_named_escaped_and_cut(
     assert "\u001b" not in message
 
 
+@pytest.mark.parametrize(
+    ("change", "expected"),
+    [
+        (
+            lambda raw: raw.update(build="x (allowed: anything)"),
+            'build is "x (allowed: anything)" (allowed: generated or own)',
+        ),
+        (
+            lambda raw: raw.update(
+                volumes=[
+                    {
+                        "id": "files",
+                        "mount": {"path": "etc, which does not match zzz", "units": ["api"]},
+                    }
+                ]
+            ),
+            'volumes[0].mount.path is "etc, which does not match zzz" (allowed: ',
+        ),
+    ],
+)
+def test_a_value_holding_the_messages_own_words_is_quoted_whole(change, expected: str) -> None:
+    """The quoted value was recovered by cutting the validator's sentence at "(allowed: "
+    or ", which does not match", and a value that holds those words was cut there instead:
+    the message said the file held something it does not, in a quote it never closed."""
+    raw = seed()
+    change(raw)
+    assert expected in _messages(raw)
+
+
 # --- each refusal in the vocabulary's own words --------------------------------------
 
 
