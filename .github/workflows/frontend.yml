@@ -112,7 +112,7 @@ jobs:
   # Every lane runs inside the Playwright image rather than on the runner. The screenshot lane
   # needs that: baselines are split by platform because font rasterisation differs by more than
   # any useful tolerance is worth, the `linux` set was recorded in
-  # `mcr.microsoft.com/playwright:v1.64.1-noble`, and the runner shares Ubuntu's kernel with that
+  # `mcr.microsoft.com/playwright:v1.65.0-noble`, and the runner shares Ubuntu's kernel with that
   # image but not its font packages, so comparing outside it would reduce the lane to noise on
   # its first run. The other three compare no pixels; what they gain is the browser. The image
   # carries the exact Chromium build for its tag, so no job runs `playwright install
@@ -138,7 +138,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     container:
-      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
       options: --ipc=host
     strategy:
       fail-fast: false
@@ -197,7 +197,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     container:
-      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
       options: --ipc=host
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
