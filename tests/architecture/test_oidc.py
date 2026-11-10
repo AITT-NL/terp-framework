@@ -933,6 +933,36 @@ def test_unknown_provider_is_a_404_on_both_routes(idp: FakeIdP) -> None:
     assert http.post("/oidc/ghost/callback", json={"code": "c", "state": "s"}).status_code == 404
 
 
+def test_routes_mounted_with_no_provider_refuse_as_not_configured() -> None:
+    """An app whose providers are each environment's own mounts the routes always (ADR
+    0211): the same routes are served everywhere, and where none is configured each one
+    answers a typed refusal a client can tell from an unknown provider."""
+    module = build_oidc_module([], lambda session, claims: None, allow_no_provider=True)
+    assert sorted(route.path for route in module.router.routes) == [
+        "/{provider}/authorize",
+        "/{provider}/callback",
+    ]
+    app = FastAPI()
+    register_error_handlers(app)
+    app.include_router(module.router, prefix="/oidc")
+    app.dependency_overrides[get_session] = lambda: None
+    client = TestClient(app)
+    for response in (
+        client.get("/oidc/sso/authorize"),
+        client.post("/oidc/sso/callback", json={"code": "c", "state": "s"}),
+    ):
+        assert response.status_code == 503, response.text
+        assert response.json()["code"] == "sso_not_configured"
+        assert response.json()["detail"] == "Single sign-on is not configured for this deployment."
+
+
+def test_no_provider_is_refused_unless_the_app_says_it_may_have_none() -> None:
+    with pytest.raises(ValueError, match="allow_no_provider=True"):
+        build_oidc_module([], lambda session, claims: None)
+    with pytest.raises(ValueError, match="requires at least one OIDCProviderConfig"):
+        build_oidc_router([], lambda session, claims: None)
+
+
 def test_replayed_or_unknown_state_is_refused_and_counted(idp: FakeIdP) -> None:
     principal = Principal(id=uuid.uuid4(), role=Roles.VIEWER)
     throttle = LoginThrottle(free_attempts=1)

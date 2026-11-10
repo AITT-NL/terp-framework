@@ -183,29 +183,31 @@ def _resolve_sso_principal(session: Session, claims: OIDCClaims) -> Principal | 
 
 
 # The dev-workbench IdP (a local http dex) is a development-only provider: the OIDC
-# capability fails closed on a plaintext issuer in production, so the example builds
-# the SSO module only outside production (a real deployment configures an https
-# provider and mounts it unconditionally). The SSO callback shares the app-wide
+# capability fails closed on a plaintext issuer in production, so the example configures
+# no provider there (a real deployment configures an https one). The module itself is
+# built and mounted everywhere. The SSO callback shares the app-wide
 # throttle store (ADR 0036) and mints its session through the exact seams /login uses
 # (tenant claim, token epoch, refresh cookie) — one session/revocation story for both
 # auth paths.
-oidc_module = (
-    None
+oidc_module = build_oidc_module(
+    # No provider in production: Dex is a development identity provider. The routes are
+    # mounted there all the same and answer `sso_not_configured`, because which modules an
+    # app mounts may not depend on a setting (ADR 0211).
+    []
     if get_settings().is_production
-    else build_oidc_module(
-        [
-            OIDCProviderConfig(
-                name="dex",
-                issuer="http://localhost:5556/dex",
-                client_id="terp-example",
-                client_secret="dev-placeholder-not-a-secret",
-                redirect_uri="http://localhost:5173/auth/callback/dex",
-            )
-        ],
-        _resolve_sso_principal,
-        tenant_resolver=_tenant_from_email_domain,
-        token_version_resolver=_identity.token_version_for,
-        refresh_issuer=_refresh.issue,
-        throttle=LoginThrottle(store=throttle_store),
-    )
+    else [
+        OIDCProviderConfig(
+            name="dex",
+            issuer="http://localhost:5556/dex",
+            client_id="terp-example",
+            client_secret="dev-placeholder-not-a-secret",
+            redirect_uri="http://localhost:5173/auth/callback/dex",
+        )
+    ],
+    _resolve_sso_principal,
+    allow_no_provider=True,
+    tenant_resolver=_tenant_from_email_domain,
+    token_version_resolver=_identity.token_version_for,
+    refresh_issuer=_refresh.issue,
+    throttle=LoginThrottle(store=throttle_store),
 )

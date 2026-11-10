@@ -49,6 +49,23 @@ decision, 0001 onwards.
   one warning at boot that the control plane does not read it. `terp inspect control-plane`
   shows the fourth mode, `from-environment`.
 
+- **A rule: the modules an app mounts do not depend on a setting (ADR 0211).**
+  `module_list_is_unconditional` follows the list handed to `create_app` back through the
+  file that builds it and refuses each place it is decided under a condition: a conditional
+  expression among its elements, an `append` under an `if`, a filtering comprehension, a
+  helper that returns it under a condition, and the same through a parameter to the
+  function's callers. A module mounted only where a setting is present is served in one
+  environment and unseen by the access check in another, so the record a reviewer approved
+  was not the surface deployed. The rule ships with its catalog entry, five violation and
+  two compliant corpus cases, its residuals, its rule page and its recipe in
+  `terp guide capability`. Its runtime half, a comparison at startup of the composed routes
+  with the committed surface, is recorded as deferred and waits for a decision.
+- **The OIDC routes can be mounted with no provider (ADR 0211).**
+  `build_oidc_module(providers, resolver, allow_no_provider=True)` builds the same two routes
+  with an empty provider list, and each answers `SsoNotConfiguredError`: 503, code
+  `sso_not_configured`. Without the keyword an empty list is still refused at construction.
+  The template and the example app build their SSO module this way, in every environment.
+
 ### Changed
 
 - **A generated app's production images build on the bases as rebuilt on 5 November.**
@@ -128,6 +145,15 @@ decision, 0001 onwards.
   first of the two. It is refused now. Make the Dockerfile copy the lock it installs by name
   (`COPY frontend/package.json frontend/package-lock.json ./`). An app on
   `"build": "generated"` is not affected.
+
+- **An app whose module list is conditional turns red.** `module_list_is_unconditional`
+  refuses a module added to `create_app`'s list under a condition, which is how the template
+  mounted its SSO routes until this release (`if oidc_module is not None:
+  modules.append(oidc_module)`). `copier update` brings the new form. By hand: build the
+  module in every environment, with `allow_no_provider=True` for the OIDC one, and name it
+  in the list. The app then serves two more public routes where no provider is configured,
+  each a refusal, so write its `authz-surface.json` again once
+  (`terp verify --only authz-surface --profile full` names the command).
 
 ## 0.41.0 — 2026-11-10
 

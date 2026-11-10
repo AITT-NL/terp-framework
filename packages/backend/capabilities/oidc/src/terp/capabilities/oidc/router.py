@@ -32,6 +32,7 @@ from fastapi import APIRouter, Request, Response
 from sqlmodel import Session
 
 from terp.core import (
+    AppError,
     AuthenticationError,
     ModuleSpec,
     NotFoundError,
@@ -93,10 +94,19 @@ def _throttle_key(provider: str, request: Request) -> str:
     return f"oidc:{provider}:{client_ip(request)}"
 
 
+class SsoNotConfiguredError(AppError):
+    """503 — the SSO routes are mounted and this deployment configures no provider."""
+
+    status_code = 503
+    code = "sso_not_configured"
+    default_message = "Single sign-on is not configured for this deployment."
+
+
 def build_oidc_router(
     providers: Sequence[OIDCProviderConfig],
     resolve_or_provision: IdentityResolver,
     *,
+    allow_no_provider: bool = False,
     tenant_resolver: LoginTenantResolver | None = None,
     token_version_resolver: TokenVersionResolver | None = None,
     refresh_issuer: RefreshIssuer | None = None,
@@ -112,9 +122,20 @@ def build_oidc_router(
     Construction refuses an empty or name-colliding registry, and a sealed client
     secret with no *secret_resolver* — a misconfigured provider fails the boot, not
     the first login.
+
+    *allow_no_provider* is for an app whose providers are each environment's own. Which
+    modules an app mounts may not depend on a setting (ADR 0211): the routes an app serves
+    are then the same in every environment, and the access check sees them wherever it
+    runs. Such an app mounts this router always, and where the environment configures no
+    provider both routes answer the typed ``sso_not_configured`` refusal, a 503, instead
+    of the module being absent.
     """
-    if not providers:
-        raise ValueError("build_oidc_router requires at least one OIDCProviderConfig")
+    if not providers and not allow_no_provider:
+        raise ValueError(
+            "build_oidc_router requires at least one OIDCProviderConfig; an app whose "
+            "providers are set per environment mounts the routes always and passes "
+            "allow_no_provider=True, so they refuse where none is configured"
+        )
     registry: dict[str, OIDCProviderConfig] = {}
     for config in providers:
         if config.name in registry:
@@ -134,6 +155,8 @@ def build_oidc_router(
     active_throttle = throttle if throttle is not None else LoginThrottle()
 
     def _client(provider: str) -> OIDCClient:
+        if not clients:
+            raise SsoNotConfiguredError()
         client = clients.get(provider)
         if client is None:
             raise NotFoundError(f"Unknown SSO provider {provider!r}.")
@@ -250,6 +273,7 @@ def build_oidc_module(
     resolve_or_provision: IdentityResolver,
     *,
     name: str = "oidc",
+    allow_no_provider: bool = False,
     tenant_resolver: LoginTenantResolver | None = None,
     token_version_resolver: TokenVersionResolver | None = None,
     refresh_issuer: RefreshIssuer | None = None,
@@ -266,6 +290,7 @@ def build_oidc_module(
         router=build_oidc_router(
             providers,
             resolve_or_provision,
+            allow_no_provider=allow_no_provider,
             tenant_resolver=tenant_resolver,
             token_version_resolver=token_version_resolver,
             refresh_issuer=refresh_issuer,
