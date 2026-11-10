@@ -71,6 +71,26 @@ decision, 0001 onwards.
   `"build": "x (allowed: anything)"` was reported as `build is "x`, a value the file does not
   hold, in a quote that never closed. The value is carried beside the sentence now.
 
+- **A web image's SBOM is read from the lock its Dockerfile copies (ADR 0187).** 0.41.0 said
+  it read "the lock that image installs" and chose it by position: beside the Dockerfile,
+  else at the root of the build context. Under `"build": "own"`, a Dockerfile kept apart from
+  its lock took any other lock at the context root, and `sign` signed that lock's packages as
+  the image's SBOM. `terp release` now reads which `package-lock.json` the Dockerfile copies
+  from its build context. It refuses a Dockerfile that copies two, or one the commit does not
+  hold, and falls back to position only when the Dockerfile names none, where two candidate
+  locks are refused instead of the first being taken. The refusal no longer says to run
+  `npm install`, which writes an empty lock where no `package.json` stands. A generated app's
+  plan is unchanged.
+
+### Upgrade notes
+
+- **`terp release` refuses a web image whose lock it cannot name.** Under `"build": "own"`, a
+  web image whose Dockerfile copies no `package-lock.json` by name, in a commit that holds one
+  beside the Dockerfile and another at the root of its build context, was released with the
+  first of the two. It is refused now. Make the Dockerfile copy the lock it installs by name
+  (`COPY frontend/package.json frontend/package-lock.json ./`). An app on
+  `"build": "generated"` is not affected.
+
 ## 0.41.0 — 2026-11-10
 
 ### Security

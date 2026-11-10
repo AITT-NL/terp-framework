@@ -137,17 +137,112 @@ def test_under_own_a_web_image_takes_the_lock_beside_its_dockerfile(tmp_path: pa
                              ".", "Dockerfile.web") is None, "no lock at the root, beside or in the context"
 
 
+_COPIES_ITS_LOCK = b"FROM scratch\nCOPY frontend/package.json frontend/package-lock.json ./\n"
+_EMPTY_LOCK = json.dumps({"name": "x", "lockfileVersion": 3, "requires": True, "packages": {}}).encode()
+
+
+def test_a_web_image_takes_the_lock_its_dockerfile_copies_not_the_first_by_position(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The lock was looked for beside the Dockerfile and then at the root of the context, and
+    nothing compared that with the lock the Dockerfile copies. A Dockerfile kept apart from
+    its lock, with any other lock at the context root, had the SBOM of that other lock
+    signed: here an empty one, for an image that installs react."""
+    files = _own_with_webs(
+        {"web": {"context": ".", "dockerfile": "docker/web.Dockerfile"}},
+        {"docker/web.Dockerfile": _COPIES_ITS_LOCK,
+         "package-lock.json": _EMPTY_LOCK,
+         "frontend/package-lock.json": json.dumps(NPM_LOCK).encode()},
+    )
+    plan = _plan_of(tmp_path, files)
+    assert plan.npm_locks == ("frontend/package-lock.json",)
+
+
+def test_two_locks_a_dockerfile_does_not_choose_between_are_refused(tmp_path: pathlib.Path) -> None:
+    files = _own_with_webs(
+        {"web": {"context": ".", "dockerfile": "frontend/Dockerfile.prod"}},
+        {"frontend/Dockerfile.prod": b"FROM scratch\nCOPY . .\n",
+         "package-lock.json": _EMPTY_LOCK,
+         "frontend/package-lock.json": json.dumps(NPM_LOCK).encode()},
+    )
+    assert (
+        f"the web image {PROJECT}-web-prod has no npm lock a release can read: the commit holds "
+        "frontend/package-lock.json and package-lock.json, and frontend/Dockerfile.prod names "
+        "neither: a release reads a web image's packages from the lock it installs, and position "
+        "does not say which that is (allowed: frontend/Dockerfile.prod copies a package-lock.json "
+        "by name)"
+    ) in _refusals(tmp_path, files)
+
+
+@pytest.mark.parametrize(
+    ("dockerfile", "refusal"),
+    [
+        (
+            b"FROM scratch\nCOPY app/package-lock.json ./\n",
+            "frontend/Dockerfile.prod copies app/package-lock.json, which the commit does not hold "
+            "(allowed: the committed package-lock.json the Dockerfile copies)",
+        ),
+        (
+            b"FROM scratch\nCOPY package-lock.json ./\nCOPY frontend/package-lock.json ./\n",
+            "frontend/Dockerfile.prod copies 2 npm locks, frontend/package-lock.json and "
+            "package-lock.json, and a release reads a web image's packages from the one lock it "
+            "installs (allowed: frontend/Dockerfile.prod copies exactly one package-lock.json)",
+        ),
+        (
+            b"# escape=`\nFROM scratch\n",
+            "frontend/Dockerfile.prod cannot be read for the lock it copies (",
+        ),
+        (
+            b"FROM scratch\n# \xff\n",
+            "frontend/Dockerfile.prod cannot be read for the lock it copies (",
+        ),
+    ],
+)
+def test_a_lock_the_dockerfile_names_that_cannot_be_read_is_refused(
+    tmp_path: pathlib.Path, dockerfile: bytes, refusal: str
+) -> None:
+    files = _own_with_webs(
+        {"web": {"context": ".", "dockerfile": "frontend/Dockerfile.prod"}},
+        {"frontend/Dockerfile.prod": dockerfile,
+         "package-lock.json": _EMPTY_LOCK,
+         "frontend/package-lock.json": json.dumps(NPM_LOCK).encode()},
+    )
+    assert refusal in _refusals(tmp_path, files)
+
+
+@pytest.mark.parametrize(
+    ("instruction", "named"),
+    [
+        ("COPY package*.json ./", ["web/package-lock.json"]),
+        ('COPY ["sub/package-lock.json", "./"]', ["web/sub/package-lock.json"]),
+        ("ADD --chown=node:node /package-lock.json ./", ["web/package-lock.json"]),
+        ("COPY --from=build /app/package-lock.json ./", []),
+        ("COPY . .", []),
+        ("COPY * ./", []),
+        ("COPY $LOCKS/package-lock.json ./", []),
+        ("COPY [not json", []),
+        ("RUN cat package-lock.json", []),
+    ],
+)
+def test_the_locks_a_dockerfile_copies_by_name(instruction: str, named: list[str]) -> None:
+    """A source names the lock by its last step, or by a pattern that matches it. Another
+    stage's file, a directory, a bare star and a variable name no lock of the context."""
+    from terp.cli.release import _npm_lock
+
+    assert _npm_lock.copied(f"FROM scratch\n{instruction}\n", "web", "web/Dockerfile") == named
+
+
 def test_a_web_image_with_no_npm_lock_is_refused_naming_the_remedy(tmp_path: pathlib.Path) -> None:
     files = _own_with_webs(
         {"site": {"context": ".", "dockerfile": "site/Dockerfile.prod"}},
         {"site/Dockerfile.prod": b"FROM scratch\n", "frontend/package-lock.json": json.dumps(NPM_LOCK).encode()},
     )
     assert (
-        f"the web image {PROJECT}-site-prod has no npm lock: the commit holds no "
-        "site/package-lock.json and no package-lock.json, and a release reads a web image's "
-        "packages from the lock it installs (allowed: a committed package-lock.json beside "
-        "site/Dockerfile.prod or at the root of its build context - run `npm install` there and "
-        "commit the lock it writes)"
+        f"the web image {PROJECT}-site-prod has no npm lock a release can read: the commit holds "
+        "no site/package-lock.json and no package-lock.json, and a release reads a web image's "
+        "packages from the lock it installs (allowed: site/Dockerfile.prod copies a "
+        "package-lock.json by name, or a committed package-lock.json beside site/Dockerfile.prod "
+        "or at the root of its build context)"
     ) in _refusals(tmp_path, files), "another web image's lock is not this image's"
 
 

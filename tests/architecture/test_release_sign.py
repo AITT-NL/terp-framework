@@ -259,9 +259,12 @@ def test_an_own_site_is_described_from_the_lock_beside_its_dockerfile(tmp_path: 
     files |= {
         "deployment.json": json.dumps(declaration, indent=2).encode(),
         "docker-compose.prod.yml": yaml.safe_dump(profile, sort_keys=False).encode(),
-        "site/Dockerfile.prod": files["frontend/Dockerfile.prod"],
+        # The site's own Dockerfile: the frontend's, copying the site's manifest and lock. A
+        # byte copy of the frontend's would copy, and so install, the frontend's lock.
+        "site/Dockerfile.prod": files["frontend/Dockerfile.prod"].replace(b"frontend/", b"site/"),
         "site/package-lock.json": json.dumps(SITE_LOCK, indent=2).encode(),
     }
+    assert b"site/package-lock.json" in files["site/Dockerfile.prod"]
     release = Release(tmp_path, monkeypatch, files)
     _push_web(release, (f"{PROJECT}-frontend-prod", "frontend/Dockerfile.prod", "web"),
               (f"{PROJECT}-site-prod", "site/Dockerfile.prod", "site"))
