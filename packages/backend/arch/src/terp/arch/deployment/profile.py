@@ -27,6 +27,7 @@ from typing import Any
 
 import yaml
 
+from terp.arch.deployment._jsonschema import clean
 from terp.arch.deployment.datastores import DatastoreTable
 from terp.arch.deployment.files import checkout_root, inside
 from terp.arch.deployment.reader import Declaration, Finding, Unit, role_findings
@@ -281,8 +282,8 @@ def _argv(command: Any) -> tuple[str | None, ...] | None:
 def _shown(command: Any) -> str:
     """A profile's command as its author wrote it, for a message."""
     if isinstance(command, list):
-        return " ".join(map(str, command))
-    return "the image's own command" if command is None else str(command)
+        return clean(" ".join(map(str, command)))
+    return "the image's own command" if command is None else clean(str(command))
 
 
 def _restated(
@@ -394,7 +395,7 @@ def _image_findings(
         return [
             Finding(
                 f"units[{index}].kind {unit.kind} {unit.version}: service {unit.id} runs "
-                f"{image or 'no image'}, and the datastore table pins {entry.image} "
+                f"{clean(str(image)) if image else 'no image'}, and the datastore table pins {entry.image} "
                 "(allowed: a profile image that is the datastore table's digest for "
                 f"{unit.kind} {unit.version}{_registry_clause(image, entry.image)})",
                 "A tag moves, and another registry or digest is not the image this "
@@ -405,7 +406,7 @@ def _image_findings(
         return []
     return [
         Finding(
-            f'units[{index}].id "{unit.id}" runs {image or "no image"}, which no service of '
+            f'units[{index}].id "{unit.id}" runs {clean(str(image)) if image else "no image"}, which no service of '
             f"{label} builds from the checkout (allowed: an image some profile service "
             "builds from the checkout, or a kind and version from the datastore table)"
         )

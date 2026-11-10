@@ -177,6 +177,13 @@ def name(text: str, plain: re.Pattern[str] = _PLAIN_NAME) -> str:
     return text if plain.fullmatch(text) else json.dumps(text[:64], ensure_ascii=True)
 
 
+def clean(text: str, limit: int = 256) -> str:
+    """Free text from a file, for a message that quotes it as written (a command, an image):
+    every control character escaped and the text cut at *limit*, so a plain value reads as it
+    was written and no other reaches a terminal as a control sequence or at its whole length."""
+    return _CONTROL.sub(lambda match: f"\\u{ord(match.group()):04x}", text[:limit])
+
+
 def _join(path: str, key: str | int) -> str:
     if isinstance(key, int):
         return f"{path}[{key}]"

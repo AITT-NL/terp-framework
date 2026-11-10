@@ -137,6 +137,14 @@ decision, 0001 onwards.
   unit the `static-site` recipe builds, as that unit's own variable, once. terp-runner's
   audit is bound the same way in its own change.
 
+- **A profile's command or image in a refusal is escaped and cut, and a file nested too
+  deeply is a finding (ADR 0187).** The truth rule quotes the profile's command, and the
+  image a service runs, as their author wrote them: a control character in either reached
+  the terminal, and a long command its whole length, twice in one message. Both are now
+  written with control characters escaped and cut at 256 characters. A `deployment.json`
+  nested deeper than the parser's stack raised a `RecursionError` out of the reader; it is
+  refused as not valid JSON.
+
 ### Upgrade notes
 
 - **`terp release` refuses a web image whose lock it cannot name.** Under `"build": "own"`, a
