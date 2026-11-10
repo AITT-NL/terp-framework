@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import json
 import pathlib
+import shutil
 
 import pytest
 
@@ -194,6 +195,35 @@ def test_a_value_holding_the_messages_own_words_is_quoted_whole(change, expected
     raw = seed()
     change(raw)
     assert expected in _messages(raw)
+
+
+def test_a_profile_command_a_refusal_quotes_is_escaped_and_cut(tmp_path: pathlib.Path) -> None:
+    """The truth rule quotes the profile's command as its author wrote it, twice in one
+    message. A control character in it reached the terminal, and a long one its whole length."""
+    import terp.arch as arch
+    from tests.architecture.rule_layout import corpus_dir
+
+    case = corpus_dir("backend") / "deployment_declaration_tells_the_truth" / "violation-06"
+    project = tmp_path / "app"
+    shutil.copytree(case, project)
+    profile = project / "docker-compose.prod.yml"
+    text = profile.read_text(encoding="utf-8")
+    written = 'command: ["terp", "jobs", "worker"]'
+    assert text.count(written) == 1
+    profile.write_text(
+        text.replace(written, 'command: ["terp", "jobs", "\\e[31mworker", "' + "x" * 400 + '"]'),
+        encoding="utf-8",
+    )
+    messages = [
+        violation.message
+        for violation in arch.check_deployment_declaration_tells_the_truth(
+            project, datastore_table=project / "datastore-table.json"
+        )
+    ]
+    (message,) = [message for message in messages if "command restates" in message]
+    assert "\u001b" not in message
+    assert "runs terp jobs \\u001b[31mworker x" in message
+    assert "x" * 245 not in message, "the command is cut, both times it is quoted"
 
 
 # --- each refusal in the vocabulary's own words --------------------------------------
