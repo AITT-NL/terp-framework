@@ -535,7 +535,7 @@ jobs:
           # README's first step writes the baseline from the composed app. Written here,
           # then held: a render whose own baseline does not match its surface fails.
           uv run terp inspect access --app app.main:build --format surface > authz-surface.json
-          uv run terp verify --only authz-surface
+          uv run terp verify --profile full --only authz-surface
           uv run pytest
           # The delegated AppSec baseline must hold on rendered output (ADR 0085):
           # the in-project ratchet guards post-scaffold drift, this proves the

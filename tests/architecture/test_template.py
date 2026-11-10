@@ -166,7 +166,13 @@ def test_a_new_app_pins_who_can_reach_what() -> None:
     assert "Never write it again to turn `uv run terp verify` green" in agents
     acceptance = (_TEMPLATE.parent / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert write in acceptance
-    assert "uv run terp verify --only authz-surface" in acceptance
+    # Held to the check's own command, not to a copy of it: `authz-surface` is a check of
+    # the full profile, and `--only authz-surface` under the default quick profile is
+    # refused before anything runs, which is how this step first reached CI.
+    from terp.cli.verify import PROFILES
+
+    (check,) = [check for check in PROFILES["full"] if check.id == "authz-surface"]
+    assert f"uv run {check.command}\n" in acceptance
 
 
 def test_template_ships_no_prebuilt_domain_module() -> None:

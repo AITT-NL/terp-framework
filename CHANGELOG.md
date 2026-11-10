@@ -71,8 +71,8 @@ decision, 0001 onwards.
   then committed. Upgrading the packages alone changes nothing for an app without the line.
   An older `terp verify` refuses the key, so take the template and the packages together.
 - An app that commits `authz-surface.json` and includes a router inside a module's router
-  now fails `terp verify --only authz-surface` until that route moves onto the module's own
-  router. So does one that serves a method and path from two routes.
+  now fails `terp verify --profile full --only authz-surface` until that route moves onto the
+  module's own router. So does one that serves a method and path from two routes.
 
 ## 0.40.1 — unreleased
 
