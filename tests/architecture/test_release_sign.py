@@ -14,14 +14,16 @@ import re
 import sys
 
 import pytest
+import yaml
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
 from terp.arch import SPEC_VERSION
-from terp.cli.release import _render, dsse, sign
+from terp.arch.deployment import standard
+from terp.cli.release import _render, dsse, promote, sign
 from terp.cli.release._common import ReleaseError, canonical, write_document
 from terp.cli.release._git import Tree
 from terp.cli.release.manifest import parse
-from tests.architecture.release_fixtures import PROJECT, TOOLCHAIN, app_files, committed_app
+from tests.architecture.release_fixtures import SITE_LOCK, PROJECT, TOOLCHAIN, app_files, committed_app
 from tests.architecture.test_release_compare import faithful
 from tests.architecture.test_release_dsse import pem_private, pem_public
 from tests.architecture.test_release_image import FakeRegistry, layer
@@ -116,7 +118,10 @@ def test_sign_signs_a_release_whose_app_fails_on_import_and_runs_none_of_it(tmp_
     assert given["projectRoot"] == "." and given["developmentProfile"] == "docker-compose.yml"
     assert given["releaseTag"] == "r1" and given["build"] == "generated" and given["platform"] == "linux/amd64"
     assert given["toolchain"] == {"signer": given["toolchain"]["signer"], "terpCli": TOOLCHAIN, "terpArch": TOOLCHAIN}
-    assert given["spec"]["release"] == SPEC_VERSION and len(given["spec"]["schemaSha256"]) == 64
+    assert given["spec"]["release"] == SPEC_VERSION
+    assert given["spec"]["schemaSha256"] == standard.schema_sha256(), "the schema terp promote holds"
+    loaded = promote.load(envelope, [pem_public(release.key)])
+    assert loaded.tag == "r1", "a release this signer signs at its own release, promote reads"
     assert given["generator"]["version"] == TOOLCHAIN and given["generator"]["project"] == PROJECT
     assert sorted(given["generator"]["files"]) == ["Dockerfile.prod", "docker-compose.prod.yml"]
     assert given["declaration"]["content"] == app_files()["deployment.json"].decode()
@@ -217,6 +222,83 @@ def test_a_static_site_image_is_described_from_the_site_lock(tmp_path: pathlib.P
     assert sorted(given["generator"]["files"]) == [
         "Dockerfile.prod", "docker-compose.prod.yml", "frontend/Dockerfile.prod", "site/Dockerfile.prod"
     ]
+
+
+def _push_web(release: Release, *web: tuple[str, str, str]) -> list[dict]:
+    """Push one web image per ``(name, dockerfile, service)`` beside the backend, as the build did."""
+    images = [json.loads(release.build_doc.read_text())["images"][0]]
+    for name, dockerfile, service in web:
+        digest = release.registry.push_image([layer(("usr/share/nginx/html/index.html", name.encode()))])
+        config = json.loads(release.registry.manifests[digest][1])["config"]["digest"]
+        release.registry.repo_tags[(f"rel/{name}", "r1")] = digest
+        images.append({"name": name, "repository": f"{REGISTRY}/{name}", "tag": "r1", "digest": digest,
+                       "configDigest": config, "context": ".", "dockerfile": dockerfile,
+                       "services": [service], "web": True})
+    write_document(release.build_doc, {"terpReleaseBuild": 1, "commit": release.sha, "releaseTag": "r1",
+                                       "platform": "linux/amd64", "builder": {}, "images": images})
+    return images
+
+
+def _sbom_purls(tmp_path: pathlib.Path, name: str) -> list[str]:
+    return [c["purl"] for c in json.loads((tmp_path / "out" / f"sbom-{name}.cdx.json").read_text())["components"]]
+
+
+def test_an_own_site_is_described_from_the_lock_beside_its_dockerfile(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """Under ``"build": "own"`` the declaration names no recipe, so the site's image was planned
+    with the frontend's lock and its SBOM listed the SPA's packages. It is read from the lock
+    beside the Dockerfile the image is built from."""
+    files = app_files(web=True)
+    declaration = json.loads(files["deployment.json"])
+    declaration["build"] = "own"
+    declaration["units"].append({"id": "site", "role": "web"})
+    profile = yaml.safe_load(files["docker-compose.prod.yml"])
+    profile["services"]["site"] = {
+        "build": {"context": ".", "dockerfile": "site/Dockerfile.prod"},
+        "image": profile["services"]["web"]["image"].replace("-frontend-prod:", "-site-prod:"),
+    }
+    files |= {
+        "deployment.json": json.dumps(declaration, indent=2).encode(),
+        "docker-compose.prod.yml": yaml.safe_dump(profile, sort_keys=False).encode(),
+        "site/Dockerfile.prod": files["frontend/Dockerfile.prod"],
+        "site/package-lock.json": json.dumps(SITE_LOCK, indent=2).encode(),
+    }
+    release = Release(tmp_path, monkeypatch, files)
+    _push_web(release, (f"{PROJECT}-frontend-prod", "frontend/Dockerfile.prod", "web"),
+              (f"{PROJECT}-site-prod", "site/Dockerfile.prod", "site"))
+    release.sign()
+    manifest = parse((tmp_path / "out" / sign.MANIFEST).read_bytes().strip())
+    assert manifest["inputs"]["build"] == "own" and "generator" not in manifest["inputs"]
+    assert _sbom_purls(tmp_path, f"{PROJECT}-site-prod") == ["pkg:npm/%40site/theme@1.2.0", "pkg:npm/marked@15.0.0"]
+    assert _sbom_purls(tmp_path, f"{PROJECT}-frontend-prod") == ["pkg:npm/react@19.0.0"]
+    given = manifest["inputs"]
+    assert [lock["path"] for lock in given["locks"]] == ["uv.lock", "frontend/package-lock.json", "site/package-lock.json"]
+    assert given["fetches"]["npm"] == ["npm.example.org", "registry.npmjs.org"]
+
+
+def test_the_manifest_records_only_the_locks_an_image_is_built_from(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """A lock no image installs says nothing about the release: a site lock committed beside an
+    app that declares no site was recorded, with its hosts among what the build fetches."""
+    files = app_files(web=True) | {"site/package-lock.json": json.dumps(SITE_LOCK, indent=2).encode()}
+    release = Release(tmp_path, monkeypatch, files)
+    _push_web(release, (f"{PROJECT}-frontend-prod", "frontend/Dockerfile.prod", "web"))
+    release.sign()
+    given = parse((tmp_path / "out" / sign.MANIFEST).read_bytes().strip())["inputs"]
+    assert [lock["path"] for lock in given["locks"]] == ["uv.lock", "frontend/package-lock.json"]
+    assert given["fetches"]["npm"] == ["registry.npmjs.org"]
+
+
+def test_sign_refuses_a_web_image_it_could_describe_only_as_empty(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """An image with no npm lock got an SBOM that listed no package, and sign signed it."""
+    files = app_files(web=True)
+    declaration = json.loads(files["deployment.json"])
+    declaration["build"] = "own"
+    files["deployment.json"] = json.dumps(declaration, indent=2).encode()
+    files.pop("frontend/package-lock.json")
+    release = Release(tmp_path, monkeypatch, files)
+    _push_web(release, (f"{PROJECT}-frontend-prod", "frontend/Dockerfile.prod", "web"))
+    with pytest.raises(ReleaseError, match=f"the web image {PROJECT}-frontend-prod has no npm lock"):
+        release.sign()
+    assert not (tmp_path / "out").exists(), "nothing is signed"
 
 
 @pytest.mark.parametrize(

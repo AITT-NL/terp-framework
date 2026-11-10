@@ -923,6 +923,22 @@ def test_frontend_serves_document_security_headers() -> None:
         )
 
 
+def test_every_location_that_serves_a_file_carries_the_policy() -> None:
+    """The document location is not the only one that answers with a document. ``/assets/``
+    declares ``Cache-Control``, so nginx drops every header it would have inherited, and an
+    SVG under it, opened on its own, runs the script it holds with no policy at all. So each
+    location that serves a file carries the document headers itself, read as nginx reads the
+    file; ``/api/`` proxies, and the API sets its own."""
+    from tests.architecture import nginx_config
+
+    for config in (
+        _PROJECT / "frontend" / "nginx.conf",
+        pathlib.Path(__file__).resolve().parents[2] / "apps/example/frontend/nginx.conf",
+    ):
+        lacking = nginx_config.unheaded_file_locations(config.read_text(encoding="utf-8"))
+        assert lacking == {"location /assets/": [], "location /": []}, (config, lacking)
+
+
 def test_dev_server_holds_the_same_origin_rules_as_production() -> None:
     # Production serves a strict policy; a dev server with none means a
     # CSP-incompatible pattern — an agent reaching for a CDN chart library is the

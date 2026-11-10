@@ -15,7 +15,8 @@ git and the images from the registry as data, and it judges what a sandbox compu
    names it there.
 5. It reads the backend image in the sandbox and holds it to the tree, the lock, its installed
    distributions' ``RECORD`` files and its Dockerfile (:mod:`._compare`); it computes each image's SBOM (the backend's from its filesystem, the web
-   image's from the npm lock it is built from), asks the vulnerability database about them, and scans the
+   image's from the npm lock it is built from, refusing one with none rather than describing it as
+   empty), asks the vulnerability database about them, and scans the
    history reachable from the SHA for secrets, which it refuses to sign over.
 6. It signs the manifest as a DSSE envelope, with ``--signer <argv>`` (the production path, whose
    key never enters this process) or ``--sign-key <file>``, which it refuses without
@@ -53,8 +54,8 @@ from terp.cli.release._common import (
 from terp.cli.release._compare import compare_backend, wheel_shape
 from terp.cli.release._git import Tree
 from terp.cli.release._image import final_base
-from terp.cli.release._locks import UV_LOCK, npm_packages, pinned, read_npm_lock, read_uv_lock
-from terp.cli.release._plan import Plan, release_plan
+from terp.cli.release._locks import UV_LOCK, pinned, read_uv_lock
+from terp.cli.release._plan import Plan, release_plan, web_packages
 from terp.cli.release._registry import Registry, egress_getter
 from terp.cli.release._render import DEFAULT_INDEX, DEFAULT_TABLE, Pinned, fetch, render, version_key
 from terp.cli.release._sandbox import sandboxed
@@ -228,8 +229,8 @@ def sign(
         all_purls: dict[str, list[str]] = {}
         for image_name, entry in sorted(images.items()):
             if entry["image"].web:  # the plan says which image is the web tier, never the build
-                lock = entry["image"].npm_lock  # the site's lock for a static site (ADR 0198)
-                packages = npm_packages(read_npm_lock(tree.read_text(lock), lock)) if lock and tree.has(lock) else []
+                # From the lock the image installs, or refused: never an SBOM read from nothing.
+                packages = web_packages(tree, entry["image"])
                 bom = sbom(image_name, tag, packages, "npm")
             else:
                 answer = sandboxed("image", {

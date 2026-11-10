@@ -59,6 +59,13 @@ SUPPORTED_VERSIONS = frozenset({1})
 #: The development compose file of an app whose ``workbench.json`` names none.
 DEV_COMPOSE_FILE = "docker-compose.yml"
 
+#: The health path the image each recipe builds answers itself, by the recipe ``generator.recipes``
+#: names (ADR 0198). A recipe takes no parameters, so its server answers there and nowhere
+#: else, and the profile probes it there; a deploy tool waits on the ``healthPath`` the unit
+#: declares, so a unit that names the recipe declares that path or none. Every recipe the
+#: schema allows has an entry (``test_deployment_static_site``).
+RECIPE_HEALTH_PATHS = {"static-site": "/healthz"}
+
 #: Keys that put a file in a declared state; any of them beside ``unmanaged`` is two.
 _DECLARED_KEYS = (
     "build",
@@ -429,7 +436,28 @@ def _meaning_findings(
                     f"unit, and {found} (allowed: a declared web unit's id: {webs})"
                 )
             )
+    findings.extend(_recipe_health_findings(declaration))
     return findings
+
+
+def _recipe_health_findings(declaration: Declaration) -> list[Finding]:
+    """A web unit built from a recipe that declares a health path its image does not answer."""
+    found: list[Finding] = []
+    for index, unit in enumerate(declaration.units):
+        recipe = declaration.recipe(unit.id)
+        answered = RECIPE_HEALTH_PATHS.get(recipe or "")
+        if unit.role != "web" or answered is None or unit.health_path in (None, answered):
+            continue
+        found.append(
+            Finding(
+                f'units[{index}].healthPath is "{unit.health_path}", and generator.recipes.{unit.id} '
+                f'builds the unit with "{recipe}", whose image answers its health at {answered} '
+                f"alone (allowed: {answered}, or no healthPath)",
+                f'Declare "healthPath": "{answered}" or leave it out: a deploy tool waits on the '
+                "path a unit declares, and the recipe's server answers no other.",
+            )
+        )
+    return found
 
 
 def _carries(unit: Unit, name: str) -> bool:
@@ -455,6 +483,7 @@ def role_findings(declaration: Declaration) -> list[Finding]:
 
 __all__ = [
     "DEPLOYMENT_FILE",
+    "RECIPE_HEALTH_PATHS",
     "SCHEMA_FILE",
     "SPEC_RELEASE",
     "Backup",

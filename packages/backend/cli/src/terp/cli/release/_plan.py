@@ -17,7 +17,9 @@ Refused, every one named and listed together:
   and other than exactly one ``api`` unit, so no one image runs the upgrade;
 * a built image whose name does not read the per-release tag, ``TERP_RELEASE_TAG`` (ADR 0185),
   and a build that says more than its context and its Dockerfile: a build argument, a secret
-  or a target is a part of the image nobody signs.
+  or a target is a part of the image nobody signs;
+* a web image with no npm lock beside its Dockerfile or in its build context: its SBOM is read
+  from the lock it installs, and one read from nothing would list no package.
 
 A service under a compose ``profiles:`` key is not part of the release: nothing starts it.
 """
@@ -25,6 +27,7 @@ A service under a compose ``profiles:`` key is not part of the release: nothing 
 from __future__ import annotations
 
 import pathlib
+import posixpath
 import re
 import shlex
 from dataclasses import dataclass
@@ -40,15 +43,14 @@ from terp.arch.deployment import (
     resolve_profile,
     services_of,
 )
-from terp.arch.deployment.generator import RELEASE_TAG_VARIABLE, STATIC_SITE
+from terp.arch.deployment.generator import RELEASE_TAG_VARIABLE
 from terp.arch.deployment.profile import truth_findings
 from terp.cli.release._common import ReleaseError
 from terp.cli.release._git import Tree
 from terp.cli.release._locks import (
-    NPM_LOCK,
     NPM_LOCKS,
-    SITE_NPM_LOCK,
     UV_LOCK,
+    npm_packages,
     npm_path_sources,
     path_sources,
     read_npm_lock,
@@ -67,6 +69,9 @@ _BUILD_KEYS = frozenset({"context", "dockerfile"})
 
 _STEP = ("terp", "migrate", "upgrade")
 
+#: The file a web image's npm lock is: beside its Dockerfile, or at the root of its context.
+_NPM_LOCK_FILE = "package-lock.json"
+
 
 @dataclass(frozen=True)
 class Image:
@@ -78,8 +83,9 @@ class Image:
     services: tuple[str, ...]
     #: The web tier's image: its bundle cannot be compared with the tree (ADR 0187).
     web: bool
-    #: The npm lock the image is built from, which its SBOM reads: the site's for an image a
-    #: static-site unit runs (ADR 0198), the frontend's for another web image, else none.
+    #: The npm lock a web image is built from, which its SBOM reads: the one beside its
+    #: Dockerfile, else the one at the root of its build context (:func:`npm_lock_of`); none
+    #: for any other image.
     npm_lock: str | None = None
 
 
@@ -101,6 +107,11 @@ class Plan:
     def image_of(self, service: str) -> Image | None:
         return next((image for image in self.images if service in image.services), None)
 
+    @property
+    def npm_locks(self) -> tuple[str, ...]:
+        """Every npm lock a planned image is built from, each once, sorted: what the manifest records."""
+        return tuple(sorted({image.npm_lock for image in self.images if image.npm_lock is not None}))
+
 
 def argv(command: Any) -> tuple[str | None, ...] | None:
     """A profile command, element by element as compose runs it; ``None`` marks interpolation."""
@@ -112,13 +123,71 @@ def argv(command: Any) -> tuple[str | None, ...] | None:
     return None
 
 
-def _relative(root: pathlib.Path, base: pathlib.Path, written: str) -> str:
-    """*written*, relative to *base*, as a path relative to *root*.
+def _relative(root: pathlib.Path, base: pathlib.Path, written: str) -> str | None:
+    """*written*, relative to *base*, as a path relative to *root*, or ``None`` outside it.
 
-    Being readable already refused a build path that resolves outside the checkout, and a
-    pristine tree is its own checkout, so this always lands inside *root*.
+    Being readable refuses a declared unit's build path that resolves outside the checkout, but
+    it reads no service the declaration does not name, so the plan asks again for every build.
     """
-    return (base / written).resolve().relative_to(root.resolve()).as_posix()
+    try:
+        return (base / written).resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return None
+
+
+def _npm_lock_candidates(context: str, dockerfile: str) -> list[str]:
+    """Where a web image's npm lock may be, in the order it is looked for, each once."""
+    found: list[str] = []
+    for place in (posixpath.dirname(dockerfile), context):
+        candidate = posixpath.normpath(posixpath.join(place, _NPM_LOCK_FILE))
+        if candidate not in found:
+            found.append(candidate)
+    return found
+
+
+class _WorkingTree:
+    """A project's files on disk, asked what the plan asks a commit's tree: whether a path is a file."""
+
+    def __init__(self, root: pathlib.Path) -> None:
+        self.root = root
+
+    def has(self, path: str) -> bool:
+        return (self.root / path).is_file()
+
+
+def npm_lock_of(tree: Tree | _WorkingTree, context: str, dockerfile: str) -> str | None:
+    """The npm lock a web image is built from: beside its Dockerfile, else in its build context.
+
+    Read from where the image is built, never from a recipe, which only the generated state
+    declares: under ``"build": "own"`` an app names none, and the image it builds a site from
+    still installs a lock of its own. The generator's two web Dockerfiles stand beside the
+    locks they install (``frontend/`` and ``site/``, ADR 0198), so a generated app's images are
+    planned with the locks they always were.
+    """
+    return next((path for path in _npm_lock_candidates(context, dockerfile) if tree.has(path)), None)
+
+
+def web_packages(tree: Tree, image: Image) -> list[tuple[str, str]]:
+    """``(name, version)`` of every package web *image* installs, read from its npm lock.
+
+    Refused when the commit holds no such lock: an SBOM read from nothing lists no package,
+    and ``sign`` would vouch that the image holds none.
+    """
+    if image.npm_lock is None or not tree.has(image.npm_lock):
+        raise ReleaseError(
+            f"the web image {image.name} has no npm lock in this commit, so its SBOM would list "
+            "no package, and sign does not vouch for an image it cannot describe: commit the "
+            "package-lock.json the image installs, beside its Dockerfile or at the root of its "
+            "build context"
+        )
+    return npm_packages(read_npm_lock(tree.read_text(image.npm_lock), image.npm_lock))
+
+
+def _npm_path_refusals(tree: Tree, npm_lock: str) -> list[str]:
+    return [
+        f"{npm_lock} takes {source} from a path, which a pristine context does not hold"
+        for source in npm_path_sources(read_npm_lock(tree.read_text(npm_lock), npm_lock))
+    ]
 
 
 def _tree_refusals(tree: Tree) -> list[str]:
@@ -142,10 +211,7 @@ def _tree_refusals(tree: Tree) -> list[str]:
         )
     for npm_lock in NPM_LOCKS:
         if tree.has(npm_lock):
-            refused.extend(
-                f"{npm_lock} takes {source} from a path, which a pristine context does not hold"
-                for source in npm_path_sources(read_npm_lock(tree.read_text(npm_lock), npm_lock))
-            )
+            refused.extend(_npm_path_refusals(tree, npm_lock))
     return refused
 
 
@@ -188,12 +254,22 @@ def _built(
             f"per-release tag (allowed: <name>:${{{RELEASE_TAG_VARIABLE}:?...}}, ADR 0185)"
         )
         return None
-    context = _relative(root, base, str(build.get("context", ".")))
-    dockerfile = _relative(root, base / context, str(build.get("dockerfile", "Dockerfile")))
+    written = str(build.get("context", ".")), str(build.get("dockerfile", "Dockerfile"))
+    context = _relative(root, base, written[0])
+    dockerfile = _relative(root, base / context, written[1]) if context is not None else None
+    if context is None or dockerfile is None:
+        outside = "context" if context is None else "Dockerfile"
+        refused.append(
+            f"service {name} builds from {written[0]!r} with the Dockerfile {written[1]!r}, and its "
+            f"{outside} resolves outside the checkout: a release builds from the commit's own files "
+            "alone (allowed: a build context and a Dockerfile inside the checkout)"
+        )
+        return None
     return tagged.group("name"), context, dockerfile
 
 
 def _images(
+    tree: Tree | _WorkingTree,
     root: pathlib.Path,
     declared: Declaration,
     services: dict[str, dict[str, Any]],
@@ -224,15 +300,43 @@ def _images(
                 "decision 9; deploy anything else by your own means, or declare unmanaged)"
             )
     webs = {unit.id for unit in declared.units if unit.role == "web" and unit.kind is None}
-    sites = {ident for ident in webs if declared.recipe(ident) == STATIC_SITE}
     images = []
     for image, (_builder, context, dockerfile) in sorted(builds.items()):
-        run = set(runners.get(image, []))
-        lock = SITE_NPM_LOCK if sites & run else NPM_LOCK if webs & run else None
-        images.append(
-            Image(image, context, dockerfile, tuple(runners.get(image, [])), bool(webs & run), lock)
-        )
+        run = runners.get(image, [])
+        web = bool(webs & set(run))
+        lock = npm_lock_of(tree, context, dockerfile) if web else None
+        if web and lock is None:
+            refused.append(
+                f"the web image {image} has no npm lock: the commit holds no "
+                f"{' and no '.join(_npm_lock_candidates(context, dockerfile))}, and a release "
+                f"reads a web image's packages from the lock it installs (allowed: a committed "
+                f"package-lock.json beside {dockerfile} or at the root of its build context "
+                "- run `npm install` there and commit the lock it writes)"
+            )
+        images.append(Image(image, context, dockerfile, tuple(run), web, lock))
     return tuple(images), datastores
+
+
+def web_npm_locks(root: pathlib.Path, table: DatastoreTable) -> tuple[str, ...]:
+    """The npm locks the release plan reads for the web images of the declared app at *root*.
+
+    The plan's own images and rule (:func:`npm_lock_of`), asked of the files on disk, so ``terp
+    verify``'s locks check and npm audit hold the locks a release reads rather than a list of
+    their own. Nothing for an app that is undeclared, unmanaged or unreadable, or whose profile
+    cannot be read: a release refuses it, and the gate holds the generator's two locks
+    (:data:`~terp.cli.release._locks.NPM_LOCKS`) where their manifest is, as before.
+    """
+    declared, findings = readable(root, table)
+    if findings or not isinstance(declared, Declaration):
+        return ()
+    profile, problems = resolve_profile(root, declared)
+    if problems:
+        return ()
+    services = {
+        name: service for name, service in services_of(profile).items() if not service.get("profiles")
+    }
+    images, _datastores = _images(_WorkingTree(root), root, declared, services, table, [])
+    return tuple(sorted({image.npm_lock for image in images if image.npm_lock is not None}))
 
 
 def _steps(
@@ -286,7 +390,11 @@ def release_plan(tree: Tree, root: pathlib.Path, table: DatastoreTable) -> Plan:
     services = {
         name: service for name, service in services_of(profile).items() if not service.get("profiles")
     }
-    images, datastores = _images(root, declared, services, table, refused)
+    images, datastores = _images(tree, root, declared, services, table, refused)
+    # The tree's refusals read the two locks the generator knows; a lock an image is built from
+    # anywhere else is held to the same rule here.
+    for lock in sorted({image.npm_lock for image in images if image.npm_lock is not None} - set(NPM_LOCKS)):
+        refused.extend(_npm_path_refusals(tree, lock))
     step, api = _steps(declared, services, refused)
     _health(declared, services, refused)
     if refused:
@@ -294,4 +402,4 @@ def release_plan(tree: Tree, root: pathlib.Path, table: DatastoreTable) -> Plan:
     return Plan(declared, profile, services, images, step, api, datastores)
 
 
-__all__ = ["Image", "Plan", "argv", "release_plan"]
+__all__ = ["Image", "Plan", "argv", "npm_lock_of", "release_plan", "web_npm_locks", "web_packages"]

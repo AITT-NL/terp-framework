@@ -788,8 +788,11 @@ def test_the_escape_audit_finds_every_interpolation_outside_its_place() -> None:
 # the generator's own discipline                                                #
 # --------------------------------------------------------------------------- #
 #: The generator's modules: the function, its refusals, its profile, its one YAML encoder,
-#: its fixed text and the static-site recipe's.
-_GENERATOR_MODULES = ("generator", "_refusals", "_compose", "_yaml", "_generator_text", "_static_site")
+#: its fixed text, the static-site recipe's, and the recipe's check at build, in its two halves.
+_GENERATOR_MODULES = (
+    "generator", "_refusals", "_compose", "_yaml", "_generator_text", "_static_site", "_site_check",
+    "_site_markup",
+)
 _ALLOWED_IMPORTS = {
     "__future__",
     "dataclasses",

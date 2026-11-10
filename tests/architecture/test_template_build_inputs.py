@@ -266,6 +266,27 @@ def test_no_package_s_lifecycle_script_runs_in_the_web_image() -> None:
     )
 
 
+def test_the_web_image_serves_only_its_bundle_and_names_no_nginx_version() -> None:
+    """The base image's html directory holds pages of its own, a welcome ``index.html`` and a
+    ``50x.html`` with an inline style the policy blocks. A copy over them keeps every page the
+    bundle does not overwrite, so ``/50x.html`` answered with nginx's page; they are removed
+    before the bundle is copied in. ``server_tokens off`` is the image's own, at http level
+    in a conf.d file the base image's ``nginx.conf`` includes inside its http block, so an
+    app whose ``frontend/nginx.conf`` predates it names no nginx version either. The html
+    directory is root's (``conf.d`` is the nginx user's own), so the image is root for that
+    one step and ends as the base image's own user."""
+    runtime = _stages(_instructions(_WEB))["runtime"]
+    clear = _index(runtime, "find /usr/share/nginx/html -mindepth 1 -delete")
+    bundle = _index(runtime, "COPY --from=build /app/frontend/dist /usr/share/nginx/html")
+    assert runtime.index("USER root") < clear < bundle
+    assert runtime[clear].split() == (
+        "RUN printf 'server_tokens off;\\n' > /etc/nginx/conf.d/terp-http.conf "
+        "&& find /usr/share/nginx/html -mindepth 1 -delete"
+    ).split()
+    users = [line for line in runtime if line.startswith("USER ")]
+    assert users == ["USER root", "USER nginx"], users
+
+
 def test_the_web_image_copies_nothing_from_outside_the_frontend() -> None:
     copies = [
         line.split()[1:-1]

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
+import subprocess
 
 import pytest
 import yaml
@@ -18,7 +20,7 @@ from terp.arch.deployment import published_table
 from terp.cli.release import _plan, build
 from terp.cli.release._common import ReleaseError
 from terp.cli.release._git import Tree
-from tests.architecture.release_fixtures import PROJECT, Runs, app_files, committed_app, git
+from tests.architecture.release_fixtures import NPM_LOCK, PROJECT, SITE_LOCK, Runs, app_files, committed_app, git
 
 SEAM = "${TERP_RELEASE_TAG:?TERP_RELEASE_TAG is required, one new image tag per release}"
 
@@ -78,12 +80,14 @@ def test_a_web_image_is_planned_as_the_web_tier_s(tmp_path: pathlib.Path) -> Non
     }
     profile["services"]["tools"] = {"image": "busybox", "profiles": ["debug"]}
     units = json.loads(app_files()["deployment.json"])["units"] + [{"id": "web", "role": "web", "dependsOn": ["api"]}]
-    files = _own(profile, units) | {"frontend/Dockerfile.web": b"FROM scratch\n"}
+    files = _own(profile, units) | {"frontend/Dockerfile.web": b"FROM scratch\n",
+                                    "frontend/package-lock.json": json.dumps(NPM_LOCK).encode()}
     plan = _plan_of(tmp_path, files)
     web = next(image for image in plan.images if image.web)
-    assert (web.name, web.context, web.dockerfile, web.services) == (
-        f"{PROJECT}-frontend-prod", "frontend", "frontend/Dockerfile.web", ("web",)
+    assert (web.name, web.context, web.dockerfile, web.services, web.npm_lock) == (
+        f"{PROJECT}-frontend-prod", "frontend", "frontend/Dockerfile.web", ("web",), "frontend/package-lock.json"
     )
+    assert plan.npm_locks == ("frontend/package-lock.json",)
     assert "tools" not in plan.services, "a service under a compose profile is not part of the release"
 
 
@@ -97,6 +101,160 @@ def test_a_static_site_image_is_planned_from_the_site_s_own_lock(tmp_path: pathl
         (f"{PROJECT}-frontend-prod", ".", "frontend/Dockerfile.prod", ("web",), True, "frontend/package-lock.json"),
         (f"{PROJECT}-site-prod", ".", "site/Dockerfile.prod", ("site",), True, "site/package-lock.json"),
     ]
+
+
+def _own_with_webs(builds: dict[str, dict[str, str]], extra: dict[str, bytes]) -> dict[str, bytes]:
+    """The app under ``own`` with a web unit per entry of *builds*, each built as it says."""
+    profile = _profile()
+    units = json.loads(app_files()["deployment.json"])["units"]
+    for unit, made_from in builds.items():
+        profile["services"][unit] = {"build": made_from, "image": f"{PROJECT}-{unit}-prod:{SEAM}"}
+        units.append({"id": unit, "role": "web"})
+    return _own(profile, units) | extra
+
+
+def test_under_own_a_web_image_takes_the_lock_beside_its_dockerfile(tmp_path: pathlib.Path) -> None:
+    """Under ``own`` the declaration names no recipe (``generator`` is refused beside it), so a
+    site built by the app's own Dockerfile was planned with the frontend's lock: its SBOM listed
+    the SPA's packages. The lock is read from where the image is built: beside its Dockerfile,
+    else at the root of its build context."""
+    files = _own_with_webs(
+        {"web": {"context": ".", "dockerfile": "frontend/Dockerfile.prod"},
+         "site": {"context": ".", "dockerfile": "site/Dockerfile.prod"},
+         "docs": {"context": "docs", "dockerfile": "../build/docs.Dockerfile"}},
+        {"frontend/Dockerfile.prod": b"FROM scratch\n", "frontend/package-lock.json": json.dumps(NPM_LOCK).encode(),
+         "site/Dockerfile.prod": b"FROM scratch\n", "site/package-lock.json": json.dumps(SITE_LOCK).encode(),
+         "build/docs.Dockerfile": b"FROM scratch\n", "docs/package-lock.json": json.dumps(SITE_LOCK).encode()},
+    )
+    plan = _plan_of(tmp_path, files)
+    assert {image.services: (image.dockerfile, image.npm_lock) for image in plan.images if image.web} == {
+        ("web",): ("frontend/Dockerfile.prod", "frontend/package-lock.json"),
+        ("site",): ("site/Dockerfile.prod", "site/package-lock.json"),
+        ("docs",): ("build/docs.Dockerfile", "docs/package-lock.json"),
+    }
+    assert plan.npm_locks == ("docs/package-lock.json", "frontend/package-lock.json", "site/package-lock.json")
+    assert _plan.npm_lock_of(Tree.read(tmp_path / "repo", git(tmp_path / "repo", "rev-parse", "HEAD")),
+                             ".", "Dockerfile.web") is None, "no lock at the root, beside or in the context"
+
+
+def test_a_web_image_with_no_npm_lock_is_refused_naming_the_remedy(tmp_path: pathlib.Path) -> None:
+    files = _own_with_webs(
+        {"site": {"context": ".", "dockerfile": "site/Dockerfile.prod"}},
+        {"site/Dockerfile.prod": b"FROM scratch\n", "frontend/package-lock.json": json.dumps(NPM_LOCK).encode()},
+    )
+    assert (
+        f"the web image {PROJECT}-site-prod has no npm lock: the commit holds no "
+        "site/package-lock.json and no package-lock.json, and a release reads a web image's "
+        "packages from the lock it installs (allowed: a committed package-lock.json beside "
+        "site/Dockerfile.prod or at the root of its build context - run `npm install` there and "
+        "commit the lock it writes)"
+    ) in _refusals(tmp_path, files), "another web image's lock is not this image's"
+
+
+def test_a_lock_an_image_is_built_from_anywhere_is_held_to_the_path_rule(tmp_path: pathlib.Path) -> None:
+    path_source = {"packages": {"": {}, "node_modules/z": {"version": "1", "resolved": "file:../z.tgz"}}}
+    files = _own_with_webs(
+        {"www": {"context": "www", "dockerfile": "Dockerfile"}},
+        {"www/Dockerfile": b"FROM scratch\n", "www/package-lock.json": json.dumps(path_source).encode()},
+    )
+    assert "www/package-lock.json takes node_modules/z from a path" in _refusals(tmp_path, files)
+
+
+def test_the_gate_holds_the_npm_locks_the_plan_reads(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """The release plan finds a web image's lock beside its Dockerfile, else in its context, so
+    under own it reads locks outside frontend/ and site/. terp verify's locks check and npm audit
+    read only the generator's two, and drifted from it. They now ask the plan's own rule of the
+    files on disk (web_npm_locks): the same set, held here against the plan of the same commit."""
+    from terp.cli import verify as verify_module
+    from terp.cli.dependency_audit import run_dependency_audit_npm
+    from terp.cli.locks import run_locks_check
+
+    files = _own_with_webs(
+        {"www": {"context": ".", "dockerfile": "www/Dockerfile"},
+         "docs": {"context": "docs", "dockerfile": "../build/docs.Dockerfile"}},
+        {"www/Dockerfile": b"FROM scratch\n", "www/package.json": b'{"name": "www"}\n',
+         "www/package-lock.json": json.dumps(NPM_LOCK).encode(),
+         "build/docs.Dockerfile": b"FROM scratch\n", "docs/package-lock.json": json.dumps(SITE_LOCK).encode()},
+    )
+    plan = _plan_of(tmp_path, files)
+    on_disk = tmp_path / "tree"  # the commit written out, as the gate reads a checkout
+    assert _plan.web_npm_locks(on_disk, published_table()) == plan.npm_locks == (
+        "docs/package-lock.json", "www/package-lock.json"
+    )
+    asked: list[list[str]] = []
+
+    def run(argv, root, *, env=None):  # type: ignore[no-untyped-def]
+        asked.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(verify_module, "_run_argv", run)
+    assert run_locks_check(on_disk)[0] == 0
+    assert [argv[2] for argv in asked if argv[0] == "npm"] == ["docs", "www"], "each planned lock, asked of npm"
+    asked.clear()
+    (on_disk / "www" / "node_modules" / "react").mkdir(parents=True)  # what the lock installs
+    code, output = run_dependency_audit_npm(on_disk)
+    assert code == 0 and [argv[2] for argv in asked] == ["www"], output
+    assert "no docs/package.json - dependency-audit-npm not applicable" in output
+
+
+def test_a_service_built_from_outside_the_checkout_is_refused_and_the_gate_holds_the_rest(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Being readable refuses a declared unit's build path that leaves the checkout, but reads no
+    service the declaration does not name. The plan resolved such a path against the checkout and
+    raised, so ``terp release`` ended in a traceback. It is refused with the rule it breaks, and
+    the gate, which asks the plan's rule, skips it and holds the locks of the images built inside."""
+    files = _own_with_webs(
+        {"web": {"context": ".", "dockerfile": "frontend/Dockerfile.prod"}},
+        {"frontend/Dockerfile.prod": b"FROM scratch\n", "frontend/package-lock.json": json.dumps(NPM_LOCK).encode()},
+    )
+    profile = yaml.safe_load(files["docker-compose.prod.yml"])
+    profile["services"]["tool"] = {"build": "../outside", "image": f"{PROJECT}-tool-prod:{SEAM}"}
+    profile["services"]["probe"] = {
+        "build": {"context": ".", "dockerfile": "/etc/Dockerfile"}, "image": f"{PROJECT}-probe-prod:{SEAM}",
+    }
+    files["docker-compose.prod.yml"] = yaml.safe_dump(profile, sort_keys=False).encode()
+    message = _refusals(tmp_path / "release", files)
+    for service, context, dockerfile, outside in (
+        ("tool", "../outside", "Dockerfile", "context"), ("probe", ".", "/etc/Dockerfile", "Dockerfile"),
+    ):
+        assert (
+            f"service {service} builds from {context!r} with the Dockerfile {dockerfile!r}, and its {outside} "
+            "resolves outside the checkout: a release builds from the commit's own files alone (allowed: a "
+            "build context and a Dockerfile inside the checkout)"
+        ) in message
+    on_disk = tmp_path / "gate"
+    for path, data in files.items():
+        (on_disk / path).parent.mkdir(parents=True, exist_ok=True)
+        (on_disk / path).write_bytes(data)
+    assert _plan.web_npm_locks(on_disk, published_table()) == ("frontend/package-lock.json",)
+
+
+def test_the_plan_s_web_locks_are_none_where_a_release_would_refuse(tmp_path: pathlib.Path) -> None:
+    """Undeclared, or a profile that cannot be read: the gate holds the generator's two alone."""
+    assert _plan.web_npm_locks(tmp_path, published_table()) == ()
+    files = app_files(web=True)
+    files.pop("docker-compose.prod.yml")
+    for path, data in files.items():
+        (tmp_path / "app" / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "app" / path).write_bytes(data)
+    assert _plan.web_npm_locks(tmp_path / "app", published_table()) == ()
+
+
+def test_sign_refuses_to_describe_a_web_image_from_no_lock(tmp_path: pathlib.Path) -> None:
+    """The plan refuses such an image first; ``sign`` refuses again rather than build the empty
+    SBOM it used to, should a lock be missing all the same."""
+    sha = committed_app(tmp_path / "repo", app_files(web=True))
+    tree = Tree.read(tmp_path / "repo", sha)
+
+    def image(lock: str | None) -> _plan.Image:
+        return _plan.Image(f"{PROJECT}-frontend-prod", ".", "frontend/Dockerfile.prod", ("web",), True, lock)
+
+    message = f"the web image {PROJECT}-frontend-prod has no npm lock in this commit, so its SBOM would list no package"
+    for lock in (None, "site/package-lock.json"):  # none planned, and one the commit does not hold
+        with pytest.raises(ReleaseError, match=re.escape(message)):
+            _plan.web_packages(tree, image(lock))
+    assert _plan.web_packages(tree, image("frontend/package-lock.json")) == [("react", "19.0.0")]
 
 
 @pytest.mark.parametrize(

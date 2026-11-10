@@ -10,6 +10,176 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.40.1 — unreleased
+
+### Security
+
+- **A file under `/assets/` carries the security headers a page does.** In the static site's
+  server configuration (ADR 0198) and in the template SPA's `frontend/nginx.conf`, `/assets/`
+  sets its own `Cache-Control`, and nginx then drops every `add_header` the location would
+  have inherited. So an asset was served with no content security policy, and an SVG under
+  `/assets/` that holds a `<script>` ran it when opened on its own. `/assets/` now repeats the
+  policy, `nosniff`, `Referrer-Policy`, `Cross-Origin-Opener-Policy` and `Permissions-Policy`
+  beside its `Cache-Control`; on a script or a stylesheet they cost nothing. A test reads each
+  configuration as nginx reads it and holds every location that serves a file to the whole
+  set, and the release lane asks a built site for an SVG's headers.
+- **The generated SPA image serves only its bundle, and no nginx server names its version.**
+  `frontend/Dockerfile.prod` copied the bundle over the base image's html directory, which
+  keeps every page the bundle does not overwrite, so `/50x.html` answered 200 with nginx's own
+  page and its inline style. The image now removes the base image's pages first, so that path
+  is the SPA's document like any other, and the image ends as the `nginx` user it ran as. It
+  also writes `server_tokens off` into a `conf.d` file the base image's `nginx.conf` includes
+  in its http block, so no `Server` header or error page nginx writes names its version,
+  however old an app's own `frontend/nginx.conf` is, unless that file turns it back on with
+  `server_tokens on` in its server block, which wins there. The static site's server and the
+  template SPA's `frontend/nginx.conf` say `server_tokens off` too. The release
+  lane builds the SPA image on an engine and asks it, with the template's config and with one
+  from before the setting.
+- **A web image's SBOM is read from the lock that image installs, under `"build": "own"` too
+  (ADR 0187 decision 6, amended).** The release jobs chose a web image's npm lock by the
+  `generator.recipes` word, which the reader refuses beside `own`. So under `own` every web
+  image was planned with `frontend/package-lock.json`, and a site built by the app's own
+  Dockerfile was signed with the SPA's packages as its SBOM, and scanned as them. Where that
+  lock was missing, `sign` signed an SBOM that listed no package, and the manifest recorded
+  `site/package-lock.json` whenever the file existed, whatever the images were built from. Now
+  each web image's lock is the `package-lock.json` beside its Dockerfile, else the one at the
+  root of its build context; the plan refuses a web image with neither, naming both paths and
+  `npm install` as the remedy, and `sign` refuses rather than describe an image from nothing.
+  The manifest records exactly the planned locks under `inputs.locks`, and their hosts under
+  `fetches.npm`. A generated app's two web Dockerfiles stand beside the two locks they install,
+  so its plan, manifest and SBOMs are what they were: the existing release tests pin them
+  unchanged.
+
+### Changed
+
+- **`dependency-audit-npm` runs as `terp verify --profile full --only dependency-audit-npm`**
+  in the verify manifest, like the other checks with a runner of their own. Its scope and the
+  `locks` check's gain what decides which locks they hold: every profile (`**/*.yml`,
+  `**/*.yaml`) and every `package.json` and `package-lock.json`. The profile is
+  part of the command because `terp verify` defaults to `quick`, which does not hold the
+  check: written without it, the command exited 1 ("names no check of profile 'quick'"). The
+  same was true of `authz-surface` and `api-docs-drift` before this release, and their
+  commands now name `full` and `release`. A test parses every manifest command and dry-runs
+  each `terp verify` one with `--list`, so a command that cannot run as written fails the gate.
+  A driving tool that pinned the old commands reads them again.
+
+### Fixed
+
+- **The template SPA's nginx starts on a host whose kernel has no IPv6.** Its
+  `frontend/nginx.conf` listened on `[::]:8080` as well, and nginx stops at start where the
+  address family is missing (`socket() [::]:8080 failed (97: Address family not supported by
+  protocol)`, measured). It listens on `8080` alone, as the static site's server already does:
+  a port compose publishes reaches the container over its IPv4 address.
+- **A static site's unit declares the health path its image answers, or none.** The generator
+  serves and probes the site on `/healthz` whatever the unit says, while a deploy tool waits on
+  the `healthPath` the unit declares, so a site unit that declared another path was a deploy
+  that never turned ready. The readable rule now refuses it: `units[<n>].healthPath is
+  "<path>", and generator.recipes.<unit> builds the unit with "static-site", whose image answers
+  its health at /healthz alone (allowed: /healthz, or no healthPath)`, with the remedy to
+  declare `/healthz` or leave the field out. `terp.arch.deployment.reader.RECIPE_HEALTH_PATHS`
+  holds the path for each recipe, the site's nginx takes it from there, and a test ties the
+  table to the recipes the schema allows. A new corpus case, `readable` compliant 14, passes
+  `/healthz`; the refused form is held by a test until terp-spec's deployment fixtures name a
+  violation case for it.
+- **The static site's build-time check finds much more of what the site's policy breaks (ADR
+  0198).** It passed a `javascript:` URL spelled with character references (`&#106;avascript:`,
+  `javascript&colon;`, `java&Tab;script:`), an `<iframe srcdoc>` holding a script, markup inside
+  SVG it read as raw text (`<svg><title><a onclick>`, `<svg><noscript>`), an attribute after
+  `/ =` (`<img src=x b / = onerror=...>`), an SVG animation that sets `href` to a `javascript:`
+  URL, a script or stylesheet from a `data:` URL, an image or media from another origin, and
+  every file but `.html` and `.htm`. It now reads a tag's attributes by the HTML tokenizer's
+  states, decodes character references before it judges a value, reads a `srcdoc` as a page of
+  its own, follows SVG and MathML content in and out by the tree builder's rules for it, and
+  reads `.shtml` files and, as XML by namespace, `.xhtml`, `.svg`, `.xml`, `.rss`, `.atom`,
+  `.kml` and `.xspf` files. It refuses a `javascript:` URL in any attribute that holds a URL, an
+  SVG animation or a refresh to one included; a `<base href>`, an `<object>` or `<embed>`; a
+  form that submits to another origin; and a load from another origin or a `data:` URL of a
+  script, stylesheet, frame, image, media, SVG `use`, icon, manifest or preload (an image or an
+  icon may be a `data:` URL, as `img-src` allows). It refuses what it cannot read: an XML
+  file's internal DTD subset, whose entities a browser expands, and a symbolic link under
+  `dist/`, which nginx follows wherever it points. It reads no CSS and nothing a script
+  fetches. Each refusal names the file, its first such tag and what to change, a build that
+  wrote no `dist/` is named with its remedy instead of a Node stack trace, and a page of forty
+  thousand comments, which 0.40.0's check read in about twenty seconds, takes a twentieth of
+  one. It still uses Node's built-ins alone. ADR 0198 records that the check sits behind the
+  policy: the policy is the control, the check is a finder, and a page it passes is no promise
+  and no reason to loosen the policy.
+- **The gate reads the npm locks the release jobs read (ADR 0198).** The release jobs read
+  `site/package-lock.json` for a static site's image, and under `"build": "own"` the lock beside
+  each web image's Dockerfile or in its build context, while `terp verify --only locks` asked
+  only about `uv.lock` and the frontend's lock, and `dependency-audit-npm` audited only
+  `frontend/`. Both now hold the generator's two locks (`terp.cli.release._locks.NPM_LOCKS`)
+  and every lock the release plan finds for a web image, by the plan's own rule asked of the
+  files on disk (`terp.cli.release._plan.web_npm_locks`), and a test holds that set to the plan
+  of the same commit. So `locks` asks `npm --prefix site ci --dry-run --offline
+  --ignore-scripts` wherever `site/package.json` exists, and the same of an own app's `www/` or
+  `docs/` lock, naming `npm --prefix <dir> install` as the fix; the audit runs `npm audit
+  --audit-level=high` in each workspace, with a first line that names every lock and its
+  verdict. Each lock is held
+  where its `package.json` exists, as `locks` decides, so a `site/` of pages with no
+  `package.json` has nothing to audit: an API-only app's audit is still not applicable, and a
+  site-only app's is a verdict on its site.
+- **`terp promote` reads a release declared against an older Terp Standard release
+  defensively (ADR 0187 decision 6, amended).** It reads every release up to its own with the
+  one schema its `terp-arch` holds, and it never read `inputs.spec.schemaSha256`. Now, when the
+  release the manifest names is its own, the recorded hash must be the SHA-256 of the schema it
+  holds, the hash `sign` records of the pinned wheel's; and when the release is older, a carried
+  declaration that uses a word that release does not have is refused, since the newer schema
+  would honour what the release's own reader refuses. One table in `terp-arch`,
+  `terp.arch.deployment.standard.WORDS_SINCE`, maps each word added after terp-spec 0.40.0 to
+  the release that introduced it (today `generator.recipes`, 0.45.0). A test holds the table's
+  generator words to the generator block the reader reads, and that block alone: a word added
+  elsewhere in the schema has no test to hold it there. `standard.schema_sha256()` and
+  `standard.words_newer_than()` are the two answers promote asks. A release `sign` signs at
+  promote's own release reads back, which a test now shows end to end.
+
+- **`terp release` refuses a service built from outside the checkout, where it raised.** Being
+  readable refuses a declared unit's build path that leaves the checkout, but reads no service
+  the declaration does not name, and the plan resolved such a service's context or Dockerfile
+  against the checkout and ended in a traceback. Such a service is now refused with the rule it
+  breaks (allowed: a build context and a Dockerfile inside the checkout). `terp verify --only
+  locks` and `dependency-audit-npm`, which read the plan's locks, skip it and hold the locks of
+  the images built inside.
+
+### Upgrade notes
+
+- **A generated app with a static site takes the new `site/Dockerfile.prod` with
+  `terp deployment render`,** and `terp verify --only generated` is red until it does. An
+  SPA's `frontend/nginx.conf` is the app's own file: give its `location /assets/` block the
+  five headers its `location /` block carries, as the template's now does.
+- **Remove `listen [::]:8080;` from your own `frontend/nginx.conf`,** as the template's now
+  does, so the image starts on a host without IPv6. If your file sets `server_tokens`, keep it
+  inside its `server` block: the image now sets it at http level, and nginx refuses a second
+  one there (`"server_tokens" directive is duplicate`). An app on `"build": "generated"` takes
+  the new `frontend/Dockerfile.prod` with `terp deployment render`, and `terp verify --only
+  generated` is red until it does.
+- **`terp release` refuses a web image with no npm lock beside its Dockerfile or at the root
+  of its build context,** where it used to sign an SBOM that listed no package. An app on
+  `"build": "own"` whose web Dockerfile installs a lock from anywhere else moves the lock or the
+  Dockerfile. That includes a web image that installs nothing from npm, such as one whose own
+  Dockerfile copies pages built elsewhere into nginx: this release has no way to declare such an
+  image, so `terp release` refuses it. A lock no image installs is no longer recorded in the
+  manifest.
+- **A `web` unit that names `static-site` and declares a `healthPath` other than `/healthz` is
+  refused** by `terp verify --only deployment`, the release jobs and `terp promote`. Declare
+  `"healthPath": "/healthz"` or drop the field.
+- **A site whose pages passed 0.40.0's build-time check can be refused by 0.40.1's,** for a
+  form the check did not read before: a script, stylesheet, frame, image, media, icon, manifest
+  or preload from another origin, a form that submits elsewhere, an `<object>`, `<embed>` or
+  `<base href>`, or markup in an `.xhtml`, `.svg`, `.xml`, `.rss`, `.atom`, `.kml` or `.xspf`
+  file. The policy already refused each in the browser; the build now says so. It also refuses
+  an XML file whose `<!DOCTYPE>` declares an internal subset, as some SVG exporters write one,
+  and a symbolic link under `dist/`, neither of which it can read: write each entity's text in
+  place and drop the subset, and have the build write the file itself. Each line names what to
+  change.
+- **An app with a `site/package.json` has its site's lock held by `terp verify --only locks`
+  and audited in the `full` and `release` profiles.** The audit goes through the same npm seam
+  as the frontend's, so run `npm --prefix site ci` where the gate runs, as for `frontend/`.
+- **`terp promote` refuses a release named as its own Terp Standard release that records
+  another schema's hash, and an older release whose declaration uses a word that release does
+  not have,** each before it pulls or starts anything, with the remedy to cut the release again
+  with a toolchain at the right release.
+
 ## 0.40.0 — 2026-11-08
 
 ### Added
