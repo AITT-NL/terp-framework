@@ -148,7 +148,8 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   `frontend/package-lock.json` record, and a lock that disagrees with its manifest stops the
   build. Commit both locks; `uv lock` and `npm --prefix frontend install` bring them along with
   a dependency change, and `terp verify --only locks` refuses an app with a `deployment.json`
-  whose lock is missing or stale before a build finds out. The images are layered (manifests and locks, then the dependencies, then
+  whose lock is missing or stale before a build finds out, a static site's
+  `site/package-lock.json` included (`npm --prefix site install`). The images are layered (manifests and locks, then the dependencies, then
   the app), carry no BuildKit cache mount, and need BuildKit, the builder of every `docker
   compose` build.
 - **Migrations on upgrade:** back up the database, then pull/build the new images, re-run
@@ -281,7 +282,8 @@ from `site/` (ADR 0198). Its packages are installed exactly as `site/package-loc
 records them, then it is built with no network and none of the app's environment, and served
 by a non-root nginx under the recipe's own policy, which proxies nothing. Unit `site` is
 published on `WEB_PORT_SITE` (default 23101), beside the SPA's `WEB_PORT`: the variable is
-`WEB_PORT_` and the unit id upper-cased. A site that needs another policy is `"build": "own"`.
+`WEB_PORT_` and the unit id upper-cased. Its nginx answers its health at `/healthz`, so the unit
+declares that `healthPath` or none. A site that needs another policy is `"build": "own"`.
 
 ## Releasing and promoting (`terp release`, `terp promote`)
 
@@ -326,7 +328,11 @@ Desktop an ephemeral port (`-p 127.0.0.1::5000`) answers your shell but not the 
 runs on the engine's own network.
 
 `terp promote release.dsse.json --public-key <trusted.pub> --project-dir <dir>` verifies the
-envelope before reading it, pulls each image by its signed digest, tags it
+envelope before reading it, and reads a release declared against any Terp Standard release up to
+its own with the one schema it holds: so a release named as its own must record that schema's
+SHA-256, and an older release's declaration may use no word that release does not have
+(`generator.recipes` before terp-spec 0.45.0), each refused with the remedy to cut the release
+again. It pulls each image by its signed digest, tags it
 `<project>-backend-prod:<tag>` (and the frontend's and a site's), writes the carried profile into `<dir>`
 and runs it with the release's `TERP_RELEASE_TAG`, the variables the profile names and nothing
 else of your environment: put `.app.env` and the secrets there as for a hand deploy. It reads

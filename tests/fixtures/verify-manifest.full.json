@@ -64,8 +64,10 @@
         "pyproject.toml",
         "uv.lock",
         "uv.toml",
-        "frontend/package.json",
-        "frontend/package-lock.json",
+        "**/*.yml",
+        "**/*.yaml",
+        "**/package.json",
+        "**/package-lock.json",
         ".terp-dist/**"
       ]
     },
@@ -156,7 +158,7 @@
     {
       "id": "authz-surface",
       "category": "architecture",
-      "command": "terp verify --only authz-surface",
+      "command": "terp verify --profile full --only authz-surface",
       "scope": [
         "app/**",
         "control_plane/**",
@@ -176,10 +178,13 @@
     {
       "id": "dependency-audit-npm",
       "category": "architecture",
-      "command": "npm --prefix frontend audit --audit-level=high",
+      "command": "terp verify --profile full --only dependency-audit-npm",
       "scope": [
-        "frontend/package.json",
-        "frontend/package-lock.json"
+        "deployment.json",
+        "**/*.yml",
+        "**/*.yaml",
+        "**/package.json",
+        "**/package-lock.json"
       ],
       "requires": "network access to the advisory databases"
     },

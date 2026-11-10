@@ -104,6 +104,27 @@ def test_every_in_process_runner_is_dispatched() -> None:
     )
 
 
+def test_every_manifest_command_runs_as_written(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A driving tool runs each check's command verbatim, as a fixed argv (Studio offers it as
+    "Re-validate with:"). Three ran `terp verify --only <id>` for a check the default profile,
+    quick, does not hold, so each exited 1 with "names no check of profile 'quick'". So every
+    command parses as an argument list of a tool the gate knows, and every `terp verify` one is
+    dry-run here with --list, which resolves its --only against its profile and runs nothing."""
+    tools = {"gitleaks", "lint-imports", "npm", "terp", "uv"}
+    for profile in PROFILES:
+        for entry in verify_manifest(profile, tmp_path)["checks"]:
+            argv = shlex.split(entry["command"])
+            assert argv and argv[0] in tools, entry
+            if argv[:2] != ["terp", "verify"]:
+                continue
+            with pytest.raises(SystemExit) as excinfo:
+                main([*argv[1:], "--root", str(tmp_path), "--list"])
+            assert excinfo.value.code == 0, (profile, entry["command"], excinfo.value.code)
+            capsys.readouterr()
+
+
 def test_the_full_profile_is_the_template_ci_surface() -> None:
     # The merge bar: architecture gate, backend tests, the delegated AppSec
     # baseline (ADR 0085), and the frontend chain — the exact blocking checks
@@ -2952,12 +2973,19 @@ def test_an_npm_check_is_not_applicable_without_its_workspace_and_runs_nothing(
         raise AssertionError("npm ran for a workspace the app does not have")
 
     monkeypatch.setattr(verify_module, "_run_argv", never)
-    for check in (_FRONTEND_BOUNDARIES, _FRONTEND_TYPECHECK, _FRONTEND_BUILD, _DEPENDENCY_AUDIT_NPM):
+    for check in (_FRONTEND_BOUNDARIES, _FRONTEND_TYPECHECK, _FRONTEND_BUILD):
         exit_code, output = _run_subprocess(check, tmp_path)
         assert exit_code == 0
         assert output == f"no frontend/ - {check.id} {NOT_APPLICABLE}"
     exit_code, output = _run_subprocess(_CONFORMANCE, tmp_path)
     assert (exit_code, output) == (0, f"no conformance/ - conformance {NOT_APPLICABLE}")
+    # The npm audit runs one such command per npm lock, and is not applicable only when every
+    # workspace is missing.
+    from terp.cli.dependency_audit import run_dependency_audit_npm
+
+    assert run_dependency_audit_npm(tmp_path) == (
+        0, f"no frontend/package.json or site/package.json - {_DEPENDENCY_AUDIT_NPM.id} {NOT_APPLICABLE}"
+    )
 
     # The directory decides, never one file in it: a frontend/ without its manifest is a
     # frontend that cannot be built, and the command runs and reports that as it did.
@@ -2984,6 +3012,137 @@ def test_an_npm_check_is_not_applicable_without_its_workspace_and_runs_nothing(
     from terp.cli.verify import _missing_workspace
 
     assert _missing_workspace(tmp_path, ".", "own") is None
+
+
+def _workspace(root: pathlib.Path, name: str) -> None:
+    """An installed npm workspace with an empty lock, which the npm seam lets a command run in."""
+    (root / name / "node_modules").mkdir(parents=True)
+    (root / name / "package.json").write_text('{"name": "x"}', encoding="utf-8")
+    (root / name / "package-lock.json").write_text('{"packages": {}}', encoding="utf-8")
+
+
+def _audits(monkeypatch: pytest.MonkeyPatch, **failing: str) -> list[list[str]]:
+    """Answer each ``npm audit`` as passing, or failing with the words given for its workspace."""
+    from terp.cli import verify as verify_module
+
+    asked: list[list[str]] = []
+
+    def run(argv: list[str], root: pathlib.Path, *, env: dict[str, str] | None = None):
+        asked.append(argv)
+        said = failing.get(argv[2])
+        return subprocess.CompletedProcess(argv, 1 if said else 0, said or "found 0 vulnerabilities", "")
+
+    monkeypatch.setattr(verify_module, "_run_argv", run)
+    return asked
+
+
+def test_the_npm_audit_reads_every_npm_lock_the_release_reads(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A static site's image is built from site/package-lock.json, which the release jobs read
+    beside the frontend's (ADR 0198); the audit read the frontend's alone. It now audits each
+    lock of the release's one list, in its own workspace, and says which."""
+    from terp.cli import verify as verify_module
+    from terp.cli.dependency_audit import run_dependency_audit_npm
+    from terp.cli.release._locks import NPM_LOCKS
+
+    _workspace(tmp_path, "frontend")
+    _workspace(tmp_path, "site")
+    asked = _audits(monkeypatch)
+    exit_code, output = run_dependency_audit_npm(tmp_path)
+    assert asked == [["npm", "--prefix", name, "audit", "--audit-level=high"] for name in ("frontend", "site")]
+    assert [argv[2] for argv in asked] == [lock.split("/")[0] for lock in NPM_LOCKS]
+    assert exit_code == 0 and verify_module._applicable(True, output)
+    assert output.splitlines()[0] == (
+        "npm audit of every npm lock the release reads: frontend/package-lock.json passed, "
+        "site/package-lock.json passed"
+    )
+
+
+def test_a_site_s_audit_that_fails_fails_the_check_and_its_words_come_last(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from terp.cli.dependency_audit import run_dependency_audit_npm
+
+    _workspace(tmp_path, "frontend")
+    _workspace(tmp_path, "site")
+    _audits(monkeypatch, site="1 high severity vulnerability")
+    exit_code, output = run_dependency_audit_npm(tmp_path)
+    assert exit_code == 1
+    assert output.splitlines()[0].endswith("site/package-lock.json FAILED (exit 1)")
+    assert output.endswith("--- site/package-lock.json\n1 high severity vulnerability")
+
+
+def test_an_app_with_a_site_and_no_frontend_is_audited_on_its_site(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing frontend/ is one workspace not applicable, never the whole check: the site's
+    lock is still a verdict, and the assurance lane composes from it."""
+    from terp.cli import verify as verify_module
+    from terp.cli.dependency_audit import run_dependency_audit_npm
+
+    _workspace(tmp_path, "site")
+    asked = _audits(monkeypatch)
+    exit_code, output = run_dependency_audit_npm(tmp_path)
+    assert asked == [["npm", "--prefix", "site", "audit", "--audit-level=high"]]
+    assert exit_code == 0 and verify_module._applicable(True, output)
+    lines = output.splitlines()
+    assert lines[0] == "npm audit of every npm lock the release reads: site/package-lock.json passed"
+    assert lines[1] == f"no frontend/package.json - dependency-audit-npm {verify_module.NOT_APPLICABLE}"
+
+
+def test_a_site_that_is_no_npm_workspace_has_nothing_to_audit(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A site/ of pages or Markdown with no package.json is no npm workspace: the audit decides by
+    the manifest, as the locks check does, and asks npm nothing there. Deciding by the directory
+    ran npm in it, whose ENOLOCK turned an API-only app's audit from not applicable to red."""
+    from terp.cli import verify as verify_module
+    from terp.cli.dependency_audit import run_dependency_audit_npm
+
+    (tmp_path / "site").mkdir()
+    (tmp_path / "site" / "index.md").write_text("# home\n", encoding="utf-8")
+    asked = _audits(monkeypatch)
+    exit_code, output = run_dependency_audit_npm(tmp_path)
+    assert (exit_code, asked) == (0, [])
+    assert not verify_module._applicable(True, output), output
+    _workspace(tmp_path, "frontend")
+    exit_code, output = run_dependency_audit_npm(tmp_path)
+    assert asked == [["npm", "--prefix", "frontend", "audit", "--audit-level=high"]]
+    assert exit_code == 0 and output.splitlines()[0].endswith("frontend/package-lock.json passed")
+    assert f"no site/package.json - dependency-audit-npm {verify_module.NOT_APPLICABLE}" in output
+
+
+def test_a_frontend_kept_elsewhere_is_red_for_the_audit_too(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deciding by package.json keeps the seam's one red for a missing workspace: a manifest
+    elsewhere that depends on react-core is a frontend the audit would never read."""
+    from terp.cli.dependency_audit import run_dependency_audit_npm
+
+    (tmp_path / "web").mkdir()
+    (tmp_path / "web" / "package.json").write_text(
+        json.dumps({"dependencies": {"@terpjs/react-core": "1"}}), encoding="utf-8"
+    )
+    asked = _audits(monkeypatch)
+    exit_code, output = run_dependency_audit_npm(tmp_path)
+    assert (exit_code, asked) == (1, [])
+    assert "web/package.json depends on @terpjs/react-core" in output
+
+
+def test_the_audit_is_reached_by_its_own_runner(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _workspace(tmp_path, "site")
+    _audits(monkeypatch)
+    with pytest.raises(SystemExit) as excinfo:
+        main(["verify", "--profile", "release", "--root", str(tmp_path), "--only",
+              "dependency-audit-npm", "--format", "json"])
+    assert excinfo.value.code == 0
+    (result,) = json.loads(capsys.readouterr().out)["checks"]
+    assert result["command"] == "terp verify --profile full --only dependency-audit-npm"
+    assert result["applicable"] is True
+    assert "site/package-lock.json passed" in result["output_tail"]
 
 
 def _manifest(path: pathlib.Path, depends_on: str) -> None:

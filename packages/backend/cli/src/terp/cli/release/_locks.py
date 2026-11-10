@@ -1,6 +1,8 @@
-"""The two locks a release is built from, read as data (ADR 0187 decision 6).
+"""The locks a release is built from, read as data (ADR 0187 decision 6).
 
-``uv.lock`` and ``frontend/package-lock.json`` say exactly what the images install, so the
+``uv.lock`` and each web image's ``package-lock.json`` (``frontend/``'s, a static site's under
+``site/``, or wherever an app's own Dockerfile stands, :func:`terp.cli.release._plan.npm_lock_of`)
+say exactly what the images install, so the
 release jobs read them instead of asking a package manager: no resolver runs, no index is
 contacted, and nothing the app configured (an index URL, a ``uv.toml``) can steer what is read.
 They answer five questions: which terp versions the commit pins, whether a lock names a package
@@ -12,6 +14,7 @@ bundle was built from.
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 import tomllib
 import urllib.parse
@@ -25,8 +28,27 @@ NPM_LOCK = "frontend/package-lock.json"
 #: The static site's lock (ADR 0198): read for the site's image as the frontend's is for the
 #: web tier's.
 SITE_NPM_LOCK = "site/package-lock.json"
-#: Every npm lock a release reads, in the order it records them.
+#: The two npm locks the generator builds an image from (``frontend/`` and ``site/``), in the
+#: order a manifest records them. The release jobs refuse a path source in each the commit holds.
+#: ``terp verify --only locks`` and ``dependency-audit-npm`` hold each where its ``package.json``
+#: is, and beside them every lock a web image is built from by the release plan's own rule
+#: (:func:`terp.cli.release._plan.web_npm_locks`), the same locks a release reads.
 NPM_LOCKS = (NPM_LOCK, SITE_NPM_LOCK)
+
+
+def npm_workspace(npm_lock: str) -> str:
+    """The directory an npm lock is installed in: the one it lies in (``frontend``, or ``.``)."""
+    return posixpath.dirname(npm_lock) or "."
+
+
+def npm_manifest(npm_lock: str) -> str:
+    """The ``package.json`` an npm lock answers: the one beside it."""
+    return posixpath.normpath(posixpath.join(npm_workspace(npm_lock), "package.json"))
+
+
+#: What decides which npm locks a check holds, and what they hold: every profile (whose web
+#: services name their build files) and every ``package.json`` and lock, wherever it lies.
+NPM_SCOPE = ("**/*.yml", "**/*.yaml", "**/package.json", "**/package-lock.json")
 
 #: The keys a uv source uses to name a package by where it lies on disk.
 _PATH_KEYS = ("path", "directory", "editable", "virtual")
@@ -221,13 +243,16 @@ def npm_packages(lock: Mapping[str, Any]) -> list[tuple[str, str]]:
 __all__ = [
     "NPM_LOCK",
     "NPM_LOCKS",
+    "NPM_SCOPE",
     "SITE_NPM_LOCK",
     "UV_LOCK",
     "marker_environment",
     "normalise",
     "npm_hosts",
+    "npm_manifest",
     "npm_packages",
     "npm_path_sources",
+    "npm_workspace",
     "path_sources",
     "pinned",
     "python_sources",

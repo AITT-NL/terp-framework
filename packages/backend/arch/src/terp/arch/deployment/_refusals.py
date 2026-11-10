@@ -46,8 +46,9 @@ def _project_findings(project: str) -> list[Finding]:
         _finding(
             f'project.name "{_escape(project)}" in pyproject.toml is not a name compose and '
             f"Docker accept for this deployment: compose runs it as the project {names[0]} and "
-            f"Docker names the images {names[1]} and {names[2]} (allowed: lower-case letters "
-            "and digits, joined by -, _ or __)",
+            f"Docker names the images {names[1]} and {names[2]} (allowed: a name compose and "
+            "Docker accept as a project and an image repository name: lower-case letters and "
+            "digits, joined by -, _ or __)",
             "pyproject.toml",
         )
     ]
@@ -183,7 +184,8 @@ def _command_findings(declaration: Declaration) -> list[Finding]:
             found.append(
                 _finding(
                     f'{where} is missing: the generator has no command of its own for role '
-                    f'"{unit.role}" (allowed: an argument list)'
+                    f'"{unit.role}" (allowed: an argument list - the generator has no command of its '
+                    f"own for role {unit.role})"
                 )
             )
     return found
@@ -432,7 +434,8 @@ def _package_findings(declaration: Declaration, tables: Tables) -> list[Finding]
     return [
         _finding(
             f'generator.systemPackages[{index}] "{name}" is not in the system-package table '
-            f"(allowed: a package of the table: {', '.join(offered) or 'none in this release'})"
+            "(allowed: a package of the system-package table: "
+            f"{', '.join(offered) or 'none - this table carries no package'})"
         )
         for index, name in enumerate(declaration.system_packages)
         if name not in offered

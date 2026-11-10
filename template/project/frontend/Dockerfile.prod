@@ -56,11 +56,23 @@ FROM nginxinc/nginx-unprivileged@sha256:b5047b9b76845eac124358373c6852377c52e4b0
 COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
 ENV API_UPSTREAM=api:8000 \
     NGINX_ENVSUBST_FILTER=^API_UPSTREAM$
+
+# Two things the image sets, however old frontend/nginx.conf is. `server_tokens off` at
+# http level, in a conf.d file the base image's nginx.conf includes inside its http
+# block, so no nginx version is in a Server header or on an error page nginx writes,
+# unless frontend/nginx.conf turns it back on in its own server block, which wins there.
+# And only the bundle is served: the base image's own pages (a welcome index.html, a
+# 50x.html with an inline style the policy blocks) go before the bundle is copied in,
+# since a copy over them keeps every page it does not overwrite. The html directory is
+# root's to write (conf.d is the nginx user's own); the USER below drops back.
+USER root
+RUN printf 'server_tokens off;\n' > /etc/nginx/conf.d/terp-http.conf \
+    && find /usr/share/nginx/html -mindepth 1 -delete
 COPY --from=build /app/frontend/dist /usr/share/nginx/html
 
-# Explicit, though `nginxinc/nginx-unprivileged` already runs as this user: the
-# fact then lives in this file where a reader looks for it, and a future base
-# image cannot drop it without this line failing.
+# Back to the user `nginxinc/nginx-unprivileged` runs as, and explicit: the fact then
+# lives in this file where a reader looks for it, and a future base image cannot drop
+# it without this line failing.
 USER nginx
 
 EXPOSE 8080

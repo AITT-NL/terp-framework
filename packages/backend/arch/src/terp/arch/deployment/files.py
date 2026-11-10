@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+from typing import Any
 
 from terp.arch.deployment.datastores import DatastoreTable
 from terp.arch.deployment.tables import SystemPackageTable
@@ -26,6 +27,25 @@ from terp.arch.deployment.reader import (
     Unmanaged,
     read,
 )
+
+
+class DuplicateKeyError(ValueError):
+    """A key written twice in one object: which one a parser keeps is the parser's choice."""
+
+
+def _once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    found: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in found:
+            raise DuplicateKeyError(f"the key {json.dumps(key)} appears twice in one object")
+        found[key] = value
+    return found
+
+
+def loads(text: str) -> Any:
+    """Parse ``deployment.json`` strictly, as terp-runner does: a key twice in one object is
+    refused, never read as its last value, so no two readers can read one file differently."""
+    return json.loads(text, object_pairs_hook=_once)
 
 
 def checkout_root(project_root: pathlib.Path) -> pathlib.Path:
@@ -42,23 +62,30 @@ def inside(path: pathlib.Path, checkout: pathlib.Path) -> bool:
     return path.resolve().is_relative_to(checkout)
 
 
-def development_compose_file(project_root: pathlib.Path) -> pathlib.Path:
-    """The compose file ``workbench.json`` names, else the template's development file."""
-    named = DEV_COMPOSE_FILE
+def development_compose_name(project_root: pathlib.Path) -> tuple[str, bool]:
+    """The compose file ``workbench.json`` names as written, else the template's; and
+    whether the development declaration named it."""
     try:
         workbench = json.loads((project_root / "workbench.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         workbench = None
     compose = workbench.get("compose") if isinstance(workbench, dict) else None
     if isinstance(compose, dict) and isinstance(compose.get("file"), str):
-        named = compose["file"]
-    return (project_root / named).resolve()
+        return compose["file"], True
+    return DEV_COMPOSE_FILE, False
+
+
+def development_compose_file(project_root: pathlib.Path) -> pathlib.Path:
+    """The compose file ``workbench.json`` names, else the template's development file."""
+    return (project_root / development_compose_name(project_root)[0]).resolve()
 
 
 def path_findings(project_root: pathlib.Path, declaration: Declaration) -> list[Finding]:
     """Every profile file named: inside the checkout, and never the development file."""
     checkout = checkout_root(project_root)
     development = os.path.normcase(str(development_compose_file(project_root)))
+    written, by_declaration = development_compose_name(project_root)
+    named = f"{' the development declaration names' if by_declaration else ''} ({written})"
     findings: list[Finding] = []
     for index, name in enumerate(declaration.profile_files):
         field = "compose.file" if index == 0 else f"compose.overrides[{index - 1}]"
@@ -72,7 +99,8 @@ def path_findings(project_root: pathlib.Path, declaration: Declaration) -> list[
         elif os.path.normcase(str(target.resolve())) == development:
             findings.append(
                 Finding(
-                    f'{field} "{name}" is the development compose file (allowed: a deployment profile, never the development one)',
+                    f'{field} "{name}" is the development compose file (allowed: a deployment profile, '
+                    f"never the development one{named})",
                     "deployment.json describes the deployment profile; workbench.json describes the development loop.",
                 )
             )
@@ -89,7 +117,11 @@ def load(
     if not path.is_file():
         return None, []
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = loads(path.read_text(encoding="utf-8"))
+    except DuplicateKeyError as exc:
+        return None, [
+            Finding(f"{DEPLOYMENT_FILE} is not strict JSON: {exc} (allowed: one JSON object, each key once)")
+        ]
     except (OSError, ValueError) as exc:
         return None, [
             Finding(f"{DEPLOYMENT_FILE} is not valid JSON ({exc}) (allowed: one JSON object)")

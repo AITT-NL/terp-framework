@@ -18,7 +18,8 @@ import pytest
 import yaml
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
-from terp.arch.deployment import published_table
+from terp.arch.deployment import published_table, standard
+from terp.arch.deployment.reader import SPEC_RELEASE
 from terp.cli.release import dsse, promote
 from terp.cli.release._common import ReleaseError, canonical, sha256
 from tests.architecture.release_fixtures import PROJECT, Runs, app_files
@@ -241,6 +242,58 @@ def test_a_manifest_promote_cannot_honour_is_refused_before_anything(tmp_path: p
     assert runs.calls == []
 
 
+def test_a_release_named_as_this_one_records_the_schema_this_promote_holds(
+    tmp_path: pathlib.Path, keys, monkeypatch
+) -> None:
+    """promote reads every release up to its own with the one schema its terp-arch holds, and
+    never read ``inputs.spec.schemaSha256``. For its own release that schema is the release's,
+    so a release named as this one that records another, or none, is refused before anything."""
+    for recorded in ("0" * 64, None):
+        body = make_manifest(spec=SPEC_RELEASE)
+        if recorded is None:
+            body["inputs"]["spec"].pop("schemaSha256")
+        runs = _no_calls()
+        with pytest.raises(ReleaseError) as raised:
+            _promote(tmp_path, keys, body=body, runs=runs, monkeypatch=monkeypatch)
+        assert raised.value.message == (
+            f"the release was declared against Terp Standard {SPEC_RELEASE}, the release this terp "
+            f"promote reads, with a schema whose SHA-256 is {recorded!r}, and the schema this terp "
+            f"promote holds for {SPEC_RELEASE} is {standard.schema_sha256()}: the two disagree on what "
+            f"that release is, so cut the release again with a toolchain at {SPEC_RELEASE}"
+        )
+        assert runs.calls == []
+    body = make_manifest(spec=SPEC_RELEASE)
+    body["inputs"]["spec"]["schemaSha256"] = standard.schema_sha256()
+    loaded = promote.load(envelope(tmp_path, keys, body).read_bytes(), [(tmp_path / "trusted.pub").read_bytes()])
+    assert loaded.manifest["inputs"]["spec"]["release"] == SPEC_RELEASE
+    # An older release's hash is of its own schema, which this promote does not hold.
+    assert promote.load(envelope(tmp_path, keys, make_manifest(spec="0.43.0")).read_bytes(),
+                        [(tmp_path / "trusted.pub").read_bytes()]).tag == "r1"
+
+
+def test_a_declaration_using_a_word_its_release_does_not_have_is_refused(
+    tmp_path: pathlib.Path, keys, monkeypatch
+) -> None:
+    """A declaration written against terp-spec 0.43.0 cannot say generator.recipes: that word
+    is 0.45.0's, and 0.43.0's own reader refuses it. Read with this newer schema it would be
+    honoured, so it is refused, naming the word, the release that has it and the remedy."""
+    files = app_files(site=True)
+    runs = _no_calls()
+    with pytest.raises(ReleaseError) as raised:
+        _promote(tmp_path, keys, body=make_manifest(files, spec="0.43.0"), runs=runs, monkeypatch=monkeypatch)
+    assert raised.value.message == (
+        "the carried deployment.json uses generator.recipes (terp-spec 0.45.0), which Terp Standard "
+        "0.43.0, the release it was declared against, does not have, and this terp promote reads it "
+        "with a newer schema that would honour what that release's own reader refuses: cut the "
+        "release again with a toolchain at the release named beside each word"
+    )
+    assert runs.calls == []
+    body = make_manifest(files, spec=SPEC_RELEASE)
+    body["inputs"]["spec"]["schemaSha256"] = standard.schema_sha256()
+    loaded = promote.load(envelope(tmp_path, keys, body).read_bytes(), [(tmp_path / "trusted.pub").read_bytes()])
+    assert loaded.declaration.recipes == (("site", "static-site"),), "at the release that has it, it reads"
+
+
 def test_a_payload_that_is_not_a_manifest_is_refused(tmp_path: pathlib.Path, keys, monkeypatch) -> None:
     for body, expected in ((b"not json", "is not JSON"), (canonical([1]), "top level is missing")):
         with pytest.raises(ReleaseError, match=expected):
@@ -366,6 +419,20 @@ def test_a_carried_declaration_that_is_not_json_is_refused(tmp_path: pathlib.Pat
     body["inputs"]["declaration"] = _file("deployment.json", b"{not json")
     with pytest.raises(ReleaseError, match="the carried declaration or datastore record cannot be read"):
         _promote(tmp_path, keys, body=body, runs=_no_calls(), monkeypatch=monkeypatch)
+
+
+def test_a_carried_declaration_with_a_key_twice_is_refused_as_terp_runner_refuses_it(
+    tmp_path: pathlib.Path, keys, monkeypatch
+) -> None:
+    """Strict, as every reader: a key twice in one object is never read as its last value."""
+    body = make_manifest()
+    text = body["inputs"]["declaration"]["content"]
+    doubled = text.replace('"schemaVersion": 1', '"schemaVersion": 1, "schemaVersion": 1', 1)
+    assert doubled != text
+    body["inputs"]["declaration"] = _file("deployment.json", doubled.encode())
+    with pytest.raises(ReleaseError, match="cannot be read") as refused:
+        _promote(tmp_path, keys, body=body, runs=_no_calls(), monkeypatch=monkeypatch)
+    assert 'the key "schemaVersion" appears twice in one object' in refused.value.cause
 
 
 def test_without_a_migration_step_the_check_is_terp_migrate_check_in_the_api(keys) -> None:

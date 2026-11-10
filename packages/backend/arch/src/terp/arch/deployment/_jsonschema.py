@@ -77,11 +77,15 @@ class Problem:
     """One reason an instance does not satisfy the schema.
 
     *path* is where (``units[0].command``; ``""`` for the document itself) and *detail*
-    the sentence that follows it.
+    the sentence that follows it. *keyword* names the schema keyword that refused, and
+    *values* what that keyword names (an enum's words, a limit, the keys an object has),
+    so a reader can say the refusal in its own vocabulary's words.
     """
 
     path: str
     detail: str
+    keyword: str = ""
+    values: tuple[Any, ...] = ()
 
 
 def _subschemas(schema: dict[str, Any]) -> Iterator[dict[str, Any]]:
@@ -143,12 +147,26 @@ def _describe(value: Any) -> str:
 
 
 def _show(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False)
+    """*value* as JSON, with every control character escaped: a message never carries one.
+
+    ``json.dumps`` escapes U+0000 to U+001F but writes U+007F to U+009F as they are, and
+    those include the 8-bit terminal controls, so they are escaped here too.
+    """
+    return _CONTROL.sub(lambda match: f"\\u{ord(match.group()):04x}", json.dumps(value, ensure_ascii=False))
+
+
+#: A key written plainly in a path: anything else is written as ASCII JSON, cut at 64
+#: characters, ``units["a b"]``, so a key carrying a dot, a space or a control character
+#: can neither pass for a deeper path nor reach a terminal as a control sequence. The same
+#: form terp-runner writes a path in, so the two readers name one field alike.
+_PLAIN_KEY = re.compile(r"[A-Za-z0-9_$-]{1,64}")
 
 
 def _join(path: str, key: str | int) -> str:
     if isinstance(key, int):
         return f"{path}[{key}]"
+    if not _PLAIN_KEY.fullmatch(key):
+        return f"{path}[{json.dumps(key[:64], ensure_ascii=True)}]"
     return f"{path}.{key}" if path else key
 
 
@@ -156,13 +174,13 @@ def validate(instance: Any, schema: dict[str, Any], path: str = "") -> list[Prob
     """Every way *instance* fails *schema*, in document order."""
     declared = schema.get("type")
     if declared is not None and not _is(instance, declared):
-        return [Problem(path, f"must be {_TYPE_WORDS[declared]}, not {_describe(instance)}")]
+        return [Problem(path, f"must be {_TYPE_WORDS[declared]}, not {_describe(instance)}", "type", (declared,))]
     canonical = _canonical(instance)
     if "enum" in schema and canonical not in {_canonical(value) for value in schema["enum"]}:
         allowed = ", ".join(str(value) for value in schema["enum"])
-        return [Problem(path, f"is {_show(instance)} (allowed: {allowed})")]
+        return [Problem(path, f"is {_show(instance)} (allowed: {allowed})", "enum", tuple(schema["enum"]))]
     if "const" in schema and canonical != _canonical(schema["const"]):
-        return [Problem(path, f"is {_show(instance)} (allowed: {_show(schema['const'])})")]
+        return [Problem(path, f"is {_show(instance)} (allowed: {_show(schema['const'])})", "const", (schema["const"],))]
     if isinstance(instance, str):
         return _string_problems(instance, schema, path)
     if isinstance(instance, list):
@@ -174,9 +192,9 @@ def validate(instance: Any, schema: dict[str, Any], path: str = "") -> list[Prob
 
 def _string_problems(value: str, schema: dict[str, Any], path: str) -> list[Problem]:
     if "minLength" in schema and len(value) < schema["minLength"]:
-        return [Problem(path, f"is shorter than {schema['minLength']} character(s)")]
+        return [Problem(path, f"is shorter than {schema['minLength']} character(s)", "minLength", (schema["minLength"],))]
     if "maxLength" in schema and len(value) > schema["maxLength"]:
-        return [Problem(path, f"is {len(value)} characters long (at most {schema['maxLength']})")]
+        return [Problem(path, f"is {len(value)} characters long (at most {schema['maxLength']})", "maxLength", (schema["maxLength"],))]
     pattern = schema.get("pattern")
     if pattern is None or re.search(pattern, value):
         return []
@@ -187,34 +205,35 @@ def _string_problems(value: str, schema: dict[str, Any], path: str) -> list[Prob
                 path,
                 f"carries a control character (U+{ord(control.group()):04X}), which no "
                 "string in this file may (allowed: text without control characters)",
+                "control",
             )
         ]
-    return [Problem(path, f"is {_show(value)}, which does not match {pattern}")]
+    return [Problem(path, f"is {_show(value)}, which does not match {pattern}", "pattern", (pattern,))]
 
 
 def _number_problems(value: Any, schema: dict[str, Any], path: str) -> list[Problem]:
     if not isinstance(value, int | float) or isinstance(value, bool):
         return []
     if "minimum" in schema and value < schema["minimum"]:
-        return [Problem(path, f"is {_show(value)} (allowed: at least {schema['minimum']})")]
+        return [Problem(path, f"is {_show(value)} (allowed: at least {schema['minimum']})", "minimum", (schema["minimum"],))]
     if "exclusiveMinimum" in schema and value <= schema["exclusiveMinimum"]:
         return [
-            Problem(path, f"is {_show(value)} (allowed: more than {schema['exclusiveMinimum']})")
+            Problem(path, f"is {_show(value)} (allowed: more than {schema['exclusiveMinimum']})", "exclusiveMinimum", (schema["exclusiveMinimum"],))
         ]
     return []
 
 
 def _array_problems(value: list[Any], schema: dict[str, Any], path: str) -> list[Problem]:
     if "minItems" in schema and len(value) < schema["minItems"]:
-        return [Problem(path, f"has {len(value)} item(s) (allowed: at least {schema['minItems']})")]
+        return [Problem(path, f"has {len(value)} item(s) (allowed: at least {schema['minItems']})", "minItems", (schema["minItems"],))]
     if "maxItems" in schema and len(value) > schema["maxItems"]:
-        return [Problem(path, f"has {len(value)} items (allowed: at most {schema['maxItems']})")]
+        return [Problem(path, f"has {len(value)} items (allowed: at most {schema['maxItems']})", "maxItems", (schema["maxItems"],))]
     if schema.get("uniqueItems"):
         seen: set[Any] = set()
         for item in value:
             canonical = _canonical(item)
             if canonical in seen:
-                return [Problem(path, f"lists {_show(item)} more than once")]
+                return [Problem(path, f"lists {_show(item)} more than once", "uniqueItems")]
             seen.add(canonical)
     items = schema.get("items")
     if not isinstance(items, dict):
@@ -244,7 +263,7 @@ def _object_problems(value: dict[str, Any], schema: dict[str, Any], path: str) -
             hint = properties.get(name, {})
             allowed = hint.get("enum", [hint["const"]] if "const" in hint else [])
             suffix = f" (allowed: {', '.join(str(v) for v in allowed)})" if allowed else ""
-            problems.append(Problem(_join(path, name), f"is required{suffix}"))
+            problems.append(Problem(_join(path, name), f"is required{suffix}", "required", tuple(allowed)))
     for key, item in value.items():
         child = _join(path, key)
         matched = [sub for pattern, sub in patterns.items() if re.search(pattern, key)]
@@ -256,12 +275,12 @@ def _object_problems(value: dict[str, Any], schema: dict[str, Any], path: str) -
         elif schema.get("additionalProperties") is False:
             where = path or "the declaration"
             problems.append(
-                Problem(child, f"is not a field of {where} (allowed: {_allowed_fields(schema)})")
+                Problem(child, f"is not a field of {where} (allowed: {_allowed_fields(schema)})", "additionalProperties", tuple(sorted(properties)))
             )
     for key, needed in schema.get("dependentRequired", {}).items():
         for name in needed:
             if key in value and name not in value:
-                problems.append(Problem(_join(path, name), f"is required beside {key}"))
+                problems.append(Problem(_join(path, name), f"is required beside {key}", "dependentRequired", (key,)))
     if "if" in schema:
         branch = "then" if not validate(value, schema["if"], path) else "else"
         if isinstance(schema.get(branch), dict):

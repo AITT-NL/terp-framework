@@ -180,24 +180,35 @@ site/package-lock.json, and the render gains site/Dockerfile.prod, held like the
 
   stage 1  `npm ci --ignore-scripts` over exactly the lock, then `npm run build
            --ignore-scripts` with no network into site/dist/: no build argument, no
-           secret, none of the app's environment. Then it refuses, naming the file and its
-           first such tag, any page under dist/ with an inline script that runs, a <style>
-           element, a style or on* attribute, or a javascript: URL: the policy below
-           refuses each in a browser, where the page breaks with nothing in any log. Write
-           each as a file the page loads (a JSON-LD data block runs as nothing and passes).
+           secret, none of the app's environment. Then a check looks through every
+           document under dist/ (.html, .htm, .shtml, and as XML .xhtml, .svg, .xml, .rss,
+           .atom, .kml, .xspf) for markup the policy below breaks in a browser, where the
+           page breaks with nothing in any log, and refuses the build, naming the file,
+           its first such tag and what to change: an inline script that runs, a <style>
+           element, a style or on* attribute, a javascript: URL, a <base href>, an
+           <object> or <embed>, a form that submits elsewhere, and a script, stylesheet,
+           frame, image, media, icon, manifest or preload from another origin or a data:
+           URL (an image may be one). It refuses what it cannot read too: an XML file's
+           internal DTD subset, and a symbolic link under dist/. It is a finder, not a
+           promise: it reads no CSS and nothing a script fetches, and the policy stays the
+           control. Write each as a file the page loads (a JSON-LD data block runs as
+           nothing and passes).
   stage 2  a non-root nginx with the recipe's own server configuration: the template SPA's
-           security headers and content security policy (no 'unsafe-inline'), real pages
-           (a path, its index.html or the site's own 404.html; no SPA fallback), immutable
-           caching under /assets/ and no-cache elsewhere, /healthz, and no /api location.
+           security headers and content security policy (no 'unsafe-inline') on every
+           file it serves, an asset as much as a page, real pages (a path, its index.html
+           or the site's own 404.html; no SPA fallback), immutable caching under /assets/
+           and no-cache elsewhere, /healthz, and no /api location.
 
 So the site reads the app's published content when it is built, never from a browser: it
 proxies nothing, and connect-src 'self' leaves a page no other origin to call. Its media are
-its own files under dist/. It is published on WEB_PORT_ and its unit id upper-cased, with -
-and . as _ (unit site: ${WEB_PORT_SITE:-23101}:8080), beside the SPA's WEB_PORT, and its
-image is <project>-site-prod, tagged per release like the other two. One SPA and one site
-render together; a site alone is fine too, and the api then publishes API_PORT as it does
-with no web unit. A site that needs another policy, a lifecycle script, a form that posts or
-the app's environment is "build": "own".
+its own files under dist/. Its nginx answers its health at /healthz, where the profile probes
+it, so the site unit declares that healthPath or none: a deploy tool waits on the declared
+path, and the readable rule refuses another. It is published on WEB_PORT_ and its unit id
+upper-cased, with - and . as _ (unit site: ${WEB_PORT_SITE:-23101}:8080), beside the SPA's
+WEB_PORT, and its image is <project>-site-prod, tagged per release like the other two. One
+SPA and one site render together; a site alone is fine too, and the api then publishes
+API_PORT as it does with no web unit. A site that needs another policy, a lifecycle script,
+a form that posts or the app's environment is "build": "own".
 
 MOVING BETWEEN STATES: terp deployment adopt (ADR 0187)
 
@@ -250,10 +261,12 @@ THE LOCKS A DECLARED APP IS BUILT FROM
 A tool that drives the units builds the committed Dockerfiles, and the template's install
 exactly the committed locks (`uv sync --locked --no-dev`, `npm ci`). So `terp verify --only
 locks`, its own check and not part of this one, refuses an app with units declared whose
-uv.lock or frontend/package-lock.json is missing or stale against its manifest, and names
-the fix: `uv lock`, `npm --prefix frontend install`, then commit the lock. uv and npm answer
-for their own locks, offline (`uv lock --check`, `npm ci --dry-run`). An undeclared or
-unmanaged app is told the same as a note.
+uv.lock, frontend/package-lock.json or a static site's site/package-lock.json is missing or
+stale against its manifest, and names the fix: `uv lock`, `npm --prefix frontend install` or
+`npm --prefix site install`, then commit the lock. uv and npm answer for their own locks,
+offline (`uv lock --check`, `npm ci --dry-run`). An undeclared or unmanaged app is told the
+same as a note. Its npm locks are the ones the release jobs read, and the release profile's
+dependency-audit-npm audits each of them.
 
 THE PRODUCTION PROFILE THE TEMPLATE SHIPS (ADR 0187)
 
@@ -351,7 +364,8 @@ build container holds a credential or writes into what is built. Each takes the 
     alone, and is held to it), renders a generated app's files with the terp-arch the
     commit pins (fetched by hash, run in a process of its own), reads the backend image from
     the registry as data and holds it to the tree and the lock, describes each web image from
-    the npm lock it is built from (a static site's from site/package-lock.json), scans for known
+    the npm lock it installs, the package-lock.json beside its Dockerfile or else at the root
+    of its build context (a static site's is site/package-lock.json), scans for known
     vulnerabilities and for secrets in the history, and signs the manifest as a DSSE envelope
     (release.dsse.json). --sign-key <file> is refused without --test-key. Run the image with
     the checkout mounted read-only (/repo) and the engine's socket and its group
@@ -360,15 +374,18 @@ build container holds a credential or writes into what is built. Each takes the 
 
 Refused, by name, before anything is built or signed: an undeclared or unmanaged app, a
 declaration that cannot be read or is untrue, a committed .terp-dist/ or submodule, a lock
-naming a path, an image neither built here nor a datastore table digest, a datastore with no
-healthcheck, more than one migration step or one with --revision/--sql, no step and other than
-one api unit, a built image that does not read TERP_RELEASE_TAG, and a build with more than a
-context and a Dockerfile.
+naming a path, a web image with no npm lock beside its Dockerfile or in its build context, an
+image neither built here nor a datastore table digest, a datastore with no healthcheck, more
+than one migration step or one with --revision/--sql, no step and other than one api unit, a
+built image that does not read TERP_RELEASE_TAG, and a build with more than a context and a
+Dockerfile.
 
   terp promote release.dsse.json --public-key k.pub --project-dir /srv/deploy/app
     verifies the envelope before reading it, checks the manifest (a newer Terp Standard than
-    its own is refused; --require-generated refuses an own release; a generated profile is
-    audited for every $), pulls each image by its signed digest and tags it by the name the
+    its own is refused, its own must record the schema it holds, and an older one's
+    declaration may use no word that release lacks; --require-generated refuses an own
+    release; a generated profile is audited for every $), pulls each image by its signed
+    digest and tags it by the name the
     profile gives it (<project>-backend-prod:<tag>, the frontend's, a site's), writes the
     carried profile, and runs compose with an
     allowlisted environment and TERP_RELEASE_TAG set: the datastores, a reading of every

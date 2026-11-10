@@ -92,7 +92,7 @@ def test_unmanaged_beside_build_is_two_states_and_is_refused() -> None:
 def test_units_without_build_are_not_guessed_into_a_state() -> None:
     raw = seed()
     del raw["build"]
-    assert "build is required when units are declared (allowed: generated, own)" in _refused(raw)
+    assert "build is required when units are declared (allowed: generated or own)" in _refused(raw)
 
 
 def test_generated_is_read_and_its_build_files_are_another_rule_s() -> None:
@@ -156,7 +156,8 @@ def test_an_image_key_is_refused_so_a_declaration_cannot_name_a_registry() -> No
     raw = seed()
     unit(raw, "api")["image"] = "registry.example.invalid/app:latest"
     message = _refused(raw)
-    assert "units[2].image is not a field of a unit: there is no image key" in message
+    assert "units[2].image is not a field of a unit (allowed: a unit's keys: backup, command" in message
+    assert "there is no image key: name a datastore by kind and version" in message
     assert "postgres 17" in message, "the remedy names what the table offers"
 
 
@@ -216,7 +217,7 @@ def test_a_trailing_newline_does_not_slip_past_a_pattern() -> None:
 def test_an_over_long_string_is_refused_with_its_cap() -> None:
     raw = seed()
     unit(raw, "api")["healthPath"] = "/" + "a" * 300
-    assert "units[2].healthPath is 301 characters long (at most 256)" in _refused(raw)
+    assert "units[2].healthPath is 301 characters long (allowed: at most 256 characters)" in _refused(raw)
 
 
 def test_a_client_backup_is_valid_only_for_an_external_database() -> None:
@@ -230,7 +231,7 @@ def test_a_client_backup_is_valid_only_for_an_external_database() -> None:
 def test_a_backup_on_a_unit_that_holds_no_state_is_refused() -> None:
     raw = seed()
     unit(raw, "db")["stateful"] = False
-    assert "units[0].stateful is false (allowed: true)" in _refused(raw)
+    assert "units[0].stateful is false (allowed: true - a backup policy sits only on a unit declared stateful)" in _refused(raw)
     del unit(raw, "db")["stateful"]
     assert "units[0].stateful is required beside backup" in _refused(raw)
 
@@ -239,13 +240,14 @@ def test_a_kind_or_version_the_table_does_not_carry_names_the_table() -> None:
     raw = seed()
     unit(raw, "db")["kind"] = "mysql"
     assert (
-        'units[0].kind is "mysql", which the datastore table does not carry (allowed: postgres)'
+        'units[0].kind is "mysql", which the datastore table does not carry (allowed: a datastore kind of the table: postgres)'
         in _refused(raw)
     )
     unit(raw, "db")["kind"] = "postgres"
     unit(raw, "db")["version"] = "15"
     assert (
-        'units[0].version is "15" for kind postgres, which the datastore table does not carry (allowed: 17)'
+        'units[0].version is "15" for kind postgres, which the datastore table does not carry '
+        "(allowed: a version the datastore table carries for postgres: 17)"
         in _refused(raw)
     )
     del unit(raw, "db")["version"]
@@ -268,39 +270,40 @@ def test_two_units_or_two_volumes_with_one_id_are_refused() -> None:
     raw["units"].append(copy.deepcopy(unit(raw, "web")))
     raw["volumes"] = [{"id": "files"}, {"id": "files"}]
     message = _refused(raw)
-    assert 'units[4].id "web" is the id of an earlier entry' in message
-    assert 'volumes[1].id "files" is the id of an earlier entry' in message
+    assert 'units[4].id "web" is the id of an earlier unit' in message
+    assert 'volumes[1].id "files" is the id of an earlier volume' in message
 
 
 @pytest.mark.parametrize(
     ("change", "expected"),
     [
-        (lambda raw: raw.update(build="managed"), 'build is "managed" (allowed: generated, own)'),
+        (lambda raw: raw.update(build="managed"), 'build is "managed" (allowed: generated or own)'),
         (
             lambda raw: raw.update(rollback={"strategy": "restore"}),
             'rollback.strategy is "restore" (allowed: redeploy-previous-release)',
         ),
         (
             lambda raw: unit(raw, "api").update(instances="two"),
-            'units[2].instances is "two" (allowed: many, one)',
+            'units[2].instances is "two" (allowed: many or one)',
         ),
         (
             lambda raw: raw.update(externalDatabase={"backup": "nightly"}),
-            'externalDatabase.backup is "nightly" (allowed: "client")',
+            'externalDatabase.backup is "nightly" (allowed: client)',
         ),
         (lambda raw: raw.update(compose={}), "compose.file is required"),
         (
             lambda raw: raw["compose"].update(file="/etc/compose.yml"),
-            'compose.file is "/etc/compose.yml", which does not match',
+            'compose.file is "/etc/compose.yml" (allowed: a path relative to the project root, with forward slashes)',
         ),
         (
             lambda raw: raw["compose"].update(overrides=["a.yml", "a.yml"]),
             'compose.overrides lists "a.yml" more than once',
         ),
-        (lambda raw: raw.update(units=[]), "units has 0 item(s) (allowed: at least 1)"),
+        (lambda raw: raw.update(units=[]), "units has 0 item(s) (allowed: at least one unit)"),
         (
             lambda raw: unit(raw, "api").update(id="API Server"),
-            'units[2].id is "API Server", which does not match',
+            "units[2].id is \"API Server\" (allowed: a unit id: a letter or digit, then letters, "
+            "digits, '.', '_' or '-')",
         ),
         (
             lambda raw: unit(raw, "api").update(role=None),
@@ -309,7 +312,7 @@ def test_two_units_or_two_volumes_with_one_id_are_refused() -> None:
         (lambda raw: unit(raw, "api").pop("role"), "units[2].role is required"),
         (
             lambda raw: unit(raw, "api").update(env=["lower_case"]),
-            'units[2].env[0] is "lower_case", which does not match',
+            'units[2].env[0] is "lower_case" (allowed: an upper-case variable name, as the variable manifest declares one)',
         ),
         (
             lambda raw: unit(raw, "api").update(migrations="notes"),
@@ -321,7 +324,7 @@ def test_two_units_or_two_volumes_with_one_id_are_refused() -> None:
         ),
         (
             lambda raw: unit(raw, "api").update(healthPath="health"),
-            'units[2].healthPath is "health", which does not match',
+            'units[2].healthPath is "health" (allowed: a path that starts with / and holds only URL path characters)',
         ),
         (
             lambda raw: unit(raw, "db").update(stateful="yes"),
@@ -329,20 +332,20 @@ def test_two_units_or_two_volumes_with_one_id_are_refused() -> None:
         ),
         (
             lambda raw: unit(raw, "db")["backup"].update(every="daily"),
-            'units[0].backup.every is "daily", which does not match',
+            'units[0].backup.every is "daily" (allowed: an ISO 8601 duration, such as P1D or PT6H)',
         ),
         (lambda raw: unit(raw, "db")["backup"].pop("keep"), "units[0].backup.keep is required"),
         (
             lambda raw: raw.update(sizes={"small": {"cpu": 0, "memoryMiB": 512}}),
-            "sizes.small.cpu is 0 (allowed: more than 0)",
+            "sizes.small.cpu is 0 (allowed: a number of cores above 0)",
         ),
         (
             lambda raw: raw.update(sizes={"small": {"cpu": 0.5, "memoryMiB": 0}}),
-            "sizes.small.memoryMiB is 0 (allowed: at least 1)",
+            "sizes.small.memoryMiB is 0 (allowed: a whole number of mebibytes, at least 1)",
         ),
         (
             lambda raw: raw.update(sizes={"Small": {"cpu": 0.5, "memoryMiB": 512}}),
-            "sizes.Small is not a field of sizes (allowed: a $-prefixed annotation, a key matching",
+            "sizes.Small is not a size name (allowed: a size name: a lower-case letter, then lower-case letters, digits or hyphens)",
         ),
         (
             lambda raw: raw.update(volumes=[{"backup": {"every": "P1D", "keep": "P7D"}}]),
@@ -350,11 +353,11 @@ def test_two_units_or_two_volumes_with_one_id_are_refused() -> None:
         ),
         (
             lambda raw: unit(raw, "migrate").update(command=[]),
-            "units[1].command has 0 item(s) (allowed: at least 1)",
+            "units[1].command has 0 item(s) (allowed: an argument list of strings, never a shell string)",
         ),
         (
             lambda raw: raw.update(environments={"production": {}}),
-            "environments is not a field of the declaration (allowed: build, compose",
+            "environments is not a field of the declaration (allowed: the top-level keys: build, compose",
         ),
     ],
     ids=[
