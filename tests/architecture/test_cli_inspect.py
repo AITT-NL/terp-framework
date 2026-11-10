@@ -350,6 +350,26 @@ def test_render_json_covers_non_default_platform_policies() -> None:
     assert payload["job_system_actor"] is True
 
 
+def test_the_inspect_view_names_a_cors_read_from_the_environment() -> None:
+    """A fourth mode, not `allow` with an empty list: the origins are each environment's
+    own, and what is listed is what the inspected plane was composed with (ADR 0210)."""
+    from terp.cli._cors_view import cors_json, cors_label
+    from terp.core import CorsPolicy
+
+    declared = CorsPolicy.from_environment()
+    assert cors_json(declared) == {
+        "mode": "from-environment",
+        "variable": "BACKEND_CORS_ORIGINS",
+        "origins": [],
+        "allow_credentials": False,
+    }
+    assert cors_label(declared) == "from BACKEND_CORS_ORIGINS (none named here)"
+    composed = declared.with_environment_origins(["https://site.example.com"])
+    assert isinstance(composed, CorsPolicy)
+    assert cors_json(composed)["origins"] == ["https://site.example.com"]
+    assert cors_label(composed) == "from BACKEND_CORS_ORIGINS (https://site.example.com)"
+
+
 def test_render_json_covers_cors_disabled_and_configured_deny_all() -> None:
     import json
 

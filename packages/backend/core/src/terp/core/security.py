@@ -16,6 +16,8 @@ only on purpose, never by accident.
 
 from __future__ import annotations
 
+import dataclasses
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
@@ -33,6 +35,13 @@ _DEFAULT_CSP: Final[str] = "default-src 'none'; frame-ancestors 'none'; base-uri
 #: matters. ``private`` is implied and omitted.
 _DEFAULT_CACHE_CONTROL: Final[str] = "no-store"
 _DEFAULT_HSTS: Final[str] = "max-age=63072000; includeSubDomains; preload"
+#: An origin as a browser serialises it: scheme, host (a name, an IPv4 address or a bracketed
+#: IPv6 one) and an optional port, lower-case, with nothing after.
+_ORIGIN: Final = re.compile(
+    r"https?://(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*"
+    r"|\[[0-9a-f:.]+\])(?::[0-9]{1,5})?"
+)
+
 _DEFAULT_CORS_METHODS: Final[tuple[str, ...]] = (
     "GET",
     "POST",
@@ -109,6 +118,9 @@ class CorsPolicy:
     expose_headers: tuple[str, ...] = ("X-Request-ID",)
     configured: bool = False
     disabled_reason: str | None = None
+    #: The allowlist is each environment's own, read from ``BACKEND_CORS_ORIGINS`` when the
+    #: app is composed (:meth:`from_environment`). ``allow_origins`` is empty until then.
+    origins_from_environment: bool = False
 
     def __post_init__(self) -> None:
         if self.is_wildcard and self.allow_credentials:
@@ -153,6 +165,50 @@ class CorsPolicy:
             expose_headers=tuple(expose_headers),
             configured=True,
         )
+
+    @classmethod
+    def from_environment(
+        cls,
+        *,
+        allow_credentials: bool = False,
+        allow_methods: Iterable[str] = _DEFAULT_CORS_METHODS,
+        allow_headers: Iterable[str] = _DEFAULT_CORS_HEADERS,
+        expose_headers: Iterable[str] = ("X-Request-ID",),
+    ) -> CorsPolicy:
+        """Allow the browser origins the environment names in ``BACKEND_CORS_ORIGINS``.
+
+        Which origins may call an API from a browser is a fact of where it is deployed: the
+        same build runs on a test address and a production one. Declared this way, the
+        allowlist is read from the environment when the app is composed, and an environment
+        that names none serves no cross-origin access at all, which is the state
+        :meth:`disabled` declares. ``*`` and an entry that is not an origin are refused at
+        boot, in every environment (ADR 0210).
+        """
+        return cls(
+            allow_credentials=allow_credentials,
+            allow_methods=tuple(allow_methods),
+            allow_headers=tuple(allow_headers),
+            expose_headers=tuple(expose_headers),
+            configured=True,
+            origins_from_environment=True,
+        )
+
+    def with_environment_origins(self, origins: Iterable[str]) -> CorsPolicy | str:
+        """This policy with the allowlist *origins*, or why one of them cannot be taken.
+
+        A browser sends ``Origin`` as scheme, host and port, lower-case, with no path and no
+        trailing slash, and the comparison is exact: an entry in another form never matches,
+        so it is refused with the form it should take instead of silently opening nothing.
+        """
+        named = tuple(origins)
+        for origin in named:
+            if not isinstance(origin, str) or _ORIGIN.fullmatch(origin) is None:
+                return (
+                    f"BACKEND_CORS_ORIGINS names {origin!r}, which is not a browser origin "
+                    "(allowed: scheme, host and optional port in lower case, with no path "
+                    "and no trailing slash, such as https://app.example.com; never '*')"
+                )
+        return dataclasses.replace(self, allow_origins=named)
 
     @property
     def is_wildcard(self) -> bool:
@@ -309,8 +365,8 @@ class SecurityConfig:
         problems: list[str] = []
         if not self.cors.configured:
             problems.append(
-                "CORS is unset; declare CorsPolicy.allow([...]) or "
-                "CorsPolicy.disabled(reason=...) before production"
+                "CORS is unset; declare CorsPolicy.from_environment(), "
+                "CorsPolicy.allow([...]) or CorsPolicy.disabled(reason=...) before production"
             )
         if self.cors.is_wildcard:
             problems.append("CORS must not allow '*' in production")

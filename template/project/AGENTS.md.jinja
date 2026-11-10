@@ -37,8 +37,8 @@ row scoping for you, with precise, fixable messages.
   `frontend/`, no `web` service and no `conformance/` suite; `uv run terp new module <name>`
   scaffolds the backend slots only. In production the `api` unit is the deployment's only
   way in and publishes `API_PORT`; a browser client on another origin needs its origin in
-  `CorsPolicy.allow([...])` in `control_plane/__init__.py` (never `*`). The
-  `BACKEND_CORS_ORIGINS` variable allows nothing: it is read only to refuse `*`.
+  the environment's `BACKEND_CORS_ORIGINS`, which `CorsPolicy.from_environment()` in
+  `control_plane/__init__.py` reads when the app is composed (never `*`).
 {%- endif %}
 {%- if use_files %}
 - **File uploads** (`terp-cap-files`): auto-discovered admin surface at `/api/v1/files`;
@@ -281,7 +281,9 @@ Two boundaries are never autonomous agent decisions:
    `tests/test_<name>_*.py`. The gate refuses a module with neither.
 12. **Production refuses several boots the inner loop only warns about.** Each is
    decided by what the control plane declares, so each is fixable here and now:
-   - CORS is declared either way — `CorsPolicy.allow([...])` for a browser origin, or
+   - CORS is declared — `CorsPolicy.from_environment()`, which takes the browser origins
+     from each environment's `BACKEND_CORS_ORIGINS` and serves none where it names none,
+     `CorsPolicy.allow([...])` for origins fixed in source, or
      `CorsPolicy.disabled(reason=...)` for a server-to-server API. Unset is refused,
      and so is `'*'`.
    - The password strength floor stays: `PasswordPolicy.default()`, and never a

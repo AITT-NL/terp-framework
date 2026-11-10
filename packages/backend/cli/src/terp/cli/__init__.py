@@ -11,11 +11,12 @@ import sys
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
-from terp.core import ControlPlane, CorsPolicy, ModuleSpec
+from terp.core import ControlPlane, ModuleSpec
 
 if TYPE_CHECKING:  # terp-arch stays off the common `terp guide` / `terp inspect` path
     from terp.arch import ScanRoot
 
+from terp.cli._cors_view import cors_json, cors_label
 from terp.cli._output import emit, use_utf8_output
 from terp.cli.access import (
     build_access_graph_for_app,
@@ -1178,12 +1179,17 @@ The security declaration (SecurityConfig, refused at production boot)
 - FOUR of its states refuse a production boot (SecurityConfig.production_problems();
   create_app raises BootError "insecure production security config"). Each has exactly
   one declaration that answers it:
-    1. CORS unset            -> CorsPolicy.allow([...]) or CorsPolicy.disabled(reason=...)
+    1. CORS unset            -> CorsPolicy.from_environment(), .allow([...]) or .disabled(reason=...)
     2. CORS allowing '*'     -> name the origins; a wildcard with credentials is no origin check
     3. rate_limit disabled   -> RateLimit(requests=..., window_seconds=...)
     4. an override disabled  -> an override may LOWER or RAISE a limit, never remove it
   Declining is a full answer and must be said out loud: CorsPolicy.disabled(reason=...)
   is the same-origin deployment's answer, and the reason is the point of it.
+  Which browser origins may call the API is a fact of an environment, not of the source:
+  CorsPolicy.from_environment() takes the allowlist from BACKEND_CORS_ORIGINS when the app
+  is composed (ADR 0210). An environment that names none serves no cross-origin access; an
+  entry that is not an origin (a path, a trailing slash, '*') refuses the boot. Without
+  that declaration the variable opens nothing, and a boot that finds it set says so.
   `terp verify --only production-readiness` asks these before you ship, so the refusal
   arrives in the gate rather than at the deploy.
 - rate_limit_overrides is a PER-PREFIX BUCKET, not a shared counter (ADR 0115):
@@ -3570,7 +3576,7 @@ def _render_json(plane: ControlPlane, specs: Sequence[ModuleSpec]) -> str:
             "relaxed_reason": plane.passwords.relaxed_reason,
         },
         "security": {
-            "cors": _cors_json(plane.security.cors),
+            "cors": cors_json(plane.security.cors),
             "rate_limit": {
                 "enabled": plane.security.rate_limit.enabled,
                 "requests": plane.security.rate_limit.requests,
@@ -3594,19 +3600,6 @@ def _render_json(plane: ControlPlane, specs: Sequence[ModuleSpec]) -> str:
         "job_system_actor": plane.job_system_actor_id is not None,
     }
     return json.dumps(payload, indent=2)
-
-
-def _cors_json(cors: CorsPolicy) -> dict[str, object]:
-    """The CORS declaration as one of three explicit modes (never raw fields)."""
-    if cors.disabled_reason is not None:
-        return {"mode": "disabled", "reason": cors.disabled_reason}
-    if cors.allow_origins:
-        return {
-            "mode": "allow",
-            "origins": list(cors.allow_origins),
-            "allow_credentials": cors.allow_credentials,
-        }
-    return {"mode": "deny-all", "configured": cors.configured}
 
 
 def _module_json(spec: ModuleSpec) -> dict[str, object]:
@@ -3674,7 +3667,7 @@ def _render_text(plane: ControlPlane, specs: Sequence[ModuleSpec]) -> str:
     lines.append(password_line)
     lines.append("")
     lines.append("Security")
-    lines.append(f"  cors {_cors_label(plane.security.cors)}")
+    lines.append(f"  cors {cors_label(plane.security.cors)}")
     rate_limit = plane.security.rate_limit
     lines.append(
         "  rate_limit "
@@ -3698,14 +3691,6 @@ def _render_text(plane: ControlPlane, specs: Sequence[ModuleSpec]) -> str:
             f"misfire={schedule.misfire.value}"
         )
     return "\n".join(lines)
-
-
-def _cors_label(cors: CorsPolicy) -> str:
-    if cors.disabled_reason is not None:
-        return f"disabled ({cors.disabled_reason})"
-    if cors.allow_origins:
-        return "allow " + ", ".join(cors.allow_origins)
-    return "deny-all" + ("" if cors.configured else " (unconfigured)")
 
 
 def _policy_label(spec: ModuleSpec) -> str:
