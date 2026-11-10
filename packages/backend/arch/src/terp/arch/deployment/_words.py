@@ -272,9 +272,8 @@ def say(problem: Problem, document: Any, kinds: dict[str, tuple[str, ...]]) -> s
             value = str(lookup(document, path))
             segments = value.split("/")
             hidden = segments[0] == "var" and any(part.startswith(".") for part in segments)
-            shown = detail.split(", which does not match")[0]
-            return f"{where} {shown} (allowed: {MOUNT_HIDDEN if hidden else MOUNT_OUTSIDE})"
-        shown = detail.split(", which does not match")[0] if keyword == "pattern" else detail
+            return f"{where} {problem.shown} (allowed: {MOUNT_HIDDEN if hidden else MOUNT_OUTSIDE})"
+        shown = problem.shown if keyword == "pattern" else detail
         return f"{where} {shown} (allowed: {_allowed(path, problem, document, kinds)})"
     if keyword == "maxLength":
         length = detail.split(" (")[0]
@@ -288,9 +287,9 @@ def say(problem: Problem, document: Any, kinds: dict[str, tuple[str, ...]]) -> s
     if keyword == "type":
         return f"{where} {detail} (allowed: {_allowed(path, problem, document, kinds)})"
     if keyword == "enum":
-        return f"{where} {detail.split(' (allowed: ')[0]} (allowed: {or_join(problem.values)})"
+        return f"{where} {problem.shown} (allowed: {or_join(problem.values)})"
     if keyword == "const":
         # ``unmanaged`` never reaches here: any value but true is the reader's own refusal.
         allowed = STATEFUL if form == "units[].stateful" else or_join(problem.values)
-        return f"{where} {detail.split(' (allowed: ')[0]} (allowed: {allowed})"
+        return f"{where} {problem.shown} (allowed: {allowed})"
     return f"{where} {detail}"

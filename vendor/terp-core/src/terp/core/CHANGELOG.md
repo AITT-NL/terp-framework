@@ -65,6 +65,12 @@ decision, 0001 onwards.
   U+007F to U+009F and the 64-character cut of a key in a path, both in 0.41.0, had a test
   that could not fail; they have ones that do.
 
+- **A deployment refusal quotes the file's value whole (ADR 0187).** The quoted value was
+  recovered by cutting the validator's own sentence at `(allowed: ` or `, which does not
+  match`. A value that holds those words was cut there instead, so
+  `"build": "x (allowed: anything)"` was reported as `build is "x`, a value the file does not
+  hold, in a quote that never closed. The value is carried beside the sentence now.
+
 ## 0.41.0 — 2026-11-10
 
 ### Security

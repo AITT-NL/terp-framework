@@ -79,13 +79,17 @@ class Problem:
     *path* is where (``units[0].command``; ``""`` for the document itself) and *detail*
     the sentence that follows it. *keyword* names the schema keyword that refused, and
     *values* what that keyword names (an enum's words, a limit, the keys an object has),
-    so a reader can say the refusal in its own vocabulary's words.
+    so a reader can say the refusal in its own vocabulary's words. *shown* is the start of
+    *detail* that quotes the file's value (``is "x"``), for the keywords whose detail goes
+    on after it: a reader takes it from here, because a value can hold the very words the
+    detail goes on with, and cutting the detail at them cut the value short.
     """
 
     path: str
     detail: str
     keyword: str = ""
     values: tuple[Any, ...] = ()
+    shown: str = ""
 
 
 def _subschemas(schema: dict[str, Any]) -> Iterator[dict[str, Any]]:
@@ -189,9 +193,11 @@ def validate(instance: Any, schema: dict[str, Any], path: str = "") -> list[Prob
     canonical = _canonical(instance)
     if "enum" in schema and canonical not in {_canonical(value) for value in schema["enum"]}:
         allowed = ", ".join(str(value) for value in schema["enum"])
-        return [Problem(path, f"is {_show(instance)} (allowed: {allowed})", "enum", tuple(schema["enum"]))]
+        shown = f"is {_show(instance)}"
+        return [Problem(path, f"{shown} (allowed: {allowed})", "enum", tuple(schema["enum"]), shown)]
     if "const" in schema and canonical != _canonical(schema["const"]):
-        return [Problem(path, f"is {_show(instance)} (allowed: {_show(schema['const'])})", "const", (schema["const"],))]
+        shown = f"is {_show(instance)}"
+        return [Problem(path, f"{shown} (allowed: {_show(schema['const'])})", "const", (schema["const"],), shown)]
     if isinstance(instance, str):
         return _string_problems(instance, schema, path)
     if isinstance(instance, list):
@@ -219,7 +225,8 @@ def _string_problems(value: str, schema: dict[str, Any], path: str) -> list[Prob
                 "control",
             )
         ]
-    return [Problem(path, f"is {_show(value)}, which does not match {pattern}", "pattern", (pattern,))]
+    shown = f"is {_show(value)}"
+    return [Problem(path, f"{shown}, which does not match {pattern}", "pattern", (pattern,), shown)]
 
 
 def _number_problems(value: Any, schema: dict[str, Any], path: str) -> list[Problem]:
