@@ -15,7 +15,7 @@
   item 3 (the deploy side; item 5 before that list was cut), relies on the reference site where
   it named a starter that list no longer holds, and says that its build-time refusal holds for a
   site built with its image, not yet for one the undecided managed-content rebuild builds.
-  Revised again on 2026-11-08, after review, for 0.40.1: the build-time refusal is a finder of
+  Revised again on 2026-11-08, after review, for 0.41.0: the build-time refusal is a finder of
   what the policy breaks and no promise, and the policy stays the control (decision 3, *The
   check sits behind the policy*, and the consequences).
 - **Date:** 2026-11-04. 0182 and 0183 are reserved for other records, 0184 to 0193 are taken,
@@ -143,7 +143,7 @@ content needs, and two consequences are now part of the recipe:
   the record that decides the rebuild carries the same refusal into it. Allowing inline content
   by hash was the alternative; it makes the policy depend on each build's output, which is a
   parameter by another name.
-- **The check sits behind the policy** (recorded 2026-11-08, built in 0.40.1). The policy is the
+- **The check sits behind the policy** (recorded 2026-11-08, built in 0.41.0). The policy is the
   control: a browser holds every page to it, whatever produced the page. The build-time check is
   a finder. Before the image is made, it looks in each page's markup for what the policy would
   break, so such a page fails in a build log rather than silently in a browser, and a page it

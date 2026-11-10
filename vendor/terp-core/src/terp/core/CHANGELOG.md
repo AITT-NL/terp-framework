@@ -10,32 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.41.0 — unreleased
-
-### Added
-
-- **A new app pins who can reach what, and the check names each widening (ADR 0209).** The
-  template's `pyproject.toml` carries `[tool.terp.verify] pinned = ["authz-surface"]`, and
-  with that line a missing `authz-surface.json` is red, naming the command that writes it
-  from the composed app. The README's setup writes it, and template acceptance writes it on
-  every variant and then holds the render to it. The template ships no copy of the surface:
-  a hand-kept one would describe it rather than derive it.
-
-  The `authz-surface` check now labels every change a widening or a narrowing. A change is a
-  narrowing only when the guard's replayed answers prove nobody gains reach. A `grant`
-  answer reaches whoever holds the permission, so a new endpoint only a grant opens is a
-  widening. A module's policy is judged tier by tier, a module that starts taking per-module
-  roles widens, the role ladder widens however it moved, a permission's floor widens only
-  when it fell, and a difference no entry names widens. The text lists each change under
-  `widens:` or `narrows:`.
-
-  `terp verify --format json` adds three fields to the check's result, so a tool can ask a
-  person about widenings alone: `authority_state` (`not_pinned`, `missing`, `unseen`,
-  `changed` or `matches`), `authority_changes` (one entry per change, with the module, the
-  methods and path, the operation's label, the rungs that gain or lose reach, `anonymous`
-  for a public endpoint, the permissions with their labels, the sentence and `widens`), and
-  `authority_unseen` (what the check cannot see, which is code to fix and never a change to
-  approve).
+## 0.41.0 — 2026-11-10
 
 ### Security
 
@@ -54,29 +29,6 @@ decision, 0001 onwards.
   reported whole instead of passing as no change. An app the check cannot compose is red
   too; it was a skip, so every change passed for as long as the app failed to import. A
   tree with no baseline still skips with the command that writes one.
-
-### Fixed
-
-- **An unreadable `authz-surface.json` is a red check, not a crash.** An empty file, which
-  a failed `> authz-surface.json` leaves behind, raised a traceback out of `terp verify`. It
-  is now red, and says to restore the committed file: writing it again would accept
-  whatever the app serves now.
-
-### Upgrade notes
-
-- **`copier update` brings the pin.** An app that takes this release's template gets
-  `[tool.terp.verify] pinned = ["authz-surface"]`, and its `terp verify --profile full` is
-  red until the baseline is written once:
-  `uv run terp inspect access --app app.main:build --format surface > authz-surface.json`,
-  then committed. Upgrading the packages alone changes nothing for an app without the line.
-  An older `terp verify` refuses the key, so take the template and the packages together.
-- An app that commits `authz-surface.json` and includes a router inside a module's router
-  now fails `terp verify --profile full --only authz-surface` until that route moves onto the
-  module's own router. So does one that serves a method and path from two routes.
-
-## 0.40.1 — unreleased
-
-### Security
 
 - **A file under `/assets/` carries the security headers a page does.** In the static site's
   server configuration (ADR 0198) and in the template SPA's `frontend/nginx.conf`, `/assets/`
@@ -114,6 +66,31 @@ decision, 0001 onwards.
   so its plan, manifest and SBOMs are what they were: the existing release tests pin them
   unchanged.
 
+### Added
+
+- **A new app pins who can reach what, and the check names each widening (ADR 0209).** The
+  template's `pyproject.toml` carries `[tool.terp.verify] pinned = ["authz-surface"]`, and
+  with that line a missing `authz-surface.json` is red, naming the command that writes it
+  from the composed app. The README's setup writes it, and template acceptance writes it on
+  every variant and then holds the render to it. The template ships no copy of the surface:
+  a hand-kept one would describe it rather than derive it.
+
+  The `authz-surface` check now labels every change a widening or a narrowing. A change is a
+  narrowing only when the guard's replayed answers prove nobody gains reach. A `grant`
+  answer reaches whoever holds the permission, so a new endpoint only a grant opens is a
+  widening. A module's policy is judged tier by tier, a module that starts taking per-module
+  roles widens, the role ladder widens however it moved, a permission's floor widens only
+  when it fell, and a difference no entry names widens. The text lists each change under
+  `widens:` or `narrows:`.
+
+  `terp verify --format json` adds three fields to the check's result, so a tool can ask a
+  person about widenings alone: `authority_state` (`not_pinned`, `missing`, `unseen`,
+  `changed` or `matches`), `authority_changes` (one entry per change, with the module, the
+  methods and path, the operation's label, the rungs that gain or lose reach, `anonymous`
+  for a public endpoint, the permissions with their labels, the sentence and `widens`), and
+  `authority_unseen` (what the check cannot see, which is code to fix and never a change to
+  approve).
+
 ### Changed
 
 - **`dependency-audit-npm` runs as `terp verify --profile full --only dependency-audit-npm`**
@@ -128,6 +105,11 @@ decision, 0001 onwards.
   A driving tool that pinned the old commands reads them again.
 
 ### Fixed
+
+- **An unreadable `authz-surface.json` is a red check, not a crash.** An empty file, which
+  a failed `> authz-surface.json` leaves behind, raised a traceback out of `terp verify`. It
+  is now red, and says to restore the committed file: writing it again would accept
+  whatever the app serves now.
 
 - **`deployment.json` with a key written twice in one object is refused.** The gate kept the
   last value, as Python's JSON parser does, and terp-runner refuses the file as not strict
@@ -229,6 +211,16 @@ decision, 0001 onwards.
 
 ### Upgrade notes
 
+- **`copier update` brings the pin.** An app that takes this release's template gets
+  `[tool.terp.verify] pinned = ["authz-surface"]`, and its `terp verify --profile full` is
+  red until the baseline is written once:
+  `uv run terp inspect access --app app.main:build --format surface > authz-surface.json`,
+  then committed. Upgrading the packages alone changes nothing for an app without the line.
+  An older `terp verify` refuses the key, so take the template and the packages together.
+- An app that commits `authz-surface.json` and includes a router inside a module's router
+  now fails `terp verify --profile full --only authz-surface` until that route moves onto the
+  module's own router. So does one that serves a method and path from two routes.
+
 - **A generated app with a static site takes the new `site/Dockerfile.prod` with
   `terp deployment render`,** and `terp verify --only generated` is red until it does. An
   SPA's `frontend/nginx.conf` is the app's own file: give its `location /assets/` block the
@@ -249,7 +241,7 @@ decision, 0001 onwards.
 - **A `web` unit that names `static-site` and declares a `healthPath` other than `/healthz` is
   refused** by `terp verify --only deployment`, the release jobs and `terp promote`. Declare
   `"healthPath": "/healthz"` or drop the field.
-- **A site whose pages passed 0.40.0's build-time check can be refused by 0.40.1's,** for a
+- **A site whose pages passed 0.40.0's build-time check can be refused by 0.41.0's,** for a
   form the check did not read before: a script, stylesheet, frame, image, media, icon, manifest
   or preload from another origin, a form that submits elsewhere, an `<object>`, `<embed>` or
   `<base href>`, or markup in an `.xhtml`, `.svg`, `.xml`, `.rss`, `.atom`, `.kml` or `.xspf`
