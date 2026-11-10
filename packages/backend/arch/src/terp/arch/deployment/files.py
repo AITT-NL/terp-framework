@@ -29,8 +29,22 @@ from terp.arch.deployment.reader import (
 )
 
 
-class DuplicateKeyError(ValueError):
+class StrictJSONError(ValueError):
+    """Text a lenient parser reads and strict JSON does not hold; ``allowed`` names the form."""
+
+    allowed = "one JSON object"
+
+
+class DuplicateKeyError(StrictJSONError):
     """A key written twice in one object: which one a parser keeps is the parser's choice."""
+
+    allowed = "one JSON object, each key once"
+
+
+class ConstantError(StrictJSONError):
+    """``NaN`` or an infinity: Python's parser reads them, and JSON has no such number."""
+
+    allowed = "one JSON object, each number finite"
 
 
 def _once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -42,10 +56,15 @@ def _once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return found
 
 
+def _no_constant(name: str) -> Any:
+    raise ConstantError(f"{name} is not a JSON number")
+
+
 def loads(text: str) -> Any:
-    """Parse ``deployment.json`` strictly, as terp-runner does: a key twice in one object is
-    refused, never read as its last value, so no two readers can read one file differently."""
-    return json.loads(text, object_pairs_hook=_once)
+    """Parse ``deployment.json`` strictly, as terp-runner does, so no two readers can read
+    one file differently: a key twice in one object is refused, never read as its last
+    value, and so are ``NaN`` and the infinities, which only a lenient parser reads."""
+    return json.loads(text, object_pairs_hook=_once, parse_constant=_no_constant)
 
 
 def checkout_root(project_root: pathlib.Path) -> pathlib.Path:
@@ -118,10 +137,8 @@ def load(
         return None, []
     try:
         raw = loads(path.read_text(encoding="utf-8"))
-    except DuplicateKeyError as exc:
-        return None, [
-            Finding(f"{DEPLOYMENT_FILE} is not strict JSON: {exc} (allowed: one JSON object, each key once)")
-        ]
+    except StrictJSONError as exc:
+        return None, [Finding(f"{DEPLOYMENT_FILE} is not strict JSON: {exc} (allowed: {exc.allowed})")]
     except (OSError, ValueError) as exc:
         return None, [
             Finding(f"{DEPLOYMENT_FILE} is not valid JSON ({exc}) (allowed: one JSON object)")
