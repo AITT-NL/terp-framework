@@ -364,8 +364,9 @@ build container holds a credential or writes into what is built. Each takes the 
     alone, and is held to it), renders a generated app's files with the terp-arch the
     commit pins (fetched by hash, run in a process of its own), reads the backend image from
     the registry as data and holds it to the tree and the lock, describes each web image from
-    the npm lock it installs, the package-lock.json beside its Dockerfile or else at the root
-    of its build context (a static site's is site/package-lock.json), scans for known
+    the npm lock it installs, the package-lock.json its Dockerfile copies (when it names
+    none, the one beside it or at the root of its build context, never a choice between two;
+    a static site's is site/package-lock.json), scans for known
     vulnerabilities and for secrets in the history, and signs the manifest as a DSSE envelope
     (release.dsse.json). --sign-key <file> is refused without --test-key. Run the image with
     the checkout mounted read-only (/repo) and the engine's socket and its group
@@ -374,7 +375,8 @@ build container holds a credential or writes into what is built. Each takes the 
 
 Refused, by name, before anything is built or signed: an undeclared or unmanaged app, a
 declaration that cannot be read or is untrue, a committed .terp-dist/ or submodule, a lock
-naming a path, a web image with no npm lock beside its Dockerfile or in its build context, an
+naming a path, a web image whose npm lock cannot be named (its Dockerfile copies two, or one
+the commit does not hold, or names none where two stand or none does), an
 image neither built here nor a datastore table digest, a datastore with no healthcheck, more
 than one migration step or one with --revision/--sql, no step and other than one api unit, a
 built image that does not read TERP_RELEASE_TAG, and a build with more than a context and a

@@ -579,6 +579,20 @@ way to declare one, so it is refused. The manifest records exactly the planned l
 hold the same set, asked of the same rule (`terp.cli.release._plan.web_npm_locks`). A generated
 app's two web Dockerfiles stand beside the locks they install, so its plan is what it was.
 
+*Amended 2026-11-10.* "The lock that image installs" was more than the code did: the lock was
+chosen by position, beside the Dockerfile and then at the root of the build context, and
+nothing compared that with the lock the Dockerfile copies. Under `own`, a Dockerfile kept apart
+from its lock took any other lock at the context root, and `sign` signed that lock's packages
+as the image's SBOM. The plan now reads the Dockerfile, as text: the lock is the
+`package-lock.json` it copies from its build context (`terp.cli.release._npm_lock`). A
+Dockerfile that copies two, or one the commit does not hold, is refused. Only one that names
+none (`COPY . .`) falls back to position, and then one of the two places may hold a lock, never
+both. The refusal no longer offers `npm install` as the remedy: run where no `package.json`
+stands, it writes a lock with no package, which passed the plan and signed an empty SBOM. A
+lock with no dependency is still a lock an image may install, so emptiness alone is not
+refused. A generated app's two web Dockerfiles copy the locks beside them, so its plan is what
+it was.
+
 *Amended 2026-11-08, built in 0.41.0.* `terp promote` reads every release up to its own with the
 one schema its `terp-arch` holds, its own release's, so it checks the two things reading an older
 declaration with that schema cannot. When the release the manifest names is its own,
