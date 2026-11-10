@@ -52,7 +52,8 @@ me_module = build_me_module(_identity.current_user)
 # SSO via OIDC (ADR 0058) — enabled by configuration, off until then.
 # --------------------------------------------------------------------------- #
 # Set OIDC_ISSUER / OIDC_CLIENT_ID / OIDC_CLIENT_SECRET / OIDC_REDIRECT_URI (see
-# .env.example) and the SSO module mounts; unset, the app boots with SSO off.
+# .env.example) and the SSO routes sign people in; unset, the same routes are mounted
+# and answer that single sign-on is not configured.
 # Identity resolution rides the federated store: a validated (issuer, subject)
 # pair resolves to a linked user, and JIT provisioning creates a viewer-ranked,
 # SSO-only account on a first login with a verified email.
@@ -89,25 +90,32 @@ def _resolve_sso_principal(session: Session, claims: OIDCClaims) -> Principal | 
     return _identity.principal_for_user(session, user)
 
 
-# The provider config validates fail-fast at boot (https required in production);
-# the SSO session is minted through the exact seams /login uses (token epoch +
-# refresh cookie), so both auth paths share one session/revocation story.
-oidc_module = (
-    build_oidc_module(
-        [
-            OIDCProviderConfig(
-                name="sso",
-                issuer=_OIDC_ISSUER,
-                client_id=os.environ.get("OIDC_CLIENT_ID", ""),
-                client_secret=os.environ.get("OIDC_CLIENT_SECRET", ""),
-                redirect_uri=os.environ.get("OIDC_REDIRECT_URI", ""),
-            )
-        ],
-        _resolve_sso_principal,
-        token_version_resolver=_identity.token_version_for,
-        refresh_issuer=_refresh.issue,
-    )
+# The SSO routes are mounted always, whatever the environment configures: which modules an
+# app mounts may not depend on a setting (ADR 0211), so the routes it serves, and the
+# access check's record of them, are the same everywhere. Where no provider is configured
+# the list is empty and each route answers the typed `sso_not_configured` refusal.
+#
+# A configured provider validates fail-fast at boot (https required in production); the
+# SSO session is minted through the exact seams /login uses (token epoch + refresh
+# cookie), so both auth paths share one session/revocation story.
+_sso_providers = (
+    [
+        OIDCProviderConfig(
+            name="sso",
+            issuer=_OIDC_ISSUER,
+            client_id=os.environ.get("OIDC_CLIENT_ID", ""),
+            client_secret=os.environ.get("OIDC_CLIENT_SECRET", ""),
+            redirect_uri=os.environ.get("OIDC_REDIRECT_URI", ""),
+        )
+    ]
     if _OIDC_ISSUER
-    else None
+    else []
+)
+oidc_module = build_oidc_module(
+    _sso_providers,
+    _resolve_sso_principal,
+    allow_no_provider=True,
+    token_version_resolver=_identity.token_version_for,
+    refresh_issuer=_refresh.issue,
 )
 {% endif -%}

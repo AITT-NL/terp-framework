@@ -5,7 +5,9 @@ development loop only warns about, and nothing in template acceptance ran a rend
 the template's single sign-on wiring built ``FederatedIdentityService(allow_provisioning=True)``
 with no allowlist, which a production boot refuses at import, SSO configured or not. The
 template now renders the allowlist from ``OIDC_ALLOWED_EMAIL_DOMAINS`` and provisions only
-while SSO is configured, and the tool holds a render to three boots against PostgreSQL. It
+while SSO is configured, and the tool holds a render to three boots against PostgreSQL. A
+render with SSO mounts its routes in all of them (ADR 0211): where no provider is configured
+the tool asks the route and holds it to its refusal by name. It
 runs in template acceptance, in the render's own environment; here its verdicts are held
 with a runner that answers for the child interpreter, and the template and the lane are held
 to what the tool assumes of them.
@@ -41,10 +43,22 @@ def _answers(tmp_path: pathlib.Path, *, sso: bool) -> pathlib.Path:
 class _Child:
     """Answers for every interpreter the tool starts, by what it runs and with what."""
 
-    def __init__(self, *, ready: int = 200, refuse: str | None = None, migrate: int = 0):
+    def __init__(
+        self,
+        *,
+        sso: bool = True,
+        ready: int = 200,
+        refuse: str | None = None,
+        migrate: int = 0,
+        unconfigured: list | None = None,
+    ):
+        #: Whether the render has single sign-on: its routes are then mounted in every boot.
+        self.sso = sso
         self.ready = ready
         self.refuse = refuse
         self.migrate = migrate
+        #: What the SSO route answers while no provider is configured.
+        self.unconfigured = boot_tool.SSO_NOT_CONFIGURED if unconfigured is None else unconfigured
         self.calls: list[tuple[list[str], dict[str, str]]] = []
 
     def __call__(self, argv, **kwargs) -> subprocess.CompletedProcess[str]:
@@ -57,8 +71,9 @@ class _Child:
         if configured and not listed:
             message = self.refuse if self.refuse is not None else boot_tool.ALLOWLIST_REFUSAL
             return subprocess.CompletedProcess(argv, 1, "", f"ValueError: {message}\n")
-        paths = ["/health/ready", *([boot_tool.SSO_ROUTE] if configured else [])]
-        report = json.dumps({"ready": self.ready, "paths": paths})
+        paths = ["/health/ready", *([boot_tool.SSO_ROUTE] if self.sso else [])]
+        asked = {path: self.unconfigured for path in argv[argv.index(boot_tool.PROBE) + 1 :]}
+        report = json.dumps({"ready": self.ready, "paths": paths, "asked": asked})
         return subprocess.CompletedProcess(argv, 0, f"booting\n{report}\n", "")
 
 
@@ -71,8 +86,9 @@ def test_a_render_without_sso_boots_once() -> None:
 
 def test_a_render_with_sso_boots_with_the_allowlist_and_is_refused_without_it() -> None:
     off, listed, unlisted = boot_tool.cases(sso=True, secret=lambda: "generated")
-    assert off.env == {} and not off.sso_mounted and off.refused_with is None
-    assert listed.sso_mounted and listed.refused_with is None
+    # The same routes in every boot (ADR 0211): mounted with no provider set, and refusing.
+    assert off.env == {} and off.sso_mounted and off.sso_refuses and off.refused_with is None
+    assert listed.sso_mounted and not listed.sso_refuses and listed.refused_with is None
     assert listed.env["OIDC_ALLOWED_EMAIL_DOMAINS"] == "example.test,example.org"
     assert "OIDC_ALLOWED_EMAIL_DOMAINS" not in unlisted.env
     assert unlisted.refused_with == boot_tool.ALLOWLIST_REFUSAL
@@ -139,7 +155,7 @@ def test_every_case_holds_and_the_database_is_migrated_first(tmp_path, capsys) -
     root = _answers(tmp_path, sso=True)
     assert boot_tool.main(["--database-url", _DATABASE, "--root", str(root)], run=child) == 0
     assert capsys.readouterr().out.splitlines() == [
-        "ok  SSO not configured: boots in production, ready",
+        "ok  SSO not configured: boots in production, ready, SSO mounted and refusing by name",
         "ok  SSO configured with OIDC_ALLOWED_EMAIL_DOMAINS: boots in production, ready, "
         "SSO mounted",
         "ok  SSO configured without an allowlist: refused in production, by name",
@@ -147,12 +163,16 @@ def test_every_case_holds_and_the_database_is_migrated_first(tmp_path, capsys) -
     (migrate, migrate_env), *boots = child.calls
     assert migrate[-4:] == ["migrate", "upgrade", "--app-root", str(root.resolve() / "app")]
     assert migrate_env["ENVIRONMENT"] == "production", "as the profile's one-shot runs it"
-    assert all(argv[-1] == boot_tool.PROBE for argv, _env in boots)
+    assert all(boot_tool.PROBE in argv for argv, _env in boots)
+    # Only the boot with no provider asks the route: a configured one would fetch discovery.
+    assert [argv[argv.index(boot_tool.PROBE) + 1 :] for argv, _env in boots] == [
+        [boot_tool.SSO_ASKED], [], [],
+    ]
     assert all(env["DATABASE_URL"] == _DATABASE for _argv, env in child.calls)
 
 
 def test_a_render_without_sso_is_booted_once(tmp_path, capsys) -> None:
-    child = _Child()
+    child = _Child(sso=False)
     root = _answers(tmp_path, sso=False)
     assert boot_tool.main(["--database-url", _DATABASE, "--root", str(root)], run=child) == 0
     assert capsys.readouterr().out == "ok  SSO not configured: boots in production, ready\n"
@@ -165,7 +185,7 @@ def test_a_tree_that_is_not_a_render_is_refused(tmp_path, capsys) -> None:
 
 
 def test_a_failed_migration_stops_the_boot(tmp_path, capsys) -> None:
-    child = _Child(migrate=1)
+    child = _Child(sso=False, migrate=1)
     root = _answers(tmp_path, sso=False)
     assert boot_tool.main(["--database-url", _DATABASE, "--root", str(root)], run=child) == 1
     assert capsys.readouterr().err == (
@@ -189,15 +209,38 @@ def test_a_boot_that_fails_says_so_with_its_output() -> None:
 
 def test_a_boot_that_is_not_ready_is_refused() -> None:
     with pytest.raises(boot_tool.BootError, match="answered 503, not 200"):
-        _boot(boot_tool.cases(sso=False)[0], _Child(ready=503))
+        _boot(boot_tool.cases(sso=False)[0], _Child(sso=False, ready=503))
 
 
-def test_sso_routes_must_be_mounted_exactly_where_sso_is_configured() -> None:
+def test_sso_routes_are_mounted_exactly_where_the_render_has_sso() -> None:
     off, listed, _unlisted = boot_tool.cases(sso=True)
+    (bare,) = boot_tool.cases(sso=False)
     with pytest.raises(boot_tool.BootError, match="the SSO routes are mounted"):
-        _boot(boot_tool.Case(off.name, listed.env), _Child())
-    with pytest.raises(boot_tool.BootError, match="the SSO routes are not mounted"):
-        _boot(boot_tool.Case(listed.name, {}, sso_mounted=True), _Child())
+        _boot(bare, _Child(sso=True))
+    # In every boot of a render with SSO, the one with no provider set included (ADR 0211).
+    for case in (off, listed):
+        with pytest.raises(boot_tool.BootError, match="the SSO routes are not mounted"):
+            _boot(case, _Child(sso=False))
+
+
+def test_a_route_mounted_with_no_provider_must_refuse_by_name() -> None:
+    """Mounted is half of it: a route that answered, or failed some other way, while no
+    provider is configured would be served in production with nothing behind it."""
+    off = boot_tool.cases(sso=True)[0]
+    for answered in ([200, None], [404, "not_found"], [503, "unavailable"], [500, None]):
+        with pytest.raises(boot_tool.BootError, match="must refuse by that name") as refused:
+            _boot(off, _Child(unconfigured=answered))
+        assert f"answered {answered}, not 503 sso_not_configured" in str(refused.value)
+        assert "allow_no_provider=True" in str(refused.value)
+    assert _boot(off, _Child()).endswith("SSO mounted and refusing by name")
+
+
+def test_what_it_waits_for_is_what_the_sso_module_answers_with_no_provider() -> None:
+    from terp.capabilities.oidc import SsoNotConfiguredError
+
+    error = SsoNotConfiguredError()
+    assert [error.status_code, error.code] == boot_tool.SSO_NOT_CONFIGURED
+    assert boot_tool.SSO_ASKED == boot_tool.SSO_ROUTE.replace("{provider}", "sso")
 
 
 def test_a_case_that_must_be_refused_and_boots_is_a_failure() -> None:

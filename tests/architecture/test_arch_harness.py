@@ -73,6 +73,7 @@ from terp.arch import (
     check_no_todo_fixme,
     check_no_dependency_overrides,
     check_no_raw_app_routes,
+    check_module_list_is_unconditional,
     check_no_raw_file_references,
     check_permission_gated_reads_disclose,
     check_no_manual_scope_filtering,
@@ -1177,6 +1178,84 @@ def test_no_adhoc_middleware(tmp_path: pathlib.Path) -> None:
     )
     _write(app, "modules/notes/mw.py", "from terp.core import SecurityConfig\n")
     assert check_no_adhoc_middleware(app) == []
+
+
+_MODULE_LIST_REFUSED = {
+    "a conditional expression among the elements": (
+        "def build():\n    return create_app([a, b if X else c])\n", 2),
+    "a conditional expression behind a star": (
+        "def build():\n    return t.create_app(modules=(a, *((b,) if X else ())))\n", 2),
+    "an append under an if": (
+        "def build():\n    modules = [a]\n    if X:\n        modules.append(b)\n"
+        "    return create_app(modules)\n", 4),
+    "an augmented assignment under a loop": (
+        "def build():\n    modules: list = [a]\n    for extra in EXTRAS:\n        modules += [extra]\n"
+        "    return create_app(modules)\n", 4),
+    "a reassignment in an error handler, at module level": (
+        "modules = [a]\ntry:\n    modules = modules + [b]\nexcept ImportError:\n    pass\n"
+        "app = create_app(modules)\n", 3),
+    "a filtering comprehension": (
+        "def build():\n    return create_app({m for m in (a, b) if m is not None})\n", 2),
+    "a filter": ("def build():\n    return create_app(list(filter(None, [a, b])))\n", 2),
+    "a helper that returns under a condition": (
+        "def _modules():\n    if X:\n        return [a]\n    return [a, b]\n"
+        "async def build():\n    return create_app(_modules())\n", 3),
+    "a condition in the caller, through a star parameter": (
+        "def _create(*specs, title):\n    return create_app(list(specs), title=title)\n"
+        "def build():\n    ms = [a]\n    if X:\n        ms += [b]\n    return _create(*ms, c, title='t')\n", 6),
+    "a condition in the caller, through a positional parameter": (
+        "def _create(title, specs):\n    return create_app(tuple(specs), title=title)\n"
+        "def build():\n    return _create('t', [a, b] if X else [a])\n", 4),
+    "a condition in the caller, through a keyword parameter": (
+        "def _create(*, specs):\n    return create_app(sorted(specs))\n"
+        "def build():\n    return _create(specs=[a] + ([b] if X else []))\n", 4),
+}
+
+_MODULE_LIST_TAKEN = {
+    "a literal": "def build():\n    return create_app([a, b], title='x')\n",
+    "steps with no condition": (
+        "def build():\n    modules = [a]\n    modules.append(b)\n    modules.extend([c])\n"
+        "    return create_app(modules)\n"),
+    "a comprehension that keeps every element": (
+        "def build():\n    return create_app([make(name) for name in NAMES])\n"),
+    "a helper that returns one list": (
+        "def _modules():\n    def inner():\n        if X:\n            return 1\n        return 2\n"
+        "    return [a, b]\ndef build():\n    return create_app(_modules())\n"),
+    "an imported helper, which the rule does not follow": (
+        "from app.wiring import modules\ndef build():\n    return create_app(modules(), x=1)\n"),
+    "a list under another name in the same scope": (
+        "def build():\n    others = [a]\n    if X:\n        others.append(b)\n    return create_app([a])\n"),
+    "no module list at all": "def build():\n    return create_app(title='x')\n",
+    "a helper that calls itself": (
+        "def _again(specs):\n    return _again(specs)\ndef build():\n    return create_app(_again([a]))\n"),
+    "a parameter nothing in the file passes": (
+        "def build(specs, *more, extra=()):\n    return create_app([*specs, *more, *extra])\n"),
+    "another call that is no create_app": "def build():\n    return factory()([a if X else b])\n",
+}
+
+
+@pytest.mark.parametrize("form", sorted(_MODULE_LIST_REFUSED))
+def test_module_list_is_unconditional(tmp_path: pathlib.Path, form: str) -> None:
+    """Which modules an app mounts may not depend on a setting (ADR 0211): the rule follows
+    the list handed to ``create_app`` back through the file, to every condition over it."""
+    source, line = _MODULE_LIST_REFUSED[form]
+    app = tmp_path / "app"
+    _write(app, "main.py", source)
+    found = check_module_list_is_unconditional(app)
+    assert [(v.rule, v.path, v.line) for v in found] == [
+        ("module_list_is_unconditional", "app/main.py", line)
+    ], form
+    assert "mount the module always, and let its routes refuse while it is not configured" in found[0].message
+
+
+@pytest.mark.parametrize("form", sorted(_MODULE_LIST_TAKEN))
+def test_module_list_is_unconditional_takes_a_list_no_condition_decides(
+    tmp_path: pathlib.Path, form: str
+) -> None:
+    app = tmp_path / "app"
+    _write(app, "main.py", _MODULE_LIST_TAKEN[form])
+    _write(app, "other.py", "VALUE = 1 if X else 2\n")  # a file that composes nothing
+    assert check_module_list_is_unconditional(app) == [], form
 
 
 def test_no_raw_app_routes(tmp_path: pathlib.Path) -> None:

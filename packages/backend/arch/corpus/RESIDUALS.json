@@ -8,6 +8,11 @@
       "an operation made in a helper function that `upgrade()` calls, or through an alias of the operations handle under a method name no operation has, is not required to be seen: the reference stack's migration run refuses it as it executes, which is the half of the rule that sees every operation",
       "the order of operations inside one revision is not required to be followed: an operation on a table, or over a column, that the same revision creates or adds is admitted wherever it sits in `upgrade()`, while the run admits it only after the creation"
     ],
+    "backend/module_list_is_unconditional": [
+      "a module list built in another file than the one that calls `create_app` (imported as a name, or returned by an imported function) is not required to be followed: the rule reads one file at a time",
+      "a module object that is itself `None` under a condition (`oidc_module = build(...) if ISSUER else None` in another file) and is then named unconditionally is not required to be seen: `create_app` refuses a list entry that is no module, so the form fails at composition where the condition does not hold",
+      "a list chosen by a boolean operator (`modules or defaults`) or by an index into a table of lists is not required to be seen"
+    ],
     "backend/no_destructive_migrations": [
       "a statement the source does not spell out (a variable, a value a helper returns, a query-builder construct such as `op.execute(notes.delete())`, a file read at run time) is not required to be read: only a statement written as a literal, an f-string or a concatenation of strings is",
       "an operation whose name is computed (`getattr(op, name)(...)` with a name that is not a literal, source text run through `exec`) is not required to be read: an operation is read under its own name, under a name the revision imports it as at its top level, or through `getattr` with a literal name",

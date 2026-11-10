@@ -279,6 +279,9 @@ Two boundaries are never autonomous agent decisions:
 11. **A module ships tests.** Every wired `modules/<name>` needs at least one, in
    `tests/<name>/test_*.py` (what `terp scaffold` emits) or a flat
    `tests/test_<name>_*.py`. The gate refuses a module with neither.
+   The modules `app/main.py` hands to `create_app` are the same in every environment:
+   never add one under a condition (`module_list_is_unconditional`). A module whose
+   configuration is per environment is mounted always and refuses while it has none.
 12. **Production refuses several boots the inner loop only warns about.** Each is
    decided by what the control plane declares, so each is fixable here and now:
    - CORS is declared — `CorsPolicy.from_environment()`, which takes the browser origins

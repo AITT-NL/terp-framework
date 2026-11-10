@@ -26,6 +26,7 @@ from terp.capabilities.oidc.operations import (
 from terp.capabilities.oidc.router import (
     IdentityResolver,
     SecretResolver,
+    SsoNotConfiguredError,
     build_oidc_module,
     build_oidc_router,
 )
@@ -57,6 +58,7 @@ __all__ = [
     "PendingAuthorization",
     "ProviderUnavailableError",
     "SecretResolver",
+    "SsoNotConfiguredError",
     "build_oidc_module",
     "build_oidc_router",
     "code_challenge_s256",

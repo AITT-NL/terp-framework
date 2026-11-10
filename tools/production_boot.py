@@ -17,9 +17,11 @@ installs are discovered):
    started, and ``/health/ready`` must answer 200.
 
 The cases: SSO not configured, which every render must boot. An app whose recorded answers
-say ``use_sso: true`` boots twice more: SSO configured with ``OIDC_ALLOWED_EMAIL_DOMAINS``,
-which boots with the SSO routes mounted; and SSO configured without it, which must be
-refused, in the federated-identity service's own words.
+say ``use_sso: true`` mounts its SSO routes in that boot too, because the modules an app
+mounts do not depend on a setting (ADR 0211), and the route must then refuse by name as not
+configured. It boots twice more: SSO configured with ``OIDC_ALLOWED_EMAIL_DOMAINS``, which
+boots with the same routes mounted; and SSO configured without it, which must be refused,
+in the federated-identity service's own words.
 
 Usage, from the rendered app::
 
@@ -42,11 +44,13 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 #: What the child interpreter runs: build the app by importing it, start its lifespan, ask
-#: for readiness, and say which of the routes this tool asks about are mounted. Stdlib only,
-#: so it needs nothing the rendered app does not install.
+#: for readiness, say which of the routes this tool asks about are mounted, and ask each path
+#: given as an argument, reporting its status and the code of its error envelope. Stdlib
+#: only, so it needs nothing the rendered app does not install.
 PROBE = r"""
 import asyncio
 import json
+import sys
 
 from app.main import app
 
@@ -71,7 +75,17 @@ async def _get(path):
         sent.append(message)
 
     await app(scope, receive, send)
-    return next(m["status"] for m in sent if m["type"] == "http.response.start")
+    status = next(m["status"] for m in sent if m["type"] == "http.response.start")
+    body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+    return status, body
+
+
+def _code(body):
+    try:
+        answer = json.loads(body)
+    except ValueError:
+        return None
+    return answer.get("code") if isinstance(answer, dict) else None
 
 
 async def main():
@@ -81,12 +95,16 @@ async def main():
     started = await outbox.get()
     if started["type"] != "lifespan.startup.complete":
         raise SystemExit(f"lifespan startup failed: {started}")
-    ready = await _get("/health/ready")
+    ready, _ = await _get("/health/ready")
+    asked = {}
+    for path in sys.argv[1:]:
+        status, body = await _get(path)
+        asked[path] = [status, _code(body)]
     await inbox.put({"type": "lifespan.shutdown"})
     await outbox.get()
     await task
     paths = sorted(app.openapi()["paths"])
-    print(json.dumps({"ready": ready, "paths": paths}))
+    print(json.dumps({"ready": ready, "paths": paths, "asked": asked}))
 
 
 asyncio.run(main())
@@ -94,6 +112,11 @@ asyncio.run(main())
 
 #: The route the SSO module mounts for the provider the template names ``sso``.
 SSO_ROUTE = "/api/v1/oidc/{provider}/authorize"
+
+#: That route as a client asks it, and what it must answer while no provider is configured:
+#: the status and the code of ``SsoNotConfiguredError`` (terp.capabilities.oidc, ADR 0211).
+SSO_ASKED = "/api/v1/oidc/sso/authorize"
+SSO_NOT_CONFIGURED = [503, "sso_not_configured"]
 
 #: The refusal FederatedIdentityService raises in production for provisioning with no
 #: allowlist (terp.capabilities.identity.federated).
@@ -116,14 +139,18 @@ class Case:
     name: str
     env: dict[str, str] = field(default_factory=dict)
     sso_mounted: bool = False
+    #: The mounted routes must refuse as not configured: no provider is set in this boot.
+    sso_refuses: bool = False
     refused_with: str | None = None
 
 
 def cases(*, sso: bool, secret: Callable[[], str] = secrets.token_urlsafe) -> list[Case]:
     """The boot cases for an app rendered with or without single sign-on."""
-    off = Case("SSO not configured")
     if not sso:
-        return [off]
+        return [Case("SSO not configured")]
+    # The same routes in every boot of a render with SSO (ADR 0211): with no provider set
+    # they are mounted and refuse, so the access check sees one app wherever it runs.
+    off = Case("SSO not configured", sso_mounted=True, sso_refuses=True)
     oidc = {
         # Never contacted: discovery is fetched on the first sign-in, not at boot.
         "OIDC_ISSUER": "https://idp.example.test",
@@ -188,8 +215,10 @@ def boot(
 ) -> str:
     """Boot *case* in a fresh interpreter and hold it to what it must do."""
     env = production_env(database_url, case, dict(os.environ))
+    asked = [SSO_ASKED] if case.sso_refuses else []
     done = run(
-        [python, "-c", PROBE], cwd=root, env=env, capture_output=True, text=True, check=False
+        [python, "-c", PROBE, *asked],
+        cwd=root, env=env, capture_output=True, text=True, check=False,
     )
     output = f"{done.stdout}{done.stderr}"
     if case.refused_with is not None:
@@ -209,7 +238,17 @@ def boot(
     if mounted != case.sso_mounted:
         state = "mounted" if mounted else "not mounted"
         raise BootError(f"{case.name}: the SSO routes are {state}")
-    return f"{case.name}: boots in production, ready" + (", SSO mounted" if mounted else "")
+    if not case.sso_refuses:
+        return f"{case.name}: boots in production, ready" + (", SSO mounted" if mounted else "")
+    answered = report.get("asked", {}).get(SSO_ASKED)
+    if answered != SSO_NOT_CONFIGURED:
+        status, code = SSO_NOT_CONFIGURED
+        raise BootError(
+            f"{case.name}: {SSO_ASKED} answered {answered}, not {status} {code}. A route "
+            "mounted while single sign-on is not configured must refuse by that name: build "
+            "the module with allow_no_provider=True"
+        )
+    return f"{case.name}: boots in production, ready, SSO mounted and refusing by name"
 
 
 def main(argv: Sequence[str] | None = None, *, run: Runner = subprocess.run) -> int:

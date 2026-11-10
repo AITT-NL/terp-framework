@@ -130,6 +130,16 @@ a guard to make a change pass:
    data that is not declared, and one that only looks personal (an organisation's
    support address) says why with its opt-out marker. Detail: `terp guide personal-data`.
 
+9. **Mount the same modules in every environment** — never add a module to the list
+   `create_app` takes under a condition (an `if` on a setting, a module that is `None`
+   somewhere, a filtered list). The access check records the routes of the app it
+   composes, wherever it runs, so a module mounted only where a setting is present is
+   served in one environment and unseen in another. Mount it always and let its routes
+   refuse while it is not configured: `build_oidc_module(providers, resolver,
+   allow_no_provider=True)` answers `sso_not_configured` with an empty provider list. The
+   `module_list_is_unconditional` rule refuses the conditional form. Detail:
+   `terp guide capability`.
+
 ## Frontend conventions
 
 Frontend UI composes the **`@terpjs/react-core` component surface** — the catalog lives
