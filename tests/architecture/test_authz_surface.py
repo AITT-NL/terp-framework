@@ -357,6 +357,50 @@ def test_a_pinned_tree_whose_app_cannot_be_composed_is_red(
     assert "nothing was checked" in output
 
 
+def _refusing_app():
+    """A factory `create_app` refuses: a public module with a mutating route."""
+    router = APIRouter()
+
+    @router.post("/thing")
+    def write_thing() -> dict:
+        return {}
+
+    return _compose(router, Policy.public(reason="a public probe"))
+
+
+def _uncomposed_app():
+    """An app `create_app` never composed: it carries no access-graph state."""
+    from fastapi import FastAPI
+
+    return FastAPI()
+
+
+@pytest.mark.parametrize(
+    ("factory", "named"),
+    [("_refusing_app", "BootError"), ("_uncomposed_app", "not composed by terp.core.create_app")],
+)
+def test_an_app_that_does_not_compose_is_the_red_answer_whatever_stopped_it(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, factory: str, named: str
+) -> None:
+    """Only a failed import was caught. A factory that refused to boot, or an app with no
+    access-graph state, left the check as a traceback: still red, but with no
+    `authority_state`, so a tool reading the JSON had nothing to show a person."""
+    import terp.cli.verify as verify_module
+
+    (tmp_path / SURFACE_ARTIFACT).write_text('{"authz_surface": 1}', encoding="utf-8")
+    ref = f"tests.architecture.test_authz_surface:{factory}"
+    monkeypatch.setattr(verify_module, "_DEFAULT_APP_REF", ref)
+
+    exit_code, output = _run_authz_surface(tmp_path)
+    assert exit_code == 1
+    assert ref in output and named in output
+    assert "nothing was checked" in output
+
+    found = verdict(tmp_path, ref, "")
+    assert found.fields["authority_state"] == "unseen"
+    assert [item["kind"] for item in found.fields["authority_unseen"]] == ["not_composed"]
+
+
 # --------------------------------------------------------------------------- #
 # what the surface cannot see is red, never a pass
 # --------------------------------------------------------------------------- #
