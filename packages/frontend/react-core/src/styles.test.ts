@@ -131,10 +131,29 @@ afterEach(() => {
   document.querySelectorAll(`style#${TERP_STYLES_ID}`).forEach((node) => node.remove());
 });
 
+/**
+ * Run *body* in a document with no `adoptedStyleSheets`, the one the injector's `<style>`
+ * route is for. jsdom 31 gave the document that property, so a test that means the element
+ * route has to say so: left to the environment, the injector adopts a sheet and appends
+ * no element, and these tests would read whichever route the installed jsdom happens to take.
+ */
+function withoutAdoptedStyleSheets(body: () => void): void {
+  Object.defineProperty(document, "adoptedStyleSheets", {
+    configurable: true,
+    get: () => undefined,
+  });
+  try {
+    body();
+  } finally {
+    delete (document as unknown as { adoptedStyleSheets?: unknown }).adoptedStyleSheets;
+  }
+}
+
 describe("injectTerpStyles", () => {
   it("adopts a constructable stylesheet when the document supports one", () => {
-    // jsdom exposes the CSSStyleSheet constructor but not document.adoptedStyleSheets,
-    // so the property is defined here to reach the branch a real browser takes. That
+    // jsdom below 31 exposes the CSSStyleSheet constructor but not
+    // document.adoptedStyleSheets, and the test reads what was adopted, so the property
+    // is defined here whichever jsdom runs it, to reach the branch a real browser takes. That
     // branch is the whole point of the injector: an adopted sheet is not governed by
     // CSP's style-src, so a generated app needs no 'unsafe-inline' — measured in
     // Chromium, where a <style> element is reported as style-src-elem and dropped.
@@ -165,9 +184,11 @@ describe("injectTerpStyles", () => {
   });
 
   it("appends the stylesheet once and is idempotent on re-invocation", () => {
-    injectTerpStyles();
-    injectTerpStyles();
-    injectTerpStyles();
+    withoutAdoptedStyleSheets(() => {
+      injectTerpStyles();
+      injectTerpStyles();
+      injectTerpStyles();
+    });
     const nodes = document.querySelectorAll(`style#${TERP_STYLES_ID}`);
     expect(nodes.length).toBe(1);
     expect(nodes[0]?.textContent ?? "").toContain("data-terp");
@@ -176,7 +197,7 @@ describe("injectTerpStyles", () => {
   });
 
   it("themes scrollbars against the token palette (thin, not the OS default)", () => {
-    injectTerpStyles();
+    withoutAdoptedStyleSheets(() => injectTerpStyles());
     const sheet = document.querySelector(`style#${TERP_STYLES_ID}`)?.textContent ?? "";
     expect(sheet).toContain("scrollbar-width: thin");
     expect(sheet).toContain("scrollbar-color: var(--color-neutral-300) transparent");
