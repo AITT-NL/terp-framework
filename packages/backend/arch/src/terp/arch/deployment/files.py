@@ -17,6 +17,7 @@ import os
 import pathlib
 from typing import Any
 
+from terp.arch.deployment import _jsonschema
 from terp.arch.deployment.datastores import DatastoreTable
 from terp.arch.deployment.tables import SystemPackageTable
 from terp.arch.deployment.reader import (
@@ -51,7 +52,7 @@ def _once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     found: dict[str, Any] = {}
     for key, value in pairs:
         if key in found:
-            raise DuplicateKeyError(f"the key {json.dumps(key)} appears twice in one object")
+            raise DuplicateKeyError(f"the key {json.dumps(key[:64])} appears twice in one object")
         found[key] = value
     return found
 
@@ -104,7 +105,7 @@ def path_findings(project_root: pathlib.Path, declaration: Declaration) -> list[
     checkout = checkout_root(project_root)
     development = os.path.normcase(str(development_compose_file(project_root)))
     written, by_declaration = development_compose_name(project_root)
-    named = f"{' the development declaration names' if by_declaration else ''} ({written})"
+    named = f"{' the development declaration names' if by_declaration else ''} ({_jsonschema.name(written)})"
     findings: list[Finding] = []
     for index, name in enumerate(declaration.profile_files):
         field = "compose.file" if index == 0 else f"compose.overrides[{index - 1}]"

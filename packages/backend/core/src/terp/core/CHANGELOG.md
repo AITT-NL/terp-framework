@@ -54,6 +54,17 @@ decision, 0001 onwards.
   size of `NaN` cores passed `terp check` and `terp promote` and was refused at the deploy.
   Each is now `deployment.json is not strict JSON`, naming the constant.
 
+- **A deployment refusal never carries a name from a file raw or whole (ADR 0187).** 0.41.0
+  escaped a key or a value in a finding, and four places still wrote file text as it stood:
+  the path of a deploy-policy key under an odd key, the web units a recipe refusal lists,
+  the development compose file `workbench.json` names, and the key of a duplicate-key
+  refusal, which was escaped but written at its whole length. Each is now written plainly
+  when it is an ordinary name, and otherwise as ASCII JSON cut at 64 characters, so neither
+  an escape sequence nor a megabyte of text reaches a terminal or a CI log. A dot inside a
+  key above a policy key is no longer read as a deeper step. The escaping of a quoted value's
+  U+007F to U+009F and the 64-character cut of a key in a path, both in 0.41.0, had a test
+  that could not fail; they have ones that do.
+
 ## 0.41.0 — 2026-11-10
 
 ### Security

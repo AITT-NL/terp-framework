@@ -89,12 +89,82 @@ def test_a_key_with_a_control_character_is_written_escaped_never_raw() -> None:
 
 
 def test_a_value_with_an_eight_bit_control_character_is_written_escaped() -> None:
-    """``json.dumps`` writes U+007F to U+009F as they are; the message escapes them."""
+    """``json.dumps`` writes U+007F to U+009F as they are; the message escapes them.
+
+    The value is ``build``'s, an enum, so the message quotes it: a string under a pattern
+    is refused for the control character before anything quotes it, and proved nothing here.
+    """
     raw = seed()
-    unit(raw, "api")["healthPath"] = "/health\u009b31m"
+    raw["build"] = "own\u009b31m"
     message = _messages(raw)
     assert "\u009b" not in message
-    assert "U+009B" in message or "\\u009b" in message
+    assert 'build is "own\\u009b31m"' in message
+
+
+def test_a_key_longer_than_64_characters_is_cut_in_a_path() -> None:
+    raw = seed()
+    raw["k" * 300 + " "] = 1
+    message = _messages(raw)
+    assert f'["{"k" * 64}"] is not a field of the declaration' in message
+    assert "k" * 65 not in message
+
+
+def test_a_key_written_twice_is_named_cut(tmp_path: pathlib.Path) -> None:
+    """The duplicate-key refusal quoted the key whole: a megabyte key, a megabyte finding."""
+    key = "k" * 300
+    with pytest.raises(DuplicateKeyError) as refused:
+        loads(f'{{"{key}": 1, "{key}": 2}}')
+    assert str(refused.value) == f'the key "{"k" * 64}" appears twice in one object'
+
+
+def test_a_policy_key_under_an_odd_key_is_named_by_an_escaped_path() -> None:
+    """The deploy-policy refusal built its own path with a dot, so a parent key's control
+    character reached the message, and a dot inside a key passed for a deeper step."""
+    raw = seed()
+    raw["x\u001b[31m"] = {"approvals": 1}
+    raw["$note"] = {"a.b": {"approvals": 1}}
+    message = _messages(raw)
+    assert "\u001b" not in message
+    assert '["x\\u001b[31m"].approvals is deploy policy' in message
+    assert '$note["a.b"].approvals is deploy policy' in message
+
+
+def test_the_web_units_a_recipe_refusal_names_are_written_escaped() -> None:
+    """They are read before the schema has refused a bad id, so an id is written as a path
+    writes a key; terp-runner writes the same list the same way."""
+    raw = _generated()
+    unit(raw, "web")["id"] = "we\u001b[31mb\u009b"
+    raw["generator"] = {"recipes": {"-web": "static-site"}}
+    message = _messages(raw)
+    assert "\u001b" not in message and "\u009b" not in message
+    assert '(allowed: a declared web unit\'s id: "we\\u001b[31mb\\u009b")' in message
+
+
+@pytest.mark.parametrize(
+    ("written", "shown"),
+    [
+        ("\u001b[31mX/../docker-compose.prod.yml", '"\\u001b[31mX/../docker-compose.prod.yml"'),
+        ("./" * 2000 + "docker-compose.prod.yml", '"' + "./" * 32 + '"'),
+        ("./docker-compose.prod.yml", "./docker-compose.prod.yml"),
+    ],
+)
+def test_the_development_compose_file_is_named_escaped_and_cut(
+    tmp_path: pathlib.Path, written: str, shown: str
+) -> None:
+    """``workbench.json``'s ``compose.file`` is read with no schema on this path, and the
+    refusal quoted it as written: raw, and at its whole length."""
+    raw = seed()
+    profile = raw["compose"]["file"]
+    assert profile == "docker-compose.prod.yml"
+    (tmp_path / "deployment.json").write_text(json.dumps(raw), encoding="utf-8")
+    (tmp_path / profile).write_text("services: {}\n", encoding="utf-8")
+    (tmp_path / "workbench.json").write_text(
+        json.dumps({"compose": {"file": written}}), encoding="utf-8"
+    )
+    _declared, findings = load(tmp_path, published_table())
+    (message,) = [f.message for f in findings if "is the development compose file" in f.message]
+    assert message.endswith(f"never the development one the development declaration names ({shown}))")
+    assert "\u001b" not in message
 
 
 # --- each refusal in the vocabulary's own words --------------------------------------

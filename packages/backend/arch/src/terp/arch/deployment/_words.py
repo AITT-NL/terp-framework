@@ -18,6 +18,7 @@ import json
 import re
 from typing import Any
 
+from terp.arch.deployment import _jsonschema
 from terp.arch.deployment._jsonschema import Problem
 
 #: The document itself, in a message.
@@ -173,7 +174,9 @@ def policy_key_paths(node: Any, keys: tuple[str, ...], path: str = "") -> list[s
     found: list[str] = []
     if isinstance(node, dict):
         for key, value in node.items():
-            child = f"{path}.{key}" if path else str(key)
+            # The join every other path uses: an odd key is written escaped and cut, and a
+            # dot inside one is no deeper step.
+            child = _jsonschema._join(path, str(key))
             if key in keys:
                 found.append(child)
             found.extend(policy_key_paths(value, keys, child))
@@ -198,7 +201,8 @@ def web_units(document: Any) -> str:
         for unit in (units if isinstance(units, list) else [])
         if isinstance(unit, dict) and unit.get("role") == "web" and isinstance(unit.get("id"), str)
     )
-    return ", ".join(ids) or "none"
+    # Read before the schema has refused a bad id, so each is written as a path writes a key.
+    return ", ".join(_jsonschema.name(ident, _jsonschema._PLAIN_KEY) for ident in ids) or "none"
 
 
 def _allowed(path: str, problem: Problem, document: Any, kinds: dict[str, tuple[str, ...]]) -> str:

@@ -162,6 +162,17 @@ def _show(value: Any) -> str:
 _PLAIN_KEY = re.compile(r"[A-Za-z0-9_$-]{1,64}")
 
 
+#: A name written plainly in a message: a path as a file writes one. Anything else is
+#: written by :func:`name`.
+_PLAIN_NAME = re.compile(r"[A-Za-z0-9_$./-]{1,128}")
+
+
+def name(text: str, plain: re.Pattern[str] = _PLAIN_NAME) -> str:
+    """*text* from a file, for a message: plain when it is an ordinary name, else ASCII JSON
+    cut at 64 characters, so it can carry neither a control character nor its whole length."""
+    return text if plain.fullmatch(text) else json.dumps(text[:64], ensure_ascii=True)
+
+
 def _join(path: str, key: str | int) -> str:
     if isinstance(key, int):
         return f"{path}[{key}]"
