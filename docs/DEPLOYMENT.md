@@ -18,7 +18,8 @@ browser ──► web (nginx, port 8080)
 ```
 
 - The SPA is served **same-origin** with the API behind nginx, so production needs no
-  CORS configuration (`BACKEND_CORS_ORIGINS` stays empty unless you split origins).
+  CORS configuration (`BACKEND_CORS_ORIGINS` stays empty unless you split origins; an app
+  that declares `CorsPolicy.from_environment()` allows the origins it names, ADR 0210).
 - `migrate` runs to completion before `api` starts (`service_completed_successfully`);
   the app's fail-closed boot guard (`PendingMigrationsError`, ADR 0027) backs the
   ordering up at runtime — an API with a stale schema refuses to serve.
@@ -59,7 +60,7 @@ weak `SECRET_KEY`, `DEBUG=true`, SQLite, CORS `*`, or an insecure refresh cookie
 | `POSTGRES_PASSWORD` | yes | Bundled Postgres; compose fails fast when unset |
 | `TERP_RELEASE_TAG` | yes | The tag of this release's images, `<project>-backend-prod:<tag>` and `<project>-frontend-prod:<tag>` (ADR 0185), and a static site's `<project>-site-prod:<tag>` (ADR 0198): a Docker tag, new for every release, so the previous release's images stay on the host and can be started again. Compose fails fast when unset; it cannot tell a stale value from a new one, so set it per release. Platform-owned: `environment.schema.json` may not declare it |
 | `DATABASE_URL` | derived | Defaults to the bundled `db` service. Set it to run on a managed/external PostgreSQL — then also drop the `db` service (and the `depends_on` waiting on it) with a compose override |
-| `BACKEND_CORS_ORIGINS` | no | Deny-by-default; only for cross-origin SPAs, never `*` |
+| `BACKEND_CORS_ORIGINS` | no | The browser origins that may call the API, as a JSON list, for a control plane that declares `CorsPolicy.from_environment()` (ADR 0210); empty serves none. An entry that is not an origin refuses the boot, and so does `*`. A control plane that declares its CORS in source does not read it |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_TIMEOUT` / `DB_POOL_RECYCLE` | no | Pool tuning (ADR 0024) |
 | `REFRESH_TOKEN_TTL_SECONDS` / `REFRESH_FAMILY_TTL_SECONDS` | no | Session windows (ADR 0054) |
 | `REFRESH_COOKIE_SECURE` | no | Derived on in production; do not disable |

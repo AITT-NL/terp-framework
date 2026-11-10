@@ -43,7 +43,11 @@ NON_PRODUCTION_CREDENTIAL_RATE_LIMIT = RateLimit(requests=1_000, window_seconds=
 control_plane = ControlPlane(
     permissions=PermissionModel.default(),
     security=SecurityConfig(
-        cors=CorsPolicy.disabled(reason="server-to-server"),
+        # The browser origins that may call the API are each environment's own, so they are
+        # read from BACKEND_CORS_ORIGINS when the app is composed (ADR 0210). An environment
+        # that names none serves no cross-origin access, which is what this app needs until
+        # a client on another origin exists.
+        cors=CorsPolicy.from_environment(),
         # One hop IN PRODUCTION, because that is the stack that has one:
         # `docker-compose.prod.yml` puts the `web` container in front and its nginx
         # appends the caller to `X-Forwarded-For`, and `api` publishes no port of its

@@ -29,6 +29,26 @@ decision, 0001 onwards.
   An app that pins its surface and passed on 0.41.0 may turn red on this release: that is a
   route the check could not see before. Declare it on the module's own router.
 
+### Added
+
+- **`CorsPolicy.from_environment()`: the browser origins an API allows are each
+  environment's own (ADR 0210).** `BACKEND_CORS_ORIGINS` never allowed anything: it was read
+  only to refuse `*`, while the allowlist came from `CorsPolicy.allow([...])` in source. An
+  origin an operator or a deploy tool wrote there was accepted without a word and refused by
+  the browser. A control plane that declares `CorsPolicy.from_environment()` now takes its
+  allowlist from that variable when the app is composed. An environment that names no origin
+  serves no cross-origin access. An entry that is not an origin as a browser sends one (a
+  path, a trailing slash, an upper-case host, `*`) refuses the boot in every environment and
+  names the form it should take, because the comparison is exact and such an entry would
+  never match.
+
+  The template declares it, with and without a frontend, so a new app behaves as before
+  where the variable is empty, and a deploy tool's per-environment origins take effect with
+  no change to the app. An existing app adopts it by changing its `cors=` line or with
+  `copier update`. An app that declares its CORS in source and has the variable set gets
+  one warning at boot that the control plane does not read it. `terp inspect control-plane`
+  shows the fourth mode, `from-environment`.
+
 ### Changed
 
 - **A generated app's production images build on the bases as rebuilt on 5 November.**

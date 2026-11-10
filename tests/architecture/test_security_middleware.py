@@ -932,6 +932,106 @@ def test_create_app_refuses_unset_cors_in_production(monkeypatch: pytest.MonkeyP
         create_app([ModuleSpec(name="ok", policy=Policy.default())], control_plane=plane)
 
 
+# --------------------------------------------------------------------------- #
+# CorsPolicy.from_environment (ADR 0210)
+# --------------------------------------------------------------------------- #
+_FROM_ENVIRONMENT = SecurityConfig(cors=CorsPolicy.from_environment())
+
+
+def test_cors_from_environment_is_a_declaration_with_no_origin_of_its_own() -> None:
+    cors = CorsPolicy.from_environment()
+    assert cors.configured and cors.origins_from_environment
+    assert cors.allow_origins == () and not cors.enabled
+    assert SecurityConfig(cors=cors).production_problems() == []
+
+
+def test_the_origins_an_environment_names_are_the_ones_served(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The variable opened nothing: it was read only to refuse ``*``, so an origin a deploy
+    tool wrote there was refused by the browser. A plane that declares it reads its
+    origins from the environment serves exactly the ones named."""
+    monkeypatch.setattr(settings, "BACKEND_CORS_ORIGINS", ["https://site.example.com"])
+    client = TestClient(_probe_app(_FROM_ENVIRONMENT))
+    named = client.get("/api/v1/probe/ping", headers={"Origin": "https://site.example.com"})
+    assert named.headers["access-control-allow-origin"] == "https://site.example.com"
+    other = client.get("/api/v1/probe/ping", headers={"Origin": "https://other.example.com"})
+    assert "access-control-allow-origin" not in other.headers
+
+
+def test_an_environment_that_names_no_origin_serves_no_cross_origin_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "BACKEND_CORS_ORIGINS", [])
+    response = TestClient(_probe_app(_FROM_ENVIRONMENT)).get(
+        "/api/v1/probe/ping", headers={"Origin": "https://site.example.com"}
+    )
+    assert response.status_code == 200
+    assert "access-control-allow-origin" not in response.headers
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "*",
+        "https://site.example.com/",
+        "https://site.example.com/app",
+        "https://Site.example.com",
+        "site.example.com",
+        "ftp://site.example.com",
+        "https://user@site.example.com",
+        "https://site.example.com:port",
+        "",
+    ],
+)
+def test_an_entry_that_is_not_an_origin_refuses_the_boot_in_every_environment(
+    monkeypatch: pytest.MonkeyPatch, origin: str
+) -> None:
+    """The comparison with a browser's ``Origin`` is exact, so an entry in another form
+    never matches. It refuses the boot and names the form, where it used to open nothing
+    with nothing in any log."""
+    monkeypatch.setattr(settings, "BACKEND_CORS_ORIGINS", ["https://ok.example.com", origin])
+    with pytest.raises(BootError, match="is not a browser origin") as refused:
+        _probe_app(_FROM_ENVIRONMENT)
+    assert repr(origin) in str(refused.value)
+    assert "such as https://app.example.com" in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    "origin",
+    ["https://site.example.com", "http://localhost:5173", "https://10.0.0.5:8443", "http://[::1]:3000"],
+)
+def test_an_origin_as_a_browser_sends_it_is_taken(
+    monkeypatch: pytest.MonkeyPatch, origin: str
+) -> None:
+    monkeypatch.setattr(settings, "BACKEND_CORS_ORIGINS", [origin])
+    response = TestClient(_probe_app(_FROM_ENVIRONMENT)).get(
+        "/api/v1/probe/ping", headers={"Origin": origin}
+    )
+    assert response.headers["access-control-allow-origin"] == origin
+
+
+def test_a_plane_that_does_not_read_the_variable_says_so_when_it_is_set(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A setting that silently does nothing is how the gap went unnoticed: the origins are
+    still not served, and the boot says the control plane does not read them."""
+    monkeypatch.setattr(settings, "BACKEND_CORS_ORIGINS", ["https://site.example.com"])
+    security = SecurityConfig(cors=CorsPolicy.disabled(reason="api only"))
+    with caplog.at_level("WARNING", logger="terp.core"):
+        client = TestClient(_probe_app(security))
+    assert "BACKEND_CORS_ORIGINS names 1 origin(s) and the control plane does not read" in caplog.text
+    assert "CorsPolicy.from_environment()" in caplog.text
+    response = client.get("/api/v1/probe/ping", headers={"Origin": "https://site.example.com"})
+    assert "access-control-allow-origin" not in response.headers
+
+    caplog.clear()
+    monkeypatch.setattr(settings, "BACKEND_CORS_ORIGINS", [])
+    with caplog.at_level("WARNING", logger="terp.core"):
+        _probe_app(security)
+    assert "BACKEND_CORS_ORIGINS" not in caplog.text
+
+
 def _docs_paths(app) -> set[str]:
     return {getattr(route, "path", "") for route in app.routes} & {
         "/docs",

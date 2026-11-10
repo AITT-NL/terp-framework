@@ -14,7 +14,6 @@ with it owning ``Policy`` / ``Roles``.
 from __future__ import annotations
 
 import collections.abc
-import dataclasses
 import logging
 import re
 import uuid
@@ -106,6 +105,7 @@ from terp.core.routing import (
     route_permission_names,
 )
 from terp.core.security import RateLimit, SecurityConfig
+from terp.core._settings_plane import plane_from_settings
 from terp.core.throttling import InMemoryThrottleStore, ThrottleStore, is_shared_throttle_store
 from terp.core.permissions import LabelCoverage, PermissionModel, Role, as_role
 
@@ -1453,34 +1453,6 @@ def _warn_unshared_throttle_in_production(
     )
 
 
-def _with_settings_job_actor(plane: ControlPlane) -> ControlPlane:
-    """Fill an unset ``job_system_actor_id`` from ``JOB_SYSTEM_ACTOR_ID`` (ADR 0129).
-
-    ADR 0125 established that a declared job must name the actor its writes are
-    stamped with, and refused a platform-wide sentinel: an FK-less constant would
-    store fine and resolve to no principal anywhere, which is the same defect wearing
-    a value. That reasoning is about the *default*, and it left the *delivery* to every
-    app — so each one that declared a job hand-rolled the same env read, UUID parse and
-    error path for a fact that is not a source constant at all. The id belongs to a
-    service principal in a particular database, and one image runs against several.
-
-    So the settings object carries the conventional address and this is where it lands.
-    An explicit ``ControlPlane(job_system_actor_id=...)`` still wins, because an app
-    that resolves the principal some other way must keep saying so. Unset in both
-    places is unchanged from before: ``production_problems`` reports it and production
-    refuses the boot.
-
-    Runs before that refusal is read, which is the whole point — resolving afterwards
-    would refuse a boot over a value the process already had.
-    """
-    if plane.job_system_actor_id is not None:
-        return plane
-    from_settings = get_settings().JOB_SYSTEM_ACTOR_ID
-    if from_settings is None:
-        return plane
-    return dataclasses.replace(plane, job_system_actor_id=from_settings)
-
-
 def _warn_unstamped_background_writes(plane: ControlPlane) -> None:
     """Say plainly, outside production, that a declared job writes rows with no actor.
 
@@ -2165,7 +2137,9 @@ def create_app(
 
     _validate_unique_spec_names(collected)
     validate_requires(collected)
-    resolved_plane = _with_settings_job_actor(control_plane or ControlPlane.default())
+    resolved_plane, unusable = plane_from_settings(control_plane or ControlPlane.default())
+    if unusable is not None:
+        raise BootError(f"{unusable} — see: terp guide security")
     plane_errors = resolved_plane.validation_errors(collected)
     if plane_errors:
         raise BootError("; ".join(plane_errors))
