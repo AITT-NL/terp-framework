@@ -30,7 +30,7 @@ import json
 import pathlib
 from typing import Any
 
-from terp.arch.deployment import _jsonschema
+from terp.arch.deployment import _jsonschema, _words
 from terp.arch.deployment.model import (
     DEPLOYMENT_FILE,
     Backup,
@@ -133,21 +133,6 @@ def role_resolved_fields() -> tuple[str, ...]:
     return _vocabulary("roleResolvedFields")
 
 
-def _policy_key_paths(node: Any, path: str = "") -> list[str]:
-    """Where a deploy-policy key appears as a key, at any depth."""
-    found: list[str] = []
-    if isinstance(node, dict):
-        for key, value in node.items():
-            child = f"{path}.{key}" if path else str(key)
-            if key in deploy_policy_keys():
-                found.append(child)
-            found.extend(_policy_key_paths(value, child))
-    elif isinstance(node, list):
-        for index, value in enumerate(node):
-            found.extend(_policy_key_paths(value, f"{path}[{index}]"))
-    return found
-
-
 def _entries(raw: dict[str, Any], key: str) -> list[tuple[str, dict[str, Any]]]:
     value = raw.get(key)
     if not isinstance(value, list):
@@ -172,7 +157,7 @@ def _state_findings(raw: dict[str, Any]) -> list[tuple[str, Finding]]:
         beside = ", ".join(key for key in _DECLARED_KEYS if key in raw)
         message = (
             f"unmanaged stands beside {beside}: a file is in exactly one state "
-            "(allowed beside unmanaged: reason, schemaVersion)"
+            "(allowed: beside unmanaged, only reason and schemaVersion)"
         )
         return [
             (
@@ -187,7 +172,7 @@ def _state_findings(raw: dict[str, Any]) -> list[tuple[str, Finding]]:
         return [
             (
                 "build",
-                Finding("build is required when units are declared (allowed: generated, own)"),
+                Finding("build is required when units are declared (allowed: generated or own)"),
             )
         ]
     return []
@@ -199,11 +184,12 @@ def _shape_findings(raw: dict[str, Any], table: DatastoreTable) -> list[tuple[st
         (
             path,
             Finding(
-                POLICY_MESSAGE.format(path=path),
+                f"{POLICY_MESSAGE.format(path=path)} (allowed: nothing - "
+                f"{POLICY_MESSAGE.format(path=_words.steps(path)[-1])})",
                 "Remove the key: who may publish, how many approvals a deploy needs, who may reach a deployed app and which gate policy applies are set per environment, where a commit cannot lower them.",
             ),
         )
-        for path in _policy_key_paths(raw)
+        for path in _words.policy_key_paths(raw, deploy_policy_keys())
     ]
     found.extend(_state_findings(raw))
     if raw.get("build") == "own" and "generator" in raw and "unmanaged" not in raw:
@@ -212,7 +198,7 @@ def _shape_findings(raw: dict[str, Any], table: DatastoreTable) -> list[tuple[st
                 "generator",
                 Finding(
                     'generator stands beside build "own": the generator\'s words are read only '
-                    'where build is "generated" (allowed: no generator block beside own)',
+                    f'where build is "generated" (allowed: {_words.GENERATOR_BESIDE_OWN})',
                     'Drop the block, or declare "build": "generated" to have the framework '
                     "render the build files from this declaration.",
                 ),
@@ -220,11 +206,12 @@ def _shape_findings(raw: dict[str, Any], table: DatastoreTable) -> list[tuple[st
         )
     for path, entry in [*_entries(raw, "units"), *_entries(raw, "volumes")]:
         if entry.get("backup") == "client":
-            message = f'{path}.backup is "client", which is valid only on externalDatabase (allowed: a policy with every and keep)'
+            message = f'{path}.backup is "client", which is valid only on externalDatabase (allowed: {_words.FORMS["units[].backup"]})'
             found.append((f"{path}.backup", Finding(message)))
     for path, entry in _entries(raw, "units"):
         if "image" in entry:
-            message = f"{path}.image is not a field of a unit: there is no image key (allowed: name a datastore by kind and version, or build the unit from the checkout)"
+            keys = ", ".join(sorted(UNIT_FIELDS))
+            message = f"{path}.image is not a field of a unit (allowed: a unit's keys: {keys} - {_words.NO_SUCH_KEY['units[]', 'image']})"
             found.append(
                 (
                     f"{path}.image",
@@ -280,7 +267,7 @@ def read(
     if not isinstance(raw, dict):
         return None, [
             Finding(
-                f"{DEPLOYMENT_FILE} must contain one JSON object (allowed: one JSON object, not {_jsonschema._describe(raw)})"
+                f"{DEPLOYMENT_FILE} must contain one JSON object (allowed: one JSON object, not {_words.json_kind(raw)})"
             )
         ]
     version = _version_finding(raw)
@@ -293,7 +280,7 @@ def read(
         # generated); the reader names the block, which is what the person removes.
         taken.append("build")
     problems = [
-        Finding(f"{problem.path or DEPLOYMENT_FILE} {problem.detail}")
+        Finding(_words.say(problem, raw, table.versions()))
         for problem in _jsonschema.validate(raw, schema())
         if not _covered(problem.path, taken)
     ]
@@ -364,11 +351,12 @@ def _declaration(raw: dict[str, Any]) -> Declaration:
 def _duplicates(where: str, ids: list[str]) -> list[Finding]:
     seen: set[str] = set()
     found: list[Finding] = []
+    noun = "unit" if where == "units" else "volume"
     for index, name in enumerate(ids):
         if name in seen:
             found.append(
                 Finding(
-                    f'{where}[{index}].id "{name}" is the id of an earlier entry (allowed: an id no other entry has)'
+                    f'{where}[{index}].id "{name}" is the id of an earlier {noun} (allowed: an id no other {noun} has)'
                 )
             )
         seen.add(name)
@@ -395,13 +383,13 @@ def _meaning_findings(
         if unit.kind is not None and unit.kind not in offered:
             findings.append(
                 Finding(
-                    f'{where}.kind is "{unit.kind}", which the datastore table does not carry (allowed: {", ".join(offered) or "none"})'
+                    f'{where}.kind is "{unit.kind}", which the datastore table does not carry (allowed: a datastore kind of the table: {_words.or_join(sorted(offered)) or "none"})'
                 )
             )
         elif unit.kind is not None and table.find(unit.kind, str(unit.version)) is None:
             findings.append(
                 Finding(
-                    f'{where}.version is "{unit.version}" for kind {unit.kind}, which the datastore table does not carry (allowed: {", ".join(offered[unit.kind])})'
+                    f'{where}.version is "{unit.version}" for kind {unit.kind}, which the datastore table does not carry (allowed: a version the datastore table carries for {unit.kind}: {_words.or_join(sorted(offered[unit.kind]))})'
                 )
             )
     ids = [unit.id for unit in declaration.units]
@@ -420,7 +408,8 @@ def _meaning_findings(
             findings.append(
                 Finding(
                     f'generator.systemPackages[{index}] "{name}" is not in the system-package '
-                    f"table (allowed: a package of the table: {', '.join(listed) or 'none in this release'})",
+                    "table (allowed: a package of the system-package table: "
+                    f"{', '.join(sorted(listed)) or 'none - this table carries no package'})",
                     "A system package waits for a measured need and a pinned source the table "
                     'records; until then, build this unit under "build": "own".',
                 )
@@ -432,8 +421,8 @@ def _meaning_findings(
             found = f"unit {ident} has role {roles[ident]}" if ident in roles else f"no unit is {ident}"
             findings.append(
                 Finding(
-                    f'generator.recipes.{ident} names the recipe "{recipe}", which builds a web '
-                    f"unit, and {found} (allowed: a declared web unit's id: {webs})"
+                    f'{_jsonschema._join("generator.recipes", ident)} names the recipe "{recipe}", '
+                    f"which builds a web unit, and {found} (allowed: a declared web unit's id: {webs})"
                 )
             )
     findings.extend(_recipe_health_findings(declaration))
@@ -471,7 +460,7 @@ def role_findings(declaration: Declaration) -> list[Finding]:
     return [
         Finding(
             f'units[{index}].{name} is declared under role "{unit.role}", which no reader '
-            f"resolves (allowed: a role that resolves it: {', '.join(known_roles())})",
+            f"resolves (allowed: a role that resolves it: {_words.or_join(known_roles())})",
             "These fields are read by role, so under a role nobody looks up they are never read.",
         )
         for index, unit in enumerate(declaration.units)

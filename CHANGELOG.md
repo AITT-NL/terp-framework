@@ -65,6 +65,28 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **`deployment.json` with a key written twice in one object is refused.** The gate kept the
+  last value, as Python's JSON parser does, and terp-runner refuses the file as not strict
+  JSON, so an app could pass `terp check` and then be refused at deploy, or be judged on a
+  value the deploy never read. `terp check` and `terp promote` now parse the declaration
+  strictly (`terp.arch.deployment.files.loads`) and name the key: "deployment.json is not
+  strict JSON: the key "build" appears twice in one object (allowed: one JSON object, each
+  key once)".
+- **A deployment-declaration refusal names what its field allows in the words the shared
+  fixtures state.** terp-spec's `deployment-declaration.fixtures.json` names, for each
+  violation case, the field and the values it allows, and terp-runner's messages carry both
+  word for word. 49 of the framework's 77 messages carried the field only: a pattern was
+  quoted as a regular expression, a choice read "generated, own", and several refusals of
+  the truth and render rules said less than the fixture. Every one now carries the
+  fixture's words, and `test_deployment_fixtures` holds the message that names the field to
+  them, as terp-runner's suite does. The sentences live in `terp.arch.deployment._words`. A
+  tool that matched the old wording of a message reads it again.
+- **A key or value holding a control character is written escaped in a finding.** A
+  declaration key such as `"x\u001b[31m"` reached the terminal and the CI log as written. A
+  key outside letters, digits, `_`, `$` and `-` is now written as ASCII JSON in its path
+  (`units["a b"]`), as terp-runner writes it, and a value's U+007F to U+009F are escaped
+  with the rest. This covers `workbench.json`'s refusals too, which share the reader.
+
 - **The template SPA's nginx starts on a host whose kernel has no IPv6.** Its
   `frontend/nginx.conf` listened on `[::]:8080` as well, and nginx stops at start where the
   address family is missing (`socket() [::]:8080 failed (97: Address family not supported by

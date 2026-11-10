@@ -887,7 +887,7 @@ def test_a_system_package_table_lists_its_names() -> None:
     _files, found = generate(declaration, "demo", tables=tables, frontend_lock=True)
     assert [finding.message for finding in found] == [
         'generator.systemPackages[1] "jq" is not in the system-package table (allowed: a '
-        "package of the table: curl, zlib1g)"
+        "package of the system-package table: curl, zlib1g)"
     ]
 
 

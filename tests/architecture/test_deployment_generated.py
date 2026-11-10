@@ -108,7 +108,8 @@ def test_a_generator_block_beside_own_is_refused_at_the_block() -> None:
     messages = [finding.message for finding in findings]
     assert messages == [
         'generator stands beside build "own": the generator\'s words are read only where '
-        'build is "generated" (allowed: no generator block beside own)'
+        'build is "generated" (allowed: nothing beside build own - generator is valid only beside '
+        "build generated)"
     ], "named at the block, not at build, where the schema states the same refusal"
     assert read({"unmanaged": True, "reason": "x", "generator": {}}, published_table())[1]
 
@@ -118,7 +119,7 @@ def test_a_system_package_resolves_against_the_table_it_is_given(tmp_path) -> No
     _declared, findings = read(raw, published_table())
     assert [finding.message for finding in findings] == [
         'generator.systemPackages[0] "libpq5" is not in the system-package table (allowed: a '
-        "package of the table: none in this release)"
+        "package of the system-package table: none - this table carries no package)"
     ]
     offered = SystemPackageTable(("libpq5", "zlib1g"))
     declared, findings = read(raw, published_table(), offered)
@@ -146,7 +147,8 @@ def test_a_mount_names_declared_units_and_a_path_inside_var() -> None:
         assert read(seed() | {"volumes": [bad]}, published_table())[1], path
     unmounted = _seed_generated(volumes=[{"id": "files"}])
     assert [f.message for f in read(unmounted, published_table())[1]] == [
-        "volumes[0].mount is required"
+        "volumes[0].mount is required (allowed: a mount: in the generated state the generator "
+        "renders where each volume goes)"
     ]
 
 
@@ -258,7 +260,8 @@ def test_git_that_cannot_answer_is_a_finding_and_no_git_a_note(tmp_path, monkeyp
                 (root / "Dockerfile.prod").read_bytes().replace(b"USER appuser", b"USER root")
             ),
             "Dockerfile.prod: Dockerfile.prod is not the render of deployment.json (allowed: the "
-            "generator's render, never an edit of the file):\n--- Dockerfile.prod (committed)\n"
+            "render of deployment.json - render again and commit it, never edit the file):\n"
+            "--- Dockerfile.prod (committed)\n"
             "+++ Dockerfile.prod (render)",
         ),
         (
@@ -289,13 +292,15 @@ def test_a_generator_owned_path_the_render_does_not_produce_is_refused(tmp_path)
     root = _project(tmp_path, raw, **{"frontend__Dockerfile.prod": "FROM scratch\n"})
     assert _findings(root) == [
         "frontend/Dockerfile.prod: frontend/Dockerfile.prod exists, and deployment.json renders "
-        "nothing for it: no web unit is declared without a recipe (allowed: no file)"
+        "nothing for it: no web unit is declared (allowed: no file - no web unit is declared, so "
+        "the render has no frontend/Dockerfile.prod)"
     ]
     only_db = _seed_generated()
     only_db["units"] = only_db["units"][:1]
     root = _project(tmp_path / "db", only_db, **{"Dockerfile.prod": "FROM scratch\n"})
     assert "Dockerfile.prod exists, and deployment.json renders nothing for it: no unit runs the "\
-        "backend image (allowed: no file)" in _findings(root)[0]
+        "backend image (allowed: no file - no unit runs the backend image, so the render has no "\
+        "Dockerfile.prod)" in _findings(root)[0]
 
 
 def test_what_the_generator_refuses_is_the_finding_word_for_word(tmp_path) -> None:

@@ -77,6 +77,12 @@ def test_every_violation_case_is_refused_at_the_field_its_fixture_names(tmp_path
             assert any(_needle(expected["field"]) in message for message in messages), (
                 f"{rule}/{case}: refused, but no message names {expected['field']}: {messages}"
             )
+            # The fixture's words, as every reader says them: the message that names the
+            # field also names what it allows, word for word, as terp-runner's suite holds.
+            assert any(
+                _needle(expected["field"]) in message and expected["allowed"] in message
+                for message in messages
+            ), f"{rule}/{case}: no message names {expected['field']} with {expected['allowed']!r}: {messages}"
             if "in" in expected:
                 assert any(violation.path == expected["in"] for violation in violations), (
                     f"{rule}/{case}: the refusal belongs to {expected['in']}"
