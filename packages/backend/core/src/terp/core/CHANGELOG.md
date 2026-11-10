@@ -10,6 +10,18 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.41.1 — unreleased
+
+### Changed
+
+- **A generated app's production images build on the bases as rebuilt on 5 November.**
+  terp-arch's base-image table moves `python:3.14-slim` and `node:26-slim` to the digests
+  their tags name now. Both are rebuilds of the same versions, Python 3.14.10 and Node.js
+  26.13.0, so what moves is the Debian layer under them. The digest the nginx base's tag
+  names has not moved, and uv stays at 0.13.7. The template's two production Dockerfiles
+  are written from the table again, and the signer image moves with the Python base. An app
+  on `"build": "generated"` takes the new digests with `terp deployment render`.
+
 ## 0.41.0 — 2026-11-10
 
 ### Security

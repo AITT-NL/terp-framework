@@ -981,7 +981,7 @@ frontend design-system track below.
       meant for 0.40.1: the static site's and the SPA's servers, each web image's SBOM read from
       the lock that image installs, `terp promote` reading older releases defensively, and
       `deployment.json` read strictly, with every refusal in the shared fixtures' words.
-- [ ] Owed: the Studio's pin to 0.41.0. It pins 0.40.0.
+- [x] The Studio pins 0.41.0 (terp-studio#176).
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
       every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
       the template's two `AGENTS.md` files, the repository's own and the react-core README.
