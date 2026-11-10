@@ -550,8 +550,10 @@ jobs:
       # SECRET_KEY, the database brought to every head first, the lifespan started and
       # /health/ready answering 200, in-process and from the app's own environment, so
       # exactly the capabilities it installs are discovered. An app rendered with use_sso
-      # boots twice more: SSO configured with OIDC_ALLOWED_EMAIL_DOMAINS (the SSO routes
-      # mount) and without it (refused, in the federated-identity service's own words).
+      # mounts its SSO routes in that boot too (ADR 0211), and the route must refuse by name
+      # as not configured. It boots twice more: SSO configured with
+      # OIDC_ALLOWED_EMAIL_DOMAINS (the same routes, mounted) and without it (refused, in
+      # the federated-identity service's own words).
       # Each variant's service is its own, so the database is empty: a first deploy.
       - name: Boot the render in production mode
         if: ${{ !startsWith(matrix.variant, 'reference') }}
@@ -589,7 +591,8 @@ jobs:
           uv run terp new module records
           # Mount it in the composition root (the gate refuses unmounted modules).
           sed -i 's/^from control_plane import control_plane$/from control_plane import control_plane\nfrom app.modules.records.module import module as records_module/' app/main.py
-          sed -i 's/modules = \[login_module, me_module\]/modules = [login_module, me_module, records_module]/' app/main.py
+          sed -i 's/modules = \[login_module, me_module, oidc_module\]/modules = [login_module, me_module, oidc_module, records_module]/' app/main.py
+          grep -Fq 'modules = [login_module, me_module, oidc_module, records_module]' app/main.py
           # Autogenerate only diffs meaningfully from head; bring the file up first.
           uv run terp migrate upgrade
           uv run terp migrate make records -m "create records table"

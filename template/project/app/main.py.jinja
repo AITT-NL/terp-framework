@@ -25,10 +25,14 @@ from control_plane import control_plane
 
 
 def build():
+    # The same modules in every environment: a module is listed here always, never added
+    # under a setting (terp guide capability).
+{%- if use_sso %}
+    # The SSO routes are mounted whether or not a provider is configured (see app/auth.py).
+{%- endif %}
+    modules = [login_module, me_module{% if use_sso %}, oidc_module{% endif %}]
     return create_app(
-        # The same modules in every environment: the SSO routes are mounted whether or
-        # not a provider is configured (see app/auth.py), never added under a setting.
-        [login_module, me_module{% if use_sso %}, oidc_module{% endif %}],
+        modules,
         title="{{ project_name }}",
         principal_provider=principal_provider,
         discover_capabilities=True,
