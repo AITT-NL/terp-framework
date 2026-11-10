@@ -421,6 +421,20 @@ def test_a_carried_declaration_that_is_not_json_is_refused(tmp_path: pathlib.Pat
         _promote(tmp_path, keys, body=body, runs=_no_calls(), monkeypatch=monkeypatch)
 
 
+def test_a_carried_declaration_with_a_key_twice_is_refused_as_terp_runner_refuses_it(
+    tmp_path: pathlib.Path, keys, monkeypatch
+) -> None:
+    """Strict, as every reader: a key twice in one object is never read as its last value."""
+    body = make_manifest()
+    text = body["inputs"]["declaration"]["content"]
+    doubled = text.replace('"schemaVersion": 1', '"schemaVersion": 1, "schemaVersion": 1', 1)
+    assert doubled != text
+    body["inputs"]["declaration"] = _file("deployment.json", doubled.encode())
+    with pytest.raises(ReleaseError, match="cannot be read") as refused:
+        _promote(tmp_path, keys, body=body, runs=_no_calls(), monkeypatch=monkeypatch)
+    assert 'the key "schemaVersion" appears twice in one object' in refused.value.cause
+
+
 def test_without_a_migration_step_the_check_is_terp_migrate_check_in_the_api(keys) -> None:
     files = app_files()
     profile = yaml.safe_load(files["docker-compose.prod.yml"])

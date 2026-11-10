@@ -114,7 +114,14 @@ def _text(data: bytes) -> list[str]:
     return data.decode("utf-8", errors="replace").splitlines(keepends=True)
 
 
-def _drift(project_root: pathlib.Path, files: dict[str, bytes]) -> list[Finding]:
+def _why(path: str, declaration: Declaration) -> str:
+    """Why the render has no *path*: in the words the shared fixtures name."""
+    if path == FRONTEND_DOCKERFILE and not any(unit.role == "web" for unit in declaration.units):
+        return "no web unit is declared"
+    return _WHY_RENDERED[path]
+
+
+def _drift(project_root: pathlib.Path, files: dict[str, bytes], declaration: Declaration) -> list[Finding]:
     """Every generator-owned path that is not what the render says it is."""
     found: list[Finding] = []
     remedy = f"Run `{RENDER_COMMAND}` and commit what it writes, together with deployment.json."
@@ -125,7 +132,8 @@ def _drift(project_root: pathlib.Path, files: dict[str, bytes]) -> list[Finding]
                 found.append(
                     Finding(
                         f"{path} exists, and deployment.json renders nothing for it: "
-                        f"{_WHY_RENDERED[path]} (allowed: no file)",
+                        f"{_why(path, declaration)} (allowed: no file - {_why(path, declaration)}, "
+                        f"so the render has no {path})",
                         remedy,
                         path,
                     )
@@ -152,8 +160,9 @@ def _drift(project_root: pathlib.Path, files: dict[str, bytes]) -> list[Finding]
         shown = "".join(diff[:_DIFF_LINES]).rstrip("\n") or "(the bytes differ: line endings)"
         found.append(
             Finding(
-                f"{path} is not the render of deployment.json (allowed: the generator's "
-                f"render, never an edit of the file):\n{shown}",
+                f"{path} is not the render of deployment.json (allowed: the render of "
+                "deployment.json - render again and commit it, never edit the file):\n"
+                f"{shown}",
                 remedy,
                 path,
             )
@@ -315,7 +324,7 @@ def check(project_root: pathlib.Path, declaration: Declaration, tables: Tables) 
             site_lock=(project_root / SITE_LOCK).is_file(),
         )
         drift.files = files
-        drift.findings.extend(refused if refused else _drift(project_root, files))
+        drift.findings.extend(refused if refused else _drift(project_root, files, declaration))
     ignored, git_notes = ignore_findings(project_root, declaration)
     drift.findings.extend([*ignored, *_answers(project_root)])
     drift.notes.extend([*git_notes, *release_note(declaration)])

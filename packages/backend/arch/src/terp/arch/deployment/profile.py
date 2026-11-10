@@ -235,8 +235,8 @@ def build_path_findings(
                 findings.append(
                     Finding(
                         f"{label}: services.{builder}.build.{what} {written!r} resolves "
-                        "outside the checkout (allowed: a build context and build file "
-                        "that resolve inside the checkout)",
+                        f"outside the checkout (allowed: a build {'context' if what == 'context' else 'file'} "
+                        "that resolves inside the checkout)",
                         "A unit without a kind is built from the checkout; a build that "
                         "reaches outside it is not.",
                         file=declaration.compose_file,
@@ -297,7 +297,8 @@ def _restated(
         findings.append(
             Finding(
                 f"units[{index}].command restates {list(unit.command)}, and {label} runs "
-                f"{runs} for {unit.id} (allowed: the profile's command, as an argument list)"
+                f"{runs} for {unit.id} (allowed: the {'resolved ' if '+' in label else ''}"
+                f"profile's command for {unit.id}: {runs})"
             )
         )
     if unit.depends_on is not None:
@@ -307,7 +308,8 @@ def _restated(
                 Finding(
                     f"units[{index}].dependsOn restates {sorted(unit.depends_on)}, and {label} "
                     f"starts {unit.id} after {', '.join(order) or 'none'} of the declared "
-                    "units (allowed: the profile's start order, restricted to declared units)"
+                    f"units (allowed: the profile's start order for {unit.id}, restricted to "
+                    f"declared units: {', '.join(order) or 'none'})"
                 )
             )
     return findings
@@ -357,13 +359,27 @@ def _env_findings(
     return [
         Finding(
             f"units[{index}].env[{position}] {name} is never passed to {unit.id} by {label} "
-            "(allowed: a name in its environment: block, or one the variable manifest "
-            "routes to a file it loads through env_file:)"
+            f"(allowed: {_passed(name, unit.id, manifest)})"
         )
         for position, name in enumerate(unit.env)
         if name not in as_mapping(service.get("environment"))
         and not (name in manifest and rendered_files(manifest[name]) & loaded)
     ]
+
+
+def _passed(name: str, unit: str, manifest: dict[str, Any]) -> str:
+    """What a name the profile does not pass to *unit* has to be: passed, or routed to a
+    file the unit loads when the variable manifest routes it to another."""
+    if name not in manifest:
+        return f"a name the profile passes to {unit}"
+    routed = ", ".join(sorted(rendered_files(manifest[name])))
+    return f"a name routed to a file {unit} loads - the manifest routes this one to {routed}"
+
+
+def _registry_clause(image: object, pinned: str) -> str:
+    """The table's digest from another registry is not the table's image: say so."""
+    same_digest = isinstance(image, str) and "@" in image and image.split("@", 1)[1] == pinned.split("@", 1)[-1]
+    return ", from the table's own registry" if same_digest else ""
 
 
 def _image_findings(
@@ -379,7 +395,8 @@ def _image_findings(
             Finding(
                 f"units[{index}].kind {unit.kind} {unit.version}: service {unit.id} runs "
                 f"{image or 'no image'}, and the datastore table pins {entry.image} "
-                "(allowed: exactly the table's image, by its digest and from its registry)",
+                "(allowed: a profile image that is the datastore table's digest for "
+                f"{unit.kind} {unit.version}{_registry_clause(image, entry.image)})",
                 "A tag moves, and another registry or digest is not the image this "
                 "release vouches for.",
             )

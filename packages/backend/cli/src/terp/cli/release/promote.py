@@ -55,6 +55,7 @@ from terp.arch.deployment import (
 )
 from terp.arch.deployment.datastores import read_table
 from terp.arch.deployment.generator import RELEASE_TAG_VARIABLE, escape_findings
+from terp.arch.deployment.files import loads
 from terp.arch.deployment.reader import SPEC_RELEASE
 from terp.arch.deployment.standard import schema_sha256, words_newer_than
 from terp.arch.deployment.tables import Tables
@@ -140,7 +141,9 @@ def load(envelope: bytes, public_keys: Sequence[bytes], *, require_generated: bo
         raise ReleaseError(f'--require-generated: the release says "build": "{given["build"]}"')
     try:
         table = read_table(given["datastores"])
-        raw = json.loads(given["declaration"]["content"])
+        # Strict, as terp-runner reads it: a key twice in one object is refused, never read
+        # as whichever value this parser happens to keep.
+        raw = loads(given["declaration"]["content"])
     except ValueError as exc:
         raise ReleaseError("the carried declaration or datastore record cannot be read", cause=str(exc)) from exc
     newer = words_newer_than(raw, release)
