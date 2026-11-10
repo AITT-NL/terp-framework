@@ -119,6 +119,11 @@ or `python` will not resolve.
 - **`uv run terp new module <name>`** — scaffold the five slots.
   **`uv run terp inspect control-plane`** — your roles, permissions, and per-module
   authority map.
+- **`authz-surface.json`** — which role reaches which route, pinned (ADR 0209). Never write
+  it again to turn `uv run terp verify` green: a change to who can reach what is a
+  person's decision (in Terp Studio, the app's owner approves it), and the file records
+  what they approved. A route the check cannot place is code to fix: declare it on the
+  module's own router.
 
 ## Runtime environment variables
 

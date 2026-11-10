@@ -9,13 +9,20 @@ Built on **Terp** — secure-by-default by construction. The composition root is
 uv sync                               # backend deps (creates ./.venv and uv.lock)
 {% if frontend %}npm --prefix frontend install         # frontend deps (creates frontend/package-lock.json)
 {% endif %}{% if deploy_build == 'generated' %}uv run terp deployment render         # the production build files, from deployment.json
-{% endif %}uv run terp check                     # the architecture gate (== CI)
+{% endif %}# who can reach which route, pinned: write it once and commit it
+uv run terp inspect access --app app.main:build --format surface > authz-surface.json
+uv run terp check                     # the architecture gate (== CI)
 {% if frontend %}uv run terp dev                       # runs the API (:22100) + frontend (:21100) together
 {% else %}uv run terp dev                       # runs the API (:22100); this app has no frontend of its own
 {% endif %}```
 
 Backend commands run through `uv run …` — the `terp` CLI and the project's Python
 live in the local `.venv`, not on the global PATH.
+
+**Commit `authz-surface.json`.** It records which role reaches which route (ADR 0209), and
+`uv run terp verify` refuses a change to that the file does not record, naming each one as a
+widening or a narrowing. Write the file again, with the command above, only once a person
+has approved what changed, and in the same change, so the diff shows what they approved.
 
 {% if frontend -%}
 **Commit `uv.lock` and `frontend/package-lock.json`.** CI installs exactly them (`uv sync

@@ -12,7 +12,7 @@
     "cli/src/terp/cli/envseams.py": 760,
     "cli/src/terp/cli/ports.py": 1009,
     "cli/src/terp/cli/smoke.py": 513,
-    "cli/src/terp/cli/verify.py": 2350,
+    "cli/src/terp/cli/verify.py": 2300,
     "cli/src/terp/cli/version.py": 751,
     "cli/src/terp/cli/workbench.py": 527,
     "core/src/terp/core/_internal/middleware.py": 968,

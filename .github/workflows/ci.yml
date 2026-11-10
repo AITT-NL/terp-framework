@@ -531,6 +531,11 @@ jobs:
           UV_FIND_LINKS: /tmp/terp-wheels
         run: |
           uv sync
+          # Every render pins who can reach what (ADR 0209), so its check is red until the
+          # README's first step writes the baseline from the composed app. Written here,
+          # then held: a render whose own baseline does not match its surface fails.
+          uv run terp inspect access --app app.main:build --format surface > authz-surface.json
+          uv run terp verify --profile full --only authz-surface
           uv run pytest
           # The delegated AppSec baseline must hold on rendered output (ADR 0085):
           # the in-project ratchet guards post-scaffold drift, this proves the

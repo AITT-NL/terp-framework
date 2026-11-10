@@ -51,6 +51,7 @@ import textwrap
 import tomllib
 from dataclasses import dataclass
 
+from terp.cli.authz_surface import pinned_problem, verdict as _authz_verdict
 from terp.cli.dependency_audit import NPM_SCOPE, run_dependency_audit_npm
 from terp.cli.npm_tree import argv_workspace as _npm_workspace
 from terp.cli.npm_tree import node_modules_problem as _node_modules_problem
@@ -937,12 +938,14 @@ def app_declared_checks(root: pathlib.Path) -> tuple[tuple[VerifyCheck, str], ..
     table = ((declared.get("tool") or {}).get("terp") or {}).get("verify") or {}
     if not isinstance(table, dict):
         raise _declaration_error("[tool.terp.verify] is not a table")
-    unknown = sorted(set(table) - {"checks"})
+    unknown = sorted(set(table) - {"checks", "pinned"})
     if unknown:
         raise _declaration_error(
-            f"[tool.terp.verify] has unknown key(s) {', '.join(unknown)}; the only "
-            "key is `checks`"
+            f"[tool.terp.verify] has unknown key(s) {', '.join(unknown)}; its keys are "
+            "`checks` and `pinned`"
         )
+    if problem := pinned_problem(table.get("pinned")):
+        raise _declaration_error(problem)
     entries = table.get("checks", [])
     if not isinstance(entries, list):
         raise _declaration_error("`checks` must be a list of tables")
@@ -1517,61 +1520,6 @@ def _job_actor_arrives_from_the_environment(project_root: pathlib.Path) -> bool:
     from terp.cli.envschema import declared_variables
 
     return _JOB_ACTOR_VARIABLE in declared_variables(project_root)
-
-
-def _run_authz_surface(project_root: pathlib.Path) -> tuple[int, str]:
-    """Refuse a change to who can reach what that no committed baseline accepted.
-
-    The access graph already replays enforcement — every allowance in it is `decide`'s
-    own answer, from the function the kernel guard runs — so the platform could always
-    *say* who may reach what. What nothing did was notice when the answer changed.
-    Widening a module policy from a named permission to a role tier, dropping a
-    `require_permission`, adding an endpoint under a public mount: each is a one-line
-    edit that changes the authorization surface and left every gate green.
-
-    Adoption is opt-in and half-adoption impossible, the shape `api-docs-drift` settled
-    on: with no committed baseline this skips with a note naming the command that writes
-    one, because upgrading the framework must not turn an app's gate red for a feature
-    it never wired.
-
-    A widening is never *fixed* by regenerating. The baseline is a review artifact, and
-    the diff belongs in a pull request where somebody says yes — which is why the writer
-    is a separate, explicit command and never a `--fix` on this.
-    """
-    from terp.cli._appref import load_app, push_app_root
-    from terp.cli.access import build_access_graph_for_app
-    from terp.cli.authz_surface import (
-        ADOPT_HINT,
-        SURFACE_ARTIFACT,
-        authz_surface,
-        diff_authz_surface,
-        read_baseline,
-    )
-
-    baseline = read_baseline(project_root)
-    if baseline is None:
-        return (
-            0,
-            f"{NOTE_PREFIX}no {SURFACE_ARTIFACT} - the authorization surface is not "
-            f"pinned, drift check skipped (adopt with: {ADOPT_HINT})",
-        )
-    push_app_root(project_root)
-    try:
-        app = load_app(_DEFAULT_APP_REF)
-    except (SystemExit, ImportError) as exc:
-        # A tree with no importable app (the platform's own checkout) rather than a
-        # broken one: named, not silently passed, so the difference stays visible.
-        return 0, f"{NOTE_PREFIX}no importable {_DEFAULT_APP_REF} ({exc}); skipped"
-    differences = diff_authz_surface(baseline, authz_surface(build_access_graph_for_app(app)))
-    if not differences:
-        return 0, f"{SURFACE_ARTIFACT} matches the composed authorization surface"
-    listing = "\n".join(f"  - {difference}" for difference in differences)
-    return 1, (
-        f"the authorization surface changed in {len(differences)} way(s) that "
-        f"{SURFACE_ARTIFACT} does not record:\n{listing}\n\n"
-        "If every line above is intended, re-generate the baseline IN THE SAME CHANGE "
-        f"so a reviewer sees the diff:\n  {ADOPT_HINT}"
-    )
 
 
 def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
@@ -2248,6 +2196,7 @@ def run_verify_command(
     for check in checks:
         print(f"verify: {check.id} ({check.command})", file=sys.stderr)
         reports: list[dict] = []
+        extra: dict[str, object] = {}
         if check.runner == "architecture":
             exit_code, output, reports = _run_architecture(project_root)
         elif check.runner == "platform-install":
@@ -2291,7 +2240,7 @@ def run_verify_command(
         elif check.runner == "production-readiness":
             exit_code, output = _run_production_readiness(project_root)
         elif check.runner == "authz-surface":
-            exit_code, output = _run_authz_surface(project_root)
+            exit_code, output, extra = _authz_verdict(project_root, _DEFAULT_APP_REF, NOTE_PREFIX)
         elif check.runner == "api-contract":
             from terp.cli.api_contract_check import run_api_contract_check
 
@@ -2324,6 +2273,7 @@ def run_verify_command(
                 "exit_code": exit_code,
                 "output_tail": output[-_OUTPUT_TAIL_CHARS:],
                 "reports": reports,
+                **extra,
             }
         )
 
