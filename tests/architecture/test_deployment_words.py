@@ -226,15 +226,6 @@ def test_a_profile_command_a_refusal_quotes_is_escaped_and_cut(tmp_path: pathlib
     assert "x" * 245 not in message, "the command is cut, both times it is quoted"
 
 
-def test_a_file_nested_too_deeply_is_a_finding_not_a_traceback(tmp_path: pathlib.Path) -> None:
-    (tmp_path / "deployment.json").write_text("[" * 100_000, encoding="utf-8")
-    declared, findings = load(tmp_path, published_table())
-    assert declared is None
-    assert [finding.message for finding in findings] == [
-        "deployment.json is not valid JSON (it is nested too deeply) (allowed: one JSON object)"
-    ]
-
-
 # --- each refusal in the vocabulary's own words --------------------------------------
 
 

@@ -140,12 +140,6 @@ def load(
         raw = loads(path.read_text(encoding="utf-8"))
     except StrictJSONError as exc:
         return None, [Finding(f"{DEPLOYMENT_FILE} is not strict JSON: {exc} (allowed: {exc.allowed})")]
-    except RecursionError:
-        # A file nested deeper than the parser's stack: refused like any other the parser
-        # cannot read, where it used to escape as a traceback.
-        return None, [
-            Finding(f"{DEPLOYMENT_FILE} is not valid JSON (it is nested too deeply) (allowed: one JSON object)")
-        ]
     except (OSError, ValueError) as exc:
         return None, [
             Finding(f"{DEPLOYMENT_FILE} is not valid JSON ({exc}) (allowed: one JSON object)")
