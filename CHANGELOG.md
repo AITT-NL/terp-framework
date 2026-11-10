@@ -48,6 +48,12 @@ decision, 0001 onwards.
   show a person. Every failure to compose is now `unseen` with one `not_composed` entry that
   names the exception and its text.
 
+- **`deployment.json` holding `NaN` or an infinity is refused, as terp-runner refuses it
+  (ADR 0187).** The strict parse 0.41.0 added refused a key written twice and nothing else.
+  Python's parser also reads `NaN`, `Infinity` and `-Infinity`, which are not JSON, so a
+  size of `NaN` cores passed `terp check` and `terp promote` and was refused at the deploy.
+  Each is now `deployment.json is not strict JSON`, naming the constant.
+
 ## 0.41.0 — 2026-11-10
 
 ### Security

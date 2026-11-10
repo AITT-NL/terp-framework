@@ -16,7 +16,7 @@ import pytest
 
 from terp.arch.deployment import _words, published_table, read
 from terp.arch.deployment._jsonschema import Problem
-from terp.arch.deployment.files import DuplicateKeyError, load, loads
+from terp.arch.deployment.files import ConstantError, DuplicateKeyError, load, loads
 from tests.architecture.deployment_fixtures import seed, unit
 
 
@@ -52,6 +52,27 @@ def test_a_key_written_twice_in_one_object_is_refused_not_read_as_its_last_value
         "(allowed: one JSON object, each key once)"
     ]
     assert loads(json.dumps(seed())) == seed(), "a file with each key once reads as it did"
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_a_number_that_is_not_json_is_refused_not_read_as_a_float(
+    tmp_path: pathlib.Path, constant: str
+) -> None:
+    """Python's parser reads ``NaN`` and the infinities, and terp-runner refuses them. Read
+    here, a size of ``NaN`` cores passed ``terp check`` and was refused at the deploy."""
+    raw = seed()
+    raw["sizes"] = {"small": {"cpu": 0.5, "memoryMiB": 256}}
+    text = json.dumps(raw).replace('"cpu": 0.5', f'"cpu": {constant}', 1)
+    assert f'"cpu": {constant}' in text
+    with pytest.raises(ConstantError, match=f"{constant} is not a JSON number"):
+        loads(text)
+    (tmp_path / "deployment.json").write_text(text, encoding="utf-8")
+    declared, findings = load(tmp_path, published_table())
+    assert declared is None
+    assert [finding.message for finding in findings] == [
+        f"deployment.json is not strict JSON: {constant} is not a JSON number "
+        "(allowed: one JSON object, each number finite)"
+    ]
 
 
 # --- no control character, no odd key passed off as a path ---------------------------
