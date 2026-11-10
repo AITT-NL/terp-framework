@@ -78,6 +78,13 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **A release builds from the Dockerfile compose would build from (ADR 0187).** Compose
+  resolves `build.dockerfile` against the build context. For an app whose own profile lies in
+  a subdirectory, `terp release` joined the context to the profile's directory a second time:
+  with `deploy/docker-compose.prod.yml` building from `..`, it named
+  `deploy/Dockerfile.prod` where compose builds from `Dockerfile.prod`. It now resolves the
+  path as compose does. A profile at the project root, which is what the generator writes,
+  was never affected.
 - **An app that refuses to boot is the `authz-surface` check's red answer, not a traceback
   (ADR 0209).** The check named an app it could not compose only when the import failed. A
   factory that `create_app` refused, or an app `create_app` never composed, left a traceback

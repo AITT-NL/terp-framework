@@ -248,7 +248,11 @@ def _built(
         return None
     written = str(build.get("context", ".")), str(build.get("dockerfile", "Dockerfile"))
     context = _relative(root, base, written[0])
-    dockerfile = _relative(root, base / context, written[1]) if context is not None else None
+    # Against the context, as compose resolves it. *context* is already relative to the
+    # checkout, so it is joined to that and not to the profile's own directory again: for a
+    # profile in a subdirectory the two differ, and the plan named a Dockerfile compose would
+    # never build from.
+    dockerfile = _relative(root, root / context, written[1]) if context is not None else None
     if context is None or dockerfile is None:
         outside = "context" if context is None else "Dockerfile"
         refused.append(
