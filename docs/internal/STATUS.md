@@ -970,10 +970,18 @@ frontend design-system track below.
       publishes it on `WEB_PORT_<UNIT>`, the fixed list gains its port and image, and the
       release jobs read the site's lock. The deployment guide moves into a module of its own. The
       signer image and `terp promote` that read a release made with it must be 0.40.0 or later.
+- [x] The Studio pins 0.40.0 (terp-studio#174), and its builder builds every image a release's
+      own declaration names, a static site's included.
 - [ ] Owed before an app declares a static site (ADR 0198 decision 7): a runner release carrying
-      terp-spec 0.45.0 and the two new interpolations (terp-runner#11, merged), the signer image
-      at 0.40.0, and Studio's builder building every generator-owned web Dockerfile.
-- [ ] Owed: the Studio's pin to 0.40.0. It pins 0.39.0.
+      terp-spec 0.45.0 and the two new interpolations (terp-runner#11, merged), and the signer
+      image at 0.40.0.
+- [x] Released as 0.41.0 (2026-11-10), on terp-spec 0.45.0: who can reach what (ADR 0209). The
+      `authz-surface` check stops passing what it cannot see, labels each change a widening or a
+      narrowing, and names both in its JSON; every new app pins it. With it, the hardening first
+      meant for 0.40.1: the static site's and the SPA's servers, each web image's SBOM read from
+      the lock that image installs, `terp promote` reading older releases defensively, and
+      `deployment.json` read strictly, with every refusal in the shared fixtures' words.
+- [ ] Owed: the Studio's pin to 0.41.0. It pins 0.40.0.
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
       every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
       the template's two `AGENTS.md` files, the repository's own and the react-core README.

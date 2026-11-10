@@ -38,7 +38,7 @@
   fourth generated file, `site/Dockerfile.prod`, and is the one second web unit that renders
   (decisions 1 and 5); the site image's SBOM is read from `site/package-lock.json` (decision
   6); and the fixed list gains the site's port and image (decision 9). Amended 2026-11-08 for
-  0.40.1: a web image's SBOM is read from the lock that image installs, and a web image with
+  0.41.0: a web image's SBOM is read from the lock that image installs, and a web image with
   none is refused; and `terp promote` checks the schema hash of its own release and refuses a
   word an older declaration's release does not have (both decision 6).
 - **Date:** 2026-10-21
@@ -564,7 +564,7 @@ only extends (`terp.arch.deployment.generator.fixed_interpolations`, applied by
 `escape_findings`); the nested `DATABASE_URL` default is parsed exactly; any YAML tag is refused. It runs
 compose with an allowlisted environment, never its own.
 
-*Amended 2026-11-08, built in 0.40.1.* A web image's SBOM is read from the lock that image
+*Amended 2026-11-08, built in 0.41.0.* A web image's SBOM is read from the lock that image
 installs, whatever the build state. The release jobs chose a web image's lock by the
 `generator.recipes` word, which the reader refuses beside `own`, so under `own` every web image
 was planned with `frontend/package-lock.json`, and a site built by the app's own Dockerfile was
@@ -579,7 +579,7 @@ way to declare one, so it is refused. The manifest records exactly the planned l
 hold the same set, asked of the same rule (`terp.cli.release._plan.web_npm_locks`). A generated
 app's two web Dockerfiles stand beside the locks they install, so its plan is what it was.
 
-*Amended 2026-11-08, built in 0.40.1.* `terp promote` reads every release up to its own with the
+*Amended 2026-11-08, built in 0.41.0.* `terp promote` reads every release up to its own with the
 one schema its `terp-arch` holds, its own release's, so it checks the two things reading an older
 declaration with that schema cannot. When the release the manifest names is its own,
 `inputs.spec.schemaSha256` must be the SHA-256 of the schema it holds, the hash `sign` records of
