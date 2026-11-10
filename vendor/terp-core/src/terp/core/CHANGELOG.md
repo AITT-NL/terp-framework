@@ -12,6 +12,23 @@ decision, 0001 onwards.
 
 ## 0.41.1 — unreleased
 
+### Security
+
+- **The `authz-surface` check sees a route that was kept out of the OpenAPI document (ADR
+  0139).** The check refuses a route the access graph cannot place, and it found those by
+  comparing the graph with `app.openapi()`. A route declared with `include_in_schema=False`
+  is not in that document. So a public route on a router included inside a module's router,
+  declared that way, was served to an anonymous request while the check reported that the
+  surface matched: the second of the three widenings 0.41.0 closed, open again by one
+  keyword. The graph is now reconciled against the composed route table, the one the router
+  answers from, so such a route is red like any other the graph cannot place. A WebSocket
+  route, a plain route and a mount on a nested router, none of which the document ever
+  listed, are red the same way. `terp inspect access` lists all of them under
+  `omitted_routes`, and a schema-hidden route on the app itself under `kernel_routes`.
+
+  An app that pins its surface and passed on 0.41.0 may turn red on this release: that is a
+  route the check could not see before. Declare it on the module's own router.
+
 ### Changed
 
 - **A generated app's production images build on the bases as rebuilt on 5 November.**

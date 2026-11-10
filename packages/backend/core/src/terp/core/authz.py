@@ -9,8 +9,8 @@ projection, which is the thing ADR 0121 §4 exists to prevent.
 
 What stays in the CLI is what only an audit needs: model traits, registered predicates,
 kernel and schema-hidden routes, undeclared event subscribers, and the reconciliation of the
-graph against ``app.openapi()`` that reports a mounted route the graph does not cover. Those
-answer "is anything hiding?", which is a different question from "who may do what", and they
+graph against the composed route table that reports a served route the graph does not
+cover. Those answer "is anything hiding?", which is a different question from "who may do what", and they
 have exactly one consumer.
 
 Every allowance here is computed by :func:`terp.core.module_spec.decide` — the same function
@@ -229,9 +229,9 @@ def module_json(
         # they are actually served under: descending reported `/api/v1/widgets/nested` for a
         # route served at `/api/v1/widgets/deep/nested`. A permission view naming a path that
         # does not exist is worse than one that omits it, so the coverage guarantee stays where
-        # it can be made truthfully — `build_access_graph_for_app` reconciles against
-        # `app.openapi()` and reports any uncovered served route under `omitted_routes`, which
-        # is the alarm `test_access_graph_flags_nested_router_routes_instead_of_dropping_them`
+        # it can be made truthfully — `build_access_graph_for_app` reconciles against the
+        # composed route table and reports any uncovered served route under `omitted_routes`,
+        # which is the alarm `test_access_graph_flags_nested_router_routes_instead_of_dropping_them`
         # pins. See §4.9 of the plan for the residual gap on `GET /model`, which has no such
         # reconciliation yet.
         endpoints = [
