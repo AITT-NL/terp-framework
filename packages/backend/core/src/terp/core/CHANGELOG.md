@@ -39,6 +39,15 @@ decision, 0001 onwards.
   are written from the table again, and the signer image moves with the Python base. An app
   on `"build": "generated"` takes the new digests with `terp deployment render`.
 
+### Fixed
+
+- **An app that refuses to boot is the `authz-surface` check's red answer, not a traceback
+  (ADR 0209).** The check named an app it could not compose only when the import failed. A
+  factory that `create_app` refused, or an app `create_app` never composed, left a traceback
+  instead: non-zero, but with no `authority_state` in the JSON, so a tool had nothing to
+  show a person. Every failure to compose is now `unseen` with one `not_composed` entry that
+  names the exception and its text.
+
 ## 0.41.0 — 2026-11-10
 
 ### Security

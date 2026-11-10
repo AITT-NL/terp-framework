@@ -256,18 +256,22 @@ def verdict(project_root: pathlib.Path, app_ref: str, note_prefix: str) -> Verdi
     push_app_root(project_root)
     try:
         app = load_app(app_ref)
-    except (SystemExit, ImportError) as exc:
+        graph = build_access_graph_for_app(app)
+    except (SystemExit, Exception) as exc:
         # The tree pins its surface, so an app that cannot be composed is an unchecked
         # surface, not an absent one. Skipping here passed every change for as long as
-        # the app failed to import, which is the one moment nobody is looking.
+        # the app failed to import, which is the one moment nobody is looking. Whatever
+        # stopped it is this answer: a factory that refuses to boot, or an app that
+        # create_app did not compose, is as unchecked as a module that does not import,
+        # and a traceback names no state a tool can read.
         detail = (
             f"{SURFACE_ARTIFACT} pins this app's authorization surface, but {app_ref} "
-            f"could not be composed ({exc}), so nothing was checked. Make the app "
-            "importable, or remove the baseline in a change a reviewer sees."
+            f"could not be composed ({type(exc).__name__}: {exc}), so nothing was "
+            "checked. Fix what stops the app composing, or remove the baseline in a "
+            "change a reviewer sees."
         )
         unseen = [{"kind": "not_composed", "detail": detail}]
         return Verdict(1, detail, _fields("unseen", unseen=unseen))
-    graph = build_access_graph_for_app(app)
     current = authz_surface(graph)
     # What the surface cannot see is refused before it is compared: a route the graph
     # could not place (a router included inside a module's router, served under a path
