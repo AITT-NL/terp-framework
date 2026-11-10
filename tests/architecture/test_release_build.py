@@ -457,6 +457,35 @@ def test_a_string_build_is_its_context(tmp_path: pathlib.Path) -> None:
     assert (plan.images[0].context, plan.images[0].dockerfile) == (".", "Dockerfile")
 
 
+def test_a_dockerfile_is_read_beside_the_context_as_compose_reads_it(tmp_path: pathlib.Path) -> None:
+    """Compose resolves ``build.dockerfile`` against the build context. For an app whose own
+    profile lies in a subdirectory, the plan joined the context to the profile's directory a
+    second time and named ``deploy/Dockerfile.prod``: a file compose never builds from, so a
+    release could be built from another Dockerfile than the one its profile names."""
+    profile = _profile()
+    for service in profile["services"].values():
+        if "build" in service:
+            service["build"] = {"context": "..", "dockerfile": "Dockerfile.prod"}
+        if "env_file" in service:
+            written = service["env_file"]
+            service["env_file"] = [f"../{name}" for name in ([written] if isinstance(written, str) else written)]
+    files = _own(profile)
+    declaration = json.loads(files["deployment.json"])
+    declaration["compose"] = {"file": "deploy/docker-compose.prod.yml"}
+    files["deployment.json"] = json.dumps(declaration, indent=2).encode()
+    files["deploy/docker-compose.prod.yml"] = files.pop("docker-compose.prod.yml")
+    plan = _plan_of(tmp_path, files)
+    assert [(image.context, image.dockerfile) for image in plan.images] == [(".", "Dockerfile.prod")]
+    # A Dockerfile kept beside the profile is still found, through the context.
+    for service in profile["services"].values():
+        if "build" in service:
+            service["build"] = {"context": "..", "dockerfile": "deploy/Dockerfile.own"}
+    files["deploy/docker-compose.prod.yml"] = yaml.safe_dump(profile, sort_keys=False).encode()
+    files["deploy/Dockerfile.own"] = files["Dockerfile.prod"]
+    beside = _plan_of(tmp_path / "beside", files)
+    assert [(image.context, image.dockerfile) for image in beside.images] == [(".", "deploy/Dockerfile.own")]
+
+
 # --------------------------------------------------------------------------- the registry
 def test_the_registry_is_a_host_and_a_path_and_http_is_loopback_only() -> None:
     assert build.registry("localhost:5000/rel") == ("localhost:5000", "localhost:5000/rel")
