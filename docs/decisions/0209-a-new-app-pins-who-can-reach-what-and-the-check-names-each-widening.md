@@ -111,9 +111,10 @@ setting is present is outside the surface unless that setting is present then.
 
 ## Open
 
-- **A module that only mounts under a setting.** The template mounts its OIDC routes only when
-  `OIDC_ISSUER` is set, so the check composes them only where that variable is set. The owner
-  decided on 2026-11-09 that a module list may not depend on a setting, which also makes the
-  surface the same in every environment. It is a change of its own, because mounting the OIDC
-  routes always needs a way for them to refuse while no provider is configured: today the
-  provider's configuration is validated when the app starts.
+- **A module that only mounts under a setting.** *Closed on 2026-11-10 by
+  [ADR 0211](0211-the-modules-an-app-mounts-do-not-depend-on-a-setting.md).* The template
+  mounted its OIDC routes only when `OIDC_ISSUER` was set, so the check composed them only
+  where that variable was set. The owner decided on 2026-11-09 that a module list may not
+  depend on a setting, which also makes the surface the same in every environment. The
+  template now mounts the routes always, they answer `sso_not_configured` while no provider is
+  configured, and the rule `module_list_is_unconditional` refuses the conditional form.
