@@ -73,7 +73,12 @@ from terp.arch.deployment._generator_text import (
     heartbeat_role,
 )
 from terp.arch.deployment._refusals import refusals
-from terp.arch.deployment._static_site import _SITE_DOCKERFILE, SITE_PORT_PATTERN, STATIC_SITE
+from terp.arch.deployment._static_site import (
+    _SITE_DOCKERFILE,
+    SITE_PORT_PATTERN,
+    STATIC_SITE,
+    site_port,
+)
 from terp.arch.deployment._yaml import fixed, plain_safe, scalar, value
 from terp.arch.deployment.reader import Declaration, Finding
 from terp.arch.deployment.tables import Tables
@@ -175,14 +180,39 @@ def _at(where: str, place: str) -> bool:
     return where == place
 
 
-def escape_findings(profile: object, tables: Tables) -> list[str]:
+_SITE_PORT = re.compile(SITE_PORT_PATTERN)
+
+
+def escape_findings(
+    profile: object, tables: Tables, *, sites: tuple[str, ...] | list[str] = ()
+) -> list[str]:
     """Every scalar or key of a parsed profile through which compose would interpolate.
 
     Over the parsed values, never the text: each ``$`` is half of a ``$$`` or the scalar
     is exactly one of :func:`fixed_interpolations` at its place.
+
+    A site's port is bound further (ADR 0198 decision 4). The list names its shape,
+    ``${WEB_PORT_<UNIT>:-23101}:8080``, which any service could carry any number of times
+    and so publish itself on a variable a deploy sets for another unit. It is taken only
+    on the service of a unit in *sites*, the declared units a static-site recipe builds,
+    as that unit's own variable, once.
     """
     allowed = fixed_interpolations(tables)
     found: list[str] = []
+    published: set[str] = set()
+
+    def site_port_refusal(node: str, path: tuple[str, ...]) -> str | None:
+        unit = path[1] if len(path) == 3 and path[0] == "services" else None
+        if unit not in sites or node != site_port(unit):
+            return (
+                f"{'.'.join(path)}: {node!r} is a static site's port, which only the service "
+                "of a unit the static-site recipe builds may publish, on that unit's own "
+                "variable"
+            )
+        if unit in published:
+            return f"{'.'.join(path)}: {node!r} publishes the site {unit} a second time"
+        published.add(unit)
+        return None
 
     def walk(node: object, path: tuple[str, ...]) -> None:
         if isinstance(node, dict):
@@ -197,6 +227,10 @@ def escape_findings(profile: object, tables: Tables) -> list[str]:
             place = path[-1] if path[-1].endswith("[]") else ".".join(path[-2:])
             if not any(_at(where, place) and pattern.fullmatch(node) for where, pattern in allowed):
                 found.append(f"{'.'.join(path)}: {node!r} interpolates outside the fixed list")
+            elif place == "ports[]" and _SITE_PORT.fullmatch(node):
+                refusal = site_port_refusal(node, path)
+                if refusal is not None:
+                    found.append(refusal)
 
     walk(profile, ())
     return found
