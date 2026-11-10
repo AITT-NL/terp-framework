@@ -54,7 +54,7 @@ from terp.arch.deployment import (
     services_of,
 )
 from terp.arch.deployment.datastores import read_table
-from terp.arch.deployment.generator import RELEASE_TAG_VARIABLE, escape_findings
+from terp.arch.deployment.generator import RELEASE_TAG_VARIABLE, STATIC_SITE, escape_findings
 from terp.arch.deployment.files import loads
 from terp.arch.deployment.reader import SPEC_RELEASE
 from terp.arch.deployment.standard import schema_sha256, words_newer_than
@@ -171,6 +171,8 @@ def load(envelope: bytes, public_keys: Sequence[bytes], *, require_generated: bo
     if declared.build == "generated":
         published = published_tables()
         tables = Tables(table, published.base_images, published.system_packages, published.recipes)
+        # A site's port is taken only on the unit a static-site recipe builds (ADR 0198).
+        sites = [unit.id for unit in declared.units if declared.recipe(unit.id) == STATIC_SITE]
         for path, content in carried.items():
             try:
                 tagged, parsed = _tags(content), yaml.safe_load(content)
@@ -178,7 +180,7 @@ def load(envelope: bytes, public_keys: Sequence[bytes], *, require_generated: bo
                 raise ReleaseError(f"the carried {path} is not YAML", cause=str(exc)) from exc
             if tagged:
                 raise ReleaseError(f"the carried {path} carries a YAML tag, which a generated profile never does")
-            escaping = escape_findings(parsed, tables)
+            escaping = escape_findings(parsed, tables, sites=sites)
             if escaping:
                 raise ReleaseError(
                     f"the carried {path} interpolates outside the generator's fixed list:\n"

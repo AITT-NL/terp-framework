@@ -569,7 +569,8 @@ def test_a_site_is_published_on_a_variable_compose_reads(unit: str, variable: st
 def test_the_escape_audit_takes_the_site_s_scalars_and_nothing_near_them() -> None:
     tables = published_tables()
     files, _refused = _render(_golden())
-    assert escape_findings(__import__("yaml").safe_load(files[PROFILE]), tables) == []
+    rendered = __import__("yaml").safe_load(files[PROFILE])
+    assert escape_findings(rendered, tables, sites=["site"]) == []
     image = "demo-site-prod:${TERP_RELEASE_TAG:?TERP_RELEASE_TAG is required, one new image tag per release}"
     assert escape_findings({"services": {"site": {"image": image}}}, tables) == []
     for profile in (
@@ -580,6 +581,29 @@ def test_the_escape_audit_takes_the_site_s_scalars_and_nothing_near_them() -> No
         {"services": {"site": {"image": "demo-docs-prod:" + image.split(":", 1)[1]}}},
     ):
         assert escape_findings(profile, tables), profile
+
+
+def test_a_site_s_port_is_taken_only_on_the_site_unit_it_names_and_once() -> None:
+    """The fixed list names the port's shape, which any service could carry any number of
+    times: an api publishing itself on ``WEB_PORT_SITE`` passed the audit, and a deploy
+    that sets that variable for the site would have opened the api on it."""
+    tables = published_tables()
+    port = site_port("site")
+    site = {"services": {"site": {"ports": [port]}}}
+    assert escape_findings(site, tables, sites=["site"]) == []
+    for profile, sites, said in (
+        (site, [], "only the service of a unit the static-site recipe builds may publish"),
+        ({"services": {"api": {"ports": [port]}}}, ["site"],
+         "only the service of a unit the static-site recipe builds may publish"),
+        ({"services": {"site": {"ports": [site_port("docs")]}}}, ["site"], "on that unit's own variable"),
+        ({"services": {"site": {"ports": [port, port]}}}, ["site"], "publishes the site site a second time"),
+        ({"x-site": {"ports": [port]}}, ["site"],
+         "only the service of a unit the static-site recipe builds may publish"),
+    ):
+        found = escape_findings(profile, tables, sites=sites)
+        assert len(found) == 1 and said in found[0], (profile, found)
+    two = {"services": {"site": {"ports": [port]}, "docs": {"ports": [site_port("docs")]}}}
+    assert escape_findings(two, tables, sites=["site", "docs"]) == []
 
 
 # --------------------------------------------------------------------------- #

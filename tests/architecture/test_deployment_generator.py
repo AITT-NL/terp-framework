@@ -535,7 +535,8 @@ def test_the_truth_rule_deploy_safety_and_the_escape_audit_pass(
     assert truth_findings(tmp_path, declaration, tables.datastores) == []
     profile = _profile(files)
     assert audit(profile) == [], "deploy-safety"
-    assert escape_findings(profile, tables) == [], "the executor's escape audit"
+    sites = [unit.id for unit in declaration.units if declaration.recipe(unit.id) == "static-site"]
+    assert escape_findings(profile, tables, sites=sites) == [], "the executor's escape audit"
     tags = [
         token for token in yaml.scan(files[PROFILE].decode("ascii"))
         if isinstance(token, yaml.TagToken)

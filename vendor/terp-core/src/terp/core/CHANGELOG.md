@@ -112,6 +112,14 @@ decision, 0001 onwards.
   host is the site's own, which the build cannot know". The remedy is unchanged: load the file
   by its path.
 
+- **A static site's port is taken only on the site unit it names (ADR 0198).** The escape
+  audit's fixed list names the port's shape, `${WEB_PORT_<UNIT>:-23101}:8080`, and accepted it
+  on any service, any number of times. A carried profile whose api published itself on a
+  site's variable passed `terp promote`, and a deploy that sets that variable for the site
+  would have opened the api on it. The audit now takes the entry only on the service of a
+  unit the `static-site` recipe builds, as that unit's own variable, once. terp-runner's
+  audit is bound the same way in its own change.
+
 ### Upgrade notes
 
 - **`terp release` refuses a web image whose lock it cannot name.** Under `"build": "own"`, a

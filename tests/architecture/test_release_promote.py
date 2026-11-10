@@ -321,6 +321,11 @@ def test_a_retired_datastore_version_still_reads_from_the_manifest_s_own_record(
         (lambda text: text.replace('command: ["terp", "migrate", "upgrade", "--app-root", "/srv/app"]',
                                    'command: ["sh", "-c", "${SECRET_KEY}"]'), "interpolates outside the generator's fixed list"),
         (lambda text: text.replace("restart: unless-stopped", "restart: !!str unless-stopped", 1), "carries a YAML tag"),
+        # A site's port on a service that is no site unit: the shape is in the fixed list,
+        # and the app declares no static site, so no service may publish one.
+        (lambda text: text.replace("restart: unless-stopped",
+                                   'restart: unless-stopped\n    ports:\n      - "${WEB_PORT_SITE:-23101}:8080"', 1),
+         "is a static site's port"),
     ],
 )
 def test_a_generated_profile_is_audited_for_escapes_and_tags(tmp_path: pathlib.Path, keys, monkeypatch, edit, expected) -> None:
