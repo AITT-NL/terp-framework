@@ -491,17 +491,23 @@ const scriptsValue = (attribute, written) =>
   scriptsUrl(written) || (attribute in LISTS && written.split(LISTS[attribute]).some(scriptsUrl));
 
 // What a URL names beyond a path on the site's own origin, or null: a scheme, or a host. The
-// build cannot know its own host, so a URL that names one is another. *allowed* is the one
-// other scheme a kind of load may take.
+// build cannot know its own host, so a URL that names one is refused whichever host it is, and
+// the refusal says so: the policy admits the site's own origin written in full, and calling
+// that "another origin" gave a cause that was not true. *allowed* is the one other scheme a
+// kind of load may take.
+const HOST = "a URL that names a host";
+const UNLESS_OWN = " unless the host is the site's own, which the build cannot know";
+const unlessOwn = (there) => (there.startsWith(HOST) ? UNLESS_OWN : "");
 function elsewhere(url, allowed = null) {
   const plain = bare(url);
   const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):/.exec(plain);
   if (scheme !== null) {
     const name = scheme[1].toLowerCase();
     if (name === allowed) return null;
+    if (name === "http" || name === "https") return `${HOST} (${name}:)`;
     return name === "data" ? "a data: URL" : `another origin (${name}:)`;
   }
-  return /^[\\/]{2}/.test(plain) ? "another host" : null;
+  return /^[\\/]{2}/.test(plain) ? HOST : null;
 }
 
 // The URL of each candidate of a srcset, its descriptors left behind.
@@ -523,7 +529,7 @@ function candidates(srcset) {
 // The refusal for a load of *kind* from *there*.
 const loaded = (kind, there) => {
   const [what, why, remedy] = KINDS[kind];
-  return `${what} ${there}, which ${why}: ${remedy}`;
+  return `${what} ${there}, which ${why}${unlessOwn(there)}: ${remedy}`;
 };
 
 // A tag as a refusal quotes it: whole, or its first 117 characters.
@@ -608,7 +614,7 @@ function offense(name, attrs, content) {
   for (const attribute of ["action", "formaction"]) {
     const there = named.has(attribute) && (name === "form" || attribute === "formaction") ? elsewhere(named.get(attribute)) : null;
     if (there !== null) {
-      return `submits a form to ${there}, which the policy's form-action 'self' refuses: a site built from the recipe has no form that posts, so remove it or build the site under "build": "own"`;
+      return `submits a form to ${there}, which the policy's form-action 'self' refuses${unlessOwn(there)}: a site built from the recipe has no form that posts, so remove it or build the site under "build": "own"`;
     }
   }
   return null;
@@ -649,8 +655,9 @@ if (process.argv[2] !== undefined) {
   if (refused.length) {
     console.error(
       "Each line is markup the site's content security policy breaks in a browser, where a page " +
-        "breaks with nothing in any log, or a file the check cannot read (terp-framework ADR " +
-        "0198). The policy is the control; the check only finds what it can see before deploy, " +
+        "breaks with nothing in any log, a URL that names a host, which the build cannot tell " +
+        "from another origin, or a file the check cannot read (terp-framework ADR 0198). The " +
+        "policy is the control; the check only finds what it can see before deploy, " +
         "and a page it passes is no promise: change each as its line says, or build the site " +
         "under \"build\": \"own\".",
     );

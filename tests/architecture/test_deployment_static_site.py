@@ -158,6 +158,9 @@ _REFUSED = {
     # An image, media, a drawing, an icon, a manifest or a preload from another origin. An image
     # may be a data: URL, as img-src allows; media may not.
     "cdn-image.html": '<img src="https://cdn.example/a.png" alt="">',
+    # The site's own stylesheet, by its full URL: the policy admits it, and the build, which
+    # cannot know its own host, refuses it and says that is why.
+    "own-host-style.html": '<link rel="stylesheet" href="https://www.site.example/css/main.css">',
     "cdn-srcset.html": '<img src="/a.png" srcset="/a.png 1x, https://cdn.example/a@2x.png 2x" alt="">',
     "picture-source.html": '<picture><source srcset="https://cdn.example/a.webp"><img src="/a.png" alt=""></picture>',
     "poster.html": '<video src="/a.mp4" poster="https://cdn.example/a.jpg"></video>',
@@ -338,33 +341,39 @@ def test_the_build_refuses_each_page_the_policy_would_break_naming_its_first_tag
          "javascript: URL: remove the animation, or animate it to a page"),
         ("meta-refresh.html", '<meta http-equiv="refresh" content="0; url=javascript:go()"> refreshes '
          "to a javascript: URL: refresh to a page, or remove it"),
-        ("cdn-script.html", '<script src="https://cdn.example/a.js"> loads its script from another '
-         "origin (https:), which the policy's script-src 'self' refuses: copy the script into the "
-         "site's build and load it by its path"),
-        ("host-script.html", '<script src="//cdn.example/a.js"> loads its script from another host, '
-         "which the policy's script-src 'self' refuses: copy the script into the site's build and "
-         "load it by its path"),
+        ("cdn-script.html", '<script src="https://cdn.example/a.js"> loads its script from a URL that names a '
+         "host (https:), which the policy's script-src 'self' refuses unless the host is the "
+         "site's own, which the build cannot know: copy the script into the site's build and "
+         'load it by its path'),
+        ("host-script.html", '<script src="//cdn.example/a.js"> loads its script from a URL that names a host, '
+         "which the policy's script-src 'self' refuses unless the host is the site's own, "
+         "which the build cannot know: copy the script into the site's build and load it by "
+         'its path'),
         ("data-style.html", '<link rel="stylesheet" href="data:text/css,p{}"> loads a stylesheet from a '
          "data: URL, which the policy's style-src 'self' refuses: copy the stylesheet into the "
          "site's build and link it by its path"),
-        ("frame-elsewhere.html", '<iframe src="https://video.example/embed/1"> frames another origin '
-         "(https:), which the policy's default-src 'self' refuses: link to the page instead, or frame "
-         "one of the site's own"),
+        ("frame-elsewhere.html", '<iframe src="https://video.example/embed/1"> frames a URL that names a host '
+         "(https:), which the policy's default-src 'self' refuses unless the host is the "
+         "site's own, which the build cannot know: link to the page instead, or frame one of "
+         "the site's own"),
         ("base.html", "<base href=\"/\"> sets the page's base URL, which the policy's base-uri 'none' "
          "refuses: remove it and write each URL whole"),
         ("object.html", '<object data="/a.swf"> is an <object> element, which the policy\'s object-src '
          "'none' refuses: remove it"),
         ("embed.html", '<embed src="/a.swf"> is an <embed> element, which the policy\'s object-src '
          "'none' refuses: remove it"),
-        ("form-elsewhere.html", '<form action="https://forms.example/post" method="post"> submits a '
-         "form to another origin (https:), which the policy's form-action 'self' refuses: a site built "
-         'from the recipe has no form that posts, so remove it or build the site under "build": "own"'),
+        ("form-elsewhere.html", '<form action="https://forms.example/post" method="post"> submits a form to a URL '
+         "that names a host (https:), which the policy's form-action 'self' refuses unless the"
+         " host is the site's own, which the build cannot know: a site built from the recipe "
+         'has no form that posts, so remove it or build the site under "build": "own"'),
         ("styled.svg", '<?xml-stylesheet type="text/css" href="https://cdn.example/a.css"?> loads a '
-         "stylesheet from another origin (https:), which the policy's style-src 'self' refuses: copy the "
-         "stylesheet into the site's build and name it by its path"),
-        ("xslt.xml", '<?xml-stylesheet type="text/xsl" href="https://cdn.example/feed.xsl"?> loads an '
-         "XSLT stylesheet from another origin (https:), which the policy's script-src 'self' refuses: "
-         "copy the stylesheet into the site's build and name it by its path"),
+         "stylesheet from a URL that names a host (https:), which the policy's style-src "
+         "'self' refuses unless the host is the site's own, which the build cannot know: copy "
+         "the stylesheet into the site's build and name it by its path"),
+        ("xslt.xml", '<?xml-stylesheet type="text/xsl" href="https://cdn.example/feed.xsl"?> loads an XSLT'
+         " stylesheet from a URL that names a host (https:), which the policy's script-src "
+         "'self' refuses unless the host is the site's own, which the build cannot know: copy "
+         "the stylesheet into the site's build and name it by its path"),
         ("param-entity.svg", "<!DOCTYPE> declares an internal subset, whose entities a browser expands "
          "into the page and the check does not read: write each entity's text where it is used and "
          "remove the subset (an SVG or XHTML file needs none)"),
@@ -375,27 +384,37 @@ def test_the_build_refuses_each_page_the_policy_would_break_naming_its_first_tag
         ("prefixed.svg", "<s:script> is an inline script: write it to a file the page loads with src"),
         ("xlink-prefix.svg", '<a l:href="javascript:go()"> points xlink:href at a javascript: URL: link '
          "to a page, or attach the behaviour from a script file"),
-        ("cdn-image.html", '<img src="https://cdn.example/a.png" alt=""> loads an image from another '
-         "origin (https:), which the policy's img-src 'self' data: refuses: copy the image into the "
-         "site's build and load it by its path"),
+        ("own-host-style.html", '<link rel="stylesheet" href="https://www.site.example/css/main.css"> '
+         "loads a stylesheet from a URL that names a host (https:), which the policy's style-src "
+         "'self' refuses unless the host is the site's own, which the build cannot know: copy the "
+         "stylesheet into the site's build and link it by its path"),
+        ("cdn-image.html", '<img src="https://cdn.example/a.png" alt=""> loads an image from a URL that names a '
+         "host (https:), which the policy's img-src 'self' data: refuses unless the host is "
+         "the site's own, which the build cannot know: copy the image into the site's build "
+         'and load it by its path'),
         ("data-video.html", '<video src="data:video/mp4;base64,AAAA"> loads media from a data: URL, '
          "which the policy's default-src 'self' refuses: copy the file into the site's build and load "
          "it by its path"),
-        ("svg-use.html", '<use href="https://cdn.example/sprite.svg#a"/> uses a drawing from another '
-         "origin (https:), which a browser loads into <use> from the page's own origin alone: copy the "
-         "drawing into the site's build and use it by its path"),
-        ("icon-elsewhere.html", '<link rel="icon" href="https://cdn.example/favicon.ico"> loads an icon '
-         "from another origin (https:), which the policy's img-src 'self' data: refuses: copy the icon "
-         "into the site's build and link it by its path"),
-        ("manifest.html", '<link rel="manifest" href="https://cdn.example/site.webmanifest"> loads its '
-         "manifest from another origin (https:), which the policy's default-src 'self' refuses: copy "
-         "the manifest into the site's build and link it by its path"),
-        ("preload-font.html", '<link rel="preload" href="https://fonts.example/a.woff2" as="font" '
-         "crossorigin> loads a font from another origin (https:), which the policy's font-src 'self' "
-         "refuses: copy the font into the site's build and load it by its path"),
-        ("preload-fetch.html", '<link rel="preload" href="https://api.example/a.json" as="fetch" '
-         "crossorigin> fetches from another origin (https:), which the policy's connect-src 'self' "
-         "refuses: copy the file into the site's build and fetch it by its path"),
+        ("svg-use.html", '<use href="https://cdn.example/sprite.svg#a"/> uses a drawing from a URL that names '
+         "a host (https:), which a browser loads into <use> from the page's own origin alone "
+         "unless the host is the site's own, which the build cannot know: copy the drawing "
+         "into the site's build and use it by its path"),
+        ("icon-elsewhere.html", '<link rel="icon" href="https://cdn.example/favicon.ico"> loads an icon from a URL '
+         "that names a host (https:), which the policy's img-src 'self' data: refuses unless "
+         "the host is the site's own, which the build cannot know: copy the icon into the "
+         "site's build and link it by its path"),
+        ("manifest.html", '<link rel="manifest" href="https://cdn.example/site.webmanifest"> loads its manifest'
+         " from a URL that names a host (https:), which the policy's default-src 'self' "
+         "refuses unless the host is the site's own, which the build cannot know: copy the "
+         "manifest into the site's build and link it by its path"),
+        ("preload-font.html", '<link rel="preload" href="https://fonts.example/a.woff2" as="font" crossorigin> '
+         "loads a font from a URL that names a host (https:), which the policy's font-src "
+         "'self' refuses unless the host is the site's own, which the build cannot know: copy "
+         "the font into the site's build and load it by its path"),
+        ("preload-fetch.html", '<link rel="preload" href="https://api.example/a.json" as="fetch" crossorigin> '
+         "fetches from a URL that names a host (https:), which the policy's connect-src 'self'"
+         " refuses unless the host is the site's own, which the build cannot know: copy the "
+         "file into the site's build and fetch it by its path"),
     ],
 )
 def test_each_refusal_names_the_file_its_tag_and_what_to_change(
