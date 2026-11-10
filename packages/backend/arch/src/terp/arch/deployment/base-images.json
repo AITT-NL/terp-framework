@@ -5,11 +5,11 @@
       "tag": "nginxinc/nginx-unprivileged:alpine"
     },
     "node": {
-      "image": "node@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39",
+      "image": "node@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072",
       "tag": "node:26-slim"
     },
     "python": {
-      "image": "python@sha256:930e1abba7c4e8f96ed93e8012c35d174d7732752731bbd5e8e757d7ec6f3966",
+      "image": "python@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f",
       "tag": "python:3.14-slim"
     },
     "uv": {
