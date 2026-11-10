@@ -30,8 +30,8 @@ import json
 from collections.abc import Sequence
 
 from fastapi import FastAPI
-from fastapi.routing import APIRoute
-from starlette.routing import Mount, Route
+from fastapi.routing import APIRoute, APIWebSocketRoute, iter_route_contexts
+from starlette.routing import Mount, Route, WebSocketRoute
 
 from terp.core import (
     ActorStampedMixin,
@@ -48,13 +48,6 @@ from terp.core.scoping import registered_scope_predicates
 # Every module mounts under this prefix (``create_app``); a served path outside it is a
 # kernel / open route (e.g. health), not part of any module's policy surface.
 _API_PREFIX = "/api/v1/"
-
-# OpenAPI path-item keys that are HTTP operations (the rest are metadata such as
-# ``parameters`` / ``summary``) — used to read the served methods for each path.
-_HTTP_METHODS = frozenset(
-    {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
-)
-
 
 def _mro_names(model: type) -> set[str]:
     return {klass.__name__ for klass in model.__mro__}
@@ -201,25 +194,46 @@ def _undeclared_subscriber_alarms(specs: Sequence[ModuleSpec]) -> list[dict[str,
     ]
 
 
-def _served_routes(app: FastAPI) -> dict[str, frozenset[str]]:
-    """Every path the composed app serves -> its HTTP methods, from ``app.openapi()``.
+#: What a served WebSocket route is listed under: it has no HTTP method after the upgrade.
+_WEBSOCKET = "WS"
 
-    ``app.openapi()`` is the same document ``terp openapi`` exports and FastAPI serves,
-    so it is the authoritative, full-path route table — client module routers, every
-    discovered capability router, and the kernel health routes — the ground truth the
-    access graph is reconciled against.
+
+def _served_routes(app: FastAPI) -> dict[str, frozenset[str]]:
+    """Every path the composed app serves -> its HTTP methods, from the route table itself.
+
+    The table the router answers from, walked through every included router at the path
+    each route is really served under (``iter_route_contexts``, which FastAPI's own schema
+    generation walks). It used to be ``app.openapi()``, and a route declared with
+    ``include_in_schema=False`` is not in that document: one on a router included inside
+    a module's router was served, was in no module's endpoints, and was reconciled
+    against a document that did not list it, so nothing reported it. A WebSocket route,
+    which the document never lists, is in the table too, under :data:`_WEBSOCKET`.
+
+    Outside ``/api/v1`` only an ``APIRoute`` is listed here: the plain routes and the
+    mounts there are :func:`_schema_hidden_routes`'s, reported with their own note.
     """
-    paths: dict[str, object] = app.openapi().get("paths", {})
-    return {
-        path: frozenset(
-            method.upper() for method in item if method.lower() in _HTTP_METHODS
-        )
-        for path, item in paths.items()
-    }
+    served: dict[str, set[str]] = {}
+    for context in iter_route_contexts(app.routes):
+        route = context.original_route
+        path = context.path or ""
+        if isinstance(route, APIRoute):
+            methods = set(context.methods or ())
+        elif not path.startswith(_API_PREFIX):
+            continue
+        elif isinstance(route, APIWebSocketRoute | WebSocketRoute):
+            methods = {_WEBSOCKET}
+        elif isinstance(route, Mount):
+            path, methods = f"{path}/*", {"*"}
+        else:
+            # A plain route, or a kind this walk does not know: served under the API
+            # prefix, so listed, with every method when it names none.
+            methods = set(getattr(route, "methods", None) or {"*"})
+        served.setdefault(path, set()).update(method.upper() for method in methods)
+    return {path: frozenset(methods) for path, methods in served.items()}
 
 
 def _schema_hidden_routes(app: FastAPI) -> list[dict[str, object]]:
-    """Reachable top-level routes ``app.openapi()`` does NOT list — still reported.
+    """Reachable top-level routes that are no API route — still reported.
 
     FastAPI's own docs/schema endpoints (``/openapi.json`` / ``/docs`` / ``/redoc``,
     plain starlette ``Route``s with ``include_in_schema=False``) and any ``app.mount()``
@@ -229,7 +243,7 @@ def _schema_hidden_routes(app: FastAPI) -> list[dict[str, object]]:
     hidden: list[dict[str, object]] = []
     for route in app.routes:
         if isinstance(route, APIRoute):
-            continue  # schema-visible; reconciled via app.openapi()
+            continue  # an API route: listed by _served_routes, in the schema or not
         if isinstance(route, Mount):
             hidden.append(
                 {
@@ -256,7 +270,8 @@ def build_access_graph_for_app(app: FastAPI) -> dict[str, object]:
     ``create_app`` records the specs it mounted (client modules AND every discovered
     capability router) and its control plane on ``app.state``; this reads them back so
     the graph covers routes a hand-passed ``--module`` list would miss. It then
-    reconciles the graph against ``app.openapi()`` (the ground truth): every served
+    reconciles the graph against the composed route table (the ground truth, which holds
+    a route the OpenAPI document was told to leave out): every served
     ``/api/v1`` method must map to a module endpoint — any that does not is reported
     under ``omitted_routes`` (fail-visible, so a mounted route can never hide) — and the
     served routes outside ``/api/v1`` (the unauthenticated kernel health routes), the
@@ -299,14 +314,18 @@ def build_access_graph_for_app(app: FastAPI) -> dict[str, object]:
     modules: list = graph["modules"]  # type: ignore[assignment]
     for module in modules:
         for endpoint in module["endpoints"]:
-            covered.setdefault(endpoint["path"], set()).update(endpoint["methods"])
+            # A WebSocket endpoint carries no methods; it covers the served WebSocket.
+            covered.setdefault(endpoint["path"], set()).update(endpoint["methods"] or [_WEBSOCKET])
     omitted: list[dict[str, object]] = []
     for path, methods in sorted(served.items()):
         if not path.startswith(_API_PREFIX):
             continue
-        missing = sorted(methods - covered.get(path, set()))
-        if missing:
-            omitted.append({"path": path, "methods": missing})
+        missing = methods - covered.get(path, set())
+        if missing - {_WEBSOCKET}:
+            omitted.append({"path": path, "methods": sorted(missing - {_WEBSOCKET})})
+        if _WEBSOCKET in missing:
+            # No methods, as a module's own WebSocket endpoint has none.
+            omitted.append({"path": path, "methods": []})
     graph["omitted_routes"] = omitted
     return graph
 

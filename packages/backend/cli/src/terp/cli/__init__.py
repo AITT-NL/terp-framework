@@ -668,7 +668,7 @@ The access model (three layers) — profiles + the access graph
       uv run terp inspect access --app app.main:build --app-root . --format json
   The --app form reports the WHOLE composed surface — client modules AND every
   discovered capability router (users / groups / audit / files / …) plus the kernel
-  health routes — reconciled against app.openapi() so a mounted route can never hide
+  health routes — reconciled against the composed route table so a served route can never hide
   (any that is not covered is listed under omitted_routes, fail-visible). Use
   --object/--module instead to inspect a focused, hand-passed subset.
   One document: roles, permissions, every endpoint's method/path/requirement, each
@@ -3460,7 +3460,7 @@ def inspect_access(
 
     With ``app`` (a FastAPI instance or zero-arg factory, e.g. ``app.main:build``) the
     graph covers the WHOLE composed surface — every discovered capability router and the
-    kernel routes — reconciled against ``app.openapi()`` so no mounted route can hide.
+    kernel routes — reconciled against the composed route table so no served route can hide.
     Without it, the focused form reports just the hand-passed ``modules``.
 
     The three-layer view — module policy, per-endpoint requirement, and the data
@@ -3842,7 +3842,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--app",
         default=None,
         help="Composed FastAPI app or factory (e.g. app.main:build): report the WHOLE "
-        "mounted surface incl. discovered capabilities, reconciled against app.openapi()",
+        "mounted surface incl. discovered capabilities, reconciled against the route table",
     )
     access_parser.add_argument(
         "--app-root",

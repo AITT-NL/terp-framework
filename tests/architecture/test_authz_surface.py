@@ -411,6 +411,20 @@ def _nested_app():
     return _compose(router)
 
 
+def _hidden_nested_app():
+    """The same public route, declared out of the OpenAPI document."""
+    router = _strict_router()
+    nested = APIRouter()
+
+    @nested.get("/export", include_in_schema=False)
+    @route_policy(Policy.public(reason="a nested export"))
+    def export() -> dict:
+        return {"who": "nested"}
+
+    router.include_router(nested, prefix="/deep")
+    return _compose(router)
+
+
 def _pin_the_strict_surface(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, ref: str):
     import terp.cli.verify as verify_module
 
@@ -450,6 +464,26 @@ def test_a_route_the_graph_cannot_place_is_red(
         tmp_path, monkeypatch, "tests.architecture.test_authz_surface:_nested_app"
     )
     assert TestClient(_nested_app()).get("/api/v1/probe/deep/export").status_code == 200
+
+    exit_code, output = _run_authz_surface(tmp_path)
+    assert exit_code == 1
+    assert "GET /api/v1/probe/deep/export: served, but the access graph cannot place it" in output
+
+
+def test_a_route_kept_out_of_the_openapi_document_is_red_all_the_same(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The leak alarm was reconciled against ``app.openapi()``, which one keyword empties.
+
+    ``include_in_schema=False`` on the nested route took it out of that document, so the
+    alarm had nothing to report and an anonymous request was served under a green check.
+    """
+    _pin_the_strict_surface(
+        tmp_path, monkeypatch, "tests.architecture.test_authz_surface:_hidden_nested_app"
+    )
+    app = _hidden_nested_app()
+    assert "/api/v1/probe/deep/export" not in app.openapi()["paths"]
+    assert TestClient(app).get("/api/v1/probe/deep/export").json() == {"who": "nested"}
 
     exit_code, output = _run_authz_surface(tmp_path)
     assert exit_code == 1

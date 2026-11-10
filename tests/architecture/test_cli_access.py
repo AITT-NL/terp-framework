@@ -635,6 +635,92 @@ def test_access_graph_flags_nested_router_routes_instead_of_dropping_them() -> N
     ]
 
 
+def test_access_graph_flags_what_the_openapi_document_never_lists() -> None:
+    """The reconciliation reads the route table, not ``app.openapi()``.
+
+    A route declared with ``include_in_schema=False`` is served and is not in that
+    document, and neither is a WebSocket route, a plain route or a mount. On a router
+    included inside a module's router each one was in no module's endpoints and in no
+    ``omitted_routes`` either: served, and reported nowhere.
+    """
+    from fastapi import APIRouter, FastAPI, WebSocket
+    from starlette.responses import PlainTextResponse
+    from starlette.routing import Mount, Route
+
+    from terp.cli.access import build_access_graph_for_app
+    from terp.core import ControlPlane, ModuleSpec, PermissionModel, Policy
+
+    nested = APIRouter()
+
+    @nested.get("/hidden", include_in_schema=False)
+    def hidden() -> dict:  # never called
+        return {}
+
+    @nested.websocket("/socket")
+    async def socket(websocket: WebSocket) -> None:  # never called
+        await websocket.close()
+
+    async def plain(request: object) -> PlainTextResponse:  # never called
+        return PlainTextResponse("")
+
+    nested.routes.append(Route("/plain", plain, methods=["GET"]))
+    nested.routes.append(Mount("/files", app=FastAPI()))
+
+    parent = APIRouter()
+
+    @parent.get("/", include_in_schema=False)
+    def top() -> dict:  # never called
+        return {}
+
+    @parent.websocket("/live")
+    async def live(websocket: WebSocket) -> None:  # never called
+        await websocket.close()
+
+    parent.include_router(nested, prefix="/deep")
+    app = FastAPI()
+    app.include_router(parent, prefix="/api/v1/widgets")
+    app.state.terp_module_specs = (
+        ModuleSpec(name="widgets", router=parent, policy=Policy.default()),
+    )
+    app.state.terp_control_plane = ControlPlane(permissions=PermissionModel())
+
+    assert "/api/v1/widgets/deep/hidden" not in app.openapi()["paths"]
+    graph = build_access_graph_for_app(app)
+    (module,) = graph["modules"]
+    # The module's own routes are covered whether the document lists them or not.
+    assert [(e["path"], e["methods"]) for e in module["endpoints"]] == [
+        ("/api/v1/widgets/", ["GET"]),
+        ("/api/v1/widgets/live", []),
+    ]
+    assert graph["omitted_routes"] == [
+        {"path": "/api/v1/widgets/deep/files/*", "methods": ["*"]},
+        {"path": "/api/v1/widgets/deep/hidden", "methods": ["GET"]},
+        {"path": "/api/v1/widgets/deep/plain", "methods": ["GET", "HEAD"]},
+        {"path": "/api/v1/widgets/deep/socket", "methods": []},
+    ]
+
+
+def test_access_graph_lists_a_schema_hidden_api_route_outside_the_api_prefix() -> None:
+    """A hidden route on the app itself is a kernel route like any other served there."""
+    from fastapi import FastAPI
+
+    from terp.cli.access import build_access_graph_for_app
+    from terp.core import ControlPlane, PermissionModel
+
+    app = FastAPI()
+
+    @app.get("/internal", include_in_schema=False)
+    def internal() -> dict:  # never called
+        return {}
+
+    app.state.terp_module_specs = ()
+    app.state.terp_control_plane = ControlPlane(permissions=PermissionModel())
+
+    graph = build_access_graph_for_app(app)
+    assert {"/internal"} <= {route["path"] for route in graph["kernel_routes"]}
+    assert graph["omitted_routes"] == []
+
+
 def test_access_graph_reports_mounted_sub_applications() -> None:
     # app.mount() bypasses the ModuleSpec policy guard entirely — the graph must
     # show the mount as reachable-but-unguarded surface, never omit it.
