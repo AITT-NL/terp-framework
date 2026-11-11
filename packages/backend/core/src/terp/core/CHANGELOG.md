@@ -68,6 +68,16 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **On terp-spec 0.46.0.** Both pins move: `terp-spec` in `pyproject.toml` and `@terpjs/spec`
+  in `@terpjs/eslint-boundaries`, with `terp.arch.SPEC_VERSION`, the JS `SPEC_VERSION` and
+  both mirrors' `SPEC_RELEASE`. 0.46.0 changes no schema. Its deployment fixtures name five
+  more refusals every reader of `deployment.json` is held to, and their corpus cases land
+  here with the pins (`deployment_declaration_is_readable`, violation-51 to violation-55): a
+  recipe keyed by something that is no unit id, in two spellings; a key written twice in one
+  object; a number that is not finite; and a static site whose health path is not
+  `/healthz`. The reader already refuses all five; the cases are what holds it, the runner
+  and Studio to the same field and the same words. A release made with this version names
+  terp-spec 0.46.0, so the runner must carry that release before an app pins this one.
 - **A generated app's production images build on the bases as rebuilt on 5 November.**
   terp-arch's base-image table moves `python:3.14-slim` and `node:26-slim` to the digests
   their tags name now. Both are rebuilds of the same versions, Python 3.14.10 and Node.js
