@@ -355,11 +355,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Idempotent re-run: a release for this tag may already exist.
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "release $GITHUB_REF_NAME already exists — skipping"
-            exit 0
-          fi
           # Publish the AUTHORED notes, not generated commit subjects. The two are
           # different documents, and the difference is the whole classification: the
           # `### Security` narrative that explains a defect a deployment may be carrying
@@ -376,6 +371,19 @@ jobs:
             echo "::error::CHANGELOG.md has no '## $version' section - refusing to " \
                  "publish a release whose notes nobody wrote"
             exit 1
+          fi
+          # A release for this tag may already exist: a re-run made it, or the tag was made
+          # through the Releases page, which makes the Release with the tag and fills it with
+          # generated notes. Skipping it left those notes standing, so 0.41.0's Release carried
+          # commit subjects and not its own section. It is given the authored notes instead,
+          # asked over REST by tag, which answers for a published Release only.
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" \
+               --jq .id >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "Terp $GITHUB_REF_NAME" --notes-file release-notes.md
+            echo "::notice::the Release for $GITHUB_REF_NAME already existed; its title and" \
+                 "notes are now the tag's CHANGELOG section"
+            exit 0
           fi
           gh release create "$GITHUB_REF_NAME" \
             --title "Terp $GITHUB_REF_NAME" \

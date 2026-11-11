@@ -13,6 +13,9 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+import shutil
+import subprocess
+import sys
 import tomllib
 
 import pytest
@@ -335,6 +338,109 @@ def test_the_release_workflow_publishes_the_authored_notes() -> None:
         "--generate-notes is back: the authored release notes stop reaching the only "
         "channel a consumer can subscribe to"
     )
+
+
+#: A stand-in for ``gh``: it logs what it was asked and answers as GitHub does. The lookup of
+#: a Release by tag gives its id, or a 404 body and a failure; creating a Release for a tag
+#: that has one is refused with a 422.
+_FAKE_GH = """#!/usr/bin/env bash
+echo "$*" >> "$GH_LOG"
+case "$1 $2" in
+  "api repos/example/framework/releases/tags/v9.9.9")
+    if [ "$RELEASE_EXISTS" = "1" ]; then echo 4242; exit 0; fi
+    echo '{"message":"Not Found","status":"404"}'; exit 1 ;;
+  "release create")
+    if [ "$RELEASE_EXISTS" = "1" ]; then
+      echo "HTTP 422: Release.tag_name already exists" >&2; exit 1
+    fi
+    cp release-notes.md "$NOTES_SEEN"; exit 0 ;;
+  "release edit") cp release-notes.md "$NOTES_SEEN"; exit 0 ;;
+esac
+echo "the stand-in was asked something the step should not ask: $*" >&2; exit 64
+"""
+
+_BASH = shutil.which("bash")
+
+
+def _publish_release(tmp_path: pathlib.Path, **answers: str) -> tuple[int, str, list[str], str]:
+    """The workflow's own Release step under ``bash -e``, against the stand-in, in a tree
+    whose CHANGELOG has a ``9.9.9`` section: exit code, output, what it asked ``gh``, and the
+    notes it handed over."""
+    workflow = yaml.safe_load(
+        (_REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    )
+    steps = workflow["jobs"]["github-release"]["steps"]
+    (step,) = [s for s in steps if s.get("name") == "Create the GitHub Release"]
+    work = tmp_path / "work"
+    work.mkdir(parents=True)
+    (work / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## 9.9.9 \u2014 2026-11-11\n\n### Security\n\n"
+        "- A defect a deployment may carry.\n\n## 9.9.8 \u2014 2026-11-10\n\n- Older.\n",
+        encoding="utf-8",
+    )
+    fake = tmp_path / "bin" / "gh"
+    fake.parent.mkdir()
+    fake.write_text(_FAKE_GH, encoding="utf-8")
+    fake.chmod(0o755)
+    log, seen = tmp_path / "gh.log", tmp_path / "notes-seen.md"
+    log.write_text("", encoding="utf-8")
+    seen.write_text("", encoding="utf-8")
+    script = tmp_path / "step.sh"
+    script.write_text(step["run"], encoding="utf-8")
+    done = subprocess.run(  # noqa: S603 - the workflow's own step, against a stand-in
+        [str(_BASH), "-e", str(script)],
+        cwd=work,
+        env={
+            "PATH": f"{fake.parent}:/usr/bin:/bin",
+            "GH_LOG": str(log),
+            "NOTES_SEEN": str(seen),
+            "GITHUB_REF_NAME": "v9.9.9",
+            "GITHUB_REPOSITORY": "example/framework",
+            **answers,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return (
+        done.returncode,
+        done.stdout + done.stderr,
+        log.read_text(encoding="utf-8").splitlines(),
+        seen.read_text(encoding="utf-8"),
+    )
+
+
+_needs_bash = pytest.mark.skipif(
+    sys.platform != "linux" or _BASH is None,
+    reason="the step is a bash script, run as the release runs it: on Linux",
+)
+
+
+@_needs_bash
+def test_a_tag_with_no_release_gets_one_with_its_changelog_section(
+    tmp_path: pathlib.Path,
+) -> None:
+    code, said, asked, notes = _publish_release(tmp_path, RELEASE_EXISTS="0")
+    assert code == 0, said
+    assert asked[-1] == (
+        "release create v9.9.9 --title Terp v9.9.9 --notes-file release-notes.md --verify-tag"
+    )
+    assert "### Security" in notes and "Older." not in notes
+
+
+@_needs_bash
+def test_a_release_made_together_with_the_tag_is_given_the_changelog_section(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The Releases page makes the Release with the tag and fills it with generated commit
+    subjects. The step skipped a Release that existed, so 0.41.0's carried those and not its
+    section. It now gives that Release the tag's own section, the Security narrative with it."""
+    code, said, asked, notes = _publish_release(tmp_path, RELEASE_EXISTS="1")
+    assert code == 0, said
+    assert asked[1:] == ["release edit v9.9.9 --title Terp v9.9.9 --notes-file release-notes.md"]
+    assert not any(line.startswith("release create") for line in asked)
+    assert "### Security" in notes and "A defect a deployment may carry." in notes
+    assert "now the tag's CHANGELOG section" in said
 
 
 #: Every in-repo consumer of a published Terp package — the apps, which are not published
