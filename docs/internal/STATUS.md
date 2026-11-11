@@ -997,16 +997,16 @@ frontend design-system track below.
 - [x] The Studio pins 0.41.1 (terp-studio#182), with its vendored contracts and corpus moved
       to terp-spec 0.46.0; its reader gives 0.46.0's five refusals in the shared words.
 - [x] The runner's end-to-end lane cuts its releases with 0.41.1 (terp-runner#25).
-- [x] Built for 0.42.0, not yet released: an app compares the routes it serves with its
-      `authz-surface.json` before it serves, and outside local does not start on a difference
-      (ADR 0212). The surface's reduction and comparison moved into `terp-core`, the generated
-      `Dockerfile.prod` copies the record, and `terp release sign` holds it to the tree's.
+- [x] Released as 0.42.0 (2026-11-11), on terp-spec 0.46.0: the access check's second half.
+      An app compares the routes it serves with its `authz-surface.json` before it serves, and
+      outside local does not start on a difference (ADR 0212). The surface's reduction and
+      comparison moved into `terp-core`, the generated `Dockerfile.prod` copies the record, and
+      `terp release sign` holds it to the tree's. With it, the rule `no_framework_patching`
+      (ADR 0213): app code may not replace a function of the framework or of the web stack it
+      reads, which the startup comparison leaves open by itself.
 - [ ] Owed with that release: the signer that reads a release made with it must be 0.42.0
       or later (an older one refuses the record as a file in `/srv` it holds to nothing), so
       the runner's end-to-end lane and the Studio's pin move with it.
-- [x] Built for 0.42.0, not yet released: the rule `no_framework_patching` (ADR 0213). App
-      code may not replace a function of the framework or of the web stack it reads, which
-      the startup comparison leaves open by itself.
 - [ ] Open, for the owner: whether app code may write the framework's own environment
       variables or change the working directory, each of which turns the startup comparison
       off (ADR 0213, *What it does not do*).
