@@ -284,6 +284,9 @@ Two boundaries are never autonomous agent decisions:
    The modules `app/main.py` hands to `create_app` are the same in every environment:
    never add one under a condition (`module_list_is_unconditional`). A module whose
    configuration is per environment is mounted always and refuses while it has none.
+   App code calls the framework and never replaces its functions: no assignment to, or
+   `setattr` on, something imported from `terp`, `fastapi` or `starlette`, and no
+   `mock.patch` of it outside a test (`no_framework_patching`).
 12. **Production refuses several boots the inner loop only warns about.** Each is
    decided by what the control plane declares, so each is fixable here and now:
    - CORS is declared — `CorsPolicy.from_environment()`, which takes the browser origins

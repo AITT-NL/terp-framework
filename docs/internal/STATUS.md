@@ -1004,9 +1004,12 @@ frontend design-system track below.
 - [ ] Owed with that release: the signer that reads a release made with it must be 0.42.0
       or later (an older one refuses the record as a file in `/srv` it holds to nothing), so
       the runner's end-to-end lane and the Studio's pin move with it.
-- [ ] Next on the same track: the rule that app code may not patch the framework's own
-      functions, which the startup comparison leaves open by itself (ADR 0212, *What it does
-      not do*).
+- [x] Built for 0.42.0, not yet released: the rule `no_framework_patching` (ADR 0213). App
+      code may not replace a function of the framework or of the web stack it reads, which
+      the startup comparison leaves open by itself.
+- [ ] Open, for the owner: whether app code may write the framework's own environment
+      variables or change the working directory, each of which turns the startup comparison
+      off (ADR 0213, *What it does not do*).
 
 ## Active execution track
 

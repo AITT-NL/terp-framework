@@ -94,7 +94,8 @@ compose the app.
   comparison runs in the app's own process, so code that changes the working directory
   before it composes, removes the record, or replaces the comparison can still get through.
   Each is visible in the diff. A rule that refuses app code patching the framework's own
-  functions is the next change. A cross-check that lists the routes the source declares
+  functions is the next change
+  ([ADR 0213](0213-app-code-does-not-replace-the-frameworks-own-functions.md)). A cross-check that lists the routes the source declares
   without running it would close more, at the price of refusing dynamic ways to declare
   routes, and is deferred.
 - **It does not check an image that was built without the record.** A Dockerfile rendered

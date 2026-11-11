@@ -287,11 +287,11 @@ def terp_signing_key() -> Iterator[None]:
 
     original = settings.SECRET_KEY
     if original in _PLACEHOLDER_SECRETS:
-        settings.SECRET_KEY = secrets.token_urlsafe(48)
+        settings.SECRET_KEY = secrets.token_urlsafe(48)  # arch-allow-no-framework-patching: the pytest plugin's own fixture, which gives a test session a signing key nobody wrote down
     try:
         yield
     finally:
-        settings.SECRET_KEY = original
+        settings.SECRET_KEY = original  # arch-allow-no-framework-patching: the same fixture putting the key back when the session ends
 
 
 @pytest.fixture

@@ -1,0 +1,22 @@
+{
+  "id": "backend/no_framework_patching",
+  "surface": "backend",
+  "title": "App code does not replace the framework's own functions",
+  "intent": "A check that runs the framework's code is worth what that code is: the comparison an app makes with its record of who can reach what before it serves, the guard on every route, a refusal at composition. Each can be turned off from inside the app by replacing the function that performs it, in one statement and with every other check still green, because the checks run the replaced code too. The rule refuses the statements that put something else in a function's place, for the framework and for the web stack whose route table the framework reads: an assignment to or a deletion of an attribute reached through an imported name, the same through the module registry, a looked-up module or an object's namespace, a module replaced in the registry, setting or deleting an attribute by name, and a patcher from the test toolbox. It follows a name through plain assignments in the file. Test directories are not read: replacing a function there is how a test is written.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_no_framework_patching"
+    }
+  ],
+  "reference": "Behaviour is changed through the seams the framework gives: a create_app parameter (principal_provider=, middleware=, lease_store=), a ModuleSpec and its Policy, a registered scope or object-authorization predicate, a control plane. An attribute set on the app's own objects, on the result of a call (router = APIRouter(); router.tags = [...]), or on a library the framework does not read is not this rule's subject. In a test, monkeypatch.setattr and mock.patch stay the way to replace a function.",
+  "opt_out": "# arch-allow-no-framework-patching: <reason>",
+  "runtime": {
+    "applicability": "not-applicable",
+    "rationale": "The invariant is a property of the authored source: whether a statement puts something else in a function's place. The running system cannot tell the function that shipped from its replacement without a second copy to compare it with, and whatever made that comparison would be as replaceable as what it compares. The evidence that the shipped code is what runs is outside the process: a release's image is held to the tree file by file and to the lock distribution by distribution when it is signed (ADR 0187), and the tree is what this rule reads."
+  },
+  "guide_topic": "capability",
+  "corpus": true
+}

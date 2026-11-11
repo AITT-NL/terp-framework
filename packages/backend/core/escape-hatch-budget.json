@@ -1,4 +1,5 @@
 {
   "arch-allow-mutations-emit-audit": 1,
+  "arch-allow-no-framework-patching": 2,
   "arch-allow-no-internal-imports": 4
 }
