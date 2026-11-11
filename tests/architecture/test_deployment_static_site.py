@@ -470,7 +470,7 @@ def test_a_dist_that_is_no_directory_is_named_with_its_remedy(
 
 #: A large page (a third of a megabyte to one and a half) in each shape that once cost the check
 #: quadratic time, or would with a naive reading: forty thousand comments, which the check
-#: before 0.41.0 read in about twenty seconds by searching the rest of the page for "--!>" from
+#: before 0.41.1 read in about twenty seconds by searching the rest of the page for "--!>" from
 #: each; SVG fifty thousand deep whose end tags close nothing; SVG scripts whose end tag never
 #: comes; raw text whose end tag never comes; and an XML file that binds a new prefix at each of
 #: twenty thousand levels.
