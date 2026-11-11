@@ -9,14 +9,18 @@
       "kind": "build-time",
       "tool": "terp.arch",
       "ref": "check_module_list_is_unconditional"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "startup_refusal"
     }
   ],
   "reference": "create_app([login_module, me_module, oidc_module], ...) with every module named in every environment; a module whose configuration is per environment is built always (build_oidc_module(providers, ..., allow_no_provider=True)) and answers a typed refusal while it has none.",
   "opt_out": "# arch-allow-module-list-is-unconditional: <reason>",
   "runtime": {
-    "applicability": "deferred",
-    "rationale": "The invariant survives into the running system as its consequence: the routes the composed app serves either are or are not the ones the committed authorization surface records. The source scan reads one file, so a list built in another module, or a module object that is itself None under a condition, is outside it; a fail-closed comparison at startup of the composed routes with the shipped authz-surface.json would catch those, and every other way the served surface can differ from the recorded one. The framework owns that seam (create_app, after composition) and has not shipped the control: it runs the app's own code against its own record, which is a decision recorded as open.",
-    "tracking": "terp-framework ADR 0209, Open (whether the access check may keep running the app's own code), and ADR 0211: the startup self-check in terp.core.app that compares the composed routes with the authz-surface.json the image carries and refuses to start on a difference."
+    "applicability": "required",
+    "rationale": "The invariant survives into the running system as its consequence: the routes the composed app serves either are or are not the ones the committed authorization surface records. create_app compares the two once it has composed and frozen the app (terp.core.authz_surface.startup_refusal, ADR 0212): outside the local environment a difference, a route the record cannot hold, or a record that cannot be read is a BootError, so a module list that differs where the app is deployed, however it came to differ, does not serve. The source scan reads one file; this catches a list built in another module too. The local environment warns instead, because a developer who adds a route serves it at once and writes the record in the same change. An app that ships no authz-surface.json is not compared, and says so in its log outside local."
   },
   "guide_topic": "capability",
   "corpus": true

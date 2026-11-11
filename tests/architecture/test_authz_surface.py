@@ -18,16 +18,13 @@ import pytest
 
 from terp.cli.access import build_access_graph_for_app
 import terp.cli.verify as verify_module
-from terp.cli.authz_changes import authority_changes
-from terp.cli.authz_surface import (
+from terp.core.authz_changes import authority_changes
+from terp.cli.authz_surface import check, diff_authz_surface, pinned_problem, verdict
+from terp.core.authz_surface import (
     SURFACE_ARTIFACT,
     authz_surface,
-    check,
-    diff_authz_surface,
-    pinned_problem,
     read_baseline,
     render_authz_surface,
-    verdict,
 )
 from terp.core import (
     ControlPlane,

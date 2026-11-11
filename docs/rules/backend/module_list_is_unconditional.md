@@ -43,5 +43,6 @@ adding the corpus case that contracts it.
 
 ## Enforcement
 
-- Checked while the app runs? Not yet — a runtime control is planned; the gap is explicit and tracked.
+- Checked while the app runs? Yes — the framework also enforces this while the app runs (fail closed).
 - `build-time`: `terp.arch` — `check_module_list_is_unconditional`
+- `runtime`: `terp.core` — `startup_refusal`

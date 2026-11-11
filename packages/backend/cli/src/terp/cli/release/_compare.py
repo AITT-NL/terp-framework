@@ -22,7 +22,11 @@ anything the image would say about itself when run:
   site-packages), its marker files, ``lib64``, the interpreter links in ``bin`` (to an
   interpreter outside ``/srv``) and the activation scripts. A ``.pth`` file and a
   ``sitecustomize`` or ``usercustomize`` module are held the same way, so one no ``RECORD``
-  lists is refused, and so is any file in ``/srv`` outside the two roots and the environment;
+  lists is refused, and so is any file in ``/srv`` outside the two roots and the environment,
+  but the record below;
+* ``/srv/authz-surface.json``, the record the app compares the routes it composed with before
+  it serves (ADR 0212), is the tree's, and is there when the tree holds one and the image's own
+  Dockerfile copies it;
 * the configuration that decides what the image runs (entrypoint, command, environment, user,
   working directory, healthcheck, volumes, stop signal, shell) is what its Dockerfile makes of
   the configuration of the base it pins (:mod:`._dockerfile`).
@@ -51,6 +55,7 @@ from terp.cli.release._image import Node, metadata, record
 from terp.cli.release._locks import marker_environment, normalise, runtime_set
 from terp.cli.release._sandbox import SOURCE_ROOTS as ROOTS
 from terp.cli.release._sandbox import pyc_source
+from terp.core.authz_surface import SURFACE_ARTIFACT
 
 _SITE = re.compile(r"(?P<site>srv/\.venv/lib/python[0-9.]+/site-packages)/[^/]+\.dist-info/METADATA")
 _MACHINES = {"amd64": "x86_64", "arm64": "aarch64", "386": "i686", "arm": "armv7l"}
@@ -62,6 +67,11 @@ _VENV = "srv/.venv/"
 _MADE_WITH = frozenset({"pyvenv.cfg", ".gitignore", ".lock", "CACHEDIR.TAG"})
 _ACTIVATION = re.compile(r"activate(?:\.[a-z0-9]+)?|activate_this\.py|deactivate\.bat|pydoc\.bat")
 _INTERPRETER = re.compile(r"python(?:3(?:\.[0-9]+)?)?")
+
+#: The record of who can reach what, the one file of ``/srv`` that is neither source nor
+#: environment, and the instruction of a Dockerfile that copies it there.
+_RECORD = f"srv/{SURFACE_ARTIFACT}"
+_COPIES_RECORD = re.compile(r"^[ \t]*COPY[ \t][^\n]*authz-surface\.jso", re.IGNORECASE | re.MULTILINE)
 
 
 def wheel_shape(tree: Tree) -> None:
@@ -116,8 +126,33 @@ def _roots(tree: Tree, nodes: dict[str, Node], findings: list[str]) -> None:
                 findings.append(f"{path} is in the tree and the build context, and not in the image")
     compared = tuple(f"srv/{root}/" for root in ROOTS) + (_VENV,)
     for path, node in sorted(nodes.items()):
-        if node.kind != "dir" and not path.startswith(compared):
+        if node.kind != "dir" and path != _RECORD and not path.startswith(compared):
             findings.append(f"/{path} is in /srv outside {', '.join(ROOTS)} and .venv, where sign holds it to nothing")
+
+
+def _surface_record(tree: Tree, nodes: dict[str, Node], dockerfile: str, findings: list[str]) -> None:
+    """Hold the image's record of who can reach what to the tree's (ADR 0212).
+
+    The app compares the routes it composed with ``/srv/authz-surface.json`` before it serves,
+    so a record that is not the tree's would have it hold itself to something no reviewer saw.
+
+    An image without the record is not compared when it starts. That is a finding where the
+    tree holds the record and the image's own Dockerfile copies it, because something then
+    kept it out of the build context, and one line in ``.dockerignore`` would otherwise turn
+    the startup check off with every other answer here unchanged. A Dockerfile that does not
+    copy it, one rendered before the record was shipped or an app's own, builds an image that
+    starts without the comparison, as it did before.
+    """
+    image, ours = nodes.get(_RECORD), _tree_node(tree, SURFACE_ARTIFACT)
+    if image is not None:
+        if not _same(image, ours):
+            findings.append(f"/{_RECORD} is not the tree's {SURFACE_ARTIFACT}")
+    elif ours is not None and _COPIES_RECORD.search(tree.read_text(dockerfile)):
+        findings.append(
+            f"{SURFACE_ARTIFACT} is in the tree, {dockerfile} copies it, and it is not in the "
+            "image, so the app would start without comparing the routes it serves with it: "
+            "keep the record in the build context (.dockerignore)"
+        )
 
 
 def _bytecode(tree: Tree, nodes: dict[str, Node], compiled: dict[str, Any], findings: list[str]) -> None:
@@ -300,6 +335,7 @@ def compare_backend(
             findings.append("the image is not built on the base its Dockerfile names, so its bytecode cannot be checked")
     _configuration(tree, dockerfile, config, compiled, findings)
     _roots(tree, nodes, findings)
+    _surface_record(tree, nodes, dockerfile, findings)
     _bytecode(tree, nodes, compiled, findings)
     site = _site(nodes)
     compared = _wheel(tree, nodes, texts, site, project, findings)

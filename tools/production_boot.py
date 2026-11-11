@@ -23,6 +23,10 @@ configured. It boots twice more: SSO configured with ``OIDC_ALLOWED_EMAIL_DOMAIN
 boots with the same routes mounted; and SSO configured without it, which must be refused,
 in the federated-identity service's own words.
 
+A render that holds its ``authz-surface.json`` must also say, in each boot that succeeds,
+that it compared the routes it serves with that record (ADR 0212). A boot that passed
+without the comparison would otherwise read here exactly like one that passed it.
+
 Usage, from the rendered app::
 
     uv run python <framework>/tools/production_boot.py --database-url postgresql+psycopg://...
@@ -121,6 +125,11 @@ SSO_NOT_CONFIGURED = [503, "sso_not_configured"]
 #: The refusal FederatedIdentityService raises in production for provisioning with no
 #: allowlist (terp.capabilities.identity.federated).
 ALLOWLIST_REFUSAL = "requires an identity allowlist in production"
+
+#: The record of who can reach what, and what a production boot logs once it has compared
+#: the routes it serves with it and found no difference (terp.core.authz_surface, ADR 0212).
+RECORD = "authz-surface.json"
+COMPARED = "authz-surface.json matches the routes this app serves"
 
 #: The answers file copier records a render's answers in; ``use_sso`` is one of them.
 ANSWERS = ".copier-answers.yml"
@@ -234,6 +243,12 @@ def boot(
     report = json.loads(done.stdout.strip().splitlines()[-1])
     if report["ready"] != 200:
         raise BootError(f"{case.name}: /health/ready answered {report['ready']}, not 200")
+    if (root / RECORD).is_file() and COMPARED not in output:
+        raise BootError(
+            f"{case.name}: booted with {RECORD} beside it and did not say it compared the "
+            "routes it serves with that record. The app holds itself to the record when it "
+            f"starts (ADR 0212), and says so: {COMPARED!r}"
+        )
     mounted = SSO_ROUTE in report["paths"]
     if mounted != case.sso_mounted:
         state = "mounted" if mounted else "not mounted"

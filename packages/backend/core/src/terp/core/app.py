@@ -19,12 +19,11 @@ import re
 import uuid
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from html import escape
 from typing import get_args, get_origin, get_type_hints
 
 from fastapi import APIRouter, Depends, FastAPI, Request
 from starlette.requests import HTTPConnection
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute, APIWebSocketRoute
 from pydantic import BaseModel
 from sqlalchemy import Engine
@@ -92,7 +91,9 @@ from terp.core.request_authorization import (
 from terp.core.passwords import configure_password_policy
 from terp.core.operations import OperationCatalog, OperationCoverage
 from terp.core.route_timestamps import request_timestamps_refusal
+from terp.core.authz_surface import startup_refusal
 from terp.core.composition_freeze import freeze_app_route_registration
+from terp.core._root_signpost import mount_root_signpost
 from terp.core.routing import (
     declared_route_policy,
     MUTATING_METHODS,
@@ -1832,63 +1833,6 @@ def _positional_array_locations(node: object, path: str = "") -> list[str]:
     return found
 
 
-def _mount_root_signpost(app: FastAPI, *, title: str, docs: bool) -> None:
-    """Answer ``GET /`` with a signpost instead of a bare not-found document.
-
-    A Terp app is two published ports in development and an interface in front
-    of an API in production, and the API's root belongs to nobody: no module
-    mounts there (every module router is prefixed ``/api/v1/<name>``), and
-    route registration is frozen after composition, so nothing else can claim
-    it either. FastAPI therefore answered it with ``{"detail":"Not Found"}`` —
-    a correct 404 that reads, to the person who opened the wrong one of two
-    addresses in a browser, as an application that is broken. It is the most
-    reliably reachable dead end the platform has, and everything about it
-    invites the reader to go looking for a bug in code they did not write.
-
-    So it says where they are and where the interface is. Deliberately plain:
-
-    * **HTML, not JSON.** The visitor arriving here is a browser, and a
-      document is what a browser is for. Machines have the contract.
-    * **No styling at all.** The security middleware serves
-      ``default-src 'none'``, which blocks an inline stylesheet as surely as a
-      remote one — and weakening a real header to decorate an error page would
-      be a bad trade. Unstyled HTML still reads.
-    * **Out of the contract** (``include_in_schema=False``). This is a landing
-      page for a human, not API surface; putting it in the document would add
-      a route to every generated client for something no client calls.
-
-    *docs* is false where the docs endpoints are hidden (production, unless
-    the security config opts in), and the link is then simply absent: pointing
-    at ``/docs`` when it 404s would make this page a second dead end.
-
-    Public, on the same footing as ``/health`` and for the same reason — an
-    unauthenticated visitor is precisely who reaches it — and it carries
-    nothing that authentication would be protecting: the app's own title, which
-    the contract and the interface both publish already, plus two paths that are
-    fixed for every Terp app. It answers ``GET`` only, so it adds no verb.
-    """
-
-    @app.get("/", include_in_schema=False, response_class=HTMLResponse)
-    def root() -> HTMLResponse:
-        docs_line = (
-            '<p>Interactive API documentation: <a href="/docs">/docs</a>.</p>'
-            if docs
-            else ""
-        )
-        return HTMLResponse(
-            "<!doctype html>"
-            f"<html lang=\"en\"><head><meta charset=\"utf-8\">"
-            f"<title>{escape(title)} API</title></head><body>"
-            f"<h1>{escape(title)} API</h1>"
-            "<p>This is the API. It has no pages of its own; the user "
-            "interface is served separately, on its own address.</p>"
-            f"{docs_line}"
-            '<p>Health: <a href="/health/live">/health/live</a> and '
-            '<a href="/health/ready">/health/ready</a>.</p>'
-            "</body></html>"
-        )
-
-
 def reject_positional_tuple_schemas(app: FastAPI) -> None:
     """Boot half of ``backend/schemas_avoid_positional_tuples`` (Terp Standard).
 
@@ -2295,7 +2239,7 @@ def create_app(
         build_health_router(expose_detail=expose_health_detail, readiness=readiness),
         prefix="/health",
     )
-    _mount_root_signpost(app, title=title, docs=not hide_docs)
+    mount_root_signpost(app, title=title, docs=not hide_docs)
     # Every route's timestamps are judged once every router is mounted, the framework's
     # own included, so no route reads one the check did not see (ADR 0208).
     timestamps_refusal = request_timestamps_refusal(app.routes)
@@ -2311,6 +2255,13 @@ def create_app(
     app.state.terp_module_specs = tuple(collected)
     app.state.terp_control_plane = resolved_plane
     freeze_app_route_registration(app)
+    # Last, over the frozen app: the routes it will serve are compared with the record it
+    # was released with, so an app that composes differently here does not serve (ADR 0212).
+    surface_refusal = startup_refusal(
+        app, resolved_plane, collected, local=settings.ENVIRONMENT == "local"
+    )
+    if surface_refusal is not None:
+        raise BootError(surface_refusal)
     return app
 
 

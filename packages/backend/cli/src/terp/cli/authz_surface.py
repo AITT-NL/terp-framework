@@ -16,6 +16,10 @@ it against a committed baseline, and reports the difference in the vocabulary of
 change rather than as a JSON diff: *this route's requirement moved from X to Y*, *this
 module became public*, *this endpoint is new and nothing has reviewed what it requires*.
 
+The reduction, the record's name and the comparison are :mod:`terp.core.authz_surface`'s
+and :mod:`terp.core.authz_changes`'s, because the app runs them again when it starts (ADR
+0212). What is here is the verdict ``terp verify`` gives.
+
 **Adoption is opt-in and half-adoption is impossible**, the shape ``api-docs-drift``
 settled on: with no committed baseline the check skips with a note naming the command
 that writes one, because upgrading the framework must not turn an app's gate red for a
@@ -29,113 +33,28 @@ separate, explicit command and never a ``--fix`` on the checker.
 
 from __future__ import annotations
 
-import json
 import pathlib
 import tomllib
 from typing import Any, NamedTuple
 
-#: The committed baseline, at the project root beside the other tracked artifacts.
-SURFACE_ARTIFACT = "authz-surface.json"
-
-#: What an app runs once to adopt the check, and again — deliberately, with the diff in
-#: front of a reviewer — to accept a change.
-ADOPT_HINT = "terp inspect access --app app.main:build --format surface > authz-surface.json"
-
-
-def authz_surface(graph: dict[str, Any]) -> dict[str, Any]:
-    """Reduce an access graph to the part that is an authority claim.
-
-    Deliberately **not** the whole graph. The graph carries things that move for honest
-    reasons — a model's traits, the reconciliation's ``omitted_routes``, whatever a
-    future field adds — and a baseline that churned on those would be regenerated
-    reflexively until nobody read the diff. What survives here is what answers "who may
-    reach what": the role ladder, each permission's floor, and per module its policy plus
-    each endpoint's requirement, extra permissions, and per-rung outcome.
-
-    Sorted at every level, because the baseline is a **diffable** artifact: a set
-    rendered in registration order would produce a reviewable diff only by luck.
-    """
-    roles = [
-        {"name": role["name"], "rank": role["rank"]}
-        for role in sorted(graph.get("roles", ()), key=lambda item: item["rank"])
-    ]
-    permissions = [
-        {"name": permission["name"], "min_role": permission["min_role"]}
-        for permission in sorted(
-            graph.get("permissions", ()), key=lambda item: item["name"]
-        )
-    ]
-    modules = [
-        {
-            "name": module["name"],
-            "policy": module.get("policy"),
-            "access": module.get("access"),
-            "endpoints": [
-                {
-                    "path": endpoint["path"],
-                    "methods": sorted(endpoint.get("methods", ())),
-                    "requirement": endpoint["requirement"],
-                    "extra_permissions": sorted(endpoint.get("extra_permissions", ())),
-                    "by_role": {
-                        rung["role"]: rung["reason"]
-                        for rung in endpoint.get("by_role", ())
-                    },
-                }
-                for endpoint in sorted(
-                    module.get("endpoints", ()),
-                    key=lambda item: (item["path"], sorted(item.get("methods", ()))),
-                )
-            ],
-        }
-        for module in sorted(graph.get("modules", ()), key=lambda item: item["name"])
-    ]
-    return {"authz_surface": 1, "roles": roles, "permissions": permissions, "modules": modules}
-
-
-def render_authz_surface(graph: dict[str, Any]) -> str:
-    """The baseline as the bytes a project commits (trailing newline, stable key order)."""
-    return json.dumps(authz_surface(graph), indent=2, sort_keys=True) + "\n"
+from terp.core.authz_changes import authority_changes
+from terp.core.authz_surface import (
+    ADOPT_HINT,
+    SURFACE_ARTIFACT,
+    authz_surface,
+    read_baseline,
+    unseen_routes,
+)
 
 
 def diff_authz_surface(baseline: dict[str, Any], current: dict[str, Any]) -> list[str]:
     """Every authority difference, each phrased as the change a reviewer has to approve.
 
-    The sentences of :func:`terp.cli.authz_changes.authority_changes`, which also says of
+    The sentences of :func:`terp.core.authz_changes.authority_changes`, which also says of
     each whether it widens who can reach what (ADR 0209).
     """
-    from terp.cli.authz_changes import authority_changes
-
     return [entry["change"] for entry in authority_changes(baseline, current)]
 
-
-def served_twice(surface: dict[str, Any]) -> list[str]:
-    """Every method and path that more than one route serves.
-
-    The router answers with the first route registered, while a diff keyed by method and
-    path compares whichever it met last, so a second route under an existing path can
-    serve a different policy with no line moving. The surface cannot say which route
-    answers, so each such pair is reported rather than resolved.
-    """
-    seen: dict[tuple[str, str], int] = {}
-    for module in surface.get("modules", ()):
-        for endpoint in module.get("endpoints", ()):
-            for method in endpoint.get("methods") or ["WS"]:
-                key = (method, endpoint["path"])
-                seen[key] = seen.get(key, 0) + 1
-    return [
-        f"{method} {path}: served by {count} routes; the first one registered answers, "
-        "and this check cannot say which that is"
-        for (method, path), count in sorted(seen.items())
-        if count > 1
-    ]
-
-
-def read_baseline(root: pathlib.Path) -> dict[str, Any] | None:
-    """The committed baseline, or ``None`` when the project has not adopted the check."""
-    path = root / SURFACE_ARTIFACT
-    if not path.is_file():
-        return None
-    return json.loads(path.read_text(encoding="utf-8"))
 
 #: The checks an app may pin (``[tool.terp.verify] pinned``): with the line, a missing
 #: artifact is red instead of a skip (ADR 0209).
@@ -220,7 +139,6 @@ def verdict(project_root: pathlib.Path, app_ref: str, note_prefix: str) -> Verdi
     """
     from terp.cli._appref import load_app, push_app_root
     from terp.cli.access import build_access_graph_for_app
-    from terp.cli.authz_changes import authority_changes
 
     try:
         baseline = read_baseline(project_root)
@@ -277,19 +195,7 @@ def verdict(project_root: pathlib.Path, app_ref: str, note_prefix: str) -> Verdi
     # could not place (a router included inside a module's router, served under a path
     # the graph cannot recover) and a method and path two routes serve. Either one makes
     # "no difference" an answer about a surface that is not the one being served.
-    unseen = [
-        {
-            "kind": "unplaced",
-            "methods": list(route.get("methods") or ["WS"]),
-            "path": route["path"],
-            "detail": (
-                f"{','.join(route.get('methods') or ['WS'])} {route['path']}: served, but "
-                "the access graph cannot place it (a router included inside a module's "
-                "router); declare it on the module's own router"
-            ),
-        }
-        for route in graph.get("omitted_routes") or ()
-    ] + [{"kind": "served_twice", "detail": line} for line in served_twice(current)]
+    unseen = unseen_routes(graph.get("omitted_routes") or (), current)
     if unseen:
         listing = "\n".join(f"  - {item['detail']}" for item in unseen)
         return Verdict(

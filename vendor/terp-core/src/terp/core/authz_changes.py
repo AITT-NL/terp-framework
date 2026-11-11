@@ -1,8 +1,9 @@
 """Each change to who can reach what, labelled a widening or a narrowing (ADR 0209).
 
 The ``authz-surface`` check compares an app's composed surface with its committed baseline
-(ADR 0139). This module says what each difference is: one entry per changed endpoint,
-module, role ladder or permission set, each carrying ``widens``.
+(ADR 0139), and the app compares the two again when it starts (ADR 0212). This module says
+what each difference is, for both: one entry per changed endpoint, module, role ladder or
+permission set, each carrying ``widens``.
 
 A change is a narrowing only when the guard's own replayed answers prove that nobody gains
 reach; everything else is a widening, including a difference this module cannot itemise.

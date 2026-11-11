@@ -206,6 +206,73 @@ def test_the_interpreter_version_comes_from_the_image(tree: Tree) -> None:
     assert _change(tree, no_version) == []
 
 
+# --------------------------------------------------------------------------- #
+# the record the app compares its routes with when it starts (ADR 0212)
+# --------------------------------------------------------------------------- #
+RECORD = b'{"authz_surface": 1}\n'
+COPIES_RECORD = b"COPY authz-surface.jso[n] ./\n"
+
+
+def _recorded(tmp_path: pathlib.Path, files: dict[str, bytes] | None = None) -> Tree:
+    """The app with its record of who can reach what, which the render's Dockerfile copies."""
+    root = tmp_path / "recorded"
+    committed_app(root, (files or app_files()) | {"authz-surface.json": RECORD})
+    return Tree.read(root, git(root, "rev-parse", "HEAD"))
+
+
+def _shipped(tree: Tree, record: bytes = RECORD) -> dict:
+    answer = faithful(tree)
+    answer["nodes"]["srv/authz-surface.json"] = _file(record)
+    return answer
+
+
+def test_the_record_an_image_starts_against_is_the_tree_s(tmp_path: pathlib.Path) -> None:
+    """The one file of /srv that is neither source nor environment, held to the tree's bytes."""
+    tree = _recorded(tmp_path)
+    assert COPIES_RECORD in tree.bytes("Dockerfile.prod"), "the render copies the record"
+    assert _findings(tree, _shipped(tree)) == []
+
+
+def test_a_record_that_is_not_the_tree_s_is_a_finding(tmp_path: pathlib.Path) -> None:
+    """The app would hold itself to a record no reviewer saw."""
+    tree = _recorded(tmp_path)
+    assert _findings(tree, _shipped(tree, b'{"authz_surface": 1, "modules": []}\n')) == [
+        "/srv/authz-surface.json is not the tree's authz-surface.json"
+    ]
+
+
+def test_a_record_the_tree_does_not_hold_is_a_finding(tree: Tree) -> None:
+    found = _change(tree, lambda a: a["nodes"].update({"srv/authz-surface.json": _file(RECORD)}))
+    assert found == ["/srv/authz-surface.json is not the tree's authz-surface.json"]
+
+
+def test_a_record_kept_out_of_the_image_its_dockerfile_copies_it_into_is_a_finding(
+    tmp_path: pathlib.Path,
+) -> None:
+    """One line in .dockerignore would otherwise turn the startup check off, and nothing else."""
+    tree = _recorded(tmp_path)
+    assert _findings(tree, faithful(tree)) == [
+        "authz-surface.json is in the tree, Dockerfile.prod copies it, and it is not in the "
+        "image, so the app would start without comparing the routes it serves with it: keep "
+        "the record in the build context (.dockerignore)"
+    ]
+
+
+def test_a_dockerfile_that_does_not_copy_the_record_builds_an_image_without_it(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A Dockerfile rendered before the record was shipped, or an app's own.
+
+    Its image starts without the comparison, as it did before: a signer newer than the app
+    it reads does not refuse what that app's Dockerfile never claimed to copy.
+    """
+    files = app_files()
+    assert COPIES_RECORD in files["Dockerfile.prod"]
+    files["Dockerfile.prod"] = files["Dockerfile.prod"].replace(COPIES_RECORD, b"")
+    tree = _recorded(tmp_path, files)
+    assert _findings(tree, faithful(tree)) == []
+
+
 def _planted(path: str, node: Node | None = None):  # type: ignore[no-untyped-def]
     return lambda a: a["nodes"].update({path: (node or Node("file", "5" * 64, 1)).as_data()})
 

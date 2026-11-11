@@ -51,6 +51,7 @@ class _Child:
         refuse: str | None = None,
         migrate: int = 0,
         unconfigured: list | None = None,
+        compared: bool = True,
     ):
         #: Whether the render has single sign-on: its routes are then mounted in every boot.
         self.sso = sso
@@ -59,6 +60,8 @@ class _Child:
         self.migrate = migrate
         #: What the SSO route answers while no provider is configured.
         self.unconfigured = boot_tool.SSO_NOT_CONFIGURED if unconfigured is None else unconfigured
+        #: Whether the boot logs that it compared its routes with its record (ADR 0212).
+        self.compared = compared
         self.calls: list[tuple[list[str], dict[str, str]]] = []
 
     def __call__(self, argv, **kwargs) -> subprocess.CompletedProcess[str]:
@@ -74,7 +77,8 @@ class _Child:
         paths = ["/health/ready", *([boot_tool.SSO_ROUTE] if self.sso else [])]
         asked = {path: self.unconfigured for path in argv[argv.index(boot_tool.PROBE) + 1 :]}
         report = json.dumps({"ready": self.ready, "paths": paths, "asked": asked})
-        return subprocess.CompletedProcess(argv, 0, f"booting\n{report}\n", "")
+        logged = f'{{"level": "INFO", "message": "{boot_tool.COMPARED}"}}\n' if self.compared else ""
+        return subprocess.CompletedProcess(argv, 0, f"booting\n{report}\n", logged)
 
 
 # --------------------------------------------------------------------------- #
@@ -243,6 +247,58 @@ def test_what_it_waits_for_is_what_the_sso_module_answers_with_no_provider() -> 
     assert boot_tool.SSO_ASKED == boot_tool.SSO_ROUTE.replace("{provider}", "sso")
 
 
+def test_a_render_with_its_record_must_say_it_compared_its_routes_with_it(tmp_path) -> None:
+    """A boot that passed without the comparison reads like one that passed it (ADR 0212).
+
+    So where the render holds its record, the boot must log that it compared. A render
+    without one is not compared, and is not asked to say so.
+    """
+    (bare,) = boot_tool.cases(sso=False)
+    silent = _Child(sso=False, compared=False)
+    assert boot_tool.boot(tmp_path, _DATABASE, bare, silent, sys.executable).endswith("ready")
+    (tmp_path / boot_tool.RECORD).write_text("{}", encoding="utf-8")
+    with pytest.raises(boot_tool.BootError) as refused:
+        boot_tool.boot(tmp_path, _DATABASE, bare, silent, sys.executable)
+    assert "booted with authz-surface.json beside it and did not say it compared" in str(refused.value)
+    said = _Child(sso=False)
+    assert boot_tool.boot(tmp_path, _DATABASE, bare, said, sys.executable).endswith("ready")
+
+
+def test_what_it_waits_for_is_what_an_app_that_serves_its_record_logs(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    """The tool's sentence is the framework's own, read off an app that starts against its record."""
+    from fastapi import APIRouter
+
+    from terp.cli.access import build_access_graph_for_app
+    from terp.core import ControlPlane, ModuleSpec, Policy, create_app
+    from terp.core.authz_surface import SURFACE_ARTIFACT, render_authz_surface
+    from terp.core.config import settings
+
+    def compose():
+        router = APIRouter()
+
+        @router.get("/thing")
+        def read_thing() -> dict:
+            return {}
+
+        return create_app(
+            [ModuleSpec(name="probe", router=router, policy=Policy.default())],
+            control_plane=ControlPlane(),
+        )
+
+    assert boot_tool.RECORD == SURFACE_ARTIFACT
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / SURFACE_ARTIFACT).write_text(
+        render_authz_surface(build_access_graph_for_app(compose())), encoding="utf-8"
+    )
+    # Staging says it as production does: the sentence is the same outside local.
+    monkeypatch.setattr(settings, "ENVIRONMENT", "staging")
+    with caplog.at_level("INFO", logger="terp.core"):
+        compose()
+    assert boot_tool.COMPARED in [record.getMessage() for record in caplog.records]
+
+
 def test_a_case_that_must_be_refused_and_boots_is_a_failure() -> None:
     _off, listed, unlisted = boot_tool.cases(sso=True)
     with pytest.raises(boot_tool.BootError, match="booted in production, where it must be"):
@@ -341,6 +397,17 @@ def test_template_acceptance_runs_the_production_profile_with_files_and_sso_on_d
         # The profile's images are `:?`-tagged per release (ADR 0185), so every compose
         # command on it needs the tag set.
         "export SECRET_KEY POSTGRES_PASSWORD TERP_RELEASE_TAG",
+        # The record is in the image, the api said it compared its routes with it, and the
+        # same image does not start against a record that lacks a route it serves (ADR 0212).
+        "$profile exec -T api test -f /srv/authz-surface.json",
+        f'grep -F "{boot_tool.COMPARED}"',
+        '-v "$RUNNER_TEMP/stale-surface.json:/srv/authz-surface.json:ro"',
+        'grep -F "this app does not serve what authz-surface.json records"',
     ):
         assert fragment in run, fragment
+    # The image is built after a module was grown, so the record was written again with it.
+    (grow,) = [s for s in _acceptance()["steps"] if "Grow the app the real way" in s.get("name", "")]
+    written = "uv run terp inspect access --app app.main:build --format surface > authz-surface.json"
+    assert grow["run"].index("records_module") < grow["run"].index(written)
+    assert "uv run terp verify --profile full --only authz-surface" in grow["run"]
     assert "SECRET_KEY=\"$(secret)\"" in run and "POSTGRES_PASSWORD=\"$(secret)\"" in run

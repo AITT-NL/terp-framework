@@ -30,8 +30,8 @@ import json
 from collections.abc import Sequence
 
 from fastapi import FastAPI
-from fastapi.routing import APIRoute, APIWebSocketRoute, iter_route_contexts
-from starlette.routing import Mount, Route, WebSocketRoute
+from fastapi.routing import APIRoute
+from starlette.routing import Mount, Route
 
 from terp.core import (
     ActorStampedMixin,
@@ -41,13 +41,15 @@ from terp.core import (
     SoftDeleteMixin,
 )
 from terp.core.authz import build_access_model
+from terp.core.authz_surface import (
+    API_PREFIX,
+    render_authz_surface,
+    served_routes,
+    unplaced_routes,
+)
 from terp.core.object_authz import registered_object_authz_predicates
 from terp.core.scoping import registered_scope_predicates
 
-
-# Every module mounts under this prefix (``create_app``); a served path outside it is a
-# kernel / open route (e.g. health), not part of any module's policy surface.
-_API_PREFIX = "/api/v1/"
 
 def _mro_names(model: type) -> set[str]:
     return {klass.__name__ for klass in model.__mro__}
@@ -194,44 +196,6 @@ def _undeclared_subscriber_alarms(specs: Sequence[ModuleSpec]) -> list[dict[str,
     ]
 
 
-#: What a served WebSocket route is listed under: it has no HTTP method after the upgrade.
-_WEBSOCKET = "WS"
-
-
-def _served_routes(app: FastAPI) -> dict[str, frozenset[str]]:
-    """Every path the composed app serves -> its HTTP methods, from the route table itself.
-
-    The table the router answers from, walked through every included router at the path
-    each route is really served under (``iter_route_contexts``, which FastAPI's own schema
-    generation walks). It used to be ``app.openapi()``, and a route declared with
-    ``include_in_schema=False`` is not in that document: one on a router included inside
-    a module's router was served, was in no module's endpoints, and was reconciled
-    against a document that did not list it, so nothing reported it. A WebSocket route,
-    which the document never lists, is in the table too, under :data:`_WEBSOCKET`.
-
-    Outside ``/api/v1`` only an ``APIRoute`` is listed here: the plain routes and the
-    mounts there are :func:`_schema_hidden_routes`'s, reported with their own note.
-    """
-    served: dict[str, set[str]] = {}
-    for context in iter_route_contexts(app.routes):
-        route = context.original_route
-        path = context.path or ""
-        if isinstance(route, APIRoute):
-            methods = set(context.methods or ())
-        elif not path.startswith(_API_PREFIX):
-            continue
-        elif isinstance(route, APIWebSocketRoute | WebSocketRoute):
-            methods = {_WEBSOCKET}
-        elif isinstance(route, Mount):
-            path, methods = f"{path}/*", {"*"}
-        else:
-            # A plain route, or a kind this walk does not know: served under the API
-            # prefix, so listed, with every method when it names none.
-            methods = set(getattr(route, "methods", None) or {"*"})
-        served.setdefault(path, set()).update(method.upper() for method in methods)
-    return {path: frozenset(methods) for path, methods in served.items()}
-
-
 def _schema_hidden_routes(app: FastAPI) -> list[dict[str, object]]:
     """Reachable top-level routes that are no API route — still reported.
 
@@ -243,7 +207,7 @@ def _schema_hidden_routes(app: FastAPI) -> list[dict[str, object]]:
     hidden: list[dict[str, object]] = []
     for route in app.routes:
         if isinstance(route, APIRoute):
-            continue  # an API route: listed by _served_routes, in the schema or not
+            continue  # an API route: listed by served_routes, in the schema or not
         if isinstance(route, Mount):
             hidden.append(
                 {
@@ -285,7 +249,7 @@ def build_access_graph_for_app(app: FastAPI) -> dict[str, object]:
             "app was not composed by terp.core.create_app (no access-graph state on "
             "app.state) — pass a terp app factory, e.g. --app app.main:build"
         )
-    served = _served_routes(app)
+    served = served_routes(app)
     kernel_routes: list[dict[str, object]] = [
         {
             "path": path,
@@ -301,7 +265,7 @@ def build_access_graph_for_app(app: FastAPI) -> dict[str, object]:
             "note": "unauthenticated kernel route (no module policy, no operation)",
         }
         for path, methods in sorted(served.items())
-        if not path.startswith(_API_PREFIX)
+        if not path.startswith(API_PREFIX)
     ]
     kernel_routes.extend(_schema_hidden_routes(app))
     graph = build_access_graph(
@@ -310,23 +274,11 @@ def build_access_graph_for_app(app: FastAPI) -> dict[str, object]:
         kernel_routes=kernel_routes,
         undeclared_subscribers=_undeclared_subscriber_alarms(specs),
     )
-    covered: dict[str, set[str]] = {}
+    # Every served ``/api/v1`` method must map to a module endpoint; one that does not is
+    # a route the record cannot hold, which the surface check and the app's own startup
+    # check both refuse (:func:`terp.core.authz_surface.unplaced_routes`).
     modules: list = graph["modules"]  # type: ignore[assignment]
-    for module in modules:
-        for endpoint in module["endpoints"]:
-            # A WebSocket endpoint carries no methods; it covers the served WebSocket.
-            covered.setdefault(endpoint["path"], set()).update(endpoint["methods"] or [_WEBSOCKET])
-    omitted: list[dict[str, object]] = []
-    for path, methods in sorted(served.items()):
-        if not path.startswith(_API_PREFIX):
-            continue
-        missing = methods - covered.get(path, set())
-        if missing - {_WEBSOCKET}:
-            omitted.append({"path": path, "methods": sorted(missing - {_WEBSOCKET})})
-        if _WEBSOCKET in missing:
-            # No methods, as a module's own WebSocket endpoint has none.
-            omitted.append({"path": path, "methods": []})
-    graph["omitted_routes"] = omitted
+    graph["omitted_routes"] = unplaced_routes(served, modules)
     return graph
 
 
@@ -424,12 +376,10 @@ def render_access_graph(graph: dict[str, object], fmt: str = "text") -> str:
     """Render a prebuilt access *graph* as ``text``, ``json`` or ``surface``.
 
     ``surface`` is the authority baseline the ``authz-surface`` verify check pins
-    (:mod:`terp.cli.authz_surface`): the same projection reduced to what is an
+    (:mod:`terp.core.authz_surface`): the same projection reduced to what is an
     authority claim, sorted at every level so the committed file is diffable.
     """
     if fmt == "surface":
-        from terp.cli.authz_surface import render_authz_surface
-
         return render_authz_surface(graph)
     if fmt == "json":
         return json.dumps(graph, indent=2)

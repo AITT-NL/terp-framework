@@ -54,7 +54,9 @@ list, because a provider's configuration is validated when the app starts.
    observe the consequence: whether the composed routes are the ones the committed surface
    records. That comparison at startup is the control ADR 0209 leaves open, because it runs
    the app's own code against its own record. Until it is decided, the catalog records the
-   rule as `deferred` and names that seam.
+   rule as `deferred` and names that seam. *Decided on 2026-11-11 and built by
+   [ADR 0212](0212-an-app-compares-the-routes-it-serves-with-its-record-before-it-serves.md):
+   the catalog now records the rule as `required`, with that comparison as its control.*
 
 ## What it does not do
 
