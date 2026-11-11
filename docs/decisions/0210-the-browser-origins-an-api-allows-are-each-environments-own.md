@@ -85,3 +85,9 @@ owner and declined.
 - Whether a set variable that the control plane does not read should refuse a production
   boot instead of warning. It would turn a silent state into a loud one for every existing
   app that has the variable set and declares its CORS in source.
+
+  *Closed on 2026-11-11: the warning stays.* A deploy tool writes the variable for every
+  environment it deploys, whether or not the app reads it, so a refusal would stop an
+  older app from starting the moment such a tool wrote the variable, for an app that works
+  as its source says. The warning names the state once at boot, and the app's own check
+  (`terp inspect control-plane`) shows which of the four modes it declares.
