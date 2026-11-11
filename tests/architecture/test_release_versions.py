@@ -39,7 +39,7 @@ _TEMPLATE_FRONTEND_MANIFESTS = sorted(
     (_REPO_ROOT / "template" / "project").rglob("package.json.jinja")
 )
 
-_RELEASE_VERSION = "0.41.1"
+_RELEASE_VERSION = "0.42.0"
 
 
 def _pyproject_version(path: pathlib.Path) -> str:
