@@ -994,8 +994,9 @@ frontend design-system track below.
       builds from; the frontend dependency bump; and the five corpus cases of terp-spec 0.46.0.
 - [x] The runner carries terp-spec 0.46.0 (terp-runner#24), so a release made with 0.41.1 is
       one it reads.
-- [ ] Owed: the Studio's pin to 0.41.1, with its vendored contracts and corpus moved to
-      terp-spec 0.46.0 (`scripts/sync_spec.py`). It pins 0.41.0.
+- [x] The Studio pins 0.41.1 (terp-studio#182), with its vendored contracts and corpus moved
+      to terp-spec 0.46.0; its reader gives 0.46.0's five refusals in the shared words.
+- [x] The runner's end-to-end lane cuts its releases with 0.41.1 (terp-runner#25).
 
 ## Active execution track
 
