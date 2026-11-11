@@ -1,0 +1,10 @@
+{
+  "kinds": {
+    "postgres": {
+      "role": "database",
+      "versions": {
+        "17": "postgres@sha256:5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+      }
+    }
+  }
+}
