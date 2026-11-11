@@ -985,6 +985,17 @@ frontend design-system track below.
 - [x] `terp guide frontend` named four archetypes and `terp guide layouts` three; both list
       every archetype now, and `test_layout_archetypes.py` reads every guide topic as well as
       the template's two `AGENTS.md` files, the repository's own and the react-core README.
+- [x] Released as 0.41.1 (2026-11-11), on terp-spec 0.46.0. A security fix: the access check
+      passed a public route kept out of the OpenAPI document. With it: `CorsPolicy
+      .from_environment()` (ADR 0210), so `BACKEND_CORS_ORIGINS` opens what it names; the rule
+      `module_list_is_unconditional` and an "SSO not configured" state (ADR 0211); a site's
+      port bound to its own unit; strict reading of `deployment.json` without `NaN` and with
+      escaped refusals; the SBOM lock a web image's Dockerfile copies; the Dockerfile compose
+      builds from; the frontend dependency bump; and the five corpus cases of terp-spec 0.46.0.
+- [x] The runner carries terp-spec 0.46.0 (terp-runner#24), so a release made with 0.41.1 is
+      one it reads.
+- [ ] Owed: the Studio's pin to 0.41.1, with its vendored contracts and corpus moved to
+      terp-spec 0.46.0 (`scripts/sync_spec.py`). It pins 0.41.0.
 
 ## Active execution track
 

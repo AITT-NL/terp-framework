@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "terp-cap-mail"
-version = "0.41.0"
+version = "0.41.1"
 description = "Terp mail capability — outbound e-mail through one declared relay: TLS required, a fixed sender, bounded messages, delivered by the jobs seam so a send commits with the write that caused it."
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
-    "terp-core==0.41.0",
+    "terp-core==0.41.1",
     # A queued message is sealed at rest (ADR 0199), with the Fernet-over-HKDF shape every
     # other sealing domain uses, under a mail-specific label: the same direct dependency
     # the mfa and webhooks capabilities declare.
