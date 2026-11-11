@@ -17,7 +17,7 @@ import pytest
 
 from terp.arch.deployment import _words, published_table, read
 from terp.arch.deployment._jsonschema import Problem
-from terp.arch.deployment.files import ConstantError, DuplicateKeyError, load, loads
+from terp.arch.deployment.files import MAX_DEPTH, ConstantError, DepthError, DuplicateKeyError, depth, load, loads
 from tests.architecture.deployment_fixtures import seed, unit
 
 
@@ -73,6 +73,58 @@ def test_a_number_that_is_not_json_is_refused_not_read_as_a_float(
     assert [finding.message for finding in findings] == [
         f"deployment.json is not strict JSON: {constant} is not a JSON number "
         "(allowed: one JSON object, each number finite)"
+    ]
+
+
+# --- nested no deeper than the contract says, counted before anything parses ---------
+
+
+def _nested(levels: int) -> str:
+    """A declaration with one array nested until the document is *levels* deep."""
+    return json.dumps(seed())[:-1] + ', "annotations": ' + "[" * (levels - 1) + "]" * (levels - 1) + "}"
+
+
+def test_the_depth_is_counted_in_the_text_and_the_document_is_the_first_level() -> None:
+    assert depth("{}") == 1
+    assert depth('{"units": [{"env": ["A"]}]}') == 4
+    # A bracket in a string is no nesting, and a quote behind a backslash does not end one.
+    assert depth('{"note": "a brace { and a bracket [ and an escaped \\" quote, then ]"}') == 1
+    assert depth('{"note": "ends in a backslash \\\\", "more": [1]}') == 2
+    assert depth(_nested(MAX_DEPTH)) == MAX_DEPTH
+    # Text that is no JSON is counted all the same, and is the parser's to refuse.
+    assert depth("]]") == 0
+
+
+def test_a_file_at_the_cap_is_read_and_one_level_deeper_is_refused_whole(
+    tmp_path: pathlib.Path,
+) -> None:
+    """terp-spec 0.47.0: a reader refuses, at the file, objects and arrays nested more than
+    64 deep. The count comes before the parse, so the cap is the same on every reader."""
+    assert MAX_DEPTH == 64
+    assert loads(_nested(MAX_DEPTH))["annotations"] is not None, "the cap itself is allowed"
+    with pytest.raises(DepthError, match="its objects and arrays nest 65 deep"):
+        loads(_nested(MAX_DEPTH + 1))
+    (tmp_path / "deployment.json").write_text(_nested(MAX_DEPTH + 1), encoding="utf-8")
+    declared, findings = load(tmp_path, published_table())
+    assert declared is None
+    assert [finding.message for finding in findings] == [
+        "deployment.json is nested too deeply: its objects and arrays nest 65 deep "
+        "(allowed: one JSON object, nested at most 64 deep)"
+    ]
+
+
+def test_a_file_no_parser_would_survive_is_a_finding_on_every_interpreter(
+    tmp_path: pathlib.Path,
+) -> None:
+    """What a parser does with a file nested a hundred thousand deep is where its own stack
+    ends: an error on one interpreter release, an answer on the next. A refusal that
+    depended on that held on one and not on the other. The count never reaches the parser."""
+    (tmp_path / "deployment.json").write_text(_nested(100_000), encoding="utf-8")
+    declared, findings = load(tmp_path, published_table())
+    assert declared is None
+    assert [finding.message for finding in findings] == [
+        "deployment.json is nested too deeply: its objects and arrays nest 100000 deep "
+        "(allowed: one JSON object, nested at most 64 deep)"
     ]
 
 
