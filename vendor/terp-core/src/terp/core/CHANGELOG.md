@@ -36,6 +36,22 @@ decision, 0001 onwards.
   app's own process: changing the working directory before it composes, removing the
   record, replacing the comparison. Each is visible in the diff.
 
+### Added
+
+- **A rule: app code does not replace the framework's own functions (ADR 0213).**
+  `no_framework_patching` refuses the statements that put something else in the place of a
+  function of `terp`, or of `fastapi` and `starlette`, whose route table the framework
+  reads: an assignment to or a deletion of an attribute reached through an imported name
+  (a module's function, a class's method, a function's `__code__`, the settings object),
+  the same through `sys.modules`, `importlib.import_module`, `__dict__` or `vars()`, a
+  module swapped in `sys.modules`, `setattr` and `delattr`, and `mock.patch`. One such
+  statement turns off a check that runs the framework's code, the startup comparison above
+  among them, with every other check still green. It follows a name through plain
+  assignments in the file, holds for an app and a companion alike, and does not read
+  `tests` directories, where replacing a function is how a test is written. It ships with
+  its catalog entry, six violation and two compliant corpus cases, its residuals, its rule
+  page and its recipe in `terp guide capability`.
+
 ### Changed
 
 - **The authorization surface belongs to `terp-core`.** `terp.core.authz_surface` holds the
@@ -60,6 +76,9 @@ decision, 0001 onwards.
 - **A release whose image carries the record needs a signer of this release or later.** An
   older `terp release sign` refuses `/srv/authz-surface.json` as a file it holds to
   nothing.
+- **App code that replaces a function of `terp`, `fastapi` or `starlette` outside its tests
+  now turns `terp check` red** (`no_framework_patching`). Use the seam the framework gives
+  for it: a `create_app` parameter, a `ModuleSpec`, a registered predicate.
 - **`terp.cli.authz_changes` is gone:** import `authority_changes` from
   `terp.core.authz_changes`. `SURFACE_ARTIFACT`, `authz_surface`, `render_authz_surface`
   and `read_baseline` are imported from `terp.core.authz_surface`.

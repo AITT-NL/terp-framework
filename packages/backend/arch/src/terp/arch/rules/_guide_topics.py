@@ -51,6 +51,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "request_timestamps_carry_their_offset": "module",
     "no_oversized_python_files": "module",
     "no_eval_or_exec": "capability",
+    "no_framework_patching": "capability",
     "no_star_imports": "module",
     "no_blocking_sleep": "jobs",
     "no_print": "service",

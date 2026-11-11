@@ -32,6 +32,14 @@
       "a helper called from the handler that takes the caught exception and returns a message string is not required to be followed across the call",
       "exception text a handler persists instead of raising (`row.failure_reason = str(exc)`, on a column a read DTO later exposes) is not required to be followed to the response that eventually serves it: a write and a subsequent request separate the two, so no static check connects them"
     ],
+    "backend/no_framework_patching": [
+      "a name bound to the framework in another file (`from app.wiring import kernel`, where `kernel` is `terp.core.app`) is not required to be followed: the rule reads one file at a time, and follows a name only through plain assignments",
+      "a reference reached through a call (`getattr(terp.core, 'app').create_app = ...`, a function that returns the module) is not required to be seen",
+      "a module replaced in `sys.modules` under a key that is not a string literal is not required to be seen",
+      "a file under a `tests` directory is not read, so a replacement made there and imported by app code is not required to be seen",
+      "a change to what the framework reads instead of to its functions (`os.environ['ENVIRONMENT'] = 'local'` before the settings are read, `os.chdir` before the app is composed) is not this rule's subject",
+      "a function changed without an assignment the source shows (through `ctypes`, or through the garbage collector's references) is not required to be seen"
+    ],
     "backend/no_manual_actor_stamping": [
       "a stamp written through the attribute API (`setattr(row, \"created_by_id\", ...)`) is not required to be seen as an assignment",
       "a comparison expressed as a method call on the column (`.in_(...)`, `.is_(...)`) rather than as an operator is not required to be seen as a comparison"

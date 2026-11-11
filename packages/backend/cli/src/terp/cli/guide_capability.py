@@ -97,4 +97,18 @@ Using capabilities
   allow_no_provider=True) mounts the SSO routes with an empty list, and each answers
   503 sso_not_configured. The settings decide what a mounted route does, never whether
   it exists.
+- APP CODE CALLS THE FRAMEWORK AND NEVER REPLACES ITS FUNCTIONS (ADR 0213). A check that
+  runs the framework's code is worth what that code is, and one assignment turns it off
+  with every other check still green:
+      # refused (no_framework_patching)
+      import terp.core.authz_surface as surface
+      surface.startup_refusal = lambda *args, **kwargs: None
+      setattr(routing, "iter_route_contexts", mine)       # fastapi and starlette too
+      sys.modules["terp.core.app"] = shim
+      mock.patch("terp.core.app.create_app", mine).start()
+      settings.ENVIRONMENT = "local"
+  Change behaviour through the seam the framework gives for it: a create_app parameter
+  (principal_provider=, middleware=, lease_store=), a ModuleSpec and its Policy, a
+  registered predicate. In a test, monkeypatch.setattr and mock.patch stay the way to
+  replace a function: the rule does not read `tests` directories.
 """

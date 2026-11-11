@@ -140,6 +140,15 @@ a guard to make a change pass:
    `module_list_is_unconditional` rule refuses the conditional form. Detail:
    `terp guide capability`.
 
+10. **Call the framework, never replace its functions** — no assignment to an attribute of
+    something imported from `terp`, `fastapi` or `starlette`, no `setattr` on it, no module
+    swapped in `sys.modules`, no `mock.patch` of it outside a test. A check that runs the
+    framework's code, such as the comparison an app makes with its `authz-surface.json`
+    before it serves (ADR 0212), is only running the code that shipped while nothing has
+    replaced it. Use the seam the framework gives: a `create_app` parameter, a `ModuleSpec`,
+    a registered predicate. The `no_framework_patching` rule refuses the replacement.
+    Detail: `terp guide capability`.
+
 ## Frontend conventions
 
 Frontend UI composes the **`@terpjs/react-core` component surface** — the catalog lives

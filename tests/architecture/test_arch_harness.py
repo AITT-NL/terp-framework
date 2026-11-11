@@ -67,6 +67,7 @@ from terp.arch import (
     check_no_blocking_sleep,
     check_no_empty_tests,
     check_no_eval_or_exec,
+    check_no_framework_patching,
     check_no_mutable_default_args,
     check_no_print,
     check_no_star_imports,
@@ -1256,6 +1257,186 @@ def test_module_list_is_unconditional_takes_a_list_no_condition_decides(
     _write(app, "main.py", _MODULE_LIST_TAKEN[form])
     _write(app, "other.py", "VALUE = 1 if X else 2\n")  # a file that composes nothing
     assert check_module_list_is_unconditional(app) == [], form
+
+
+_PATCHING_REFUSED = {
+    "an attribute of a module imported under another name": (
+        "import terp.core.authz_surface as surface\nsurface.startup_refusal = None\n",
+        2, "surface.startup_refusal is assigned"),
+    "an attribute through the dotted import": (
+        "import terp.core.app\nterp.core.app.create_app = None\n",
+        2, "terp.core.app.create_app is assigned"),
+    "an attribute of a module imported from its package": (
+        "from terp.core import authz_surface\nauthz_surface.startup_refusal = None\n",
+        2, "authz_surface.startup_refusal is assigned"),
+    "the code of an imported function": (
+        "from terp.core import create_app\ncreate_app.__code__ = (lambda: None).__code__\n",
+        2, "create_app.__code__ is assigned"),
+    "a method of an imported class": (
+        "from terp.core import BaseService\nBaseService.create = lambda self: None\n",
+        2, "BaseService.create is assigned"),
+    "the framework's settings object": (
+        "from terp.core.config import settings\nsettings.ENVIRONMENT = 'local'\n",
+        2, "settings.ENVIRONMENT is assigned"),
+    "an augmented assignment": (
+        "import terp.core.app as kernel\nkernel.count += 1\n", 2, "kernel.count is assigned"),
+    "an annotated assignment": (
+        "import terp.core.app as kernel\nkernel.count: int = 1\n", 2, "kernel.count is assigned"),
+    "one target of a tuple, behind a star": (
+        "import terp.core.app as kernel\nfirst, [*kernel.rest] = 1, [2]\n",
+        2, "kernel.rest is assigned"),
+    "a deletion, on the web stack": (
+        "import starlette.routing as routing\ndel routing.Router.routes\n",
+        2, "routing.Router.routes is deleted"),
+    "a name carried on by plain assignments, in any order": (
+        "def late():\n    other.create_app = None\nother = kernel\nkernel = terp.core.app\nimport terp.core.app\n",
+        2, "other.create_app is assigned"),
+    "setattr": (
+        "import terp.core.app as kernel\nsetattr(kernel, 'create_app', None)\n",
+        2, "setattr on kernel replaces it"),
+    "delattr, on the web stack": (
+        "from fastapi import routing\ndelattr(routing, 'iter_route_contexts')\n",
+        2, "delattr on routing replaces it"),
+    "object.__setattr__": (
+        "from terp.core import ModuleSpec\nobject.__setattr__(ModuleSpec, 'policy', None)\n",
+        2, "__setattr__ on ModuleSpec replaces it"),
+    "a module replaced in the registry": (
+        "import sys\nsys.modules['terp.core.authz_surface'] = object()\n",
+        2, "sys.modules['terp.core.authz_surface'] is assigned"),
+    "the registry under the name the file imports it as": (
+        "from sys import modules as loaded\nloaded['fastapi.routing'] = object()\n",
+        2, "sys.modules['fastapi.routing'] is assigned"),
+    "the registry's own methods": (
+        "import sys\nsys.modules.update({'legacy': 1, 'terp.core.app': 2})\n",
+        2, "sys.modules.update of terp.core.app replaces it"),
+    "an attribute of a module read from the registry": (
+        "import sys\nsys.modules['terp.core.app'].create_app = None\n",
+        2, "an attribute 'create_app' of the framework is assigned"),
+    "an attribute of a module looked up by name": (
+        "import importlib\nimportlib.import_module('terp.core.app').create_app = None\n",
+        2, "an attribute 'create_app' of the framework is assigned"),
+    "a module's namespace by key": (
+        "import terp.core.app as kernel\nkernel.__dict__['create_app'] = None\n",
+        2, "a name in kernel.__dict__ is assigned"),
+    "a namespace through vars, of a looked-up module": (
+        "vars(__import__('terp.core.app'))['create_app'] = None\n",
+        1, "a name in a namespace of the framework is assigned"),
+    "mock.patch by dotted name": (
+        "from unittest import mock\nmock.patch('terp.core.app.startup_refusal').start()\n",
+        2, "mock.patch of terp.core.app.startup_refusal replaces it"),
+    "mock.patch through the plain import": (
+        "import unittest.mock\nunittest.mock.patch('fastapi.routing.iter_route_contexts').start()\n",
+        2, "unittest.mock.patch of fastapi.routing.iter_route_contexts replaces it"),
+    "an attribute of a function read from a namespace": (
+        "import terp.core.app as kernel\nkernel.__dict__['create_app'].__code__ = None\n",
+        2, "an attribute '__code__' of the framework is assigned"),
+    "patch.object on an imported module": (
+        "from unittest.mock import patch\nimport terp.core.app as kernel\npatch.object(kernel, 'x').start()\n",
+        3, "patch.object on kernel replaces it"),
+    "a patcher's own setattr, by dotted name": (
+        "import pytest\npytest.MonkeyPatch().setattr('starlette.routing.Router.routes', [])\n",
+        2, "setattr of starlette.routing.Router.routes replaces it"),
+    "setattr on a module read from the registry": (
+        "import sys\nsetattr(sys.modules['terp.core.app'], 'create_app', None)\n",
+        2, "setattr on the framework replaces it"),
+    "patch.object on a module looked up by name": (
+        "import importlib\nfrom unittest import mock\n"
+        "mock.patch.object(importlib.import_module('terp.core.app'), 'create_app').start()\n",
+        3, "mock.patch.object on the framework replaces it"),
+}
+
+_PATCHING_TAKEN = {
+    "an attribute on the result of a call": (
+        "from fastapi import APIRouter\nrouter = APIRouter()\nrouter.tags = ['notes']\n"),
+    "state on the composed app": (
+        "from terp.core import create_app\napp = create_app([])\napp.state.started = True\n"),
+    "the app's own module": "import app.defaults as defaults\ndefaults.PAGE_SIZE = 50\n",
+    "a relative import": "from . import defaults\ndefaults.PAGE_SIZE = 50\nfrom .. import x\n",
+    "a library the framework does not read": "import mailer_sdk\nmailer_sdk.timeout_seconds = 5\n",
+    "a parameter that is no import": "def stamp(request):\n    request.state.user = 1\n",
+    "reading and calling the framework": (
+        "import terp.core.app as kernel\nbuild = kernel.create_app\napp = build([])\napp.x = 1\n"),
+    "the registry, for a module that is not guarded": (
+        "import sys\nsys.modules['legacy'] = object()\nsys.modules.pop('legacy')\n"),
+    "the registry under a key that is no literal": "import sys\nsys.modules[name] = object()\n",
+    "a mapping of the app's own that is called modules": (
+        "modules = {}\nmodules['terp.core.app'] = 1\nmodules.update({'terp.core.app': 2})\n"),
+    "setattr on the app's own class": "class Note: pass\nsetattr(Note, 'x', 1)\nsetattr()\n",
+    "a patcher on the app's own name": (
+        "from unittest import mock\nmock.patch('app.clock.now').start()\nmock.patch.object(thing, 'x')\n"),
+    "a patcher's setattr on the app's own name": "def f(patcher):\n    patcher.setattr('app.clock.now', 1)\n",
+    "a function called setattr that is no method": "from app.tools import setattr\nsetattr('terp.core', 1)\n",
+    "a call that is no name": "factory()(1)\nvars()['x'] = 1\nvars(thing)['x'] = 1\n",
+    "a subscript that is no namespace": "import terp.core.app as kernel\ntable[kernel.NAME] = 1\n",
+    "an assignment to a plain name, and a walrus": "import terp.core.app as kernel\nkernel = 1\n(n := 2)\n",
+    "a looked-up module that is not guarded": (
+        "import importlib\nimportlib.import_module('legacy').x = 1\nimportlib.import_module(name).x = 1\n"),
+}
+
+
+def _patching_app(tmp_path: pathlib.Path, source: str) -> pathlib.Path:
+    app = tmp_path / "app"
+    _write(app, "wiring.py", source)
+    return app
+
+
+@pytest.mark.parametrize("form", sorted(_PATCHING_REFUSED))
+def test_no_framework_patching(tmp_path: pathlib.Path, form: str) -> None:
+    """App code calls the framework and never replaces its functions (ADR 0213).
+
+    A check that runs the framework's code is worth what that code is: the comparison an
+    app makes with its record before it serves (ADR 0212) is turned off from inside the app
+    in one statement, with every other check still green. Each such statement is refused.
+    """
+    source, line, what = _PATCHING_REFUSED[form]
+    found = check_no_framework_patching(_patching_app(tmp_path, source))
+    assert [(v.rule, v.path, v.line) for v in found] == [
+        ("no_framework_patching", "app/wiring.py", line)
+    ], form
+    assert found[0].message.startswith(f"{what} at run time; "), found[0].message
+    # The message names the way out, not only the refusal.
+    assert "use the seam the framework gives" in found[0].message
+    assert "replace a function only in a test" in found[0].message
+
+
+@pytest.mark.parametrize("form", sorted(_PATCHING_TAKEN))
+def test_no_framework_patching_leaves_a_neighbouring_form_alone(tmp_path: pathlib.Path, form: str) -> None:
+    assert check_no_framework_patching(_patching_app(tmp_path, _PATCHING_TAKEN[form])) == [], form
+
+
+def test_no_framework_patching_reports_one_line_once(tmp_path: pathlib.Path) -> None:
+    source = "import terp.core.app as kernel\nkernel.a = kernel.b = setattr(kernel, 'c', 1)\n"
+    found = check_no_framework_patching(_patching_app(tmp_path, source))
+    assert [v.line for v in found] == [2]
+
+
+def test_no_framework_patching_does_not_read_a_test_directory(tmp_path: pathlib.Path) -> None:
+    """Replacing a function is how a test is written: `monkeypatch`, `mock.patch`."""
+    app = tmp_path / "app"
+    (app / "modules" / "notes" / "tests").mkdir(parents=True)
+    patched = "from terp.core.config import settings\nsettings.ENVIRONMENT = 'staging'\n"
+    (app / "modules" / "notes" / "tests" / "test_notes.py").write_text(patched, encoding="utf-8")
+    assert check_no_framework_patching(app) == []
+    (app / "modules" / "notes" / "service.py").write_text(patched, encoding="utf-8")
+    assert [v.path for v in check_no_framework_patching(app)] == ["app/modules/notes/service.py"]
+
+
+def test_no_framework_patching_holds_for_every_root_and_takes_the_usual_marker(tmp_path: pathlib.Path) -> None:
+    """A companion replaces the framework's functions as easily as an app does."""
+    from terp.arch.rules import EVERY_ROOT, root_kinds_for
+
+    assert root_kinds_for("no_framework_patching") == EVERY_ROOT
+    marked = (
+        "from terp.core.config import settings\n"
+        "settings.ENVIRONMENT = 'local'  # arch-allow-no-framework-patching: a demo that never deploys\n"
+    )
+    app = _patching_app(tmp_path, marked)
+    # The rule itself reports the line; the harness is what reads the marker beside it.
+    assert [(v.rule, v.path, v.line) for v in check_no_framework_patching(app)] == [
+        ("no_framework_patching", "app/wiring.py", 2)
+    ]
+    found = [v for v in check_app(app) if v.rule == "no_framework_patching"]
+    assert found == [], "a justified marker on the line suppresses the finding"
 
 
 def test_no_raw_app_routes(tmp_path: pathlib.Path) -> None:

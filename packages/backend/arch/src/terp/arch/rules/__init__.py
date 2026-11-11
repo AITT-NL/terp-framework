@@ -30,13 +30,12 @@ public surface (and the ``terp.arch.rules`` import path) is unchanged.
 
 from __future__ import annotations
 
-import enum
 import pathlib
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
 
 from terp.arch._ast import scan_cache
 from terp.arch.rules._guide_topics import GUIDE_TOPIC_BY_RULE, guide_topic_for
+from terp.arch.rules._root_kinds import APP_ROOT_ONLY, EVERY_ROOT, RootKind, ScanRoot
 from terp.arch.rules._support import (
     ArchViolation,
     _apply_suppressions,
@@ -118,6 +117,7 @@ from terp.arch.rules.migrations import (
 )
 from terp.arch.rules.expand import check_expand_revisions_only_expand
 from terp.arch.rules.jobs import check_jobs_reference_catalog
+from terp.arch.rules.patching import check_no_framework_patching
 from terp.arch.rules.operations import (
     check_operations_reference_catalog,
     check_routes_declare_operation,
@@ -171,60 +171,6 @@ from terp.arch.rules.traits import (
     check_tenant_scoped_models_use_scoped_service,
 )
 
-class RootKind(enum.Enum):
-    """What a scanned root *is*, which is what decides the rules it is held to.
-
-    ``APP`` is a Terp application package — the thing ``create_app`` mounts, with
-    modules, routers, a policy, tables and migrations. Every rule applies to it.
-
-    ``COMPANION`` is a second deployable that ships from the same repository and is
-    **not** mounted by ``create_app``: a worker, a publisher, a CLI, a sidecar. It is
-    ordinary Python that reaches real credentials, real databases and the real
-    network, so the rules about the *code* apply to it in full — and the rules that
-    are properties of being a mounted application (a route's response model, a
-    module's policy, a table's migration) do not, because there is nothing for them
-    to be a property of.
-
-    A root that serves the platform's own HTTP surface is an ``APP``, however it is
-    deployed. The kind describes what the code is, not how many processes run it.
-    """
-
-    APP = "app"
-    COMPANION = "companion"
-
-
-#: Every root kind — the applicability of a rule whose invariant holds for any
-#: Python that ships.
-EVERY_ROOT: frozenset[RootKind] = frozenset(RootKind)
-
-#: Application roots only — the applicability of a rule whose invariant is a
-#: property of being a mounted Terp application.
-APP_ROOT_ONLY: frozenset[RootKind] = frozenset({RootKind.APP})
-
-
-@dataclass(frozen=True)
-class ScanRoot:
-    """One directory the harness walks, with the package name and kind it is walked as.
-
-    ``ScanRoot("engine", package="engine", kind=RootKind.COMPANION)`` is the whole
-    configuration a second deployable needs; :func:`check_app` and
-    :func:`assert_app_clean` take any number of these beside the app root and share
-    one escape-hatch budget across them, so a sibling package is a line rather than a
-    bespoke test module.
-
-    A bare path passed to those functions is an ``APP`` root taking the call's
-    ``package=``, which is what every existing call site means and why it keeps
-    meaning it.
-    """
-
-    path: pathlib.Path
-    package: str = "app"
-    kind: RootKind = RootKind.APP
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "path", pathlib.Path(self.path))
-
-
 #: Which root kinds each rule is evaluated over, keyed by the bare rule name (no
 #: ``check_`` prefix) — the same key space as :data:`GUIDE_TOPIC_BY_RULE`, locked by
 #: the same kind of completeness meta-test, so a new rule cannot arrive unclassified.
@@ -252,6 +198,7 @@ RULE_ROOT_KINDS: dict[str, frozenset[RootKind]] = {
     "no_manual_table_schema": EVERY_ROOT,
     "no_adhoc_config_decrypt": EVERY_ROOT,
     "no_eval_or_exec": EVERY_ROOT,
+    "no_framework_patching": EVERY_ROOT,
     "no_star_imports": EVERY_ROOT,
     "no_blocking_sleep": EVERY_ROOT,
     "no_print": EVERY_ROOT,
@@ -408,6 +355,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_no_exception_text_in_responses,
     check_no_oversized_python_files,
     check_no_eval_or_exec,
+    check_no_framework_patching,
     check_no_star_imports,
     check_no_blocking_sleep,
     check_no_print,
@@ -667,6 +615,7 @@ __all__ = [
     "check_no_blocking_sleep",
     "check_no_empty_tests",
     "check_no_eval_or_exec",
+    "check_no_framework_patching",
     "check_no_mutable_default_args",
     "check_no_print",
     "check_no_star_imports",
