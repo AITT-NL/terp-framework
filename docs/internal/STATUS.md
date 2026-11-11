@@ -1006,13 +1006,16 @@ frontend design-system track below.
       reads, which the startup comparison leaves open by itself.
 - [x] The runner's end-to-end lane cuts its releases with 0.42.0 (terp-runner#27), the first
       release whose `sign` accepts the record in an image.
-- [ ] The Studio pins 0.42.0 and says why a rollout refused to start, with a cause of its own
-      for an app that does not serve what its record says (terp-studio#185, open).
+- [x] The Studio pins 0.42.0 and says why a rollout refused to start, on a deploy and at
+      release verification, with a cause of its own for an app that does not serve what its
+      record says (terp-studio#185).
 - [x] Built for 0.42.1, not yet released, on terp-spec 0.47.0: a `deployment.json` nested
       deeper than 64 is refused whole, counted before it is parsed, with the corpus case the
       fixtures name (violation-56).
-- [ ] Owed with terp-spec 0.47.0: the runner carries it and counts the same way. The Studio's
-      reader follows when it pins the framework release that carries the case.
+- [x] The runner carries terp-spec 0.47.0 and counts the same way, before it parses
+      (terp-runner#28).
+- [ ] Owed with terp-spec 0.47.0: the Studio's reader follows when it pins the framework
+      release that carries the case, which is 0.42.1.
 - [ ] Open, for the owner: whether app code may write the framework's own environment
       variables or change the working directory, each of which turns the startup comparison
       off (ADR 0213, *What it does not do*).
