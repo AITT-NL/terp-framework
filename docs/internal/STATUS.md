@@ -997,6 +997,16 @@ frontend design-system track below.
 - [x] The Studio pins 0.41.1 (terp-studio#182), with its vendored contracts and corpus moved
       to terp-spec 0.46.0; its reader gives 0.46.0's five refusals in the shared words.
 - [x] The runner's end-to-end lane cuts its releases with 0.41.1 (terp-runner#25).
+- [x] Built for 0.42.0, not yet released: an app compares the routes it serves with its
+      `authz-surface.json` before it serves, and outside local does not start on a difference
+      (ADR 0212). The surface's reduction and comparison moved into `terp-core`, the generated
+      `Dockerfile.prod` copies the record, and `terp release sign` holds it to the tree's.
+- [ ] Owed with that release: the signer that reads a release made with it must be 0.42.0
+      or later (an older one refuses the record as a file in `/srv` it holds to nothing), so
+      the runner's end-to-end lane and the Studio's pin move with it.
+- [ ] Next on the same track: the rule that app code may not patch the framework's own
+      functions, which the startup comparison leaves open by itself (ADR 0212, *What it does
+      not do*).
 
 ## Active execution track
 

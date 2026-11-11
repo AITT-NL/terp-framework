@@ -123,7 +123,9 @@ or `python` will not resolve.
   it again to turn `uv run terp verify` green: a change to who can reach what is a
   person's decision (in Terp Studio, the app's owner approves it), and the file records
   what they approved. A route the check cannot place is code to fix: declare it on the
-  module's own router.
+  module's own router. The deployed app compares the routes it serves with this file when
+  it starts, and does not start on a difference (ADR 0212), so the file moves in the same
+  change as the code it describes.
 
 ## Runtime environment variables
 

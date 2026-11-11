@@ -66,6 +66,9 @@ RUN uv pip install --system --no-cache --find-links /wheels \
 # The app code runs on PYTHONPATH (mirrors the dev image / pytest layout).
 COPY apps/example/app app
 COPY apps/example/control_plane control_plane
+# The record of who can reach what, beside them: the app compares the routes it composed
+# with it before it serves, and does not start on a difference (ADR 0212).
+COPY apps/example/authz-surface.json ./
 
 # Drop privileges; the runtime never writes to the image filesystem (read-only-FS safe).
 RUN useradd --create-home --uid 10001 terp

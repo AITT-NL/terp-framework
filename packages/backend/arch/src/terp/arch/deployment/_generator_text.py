@@ -218,6 +218,10 @@ RUN --mount=from=uv,source=/uv,target=/bin/uv \\
     uv pip install --python /srv/.venv/bin/python --no-deps --no-cache /dist/*.whl
 COPY app app
 COPY control_plane control_plane
+# The record of who can reach what, beside them: the app compares the routes it composed
+# with it before it serves, and does not start on a difference (ADR 0212). The brackets
+# make it a pattern, so an app that has not adopted the record copies nothing.
+COPY authz-surface.jso[n] ./
 # The two source roots are what the processes import the app from, so they are compiled
 # the same way. A package the wheel installs beside them (a companion's) compiles when it
 # is first imported.

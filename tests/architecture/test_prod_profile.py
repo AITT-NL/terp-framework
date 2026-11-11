@@ -259,6 +259,35 @@ def test_prod_smoke_exercises_websocket_through_nginx() -> None:
     assert "refresh accepted" in script
 
 
+def test_both_prod_images_carry_the_record_and_the_smoke_holds_the_comparison() -> None:
+    """ADR 0212: the app compares the routes it serves with its record before it serves.
+
+    That happens only where the image carries the record. The template's image copies it
+    with a pattern, so an app that has none builds; the example has one, and copies it by
+    name. The smoke lane then holds the start to what the api logged, because a start that
+    skipped the comparison would otherwise pass like one that made it.
+    """
+    from terp.core.authz_surface import SURFACE_ARTIFACT
+
+    assert (_REPO_ROOT / "apps" / "example" / SURFACE_ARTIFACT).is_file()
+    example = _PROD_DOCKERFILE.read_text(encoding="utf-8")
+    assert f"COPY apps/example/{SURFACE_ARTIFACT} ./" in example
+    template = _TEMPLATE_PROD_DOCKERFILE.read_text(encoding="utf-8")
+    assert "COPY authz-surface.jso[n] ./" in template
+    for text in (example, template):
+        assert text.index("WORKDIR /srv") < text.index(SURFACE_ARTIFACT[:-1]), (
+            "the record lands in /srv, the directory every process of the image starts in"
+        )
+
+    workflow = yaml.safe_load(_PROD_SMOKE_WORKFLOW.read_text(encoding="utf-8"))
+    (step,) = [
+        step for step in workflow["jobs"]["prod-smoke"]["steps"]
+        if step.get("name") == "The api compared the routes it serves with its record"
+    ]
+    assert f"test -f /srv/{SURFACE_ARTIFACT}" in step["run"]
+    assert f'grep -F "{SURFACE_ARTIFACT} matches the routes this app serves"' in step["run"]
+
+
 def test_example_and_template_prod_profiles_share_a_topology() -> None:
     """Template parity: a generated repo deploys exactly like the dogfood app."""
     example = _prod_compose()["services"]

@@ -10,6 +10,60 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.42.0 — unreleased
+
+### Security
+
+- **An app compares the routes it serves with `authz-surface.json` before it serves (ADR
+  0212).** The `authz-surface` check judges an app by running it, so code written to fool it
+  could show the check a narrower app than the one it serves: notice that it is being
+  inspected, and leave a route out or loosen a policy only then. The check reported that
+  nothing widened, and the deployed app served more. `create_app` now reduces the routes it
+  just composed with the reduction the check uses and compares them with the record in the
+  working directory, after route registration is frozen. Outside `ENVIRONMENT=local` any
+  difference is a `BootError` that names the first five differences, widenings first, and
+  both ways out; so is a route the record cannot hold and a record that cannot be read. In
+  local development the same difference is a warning. An app with no record is not
+  compared, and says so in its log outside local, as it says when the record matches.
+
+  The production image the deployment generator writes copies the record to `/srv`, and
+  `terp release sign` holds that file to the tree's. It refuses an image that lacks the
+  record when the tree holds one and the image's own Dockerfile copies it, so a line in
+  `.dockerignore` cannot turn the comparison off. The comparison costs 1.1 ms on the
+  reference app (41 endpoints).
+
+  What this does not stop is code that sets out to defeat the comparison from inside the
+  app's own process: changing the working directory before it composes, removing the
+  record, replacing the comparison. Each is visible in the diff.
+
+### Changed
+
+- **The authorization surface belongs to `terp-core`.** `terp.core.authz_surface` holds the
+  record's name, the reduction, the walk over the composed route table and the startup
+  comparison; `terp.core.authz_changes` holds the sentences that name each difference.
+  Both were in `terp-cli`, which keeps the verdict `terp verify` gives and the access graph
+  `terp inspect access` prints. The rule `module_list_is_unconditional` records the startup
+  comparison as its runtime half, where it recorded one as deferred.
+
+### Upgrade notes
+
+- **A deployed app whose `authz-surface.json` does not match the routes it serves no longer
+  starts,** once its image carries the record. Write the record in the same change as the
+  routes it describes, which `terp verify` already requires:
+  `terp inspect access --app app.main:build --format surface > authz-surface.json`. Write
+  it where the app is developed: outside `ENVIRONMENT=local` that command meets the file
+  the shell just emptied, and refuses.
+- **`Dockerfile.prod` changed, so `terp verify` reports it as not the render** until it is
+  rendered again (`terp deployment render`, or `copier update`). An app that keeps a
+  Dockerfile of its own adds `COPY authz-surface.json ./` after its source roots to get
+  the comparison; without it the image starts as before.
+- **A release whose image carries the record needs a signer of this release or later.** An
+  older `terp release sign` refuses `/srv/authz-surface.json` as a file it holds to
+  nothing.
+- **`terp.cli.authz_changes` is gone:** import `authority_changes` from
+  `terp.core.authz_changes`. `SURFACE_ARTIFACT`, `authz_surface`, `render_authz_surface`
+  and `read_baseline` are imported from `terp.core.authz_surface`.
+
 ## 0.41.1 — 2026-11-11
 
 ### Security

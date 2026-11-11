@@ -549,7 +549,9 @@ jobs:
       # The render, booted as every deploy runs it: ENVIRONMENT=production, a generated
       # SECRET_KEY, the database brought to every head first, the lifespan started and
       # /health/ready answering 200, in-process and from the app's own environment, so
-      # exactly the capabilities it installs are discovered. An app rendered with use_sso
+      # exactly the capabilities it installs are discovered. Each boot that succeeds must
+      # say it compared the routes it serves with the record the gate step wrote (ADR
+      # 0212), so a boot that skipped the comparison is not a pass. An app rendered with use_sso
       # mounts its SSO routes in that boot too (ADR 0211), and the route must refuse by name
       # as not configured. It boots twice more: SSO configured with
       # OIDC_ALLOWED_EMAIL_DOMAINS (the same routes, mounted) and without it (refused, in
@@ -596,6 +598,12 @@ jobs:
           # Autogenerate only diffs meaningfully from head; bring the file up first.
           uv run terp migrate upgrade
           uv run terp migrate make records -m "create records table"
+          # A new module is new routes, so the record of who can reach what is written again
+          # in the same change, as a developer writes it, and the check holds it. The
+          # production profile below copies it into the image, where an app that serves a
+          # route its record lacks does not start (ADR 0212).
+          uv run terp inspect access --app app.main:build --format surface > authz-surface.json
+          uv run terp verify --profile full --only authz-surface
           # deptry, the check `terp verify --profile full` blocks on, over everything the
           # platform has now written into the project: the template's own code, a
           # scaffolded module and a generated revision.
@@ -1038,6 +1046,28 @@ jobs:
           assert pathlib.Path("/srv/var/files/probe").read_text(encoding="utf-8") == "written by the api"
           '
           docker volume inspect --format '{{ .Name }}' my-terp-app-prod_files-data
+          # The image carries the record, and the api compared the routes it serves with it
+          # before it served (ADR 0212).
+          $profile exec -T api test -f /srv/authz-surface.json
+          $profile logs --no-color api > "$RUNNER_TEMP/api.log" 2>&1
+          grep -F "authz-surface.json matches the routes this app serves" "$RUNNER_TEMP/api.log"
+          # The same image does not start against a record that lacks a route it serves:
+          # the record without the module the step above grew, mounted over the image's own.
+          python3 -c '
+          import json, pathlib, sys
+          record = json.loads(pathlib.Path("authz-surface.json").read_text(encoding="utf-8"))
+          kept = [module for module in record["modules"] if module["name"] != "records"]
+          assert len(kept) == len(record["modules"]) - 1, "the record holds the grown module"
+          record["modules"] = kept
+          pathlib.Path(sys.argv[1]).write_text(json.dumps(record), encoding="utf-8")
+          ' "$RUNNER_TEMP/stale-surface.json"
+          if $profile run --rm --no-deps -T \
+              -v "$RUNNER_TEMP/stale-surface.json:/srv/authz-surface.json:ro" \
+              api python -c "from app.main import app" > "$RUNNER_TEMP/refused.log" 2>&1; then
+            echo "the api started against a record that lacks its records routes" >&2
+            exit 1
+          fi
+          grep -F "this app does not serve what authz-surface.json records" "$RUNNER_TEMP/refused.log"
           $profile down -v
 
       - name: Why the production profile did not come up (hub-all-capabilities)

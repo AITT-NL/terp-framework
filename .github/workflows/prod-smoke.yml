@@ -50,6 +50,17 @@ jobs:
           docker compose -f apps/example/docker-compose.prod.yml exec -T api \
             python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"
 
+      # The image carries the app's record of who can reach what, and the api compared the
+      # routes it serves with it before it served (ADR 0212). Held by what the api logged,
+      # so a start that skipped the comparison is not a pass.
+      - name: The api compared the routes it serves with its record
+        run: |
+          docker compose -f apps/example/docker-compose.prod.yml exec -T api \
+            test -f /srv/authz-surface.json
+          docker compose -f apps/example/docker-compose.prod.yml logs --no-color api \
+            > "$RUNNER_TEMP/api.log" 2>&1
+          grep -F "authz-surface.json matches the routes this app serves" "$RUNNER_TEMP/api.log"
+
       - name: Bootstrap the first administrator (terp user create)
         run: |
           docker compose -f apps/example/docker-compose.prod.yml run --rm \

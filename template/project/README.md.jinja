@@ -23,6 +23,9 @@ live in the local `.venv`, not on the global PATH.
 `uv run terp verify` refuses a change to that the file does not record, naming each one as a
 widening or a narrowing. Write the file again, with the command above, only once a person
 has approved what changed, and in the same change, so the diff shows what they approved.
+The production image carries the file, and the app compares the routes it serves with it
+before it serves: on a difference it does not start (ADR 0212). In development the same
+difference is a warning.
 
 {% if frontend -%}
 **Commit `uv.lock` and `frontend/package-lock.json`.** CI installs exactly them (`uv sync
