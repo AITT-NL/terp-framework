@@ -307,25 +307,35 @@ def _images(
     return tuple(images), datastores
 
 
-def web_npm_locks(root: pathlib.Path, table: DatastoreTable) -> tuple[str, ...]:
-    """The npm locks the release plan reads for the web images of the declared app at *root*.
+def planned_images(root: pathlib.Path, table: DatastoreTable) -> tuple[Image, ...] | None:
+    """The images the release plan builds for the declared app at *root*, asked of the files on disk.
 
-    The plan's own images and rule (:func:`npm_lock_of`), asked of the files on disk, so ``terp
-    verify``'s locks check and npm audit hold the locks a release reads rather than a list of
-    their own. Nothing for an app that is undeclared, unmanaged or unreadable, or whose profile
-    cannot be read: a release refuses it, and the gate holds the generator's two locks
-    (:data:`~terp.cli.release._locks.NPM_LOCKS`) where their manifest is, as before.
+    The plan's own images and rule, so ``terp verify``'s locks check, npm audit and ``terp
+    maintenance`` hold the Dockerfiles and the locks a release reads rather than a list of
+    their own. ``None`` for an app that is undeclared, unmanaged or unreadable, or whose
+    profile cannot be read: a release refuses it, and each caller says what it holds instead.
     """
     declared, findings = readable(root, table)
     if findings or not isinstance(declared, Declaration):
-        return ()
+        return None
     profile, problems = resolve_profile(root, declared)
     if problems:
-        return ()
+        return None
     services = {
         name: service for name, service in services_of(profile).items() if not service.get("profiles")
     }
     images, _datastores = _images(_WorkingTree(root), root, declared, services, table, [])
+    return tuple(images)
+
+
+def web_npm_locks(root: pathlib.Path, table: DatastoreTable) -> tuple[str, ...]:
+    """The npm locks the release plan reads for the web images of the declared app at *root*.
+
+    :func:`planned_images`' locks. Nothing for an app whose plan cannot be read: the gate
+    then holds the generator's two locks (:data:`~terp.cli.release._locks.NPM_LOCKS`) where
+    their manifest is, as before.
+    """
+    images = planned_images(root, table) or ()
     return tuple(sorted({image.npm_lock for image in images if image.npm_lock is not None}))
 
 
@@ -392,4 +402,4 @@ def release_plan(tree: Tree, root: pathlib.Path, table: DatastoreTable) -> Plan:
     return Plan(declared, profile, services, images, step, api, datastores)
 
 
-__all__ = ["Image", "Plan", "argv", "npm_lock_of", "release_plan", "web_npm_locks", "web_packages"]
+__all__ = ["Image", "Plan", "argv", "npm_lock_of", "planned_images", "release_plan", "web_npm_locks", "web_packages"]

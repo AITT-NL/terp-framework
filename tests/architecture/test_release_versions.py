@@ -64,9 +64,14 @@ def _pyproject_dependencies(path: pathlib.Path) -> list[str]:
 
 
 def _template_dependencies(path: pathlib.Path) -> list[str]:
-    """Read quoted requirements from the Jinja template, which is not valid TOML."""
+    """Read quoted requirements from the Jinja template, which is not valid TOML.
+
+    Every quoted string, not only the first on a line: the development group is one line of
+    several (`dev = ["pytest>=8.0", ..., "terp-arch==X", "terp-cap-egress==X", ...]`), and its
+    pins are held to the release like the rest. The caller keeps only the internal names.
+    """
     text = path.read_text(encoding="utf-8")
-    return re.findall(r'^\s*"([^"]+)"', text, re.MULTILINE)
+    return re.findall(r'"([^"\n]+)"', text)
 
 
 _BACKEND_INTERNAL = {_pyproject_name(path) for path in _BACKEND_PYPROJECTS}

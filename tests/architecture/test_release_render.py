@@ -120,12 +120,11 @@ class _Index:
 
 
 def test_the_wheel_comes_from_the_fixed_index(tmp_path: pathlib.Path, monkeypatch) -> None:
-    from terp.cli.release import _sandbox
 
     wheel = build_wheel(tmp_path / "w")
     releases = table(tmp_path, wheel)
     index = _Index(wheel.read_bytes())
-    monkeypatch.setattr(_sandbox, "_egress", index)
+    monkeypatch.setattr(_render, "egress_client", index)
     assert _render.fetch(releases, "https://index.example/simple", TOOLCHAIN, tmp_path).spec == SPEC_RELEASE
     assert index.urls == ["https://index.example/simple/terp-arch/", f"https://index.example/files/{WHEEL}"]
     for broken, expected in (
@@ -133,7 +132,7 @@ def test_the_wheel_comes_from_the_fixed_index(tmp_path: pathlib.Path, monkeypatc
         (_Index(b"", files=[]), "lists no"),
         (_Index(b"", wheel_status=403), "answered 403"),
     ):
-        monkeypatch.setattr(_sandbox, "_egress", broken)
+        monkeypatch.setattr(_render, "egress_client", broken)
         with pytest.raises(ReleaseError, match=expected):
             _render.fetch(releases, "https://index.example/simple/", TOOLCHAIN, tmp_path)
 
@@ -143,7 +142,7 @@ def test_the_wheel_comes_from_the_fixed_index(tmp_path: pathlib.Path, monkeypatc
 
             raise EgressFailedError("down", log_context={"host": "index.example"})
 
-    monkeypatch.setattr(_sandbox, "_egress", Down(b""))
+    monkeypatch.setattr(_render, "egress_client", Down(b""))
     with pytest.raises(ReleaseError, match="could not be read"):
         _render.fetch(releases, "https://index.example/simple/", TOOLCHAIN, tmp_path)
 

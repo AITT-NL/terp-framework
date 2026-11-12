@@ -10,6 +10,76 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.43.0 — unreleased
+
+### Added
+
+- **`terp maintenance`: what an app should maintain, as a report that is not a gate (ADR
+  0214).** Every check that answers "what should this app maintain" already existed, and each
+  ran only when someone acted: `terp upgrade --check` when someone ran it, the audit lane on a
+  push, `sign`'s OSV scan once per release. An app nobody touched was never asked again, and
+  the template's only updater on a clock works on one code host. The command asks every
+  question a scheduled check asks, on any host, run in the app as `uv run --frozen terp
+  maintenance`:
+  - `platform-behind`: a newer `terp-*` (uv, against the app's own index) or `@terpjs/*` (`npm
+    view`, against the frontend's registry);
+  - `template-behind`: the scaffolding was rendered from an older template than the platform
+    the app runs;
+  - `known-vulnerability`: a package in `uv.lock` or in any npm lock the release plan builds a
+    web image from matches a published advisory in OSV. One advisory per flaw, with its
+    aliases, the severity its source gives, and the lowest version that clears every
+    advisory that has a fix, read from the advisories' ranges in PEP 440's order for PyPI and
+    semver's for npm;
+  - `base-image-behind`: under `"build": "own"` only, a pinned `FROM` in any Dockerfile the
+    release plan builds from, whose tag (on the `# image:tag` line above it) names another
+    digest now;
+  - `source-unavailable`: a source that could not be asked. A report never reads as clean
+    because a database did not answer.
+
+  A check that could not be made for another reason is named in `not_checked`: a manifest
+  with no lock beside it, packages from a private index that were not sent, `terp-cap-egress`
+  missing, a scaffolding ref that is not a release tag, a pinned `FROM` with no tag line. A
+  report is clean only when it lists neither. It exits 0 whatever it finds and 2 only when it
+  could not report, with the cause. `--format json` prints the `terp_maintenance: 1` document,
+  in which every finding carries every key. Three more targets:
+  - `--commit SHA` reads a commit the way `sign` does, never the working tree, and writes
+    nothing into the checkout: how a scheduler audits what an environment runs;
+  - `--tree DIR` reads another checkout on disk;
+  - `--release DIR` re-asks a signed bundle's SBOMs, after checking each SBOM's digest against
+    the manifest, of the database `sign` asked, and says which advisories are new since.
+
+  By default only packages from a public registry (PyPI, npm) are sent to the database: a
+  name on a private index can be the app's own, so those packages are counted and their hosts
+  named in `not_checked`. `--osv` naming a mirror, or `--send-private-names`, sends them too. A
+  package from a path, a git repository or a URL that is no registry's is never sent, nor is
+  the project itself. `terp guide maintenance` covers scheduling and what each finding asks.
+
+### Changed
+
+- **`sign` and `terp maintenance` ask OSV through one client** (`terp.cli.release._osv`), behind
+  `terp-cap-egress` as before. A package with more advisories than one answer holds is now
+  asked again with its continuation token. Until now `sign` recorded only the first page of
+  such a list.
+- **The release plan names its images through one function** (`planned_images`), which
+  `web_npm_locks` now reads too, so the report reads the Dockerfiles and locks a release
+  reads.
+- **A generated app's development group carries `terp-cap-egress`**, the one way the
+  vulnerability half asks the database. Without it nothing is asked, and `not_checked` names
+  the line that adds it.
+
+### Fixed
+
+- **`sign` no longer records an answer it cannot read as a clean package.** A result of `[]`,
+  `""`, `0` or `{"vulns": {}}` was read as "no advisory", and an id of `"7"` or `""` was
+  recorded as one, so a signed manifest could say a package was clean when the database had
+  answered something else. Such an answer, `null` included, is now refused by name, and
+  `sign` refuses rather than signs.
+
+### Upgrade notes
+
+- `copier update` adds `terp-cap-egress` to the `dev` group of `pyproject.toml`; run `uv sync`.
+  An app that does not re-render can add `"terp-cap-egress==0.43.0"` to that group by hand.
+
 ## 0.42.1 — unreleased
 
 ### Added
