@@ -39,10 +39,12 @@ The gate keeps its own audit lane (dependency-audit-python, dependency-audit-npm
 RUNNING IT ON A SCHEDULE
 
 Nothing schedules it for you, and nothing in it needs a code host: run it from cron, from
-any CI on a timer, or from the tool that manages the app. A weekly line is enough to
-start with:
+any CI on a timer, or from the tool that manages the app. Unattended, run it through
+`uv run --frozen`: plain `uv run` re-locks a uv.lock that has fallen behind pyproject.toml
+before it runs anything, which would change the app while nobody watches, and the report
+would then describe a lock nobody committed. A weekly line is enough to start with:
 
-    17 6 * * 1  cd /srv/app && uv run terp maintenance --format json > maintenance.json
+    17 6 * * 1  cd /srv/app && uv run --frozen terp maintenance --format json > maintenance.json
 
 Read `findings` for what to do, `not_checked` for what could not be checked, and
 `sources` for what was asked. Each finding carries every key (kind, subject, ecosystem,

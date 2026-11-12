@@ -97,8 +97,9 @@ or `python` will not resolve.
   changes nothing: a newer platform, a scaffolding behind it, a locked package with a
   published advisory (and the version that fixes it), a moved base image under
   `"build": "own"`. It is not a gate: it exits 0 whatever it finds, and a source it could
-  not ask is a finding of its own. Run it on a schedule (`--format json` for the
-  document); `uv run terp guide maintenance` says what each finding asks of you.
+  not ask is a finding of its own. Run it on a schedule as `uv run --frozen terp
+  maintenance --format json`, so uv never re-locks the app unattended;
+  `uv run terp guide maintenance` says what each finding asks of you.
 - **`uv run terp inspect capabilities`** — every maintained `terp-cap-*` package:
   what this app already has, what it can adopt, the exact `uv add` line and the
   composition-root wiring. **Read this before building infrastructure by hand** —
