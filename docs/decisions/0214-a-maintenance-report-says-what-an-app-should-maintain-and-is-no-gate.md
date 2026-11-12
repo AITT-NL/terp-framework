@@ -68,7 +68,10 @@ yesterday for a reason no one in the change introduced (the reasoning of ADR 011
      and ids that alias each other or share an alias are one flaw. Each advisory carries its
      summary, aliases and the severity its source gives (`database_specific.severity`). The
      finding carries the lowest version above the installed one that fixes every advisory
-     that has a fix, and says which advisories have none.
+     that has a fix. That version is chosen among the advisories' own `fixed` events, by
+     reading each advisory's ranges for the package, so a fix on one release line is never
+     offered while another advisory still covers it. The finding also says which advisories
+     have no fix, or that no single release clears them all.
    - `base-image-behind`: only under `"build": "own"`. A `FROM` pinned by digest with its
      tag on the comment line above (`# python:3.14-slim`), the convention the template's
      Dockerfiles already follow. The digest is compared with the one the tag names now, read
@@ -76,17 +79,21 @@ yesterday for a reason no one in the change introduced (the reasoning of ADR 011
      moves the bases (ADR 0187), and `platform-behind` already says when that is due.
    - `source-unavailable`: a source that could not be asked.
 3. **The document.** `--format json` prints `terp_maintenance: 1`: `checked_at`,
-   `terp_cli`, the `target`, `sources` (each with `reachable` and a `detail`) and
-   `findings`. Every finding carries every key (`kind`, `subject`, `ecosystem`, `location`,
+   `terp_cli`, the `target`, `sources` (each with `reachable` and a `detail`), `not_checked`
+   and `findings`. Every finding carries every key (`kind`, `subject`, `ecosystem`, `location`,
    `installed`, `latest`, `fixed_in`, `advisories`, `new_since_release`, `remedy`). An unknown
    value is `null` and no advisory is `[]`, so a reader never has to tell a missing key from
    an unknown value.
 4. **Silence is never green.** A source that could not be asked is recorded twice: as an
    unreachable source and as a `source-unavailable` finding. When the database does not
    answer, no package is reported at all, because a partial answer would read as a whole
-   one.
+   one. A check that could not be made for another reason is named in `not_checked`: no
+   lock to read, scaffolding rendered from a ref that is not a release tag (or no answers
+   file at all), or a pinned `FROM` with no tag line. A report is clean only when both
+   `findings` and `not_checked` are empty.
 5. **It is not a gate.** It exits 0 whatever it finds and 2 only when it could not report:
-   an argument that names no app, a lock that cannot be parsed, a bundle that is not one.
+   an argument that names no app, a `--tree` that holds no lock, a lock that cannot be
+   parsed, a bundle that is not one.
    A scheduler alerts on 2 and stores the document on 0.
 6. **One route to the vulnerability database.** The OSV client moves out of `sign`'s sandbox
    into `terp.cli.release._osv`, and both callers use it:
@@ -96,9 +103,17 @@ yesterday for a reason no one in the change introduced (the reasoning of ADR 011
    - `--osv` names a mirror, as it already did for `sign`.
    - A package with more advisories than one answer holds is now asked again with its
      continuation token. Before this change `sign` dropped the rest of such a list.
+   - An answer in a shape OSV does not write is refused by name, never read as "no
+     advisory": a result that is not an object, a `vulns` that is not a list, an entry
+     without a string `id`. `sign` refused these before as well, by crashing its sandbox.
 7. **What leaves the machine.** Only the name and version of each package a lock takes from
-   a registry. A package taken from a path, a git repository or a URL is never sent, and
-   neither is the project itself.
+   a registry: in `uv.lock` one with a `registry` source, in an npm lock one npm resolved to
+   a registry tarball (`<registry>/<name>/-/<file>.tgz`) or left unresolved for its default
+   registry. A package taken from a path, a git repository or any other URL is never sent,
+   and neither is the project itself. A package from a private index is a registry's and
+   is sent by name. Most private indexes mirror the public one, and leaving their packages
+   out would leave an app that installs through one with no report at all. An app whose
+   private package names must not leave its network points `--osv` at a mirror.
 8. **Severity is data.** Nothing in the framework branches on an advisory's severity; a
    person or a scheduler may sort by it.
 9. **The app's side.**

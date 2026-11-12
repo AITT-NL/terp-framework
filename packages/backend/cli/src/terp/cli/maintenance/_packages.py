@@ -2,9 +2,12 @@
 
 The locks are read as data, through the same parser the release jobs use
 (:mod:`terp.cli.release._locks`): no resolver runs and no index is asked. Only a package that
-came from a registry is listed. One the lock takes from a path, a git repository or a URL is
-the app's own or a private fork, and its name is not sent to a public database; nor is the
-project itself.
+came from a registry is listed: in ``uv.lock`` one with a ``registry`` source, in an npm lock
+one npm resolved to a registry tarball. One the lock takes from a path, a git repository or
+any other URL is the app's own or a private fork, and its name is not sent to a database;
+nor is the project itself. A package from a private index is a registry's, and is sent by
+name (``terp guide maintenance`` says so, and ``--osv`` names a mirror for an app whose
+private names must stay inside).
 
 A signed release is read from its bundle (``terp release sign``): each image's SBOM, held to
 the digest the manifest records for it, and the advisories the manifest recorded per package
@@ -58,6 +61,18 @@ def _uv_packages(lock: Mapping[str, Any]) -> list[Package]:
     return sorted(found, key=lambda p: (p.name, p.version))
 
 
+def _from_registry(entry: Mapping[str, Any]) -> bool:
+    """Whether npm installs *entry* from a registry: a ``<registry>/<name>/-/<file>.tgz``
+    tarball, or no ``resolved`` at all, which npm leaves out for the registry it installs from.
+    A link, a path, a git repository or any other URL is not a registry's, and stays here."""
+    if entry.get("link") is True:
+        return False
+    if "resolved" not in entry:
+        return True
+    parts = urllib.parse.urlsplit(str(entry["resolved"]))
+    return parts.scheme in ("https", "http") and "/-/" in parts.path
+
+
 def _npm_packages(lock: Mapping[str, Any], path: str) -> list[Package]:
     root = lock["packages"].get("") if isinstance(lock["packages"].get(""), dict) else {}
     named = {
@@ -69,7 +84,7 @@ def _npm_packages(lock: Mapping[str, Any], path: str) -> list[Package]:
     for key, entry in lock["packages"].items():
         if not key or "node_modules/" not in key or not isinstance(entry, dict) or "version" not in entry:
             continue
-        if entry.get("link") is True or str(entry.get("resolved", "")).startswith("file:"):
+        if not _from_registry(entry):
             continue
         name = str(entry.get("name") or key.rsplit("node_modules/", 1)[-1])
         direct = key == f"node_modules/{name}" and name in named
@@ -94,13 +109,18 @@ def npm_locks(root: pathlib.Path) -> list[str]:
     ]
 
 
+def locks_at(root: pathlib.Path) -> list[str]:
+    """The locks at *root* this reads: ``uv.lock``, and each npm lock beside its manifest."""
+    found = [UV_LOCK] if (root / UV_LOCK).is_file() else []
+    return found + npm_locks(root)
+
+
 def tree_packages(root: pathlib.Path) -> list[Package]:
     """Every registry package the locks at *root* hold: ``uv.lock`` and each npm lock."""
     found: list[Package] = []
-    if (root / UV_LOCK).is_file():
-        found += _uv_packages(read_uv_lock((root / UV_LOCK).read_text(encoding="utf-8")))
-    for lock in npm_locks(root):
-        found += _npm_packages(read_npm_lock((root / lock).read_text(encoding="utf-8"), lock), lock)
+    for lock in locks_at(root):
+        text = (root / lock).read_text(encoding="utf-8")
+        found += _uv_packages(read_uv_lock(text)) if lock == UV_LOCK else _npm_packages(read_npm_lock(text, lock), lock)
     return found
 
 
@@ -167,4 +187,4 @@ def bundle_packages(bundle: pathlib.Path) -> Bundle:
     )
 
 
-__all__ = ["MANIFEST", "Bundle", "Package", "bundle_packages", "npm_locks", "tree_packages"]
+__all__ = ["MANIFEST", "Bundle", "Package", "bundle_packages", "locks_at", "npm_locks", "tree_packages"]

@@ -47,23 +47,32 @@ def own_build(root: pathlib.Path) -> bool:
     return isinstance(declared, dict) and declared.get("build") == "own"
 
 
-def pinned_bases(root: pathlib.Path) -> list[tuple[str, str, str, str]]:
-    """``(Dockerfile, repository, pinned digest, tag)`` of every base pinned under a tag comment."""
+def pinned_bases(root: pathlib.Path) -> tuple[list[tuple[str, str, str, str]], list[str]]:
+    """``(Dockerfile, repository, pinned digest, tag)`` of every base pinned under a tag comment,
+    and a sentence for each base pinned by digest with no such comment, which has no tag to
+    compare with."""
     found: list[tuple[str, str, str, str]] = []
+    untagged: list[str] = []
     for dockerfile in DOCKERFILES:
         try:
             lines = (root / dockerfile).read_text(encoding="utf-8").splitlines()
         except OSError:
             continue
         for above, line in zip(["", *lines], lines, strict=False):
-            pinned, comment = _FROM.fullmatch(line), _TAG_COMMENT.fullmatch(above)
-            if pinned is None or comment is None:
+            pinned = _FROM.fullmatch(line)
+            if pinned is None:
                 continue
-            image, tagged = parse_image(pinned.group("image")), parse_image(comment.group("ref"))
+            comment = _TAG_COMMENT.fullmatch(above)
+            image = parse_image(pinned.group("image"))
+            tagged = parse_image(comment.group("ref")) if comment is not None else None
             if image is None or tagged is None or tagged.tag is None or image.repository != tagged.repository:
+                untagged.append(
+                    f"base-image-behind: the FROM {pinned.group('image')} in {dockerfile} has no "
+                    "`# image:tag` line naming its own image above it, so there is no tag to compare its digest with"
+                )
                 continue
             found.append((dockerfile, image.repository, str(image.digest), tagged.tag))
-    return found
+    return found, untagged
 
 
 def _api(repository: str) -> str:
@@ -75,7 +84,8 @@ def base_image_findings(root: pathlib.Path, report: Report, *, getter: Getter | 
     """Under ``"build": "own"``, a finding for every pinned base its tag has moved away from."""
     if not own_build(root):
         return
-    bases = pinned_bases(root)
+    bases, untagged = pinned_bases(root)
+    report.not_checked.extend(untagged)
     if not bases:
         return
     current: dict[tuple[str, str], str] = {}

@@ -64,10 +64,7 @@ dependencies = [
 # terp-cap-egress is the one way `terp maintenance` asks the vulnerability database (ADR
 # 0214): HTTPS to that host alone, a timeout and a bounded read. It is a development tool
 # here, as terp-arch is; an app that calls out in production declares it above as well.
-dev = [
-    "pytest>=8.0", "httpx2>=2.0", "pytest-cov>=5.0", "terp-arch==0.42.0", "terp-cap-egress==0.42.0",
-    "ruff>=0.6", "deptry>=0.20",
-]
+dev = ["pytest>=8.0", "httpx2>=2.0", "pytest-cov>=5.0", "terp-arch==0.42.0", "terp-cap-egress==0.42.0", "ruff>=0.6", "deptry>=0.20"]
 
 # deptry: is every distribution this project imports one it declares? The
 # question no Terp rule can answer -- mapping an import name to a distribution

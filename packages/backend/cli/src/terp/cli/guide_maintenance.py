@@ -21,8 +21,14 @@ WHAT IT IS
   source-unavailable   one of the above could not be asked. Never an empty report: a
                        database that did not answer has not said a package is clean
 
+A check that could not be made for another reason is named in `not_checked`: no lock to
+read, scaffolding rendered from a ref that is not a release tag, a pinned FROM with no
+`# image:tag` line above it. A report is clean only when `findings` and `not_checked` are
+both empty.
+
 It is a report, not a gate. It exits 0 whatever it finds and 2 only when it could not
-report at all, so a newly published advisory never turns yesterday's green gate red.
+report at all (no app at --root, a --tree with no lock, a lock or bundle it cannot read),
+so a newly published advisory never turns yesterday's green gate red.
 The gate keeps its own audit lane (dependency-audit-python, dependency-audit-npm).
 
     uv run terp maintenance                    # for a person
@@ -38,9 +44,10 @@ start with:
 
     17 6 * * 1  cd /srv/app && uv run terp maintenance --format json > maintenance.json
 
-Read `findings` for what to do and `sources` for what was asked. Each finding carries
-every key (kind, subject, ecosystem, location, installed, latest, fixed_in, advisories,
-new_since_release, remedy); an unknown value is null.
+Read `findings` for what to do, `not_checked` for what could not be checked, and
+`sources` for what was asked. Each finding carries every key (kind, subject, ecosystem,
+location, installed, latest, fixed_in, advisories, new_since_release, remedy); an unknown
+value is null.
 
 FIXING WHAT IT FINDS
 
@@ -50,9 +57,12 @@ gate before it lands:
   platform-behind      `uv run terp upgrade --check` prints the recipe; read
                        `uv run terp guide changelog --since <your version>` first
   template-behind      `copier update`, reviewed as one change
-  known-vulnerability  `uv lock --upgrade-package <name>`, or
-                       `npm --prefix frontend install <name>@<fixed>`; a signed release
-                       needs a new release, cut from the commit that moves it
+  known-vulnerability  `uv lock --upgrade-package <name>`; for npm,
+                       `npm --prefix frontend install <name>@<fixed>` when package.json
+                       names it, `npm --prefix frontend update <name>` when another
+                       package brings it in (or an `overrides` entry). `fixed_in` is the
+                       lowest release that clears every advisory with a fix. A signed
+                       release needs a new release, cut from the commit that moves it
   base-image-behind    pin the digest the tag names now, keep the `# image:tag` line
 
 Nothing here merges or deploys a fix by itself, and nothing should: adopting the newest
@@ -62,10 +72,12 @@ WHAT LEAVES THIS MACHINE
 
 The package names and versions of each lock, sent to OSV (https://api.osv.dev, or the
 mirror --osv names), through terp-cap-egress: HTTPS only, that host only, a timeout and
-a bounded read. A package the lock takes from a path, a git repository or a URL is never
-sent. Install terp-cap-egress in the dev group (the template does) or the vulnerability
-half reports source-unavailable. Version questions go to your own index and registry,
-through uv and npm, with their configuration.
+a bounded read. Only registry packages are sent: a package the lock takes from a path, a
+git repository or any URL that is not a registry tarball never is. A package from a
+private index IS sent by name; if those names must stay inside your network, point --osv
+at a mirror of OSV's API. Install terp-cap-egress in the dev group (the template does), or
+the vulnerability half reports source-unavailable. Version questions go to your own index
+and registry, through uv and npm, with their configuration.
 
 A WORD ON SEVERITY
 

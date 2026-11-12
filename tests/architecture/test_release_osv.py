@@ -60,9 +60,21 @@ def test_an_answer_that_cannot_be_trusted_is_refused(database: FakeOSV, expected
         _osv.query_batch(database.url, ["pkg:pypi/x@1"])
 
 
-def test_a_result_that_is_not_an_object_reads_as_no_advisory() -> None:
-    with serving(FakeOSV(body=b'{"results": [null, "x"]}')) as database:
-        assert _osv.query_batch(database.url, ["pkg:pypi/x@1", "pkg:pypi/y@1"]) == {}
+def test_an_empty_or_null_result_is_a_package_with_no_advisory() -> None:
+    with serving(FakeOSV(body=b'{"results": [null, {}, {"vulns": []}]}')) as database:
+        assert _osv.query_batch(database.url, ["pkg:pypi/x@1", "pkg:pypi/y@1", "pkg:pypi/z@1"]) == {}
+
+
+@pytest.mark.parametrize(
+    "result",
+    ['"x"', '{"vulns": null}', '{"vulns": {}}', '{"vulns": [{"modified": "x"}]}', '{"vulns": [{"id": 7}]}',
+     '{"vulns": [{"id": ""}]}', '{"vulns": ["GHSA-1"]}', '{"vulns": [], "next_page_token": 3}'],
+)
+def test_a_result_in_another_shape_is_refused_never_read_as_clean(result: str) -> None:
+    """``sign`` refused these before the client moved; neither caller may read one as "none"."""
+    with serving(FakeOSV(body=b'{"results": [' + result.encode() + b"]}")) as database:
+        with pytest.raises(ReleaseError, match="answered pkg:pypi/x@1 in a shape it does not write"):
+            _osv.query_batch(database.url, ["pkg:pypi/x@1"])
 
 
 def test_an_unreachable_database_is_a_refusal_never_a_clean_answer() -> None:

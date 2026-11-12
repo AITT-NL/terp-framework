@@ -102,6 +102,7 @@ def test_every_finding_carries_every_key_and_a_report_lists_them_in_order() -> N
     assert document["findings"][1]["advisories"] == [
         {"id": "A", "aliases": ["CVE-1"], "summary": "s", "severity": "HIGH", "url": "https://osv.dev/vulnerability/A"}
     ]
+    assert document["not_checked"] == []
     assert json.loads(report.as_json()) == document
 
 
@@ -123,9 +124,9 @@ def test_the_text_names_each_finding_and_its_remedy() -> None:
     assert text.endswith("exits 0 whatever it finds.")
     quiet = Report("tree", "/t", checked_at="T")
     assert "Nothing to maintain" in quiet.as_text() and "Asked" not in quiet.as_text()
-    one = Report("app", "/a", checked_at="T")
+    one = Report("app", "/a", checked_at="T", not_checked=["template-behind: no ref"])
     one.findings.append(Finding("template-behind", "template", "Re-render.", installed="v1", latest="2"))
-    assert "1 finding:" in one.as_text()
+    assert "1 finding:" in one.as_text() and "\nNot checked:\n  - template-behind: no ref\n" in one.as_text()
 
 
 def test_the_report_names_the_cli_that_wrote_it_or_none(monkeypatch) -> None:
@@ -151,7 +152,11 @@ def test_only_packages_a_registry_serves_are_listed_from_the_locks(tmp_path: pat
         ("node_modules/@scope/pkg", {"version": "1.0.0"}),
         ("node_modules/a/node_modules/renamed", {"name": "real-name", "version": "2.0.0"}),
         ("node_modules/linked", {"link": True, "resolved": "../linked"}),
+        ("node_modules/workspace-link", {"version": "1.0.0", "link": True, "resolved": "packages/workspace"}),
         ("node_modules/local", {"version": "1.0.0", "resolved": "file:../local"}),
+        ("node_modules/private-fork", {"version": "1.0.0", "resolved": "git+ssh://git@example.com/fork.git#abc"}),
+        ("node_modules/tarball", {"version": "2.0.0", "resolved": "https://files.example.com/tarball.tgz"}),
+        ("node_modules/mirrored", {"version": "3.0.0", "resolved": "https://npm.example.com/repo/mirrored/-/mirrored-3.0.0.tgz"}),
         ("node_modules/no-version", {"resolved": "https://registry.npmjs.org/x"}),
         ("packages/workspace", {"version": "1.0.0"}),
         ("node_modules/odd", "not an entry"),
@@ -163,8 +168,9 @@ def test_only_packages_a_registry_serves_are_listed_from_the_locks(tmp_path: pat
         Package("PyPI", "markupsafe", "2.0.1", "uv.lock"),
         Package("npm", "@scope/pkg", "1.0.0", "frontend/package-lock.json", direct=False),
         Package("npm", "lodash", "4.17.15", "frontend/package-lock.json", direct=True),
+        Package("npm", "mirrored", "3.0.0", "frontend/package-lock.json", direct=False),
         Package("npm", "real-name", "2.0.0", "frontend/package-lock.json", direct=False),
-    ], "a package the manifest names is direct only where it is installed at the top"
+    ], "a path, a git repository or a URL that is no registry's tarball is never listed"
     assert [p.purl for p in found[1:3]] == ["pkg:pypi/markupsafe@2.0.1", "pkg:npm/%40scope/pkg@1.0.0"]
 
 
@@ -256,6 +262,8 @@ def test_a_component_that_names_no_package_url_is_left_out(tmp_path: pathlib.Pat
     [
         ("1.9", "1.10"), ("1.2.0rc1", "1.2.0"), ("1.2.0-beta.1", "1.2.0-rc.1"), ("1.1.9", "1.2.0-beta.1"),
         ("1.0.0-1", "1.0.0-rc1"), ("abc", "0.1"), ("2.11.2", "3.1.6"), ("v1.0", "1.0.1"),
+        ("1.0.dev1", "1.0a1"), ("1.0a1", "1.0b1"), ("1.0b2", "1.0rc1"), ("1.0rc1", "1.0"), ("1.0", "1.0.post1"),
+        ("1.0.post1", "1.0.post2"), ("1.0.0-alpha.1", "1.0.0-beta"), ("1.0.post1", "1.0.1"),
     ],
 )
 def test_release_numbers_order_as_both_ecosystems_number_them(lower: str, higher: str) -> None:
@@ -264,24 +272,55 @@ def test_release_numbers_order_as_both_ecosystems_number_them(lower: str, higher
 
 def test_equal_release_numbers_compare_equal() -> None:
     key = _vulnerabilities.version_key
-    assert key("1.2") == key("1.2.0") == key("1.2.0+local") == key("1.2.post1")
+    assert key("1.2") == key("1.2.0") == key("1.2.0+local") == key("V1.2")
+    assert key("1.0alpha1") == key("1.0a1") and key("1.0c1") == key("1.0rc1") == key("1.0.preview1")
 
 
-def test_the_fix_is_the_first_fixed_event_above_the_installed_version() -> None:
+def test_an_advisory_covers_what_its_ranges_and_versions_say() -> None:
     package = Package("PyPI", "jinja2", "2.11.2", "uv.lock")
     record = {
         "affected": [
             affected("PyPI", "Jinja2", {"introduced": "0"}, {"fixed": "2.10.1"}, {"introduced": "2.11"}, {"fixed": "3.1.6"}),
-            affected("PyPI", "jinja2", {"introduced": "0"}, {"fixed": "3.1.5"}),
-            affected("npm", "jinja2", {"introduced": "0"}, {"fixed": "2.12"}),
-            {"package": {"ecosystem": "PyPI", "name": "jinja2"}, "ranges": [{"type": "GIT", "events": [{"fixed": "abc"}]}]},
+            affected("PyPI", "jinja2", {"introduced": "3.2"}, {"last_affected": "3.3"}),
+            affected("npm", "jinja2", {"introduced": "0"}, {"fixed": "9"}),
+            {"package": {"ecosystem": "PyPI", "name": "jinja2"}, "versions": ["4.0.1"]},
+            {"package": {"ecosystem": "PyPI", "name": "jinja2"}, "ranges": [{"type": "GIT", "events": [{"fixed": "abc"}]}, "x"]},
             "not an entry",
         ]
     }
-    assert _vulnerabilities.fixed_version(record, package) == "3.1.5"
-    assert _vulnerabilities.fixed_version({"affected": [affected("PyPI", "jinja2", {"introduced": "0"})]}, package) is None
+    covered = {version: _vulnerabilities.affects(record, package, version) for version in
+               ("2.9", "2.10.1", "2.11.2", "3.1.6", "3.2", "3.3", "3.3.1", "4.0.1", "9.0")}
+    assert covered == {"2.9": True, "2.10.1": False, "2.11.2": True, "3.1.6": False, "3.2": True, "3.3": True,
+                       "3.3.1": False, "4.0.1": True, "9.0": False}
+    assert _vulnerabilities.fixes(record, package) == ["3.1.6"], "only a fix above the installed version"
     npm = Package("npm", "@scope/x", "1.0.0", "frontend/package-lock.json")
-    assert _vulnerabilities.fixed_version({"affected": [affected("npm", "@scope/x", {"fixed": "1.0.1"}), affected("npm", "@scope/X", {"fixed": "1.0.2"})]}, npm) == "1.0.1"
+    exact = {"affected": [affected("npm", "@scope/x", {"fixed": "1.0.1"}), affected("npm", "@scope/X", {"fixed": "1.0.2"})]}
+    assert _vulnerabilities.fixes(exact, npm) == ["1.0.1"], "npm names are compared exactly"
+
+
+def test_the_fix_offered_is_the_lowest_version_no_advisory_still_covers() -> None:
+    """A fixed on two release lines, B on one: 2.1 fixes B and is still inside A's 2.x range."""
+    database = FakeOSV()
+    database.add("A", ["pkg:pypi/lib@1.0"], affected=[affected("PyPI", "lib", {"introduced": "0"}, {"fixed": "1.1"},
+                                                              {"introduced": "2.0"}, {"fixed": "2.2"})])
+    database.add("B", ["pkg:pypi/lib@1.0"], affected=[affected("PyPI", "lib", {"introduced": "0"}, {"fixed": "2.1"})])
+    report = Report("app", "/a")
+    with serving(database):
+        _vulnerabilities.vulnerability_findings(report, [Package("PyPI", "lib", "1.0", "uv.lock")], database.url)
+    assert report.findings[0].fixed_in == "2.2"
+    assert report.findings[0].remedy == "Move lib to 2.2 or later: uv lock --upgrade-package lib."
+
+
+def test_fixes_on_lines_no_one_release_clears_say_so() -> None:
+    database = FakeOSV()
+    database.add("A", ["pkg:pypi/lib@1.0"], affected=[affected("PyPI", "lib", {"introduced": "0"}, {"fixed": "1.1"},
+                                                              {"introduced": "2.0"})])
+    database.add("B", ["pkg:pypi/lib@1.0"], affected=[affected("PyPI", "lib", {"introduced": "1.1"}, {"fixed": "2.0"})])
+    report = Report("app", "/a")
+    with serving(database):
+        _vulnerabilities.vulnerability_findings(report, [Package("PyPI", "lib", "1.0", "uv.lock")], database.url)
+    assert report.findings[0].fixed_in is None
+    assert report.findings[0].remedy.startswith("No one release of lib clears A, B: each is fixed on another release line.")
 
 
 def _database() -> FakeOSV:
@@ -347,12 +386,15 @@ def test_an_advisory_without_a_fix_beside_one_with_a_fix_is_named() -> None:
     report = Report("app", "/a")
     with serving(database):
         _vulnerabilities.vulnerability_findings(report, [Package("PyPI", "x", "1.0", "uv.lock")], database.url)
-    assert report.findings[0].remedy == "Move x to 1.1 or later: uv lock --upgrade-package x. B has no fixed release yet."
+    assert report.findings[0].remedy == (
+        "Move x to 1.1 or later: uv lock --upgrade-package x. No release of x fixes B yet. Read the advisory "
+        "for a workaround, or replace the package; check again when a fix is published."
+    )
     database.add("C", ["pkg:pypi/x@1.0"])
     two = Report("app", "/a")
     with serving(database):
         _vulnerabilities.vulnerability_findings(two, [Package("PyPI", "x", "1.0", "uv.lock")], database.url)
-    assert two.findings[0].remedy.endswith("B, C have no fixed release yet.")
+    assert "No release of x fixes B, C yet." in two.findings[0].remedy
 
 
 def test_a_release_says_which_flaws_are_new_since_it_was_signed() -> None:
@@ -365,6 +407,10 @@ def test_a_release_says_which_flaws_are_new_since_it_was_signed() -> None:
     assert found["jinja2"].new_since_release is False, "every flaw was recorded under one of its ids"
     assert found["lodash"].new_since_release is True
     assert found["jinja2"].remedy.endswith("uv lock --upgrade-package jinja2, then cut a new release.")
+    assert found["lodash"].remedy == (
+        "Move lodash to 4.18.0 or later: in the npm workspace image web is built from, npm install "
+        "lodash@4.18.0, then cut a new release."
+    ), "a bundle names the image, never a workspace it cannot know"
 
 
 def test_a_database_that_does_not_answer_says_so_and_reports_no_package() -> None:
@@ -419,6 +465,7 @@ def test_the_release_target_reports_a_bundle(tmp_path: pathlib.Path, capsys) -> 
     ("argv", "expected"),
     [
         (["--tree", "{tmp}/missing"], "is not a directory"),
+        (["--tree", "{tmp}"], "holds no uv.lock and no npm lock beside its package.json, so there is nothing to report on"),
         (["--release", "{tmp}"], "could not be read as JSON"),
         (["--root", "{tmp}"], "holds no pyproject.toml"),
     ],
@@ -440,7 +487,12 @@ def test_the_app_target_asks_every_source_in_turn(tmp_path: pathlib.Path, monkey
     root = _app(tmp_path, uv=None)
     code, out, _ = _run(["maintenance", "--root", str(root)], capsys)
     assert code == 0 and asked == ["python", "template 0.42.0", "npm", "images"]
-    assert "Nothing to maintain" in out
+    assert "Nothing found by the checks that ran. Not every check could run:\n  - known-vulnerability: the app holds no uv.lock" in out
+    (root / "uv.lock").write_text(UV_LOCK, encoding="utf-8")
+    with serving(FakeOSV()) as database:
+        code, out, _ = _run(["maintenance", "--root", str(root), "--osv", database.url, "--format", "json"], capsys)
+    assert json.loads(out)["not_checked"] == [] and json.loads(out)["sources"][0]["name"] == "osv"
+    asked.clear()
     asked.clear()
     monkeypatch.setattr(_platform, "python_platform", lambda root, report: asked.append("python") and None)
     _run(["maintenance", "--root", str(root)], capsys)
@@ -453,8 +505,8 @@ def test_the_entry_point_exits_2_only_when_it_could_not_report(tmp_path: pathlib
     with pytest.raises(SystemExit) as refused:
         main(["maintenance", "--tree", str(tmp_path / "missing")])
     assert refused.value.code == 2
-    main(["maintenance", "--tree", str(_app(tmp_path / "empty", uv=None))])
-    assert "Nothing to maintain" in capsys.readouterr().out
+    main(["maintenance", "--tree", str(_app(tmp_path / "own-only", uv=UV_LOCK.split("[[package]]\nname = \"Jinja2\"")[0]))])
+    assert "Nothing to maintain: every check ran and found nothing." in capsys.readouterr().out
 
 
 def test_upgrade_still_answers_through_its_own_command(monkeypatch, capsys) -> None:

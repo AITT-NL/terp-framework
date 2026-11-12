@@ -73,12 +73,23 @@ def _answers(root: pathlib.Path, commit: str, source: str = "gh:example/template
 
 
 def test_the_scaffolding_is_behind_only_when_its_release_is_older_than_the_platform(tmp_path: pathlib.Path) -> None:
-    for commit in ("v0.42.0", "0.43.0", "a1b2c3d"):
+    for commit in ("v0.42.0", "0.43.0"):
         report = Report("app", str(tmp_path))
         _platform.template(_answers(tmp_path, commit), report, "0.42.0")
-        assert report.findings == [], commit
+        assert (report.findings, report.not_checked) == ([], []), commit
+
+
+def test_a_scaffolding_that_cannot_be_compared_says_why(tmp_path: pathlib.Path) -> None:
+    report = Report("app", str(tmp_path))
+    _platform.template(_answers(tmp_path, "v0.41.0-3-gabc1234"), report, "0.42.0")
+    assert report.findings == [] and report.not_checked == [
+        "template-behind: the scaffolding was rendered from v0.41.0-3-gabc1234, which is not a release tag, so how "
+        "far behind it is cannot be read from the ref alone"
+    ]
     (tmp_path / ".copier-answers.yml").unlink()
-    _platform.template(tmp_path, Report("app", str(tmp_path)), "0.42.0")
+    unrendered = Report("app", str(tmp_path))
+    _platform.template(tmp_path, unrendered, "0.42.0")
+    assert unrendered.not_checked[0].startswith("template-behind: no .copier-answers.yml records the template")
 
 
 def test_a_behind_scaffolding_offers_the_re_render_or_says_why_it_cannot(tmp_path: pathlib.Path) -> None:
@@ -257,11 +268,24 @@ FROM python:3.14-slim
 FROM deps AS app
 """)
     _dockerfile(root, "frontend/Dockerfile.prod", f"# nginxinc/nginx-unprivileged:alpine\nfrom nginxinc/nginx-unprivileged@{_OLD}\n")
-    assert _images.pinned_bases(root) == [
+    bases, untagged = _images.pinned_bases(root)
+    assert bases == [
         ("Dockerfile.prod", "docker.io/library/python", _OLD, "3.14-slim"),
         ("Dockerfile.prod", "ghcr.io/astral-sh/uv", _OLD, "0.13.7"),
         ("frontend/Dockerfile.prod", "docker.io/nginxinc/nginx-unprivileged", _OLD, "alpine"),
     ]
+    assert untagged == [
+        f"base-image-behind: the FROM python@{_OLD} in Dockerfile.prod has no `# image:tag` line naming its own "
+        "image above it, so there is no tag to compare its digest with",
+    ] * 2, "a FROM under a sentence, and one under another image's tag, are named, never compared"
+
+
+def test_an_own_build_with_only_untagged_bases_names_them_and_asks_nothing(tmp_path: pathlib.Path) -> None:
+    root = _own_app(tmp_path)
+    _dockerfile(root, "Dockerfile.prod", f"FROM python@{_OLD}\n")
+    report = Report("app", str(root))
+    _images.base_image_findings(root, report, getter=lambda *a: pytest.fail("asked"))
+    assert report.sources == [] and len(report.not_checked) == 1
 
 
 def test_only_an_app_that_writes_its_own_build_files_has_its_bases_asked(tmp_path: pathlib.Path) -> None:
@@ -284,10 +308,11 @@ def test_a_moved_tag_is_a_finding_and_a_current_one_is_not(tmp_path: pathlib.Pat
     registry.repo_tags[("library/python", "3.14-slim")] = moved
     registry.repo_tags[("astral-sh/uv", "0.13.7")] = kept
     root = _own_app(tmp_path)
-    _dockerfile(root, "Dockerfile.prod", f"# python:3.14-slim\nFROM python@{_OLD}\n# python:3.14-slim\nFROM python@{_OLD}\n# ghcr.io/astral-sh/uv:0.13.7\nFROM ghcr.io/astral-sh/uv@{kept}\n")
+    _dockerfile(root, "Dockerfile.prod", f"# python:3.14-slim\nFROM python@{_OLD}\n# python:3.14-slim\nFROM python@{_OLD}\n# ghcr.io/astral-sh/uv:0.13.7\nFROM ghcr.io/astral-sh/uv@{kept}\nFROM node@{_OLD}\n")
     report = Report("app", str(root))
     _images.base_image_findings(root, report, getter=registry)
     assert report.sources == [Source("registry", True)]
+    assert len(report.not_checked) == 1 and report.not_checked[0].startswith(f"base-image-behind: the FROM node@{_OLD}")
     assert report.findings == [
         Finding("base-image-behind", "python:3.14-slim", report.findings[0].remedy, location="Dockerfile.prod", installed=_OLD, latest=moved)
     ] * 2

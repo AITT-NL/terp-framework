@@ -5,16 +5,18 @@ then read once, for the three things a person acting on it needs: what it is (su
 aliases), how bad its source says it is (``database_specific.severity``, relayed as data and
 never branched on), and which version fixes it.
 
-The fixed version is read from the advisory's own ranges for the package: the first
-``fixed`` event above the installed version. It is a best effort over release numbers, the
-order both PyPI and npm number their releases in; an advisory with no fixed release says so
-in the remedy rather than inventing one.
+The version that fixes a package is read from the advisories' own ranges for it: of every
+``fixed`` event above the installed version, the lowest one that no matched advisory still
+covers, so a fix on one release line is never offered while another advisory still holds
+there. The ranges are compared over release numbers, the order both PyPI and npm number
+their releases in. An advisory with no fixed release is named in the remedy rather than
+given an invented one.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
 from terp.cli.maintenance._packages import Package
@@ -23,27 +25,40 @@ from terp.cli.release import _osv
 from terp.cli.release._common import ReleaseError
 from terp.cli.release._locks import normalise
 
+#: Where a suffix puts a version: a development release below every pre-release, a
+#: pre-release below the release, a post-release above it (PEP 440; semver has no dev or post).
+_DEV, _PRE, _FINAL, _POST = range(4)
+_PRE_NAMES = {"alpha": "a", "beta": "b", "c": "rc", "pre": "rc", "preview": "rc"}
 
-def version_key(version: str) -> tuple[tuple[int, ...], int, tuple[tuple[int, int | str], ...]]:
-    """A sort key for a PyPI or npm release number: the release, then any pre-release below it.
+Key = tuple[tuple[int, ...], int, tuple[tuple[int, int | str], ...]]
 
-    ``1.2.0`` > ``1.2.0rc1`` > ``1.2.0-beta.1`` > ``1.1.9``; ``1.10`` > ``1.9``. Epochs, local
-    versions and build metadata are not compared: an advisory's ranges do not use them.
+
+def version_key(version: str) -> Key:
+    """A sort key for a PyPI or npm release number.
+
+    ``1.0.dev1`` < ``1.0a1`` < ``1.0b2`` < ``1.0rc1`` < ``1.0`` < ``1.0.post1``; ``1.0.0-beta.1``
+    < ``1.0.0-rc.1`` < ``1.0.0``; ``1.10`` > ``1.9``; ``1.2`` == ``1.2.0``. Epochs, local versions
+    and build metadata are not compared: an advisory's ranges do not use them. A suffix of
+    numbers alone (``1.0.0-1``) is a pre-release, as semver reads it.
     """
     text = version.strip().lower().lstrip("v").split("+", 1)[0]
     match = re.match(r"(\d+(?:\.\d+)*)(.*)", text)
     if match is None:
-        return (), 0, ((1, text),)
+        return (), _PRE, ((1, text),)
     release = tuple(int(part) for part in match.group(1).split("."))
     while len(release) > 1 and release[-1] == 0:
         release = release[:-1]
-    rest = match.group(2).lstrip(".-_")
-    if not rest or rest.startswith("post"):
-        return release, 1, ()
+    tokens = re.findall(r"[a-z]+|\d+", match.group(2))
+    if not tokens:
+        return release, _FINAL, ()
+    phase = {"dev": _DEV, "post": _POST, "rev": _POST, "r": _POST}.get(tokens[0], _PRE)
     # A number and a word never meet in one comparison: each part says which it is first, and
     # a number sorts below a word, as semver orders pre-release identifiers.
-    parts = tuple((0, int(part)) if part.isdigit() else (1, part) for part in re.findall(r"[a-z]+|\d+", rest))
-    return release, 0, parts
+    parts = tuple(
+        (0, int(token)) if token.isdigit() else (1, _PRE_NAMES.get(token, token))
+        for token in (tokens[1:] if phase != _PRE else tokens)
+    )
+    return release, phase, parts
 
 
 def _same_package(entry: Mapping[str, Any], package: Package) -> bool:
@@ -54,19 +69,54 @@ def _same_package(entry: Mapping[str, Any], package: Package) -> bool:
     return normalise(name) == normalise(package.name) if package.ecosystem == "PyPI" else name == package.name
 
 
-def fixed_version(advisory: Mapping[str, Any], package: Package) -> str | None:
-    """The lowest version above *package*'s that the advisory says fixes it, or ``None``."""
+def _ranges(advisory: Mapping[str, Any], package: Package) -> Iterator[tuple[list[str], list[dict[str, Any]]]]:
+    """``(versions listed, events of one range)`` for each range the advisory gives *package*."""
+    for entry in advisory.get("affected") or []:
+        if not isinstance(entry, dict) or not _same_package(entry, package):
+            continue
+        listed = [str(version) for version in entry.get("versions") or []]
+        ranges = [r for r in entry.get("ranges") or [] if isinstance(r, dict) and r.get("type") in ("ECOSYSTEM", "SEMVER")]
+        if not ranges:
+            yield listed, []
+        for found in ranges:
+            yield listed, [event for event in found.get("events") or [] if isinstance(event, dict)]
+
+
+def _covers(events: list[dict[str, Any]], version: str) -> bool:
+    """Whether one range's events cover *version*: OSV's own reading, in version order."""
+    key = version_key(version)
+
+    def at(event: dict[str, Any]) -> Key:
+        value = str(next(iter(event.values())))
+        return ((-1,), _DEV, ()) if value == "0" else version_key(value)
+
+    covered = False
+    for event in sorted(events, key=at):
+        if "introduced" in event and at(event) <= key:
+            covered = True
+        elif "fixed" in event and at(event) <= key:
+            covered = False
+        elif "last_affected" in event and at(event) < key:
+            covered = False
+    return covered
+
+
+def affects(advisory: Mapping[str, Any], package: Package, version: str) -> bool:
+    """Whether *advisory* says *package* at *version* is affected."""
+    return any(
+        version in listed or _covers(events, version) for listed, events in _ranges(advisory, package)
+    )
+
+
+def fixes(advisory: Mapping[str, Any], package: Package) -> list[str]:
+    """Every ``fixed`` event the advisory gives *package* above its installed version."""
     installed = version_key(package.version)
-    fixes = [
+    return [
         str(event["fixed"])
-        for entry in advisory.get("affected") or []
-        if isinstance(entry, dict) and _same_package(entry, package)
-        for found in entry.get("ranges") or []
-        if isinstance(found, dict) and found.get("type") in ("ECOSYSTEM", "SEMVER")
-        for event in found.get("events") or []
-        if isinstance(event, dict) and "fixed" in event and version_key(str(event["fixed"])) > installed
+        for _listed, events in _ranges(advisory, package)
+        for event in events
+        if "fixed" in event and version_key(str(event["fixed"])) > installed
     ]
-    return min(fixes, key=version_key) if fixes else None
 
 
 def _severity(advisory: Mapping[str, Any]) -> str | None:
@@ -74,31 +124,73 @@ def _severity(advisory: Mapping[str, Any]) -> str | None:
     return str(found) if isinstance(found, str) and found else None
 
 
-def _remedy(package: Package, fixed_in: str | None, unfixed: list[str]) -> str:
-    workspace = package.location.rsplit("/", 1)[0] if "/" in package.location else "."
+def _command(package: Package, fixed_in: str) -> str:
     if package.ecosystem == "PyPI":
         command = f"uv lock --upgrade-package {package.name}"
-    elif package.direct is False:
-        # Installing it by name would make a package the app never chose one of its own
-        # dependencies; updating it keeps it where it is, within its dependents' ranges.
-        command = (
-            f"npm --prefix {workspace} update {package.name} (it comes in through another package: "
-            f"if that one's range keeps it below {fixed_in or 'a fix'}, update that package, or add "
-            f"an `overrides` entry for {package.name})"
-        )
+    elif package.location.startswith("image "):
+        # A bundle records the image, not the workspace it was built from.
+        command = f"in the npm workspace {package.location} is built from, npm install {package.name}@{fixed_in}"
     else:
-        command = f"npm --prefix {workspace} install {package.name}@{fixed_in or 'latest'}"
+        workspace = package.location.rsplit("/", 1)[0] if "/" in package.location else "."
+        command = f"npm --prefix {workspace} install {package.name}@{fixed_in}"
+        if package.direct is False:
+            # Installing it by name would make a package the app never chose one of its own
+            # dependencies; updating it keeps it where it is, within its dependents' ranges.
+            command = (
+                f"npm --prefix {workspace} update {package.name} (it comes in through another package: "
+                f"if that one's range keeps it below {fixed_in}, update that package, or add an "
+                f"`overrides` entry for {package.name})"
+            )
     if package.location.startswith("image "):
         command += ", then cut a new release"
-    if fixed_in is None:
-        return (
+    return command
+
+
+def _remedy(package: Package, fixed_in: str | None, fixable: list[str], unfixed: list[str]) -> str:
+    sentences = []
+    if fixed_in is not None:
+        sentences.append(f"Move {package.name} to {fixed_in} or later: {_command(package, fixed_in)}.")
+    elif fixable:
+        sentences.append(
+            f"No one release of {package.name} clears {', '.join(fixable)}: each is fixed on another "
+            "release line. Read the advisories' fixed versions and choose the line to move to."
+        )
+    if unfixed:
+        sentences.append(
             f"No release of {package.name} fixes {', '.join(unfixed)} yet. Read the advisory for a "
             "workaround, or replace the package; check again when a fix is published."
         )
-    sentence = f"Move {package.name} to {fixed_in} or later: {command}."
-    if unfixed:
-        sentence += f" {', '.join(unfixed)} {'has' if len(unfixed) == 1 else 'have'} no fixed release yet."
-    return sentence
+    return " ".join(sentences)
+
+
+def _finding(
+    package: Package, groups: list[list[str]], records: Mapping[str, Mapping[str, Any]], known: frozenset[str] | None
+) -> Finding:
+    """One package's finding: its flaws, and the lowest version that clears every fixable one."""
+    fixable = [group for group in groups if any(fixes(records[member], package) for member in group)]
+    unfixed = [group[0] for group in groups if group not in fixable]
+    candidates = sorted(
+        {fix for group in fixable for member in group for fix in fixes(records[member], package)}, key=version_key
+    )
+    fixed_in = next(
+        (
+            candidate
+            for candidate in candidates
+            if not any(affects(records[member], package, candidate) for group in fixable for member in group)
+        ),
+        None,
+    )
+    return Finding(
+        "known-vulnerability",
+        package.name,
+        _remedy(package, fixed_in, [group[0] for group in fixable], unfixed),
+        ecosystem=package.ecosystem,
+        location=package.location,
+        installed=package.version,
+        fixed_in=fixed_in,
+        advisories=tuple(_advisory(group, records) for group in groups),
+        new_since_release=None if known is None else any(not set(group) & known for group in groups),
+    )
 
 
 def vulnerability_findings(
@@ -137,25 +229,9 @@ def vulnerability_findings(
     for package in wanted:
         ids = [found for found in matched.get(package.purl, []) if not records[found].get("withdrawn")]
         groups = _grouped(ids, records)
-        if not groups:
-            continue
-        fixes = {group[0]: _group_fix(group, records, package) for group in groups}
-        fixed = [version for version in fixes.values() if version is not None]
-        newest_fix = max(fixed, key=version_key) if fixed else None
-        known = recorded.get(package.purl, frozenset()) if recorded is not None else frozenset()
-        report.findings.append(
-            Finding(
-                "known-vulnerability",
-                package.name,
-                _remedy(package, newest_fix, [found for found, version in fixes.items() if version is None]),
-                ecosystem=package.ecosystem,
-                location=package.location,
-                installed=package.version,
-                fixed_in=newest_fix,
-                advisories=tuple(_advisory(group, records) for group in groups),
-                new_since_release=None if recorded is None else any(not set(group) & known for group in groups),
-            )
-        )
+        if groups:
+            known = recorded.get(package.purl, frozenset()) if recorded is not None else None
+            report.findings.append(_finding(package, groups, records, known))
 
 
 def _grouped(ids: list[str], records: Mapping[str, Mapping[str, Any]]) -> list[list[str]]:
@@ -189,11 +265,6 @@ def _grouped(ids: list[str], records: Mapping[str, Mapping[str, Any]]) -> list[l
     )
 
 
-def _group_fix(group: list[str], records: Mapping[str, Mapping[str, Any]], package: Package) -> str | None:
-    found = [version for member in group if (version := fixed_version(records[member], package)) is not None]
-    return max(found, key=version_key) if found else None
-
-
 def _advisory(group: list[str], records: Mapping[str, Mapping[str, Any]]) -> Advisory:
     lead = records[group[0]]
     aliases = {str(alias) for member in group for alias in records[member].get("aliases") or []} | set(group)
@@ -201,4 +272,4 @@ def _advisory(group: list[str], records: Mapping[str, Mapping[str, Any]]) -> Adv
     return Advisory(group[0], tuple(sorted(aliases - {group[0]})), summary, _severity(lead))
 
 
-__all__ = ["fixed_version", "version_key", "vulnerability_findings"]
+__all__ = ["affects", "fixes", "version_key", "vulnerability_findings"]

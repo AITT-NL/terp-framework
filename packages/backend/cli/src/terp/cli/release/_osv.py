@@ -59,6 +59,27 @@ def _answer(send: Callable[[], Any]) -> dict[str, Any]:
     return loaded
 
 
+def _ids(purl: str, result: Any) -> set[str]:
+    """The advisory ids one result names, refused when the result is not one OSV writes.
+
+    ``{}`` (or ``null``) is a package with no advisory; anything else must be an object whose
+    ``vulns`` is a list of objects each with a string ``id``. A result in another shape is not
+    read as clean: a database that answered in words nobody can read has not said "none".
+    """
+    if result is None:
+        return set()
+    vulns = result.get("vulns", []) if isinstance(result, dict) else None
+    readable = (
+        isinstance(result, dict)
+        and isinstance(vulns, list)
+        and all(isinstance(vuln, dict) and isinstance(vuln.get("id"), str) and vuln["id"] for vuln in vulns)
+        and isinstance(result.get("next_page_token", ""), str)
+    )
+    if not readable:
+        raise ReleaseError(f"the vulnerability database answered {purl} in a shape it does not write")
+    return {vuln["id"] for vuln in vulns}
+
+
 def query_batch(osv: str, purls: list[str], *, client_for: ClientFor | None = None) -> dict[str, list[str]]:
     """The advisory ids OSV answers for each package URL in *purls*; a clean one is left out.
 
@@ -83,11 +104,10 @@ def query_batch(osv: str, purls: list[str], *, client_for: ClientFor | None = No
         if not isinstance(results, list) or len(results) != len(chunk):
             raise ReleaseError("the vulnerability database answered for other packages than asked")
         for (purl, _token, pages), result in zip(chunk, results, strict=True):
-            result = result if isinstance(result, dict) else {}
-            ids = {str(vuln["id"]) for vuln in result.get("vulns") or [] if isinstance(vuln, dict) and "id" in vuln}
+            ids = _ids(purl, result)
             if ids:
                 found.setdefault(purl, set()).update(ids)
-            if result.get("next_page_token"):
+            if isinstance(result, dict) and result.get("next_page_token"):
                 if pages + 1 >= _PAGES:
                     raise ReleaseError(f"the vulnerability database kept answering {purl} with another page")
                 pending.append((purl, str(result["next_page_token"]), pages + 1))

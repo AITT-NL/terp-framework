@@ -99,6 +99,11 @@ def _build_report(args: argparse.Namespace) -> Any:
         tree = pathlib.Path(args.tree).resolve()
         if not tree.is_dir():
             raise ReleaseError(f"--tree {args.tree} is not a directory")
+        if not _packages.locks_at(tree):
+            raise ReleaseError(
+                f"--tree {args.tree} holds no uv.lock and no npm lock beside its package.json, "
+                "so there is nothing to report on (name the checkout's root)"
+            )
         report = _report.Report("tree", str(tree))
         _vulnerabilities.vulnerability_findings(report, _packages.tree_packages(tree), args.osv)
         return report
@@ -110,6 +115,11 @@ def _build_report(args: argparse.Namespace) -> Any:
     if platform is not None:
         _platform.template(root, report, platform)
     _platform.npm_platform(root, report)
+    if not _packages.locks_at(root):
+        report.not_checked.append(
+            "known-vulnerability: the app holds no uv.lock and no npm lock beside its package.json, "
+            "so no package was asked about (`uv lock` writes one)"
+        )
     _vulnerabilities.vulnerability_findings(report, _packages.tree_packages(root), args.osv)
     _images.base_image_findings(root, report)
     return report

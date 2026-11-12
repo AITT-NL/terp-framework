@@ -4,7 +4,9 @@ One document, ``terp_maintenance: 1``. Every finding carries every key, so a rea
 has to tell a missing key from an unknown value: unknown is ``null``, and no advisories is
 ``[]``. A source that could not be asked is recorded twice on purpose, as an unreachable
 source and as a ``source-unavailable`` finding, because a report that only listed what it
-found would read the same whether a package was clean or the database never answered.
+found would read the same whether a package was clean or the database never answered. A
+check that could not be made for any other reason is named in ``not_checked``: a report is
+clean only when both lists are empty.
 """
 
 from __future__ import annotations
@@ -116,6 +118,9 @@ class Report:
     release: str | None = None
     sources: list[Source] = field(default_factory=list)
     findings: list[Finding] = field(default_factory=list)
+    #: Each check that could not be made for a reason other than an unreachable source, in a
+    #: sentence: no lock to read, a scaffolding ref that is not a release, a base with no tag.
+    not_checked: list[str] = field(default_factory=list)
     checked_at: str = field(default_factory=_now)
     terp_cli: str | None = field(default_factory=_terp_cli)
 
@@ -135,6 +140,7 @@ class Report:
             "terp_cli": self.terp_cli,
             "target": {"kind": self.kind, "path": self.path, "release": self.release},
             "sources": [source.as_dict() for source in sorted(self.sources, key=lambda s: SOURCES.index(s.name))],
+            "not_checked": list(self.not_checked),
             "findings": [finding.as_dict() for finding in sorted(self.findings, key=Finding.sort_key)],
         }
 
@@ -151,12 +157,18 @@ class Report:
                 "Asked: " + ", ".join(f"{s.name}{'' if s.reachable else ' (NOT reachable)'}" for s in asked)
             )
         findings = sorted(self.findings, key=Finding.sort_key)
-        if not findings:
-            lines += ["", "Nothing to maintain: every source answered and none reported anything."]
-        else:
+        if findings:
             lines += ["", f"{len(findings)} finding{'s' if len(findings) != 1 else ''}:"]
             for finding in findings:
                 lines += ["", f"  {finding.kind}: {_headline(finding)}", f"    {finding.remedy}"]
+        elif self.not_checked:
+            lines += ["", "Nothing found by the checks that ran. Not every check could run:"]
+        else:
+            lines += ["", "Nothing to maintain: every check ran and found nothing."]
+        if self.not_checked:
+            if findings:
+                lines += ["", "Not checked:"]
+            lines += [f"  - {item}" for item in self.not_checked]
         lines += ["", "A report, not a gate: it changes nothing and exits 0 whatever it finds."]
         return "\n".join(lines)
 

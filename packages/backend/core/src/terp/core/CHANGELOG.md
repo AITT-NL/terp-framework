@@ -32,12 +32,17 @@ decision, 0001 onwards.
   - `source-unavailable`: a source that could not be asked. A report never reads as clean
     because a database did not answer.
 
-  It exits 0 whatever it finds and 2 only when it could not report. `--format json` prints the
-  `terp_maintenance: 1` document, in which every finding carries every key. `--tree DIR`
+  A check that could not be made for another reason (no lock, a scaffolding ref that is not a
+  release tag, a pinned `FROM` with no tag line) is named in `not_checked`, so a report is
+  clean only when it lists neither. It exits 0 whatever it finds and 2 only when it could not
+  report. `--format json` prints the `terp_maintenance: 1` document, in which every finding
+  carries every key. `--tree DIR`
   reports another checkout's locks (the commit a release was built from); `--release DIR`
   re-asks a signed bundle's SBOMs, after checking each SBOM's digest against the manifest, and
   says which advisories are new since it was signed. Only registry packages are sent to the
-  database, never one from a path, a git repository or a URL. `terp guide maintenance` covers
+  database, never one from a path, a git repository or a URL that is no registry's; a
+  private index's packages are, by name (`--osv` names a mirror for an app whose names must
+  stay inside). `terp guide maintenance` covers
   scheduling and what each finding asks.
 
 ### Changed
@@ -45,7 +50,8 @@ decision, 0001 onwards.
 - **`sign` and `terp maintenance` ask OSV through one client** (`terp.cli.release._osv`), behind
   `terp-cap-egress` as before. A package with more advisories than one answer holds is now
   asked again with its continuation token. Until now `sign` recorded only the first page of
-  such a list.
+  such a list. An answer in a shape OSV does not write is refused by name, as `sign`'s
+  sandbox refused it before by crashing.
 - **A generated app's development group carries `terp-cap-egress`**, the one way the
   vulnerability half asks the database. Without it, that half reports `source-unavailable` and
   names the fix.

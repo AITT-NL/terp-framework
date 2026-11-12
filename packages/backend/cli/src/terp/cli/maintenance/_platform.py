@@ -74,8 +74,20 @@ def python_platform(root: pathlib.Path, report: Report) -> str | None:
 def template(root: pathlib.Path, report: Report, platform: str) -> None:
     """The scaffolding's template ref against the platform the app runs."""
     ref = scaffold_ref(root)
-    match = re.fullmatch(r"v?(\d+(?:\.\d+)*)", ref or "")
-    if match is None or _version_key(match.group(1)) >= _version_key(platform):
+    if ref is None:
+        report.not_checked.append(
+            "template-behind: no .copier-answers.yml records the template this app was rendered "
+            "from, so there is no scaffolding to compare with the platform"
+        )
+        return
+    match = re.fullmatch(r"v?(\d+(?:\.\d+)*)", ref)
+    if match is None:
+        report.not_checked.append(
+            f"template-behind: the scaffolding was rendered from {ref}, which is not a release tag, "
+            "so how far behind it is cannot be read from the ref alone"
+        )
+        return
+    if _version_key(match.group(1)) >= _version_key(platform):
         return
     from terp.cli.version import _copier_update_blocker
 
