@@ -11,13 +11,22 @@ It runs wherever its caller schedules it: cron, any CI, or a workbench. Nothing 
 code host's API, and the vulnerability database is OSV, through the client ``terp release
 sign`` asks it with, so a report and a signed manifest cannot disagree about where they asked.
 
-Three targets:
+Four targets:
 
-* the app at ``--root`` (the default): everything above;
-* ``--tree DIR``: the locks of another checkout of the app, such as the commit a release was
-  built from, read by the environment at ``--root``; known vulnerabilities only;
-* ``--release DIR``: a signed release bundle, its SBOMs re-asked; known vulnerabilities only,
-  each saying whether it is new since the release was signed.
+* the app in the current directory (the default): everything above. The platform half reads
+  the environment the command runs in, so it runs in the app: ``uv run --frozen terp
+  maintenance``;
+* ``--commit SHA``: a commit of this repository, read the way ``terp release sign`` reads one
+  (every file of the commit through git, never the working tree) and planned the way a
+  release is; known vulnerabilities only. This is how a scheduler audits what an environment
+  runs: the commit its release was built from;
+* ``--tree DIR``: the locks of another checkout on disk; known vulnerabilities only;
+* ``--release DIR``: a signed release bundle, its SBOMs re-asked of the database ``sign``
+  recorded; known vulnerabilities only, each saying whether it is new since the release was
+  signed.
+
+By default only a package a public registry serves is sent to the database; the rest are named
+in ``not_checked``. ``--send-private-names``, or ``--osv`` naming a mirror, sends them too.
 """
 
 from __future__ import annotations
@@ -66,12 +75,17 @@ def add_parsers(subcommands: Any) -> None:
         default="text",
         help="text (for a person) or json (the terp_maintenance document a scheduler stores)",
     )
-    parser.add_argument("--root", default=".", help="The app (default: the current directory)")
     target = parser.add_mutually_exclusive_group()
+    target.add_argument(
+        "--commit",
+        metavar="SHA",
+        help="Report the known vulnerabilities of a commit of this repository instead, read as a "
+        "release reads it (what an environment runs: the commit its release was built from)",
+    )
     target.add_argument(
         "--tree",
         metavar="DIR",
-        help="Report the known vulnerabilities in the locks of another checkout of the app instead",
+        help="Report the known vulnerabilities in the locks of another checkout instead",
     )
     target.add_argument(
         "--release",
@@ -80,48 +94,85 @@ def add_parsers(subcommands: Any) -> None:
     )
     parser.add_argument(
         "--osv",
-        default=DEFAULT_OSV,
+        default=None,
         metavar="URL",
-        help=f"The vulnerability database's API (default: {DEFAULT_OSV}); a mirror answers the same API",
+        help=f"The vulnerability database's API (default: {DEFAULT_OSV}, or for --release the one sign "
+        "recorded); a mirror answers the same API and also receives the names of private packages",
+    )
+    parser.add_argument(
+        "--send-private-names",
+        action="store_true",
+        help="Also send the names of packages from an index that is not public to the default database",
     )
 
 
+def _audit(report: Any, root: pathlib.Path, osv: str, *, only_public: bool) -> None:
+    """The known-vulnerability half for the locks at *root*, and each manifest left unlocked."""
+    from terp.cli.maintenance import _packages, _vulnerabilities
+
+    found = _packages.inventory(root)
+    for sentence in found.unlocked:
+        report.not_made(sentence)
+    _vulnerabilities.vulnerability_findings(report, found.packages, osv, only_public=only_public)
+
+
+def _nothing_to_read(root: pathlib.Path, what: str) -> None:
+    from terp.cli.maintenance import _packages
+
+    if not _packages.inventory(root).anything:
+        raise ReleaseError(
+            f"{what} holds no lock and no manifest (uv.lock, pyproject.toml, a package.json), so "
+            "there is nothing to report on"
+        )
+
+
 def _build_report(args: argparse.Namespace) -> Any:
+    import tempfile
+
     from terp.cli.maintenance import _images, _packages, _platform, _report, _vulnerabilities
 
+    mirror = args.osv is not None and args.osv.rstrip("/") != DEFAULT_OSV
+    only_public = not (args.send_private_names or mirror)
     if args.release is not None:
         bundle_dir = pathlib.Path(args.release).resolve()
         bundle = _packages.bundle_packages(bundle_dir)
         report = _report.Report("release", str(bundle_dir), release=bundle.tag)
-        _vulnerabilities.vulnerability_findings(report, bundle.packages, args.osv, recorded=bundle.recorded)
+        # A release re-asks what sign asked, of the database it asked: nothing new leaves.
+        osv = args.osv or bundle.database or DEFAULT_OSV
+        _vulnerabilities.vulnerability_findings(
+            report, bundle.packages, osv, recorded=bundle.recorded, only_public=False
+        )
         return report
+    osv = args.osv or DEFAULT_OSV
     if args.tree is not None:
         tree = pathlib.Path(args.tree).resolve()
         if not tree.is_dir():
             raise ReleaseError(f"--tree {args.tree} is not a directory")
-        if not _packages.locks_at(tree):
-            raise ReleaseError(
-                f"--tree {args.tree} holds no uv.lock and no npm lock beside its package.json, "
-                "so there is nothing to report on (name the checkout's root)"
-            )
+        _nothing_to_read(tree, f"--tree {args.tree}")
         report = _report.Report("tree", str(tree))
-        _vulnerabilities.vulnerability_findings(report, _packages.tree_packages(tree), args.osv)
+        _audit(report, tree, osv, only_public=only_public)
         return report
-    root = pathlib.Path(args.root).resolve()
-    if not (root / "pyproject.toml").is_file():
-        raise ReleaseError(f"{root} holds no pyproject.toml, so it is no app to report on (pass --root)")
-    report = _report.Report("app", str(root))
-    platform = _platform.python_platform(root, report)
+    here = pathlib.Path.cwd()
+    if args.commit is not None:
+        from terp.cli.release._git import Tree
+
+        commit = Tree.read(here, args.commit)
+        with tempfile.TemporaryDirectory(prefix="terp-maintenance-") as scratch:
+            root = pathlib.Path(scratch) / "tree"
+            commit.materialize(root)
+            _nothing_to_read(root, f"the commit {args.commit}")
+            report = _report.Report("commit", str(here), commit=args.commit)
+            _audit(report, root, osv, only_public=only_public)
+        return report
+    if not (here / "pyproject.toml").is_file():
+        raise ReleaseError(f"{here} holds no pyproject.toml, so it is no app to report on: run it in the app")
+    report = _report.Report("app", str(here))
+    platform = _platform.python_platform(here, report)
     if platform is not None:
-        _platform.template(root, report, platform)
-    _platform.npm_platform(root, report)
-    if not _packages.locks_at(root):
-        report.not_checked.append(
-            "known-vulnerability: the app holds no uv.lock and no npm lock beside its package.json, "
-            "so no package was asked about (`uv lock` writes one)"
-        )
-    _vulnerabilities.vulnerability_findings(report, _packages.tree_packages(root), args.osv)
-    _images.base_image_findings(root, report)
+        _platform.template(here, report, platform)
+    _platform.npm_platform(here, report)
+    _audit(report, here, osv, only_public=only_public)
+    _images.base_image_findings(here, report)
     return report
 
 

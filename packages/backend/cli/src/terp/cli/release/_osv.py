@@ -62,12 +62,11 @@ def _answer(send: Callable[[], Any]) -> dict[str, Any]:
 def _ids(purl: str, result: Any) -> set[str]:
     """The advisory ids one result names, refused when the result is not one OSV writes.
 
-    ``{}`` (or ``null``) is a package with no advisory; anything else must be an object whose
-    ``vulns`` is a list of objects each with a string ``id``. A result in another shape is not
-    read as clean: a database that answered in words nobody can read has not said "none".
+    ``{}`` is a package with no advisory; anything else must be an object whose ``vulns`` is a
+    list of objects each with a non-empty string ``id``. A result in another shape, ``null``
+    included, is not read as clean: a database that answered in words nobody can read has not
+    said "none".
     """
-    if result is None:
-        return set()
     vulns = result.get("vulns", []) if isinstance(result, dict) else None
     readable = (
         isinstance(result, dict)

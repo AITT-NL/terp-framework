@@ -116,6 +116,8 @@ class Report:
     kind: str
     path: str
     release: str | None = None
+    #: The commit a ``commit`` target read.
+    commit: str | None = None
     sources: list[Source] = field(default_factory=list)
     findings: list[Finding] = field(default_factory=list)
     #: Each check that could not be made for a reason other than an unreachable source, in a
@@ -128,6 +130,11 @@ class Report:
         """*name* was asked and answered."""
         self.sources.append(Source(name, True))
 
+    def not_made(self, sentence: str) -> None:
+        """A check that could not be made, named once however often it is met."""
+        if sentence not in self.not_checked:
+            self.not_checked.append(sentence)
+
     def unreachable(self, name: str, detail: str, remedy: str) -> None:
         """*name* could not be asked: an unreachable source, and a finding that says so."""
         self.sources.append(Source(name, False, detail))
@@ -138,7 +145,7 @@ class Report:
             "terp_maintenance": VERSION,
             "checked_at": self.checked_at,
             "terp_cli": self.terp_cli,
-            "target": {"kind": self.kind, "path": self.path, "release": self.release},
+            "target": {"kind": self.kind, "path": self.path, "release": self.release, "commit": self.commit},
             "sources": [source.as_dict() for source in sorted(self.sources, key=lambda s: SOURCES.index(s.name))],
             "not_checked": list(self.not_checked),
             "findings": [finding.as_dict() for finding in sorted(self.findings, key=Finding.sort_key)],
@@ -149,7 +156,9 @@ class Report:
 
     def as_text(self) -> str:
         """The report for a person: one block per finding, the remedy under it."""
-        target = f"release {self.release}" if self.release else self.kind
+        target = (
+            f"release {self.release}" if self.release else f"commit {self.commit[:12]}" if self.commit else self.kind
+        )
         lines = [f"Maintenance report for {self.path} ({target}), {self.checked_at}"]
         if self.sources:
             asked = sorted(self.sources, key=lambda s: SOURCES.index(s.name))

@@ -60,18 +60,19 @@ def test_an_answer_that_cannot_be_trusted_is_refused(database: FakeOSV, expected
         _osv.query_batch(database.url, ["pkg:pypi/x@1"])
 
 
-def test_an_empty_or_null_result_is_a_package_with_no_advisory() -> None:
-    with serving(FakeOSV(body=b'{"results": [null, {}, {"vulns": []}]}')) as database:
-        assert _osv.query_batch(database.url, ["pkg:pypi/x@1", "pkg:pypi/y@1", "pkg:pypi/z@1"]) == {}
+def test_an_empty_result_is_a_package_with_no_advisory() -> None:
+    with serving(FakeOSV(body=b'{"results": [{}, {"vulns": []}]}')) as database:
+        assert _osv.query_batch(database.url, ["pkg:pypi/y@1", "pkg:pypi/z@1"]) == {}
 
 
 @pytest.mark.parametrize(
     "result",
-    ['"x"', '{"vulns": null}', '{"vulns": {}}', '{"vulns": [{"modified": "x"}]}', '{"vulns": [{"id": 7}]}',
-     '{"vulns": [{"id": ""}]}', '{"vulns": ["GHSA-1"]}', '{"vulns": [], "next_page_token": 3}'],
+    ["null", '"x"', "0", "[]", '{"vulns": null}', '{"vulns": {}}', '{"vulns": [{"modified": "x"}]}',
+     '{"vulns": [{"id": 7}]}', '{"vulns": [{"id": ""}]}', '{"vulns": ["GHSA-1"]}', '{"vulns": [], "next_page_token": 3}'],
 )
 def test_a_result_in_another_shape_is_refused_never_read_as_clean(result: str) -> None:
-    """``sign`` refused these before the client moved; neither caller may read one as "none"."""
+    """Before the client moved, ``sign`` read ``[]``, ``""``, ``0`` and ``{"vulns": {}}`` as a clean
+    package and recorded ``"7"`` and ``""`` as advisory ids. Neither caller may read one as "none"."""
     with serving(FakeOSV(body=b'{"results": [' + result.encode() + b"]}")) as database:
         with pytest.raises(ReleaseError, match="answered pkg:pypi/x@1 in a shape it does not write"):
             _osv.query_batch(database.url, ["pkg:pypi/x@1"])
@@ -84,10 +85,11 @@ def test_an_unreachable_database_is_a_refusal_never_a_clean_answer() -> None:
         _osv.query_batch(gone, ["pkg:pypi/x@1"])
 
 
-def test_a_host_outside_the_client_s_allowlist_is_never_reached() -> None:
-    """The client is made for the database's own host: plain HTTP to anything else is refused."""
-    with pytest.raises(ReleaseError, match="could not be asked"):
+def test_plain_http_to_anything_but_the_loopback_is_refused_for_its_scheme() -> None:
+    """Refused before any name is resolved: the reason is the scheme, not a lookup that failed."""
+    with pytest.raises(ReleaseError, match="could not be asked") as refused:
         _osv.query_batch("http://osv.example", ["pkg:pypi/x@1"])
+    assert "'reason': 'scheme'" in refused.value.cause
 
 
 def test_one_advisory_is_read_whole_and_must_be_the_one_asked_for() -> None:

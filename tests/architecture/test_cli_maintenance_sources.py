@@ -239,6 +239,8 @@ def test_no_terpjs_package_declared_means_npm_is_not_asked(tmp_path: pathlib.Pat
 # --- base images ----------------------------------------------------------------------------
 
 _OLD = "sha256:" + "1" * 64
+#: The generator's three Dockerfiles, as the plan of an app that builds them would name them.
+_THREE = (list(_images.DOCKERFILES), None)
 
 
 def _own_app(root: pathlib.Path, build: str = "own") -> pathlib.Path:
@@ -252,11 +254,13 @@ def _dockerfile(root: pathlib.Path, path: str, text: str) -> None:
     (root / path).write_text(text, encoding="utf-8")
 
 
-def test_a_base_is_compared_only_where_its_tag_stands_above_its_pinned_from(tmp_path: pathlib.Path) -> None:
+def test_a_base_is_compared_only_where_its_tag_stands_above_its_pinned_from_and_each_once(tmp_path: pathlib.Path) -> None:
     root = _own_app(tmp_path)
     _dockerfile(root, "Dockerfile.prod", f"""\
 # python:3.14-slim
 FROM python@{_OLD} AS deps
+# python:3.14-slim
+FROM python@{_OLD}
 # a sentence about the next line
 FROM python@{_OLD}
 # ghcr.io/astral-sh/uv:0.13.7
@@ -268,19 +272,64 @@ FROM python:3.14-slim
 FROM deps AS app
 """)
     _dockerfile(root, "frontend/Dockerfile.prod", f"# nginxinc/nginx-unprivileged:alpine\nfrom nginxinc/nginx-unprivileged@{_OLD}\n")
-    bases, untagged = _images.pinned_bases(root)
+    (root / "site").mkdir()
+    (root / "site/Dockerfile.prod").write_bytes(b"\xff not utf-8")
+    bases, untagged = _images.pinned_bases(root, [*_images.DOCKERFILES, "missing/Dockerfile"])
     assert bases == [
         ("Dockerfile.prod", "docker.io/library/python", _OLD, "3.14-slim"),
         ("Dockerfile.prod", "ghcr.io/astral-sh/uv", _OLD, "0.13.7"),
         ("frontend/Dockerfile.prod", "docker.io/nginxinc/nginx-unprivileged", _OLD, "alpine"),
-    ]
+    ], "a base pinned twice in one Dockerfile is one base"
     assert untagged == [
         f"base-image-behind: the FROM python@{_OLD} in Dockerfile.prod has no `# image:tag` line naming its own "
         "image above it, so there is no tag to compare its digest with",
-    ] * 2, "a FROM under a sentence, and one under another image's tag, are named, never compared"
+    ], "a FROM under a sentence, and one under another image's tag, are named once, never compared"
 
 
-def test_an_own_build_with_only_untagged_bases_names_them_and_asks_nothing(tmp_path: pathlib.Path) -> None:
+def test_the_dockerfiles_compared_are_the_release_plan_s(tmp_path: pathlib.Path) -> None:
+    """Under "build": "own" an image may build from any Dockerfile: the plan names it."""
+    from tests.architecture.test_release_build import _own_with_webs
+
+    files = _own_with_webs({"web": {"context": "www", "dockerfile": "Dockerfile"}}, {"www/Dockerfile": f"# node:26-slim\nFROM node@{_OLD}\n".encode()})
+    root = tmp_path / "app"
+    for path, data in files.items():
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_bytes(data)
+    dockerfiles, unplanned = _images._dockerfiles(root)
+    assert (dockerfiles, unplanned) == (["Dockerfile.prod", "www/Dockerfile"], None)
+    registry = FakeRegistry()
+    registry.repo_tags[("library/node", "26-slim")] = moved = registry.push_image([layer(("a", b"1"))])
+    kept = registry.push_image([layer(("b", b"2"))])
+    for repository, tag in (("library/python", "3.14-slim"), ("astral-sh/uv", "0.13.7")):
+        registry.repo_tags[(repository, tag)] = kept  # the generated Dockerfile.prod's own bases
+    report = Report("app", str(root))
+    _images.base_image_findings(root, report, getter=registry)
+    assert report.sources == [Source("registry", True)]
+    assert ("node:26-slim", "www/Dockerfile", moved) in {(f.subject, f.location, f.latest) for f in report.findings}
+
+
+def test_a_plan_that_cannot_be_read_compares_the_generator_s_three_and_says_so(tmp_path: pathlib.Path, monkeypatch) -> None:
+    from terp.cli.release import _plan
+
+    root = _own_app(tmp_path)
+    assert _images._dockerfiles(root) == (
+        list(_images.DOCKERFILES),
+        "base-image-behind: the release plan could not be read, so only the Dockerfiles at Dockerfile.prod, "
+        "frontend/Dockerfile.prod, site/Dockerfile.prod were compared",
+    )
+
+    def refuse(root: pathlib.Path, table: object) -> None:
+        raise ReleaseError("the profile names no build")
+
+    monkeypatch.setattr(_plan, "planned_images", refuse)
+    assert _images._dockerfiles(root)[1].startswith("base-image-behind: the release plan could not be read: the profile names no build,")
+    report = Report("app", str(root))
+    _images.base_image_findings(root, report, getter=lambda *a: pytest.fail("asked"))
+    assert report.not_checked[0].startswith("base-image-behind: the release plan could not be read")
+
+
+def test_an_own_build_with_only_untagged_bases_names_them_and_asks_nothing(tmp_path: pathlib.Path, monkeypatch) -> None:
+    monkeypatch.setattr(_images, "_dockerfiles", lambda root: _THREE)
     root = _own_app(tmp_path)
     _dockerfile(root, "Dockerfile.prod", f"FROM python@{_OLD}\n")
     report = Report("app", str(root))
@@ -288,7 +337,8 @@ def test_an_own_build_with_only_untagged_bases_names_them_and_asks_nothing(tmp_p
     assert report.sources == [] and len(report.not_checked) == 1
 
 
-def test_only_an_app_that_writes_its_own_build_files_has_its_bases_asked(tmp_path: pathlib.Path) -> None:
+def test_only_an_app_that_writes_its_own_build_files_has_its_bases_asked(tmp_path: pathlib.Path, monkeypatch) -> None:
+    monkeypatch.setattr(_images, "_dockerfiles", lambda root: _THREE)
     assert _images.own_build(_own_app(tmp_path / "own")) is True
     assert _images.own_build(_own_app(tmp_path / "generated", "generated")) is False
     assert _images.own_build(tmp_path / "undeclared") is False
@@ -298,24 +348,28 @@ def test_only_an_app_that_writes_its_own_build_files_has_its_bases_asked(tmp_pat
     report = Report("app", str(tmp_path))
     _images.base_image_findings(_own_app(tmp_path / "generated", "generated"), report, getter=lambda *a: pytest.fail("asked"))
     _images.base_image_findings(_own_app(tmp_path / "own"), report, getter=lambda *a: pytest.fail("asked"))
-    assert report.sources == [] and report.findings == []
+    assert report.sources == [] and report.findings == [] and report.not_checked == []
 
 
-def test_a_moved_tag_is_a_finding_and_a_current_one_is_not(tmp_path: pathlib.Path) -> None:
+def test_a_moved_tag_is_a_finding_and_a_current_one_is_not(tmp_path: pathlib.Path, monkeypatch) -> None:
+    monkeypatch.setattr(_images, "_dockerfiles", lambda root: _THREE)
     registry = FakeRegistry()
     moved = registry.push_image([layer(("a", b"1"))])
     kept = registry.push_image([layer(("b", b"2"))])
     registry.repo_tags[("library/python", "3.14-slim")] = moved
     registry.repo_tags[("astral-sh/uv", "0.13.7")] = kept
     root = _own_app(tmp_path)
-    _dockerfile(root, "Dockerfile.prod", f"# python:3.14-slim\nFROM python@{_OLD}\n# python:3.14-slim\nFROM python@{_OLD}\n# ghcr.io/astral-sh/uv:0.13.7\nFROM ghcr.io/astral-sh/uv@{kept}\nFROM node@{_OLD}\n")
+    _dockerfile(root, "Dockerfile.prod", f"# python:3.14-slim\nFROM python@{_OLD}\n# python:3.14-slim\nFROM python@{_OLD} AS runtime\n"
+                f"# ghcr.io/astral-sh/uv:0.13.7\nFROM ghcr.io/astral-sh/uv@{kept}\nFROM node@{_OLD}\n")
+    _dockerfile(root, "frontend/Dockerfile.prod", f"# python:3.14-slim\nFROM python@{_OLD}\n")
     report = Report("app", str(root))
     _images.base_image_findings(root, report, getter=registry)
     assert report.sources == [Source("registry", True)]
     assert len(report.not_checked) == 1 and report.not_checked[0].startswith(f"base-image-behind: the FROM node@{_OLD}")
-    assert report.findings == [
-        Finding("base-image-behind", "python:3.14-slim", report.findings[0].remedy, location="Dockerfile.prod", installed=_OLD, latest=moved)
-    ] * 2
+    assert [(f.subject, f.location, f.installed, f.latest) for f in report.findings] == [
+        ("python:3.14-slim", "Dockerfile.prod", _OLD, moved),
+        ("python:3.14-slim", "frontend/Dockerfile.prod", _OLD, moved),
+    ], "one finding per Dockerfile that pins it"
     assert report.findings[0].remedy.startswith(f"The tag python:3.14-slim names {moved} now.")
     asked = [url for url, _headers in registry.requests]
     assert asked == [
@@ -325,11 +379,13 @@ def test_a_moved_tag_is_a_finding_and_a_current_one_is_not(tmp_path: pathlib.Pat
 
 
 def test_a_registry_that_does_not_answer_is_a_finding(tmp_path: pathlib.Path, monkeypatch) -> None:
+    monkeypatch.setattr(_images, "_dockerfiles", lambda root: _THREE)
     root = _own_app(tmp_path)
     _dockerfile(root, "Dockerfile.prod", f"# python:3.14-slim\nFROM python@{_OLD}\n")
     report = Report("app", str(root))
     _images.base_image_findings(root, report, getter=FakeRegistry())
     assert report.sources[0].reachable is False and "has no manifest 3.14-slim" in str(report.sources[0].detail)
+
     def refuse(host: str, *, http: bool) -> None:
         raise ReleaseError("the registry could not be read at registry-1.docker.io", cause="refused")
 

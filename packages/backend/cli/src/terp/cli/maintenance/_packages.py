@@ -1,13 +1,17 @@
 """Which packages a target holds: from its locks, or from a signed release's SBOMs (ADR 0214).
 
 The locks are read as data, through the same parser the release jobs use
-(:mod:`terp.cli.release._locks`): no resolver runs and no index is asked. Only a package that
-came from a registry is listed: in ``uv.lock`` one with a ``registry`` source, in an npm lock
-one npm resolved to a registry tarball. One the lock takes from a path, a git repository or
-any other URL is the app's own or a private fork, and its name is not sent to a database;
-nor is the project itself. A package from a private index is a registry's, and is sent by
-name (``terp guide maintenance`` says so, and ``--osv`` names a mirror for an app whose
-private names must stay inside).
+(:mod:`terp.cli.release._locks`): no resolver runs and no index is asked. The npm locks are
+the ones the release plan builds a web image from (:func:`terp.cli.release._plan.web_npm_locks`),
+beside the generator's two. Only a package that came from a registry is listed: in
+``uv.lock`` one with a ``registry`` source, in an npm lock one npm resolved to a registry
+tarball (or left unresolved, for the registry it installs from). One the lock takes from a
+path, a git repository or any other URL is the app's own or a private fork and stays here;
+so does the project itself. Each package keeps the host it came from, so the caller can send
+only a public registry's names unless the person sending says otherwise.
+
+A manifest with no lock beside it is named: its packages cannot be read, and a report that
+said nothing about them would read as though they were clean.
 
 A signed release is read from its bundle (``terp release sign``): each image's SBOM, held to
 the digest the manifest records for it, and the advisories the manifest recorded per package
@@ -30,6 +34,9 @@ from terp.cli.release._locks import NPM_LOCKS, UV_LOCK, normalise, npm_manifest,
 #: The files of a signed release bundle this reads (``terp release sign``'s names).
 MANIFEST = "release.manifest.json"
 
+#: The public registries a package's name may be sent from without being asked: PyPI and npm's.
+PUBLIC_REGISTRIES = frozenset({"pypi.org", "registry.npmjs.org", "registry.yarnpkg.com"})
+
 
 @dataclass(frozen=True)
 class Package:
@@ -42,6 +49,9 @@ class Package:
     #: For an npm lock: whether the workspace's package.json names it (``False``: something it
     #: depends on brought it in). ``None`` where the question does not arise.
     direct: bool | None = None
+    #: The host of the registry the lock took it from; ``None`` where no lock says (an npm entry
+    #: left unresolved, or a signed release's SBOM).
+    registry: str | None = None
 
     @property
     def purl(self) -> str:
@@ -49,15 +59,27 @@ class Package:
             return f"pkg:npm/{self.name.replace('@', '%40', 1)}@{self.version}"
         return f"pkg:pypi/{normalise(self.name)}@{self.version}"
 
+    @property
+    def public(self) -> bool:
+        """Whether a public registry serves it, so its name is no secret of this app."""
+        return self.registry in PUBLIC_REGISTRIES
+
+
+def _host(url: object) -> str | None:
+    return urllib.parse.urlsplit(url).hostname if isinstance(url, str) else None
+
 
 def _uv_packages(lock: Mapping[str, Any]) -> list[Package]:
     found = set()
     for entry in lock["package"]:
         if not isinstance(entry, dict) or "name" not in entry or "version" not in entry:
             continue
-        if not isinstance(entry.get("source", {}).get("registry"), str):
+        source = entry.get("source")
+        if not isinstance(source, dict) or not isinstance(source.get("registry"), str):
             continue
-        found.add(Package("PyPI", normalise(str(entry["name"])), str(entry["version"]), UV_LOCK))
+        found.add(
+            Package("PyPI", normalise(str(entry["name"])), str(entry["version"]), UV_LOCK, registry=_host(source["registry"]))
+        )
     return sorted(found, key=lambda p: (p.name, p.version))
 
 
@@ -74,11 +96,13 @@ def _from_registry(entry: Mapping[str, Any]) -> bool:
 
 
 def _npm_packages(lock: Mapping[str, Any], path: str) -> list[Package]:
-    root = lock["packages"].get("") if isinstance(lock["packages"].get(""), dict) else {}
+    root = lock["packages"].get("")
+    root = root if isinstance(root, dict) else {}
     named = {
         str(name)
         for group in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
-        for name in (root.get(group) or {})
+        if isinstance(root.get(group), dict)
+        for name in root[group]
     }
     found = set()
     for key, entry in lock["packages"].items():
@@ -88,40 +112,70 @@ def _npm_packages(lock: Mapping[str, Any], path: str) -> list[Package]:
             continue
         name = str(entry.get("name") or key.rsplit("node_modules/", 1)[-1])
         direct = key == f"node_modules/{name}" and name in named
-        found.add(Package("npm", name, str(entry["version"]), path, direct))
+        found.add(Package("npm", name, str(entry["version"]), path, direct, _host(entry.get("resolved"))))
     return sorted(found, key=lambda p: (p.name, p.version))
 
 
-def npm_locks(root: pathlib.Path) -> list[str]:
-    """The npm locks the target holds that ``npm ci`` reads: each beside its ``package.json``.
-
-    The generator's two (``frontend/``, ``site/``) and every other lock the release plan builds
-    a web image from, the same set ``dependency-audit-npm`` audits.
-    """
+def _npm_candidates(root: pathlib.Path) -> list[str]:
+    """Every npm lock a release of *root* would install: the generator's two, and each lock the
+    release plan builds a web image from."""
     from terp.arch.deployment import published_table
     from terp.cli.release._plan import web_npm_locks
 
     planned = [lock for lock in web_npm_locks(root, published_table()) if lock not in NPM_LOCKS]
-    return [
-        lock
-        for lock in (*NPM_LOCKS, *planned)
-        if (root / npm_manifest(lock)).is_file() and (root / lock).is_file()
-    ]
+    return [*NPM_LOCKS, *planned]
 
 
-def locks_at(root: pathlib.Path) -> list[str]:
-    """The locks at *root* this reads: ``uv.lock``, and each npm lock beside its manifest."""
-    found = [UV_LOCK] if (root / UV_LOCK).is_file() else []
-    return found + npm_locks(root)
+def npm_locks(root: pathlib.Path) -> list[str]:
+    """The npm locks at *root* that ``npm ci`` reads: each beside its ``package.json``."""
+    return [lock for lock in _npm_candidates(root) if (root / npm_manifest(lock)).is_file() and (root / lock).is_file()]
 
 
-def tree_packages(root: pathlib.Path) -> list[Package]:
-    """Every registry package the locks at *root* hold: ``uv.lock`` and each npm lock."""
-    found: list[Package] = []
-    for lock in locks_at(root):
-        text = (root / lock).read_text(encoding="utf-8")
-        found += _uv_packages(read_uv_lock(text)) if lock == UV_LOCK else _npm_packages(read_npm_lock(text, lock), lock)
-    return found
+def _text(root: pathlib.Path, path: str) -> str:
+    try:
+        return (root / path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ReleaseError(f"{path} could not be read", cause=str(exc)) from exc
+
+
+@dataclass(frozen=True)
+class Inventory:
+    """What the locks at a root hold, and what they leave unread."""
+
+    packages: list[Package]
+    #: A ``not_checked`` sentence for each manifest whose lock is missing.
+    unlocked: list[str]
+    #: Whether the root holds any manifest or lock at all.
+    anything: bool
+
+
+def inventory(root: pathlib.Path) -> Inventory:
+    """Every registry package the locks at *root* hold, and each manifest whose lock is missing."""
+    packages: list[Package] = []
+    unlocked: list[str] = []
+    anything = False
+    if (root / UV_LOCK).is_file():
+        anything = True
+        packages += _uv_packages(read_uv_lock(_text(root, UV_LOCK)))
+    elif (root / "pyproject.toml").is_file():
+        anything = True
+        unlocked.append(
+            "known-vulnerability: pyproject.toml has no uv.lock beside it, so none of its packages "
+            "was asked about (`uv lock` writes one)"
+        )
+    for lock in _npm_candidates(root):
+        manifest = npm_manifest(lock)
+        if (root / lock).is_file() and (root / manifest).is_file():
+            anything = True
+            packages += _npm_packages(read_npm_lock(_text(root, lock), lock), lock)
+        elif (root / manifest).is_file():
+            anything = True
+            workspace = manifest.rsplit("/", 1)[0] if "/" in manifest else "."
+            unlocked.append(
+                f"known-vulnerability: {manifest} has no package-lock.json beside it, so none of its "
+                f"packages was asked about (`npm --prefix {workspace} install` writes one)"
+            )
+    return Inventory(packages, unlocked, anything)
 
 
 @dataclass(frozen=True)
@@ -132,6 +186,8 @@ class Bundle:
     packages: list[Package]
     #: The advisory ids the manifest recorded per package URL when the release was signed.
     recorded: dict[str, frozenset[str]]
+    #: The vulnerability database ``sign`` asked, as the manifest records it.
+    database: str | None
 
 
 def _from_purl(purl: str, location: str) -> Package | None:
@@ -142,49 +198,73 @@ def _from_purl(purl: str, location: str) -> Package | None:
     return Package("PyPI" if kind == "pypi" else "npm", urllib.parse.unquote(name), version, location)
 
 
-def _json(path: pathlib.Path) -> Any:
+def _json(data: bytes, what: str) -> Any:
     try:
-        return json.loads(path.read_bytes())
-    except (OSError, ValueError) as exc:
-        raise ReleaseError(f"{path.name} could not be read as JSON", cause=str(exc)) from exc
+        return json.loads(data)
+    except ValueError as exc:
+        raise ReleaseError(f"{what} could not be read as JSON", cause=str(exc)) from exc
+
+
+def _bytes(path: pathlib.Path, what: str) -> bytes:
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise ReleaseError(f"the bundle holds no readable {what}", cause=str(exc)) from exc
+
+
+def _recorded(image: Mapping[str, Any], name: str) -> dict[str, set[str]]:
+    found = image.get("vulnerabilities") or {}
+    if not isinstance(found, dict) or not all(
+        isinstance(purl, str) and isinstance(ids, list) and all(isinstance(i, str) for i in ids)
+        for purl, ids in found.items()
+    ):
+        raise ReleaseError(f"the manifest's vulnerabilities for the image {name} are not a list of ids per package")
+    return {purl: set(ids) for purl, ids in found.items()}
 
 
 def bundle_packages(bundle: pathlib.Path) -> Bundle:
     """The packages of every image a signed release bundle holds, each SBOM held to its digest.
 
-    Refused when the bundle is not one: no manifest, an image without its SBOM, or an SBOM
-    whose bytes are not the ones the manifest recorded. The signature is not checked here;
-    ``terp promote`` checks it before anything runs, and a report that read a forged bundle
-    would only report on the forgery.
+    Refused, by name, when the bundle is not one: no manifest, a manifest or an SBOM in another
+    shape, an image without its SBOM, or an SBOM whose bytes are not the ones the manifest
+    recorded. The signature is not checked here; ``terp promote`` checks it before anything
+    runs, and a report that read a forged bundle would only report on the forgery.
     """
-    manifest = _json(bundle / MANIFEST)
-    images = manifest.get("outputs", {}).get("images") if isinstance(manifest, dict) else None
+    manifest = _json(_bytes(bundle / MANIFEST, MANIFEST), MANIFEST)
+    outputs = manifest.get("outputs") if isinstance(manifest, dict) else None
+    images = outputs.get("images") if isinstance(outputs, dict) else None
     if not isinstance(images, dict) or not images:
         raise ReleaseError(f"{bundle / MANIFEST} records no images, so it is no release bundle")
     packages: set[Package] = set()
     recorded: dict[str, set[str]] = {}
     tags = set()
     for name, image in sorted(images.items()):
-        sbom_name = f"sbom-{name.replace('/', '_')}.cdx.json"
-        try:
-            data = (bundle / sbom_name).read_bytes()
-        except OSError as exc:
-            raise ReleaseError(f"the bundle holds no {sbom_name} for the image {name}") from exc
-        if hashlib.sha256(data.rstrip(b"\n")).hexdigest() != image.get("sbom"):
+        if not isinstance(image, dict) or not isinstance(image.get("sbom"), str):
+            raise ReleaseError(f"the manifest records no SBOM digest for the image {name}")
+        sbom_name = f"sbom-{str(name).replace('/', '_')}.cdx.json"
+        data = _bytes(bundle / sbom_name, f"{sbom_name} for the image {name}")
+        if hashlib.sha256(data.rstrip(b"\n")).hexdigest() != image["sbom"]:
             raise ReleaseError(f"{sbom_name} is not the SBOM the manifest recorded for {name}")
-        for component in json.loads(data).get("components", []):
-            found = _from_purl(str(component.get("purl", "")), f"image {name}")
+        document = _json(data, sbom_name)
+        components = document.get("components") if isinstance(document, dict) else None
+        if not isinstance(components, list):
+            raise ReleaseError(f"{sbom_name} lists no components")
+        for component in components:
+            purl = component.get("purl") if isinstance(component, dict) else None
+            found = _from_purl(purl, f"image {name}") if isinstance(purl, str) else None
             if found is not None:
                 packages.add(found)
-        for purl, ids in (image.get("vulnerabilities") or {}).items():
-            recorded.setdefault(purl, set()).update(str(found) for found in ids)
-        if image.get("tag"):
-            tags.add(str(image["tag"]))
+        for purl, ids in _recorded(image, name).items():
+            recorded.setdefault(purl, set()).update(ids)
+        if isinstance(image.get("tag"), str) and image["tag"]:
+            tags.add(image["tag"])
+    database = outputs.get("vulnerabilityDatabase")
     return Bundle(
         tag=", ".join(sorted(tags)) or None,
         packages=sorted(packages, key=lambda p: (p.ecosystem, p.name, p.version, p.location)),
         recorded={purl: frozenset(ids) for purl, ids in recorded.items()},
+        database=database if isinstance(database, str) and database else None,
     )
 
 
-__all__ = ["MANIFEST", "Bundle", "Package", "bundle_packages", "locks_at", "npm_locks", "tree_packages"]
+__all__ = ["MANIFEST", "PUBLIC_REGISTRIES", "Bundle", "Inventory", "Package", "bundle_packages", "inventory", "npm_locks"]

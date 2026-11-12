@@ -75,14 +75,14 @@ def template(root: pathlib.Path, report: Report, platform: str) -> None:
     """The scaffolding's template ref against the platform the app runs."""
     ref = scaffold_ref(root)
     if ref is None:
-        report.not_checked.append(
+        report.not_made(
             "template-behind: no .copier-answers.yml records the template this app was rendered "
             "from, so there is no scaffolding to compare with the platform"
         )
         return
     match = re.fullmatch(r"v?(\d+(?:\.\d+)*)", ref)
     if match is None:
-        report.not_checked.append(
+        report.not_made(
             f"template-behind: the scaffolding was rendered from {ref}, which is not a release tag, "
             "so how far behind it is cannot be read from the ref alone"
         )

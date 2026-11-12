@@ -1,7 +1,8 @@
 # 0214 — A maintenance report says what an app should maintain, and is no gate
 
 - **Status:** Proposed on 2026-11-12. The owner asked for it on 2026-11-12, as the framework
-  half of a design for maintenance signals that depend on no code host.
+  half of a design for maintenance signals that depend on no code host, and delegated the
+  open questions review raised (item 7's default among them) to its author the same day.
 - **Date:** 2026-11-12.
 - **Relates:** [ADR 0187](0187-in-the-generated-state-the-framework-renders-the-build-files.md)
   (`sign` scans each image's SBOM against OSV; a framework release moves the base digests),
@@ -47,14 +48,23 @@ yesterday for a reason no one in the change introduced (the reasoning of ADR 011
 
 ## What changes
 
-1. **The command.** `terp maintenance [--format text|json] [--root DIR] [--tree DIR |
-   --release DIR] [--osv URL]`, on three targets:
-   - **the app** at `--root`, the default: every check below;
-   - **`--tree DIR`**: the locks of another checkout of the app, such as the commit a
-     release was built from, read by the environment at `--root`. Known vulnerabilities only;
+1. **The command.** `terp maintenance [--format text|json] [--tree DIR | --commit SHA |
+   --release DIR] [--osv URL] [--send-private-names]`, on four targets:
+   - **the app in the current directory**, the default: every check below. The platform half
+     reads the environment the command runs in (the installed `terp-*` set, `uv pip list`), so
+     the command runs in the app, `uv run --frozen terp maintenance`; it takes no other root.
+     `--frozen` because a plain `uv run` re-locks a stale `uv.lock` before it runs anything,
+     which a scheduled check must never do;
+   - **`--commit SHA`**: a commit of the repository in the current directory, read the way
+     `terp release sign` reads one (every file of the commit through git plumbing, written to
+     a scratch directory of its own, never the working tree) and planned the way a release is.
+     Known vulnerabilities only. This is how a scheduler audits what an environment runs: the
+     commit its release was built from, with nothing staged in the checkout;
+   - **`--tree DIR`**: the same for another checkout on disk;
    - **`--release DIR`**: a signed bundle from `terp release sign`. Each image's SBOM is read,
-     after its SHA-256 is checked against the one the manifest records, and asked again.
-     Each finding says whether any of its advisories is new since the release was signed.
+     after its SHA-256 is checked against the one the manifest records, and asked again, of
+     the database the manifest says `sign` asked unless `--osv` names another. Each finding
+     says whether any of its advisories is new since the release was signed.
 2. **The findings.** Five kinds, in this order:
    - `platform-behind`: the newest `terp-*` from `uv pip list --outdated` (the answer
      `terp upgrade --check` gives) and the newest `@terpjs/*` from `npm view`, run in each
@@ -63,67 +73,89 @@ yesterday for a reason no one in the change introduced (the reasoning of ADR 011
      configuration.
    - `template-behind`: copier's `_commit` against the platform the app runs, the comparison
      `terp upgrade --check` already prints.
-   - `known-vulnerability`: one finding per package, version and lock (or image). It lists
-     one advisory per flaw: OSV answers one flaw under each database's id (a GHSA, a PYSEC),
-     and ids that alias each other or share an alias are one flaw. Each advisory carries its
-     summary, aliases and the severity its source gives (`database_specific.severity`). The
-     finding carries the lowest version above the installed one that fixes every advisory
-     that has a fix. That version is chosen among the advisories' own `fixed` events, by
-     reading each advisory's ranges for the package, so a fix on one release line is never
-     offered while another advisory still covers it. The finding also says which advisories
-     have no fix, or that no single release clears them all.
-   - `base-image-behind`: only under `"build": "own"`. A `FROM` pinned by digest with its
-     tag on the comment line above (`# python:3.14-slim`), the convention the template's
-     Dockerfiles already follow. The digest is compared with the one the tag names now, read
-     through the client `sign` reads registries with. Under `"generated"` a framework release
-     moves the bases (ADR 0187), and `platform-behind` already says when that is due.
+   - `known-vulnerability`: one finding per package, installed version and lock (or image).
+     The locks are `uv.lock` and every npm lock the release plan builds a web image from
+     (`terp.cli.release._plan.planned_images`), the set `dependency-audit-npm` reads. Each
+     finding lists one advisory per flaw: OSV answers one flaw under each database's id (a
+     GHSA, a PYSEC), and ids that alias each other or share an alias are one flaw. Each
+     advisory carries its summary, aliases and the severity its source gives
+     (`database_specific.severity`). The finding carries the lowest version above the
+     installed one that fixes every advisory that has a fix. That version is chosen among the
+     advisories' own `fixed` events by reading each advisory's ranges for the package as
+     OSV's schema evaluates them: events in version order whatever order they are listed in,
+     `last_affected`, `limit`, and the listed versions. A fix on one release line is never
+     offered while another advisory still covers it. Versions compare in their ecosystem's
+     order: PEP 440's for PyPI (as `packaging` keys it, development and post-releases
+     included), semver's for npm. The finding also says which advisories have no fix, or
+     that no single release clears them all.
+   - `base-image-behind`: only under `"build": "own"`. A `FROM` pinned by digest with its tag
+     on the comment line above (`# python:3.14-slim`), the convention the template's
+     Dockerfiles already follow, in every Dockerfile the release plan builds from. The digest
+     is compared with the one the tag names now, read through the client `sign` reads
+     registries with. Under `"generated"` a framework release moves the bases (ADR 0187), and
+     `platform-behind` already says when that is due.
    - `source-unavailable`: a source that could not be asked.
-3. **The document.** `--format json` prints `terp_maintenance: 1`: `checked_at`,
-   `terp_cli`, the `target`, `sources` (each with `reachable` and a `detail`), `not_checked`
-   and `findings`. Every finding carries every key (`kind`, `subject`, `ecosystem`, `location`,
-   `installed`, `latest`, `fixed_in`, `advisories`, `new_since_release`, `remedy`). An unknown
-   value is `null` and no advisory is `[]`, so a reader never has to tell a missing key from
-   an unknown value.
+3. **The document.** `--format json` prints `terp_maintenance: 1`: `checked_at`, `terp_cli`,
+   the `target` (`kind`, `path`, `release`, `commit`), `sources` (each with `reachable` and a
+   `detail`), `not_checked` and `findings`. Every finding carries every key (`kind`,
+   `subject`, `ecosystem`, `location`, `installed`, `latest`, `fixed_in`, `advisories`,
+   `new_since_release`, `remedy`). An unknown value is `null` and no advisory is `[]`, so a
+   reader never has to tell a missing key from an unknown value.
 4. **Silence is never green.** A source that could not be asked is recorded twice: as an
    unreachable source and as a `source-unavailable` finding. When the database does not
-   answer, no package is reported at all, because a partial answer would read as a whole
-   one. A check that could not be made for another reason is named in `not_checked`: no
-   lock to read, scaffolding rendered from a ref that is not a release tag (or no answers
-   file at all), or a pinned `FROM` with no tag line. A report is clean only when both
-   `findings` and `not_checked` are empty.
-5. **It is not a gate.** It exits 0 whatever it finds and 2 only when it could not report:
-   an argument that names no app, a `--tree` that holds no lock, a lock that cannot be
-   parsed, a bundle that is not one.
+   answer, or answers a batch and then not for one of its advisories, no package is reported
+   at all, because a partial answer would read as a whole one. A check that could not be made
+   for another reason is named in `not_checked`, once, starting with the kind it concerns:
+   - a manifest with no lock beside it (`pyproject.toml` without `uv.lock`, a web image's
+     `package.json` without `package-lock.json`);
+   - packages from an index that is not public, which were not sent (item 7);
+   - an environment without `terp-cap-egress`, where the database was not asked at all;
+   - scaffolding rendered from a ref that is not a release tag, or no answers file at all;
+   - a pinned `FROM` with no tag line, or a release plan that could not be read.
+
+   A report is clean only when both `findings` and `not_checked` are empty.
+5. **It is not a gate.** It exits 0 whatever it finds and 2 only when it could not report: no
+   app in the current directory, a `--tree` or `--commit` that holds neither a lock nor a
+   manifest, a SHA that is not an exact commit of the repository, a lock or a bundle that
+   cannot be read or is not in the shape its writer writes. Each refusal names its cause.
    A scheduler alerts on 2 and stores the document on 0.
 6. **One route to the vulnerability database.** The OSV client moves out of `sign`'s sandbox
    into `terp.cli.release._osv`, and both callers use it:
    - `/v1/querybatch` in batches of 500, then `/v1/vulns/<id>` once per advisory.
    - Requests go through `terp-cap-egress`, which allows only the database's host, HTTPS
-     only (plain HTTP to the loopback alone), with a timeout and a bounded read.
+     only (plain HTTP to the loopback alone), with a timeout and a bounded read. The declared
+     client itself moves to `terp.cli.release._common`, shared with the index fetch.
    - `--osv` names a mirror, as it already did for `sign`.
    - A package with more advisories than one answer holds is now asked again with its
      continuation token. Before this change `sign` dropped the rest of such a list.
    - An answer in a shape OSV does not write is refused by name, never read as "no
-     advisory": a result that is not an object, a `vulns` that is not a list, an entry
-     without a string `id`. `sign` refused these before as well, by crashing its sandbox.
-7. **What leaves the machine.** Only the name and version of each package a lock takes from
-   a registry: in `uv.lock` one with a `registry` source, in an npm lock one npm resolved to
-   a registry tarball (`<registry>/<name>/-/<file>.tgz`) or left unresolved for its default
-   registry. A package taken from a path, a git repository or any other URL is never sent,
-   and neither is the project itself. A package from a private index is a registry's and
-   is sent by name. Most private indexes mirror the public one, and leaving their packages
-   out would leave an app that installs through one with no report at all. An app whose
-   private package names must not leave its network points `--osv` at a mirror.
+     advisory": `null` or anything else that is not an object, a `vulns` that is not a list,
+     an entry without a non-empty string `id`. This closes a fail-open in `sign`: before, it
+     read a result of `[]`, `""`, `0` or `{"vulns": {}}` as a clean package and recorded
+     `"7"` or `""` as an advisory id, so a signed manifest could say "no vulnerability"
+     about an answer nobody could read.
+7. **What leaves the machine.** By default, only the name and version of each package a lock
+   takes from a public registry: PyPI (`pypi.org`), npm (`registry.npmjs.org`,
+   `registry.yarnpkg.com`). A package from any other index, or an npm entry the lock leaves
+   unresolved, may carry a name that is the app's own, and it is not sent: the report counts
+   those packages and names their hosts in `not_checked`. Two ways send them, each a
+   person's choice: `--osv` naming a mirror (it is theirs, and receives every name), or
+   `--send-private-names`. A package taken from a path, a git repository or any URL that is
+   no registry's tarball is never sent, and neither is the project itself. `--release` sends
+   exactly the package URLs `sign` sent, to the database it sent them to, so nothing leaves
+   that had not left already.
 8. **Severity is data.** Nothing in the framework branches on an advisory's severity; a
    person or a scheduler may sort by it.
 9. **The app's side.**
    - The template's development group gains `terp-cap-egress`, the one way the command asks
-     the database. Without it the vulnerability half reports `source-unavailable` and names
-     the fix.
+     the database. Without it nothing is asked, and `not_checked` names the `uv add` line
+     that adds it.
    - `terp guide maintenance` says what each finding asks and how to schedule the command.
    - The generated `AGENTS.md` names the command and lists the topic.
 10. **`terp upgrade` moves with it.** Its parser and dispatch leave the CLI's entry module
-    for `terp.cli.maintenance`; what it does is unchanged.
+    for `terp.cli.maintenance`; what it does is unchanged. The release plan gains
+    `planned_images`, which `web_npm_locks` now reads too, so the report reads the
+    Dockerfiles and the locks a release reads.
 
 ## What this does not do
 
@@ -142,14 +174,14 @@ yesterday for a reason no one in the change introduced (the reasoning of ADR 011
   inside the `terp-cli` wheel was considered and left for its own decision: copier's update
   is a three-way merge that needs the template at the version the app was rendered from as
   well as at the new one, and a wheel carries only one.
-- **There is no offline matcher.** `--osv` points at a mirror that answers OSV's API. OSV
-  also publishes each ecosystem's whole database as a zip, but reading one needs a
-  version-range matcher the framework does not have. That waits for an app that cannot
-  reach any mirror.
-- **The document's schema is not in terp-spec yet.** More than one program reads it, which
-  is the test for a contract that belongs in terp-spec. Until a contracts release carries
-  its JSON Schema, this ADR and `tests/architecture/test_cli_maintenance.py` define it, as
-  `terp verify`'s envelope is defined today.
+- **There is no offline database.** `--osv` points at a mirror that answers OSV's API. OSV
+  also publishes each ecosystem's whole database as a zip. The report already evaluates an
+  advisory's ranges, but reading a zip as a database (finding a package's advisories in it,
+  keeping it current) is not built. That waits for an app that cannot reach any mirror.
+- **The document's schema is not in terp-spec yet.** More than one program reads it (a
+  person, and the tool that manages the app), which is the test for a contract that belongs
+  in terp-spec. Its JSON Schema goes to terp-spec with the next contracts release. Until
+  then this ADR and the tests define it, as `terp verify`'s envelope is defined today.
 
 ## Alternatives considered
 
@@ -167,19 +199,27 @@ yesterday for a reason no one in the change introduced (the reasoning of ADR 011
 - **An HTTP client of PyPI and npm for "latest".** Rejected for the reasons `version.py`
   records: uv and npm already resolve against the app's own index, mirror, credentials and
   proxy.
+- **Sending every registry package by name.** Most private indexes mirror the public one,
+  so it would give an app behind one a full report without a flag. But a name on a private
+  index can be the app's own, or its client's, and secure by default means it stays unless a
+  person says otherwise. The report says what it held back and how to send it.
 
 ## Consequences
 
 - An app gets one command that a scheduler runs on any host, and a document whose shape is
   fixed by this ADR.
-- `sign` and the report ask OSV through one client, and `sign` no longer drops an
-  advisory list longer than one page.
+- `sign` and the report ask OSV through one client: `sign` no longer drops an advisory list
+  longer than one page, and no longer records an answer it cannot read as a clean package.
 - Every generated app installs `terp-cap-egress` in its development group.
 - Tests:
-  - `tests/architecture/test_cli_maintenance.py` covers the document, the packages a lock
-    and a bundle yield, the advisories and their grouping, the three targets, the exit codes
-    and a real process run end to end.
+  - `tests/architecture/test_cli_maintenance.py` covers the document, what a lock, a manifest
+    left unlocked and a bundle yield, the four targets (a commit read from a real repository,
+    never its working tree), the exit codes, what may leave, and a real process run.
+  - `test_cli_maintenance_advisories.py` covers the version orders (PEP 440's, checked against
+    `packaging`, and semver's), range evaluation, the fix offered, the grouping of aliases,
+    the partial answer refused, and the egress client missing.
   - `test_cli_maintenance_sources.py` covers the platform halves, with `npm` as a real
-    program on `PATH`, the scaffolding comparison and the base images.
+    program on `PATH`, the scaffolding comparison, and the base images, read from the
+    Dockerfiles a real declared app's release plan builds from.
   - `test_release_osv.py` covers the shared client against a real HTTP server on the
-    loopback, through the declared egress client.
+    loopback, through the declared egress client, and every malformed answer it refuses.

@@ -8,13 +8,14 @@ never branched on), and which version fixes it.
 The version that fixes a package is read from the advisories' own ranges for it: of every
 ``fixed`` event above the installed version, the lowest one that no matched advisory still
 covers, so a fix on one release line is never offered while another advisory still holds
-there. The ranges are compared over release numbers, the order both PyPI and npm number
-their releases in. An advisory with no fixed release is named in the remedy rather than
-given an invented one.
+there. Versions compare in their ecosystem's own order: PEP 440's for PyPI (as ``packaging``
+keys it), semver's for npm. An advisory with no fixed release is named in the remedy rather
+than given an invented one.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import re
 from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
@@ -25,44 +26,76 @@ from terp.cli.release import _osv
 from terp.cli.release._common import ReleaseError
 from terp.cli.release._locks import normalise
 
-#: Where a suffix puts a version: a development release below every pre-release, a
-#: pre-release below the release, a post-release above it (PEP 440; semver has no dev or post).
-_DEV, _PRE, _FINAL, _POST = range(4)
-_PRE_NAMES = {"alpha": "a", "beta": "b", "c": "rc", "pre": "rc", "preview": "rc"}
+#: An infinity of each sign for the comparison keys below, as tuples that compare with values.
+_HIGH, _LOW = (1,), (-1,)
 
-Key = tuple[tuple[int, ...], int, tuple[tuple[int, int | str], ...]]
+#: PEP 440's version pattern (the one ``packaging`` compiles), with the local part ignored.
+_PEP440 = re.compile(
+    r"v?(?:(?P<epoch>[0-9]+)!)?(?P<release>[0-9]+(?:\.[0-9]+)*)"
+    r"(?:[-_.]?(?P<pre_l>alpha|a|beta|b|preview|pre|c|rc)[-_.]?(?P<pre_n>[0-9]+)?)?"
+    r"(?:-(?P<post_n1>[0-9]+)|[-_.]?(?P<post_l>post|rev|r)[-_.]?(?P<post_n2>[0-9]+)?)?"
+    r"(?:[-_.]?(?P<dev_l>dev)[-_.]?(?P<dev_n>[0-9]+)?)?"
+    r"(?:\+[a-z0-9]+(?:[-_.][a-z0-9]+)*)?"
+)
+_PRE = {"a": "a", "alpha": "a", "b": "b", "beta": "b", "c": "rc", "rc": "rc", "pre": "rc", "preview": "rc"}
+_SEMVER = re.compile(r"v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?")
+
+Key = tuple[Any, ...]
 
 
-def version_key(version: str) -> Key:
-    """A sort key for a PyPI or npm release number.
-
-    ``1.0.dev1`` < ``1.0a1`` < ``1.0b2`` < ``1.0rc1`` < ``1.0`` < ``1.0.post1``; ``1.0.0-beta.1``
-    < ``1.0.0-rc.1`` < ``1.0.0``; ``1.10`` > ``1.9``; ``1.2`` == ``1.2.0``. Epochs, local versions
-    and build metadata are not compared: an advisory's ranges do not use them. A suffix of
-    numbers alone (``1.0.0-1``) is a pre-release, as semver reads it.
-    """
-    text = version.strip().lower().lstrip("v").split("+", 1)[0]
-    match = re.match(r"(\d+(?:\.\d+)*)(.*)", text)
-    if match is None:
-        return (), _PRE, ((1, text),)
-    release = tuple(int(part) for part in match.group(1).split("."))
+def _pep440(version: str) -> Key | None:
+    """PEP 440's order, as ``packaging`` keys it: epoch, release (trailing zeros dropped), then a
+    development release of a final below its pre-releases, pre < final < post, and a development
+    release below the release it leads to (``1.0a1.dev1`` < ``1.0a1``)."""
+    found = _PEP440.fullmatch(version.strip().lower())
+    if found is None:
+        return None
+    release = tuple(int(part) for part in found["release"].split("."))
     while len(release) > 1 and release[-1] == 0:
         release = release[:-1]
-    tokens = re.findall(r"[a-z]+|\d+", match.group(2))
-    if not tokens:
-        return release, _FINAL, ()
-    phase = {"dev": _DEV, "post": _POST, "rev": _POST, "r": _POST}.get(tokens[0], _PRE)
-    # A number and a word never meet in one comparison: each part says which it is first, and
-    # a number sorts below a word, as semver orders pre-release identifiers.
-    parts = tuple(
-        (0, int(token)) if token.isdigit() else (1, _PRE_NAMES.get(token, token))
-        for token in (tokens[1:] if phase != _PRE else tokens)
+    pre = (_PRE[found["pre_l"]], int(found["pre_n"] or 0)) if found["pre_l"] else None
+    post = int(found["post_n1"] or found["post_n2"] or 0) if (found["post_n1"] or found["post_l"]) else None
+    dev = int(found["dev_n"] or 0) if found["dev_l"] else None
+    if pre is None and post is None and dev is not None:
+        pre_key: tuple[Any, ...] = _LOW
+    else:
+        pre_key = _HIGH if pre is None else (0, *pre)
+    return (
+        int(found["epoch"] or 0),
+        release,
+        pre_key,
+        _LOW if post is None else (0, post),
+        _HIGH if dev is None else (0, dev),
     )
-    return release, phase, parts
+
+
+def _semver(version: str) -> Key | None:
+    """Semver's order: the core, then a release above its pre-releases, whose identifiers
+    compare one by one (numbers below words, numbers by value), the shorter list first."""
+    found = _SEMVER.fullmatch(version.strip())
+    if found is None:
+        return None
+    core = tuple(int(part or 0) for part in found.groups()[:3])
+    pre = found.group(4)
+    if pre is None:
+        return (core, _HIGH, ())
+    identifiers = tuple((0, int(part)) if part.isdigit() else (1, part) for part in pre.split("."))
+    return (core, _LOW, identifiers)
+
+
+def version_key(version: str, ecosystem: str = "PyPI") -> Key:
+    """A sort key for a release of *ecosystem*: PEP 440's order for PyPI, semver's for npm.
+
+    A version neither reads sorts below every one that does, by its text, so a malformed
+    version in an advisory can never be offered as the one that fixes a package.
+    """
+    key = _semver(version) if ecosystem == "npm" else _pep440(version)
+    return (1, key) if key is not None else (0, version)
 
 
 def _same_package(entry: Mapping[str, Any], package: Package) -> bool:
-    found = entry.get("package") or {}
+    found = entry.get("package")
+    found = found if isinstance(found, dict) else {}
     if str(found.get("ecosystem", "")).lower() != package.ecosystem.lower():
         return False
     name = str(found.get("name", ""))
@@ -82,16 +115,25 @@ def _ranges(advisory: Mapping[str, Any], package: Package) -> Iterator[tuple[lis
             yield listed, [event for event in found.get("events") or [] if isinstance(event, dict)]
 
 
-def _covers(events: list[dict[str, Any]], version: str) -> bool:
-    """Whether one range's events cover *version*: OSV's own reading, in version order."""
-    key = version_key(version)
+def _covers(events: list[dict[str, Any]], version: str, ecosystem: str) -> bool:
+    """Whether one range's events cover *version*, as OSV's schema evaluates them.
+
+    The events are read in version order, whatever order the advisory lists them in (the
+    schema recommends sorting and does not require it): ``introduced`` opens, ``fixed`` closes
+    at its version, ``last_affected`` closes after its version. A ``limit`` caps the whole range:
+    a version at or above every limit is not covered.
+    """
+    key = version_key(version, ecosystem)
 
     def at(event: dict[str, Any]) -> Key:
         value = str(next(iter(event.values())))
-        return ((-1,), _DEV, ()) if value == "0" else version_key(value)
+        return (-1, value) if value == "0" else version_key(value, ecosystem)
 
+    limits = [at(event) for event in events if "limit" in event]
+    if limits and not any(key < limit for limit in limits):
+        return False
     covered = False
-    for event in sorted(events, key=at):
+    for event in sorted((event for event in events if "limit" not in event and event), key=at):
         if "introduced" in event and at(event) <= key:
             covered = True
         elif "fixed" in event and at(event) <= key:
@@ -104,18 +146,18 @@ def _covers(events: list[dict[str, Any]], version: str) -> bool:
 def affects(advisory: Mapping[str, Any], package: Package, version: str) -> bool:
     """Whether *advisory* says *package* at *version* is affected."""
     return any(
-        version in listed or _covers(events, version) for listed, events in _ranges(advisory, package)
+        version in listed or _covers(events, version, package.ecosystem) for listed, events in _ranges(advisory, package)
     )
 
 
 def fixes(advisory: Mapping[str, Any], package: Package) -> list[str]:
     """Every ``fixed`` event the advisory gives *package* above its installed version."""
-    installed = version_key(package.version)
+    installed = version_key(package.version, package.ecosystem)
     return [
         str(event["fixed"])
         for _listed, events in _ranges(advisory, package)
         for event in events
-        if "fixed" in event and version_key(str(event["fixed"])) > installed
+        if "fixed" in event and version_key(str(event["fixed"]), package.ecosystem) > installed
     ]
 
 
@@ -170,7 +212,8 @@ def _finding(
     fixable = [group for group in groups if any(fixes(records[member], package) for member in group)]
     unfixed = [group[0] for group in groups if group not in fixable]
     candidates = sorted(
-        {fix for group in fixable for member in group for fix in fixes(records[member], package)}, key=version_key
+        {fix for group in fixable for member in group for fix in fixes(records[member], package)},
+        key=lambda version: version_key(version, package.ecosystem),
     )
     fixed_in = next(
         (
@@ -193,23 +236,62 @@ def _finding(
     )
 
 
+def _egress_missing() -> bool:
+    """Whether this environment lacks the one client the database is asked through."""
+    try:
+        return importlib.util.find_spec("terp.capabilities.egress") is None
+    except ModuleNotFoundError:
+        return True
+
+
+def _held_back(packages: list[Package]) -> str:
+    hosts = sorted({package.registry for package in packages if package.registry})
+    named = ", ".join(hosts) if hosts else "an index the lock does not name"
+    count = f"{len(packages)} package{'s' if len(packages) != 1 else ''}"
+    return (
+        f"known-vulnerability: {count} from an index that is not public ({named}) "
+        f"{'were' if len(packages) != 1 else 'was'} not sent to the vulnerability database, so "
+        "their names stay on this machine: point --osv at a mirror inside your network, or pass "
+        "--send-private-names if those names may leave it"
+    )
+
+
 def vulnerability_findings(
     report: Report,
     packages: Iterable[Package],
     osv: str,
     *,
     recorded: Mapping[str, frozenset[str]] | None = None,
+    only_public: bool = True,
     client_for: _osv.ClientFor | None = None,
 ) -> None:
     """Ask the database about *packages* and add a finding per vulnerable one to *report*.
 
-    *recorded* is a signed release's own list (purl -> advisory ids): a finding then says
-    whether any of its advisories is new since the release was signed. A database that
-    cannot be asked leaves an unreachable source and a ``source-unavailable`` finding, and no
-    finding about any package: a partial answer is not offered as a whole one.
+    With *only_public*, a package a public registry does not serve is not sent: its name may be
+    the app's own, and it is named in ``not_checked`` instead. *recorded* is a signed release's
+    own list (purl -> advisory ids): a finding then says whether any of its advisories is new
+    since the release was signed. A database that cannot be asked leaves an unreachable source
+    and a ``source-unavailable`` finding, and no finding about any package: a partial answer is
+    not offered as a whole one. An environment without the egress client says so as a check
+    it could not make, because nothing was asked, not because nothing answered.
     """
     wanted = sorted(set(packages), key=lambda p: (p.ecosystem, p.name, p.version, p.location))
+    if only_public:
+        private = [package for package in wanted if not package.public]
+        if private:
+            report.not_made(_held_back(private))
+        wanted = [package for package in wanted if package.public]
     if not wanted:
+        return
+    if client_for is None and _egress_missing():
+        from terp.cli.version import installed_terp_versions
+
+        pin = installed_terp_versions().get("terp-cli")
+        spec = f"terp-cap-egress=={pin}" if pin else "terp-cap-egress"
+        report.not_made(
+            "known-vulnerability: terp-cap-egress is not installed in this environment, so the "
+            f"vulnerability database was not asked: add it to the development group (`uv add --dev {spec}`)"
+        )
         return
     try:
         matched = _osv.query_batch(osv, sorted({package.purl for package in wanted}), client_for=client_for)
@@ -222,7 +304,7 @@ def vulnerability_findings(
             "osv",
             detail,
             f"Nothing was learned about any package. Check that {osv} is reachable from here "
-            "(or pass --osv with a mirror), and that terp-cap-egress is installed, then run it again.",
+            "(or pass --osv with a mirror), then run it again.",
         )
         return
     report.answered("osv")
