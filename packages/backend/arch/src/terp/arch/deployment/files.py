@@ -48,6 +48,50 @@ class ConstantError(StrictJSONError):
     allowed = "one JSON object, each number finite"
 
 
+#: How deep a declaration's objects and arrays may nest, the document itself being the first
+#: (terp-spec 0.47.0). The number, and the way of counting, an event of the conversation
+#: stream is held to.
+MAX_DEPTH = 64
+
+
+class DepthError(ValueError):
+    """Objects and arrays nested deeper than the contract allows.
+
+    What a parser does with such a file is where its own stack ends: an error in one
+    language, a crash in another, and a different answer in the next release of the same
+    one. So the depth is a number of the contract, counted before anything parses.
+    """
+
+    allowed = f"one JSON object, nested at most {MAX_DEPTH} deep"
+
+
+def depth(text: str) -> int:
+    """How deep *text* nests objects and arrays, counted in the text and never by parsing it.
+
+    The document itself is the first level. A bracket inside a string is no nesting, and a
+    quote behind a backslash does not end one. Text that is no JSON gets a count all the
+    same, and is the parser's to refuse.
+    """
+    deepest = level = 0
+    in_string = escaped = False
+    for character in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+        elif character == '"':
+            in_string = True
+        elif character in "{[":
+            level += 1
+            deepest = max(deepest, level)
+        elif character in "}]":
+            level -= 1
+    return deepest
+
+
 def _once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     found: dict[str, Any] = {}
     for key, value in pairs:
@@ -64,7 +108,12 @@ def _no_constant(name: str) -> Any:
 def loads(text: str) -> Any:
     """Parse ``deployment.json`` strictly, as terp-runner does, so no two readers can read
     one file differently: a key twice in one object is refused, never read as its last
-    value, and so are ``NaN`` and the infinities, which only a lenient parser reads."""
+    value, and so are ``NaN`` and the infinities, which only a lenient parser reads. A file
+    nested deeper than :data:`MAX_DEPTH` is refused before it is parsed, so the answer never
+    depends on where this interpreter's parser gives up."""
+    nested = depth(text)
+    if nested > MAX_DEPTH:
+        raise DepthError(f"its objects and arrays nest {nested} deep")
     return json.loads(text, object_pairs_hook=_once, parse_constant=_no_constant)
 
 
@@ -140,6 +189,8 @@ def load(
         raw = loads(path.read_text(encoding="utf-8"))
     except StrictJSONError as exc:
         return None, [Finding(f"{DEPLOYMENT_FILE} is not strict JSON: {exc} (allowed: {exc.allowed})")]
+    except DepthError as exc:
+        return None, [Finding(f"{DEPLOYMENT_FILE} is nested too deeply: {exc} (allowed: {exc.allowed})")]
     except (OSError, ValueError) as exc:
         return None, [
             Finding(f"{DEPLOYMENT_FILE} is not valid JSON ({exc}) (allowed: one JSON object)")

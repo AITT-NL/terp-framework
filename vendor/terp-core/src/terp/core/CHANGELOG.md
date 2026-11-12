@@ -61,6 +61,26 @@ decision, 0001 onwards.
 - `copier update` adds `terp-cap-egress` to the `dev` group of `pyproject.toml`; run `uv sync`.
   An app that does not re-render can add `"terp-cap-egress==0.43.0"` to that group by hand.
 
+## 0.42.1 — unreleased
+
+### Added
+
+- **A `deployment.json` nested deeper than 64 is refused whole, before it is parsed
+  (terp-spec 0.47.0).** What a parser does with a deeply nested file is where its own stack
+  ends: on one interpreter release the reader raised an error nothing caught, and on the
+  next it read the file. A refusal written for the first could not hold on the second, so
+  none was shipped. The depth is now a number of the contract. The reader counts
+  how deep the file's objects and arrays nest, in the text and before anything parses it,
+  the document itself being the first level. More than 64 is one finding at the file:
+  `deployment.json is nested too deeply: its objects and arrays nest 65 deep (allowed: one
+  JSON object, nested at most 64 deep)`, in the words every reader shares. A valid
+  declaration nests a handful deep, so no app that passed before is refused. `terp promote`
+  refuses a carried declaration nested that deep the same way.
+
+  The framework pins terp-spec 0.47.0 (`terp-spec` on PyPI, `@terpjs/spec` on npm), and its
+  corpus gains the case that release's fixtures name
+  (`deployment_declaration_is_readable`, violation-56).
+
 ## 0.42.0 — 2026-11-11
 
 ### Security

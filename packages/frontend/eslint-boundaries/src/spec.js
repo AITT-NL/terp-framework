@@ -20,7 +20,7 @@
  * of the toolchain build. Held equal to the pinned release by the framework gate
  * (test_check_json.py).
  */
-export const SPEC_VERSION = "0.46.0";
+export const SPEC_VERSION = "0.47.0";
 
 /** Every script extension the bundler loads as app source (see `appFiles`). */
 const SOURCE_EXTENSIONS = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
