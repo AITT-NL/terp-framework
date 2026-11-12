@@ -58,7 +58,7 @@ from terp.cli.module_roles import (
     module_role_list_command,
     module_role_revoke_command,
 )
-from terp.cli import guide_capability, guide_deployment, guide_passwords
+from terp.cli import guide_capability, guide_deployment, guide_maintenance, guide_passwords
 from terp.cli.grants import (
     grant_add_command,
     grant_list_command,
@@ -2775,6 +2775,7 @@ scoped app uses `terp env init` rather than `cp`; and a service that adds its ow
 not concatenate sequences), so both files have to be listed.
 """,
     "deployment": guide_deployment.TOPIC,
+    "maintenance": guide_maintenance.TOPIC,
 }
 
 # Topics whose body is generated from a live registry (not a static recipe above).
@@ -2916,6 +2917,7 @@ More:  terp guide <topic>   (topics: {_TOPIC_NAMES})
        terp guide theming           (palettes, design tokens, the brand mark)
        terp guide changelog         (what changed — read this before and after a bump)
        terp upgrade --check         (is there a newer release for the whole set?)
+       terp maintenance             (what to maintain: platform, advisories, bases; a report)
        terp inspect capabilities    (what the platform offers: installed vs adoptable)
        terp inspect control-plane   (your roles / permissions / module authority map)
        terp inspect access          (the full access graph: modules, endpoints, data traits)
@@ -3834,23 +3836,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "led by its Security and Upgrade notes. Pass the version this app is on",
     )
 
-    upgrade_parser = subcommands.add_parser(
-        "upgrade",
-        help="Check whether a newer Terp release is available for the whole set",
-    )
-    upgrade_parser.add_argument(
-        "--check",
-        action="store_true",
-        help="Report the available release and the bump recipe (the only mode: "
-        "Terp reports, it does not edit your manifests)",
-    )
-    upgrade_parser.add_argument(
-        "--format",
-        choices=("text", "json"),
-        default="text",
-        help="Output format: text (the recipe) or json (the same facts as data — "
-        "installed, current, target, covers_whole_set, stragglers, rerender_blocker)",
-    )
+    from terp.cli.maintenance import add_parsers as add_maintenance_parsers
+
+    add_maintenance_parsers(subcommands)
 
     migrate_parser = subcommands.add_parser(
         "migrate",
@@ -4741,17 +4729,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         emit(guide(args.topic, since=args.since))
         return
-    if args.command == "upgrade":
-        from terp.cli.version import render_upgrade_check
+    if args.command in ("upgrade", "maintenance"):
+        from terp.cli.maintenance import run as run_maintenance
 
-        if not args.check:
-            raise SystemExit(
-                "terp upgrade: run `terp upgrade --check`. Terp reports what is "
-                "available and how to bump; it does not edit your manifests, because "
-                "a lockstep bump spans pyproject.toml and frontend/package.json and "
-                "must be reviewed as one change."
-            )
-        emit(render_upgrade_check(fmt=args.format))
+        if code := run_maintenance(args):
+            raise SystemExit(code)
         return
     if args.command == "migrate":
         from terp.migrations import migrate_main

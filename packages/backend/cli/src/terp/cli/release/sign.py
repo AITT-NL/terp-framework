@@ -55,6 +55,7 @@ from terp.cli.release._compare import compare_backend, wheel_shape
 from terp.cli.release._git import Tree
 from terp.cli.release._image import final_base
 from terp.cli.release._locks import UV_LOCK, pinned, read_uv_lock
+from terp.cli.release._osv import DEFAULT_OSV
 from terp.cli.release._plan import Plan, release_plan, web_packages
 from terp.cli.release._registry import Registry, egress_getter
 from terp.cli.release._render import DEFAULT_INDEX, DEFAULT_TABLE, Pinned, fetch, render, version_key
@@ -66,7 +67,6 @@ from terp.cli.release.gate import VERSION as GATE_VERSION
 from terp.cli.release.gate import require_passed
 from terp.cli.release.manifest import HOSTS, assemble, inputs, purls, sbom
 
-DEFAULT_OSV = "https://api.osv.dev"
 ENVELOPE = "release.dsse.json"
 MANIFEST = "release.manifest.json"
 

@@ -34,7 +34,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import urllib.parse
 from collections.abc import Callable
 from typing import Any, BinaryIO, TextIO
 
@@ -49,6 +48,7 @@ from terp.cli.release._common import (
 )
 from terp.cli.release._git import SAFE_DIRECTORY, SAFE_DIRECTORY_ENV
 from terp.cli.release._image import read_filesystem
+from terp.cli.release import _osv
 from terp.cli.release._registry import Registry, egress_getter
 
 MODULE = "terp.cli.release._sandbox"
@@ -153,48 +153,10 @@ def image_task(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _egress(url: str, limit: int) -> Any:
-    """A declared client for exactly *url*'s host: HTTPS, or HTTP on this machine's loopback."""
-    from terp.capabilities.egress import EgressClient, EgressPolicy
-
-    parts = urllib.parse.urlsplit(url)
-    local = parts.hostname in ("localhost", "127.0.0.1")
-    return EgressClient(
-        EgressPolicy(
-            allowed_hosts=(parts.hostname or "",),
-            timeout_seconds=60.0,
-            max_response_bytes=limit,
-            allow_private_addresses=local,
-            allowed_schemes=("http", "https") if local else ("https",),
-        )
-    )
-
-
 def scan_task(payload: dict[str, Any]) -> dict[str, Any]:
     """Each package URL asked of OSV's batch API; the vulnerability ids it answers, per package."""
-    from terp.capabilities.egress import EgressFailedError, EgressRefusedError
-
-    url = payload["osv"].rstrip("/") + "/v1/querybatch"
-    client = _egress(url, 64 * 1024 * 1024)
     purls = list(payload["purls"])
-    found: dict[str, list[str]] = {}
-    for start in range(0, len(purls), 500):
-        chunk = purls[start : start + 500]
-        body = json.dumps({"queries": [{"package": {"purl": purl}} for purl in chunk]}).encode()
-        try:
-            answer = client.post(url, body=body, headers={"Content-Type": "application/json"})
-        except (EgressFailedError, EgressRefusedError) as exc:
-            raise ReleaseError("the vulnerability database could not be asked", cause=str(exc.log_context)) from exc
-        if answer.status_code != 200:
-            raise ReleaseError(f"the vulnerability database answered {answer.status_code}")
-        results = json.loads(answer.content).get("results", [])
-        if len(results) != len(chunk):
-            raise ReleaseError("the vulnerability database answered for other packages than asked")
-        for purl, result in zip(chunk, results, strict=True):
-            ids = sorted(str(vuln["id"]) for vuln in (result or {}).get("vulns", []))
-            if ids:
-                found[purl] = ids
-    return {"database": payload["osv"], "queried": len(purls), "vulnerable": found}
+    return {"database": payload["osv"], "queried": len(purls), "vulnerable": _osv.query_batch(payload["osv"], purls)}
 
 
 def secrets_task(payload: dict[str, Any]) -> dict[str, Any]:

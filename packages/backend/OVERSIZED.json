@@ -7,7 +7,7 @@
     "arch/src/terp/arch/rules/migrations.py": 556,
     "arch/src/terp/arch/rules/persistence.py": 970,
     "arch/src/terp/arch/rules/traits.py": 685,
-    "cli/src/terp/cli/__init__.py": 5120,
+    "cli/src/terp/cli/__init__.py": 5102,
     "cli/src/terp/cli/envfile.py": 581,
     "cli/src/terp/cli/envseams.py": 760,
     "cli/src/terp/cli/ports.py": 1009,

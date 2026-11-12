@@ -32,7 +32,7 @@ import zipfile
 from dataclasses import dataclass
 from typing import Any
 
-from terp.cli.release._common import ReleaseError, os_environment, read_document, require, run
+from terp.cli.release._common import ReleaseError, egress_client, os_environment, read_document, require, run
 
 #: The first ``terp-arch`` release this signer reads: the first that renders a generated app.
 FLOOR = "0.35.0"
@@ -87,8 +87,6 @@ def table_entry(path: str | pathlib.Path, version: str) -> tuple[str, str]:
 
 
 def _download(index: str, name: str, scratch: pathlib.Path) -> bytes:
-    from terp.cli.release._sandbox import _egress
-
     if pathlib.Path(index).is_dir():
         candidate = pathlib.Path(index) / name
         if not candidate.is_file():
@@ -98,7 +96,7 @@ def _download(index: str, name: str, scratch: pathlib.Path) -> bytes:
 
     page = urllib.parse.urljoin(index.rstrip("/") + "/", "terp-arch/")
     try:
-        listing = _egress(page, 8 * 1024 * 1024).get(
+        listing = egress_client(page, 8 * 1024 * 1024).get(
             page, headers={"Accept": "application/vnd.pypi.simple.v1+json"}
         )
         files = json.loads(listing.content).get("files", []) if listing.status_code == 200 else []
@@ -106,7 +104,7 @@ def _download(index: str, name: str, scratch: pathlib.Path) -> bytes:
         if url is None:
             raise ReleaseError(f"the index {index} lists no {name}")
         url = urllib.parse.urljoin(page, url)
-        wheel = _egress(url, _WHEEL_LIMIT).get(url)
+        wheel = egress_client(url, _WHEEL_LIMIT).get(url)
     except (EgressFailedError, EgressRefusedError) as exc:
         raise ReleaseError(f"the index {index} could not be read", cause=str(exc.log_context)) from exc
     if wheel.status_code != 200:

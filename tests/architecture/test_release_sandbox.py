@@ -107,54 +107,14 @@ def test_the_image_task_reads_the_image_and_compiles_its_bytecode_sources(tmp_pa
     assert answer["texts"] == {"srv/.venv/pyvenv.cfg": "home = /usr/local/bin\n"}
 
 
-class _Client:
-    def __init__(self, answers):  # type: ignore[no-untyped-def]
-        self.answers = answers
-        self.bodies: list = []
+def test_the_scan_asks_the_shared_vulnerability_client_and_names_the_database(monkeypatch) -> None:
+    from terp.cli.release import _osv
 
-    def post(self, url, body=None, headers=None):  # type: ignore[no-untyped-def]
-        from terp.capabilities.egress import EgressResponse
-
-        self.bodies.append(json.loads(body))
-        answer = self.answers.pop(0)
-        if isinstance(answer, Exception):
-            raise answer
-        return EgressResponse(answer[0], {}, json.dumps(answer[1]).encode())
-
-
-def test_the_scan_asks_the_vulnerability_database_in_batches(monkeypatch) -> None:
-    purls = [f"pkg:pypi/p{i}@1" for i in range(501)]
-    client = _Client([(200, {"results": [{"vulns": [{"id": "B"}, {"id": "A"}]}] + [{}] * 499}), (200, {"results": [{"vulns": []}]})])
-    monkeypatch.setattr(_sandbox, "_egress", lambda url, limit: client)
-    answer = _sandbox.scan_task({"osv": "https://osv.example/", "purls": purls})
-    assert answer == {"database": "https://osv.example/", "queried": 501, "vulnerable": {"pkg:pypi/p0@1": ["A", "B"]}}
-    assert [len(body["queries"]) for body in client.bodies] == [500, 1]
-
-
-@pytest.mark.parametrize(
-    ("answer", "expected"),
-    [((500, {}), "answered 500"), ((200, {"results": []}), "for other packages than asked")],
-)
-def test_a_scan_that_cannot_be_trusted_is_refused(monkeypatch, answer, expected) -> None:
-    monkeypatch.setattr(_sandbox, "_egress", lambda url, limit: _Client([answer]))
-    with pytest.raises(ReleaseError, match=expected):
-        _sandbox.scan_task({"osv": "https://osv.example", "purls": ["pkg:pypi/x@1"]})
-
-
-def test_an_unreachable_database_is_a_refusal_never_a_clean_scan(monkeypatch) -> None:
-    from terp.capabilities.egress import EgressFailedError
-
-    monkeypatch.setattr(_sandbox, "_egress", lambda url, limit: _Client([EgressFailedError("down", log_context={"host": "x"})]))
-    with pytest.raises(ReleaseError, match="could not be asked"):
-        _sandbox.scan_task({"osv": "https://osv.example", "purls": ["pkg:pypi/x@1"]})
-
-
-def test_the_egress_client_is_https_or_loopback_http() -> None:
-    remote = _sandbox._egress("https://api.osv.dev/v1/querybatch", 10).policy
-    assert remote.allowed_hosts == ("api.osv.dev",) and remote.allowed_schemes == ("https",)
-    assert remote.allow_private_addresses is False
-    local = _sandbox._egress("http://127.0.0.1:9/v1", 10).policy
-    assert local.allowed_schemes == ("http", "https") and local.allow_private_addresses is True
+    asked: list = []
+    monkeypatch.setattr(_osv, "query_batch", lambda osv, purls, **_: asked.append((osv, purls)) or {"pkg:pypi/x@1": ["A"]})
+    answer = _sandbox.scan_task({"osv": "https://osv.example/", "purls": ["pkg:pypi/x@1", "pkg:pypi/y@2"]})
+    assert answer == {"database": "https://osv.example/", "queried": 2, "vulnerable": {"pkg:pypi/x@1": ["A"]}}
+    assert asked == [("https://osv.example/", ["pkg:pypi/x@1", "pkg:pypi/y@2"])]
 
 
 def test_the_secret_scan_is_gitleaks_over_the_git_directory_with_the_tree_s_acknowledgements(tmp_path: pathlib.Path, monkeypatch) -> None:

@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import subprocess
+import urllib.parse
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -44,6 +45,33 @@ class ReleaseError(Exception):
 
     def __str__(self) -> str:
         return f"{self.message}\n  {self.cause}" if self.cause else self.message
+
+
+def egress_client(url: str, limit: int) -> Any:
+    """A declared egress client for exactly *url*'s host: HTTPS, or HTTP on this machine's loopback.
+
+    The one way the release jobs and ``terp maintenance`` reach a package index or the
+    vulnerability database (ADR 0117): an allowlist of that host, a timeout and a bounded
+    read, and every address held to the SSRF denylist that only the loopback relaxes.
+    """
+    parts = urllib.parse.urlsplit(url)
+    try:
+        from terp.capabilities.egress import EgressClient, EgressPolicy
+    except ImportError as exc:
+        raise ReleaseError(
+            f"reaching {parts.hostname} needs the egress capability: install terp-cap-egress "
+            "(terp-cli[release] brings it, and a generated app's dev group carries it)"
+        ) from exc
+    local = parts.hostname in ("localhost", "127.0.0.1")
+    return EgressClient(
+        EgressPolicy(
+            allowed_hosts=(parts.hostname or "",),
+            timeout_seconds=60.0,
+            max_response_bytes=limit,
+            allow_private_addresses=local,
+            allowed_schemes=("http", "https") if local else ("https",),
+        )
+    )
 
 
 def release_tag(value: str) -> str:
@@ -185,6 +213,7 @@ __all__ = [
     "ReleaseError",
     "canonical",
     "commit_id",
+    "egress_client",
     "os_environment",
     "output_of",
     "read_document",
