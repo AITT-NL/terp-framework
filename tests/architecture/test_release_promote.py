@@ -222,7 +222,7 @@ def test_a_changed_image_under_a_valid_signature_is_refused_before_compose(tmp_p
     [
         (lambda m: m, {"require_generated": True, "_build": "own"}, '--require-generated: the release says "build": "own"'),
         (lambda m: m["inputs"]["spec"].update(release="9.0.0"), {}, "Terp Standard 9.0.0, newer than"),
-        (lambda m: m.update(schemaVersion=2), {}, "schemaVersion 2, which this terp promote does not read"),
+        (lambda m: m.update(schemaVersion=3), {}, "schemaVersion 3, which this terp promote does not read"),
         (lambda m: m["inputs"]["declaration"].update(sha256="0" * 64), {}, "is not the content its SHA-256 names"),
         (lambda m: m["inputs"].update(releaseTag="-bad"), {}, "is not a Docker tag"),
         (lambda m: m["inputs"].update(build="maybe"), {}, "neither own nor generated"),

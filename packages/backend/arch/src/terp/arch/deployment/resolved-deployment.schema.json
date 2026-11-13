@@ -1,0 +1,485 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://terp.dev/spec/resolved-deployment.schema.json",
+  "title": "Terp Standard - a release's resolved deployment",
+  "description": "What one release runs, resolved and closed: the document a release tool writes into the signed release manifest, and that an executor runs instead of reading the app's Compose files. It holds what the release decides: its services, their images by digest, their commands, the references their variables resolve from, their mounts, probes and start order. It holds nothing an executor or an environment owns: the restart policy, networks, published ports, labels, logging, container hardening, resources and instance counts. A field that does not apply is absent, never null, and a reader refuses a field it does not know, at any depth.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "services",
+    "volumes"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "The version of this vocabulary. A reader refuses a version it does not carry rather than read a later document with an earlier vocabulary."
+    },
+    "services": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "description": "One service per unit of the release's deployment declaration, in the declaration's order: no more and no fewer, each id once.",
+      "items": {
+        "type": "object",
+        "description": "One service: the declared unit it realises, and everything an executor needs to run it.",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "role",
+          "lifecycle",
+          "image",
+          "init",
+          "environment",
+          "appEnvironment",
+          "mounts",
+          "after"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*(?![\\s\\S])",
+            "description": "The declared unit's id."
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "pattern": "^[a-z][a-z0-9-]*(?![\\s\\S])",
+            "description": "The declared unit's role, carried as information: an executor decides nothing on it and acts only on the closed fields beside it."
+          },
+          "lifecycle": {
+            "enum": [
+              "long-running",
+              "one-shot"
+            ],
+            "description": "Whether the service runs until it is stopped, or runs to completion. It decides the restart policy the executor writes, which this document never states."
+          },
+          "datastore": {
+            "type": "object",
+            "description": "Present for a unit that runs a datastore: its kind and version, which the release's datastore table must hold.",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "version"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32,
+                "pattern": "^[a-z][a-z0-9-]*(?![\\s\\S])",
+                "description": "The datastore's kind, as the declaration names it."
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32,
+                "pattern": "^[0-9A-Za-z][0-9A-Za-z._-]*(?![\\s\\S])",
+                "description": "The datastore's version, as the declaration names it."
+              }
+            }
+          },
+          "image": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*(?::[0-9]{1,5})?/)?[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)*@sha256:[0-9a-f]{64}(?![\\s\\S])",
+            "description": "The image the service runs, by repository and sha256 digest, never a tag. A built image is one of the release's built images; a datastore's is the datastore table's reference for its kind and version."
+          },
+          "command": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "description": "The argv the service runs, one argument per string: never one string a reader would have to split. Absent: the image's own command. Absent on the migration service, whose argv the executor owns.",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024,
+              "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+              "description": "One argument."
+            }
+          },
+          "init": {
+            "type": "boolean",
+            "description": "Whether the executor runs an init process as the service's first process, so signals reach the app and exited children are reaped."
+          },
+          "environment": {
+            "type": "array",
+            "maxItems": 256,
+            "description": "The variables the release sets for the service, in ascending order of name, each name once. A value is a literal, or a reference the executor resolves from the environment it deploys to.",
+            "items": {
+              "type": "object",
+              "description": "One variable: its name, and where its value comes from.",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "source"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Z][A-Z0-9_]{0,63}(?![\\s\\S])",
+                  "description": "The variable's name. A name the executor owns is refused (refusedEnvironmentNames, refusedEnvironmentPrefixes)."
+                },
+                "source": {
+                  "enum": [
+                    "config",
+                    "database",
+                    "secret",
+                    "value"
+                  ],
+                  "description": "Where the value comes from. 'value': the literal beside it. 'config': the deployed environment's configuration, under 'key'. 'secret': the deployed environment's secrets, under 'key'. 'database': the connection the executor gives the app's runtime role; its 'key' is always 'runtime', because the connection that may change the schema never reaches a service."
+                },
+                "value": {
+                  "type": "string",
+                  "maxLength": 4096,
+                  "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+                  "description": "The literal value, for source 'value'. It is the value itself: no reader expands anything in it."
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^(?:[A-Z][A-Z0-9_]{0,63}|runtime)(?![\\s\\S])",
+                  "description": "The configuration or secret name the executor resolves, or 'runtime' for source 'database'."
+                }
+              },
+              "if": {
+                "required": [
+                  "source"
+                ],
+                "properties": {
+                  "source": {
+                    "const": "value"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "value"
+                ],
+                "properties": {
+                  "name": {},
+                  "source": {},
+                  "value": {}
+                },
+                "additionalProperties": false
+              },
+              "else": {
+                "required": [
+                  "key"
+                ],
+                "properties": {
+                  "name": {},
+                  "source": {},
+                  "key": {}
+                },
+                "additionalProperties": false,
+                "if": {
+                  "required": [
+                    "source"
+                  ],
+                  "properties": {
+                    "source": {
+                      "const": "database"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "key": {
+                      "const": "runtime"
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "key": {
+                      "pattern": "^[A-Z][A-Z0-9_]{0,63}(?![\\s\\S])"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "appEnvironment": {
+            "type": "boolean",
+            "description": "Whether the executor also gives the service the variables the app declares for the environment it deploys to, from that environment's configuration and secrets."
+          },
+          "mounts": {
+            "type": "array",
+            "maxItems": 16,
+            "description": "The service's mounts, in ascending order of target, each target once.",
+            "items": {
+              "type": "object",
+              "description": "One mount: a named volume of the release, or an anonymous volume over a path the image declares and no other mount covers.",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "target"
+              ],
+              "properties": {
+                "type": {
+                  "enum": [
+                    "anonymous",
+                    "volume"
+                  ],
+                  "description": "'volume': a named volume listed in 'volumes'. 'anonymous': a volume with no name, which no backup covers. Version 1 carries no bind mount."
+                },
+                "target": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^(?:/srv/var/files|(?!/srv(?:/|(?![\\s\\S])))(?:/(?!\\.\\.?(?:/|(?![\\s\\S])))[A-Za-z0-9._@+-]+)+)(?![\\s\\S])",
+                  "description": "Where the mount sits in the container: an absolute path with no empty, '.' or '..' segment. It is never the app root /srv or a path under it, except the files storage root /srv/var/files: a volume over code would keep that code across releases."
+                },
+                "source": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*(?![\\s\\S])",
+                  "description": "The named volume, for type 'volume'."
+                },
+                "readOnly": {
+                  "type": "boolean",
+                  "description": "Whether the service may only read the volume, for type 'volume'."
+                }
+              },
+              "if": {
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "volume"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "source",
+                  "readOnly"
+                ]
+              },
+              "else": {
+                "properties": {
+                  "type": {},
+                  "target": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "serves": {
+            "type": "object",
+            "description": "Present for a service that answers HTTP: the port inside the container, and the path that tells whether it is healthy. Whether and where the port is published is the executor's choice.",
+            "additionalProperties": false,
+            "required": [
+              "port",
+              "healthPath"
+            ],
+            "properties": {
+              "port": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535,
+                "description": "The port the service listens on inside the container."
+              },
+              "healthPath": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*(?![\\s\\S])",
+                "description": "The path an executor reads to judge the service healthy, as the declaration resolves it for the unit's role."
+              }
+            }
+          },
+          "healthcheck": {
+            "type": "object",
+            "description": "The service's container health probe and its timing, in whole seconds.",
+            "additionalProperties": false,
+            "required": [
+              "form",
+              "intervalSeconds",
+              "timeoutSeconds",
+              "retries",
+              "startPeriodSeconds"
+            ],
+            "properties": {
+              "form": {
+                "enum": [
+                  "exec",
+                  "shell"
+                ],
+                "description": "'exec': an argv run without a shell. 'shell': a script run by the image's /bin/sh -c, so the image must carry a shell."
+              },
+              "argv": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 64,
+                "description": "The probe's argv, for form 'exec'.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+                  "description": "One argument."
+                }
+              },
+              "script": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024,
+                "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*(?![\\s\\S])",
+                "description": "The probe's script, for form 'shell'."
+              },
+              "intervalSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600,
+                "description": "Seconds between two probes."
+              },
+              "timeoutSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600,
+                "description": "Seconds one probe may take."
+              },
+              "retries": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100,
+                "description": "Consecutive failures that make the service unhealthy."
+              },
+              "startPeriodSeconds": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3600,
+                "description": "Seconds after the service starts during which a failed probe does not count."
+              }
+            },
+            "if": {
+              "required": [
+                "form"
+              ],
+              "properties": {
+                "form": {
+                  "const": "exec"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "argv"
+              ],
+              "properties": {
+                "form": {},
+                "argv": {},
+                "intervalSeconds": {},
+                "timeoutSeconds": {},
+                "retries": {},
+                "startPeriodSeconds": {}
+              },
+              "additionalProperties": false
+            },
+            "else": {
+              "required": [
+                "script"
+              ],
+              "properties": {
+                "form": {},
+                "script": {},
+                "intervalSeconds": {},
+                "timeoutSeconds": {},
+                "retries": {},
+                "startPeriodSeconds": {}
+              },
+              "additionalProperties": false
+            }
+          },
+          "after": {
+            "type": "array",
+            "maxItems": 64,
+            "description": "The services this one starts after, in ascending order of unit, each unit once, with the condition it waits for.",
+            "items": {
+              "type": "object",
+              "description": "One service this one starts after, and the condition it waits for.",
+              "additionalProperties": false,
+              "required": [
+                "unit",
+                "condition"
+              ],
+              "properties": {
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 63,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*(?![\\s\\S])",
+                  "description": "A service of this document, never the service itself."
+                },
+                "condition": {
+                  "enum": [
+                    "completed",
+                    "healthy",
+                    "started"
+                  ],
+                  "description": "'started': the unit's container runs. 'healthy': its health probe passes, so it must have one. 'completed': it ran to completion and succeeded, so it must be one-shot."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "volumes": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "description": "The named volumes the services mount, in ascending order: every name a volume mount uses, and no other.",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*(?![\\s\\S])",
+        "description": "A named volume."
+      }
+    },
+    "migration": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*(?![\\s\\S])",
+      "description": "The one-shot service the executor runs the migration step in, with an argv the executor owns and the connection that may change the schema. Absent: the release has no such service, and the executor runs the step in an api service's image."
+    }
+  },
+  "$defs": {
+    "refusedEnvironmentNames": {
+      "description": "Variable names a release never sets. The executor owns them, and sets from its own host's configuration what a host needs, such as a proxy or a certificate bundle.",
+      "enum": [
+        "ALL_PROXY",
+        "HOME",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "NO_PROXY",
+        "PATH",
+        "REQUESTS_CA_BUNDLE"
+      ]
+    },
+    "refusedEnvironmentPrefixes": {
+      "description": "Prefixes of variable names a release never sets: each changes how the interpreter, the dynamic loader, the container tooling or certificate checking behaves.",
+      "enum": [
+        "COMPOSE_",
+        "DOCKER_",
+        "LD_",
+        "PYTHON",
+        "SSL_CERT_"
+      ]
+    }
+  }
+}

@@ -1,0 +1,168 @@
+{
+  "migration": "migrate",
+  "schemaVersion": 1,
+  "services": [
+    {
+      "after": [],
+      "appEnvironment": false,
+      "datastore": {
+        "kind": "postgres",
+        "version": "17"
+      },
+      "environment": [
+        {
+          "name": "POSTGRES_DB",
+          "source": "value",
+          "value": "app"
+        },
+        {
+          "key": "POSTGRES_PASSWORD",
+          "name": "POSTGRES_PASSWORD",
+          "source": "secret"
+        },
+        {
+          "name": "POSTGRES_USER",
+          "source": "value",
+          "value": "app"
+        }
+      ],
+      "healthcheck": {
+        "form": "shell",
+        "intervalSeconds": 30,
+        "retries": 3,
+        "script": "pg_isready -U app -d app",
+        "startPeriodSeconds": 30,
+        "timeoutSeconds": 5
+      },
+      "id": "db",
+      "image": "postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
+      "init": false,
+      "lifecycle": "long-running",
+      "mounts": [
+        {
+          "readOnly": false,
+          "source": "db-data",
+          "target": "/var/lib/postgresql/data",
+          "type": "volume"
+        }
+      ],
+      "role": "database"
+    },
+    {
+      "after": [
+        {
+          "condition": "healthy",
+          "unit": "db"
+        }
+      ],
+      "appEnvironment": true,
+      "environment": [
+        {
+          "key": "BACKEND_CORS_ORIGINS",
+          "name": "BACKEND_CORS_ORIGINS",
+          "source": "config"
+        },
+        {
+          "name": "ENVIRONMENT",
+          "source": "value",
+          "value": "production"
+        },
+        {
+          "key": "SECRET_KEY",
+          "name": "SECRET_KEY",
+          "source": "secret"
+        }
+      ],
+      "id": "migrate",
+      "image": "registry.example.test/example-app-backend@sha256:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+      "init": false,
+      "lifecycle": "one-shot",
+      "mounts": [],
+      "role": "one-shot"
+    },
+    {
+      "after": [
+        {
+          "condition": "healthy",
+          "unit": "db"
+        },
+        {
+          "condition": "completed",
+          "unit": "migrate"
+        }
+      ],
+      "appEnvironment": true,
+      "environment": [
+        {
+          "key": "BACKEND_CORS_ORIGINS",
+          "name": "BACKEND_CORS_ORIGINS",
+          "source": "config"
+        },
+        {
+          "key": "runtime",
+          "name": "DATABASE_URL",
+          "source": "database"
+        },
+        {
+          "name": "ENVIRONMENT",
+          "source": "value",
+          "value": "production"
+        },
+        {
+          "key": "SECRET_KEY",
+          "name": "SECRET_KEY",
+          "source": "secret"
+        }
+      ],
+      "healthcheck": {
+        "argv": [
+          "python",
+          "-c",
+          "import sys, urllib.request; urllib.request.urlopen('http://127.0.0.1:8000' + sys.argv[1])",
+          "/health/live"
+        ],
+        "form": "exec",
+        "intervalSeconds": 30,
+        "retries": 3,
+        "startPeriodSeconds": 30,
+        "timeoutSeconds": 5
+      },
+      "id": "api",
+      "image": "registry.example.test/example-app-backend@sha256:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+      "init": false,
+      "lifecycle": "long-running",
+      "mounts": [],
+      "role": "api",
+      "serves": {
+        "healthPath": "/health/ready",
+        "port": 8000
+      }
+    },
+    {
+      "after": [],
+      "appEnvironment": false,
+      "environment": [],
+      "healthcheck": {
+        "form": "shell",
+        "intervalSeconds": 30,
+        "retries": 3,
+        "script": "wget -q -O /dev/null http://127.0.0.1:8080/healthz",
+        "startPeriodSeconds": 30,
+        "timeoutSeconds": 5
+      },
+      "id": "site",
+      "image": "registry.example.test/example-app-site@sha256:3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
+      "init": false,
+      "lifecycle": "long-running",
+      "mounts": [],
+      "role": "web",
+      "serves": {
+        "healthPath": "/healthz",
+        "port": 8080
+      }
+    }
+  ],
+  "volumes": [
+    "db-data"
+  ]
+}

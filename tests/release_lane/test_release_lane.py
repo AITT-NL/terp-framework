@@ -290,6 +290,11 @@ def test_sign_from_the_signer_image_signs_every_release(lane: Lane) -> None:
         assert manifest["inputs"]["build"] == "generated"
         assert manifest["inputs"]["toolchain"]["terpArch"] == (FIRST if release.label.startswith("a") else SECOND)
         assert manifest["outputs"]["secretScan"]["findings"] == 0
+        # Both pinned releases write the resolved deployment (ADR 0215): every unit runs the
+        # image the manifest records for it, as the pushed images' digests.
+        assert manifest["schemaVersion"] == 2
+        deployment = manifest["outputs"]["deployment"]
+        assert {service["id"]: service["image"] for service in deployment["services"]} == manifest["outputs"]["units"]
 
 
 def test_sign_refuses_an_image_whose_app_layer_changed_after_the_build(lane: Lane) -> None:

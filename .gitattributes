@@ -31,6 +31,11 @@ packages/backend/arch/src/terp/arch/deployment/deployment-declaration.schema.jso
 packages/backend/arch/src/terp/arch/workbench/workbench-declaration.schema.json text eol=lf
 tests/architecture/workbench-declaration.fixtures.json text eol=lf
 
+# The resolved deployment's schema and fixtures are terp-spec's too, carried for the release
+# tool's checker and its tests, and held equal to the pinned release by a byte comparison.
+packages/backend/arch/src/terp/arch/deployment/resolved-deployment.schema.json text eol=lf
+tests/architecture/resolved-deployment.fixtures.json text eol=lf
+
 # The generator's golden samples and the reference app's production profile are compared
 # with a render byte for byte (ADR 0187), so they are LF on every checkout, as the
 # template's own build files are by the template's .gitattributes.

@@ -186,6 +186,8 @@ def test_the_validator_refuses_a_keyword_it_does_not_apply() -> None:
         ),
         ("A", {"type": "string", "pattern": "^[a-z]*(?![\\s\\S])"}, 'is "A", which does not match'),
         (0, {"type": "number", "minimum": 1}, "is 0 (allowed: at least 1)"),
+        (65536, {"type": "integer", "maximum": 65535}, "is 65536 (allowed: at most 65535)"),
+        (65535, {"type": "integer", "maximum": 65535}, None),
         (0, {"type": "number", "exclusiveMinimum": 0}, "is 0 (allowed: more than 0)"),
         ([1, 2], {"type": "array", "maxItems": 1}, "has 2 items (allowed: at most 1)"),
         ([1, True], {"type": "array", "uniqueItems": True}, None),

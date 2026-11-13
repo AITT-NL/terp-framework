@@ -182,6 +182,15 @@ def test_a_declaration_the_pinned_generator_refuses_answers_its_words(tmp_path: 
     assert rendered == {} and any("custom" in message for message in refused), refused
 
 
+@pytest.mark.parametrize("printed", ["[1]", '{"refused": 1}', "not json"])
+def test_an_answer_of_another_shape_is_refused_by_name(tmp_path: pathlib.Path, printed: str) -> None:
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    with pytest.raises(ReleaseError, match=f"terp-arch {TOOLCHAIN} answered checking with something other than "
+                                           "the JSON object this signer reads .allowed: one object holding refused"):
+        _render._run_pinned(_pinned(tmp_path), f"print({printed!r})", scratch, "checking", {"refused": list})
+
+
 def test_a_wheel_that_would_unpack_outside_itself_is_refused(tmp_path: pathlib.Path) -> None:
     wheel = tmp_path / WHEEL
     with zipfile.ZipFile(wheel, "w") as archive:
