@@ -69,6 +69,13 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **`canonical()` refuses what JSON readers do not read back alike.** Every release document
+  `sign` and `promote` write (the manifest, the SBOMs, the envelope) is now refused at an
+  integer past ±(2^53 - 1) and at objects or arrays nested deeper than 64, the document itself
+  the first, beside a float as before. Past those bounds readers disagree: one that holds
+  numbers as doubles rounds such an integer, and nesting limits differ by parser, so the
+  program that deploys a signed document could read another value than the one signed, or none.
+
 - **`sign` no longer records an answer it cannot read as a clean package.** A result of `[]`,
   `""`, `0` or `{"vulns": {}}` was read as "no advisory", and an id of `"7"` or `""` was
   recorded as one, so a signed manifest could say a package was clean when the database had
