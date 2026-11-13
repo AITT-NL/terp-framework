@@ -18,7 +18,11 @@ git and the images from the registry as data, and it judges what a sandbox compu
    image's from the npm lock it is built from, refusing one with none rather than describing it as
    empty), asks the vulnerability database about them, and scans the
    history reachable from the SHA for secrets, which it refuses to sign over.
-6. It signs the manifest as a DSSE envelope, with ``--signer <argv>`` (the production path, whose
+6. In the generated state, when the pinned ``terp-arch`` writes one, it has that release write the
+   resolved deployment from the images it verified (:func:`._render.resolve`), and holds the
+   document to its own ``terp-arch``'s schema copy and checks
+   (:mod:`terp.arch.deployment.resolved_check`) before the manifest, then version 2, carries it.
+7. It signs the manifest as a DSSE envelope, with ``--signer <argv>`` (the production path, whose
    key never enters this process) or ``--sign-key <file>``, which it refuses without
    ``--test-key``.
 
@@ -40,8 +44,9 @@ import tomllib
 from collections.abc import Sequence
 from typing import Any
 
-from terp.arch.deployment.datastores import read_table
+from terp.arch.deployment.datastores import DatastoreTable, read_table
 from terp.arch.deployment.reader import SPEC_RELEASE
+from terp.arch.deployment.resolved_check import refusals_for
 from terp.cli.release import dsse
 from terp.cli.release._common import (
     ReleaseError,
@@ -58,7 +63,7 @@ from terp.cli.release._locks import UV_LOCK, pinned, read_uv_lock
 from terp.cli.release._osv import DEFAULT_OSV
 from terp.cli.release._plan import Plan, release_plan, web_packages
 from terp.cli.release._registry import Registry, egress_getter
-from terp.cli.release._render import DEFAULT_INDEX, DEFAULT_TABLE, Pinned, fetch, render, version_key
+from terp.cli.release._render import DEFAULT_INDEX, DEFAULT_TABLE, Pinned, fetch, render, resolve, version_key
 from terp.cli.release._sandbox import sandboxed
 from terp.cli.release.build import DOCUMENT as BUILD_DOCUMENT
 from terp.cli.release.build import loopback, registry
@@ -148,8 +153,20 @@ def _images(plan: Plan, build: dict[str, Any], prefix: str, tag: str, platform: 
             raise ReleaseError(f"{repository}@{digest} is built for {config.get('os')}/{config.get('architecture')}, not {platform}")
         if reg.manifest(repository, tag)[0] != digest:
             raise ReleaseError(f"{repository}:{tag} no longer names {digest}, the image the build pushed")
-        checked[image.name] = {**entry, "image": image}
+        checked[image.name] = {**entry, "image": image, "volumes": _volumes(config, f"{repository}@{digest}")}
     return checked
+
+
+def _volumes(config: dict[str, Any], where: str) -> list[str]:
+    """The paths an image's configuration declares as volumes (its ``config.Volumes``), sorted."""
+    declared = config.get("config") or {}
+    volumes = (declared.get("Volumes") or {}) if isinstance(declared, dict) else None
+    if not isinstance(volumes, dict):
+        raise ReleaseError(
+            f"{where} has an image configuration whose config.Volumes is not an object keyed by "
+            "path, which no image build writes (allowed: an object keyed by path, or none)"
+        )
+    return sorted(volumes)
 
 
 def _running(plan: Plan, images: dict[str, dict[str, Any]]) -> dict[str, dict[str, str]]:
@@ -160,6 +177,28 @@ def _running(plan: Plan, images: dict[str, dict[str, Any]]) -> dict[str, dict[st
             services[service] = f"{images[image.name]['repository']}@{images[image.name]['digest']}"
     units = {unit.id: services[unit.id] for unit in plan.declaration.units if unit.id in services}
     return {"services": services, "units": units}
+
+
+def _deployment(
+    arch: Pinned, plan: Plan, table: DatastoreTable, root: pathlib.Path, scratch: pathlib.Path,
+    images: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """The resolved deployment the commit's ``terp-arch`` writes, held to this signer's checks."""
+    built = {f"{entry['repository']}@{entry['digest']}": entry["volumes"] for entry in images.values()}
+    document, refused = resolve(arch, root, scratch, images=_running(plan, images)["units"], image_volumes=built)
+    if refused or not isinstance(document, dict):
+        raise ReleaseError(
+            f"terp-arch {arch.version} cannot write this commit's resolved deployment:\n"
+            + "\n".join(f"- {message}" for message in refused or ["it answered with no document"])
+        )
+    found = refusals_for(document, plan.declaration, table=table, images=sorted(built))
+    if found:
+        raise ReleaseError(
+            f"the resolved deployment terp-arch {arch.version} wrote is not one this signer signs "
+            "(a terp-arch release and this signer that disagree: update the signer image, or "
+            "report it against that release):\n" + "\n".join(f"- {field}: {why}" for field, why in found)
+        )
+    return document
 
 
 def sign(
@@ -218,12 +257,15 @@ def sign(
                 f"the commit's declaration was written against Terp Standard {arch.spec}, newer than "
                 f"{SPEC_RELEASE}, the release this signer reads: update the signer image first"
             )
-        plan = release_plan(tree, root, read_table(arch.datastores))
+        table = read_table(arch.datastores)
+        plan = release_plan(tree, root, table)
         wheel_shape(tree)
         name, version = _project(tree)
         generator = _generated(arch, tree, root, scratch, name) if plan.declaration.build == "generated" else None
         reg = Registry(egress_getter(host, http=registry_http), http=registry_http, credentials=credentials)
         images = _images(plan, build, prefix, tag, platform, reg)
+        resolved = generator is not None and arch.resolves
+        deployment = _deployment(arch, plan, table, root, scratch, images) if resolved else None
         outputs_images: dict[str, Any] = {}
         documents: dict[str, bytes] = {}
         all_purls: dict[str, list[str]] = {}
@@ -257,6 +299,8 @@ def sign(
                 "packages": sha256(documents[f"packages-{safe}.json"]),
                 "sbom": sha256(documents[f"sbom-{safe}.cdx.json"]),
             }
+            if deployment is not None:  # what the document's anonymous mounts were read from
+                outputs_images[image_name]["volumes"] = entry["volumes"]
         scan = sandboxed("scan", {"osv": osv, "purls": sorted({p for found in all_purls.values() for p in found})})
         for image_name, found in all_purls.items():
             outputs_images[image_name]["vulnerabilities"] = {
@@ -282,6 +326,7 @@ def sign(
                 "secretScan": {"tool": secrets["tool"], "version": secrets["version"], "findings": 0},
                 "vulnerabilityDatabase": scan["database"],
                 **_running(plan, images),
+                **({"deployment": deployment} if deployment is not None else {}),
             },
             {
                 "schedules": gate["schedules"],

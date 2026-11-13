@@ -9,7 +9,10 @@ release, and this module gets them without letting that release near the signer:
   in. They are read from the wheel's files as data (a zip archive), never imported;
 * **what the generator renders**, in the generated state: the pinned ``terp-arch`` runs in a
   process of its own (``python -I -S``), with nothing on its path but that wheel and PyYAML, over
-  the commit's tree written out as files, and answers with the files as bytes.
+  the commit's tree written out as files, and answers with the files as bytes;
+* **the resolved deployment**, from a release that writes one: a process of its own, set up
+  the same way and given the images ``sign`` verified, answers with the document as JSON.
+  ``sign`` judges it with its own checker, never the pinned one.
 
 The wheel comes from a fixed index (or a directory of wheels the operator names) and is refused
 unless its SHA-256 is the one the signer's release table carries for that version, a table the
@@ -46,6 +49,8 @@ _SPEC_LINE = re.compile(r'^SPEC_RELEASE = "(?P<release>[0-9]+(?:\.[0-9]+)*)"\r?$
 _READER = "terp/arch/deployment/reader.py"
 _SCHEMA = "terp/arch/deployment/deployment-declaration.schema.json"
 _DATASTORES = "terp/arch/deployment/datastore-table.json"
+#: The module a ``terp-arch`` that writes the resolved deployment ships.
+_RESOLVED = "terp/arch/deployment/resolved.py"
 _WHEEL_LIMIT = 64 * 1024 * 1024
 
 
@@ -65,6 +70,8 @@ class Pinned:
     spec: str
     schema_sha256: str
     datastores: dict[str, Any]
+    #: Whether the release writes the resolved deployment: read from the wheel's file list.
+    resolves: bool = False
 
 
 def table_entry(path: str | pathlib.Path, version: str) -> tuple[str, str]:
@@ -125,12 +132,13 @@ def fetch(table: str | pathlib.Path, index: str, version: str, scratch: pathlib.
             reader = archive.read(_READER).decode("utf-8")
             schema = archive.read(_SCHEMA)
             datastores = json.loads(archive.read(_DATASTORES))
+            resolves = _RESOLVED in archive.namelist()
         except (KeyError, ValueError) as exc:
             raise ReleaseError(f"{name} holds no deployment reader this signer can read", cause=str(exc)) from exc
     found = _SPEC_LINE.search(reader)
     if found is None:
         raise ReleaseError(f"{name} names no Terp Standard release its declaration reader mirrors")
-    return Pinned(version, wheel, found.group("release"), hashlib.sha256(schema).hexdigest(), datastores)
+    return Pinned(version, wheel, found.group("release"), hashlib.sha256(schema).hexdigest(), datastores, resolves)
 
 
 #: The render, run by the pinned ``terp-arch`` on nothing but itself and PyYAML.
@@ -165,25 +173,76 @@ def _safe_extract(wheel: pathlib.Path, destination: pathlib.Path) -> None:
         archive.extractall(destination)
 
 
-def render(pinned: Pinned, tree: pathlib.Path, scratch: pathlib.Path) -> tuple[dict[str, bytes], list[str], list[str]]:
-    """``(files, owned paths, refusals)``: what the pinned generator renders of *tree*."""
+def _run_pinned(pinned: Pinned, script: str, scratch: pathlib.Path, doing: str, *arguments: str) -> Any:
+    """What *script* prints, as JSON, run by the pinned wheel and PyYAML alone."""
     import yaml
 
-    arch = scratch / "terp-arch"
-    _safe_extract(pinned.wheel, arch)
-    library = scratch / "pyyaml"
-    shutil.copytree(pathlib.Path(yaml.__file__).parent, library / "yaml")
+    arch, library = scratch / "terp-arch", scratch / "pyyaml"
+    if not arch.is_dir():  # unpacked once per sign, for each script it runs
+        _safe_extract(pinned.wheel, arch)
+        shutil.copytree(pathlib.Path(yaml.__file__).parent, library / "yaml")
     out = require(
         run(
-            [sys.executable, "-I", "-S", "-c", _RENDER, str(arch), str(library), str(tree)],
+            [sys.executable, "-I", "-S", "-c", script, str(arch), str(library), *arguments],
             cwd=scratch,
             env=os_environment(),
         ),
-        f"rendering with terp-arch {pinned.version}",
+        f"{doing} with terp-arch {pinned.version}",
     )
-    answer = json.loads(out)
+    return json.loads(out)
+
+
+def render(pinned: Pinned, tree: pathlib.Path, scratch: pathlib.Path) -> tuple[dict[str, bytes], list[str], list[str]]:
+    """``(files, owned paths, refusals)``: what the pinned generator renders of *tree*."""
+    answer = _run_pinned(pinned, _RENDER, scratch, "rendering", str(tree))
     files = {path: base64.b64decode(data) for path, data in answer["files"].items()}
     return files, list(answer["owned"]), list(answer["refused"])
+
+
+#: The resolved deployment, written by a pinned ``terp-arch`` that ships the writer.
+_RESOLVE = """\
+import json, pathlib, sys
+sys.path[:0] = [sys.argv[1], sys.argv[2]]
+from terp.arch.deployment import Declaration, published_tables, readable
+from terp.arch.deployment.generator import FRONTEND_LOCK
+from terp.arch.deployment.render_check import project_name
+from terp.arch.deployment.resolved import ResolvedDeploymentError, resolved_deployment
+root = pathlib.Path(sys.argv[3])
+given = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
+declared, found = readable(root)
+name, missing = project_name(root)
+refused = [finding.message for finding in [*found, *missing]]
+document = None
+if not refused and isinstance(declared, Declaration):
+    try:
+        document = resolved_deployment(
+            declared, name, tables=published_tables(), images=given["images"],
+            frontend_lock=(root / FRONTEND_LOCK).is_file(), image_volumes=given["imageVolumes"],
+        )
+    except ResolvedDeploymentError as exc:
+        refused = [str(exc)]
+print(json.dumps({"refused": refused, "document": document}))
+"""
+
+
+def resolve(
+    pinned: Pinned,
+    tree: pathlib.Path,
+    scratch: pathlib.Path,
+    *,
+    images: dict[str, str],
+    image_volumes: dict[str, list[str]],
+) -> tuple[Any, list[str]]:
+    """``(document, refusals)``: the resolved deployment the pinned ``terp-arch`` writes of *tree*.
+
+    *images* is each unit's image by digest, as ``sign`` verified it, and *image_volumes* the
+    paths each built image's configuration declares as volumes. The document is the pinned
+    release's word, read as data: the caller checks it before it is signed.
+    """
+    given = scratch / "resolve-input.json"
+    given.write_text(json.dumps({"images": images, "imageVolumes": image_volumes}), encoding="utf-8")
+    answer = _run_pinned(pinned, _RESOLVE, scratch, "writing the resolved deployment", str(tree), str(given))
+    return answer["document"], list(answer["refused"])
 
 
 __all__ = [
@@ -194,6 +253,7 @@ __all__ = [
     "TABLE_DOCUMENT",
     "fetch",
     "render",
+    "resolve",
     "table_entry",
     "version_key",
 ]

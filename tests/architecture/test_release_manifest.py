@@ -35,10 +35,20 @@ def test_a_well_formed_manifest_reads_back_as_written() -> None:
     assert manifest.parse(manifest.assemble(good()["inputs"], good()["outputs"], {})) == good()
 
 
+def test_a_manifest_that_carries_the_resolved_deployment_is_version_2() -> None:
+    outputs = {**good()["outputs"], "deployment": {"schemaVersion": 1, "services": [], "volumes": []}}
+    read = manifest.parse(manifest.assemble(good()["inputs"], outputs, {}))
+    assert read["schemaVersion"] == manifest.DEPLOYMENT_VERSION == 2
+    assert read["outputs"]["deployment"] == outputs["deployment"]
+
+
 @pytest.mark.parametrize(
     ("change", "expected"),
     [
-        (lambda m: m.update(schemaVersion=2), "schemaVersion 2, which this terp promote does not read"),
+        (lambda m: m.update(schemaVersion=3), "schemaVersion 3, which this terp promote does not read"),
+        (lambda m: m.update(schemaVersion=True), "schemaVersion True, which this terp promote does not read"),
+        (lambda m: m.update(schemaVersion=2), "outputs.deployment is missing"),
+        (lambda m: m["outputs"].update(deployment={}), "is schemaVersion 1 and carries outputs.deployment"),
         (lambda m: m.pop("inputs"), "the manifest's inputs is missing"),
         (lambda m: m.update(outputs=[]), "the manifest's outputs is missing"),
         (lambda m: m["inputs"].update(releaseTag=1), "inputs.releaseTag is missing"),

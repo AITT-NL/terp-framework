@@ -362,7 +362,10 @@ build container holds a credential or writes into what is built. Each takes the 
     app: it repeats the refusals, refuses a gate with a red check or a claim that does not
     hold (ADR 0200; a commit pinning terp-cli below 0.36.1 has a gate that records the claim
     alone, and is held to it), renders a generated app's files with the terp-arch the
-    commit pins (fetched by hash, run in a process of its own), reads the backend image from
+    commit pins (fetched by hash, run in a process of its own) and, from a terp-arch that
+    writes one, the resolved deployment the release runs, which it holds to its own copy of
+    terp-spec's schema and checks before the manifest (then version 2) carries it at
+    outputs.deployment, reads the backend image from
     the registry as data and holds it to the tree and the lock, describes each web image from
     the npm lock it installs, the package-lock.json its Dockerfile copies (when it names
     none, the one beside it or at the root of its build context, never a choice between two;
