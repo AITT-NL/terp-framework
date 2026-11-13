@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import pathlib
+import re
 import runpy
 import subprocess
 import sys
@@ -105,6 +106,109 @@ def test_the_image_task_reads_the_image_and_compiles_its_bytecode_sources(tmp_pa
     answer = _sandbox.image_task({**payload, "digest": no_bytecode})
     assert compiled[-1] == {}, "the base is read for its configuration even with nothing to compile"
     assert answer["texts"] == {"srv/.venv/pyvenv.cfg": "home = /usr/local/bin\n"}
+
+
+def test_the_image_task_hands_back_what_the_migration_reading_reads_from_the_whole_image(tmp_path: pathlib.Path, monkeypatch) -> None:
+    import base64
+
+    site = "usr/local/lib/python3.14/site-packages"
+    metadata = "srv/.venv/lib/python3.14/site-packages/d-1.dist-info/METADATA"
+    fake = FakeRegistry()
+    pushed = fake.push_image([layer(
+        (f"{site}/x-1.dist-info/entry_points.txt", b"[terp.migrations]\nx = x\n"),
+        (f"{site}/x/migrations/versions/a1.py", b"revision = 'a1'\n"),
+        (metadata, b"Name: d\nVersion: 1\n"), ("usr/bin/python3", b"elf"),
+    )])
+    monkeypatch.setattr(_sandbox, "egress_getter", lambda host, http: fake)
+    answer = _sandbox.image_task({"repository": "registry.example/rel/app", "digest": pushed, "platform": "linux/amd64",
+                                  "http": False, "credentials": None, "tree": str(_tree(tmp_path)), "base": None})
+    directories = ["srv/.venv", "srv/.venv/lib", "srv/.venv/lib/python3.14", "srv/.venv/lib/python3.14/site-packages",
+                   "srv/.venv/lib/python3.14/site-packages/d-1.dist-info"]
+    assert list(answer["nodes"]) == [*directories, metadata], "/srv only: the file, and the directories an engine makes for it"
+    assert all(answer["nodes"][path][0] == "dir" for path in directories)
+    assert answer["texts"] == {metadata: "Name: d\nVersion: 1\n"}, "unchanged"
+    inputs = answer["migrationInputs"]
+    assert inputs["files"] == {
+        f"{site}/x-1.dist-info/entry_points.txt": base64.b64encode(b"[terp.migrations]\nx = x\n").decode(),
+        f"{site}/x/migrations/versions/a1.py": base64.b64encode(b"revision = 'a1'\n").decode(),
+    }
+    assert {"usr", "usr/bin", f"{site}/x/migrations/versions", "srv/.venv/lib/python3.14/site-packages/d-1.dist-info"} <= set(inputs["nodes"])
+    files = {path for path, data in inputs["nodes"].items() if data[0] == "file"}
+    assert files == set(inputs["files"]), "a file is handed back as a node only where its bytes are kept"
+    assert all(data[0] == "dir" for path, data in inputs["nodes"].items() if path not in files)
+
+
+def _image_task(tmp_path: pathlib.Path, monkeypatch, *layers: bytes) -> dict:
+    fake = FakeRegistry()
+    pushed = fake.push_image(list(layers))
+    monkeypatch.setattr(_sandbox, "egress_getter", lambda host, http: fake)
+    return _sandbox.image_task({"repository": "registry.example/rel/app", "digest": pushed, "platform": "linux/amd64",
+                                "http": False, "credentials": None, "tree": str(_tree(tmp_path)), "base": None})
+
+
+def _revision(rev: str, down: str | None, body: str) -> bytes:
+    return f"revision = {rev!r}\ndown_revision = {down!r}\nfrom alembic import op\n\ndef upgrade():\n{body}\n".encode()
+
+
+@pytest.mark.parametrize("below", [False, True], ids=["link-in-its-layer", "link-in-a-layer-below"])
+def test_an_entry_written_through_a_link_is_refused_where_the_listing_reads(tmp_path: pathlib.Path, monkeypatch, below: bool) -> None:
+    """An engine follows a link on an entry's way and writes the file where the link points: here
+    a revision into a capability's versions/, which sign filed under the link's own path and never
+    listed."""
+    versions = "usr/local/lib/python3.14/site-packages/cap/migrations/versions"
+    lower = [("usr/local/lib/python3.14/site-packages/cap-1.0.dist-info/entry_points.txt", b"[terp.migrations]\ncap = cap\n"),
+             ("usr/local/lib/python3.14/site-packages/cap/__init__.py", b""), (versions, None),
+             (f"{versions}/a1_base.py", _revision("a1", None, "    pass")), ("opt/trick", f"/{versions}")]
+    upper = [("opt/trick/b2_evil.py", _revision("b2", "a1", "    op.drop_table('invoice')"))]
+    layers = (layer(*lower), layer(*upper)) if below else (layer(*lower, *upper),)
+    with pytest.raises(ReleaseError, match="the layer writes opt/trick/b2_evil.py through opt/trick, a symbolic link"):
+        _image_task(tmp_path, monkeypatch, *layers)
+
+
+def test_an_entry_written_through_a_link_is_refused_where_the_comparison_reads(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """The same over /srv: a file that lands in the app's sources through a link elsewhere was
+    never held to the tree."""
+    versions = "srv/app/modules/notes/migrations/versions"
+    lower = layer(("srv/app/modules/notes/__init__.py", b""), (versions, None), (f"{versions}/a1_base.py", _revision("a1", None, "    pass")))
+    upper = layer(("opt/t", f"/{versions}"), ("opt/t/b2_evil.py", _revision("b2", "a1", "    op.drop_table('invoice')")))
+    with pytest.raises(ReleaseError, match="the layer writes opt/t/b2_evil.py through opt/t, a symbolic link"):
+        _image_task(tmp_path, monkeypatch, lower, upper)
+
+
+def test_a_path_that_is_no_utf_8_text_is_refused_by_name_not_a_traceback(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """tarfile reads a name's undecodable bytes as lone surrogates, which no answer can carry."""
+    import gzip
+    import io
+    import tarfile
+
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w", format=tarfile.GNU_FORMAT, encoding="utf-8", errors="surrogateescape") as archive:
+        info = tarfile.TarInfo("opt/caf\udce9/notes.txt")
+        info.size = 2
+        archive.addfile(info, io.BytesIO(b"hi"))
+    with pytest.raises(ReleaseError, match=re.escape("the image holds a path that is no UTF-8 text, 'opt/caf\\udce9'")):
+        _image_task(tmp_path, monkeypatch, gzip.compress(raw.getvalue(), mtime=0))
+
+
+def test_a_link_whose_target_is_no_utf_8_text_is_refused_by_name_not_a_traceback(tmp_path: pathlib.Path, monkeypatch, capsys) -> None:
+    """Every link's target crosses to the signer beside the paths, and a target can hold bytes that
+    are no UTF-8 as well: the sandbox's own process died writing its answer."""
+    import gzip
+    import tarfile
+
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w", format=tarfile.GNU_FORMAT, encoding="utf-8", errors="surrogateescape") as archive:
+        info = tarfile.TarInfo("opt/l")
+        info.type = tarfile.SYMTYPE
+        info.linkname = "x\udcff"
+        archive.addfile(info)
+    fake = FakeRegistry()
+    pushed = fake.push_image([gzip.compress(raw.getvalue(), mtime=0)])
+    monkeypatch.setattr(_sandbox, "egress_getter", lambda host, http: fake)
+    payload = {"repository": "registry.example/rel/app", "digest": pushed, "platform": "linux/amd64",
+               "http": False, "credentials": None, "tree": str(_tree(tmp_path)), "base": None}
+    assert _sandbox.main(["image"], io.BytesIO(json.dumps(payload).encode()), io.StringIO()) == 1
+    assert "the image holds a link, opt/l, whose target is no UTF-8 text, 'x\\udcff'" in capsys.readouterr().err
 
 
 def test_the_scan_asks_the_shared_vulnerability_client_and_names_the_database(monkeypatch) -> None:

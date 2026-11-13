@@ -15,7 +15,9 @@ The tasks:
   ``/srv`` is answered with the SHA-256 of the checked-hash compile of the tree's source, made
   by the interpreter of the image's own base, run from that base image by digest with no
   network, a read-only filesystem and no privilege. The base's layers and configuration come
-  back with it, read from the engine that pulled it by digest. The app image is never started;
+  back with it, read from the engine that pulled it by digest, and so does what the reading of
+  the migration histories reads from anywhere in the image (:func:`._image.migration_inputs`).
+  The app image is never started;
 * ``scan``: the SBOM's packages asked of the vulnerability database (OSV's batch API);
 * ``secrets``: gitleaks over the history reachable from the SHA, with gitleaks' own rules and
   the acknowledgements the SHA's tree commits in ``.gitleaksignore``.
@@ -47,7 +49,7 @@ from terp.cli.release._common import (
     run,
 )
 from terp.cli.release._git import SAFE_DIRECTORY, SAFE_DIRECTORY_ENV
-from terp.cli.release._image import read_filesystem
+from terp.cli.release._image import Kept, migration_inputs, read_filesystem
 from terp.cli.release import _osv
 from terp.cli.release._registry import Registry, egress_getter
 
@@ -123,13 +125,41 @@ def compile_in_base(base: str, platform: str, sources: dict[str, bytes]) -> dict
     return {**json.loads(out), "diffIds": found["layers"], "baseConfig": found["config"] or {}}
 
 
+def _text(value: str) -> bool:
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _carried(nodes: dict[str, list[Any]], names: list[str]) -> None:
+    """Refuse a path, or a link's target, no answer can carry: tarfile reads bytes of a name or a
+    target that are no UTF-8 as lone surrogates, which no JSON document written as UTF-8 holds.
+    *nodes* are the nodes handed on, by path, and *names* the paths handed on besides."""
+    for path in sorted({*nodes, *names}):
+        if not _text(path):
+            raise ReleaseError(
+                f"the image holds a path that is no UTF-8 text, {ascii(path)}: the sandbox hands every "
+                "path it reads to the signer as text, and cannot hand on this one; rename it"
+            )
+    for path, data in sorted(nodes.items()):
+        if data[0] == "link" and not _text(data[3]):
+            raise ReleaseError(
+                f"the image holds a link, {path}, whose target is no UTF-8 text, {ascii(data[3])}: the "
+                "sandbox hands every link's target to the signer as text, and cannot hand on this one; "
+                "point the link at a path whose name is UTF-8"
+            )
+
+
 def image_task(payload: dict[str, Any]) -> dict[str, Any]:
     """Read one image as data and answer every bytecode file with the base's compile."""
     host = payload["repository"].split("/", 1)[0]
     credentials = tuple(payload["credentials"]) if payload.get("credentials") else None
     registry = Registry(egress_getter(host, http=payload["http"]), http=payload["http"], credentials=credentials)
     digest, manifest, config = registry.image(payload["repository"], payload["digest"], payload["platform"])
-    nodes, texts = read_filesystem(registry, payload["repository"], manifest)
+    kept = Kept()
+    nodes, texts = read_filesystem(registry, payload["repository"], manifest, kept=kept)
     srv = {path: node.as_data() for path, node in sorted(nodes.items()) if path.startswith("srv/")}
     tree = pathlib.Path(payload["tree"])
     sources = {
@@ -143,6 +173,8 @@ def image_task(payload: dict[str, Any]) -> dict[str, Any]:
     compiled: dict[str, Any] = {"files": {}, "cacheTag": "", "magic": "", "diffIds": []}
     if payload.get("base"):
         compiled = compile_in_base(payload["base"], payload["platform"], sources)
+    inputs = migration_inputs(nodes, kept)
+    _carried({**srv, **inputs["nodes"]}, [*inputs["files"], *inputs["zipped"]])
     return {
         "digest": digest,
         "configDigest": manifest["config"]["digest"],
@@ -150,6 +182,7 @@ def image_task(payload: dict[str, Any]) -> dict[str, Any]:
         "nodes": srv,
         "texts": {path: body for path, body in sorted(texts.items()) if path.startswith("srv/")},
         "compiled": compiled,
+        "migrationInputs": inputs,
     }
 
 

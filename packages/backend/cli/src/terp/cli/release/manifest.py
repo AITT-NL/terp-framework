@@ -11,10 +11,13 @@ signed as a DSSE envelope (:mod:`terp.cli.release.dsse`). Three sections:
   entries the kind units resolve to, the locks, the build arguments, the platform and what the
   build fetches from, derived statically;
 * ``outputs``, checked by ``sign``: each image by repository and digest, with its installed
-  package list, its SBOM and their scans, the secret scan, and the image of every service and
-  unit the release runs. A generated release whose pinned ``terp-arch`` writes it also carries
-  the resolved deployment (terp-spec's ``resolved-deployment``) at ``outputs.deployment``, and
-  each built image's configured volumes; that manifest is version 2, and any other version 1;
+  package list, its SBOM and their scans, the secret scan, the image of every service and
+  unit the release runs, and ``migrations``, every migration history the backend image's
+  upgrade brings to head with its revisions and the operations the static reading recognises in
+  each (ADR 0216). A
+  generated release whose pinned ``terp-arch`` writes it also carries the resolved deployment
+  (terp-spec's ``resolved-deployment``) at ``outputs.deployment``, and each built image's
+  configured volumes; that manifest is version 2, and any other version 1;
 * ``collected``, other jobs' word, recorded as such: the gate's assurance and schedules, the
   build's own account of itself, and the operator's statement of whether the jobs ran on
   separate hosts. Nothing here decides whether a rollback is restore-free: the target's own

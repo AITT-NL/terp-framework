@@ -4,8 +4,9 @@ A reader that lists the migration histories a release carries, a release manifes
 reader for one, needs every revision's identity without importing the revision, because
 importing a revision runs it. So the header is read the way the harness reads
 everything, from the source with :func:`ast.parse`, and nothing here imports or executes
-the file. What the revision's ``upgrade()`` destroys is
-:func:`terp.arch.destructive_operations`, read the same way.
+the file. Whether it depends on a revision beside the ones it follows is
+:func:`revision_depends_on`, and what its ``upgrade()`` destroys is
+:func:`terp.arch.destructive_operations`, each read the same way.
 """
 
 from __future__ import annotations
@@ -67,6 +68,27 @@ def revision_header(source: str) -> RevisionHeader:
     )
 
 
+def revision_depends_on(source: str) -> object:
+    """The ``depends_on`` the revision file *source* assigns, or ``None`` where it assigns none.
+
+    Read as :func:`revision_header` reads ``down_revision``: from the one module-level
+    assignment to it, ``depends_on = <literal>`` or ``depends_on: <annotation> = <literal>``,
+    and returned as written. Alembic's own template writes ``None``, and unlike the header's
+    two names this one may be left out, which Alembic reads as ``None`` too. A revision that
+    depends on another is the only one of the two Alembic writes to the version table, so a
+    reader that follows ``down_revision`` to tell what is applied would count the dependency
+    pending ever after; such a reader refuses anything but ``None``. *source* is parsed with
+    :func:`ast.parse` and is never imported or executed: source that does not parse raises
+    :class:`SyntaxError`, and a ``depends_on`` bound more than once at module level, or by
+    anything but that plain assignment, or to anything but a literal, raises
+    :class:`ValueError` naming it.
+    """
+    tree = ast.parse(source)
+    if not any(_binds(statement, "depends_on") for statement in tree.body):
+        return None
+    return _assigned(tree, "depends_on")
+
+
 def _assigned(tree: ast.Module, name: str) -> object:
     """The literal value of the one module-level binding of *name* in *tree*."""
     bindings = [statement for statement in tree.body if _binds(statement, name)]
@@ -112,4 +134,4 @@ def _binds(statement: ast.stmt, name: str) -> bool:
     )
 
 
-__all__ = ["RevisionHeader", "revision_header"]
+__all__ = ["RevisionHeader", "revision_depends_on", "revision_header"]

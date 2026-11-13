@@ -17,7 +17,7 @@ import tarfile
 
 import pytest
 
-from terp.cli.release import _image, _registry
+from terp.cli.release import _archives, _image, _registry
 from terp.cli.release._common import ReleaseError
 from terp.cli.release._registry import Registry, Response
 
@@ -304,6 +304,255 @@ def test_a_record_is_read_as_the_csv_file_it_is() -> None:
     assert _image.record(f'"pkg/a,b.py",sha256={digest},1\npkg/c.py\n') == [
         ("pkg/a,b.py", hashlib.sha256(b"x").hexdigest()), ("pkg/c.py", "")
     ], "a path with a comma is quoted, and a row may carry no hash at all"
+
+
+def test_the_files_the_migration_reading_reads_keep_their_bytes_wherever_they_lie() -> None:
+    """Every ``entry_points.txt``, and every file directly in a ``migrations/versions/`` directory below
+    a ``site-packages`` or ``dist-packages`` directory, keeps its bytes, a hard link's from the file it
+    names; a layer that removes or replaces one takes them away, and the texts stay as they were."""
+    site = "usr/lib/python3.14/site-packages"
+    state: dict = {}
+    texts: dict = {}
+    kept = _image.Kept()
+    for blob in (
+        layer((f"{site}/x-1.dist-info/entry_points.txt", b"[terp.migrations]\nx = x\n"),
+              (f"{site}/x/migrations/versions/a1.py", b"revision = 'a1'"),
+              (f"{site}/x/migrations/versions/sub/b2.py", b"nested"),
+              ("srv/app/modules/m/migrations/versions/c3.py", b"below no site-packages"),
+              ("opt/gone/entry_points.txt", b"gone"), ("opt/replaced/entry_points.txt", b"old"),
+              ("opt/kept/entry_points.txt", b"kept bytes"), ("opt/source.txt", b"not kept"), ("opt/adir", None),
+              ("opt/renewed/entry_points.txt", b"old bytes")),
+        layer(("opt/gone/.wh.entry_points.txt", b""), ("opt/replaced/entry_points.txt", "/elsewhere"),
+              ("opt/hard/entry_points.txt", "opt/kept/entry_points.txt", "hard"),
+              ("opt/same/data.txt", b"same layer"), ("opt/same/entry_points.txt", "opt/same/data.txt", "hard"),
+              (f"{site}/y/migrations/versions/d4.py", b"d4"),
+              (f"{site}/y/migrations/versions/d5.py", f"{site}/y/migrations/versions/d4.py", "hard"),
+              ("opt/dir/entry_points.txt", "opt/adir", "hard"),
+              ("opt/renewed/entry_points.txt", b"renewed"), ("opt/renewal/entry_points.txt", "opt/renewed/entry_points.txt", "hard")),
+    ):
+        with _image._open(blob, GZIP_LAYER) as archive:
+            _image.apply_layer(state, texts, archive, kept)
+    assert kept.files == {
+        f"{site}/x-1.dist-info/entry_points.txt": b"[terp.migrations]\nx = x\n",
+        f"{site}/x/migrations/versions/a1.py": b"revision = 'a1'",
+        "opt/kept/entry_points.txt": b"kept bytes",
+        "opt/hard/entry_points.txt": b"kept bytes",
+        "opt/same/entry_points.txt": b"same layer",
+        f"{site}/y/migrations/versions/d4.py": b"d4",
+        f"{site}/y/migrations/versions/d5.py": b"d4",
+        "opt/renewed/entry_points.txt": b"renewed",
+        "opt/renewal/entry_points.txt": b"renewed",
+    }, "a link takes the bytes of the file it names in its own layer over a layer below's"
+    assert state["opt/replaced/entry_points.txt"].kind == "link" and state["opt/dir/entry_points.txt"].kind == "dir"
+    assert texts == {}, "what the comparison reads is unchanged"
+    linked = layer(("opt/far/entry_points.txt", "opt/source.txt", "hard"))
+    with _image._open(linked, GZIP_LAYER) as archive, pytest.raises(
+        ReleaseError, match="links opt/far/entry_points.txt to opt/source.txt, a file of a layer below whose bytes sign did not keep"
+    ):
+        _image.apply_layer(state, texts, archive, kept)
+    with _image._open(linked, GZIP_LAYER) as archive:
+        _image.apply_layer(state, texts, archive)
+    assert state["opt/far/entry_points.txt"] == state["opt/source.txt"], "a reading that keeps no bytes reads it as before"
+
+
+def test_a_hard_link_takes_the_bytes_of_the_file_its_own_layer_holds_under_that_name() -> None:
+    """tarfile's own link lookup does not root names: ``opt/x`` and ``/opt/x`` were two files to it
+    and one to the engine, so a link took the first spelling's bytes and the node the second's."""
+    harmless, destructive = b"op.create_table('note')", b"op.drop_table('invoice')"
+    revision = "usr/lib/python3.14/site-packages/cap/migrations/versions/r1_x.py"
+    for entries in (
+        (("opt/x/entry_points.txt", harmless), ("/opt/x/entry_points.txt", destructive), (revision, "opt/x/entry_points.txt", "hard")),
+        (("/opt/x/entry_points.txt", destructive), (revision, "opt/x/entry_points.txt", "hard")),
+    ):
+        state: dict = {}
+        kept = _image.Kept()
+        with _image._open(layer(*entries), GZIP_LAYER) as archive:
+            _image.apply_layer(state, {}, archive, kept)
+        assert kept.files[revision] == destructive == kept.files["opt/x/entry_points.txt"], "the engine's file, by the signer's own names"
+        assert state[revision].sha256 == hashlib.sha256(destructive).hexdigest()
+
+
+def test_a_chain_of_hard_links_to_a_file_below_takes_that_file_s_bytes() -> None:
+    state: dict = {}
+    kept = _image.Kept()
+    for blob in (layer(("opt/a/entry_points.txt", b"below")),
+                 layer(("opt/b/entry_points.txt", "opt/a/entry_points.txt", "hard"), ("opt/c/entry_points.txt", "opt/b/entry_points.txt", "hard"))):
+        with _image._open(blob, GZIP_LAYER) as archive:
+            _image.apply_layer(state, {}, archive, kept)
+    assert kept.files == {"opt/a/entry_points.txt": b"below", "opt/b/entry_points.txt": b"below", "opt/c/entry_points.txt": b"below"}
+
+
+def test_a_hard_link_to_a_zip_archive_carries_its_entry_points() -> None:
+    """In its own layer, and across a whiteout of the archive below: the link is the archive now."""
+    import zipfile
+
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w") as archive:
+        archive.writestr("x-1.dist-info/entry_points.txt", b"[terp.migrations]\nx = x\n")
+    state: dict = {}
+    kept = _image.Kept()
+    for blob in (layer(("opt/below.zip", raw.getvalue())),
+                 layer(("opt/.wh.below.zip", b""), ("opt/across.zip", "opt/below.zip", "hard"),
+                       ("opt/here.zip", raw.getvalue()), ("opt/beside.zip", "opt/here.zip", "hard"))):
+        with _image._open(blob, GZIP_LAYER) as archive:
+            _image.apply_layer(state, {}, archive, kept)
+    members = {"x-1.dist-info/entry_points.txt": b"[terp.migrations]\nx = x\n"}
+    assert kept.zipped == {"opt/across.zip": members, "opt/beside.zip": members, "opt/here.zip": members}
+
+
+def _keep(*blobs: bytes) -> object:
+    state: dict = {}
+    kept = _image.Kept()
+    for blob in blobs:
+        with _image._open(blob, GZIP_LAYER) as archive:
+            _image.apply_layer(state, {}, archive, kept)
+    return kept
+
+
+def test_what_crosses_from_the_sandbox_is_bounded_file_by_file() -> None:
+    """A layer of a few kilobytes held a file of 128 MiB of one byte, every byte of it kept and sent
+    on in base64: one kept file is at most 1 MiB, an archive's entry_points.txt included."""
+    import zipfile
+
+    most = 1 << 20
+    assert _image.MOST_KEPT_FILE == most and _image.MOST_ANSWER == 32 << 20 and _image.MOST_PATHS == 250_000
+    assert _archives.MOST_MEMBERS == 100_000
+    assert _keep(layer(("opt/a/entry_points.txt", b"#" * most))).files["opt/a/entry_points.txt"] == b"#" * most
+    with pytest.raises(ReleaseError, match=f"opt/b/entry_points.txt is {most + 1} bytes, more than the {most} sign keeps of one file"):
+        _keep(layer(("opt/b/entry_points.txt", b"#" * (most + 1))))
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("x-1.dist-info/entry_points.txt", b"#" * (most + 1))
+    with pytest.raises(ReleaseError, match=f"opt/c.zip: x-1.dist-info/entry_points.txt is {most + 1} bytes, more than the {most} sign keeps"):
+        _keep(layer(("opt/c.zip", raw.getvalue())))
+
+
+def test_an_archive_s_member_is_read_no_further_than_the_bound() -> None:
+    """A member that inflates to 64 MiB is refused having read 1 MiB of it, not all of it."""
+    import tracemalloc
+    import zipfile
+
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("x-1.dist-info/entry_points.txt", bytes(64 << 20))
+    blob = layer(("opt/bomb.zip", raw.getvalue()))
+    tracemalloc.start()
+    try:
+        with pytest.raises(ReleaseError, match="opt/bomb.zip: x-1.dist-info/entry_points.txt is"):
+            _keep(blob)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < 16 << 20, f"read {peak} bytes for a member refused past 1 MiB"
+
+
+def test_what_crosses_from_the_sandbox_is_bounded_in_all(monkeypatch) -> None:
+    """The kept bytes and every name the answer carries share one bound: the paths, counted as JSON
+    writes them, the directories they make among them, and a link's target and a kept member's name."""
+    import zipfile
+
+    names = len('"opt"') + len('"opt/a"') + len('"opt/a/entry_points.txt"')
+    monkeypatch.setattr(_image, "MOST_ANSWER", names + 6 + 10)
+    _keep(layer(("opt/a/entry_points.txt", b"123456")))
+    with pytest.raises(ReleaseError, match="what sign hands on of the image, its names and the files it keeps, comes to more than 52 bytes at opt/b"):
+        _keep(layer(("opt/a/entry_points.txt", b"123456")), layer(("opt/b/entry_points.txt", b"123456")))
+    with pytest.raises(ReleaseError, match="comes to more than 52 bytes at the target of opt/link"):
+        _keep(layer(("opt/a/entry_points.txt", b"123456")), layer(("opt/link", "/" + "t" * 40)))
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w") as archive:
+        archive.writestr("d" * 60 + ".dist-info/entry_points.txt", b"")
+    bound = len('"opt"') + len('"opt/x.zip"') + 40
+    monkeypatch.setattr(_image, "MOST_ANSWER", bound)
+    with pytest.raises(ReleaseError, match=f"comes to more than {bound} bytes at opt/x.zip: d{{60}}.dist-info/entry_points.txt"):
+        _keep(layer(("opt/x.zip", raw.getvalue())))
+
+
+def test_the_bound_counts_what_layers_below_left_and_what_a_hard_link_repeats(monkeypatch) -> None:
+    """Each layer starts from what the image holds by then: its paths, its links' targets, its kept
+    members' names. A hard link to an archive hands the archive's members on a second time."""
+    import zipfile
+
+    def size(text: str) -> int:
+        return len(json.dumps(text))
+
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w") as archive:
+        archive.writestr("d" * 60 + ".dist-info/entry_points.txt", b"")
+    member = size("d" * 60 + ".dist-info/entry_points.txt")
+    target = "/" + "t" * 30
+    below = size("opt") + size("opt/l") + size(target)
+    monkeypatch.setattr(_image, "MOST_ANSWER", below + size("opt/m") - 1)
+    _keep(layer(("opt/l", target)))
+    with pytest.raises(ReleaseError, match="comes to more than .* bytes at opt/m"):
+        _keep(layer(("opt/l", target)), layer(("opt/m", b"")))
+    zipped = size("opt") + size("opt/z.zip") + member
+    monkeypatch.setattr(_image, "MOST_ANSWER", zipped + size("opt/m") - 1)
+    _keep(layer(("opt/z.zip", raw.getvalue())))
+    with pytest.raises(ReleaseError, match="comes to more than .* bytes at opt/m"):
+        _keep(layer(("opt/z.zip", raw.getvalue())), layer(("opt/m", b"")))
+    monkeypatch.setattr(_image, "MOST_ANSWER", zipped + size("opt/h.zip") + member - 1)
+    with pytest.raises(ReleaseError, match="comes to more than .* bytes at opt/h.zip: d{60}"):
+        _keep(layer(("opt/z.zip", raw.getvalue()), ("opt/h.zip", "opt/z.zip", "hard")))
+
+
+def test_a_zip_archive_of_more_members_than_sign_reads_is_refused(monkeypatch) -> None:
+    import zipfile
+
+    monkeypatch.setattr(_archives, "MOST_MEMBERS", 2)
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w") as archive:
+        for name in ("a", "b", "c"):
+            archive.writestr(name, b"")
+    with pytest.raises(ReleaseError, match="opt/x.zip is a zip archive of 3 members, more than the 2 sign reads of one archive"):
+        _keep(layer(("opt/x.zip", raw.getvalue())))
+
+
+@pytest.mark.parametrize(
+    ("entry", "refusal"),
+    [
+        (("opt/" + "d/" * 2047 + "f", b""), "a path of 4099 bytes, longer than the 4096 an engine writes"),
+        (("opt/" + "n" * 256, None), "a name of 256 bytes, longer than the 255 an engine writes"),
+        (("opt/link", "/" + "t" * 4095), "a link to a target of 4096 bytes, longer than the 4095 an engine writes"),
+    ],
+    ids=["path", "name", "target"],
+)
+def test_an_entry_no_engine_writes_is_refused(entry: tuple, refusal: str) -> None:
+    """One path of a thousand one-letter directories made a thousand directories the answer carried:
+    no engine writes a path, a name or a link's target past the kernel's limits."""
+    with pytest.raises(ReleaseError, match=refusal):
+        _keep(layer(entry))
+
+
+def test_the_directories_a_path_makes_are_paths_of_the_image(monkeypatch) -> None:
+    monkeypatch.setattr(_image, "MOST_PATHS", 5)
+    _keep(layer(("a/b/c/d/e", b"")))
+    with pytest.raises(ReleaseError, match="the image holds 6 paths by a/b/c/d/e/f, more than the 5"):
+        _keep(layer(("a/b/c/d/e/f", b"")))
+
+
+def test_the_path_bound_counts_each_path_once(monkeypatch) -> None:
+    """A layer that rewrites what the image holds, as a ``chown -R`` does, adds no path: an image of
+    six paths, all rewritten, was refused as one of more than ten."""
+    monkeypatch.setattr(_image, "MOST_PATHS", 10)
+    six = [(f"p{i}", b"x") for i in range(6)]
+    _keep(layer(*six), layer(*six), layer(*six))
+    with pytest.raises(ReleaseError, match="the image holds 11 paths by p10, more than the 10 sign reads of one image"):
+        _keep(layer(*six), layer(*six, *[(f"p{i}", b"x") for i in range(6, 11)]))
+
+
+def test_the_migration_inputs_are_every_path_but_a_file_and_the_kept_bytes() -> None:
+    state = {
+        "a/b/c.txt": _image.Node("file", "1", 1), "a/link": _image.Node("link", target="x"), "a/fifo": _image.Node("other"),
+        "d": _image.Node("dir"), "d/e/f": _image.Node("file", "2", 1), "x": _image.Node("file", "3", 1),
+        "x/y": _image.Node("file", "4", 1),
+    }
+    assert _image.migration_inputs(state, _image.Kept({"a/b/c.txt": b"bytes"})) == {
+        "nodes": {"a": ["dir", "", 0, ""], "a/b": ["dir", "", 0, ""], "a/b/c.txt": ["file", "1", 1, ""],
+                  "a/fifo": ["other", "", 0, ""], "a/link": ["link", "", 0, "x"], "d": ["dir", "", 0, ""],
+                  "d/e": ["dir", "", 0, ""]},
+        "files": {"a/b/c.txt": base64.b64encode(b"bytes").decode()},
+        "zipped": {},
+    }, "a directory only the paths below it make is one, a file is never taken for one, and a kept file has its node"
 
 
 def test_an_opaque_root_empties_everything_below_and_a_dangling_hard_link_is_refused() -> None:

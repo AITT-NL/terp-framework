@@ -8,6 +8,7 @@ import, and ``sign`` signs it: nothing of the app runs.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import pathlib
 import re
@@ -27,6 +28,7 @@ from tests.architecture.release_fixtures import SITE_LOCK, PROJECT, TOOLCHAIN, a
 from tests.architecture.test_release_compare import faithful
 from tests.architecture.test_release_dsse import pem_private, pem_public
 from tests.architecture.test_release_image import FakeRegistry, layer
+from tests.architecture.test_release_migrations import revision, with_paths
 from tests.architecture.test_release_render import build_wheel, table
 
 REGISTRY = "127.0.0.1:5000/rel"
@@ -139,6 +141,7 @@ def test_sign_signs_a_release_whose_app_fails_on_import_and_runs_none_of_it(tmp_
     assert out["services"]["api"] == out["services"]["migrate"] == f"{REGISTRY}/{NAME}@{release.digest}"
     assert out["units"]["db"].startswith("postgres@sha256:") and out["units"]["api"] == out["services"]["api"]
     assert out["secretScan"] == {"tool": "gitleaks", "version": "8.30.1", "findings": 0}
+    assert out["migrations"] == {}, "the app has no module and the image no capability: every history, none"
     assert "migrationHeads" not in collected and "heads" not in json.dumps(out)
     assert collected == {"schedules": SCHEDULES, "assurance": ASSURANCE, "hosts": "separated",
                          "build": {"builder": {"buildkit": "v0.34.1"}, "images": [
@@ -492,3 +495,63 @@ def test_an_image_built_for_another_platform_than_recorded_is_refused(tmp_path: 
     write_document(release.build_doc, {**json.loads(release.build_doc.read_text()), "platform": "linux/arm64"})
     with pytest.raises(ReleaseError, match="is built for linux/amd64, not linux/arm64"):
         release.sign()
+
+
+def test_the_manifest_lists_each_migration_history_the_upgrade_brings_to_head(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """ADR 0216: a module's history read from the tree the image holds, and a capability's from the
+    distribution the image installs, here outside ``/srv``, where the comparison holds nothing."""
+    release = Release(tmp_path, monkeypatch, app_files() | {
+        "app/modules/notes/__init__.py": b"",
+        "app/modules/notes/migrations/versions/a1_create.py": revision("a1"),
+        "app/modules/notes/migrations/versions/b2_contract.py": revision("b2", "a1", "    op.drop_table('draft_note')\n"),
+    })
+    site = "usr/local/lib/python3.14/site-packages"
+    release.answer = with_paths(release.answer, {
+        f"{site}/terp_cap_notes-1.0.dist-info/entry_points.txt": b"[terp.migrations]\nnotes_cap = terp.capabilities.notes_cap\n",
+        f"{site}/terp/capabilities/notes_cap/migrations/versions/c1_x.py": revision("c1"),
+    })
+    release.sign()
+    manifest = parse((tmp_path / "out" / sign.MANIFEST).read_bytes().strip())
+    assert manifest["outputs"]["migrations"] == {
+        "notes": {"revisions": [{"id": "a1", "down": []}, {"id": "b2", "down": ["a1"]}],
+                  "operations": [{"revision": "b2", "ordinal": 1, "kind": "drop", "operation": "drop_table draft_note"}]},
+        "notes_cap": {"revisions": [{"id": "c1", "down": []}], "operations": []},
+    }
+
+
+def test_a_release_whose_migrations_cannot_be_listed_is_not_signed(tmp_path: pathlib.Path, monkeypatch) -> None:
+    release = Release(tmp_path, monkeypatch, app_files() | {
+        "app/modules/notes/migrations/versions/a1_x.py": revision("a1", depends_on="z9"),
+    })
+    expected = (
+        f"the migration histories of {REGISTRY}/{NAME}@{release.digest} cannot be listed:\n"
+        "- app/modules/notes/migrations/versions/a1_x.py sets depends_on to 'z9'"
+    )
+    with pytest.raises(ReleaseError, match=re.escape(expected)):
+        release.sign()
+    assert not (tmp_path / "out").exists(), "nothing is signed"
+
+
+def test_an_operation_text_no_utf_8_document_holds_is_refused_not_a_traceback(tmp_path: pathlib.Path, monkeypatch) -> None:
+    release = Release(tmp_path, monkeypatch, app_files() | {
+        "app/modules/notes/migrations/versions/a1_x.py": revision(
+            "a1", None, "    op.drop_table('\\ud800')  # arch-allow-no-destructive-migrations: retired table\n"),
+    })
+    with pytest.raises(ReleaseError, match=re.escape(
+        "- app/modules/notes/migrations/versions/a1_x.py, a revision of the migration history 'notes', lists "
+        "the operation 'drop_table \\ud800', whose text holds a lone surrogate")):
+        release.sign()
+    assert not (tmp_path / "out").exists(), "nothing is signed"
+
+
+@pytest.mark.parametrize("service", ["db", "web"])
+def test_the_upgrade_is_read_from_a_backend_image_or_nothing_is_signed(tmp_path: pathlib.Path, monkeypatch, service: str) -> None:
+    """The image a migration step runs on is the one whose histories are listed: a datastore's or
+    the web tier's is no image sign reads, so a step on one is refused before anything is read."""
+    release = Release(tmp_path, monkeypatch, app_files(web=True))
+    _push_web(release, (f"{PROJECT}-frontend-prod", "frontend/Dockerfile.prod", "web"))
+    planned = sign.release_plan
+    monkeypatch.setattr(sign, "release_plan", lambda tree, root, table: dataclasses.replace(planned(tree, root, table), migration_step=service))
+    with pytest.raises(ReleaseError, match=f"service {service} runs the migration step on no backend image this commit builds"):
+        release.sign()
+    assert release.tasks == [], "nothing was read"

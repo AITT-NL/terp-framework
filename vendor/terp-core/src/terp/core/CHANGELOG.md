@@ -82,6 +82,56 @@ decision, 0001 onwards.
   named in `not_checked`. `--osv` naming a mirror, or `--send-private-names`, sends them too. A
   package from a path, a git repository or a URL that is no registry's is never sent, nor is
   the project itself. `terp guide maintenance` covers scheduling and what each finding asks.
+- **`terp release sign` lists every migration history the backend image brings to head, in
+  the signed manifest (ADR 0216).** A deploy tool that has a person confirm the revisions a
+  deploy applies had nothing to show of what each does: no field of the manifest named a
+  revision or an operation. `outputs.migrations` does, keyed by history label, each
+  `{"revisions": [{"id", "down"}], "operations": [{"revision", "ordinal", "kind",
+  "operation"}]}`: every revision with the revisions it follows (none for a base, several for
+  a merge), and the operations of its `upgrade()` the static reading recognises, as
+  `destructive_operations` lists them, excused by their marker or not, `opaque` ones included.
+  What the reading does not recognise is not listed: an `UPDATE` that nulls a column lists
+  nothing, and a `revision` rebound inside an `if` is listed under its top-level assignment.
+  Every array is sorted by code point, so one image and one tree give one byte string. The
+  histories are the ones `terp migrate upgrade` finds in the image, under the labels
+  `resolve_all_migration_trees` gives them, read as data and never imported:
+  - a capability's, from each `[terp.migrations]` section of an `entry_points.txt` in a
+    `*.dist-info` or `*.egg-info` directory anywhere in the image, its revisions read from
+    the package where its distribution installed it, in the same `site-packages` or
+    `dist-packages` directory. A zip archive whose `entry_points.txt` declares a history is
+    refused wherever it lies, because importlib.metadata reads the distributions in a zip on
+    the interpreter's path. The sandbox hands those files back from anywhere in the image,
+    beside what it handed back before, which is unchanged, and refuses by name an
+    `entry_points.txt` in a zip archive that it cannot read, since the image's own Python may
+    (3.14 reads a member compressed with Zstandard, 3.13 does not), an entry past the kernel's
+    limits on a path, a name or a link's target, and what passes its bounds: 1 MiB for one
+    file, 32 MiB for the kept bytes and every name handed on together, 250,000 paths in one
+    image with the directories its paths make, and 100,000 members in one zip archive;
+  - an app module's, from the commit's tree under `app/modules/`, which the image holds at
+    `/srv/app`, the root the migration step passes. The image must hold the same modules and
+    the same revision files, byte for byte.
+
+  A history with no revision yet is listed with both arrays empty. `sign` refuses, naming
+  what it found and what to change: a `[terp.migrations]` section outside such a
+  distribution; a package its distribution does not hold in place (an editable install, a
+  `.pth` path); a second copy of a capability's package anywhere else in the image, which a
+  `PYTHONPATH` entry would run in its place; a symbolic link where a reading would pass;
+  bytes the sandbox kept that are not the file the image holds there; a path or a link's
+  target that is no UTF-8 text; a module or a revision file in which the image and the tree
+  differ; a revision that is no
+  source text the interpreter can decode, that does not parse, that nests too deeply to read,
+  or whose header cannot be read for certain; an id or a parent outside
+  `^[0-9A-Za-z_]{1,64}$`, a parent named twice, or a `depends_on` other than `None`; an
+  operation whose text holds a lone surrogate; a revision id given twice in one history, a
+  parent that is no revision of it, or a cycle; two
+  histories with one label, or a label outside `^[a-z0-9_]{1,47}$`; and more histories (64),
+  revisions or operations in one history (4,096), or parents of one revision (16), than a
+  deploy's plan holds. On this repository's capabilities the field holds three steps in all:
+  the webhooks capability's type change and the audit capability's two computed trigger
+  statements.
+- **`terp.arch.revision_depends_on(source)`** reads a revision's `depends_on` as
+  `revision_header` reads `down_revision`, from its one plain module-level assignment, and
+  returns it as written, `None` where the file assigns none. It imports and runs nothing.
 
 ### Changed
 
@@ -98,6 +148,14 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **`sign` refuses a layer that writes through a symbolic link.** An engine follows a link on
+  an entry's way and writes the entry where the link points: a layer holding a link `opt/t` to
+  `/srv/app/modules/notes/migrations/versions` and a file `opt/t/b2.py` puts `b2.py` among the
+  app's revisions. `sign` filed each entry under its own name, so it held `/srv` to the tree,
+  and listed the migration histories, without that file. It now refuses such an entry by name,
+  with the link it passes through, whether the link is in the entry's own layer or in one
+  below. A layer an image builder writes records each file where it lies, so it holds no such
+  entry.
 - **`canonical()` refuses what JSON readers do not read back alike.** Every release document
   `sign` and `promote` write (the manifest, the SBOMs, the envelope) is now refused at an
   integer past ±(2^53 - 1) and at objects or arrays nested deeper than 64, the document itself
@@ -115,6 +173,10 @@ decision, 0001 onwards.
 
 - `copier update` adds `terp-cap-egress` to the `dev` group of `pyproject.toml`; run `uv sync`.
   An app that does not re-render can add `"terp-cap-egress==0.43.0"` to that group by hand.
+- `sign` now refuses a release whose migration histories it cannot list, where it signed it
+  before. The likeliest causes: a revision that sets `depends_on`, a revision id holding a
+  character other than a letter, a digit or `_`, an app module whose name holds an upper-case
+  letter, and a capability installed editable. Each refusal names the file and the change.
 
 ## 0.42.1 — unreleased
 

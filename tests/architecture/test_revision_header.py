@@ -14,7 +14,7 @@ import runpy
 
 import pytest
 
-from terp.arch import RevisionHeader, revision_header
+from terp.arch import RevisionHeader, revision_depends_on, revision_header
 from tests.architecture.rule_layout import corpus_root
 
 _REPO = pathlib.Path(__file__).resolve().parents[2]
@@ -110,6 +110,38 @@ def test_source_that_does_not_parse_is_refused() -> None:
         revision_header("revision = 'a1'\ndown_revision = (\n")
 
 
+@pytest.mark.parametrize(
+    "source,depends_on",
+    [
+        # Left out, which Alembic reads as None; and as its template writes it.
+        ("revision = 'a1'\ndown_revision = None\n", None),
+        ("revision = 'b2'\ndown_revision = 'a1'\ndepends_on: str | None = None\n", None),
+        ("revision = 'b2'\ndown_revision = 'a1'\ndepends_on = 'z9'\n", "z9"),
+        ("revision = 'b2'\ndown_revision = 'a1'\ndepends_on = ['y8', 'z9']\n", ["y8", "z9"]),
+        # A bare annotation binds nothing.
+        ("depends_on: str\n", None),
+    ],
+)
+def test_depends_on_is_read_as_written(source: str, depends_on: object) -> None:
+    assert revision_depends_on(source) == depends_on
+
+
+@pytest.mark.parametrize(
+    "source,refusal",
+    [
+        ("depends_on = None\ndepends_on = 'z9'\n", "the revision binds 'depends_on' 2 times at module level"),
+        ("depends_on = DEPENDS\n", "'depends_on' must be assigned a literal"),
+        ("depends_on, x = None, 1\n", "'depends_on' must be assigned on its own, as `depends_on = <literal>`"),
+    ],
+)
+def test_a_depends_on_that_cannot_be_read_for_certain_is_refused(source: str, refusal: str) -> None:
+    with pytest.raises(ValueError) as refused:
+        revision_depends_on(source)
+    assert str(refused.value) == refusal
+    with pytest.raises(SyntaxError):
+        revision_depends_on(source + "depends_on = (\n")
+
+
 def test_the_revision_is_never_executed(tmp_path: pathlib.Path) -> None:
     ran = tmp_path / "ran"
     source = (
@@ -153,3 +185,4 @@ def test_the_header_is_what_alembic_reads(path: pathlib.Path) -> None:
     header = revision_header(path.read_text(encoding="utf-8"))
     assert header.revision == module["revision"]
     assert header.down_revision == (tuple(expected) if isinstance(expected, list) else expected)
+    assert revision_depends_on(path.read_text(encoding="utf-8")) == module.get("depends_on")
