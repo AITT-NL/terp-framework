@@ -96,8 +96,11 @@ decision, 0001 onwards.
   - a capability's, from each `[terp.migrations]` section of an `entry_points.txt` in a
     `*.dist-info` or `*.egg-info` directory anywhere in the image, its revisions read from
     the package where its distribution installed it, in the same `site-packages` or
-    `dist-packages` directory. The sandbox hands those files back from anywhere in the image,
-    beside what it handed back before, which is unchanged;
+    `dist-packages` directory. A zip archive whose `entry_points.txt` declares a history is
+    refused wherever it lies, because importlib.metadata reads the distributions in a zip on
+    the interpreter's path. The sandbox hands those files back from anywhere in the image,
+    beside what it handed back before, which is unchanged, and refuses past three bounds by
+    name: 1 MiB for one file, 32 MiB in all, and 250,000 paths in one image;
   - an app module's, from the commit's tree under `app/modules/`, which the image holds at
     `/srv/app`, the root the migration step passes. The image must hold the same modules and
     the same revision files, byte for byte.
@@ -106,12 +109,14 @@ decision, 0001 onwards.
   what it found and what to change: a `[terp.migrations]` section outside such a
   distribution; a package its distribution does not hold in place (an editable install, a
   `.pth` path); a second copy of a capability's package anywhere else in the image, which a
-  `PYTHONPATH` entry would run in its place; a symbolic link where a reading would pass; a
-  module or a revision file in which the image and the tree differ; a revision that is no
+  `PYTHONPATH` entry would run in its place; a symbolic link where a reading would pass;
+  bytes the sandbox kept that are not the file the image holds there; a path that is no UTF-8
+  text; a module or a revision file in which the image and the tree differ; a revision that is no
   source text the interpreter can decode, that does not parse, that nests too deeply to read,
   or whose header cannot be read for certain; an id or a parent outside
-  `^[0-9A-Za-z_]{1,64}$`, a parent named twice, or a `depends_on` other than `None`; a
-  revision id given twice in one history, a parent that is no revision of it, or a cycle; two
+  `^[0-9A-Za-z_]{1,64}$`, a parent named twice, or a `depends_on` other than `None`; an
+  operation whose text holds a lone surrogate; a revision id given twice in one history, a
+  parent that is no revision of it, or a cycle; two
   histories with one label, or a label outside `^[a-z0-9_]{1,47}$`; and more histories (64),
   revisions or operations in one history (4,096), or parents of one revision (16), than a
   deploy's plan holds. On this repository's capabilities the field holds three steps in all:

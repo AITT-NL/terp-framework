@@ -45,14 +45,21 @@ history comes from the wheel the image installs, and the webhooks capability's
    and operations by revision then ordinal, all by code point, so one image and one tree give
    one byte string; the manifest goes through `canonical()` as before. A history whose
    `versions/` holds no revision yet is listed with both arrays empty, so a unit may name it.
-   The field is additive: `schemaVersion` stays 1, and `terp promote` does not read it.
+   The field is additive: it changes no manifest's `schemaVersion`, which is 1, or 2 where the
+   manifest carries the resolved deployment (ADR 0215), and `terp promote` does not read it.
 2. **Which histories.** The trees `terp.core.migrations.resolve_all_migration_trees` finds in
    the image, under the labels it gives them:
    - **a capability's**, for each line `label = import.path` or `label = import.path:attr` of a
      `[terp.migrations]` section in the `entry_points.txt` of a `*.dist-info` or `*.egg-info`
-     directory anywhere in the image, as `importlib.metadata` finds them on any path entry. The
-     distribution must sit directly in a `site-packages` or `dist-packages` directory, and its
-     package at `<that directory>/<import path>/`;
+     directory anywhere in the image, wherever a path entry could hold it: the interpreter's
+     own, a `.pth` file's or `PYTHONPATH`'s. The distribution must sit directly in a
+     `site-packages` or `dist-packages` directory, and its package at
+     `<that directory>/<import path>/`. importlib.metadata also reads the distributions in a
+     zip archive on the interpreter's path, its default entry (`lib/python313.zip` on 3.13)
+     among them, and sign reads no history from one, so an archive whose `entry_points.txt`
+     declares a history is refused wherever it lies. A finder that an `import` line of a `.pth`
+     file or a `sitecustomize` installs as the interpreter starts can supply distributions from
+     anywhere, and is beyond the reading;
    - **an app module's**, for each directory `modules/<name>/` of the app root whose name does
      not begin with `_`, read from the commit's tree, which the gate read. The root is the one
      the migration step passes, `--app-root /srv/app` (`MIGRATION_STEP`), and the tree's `app/`
@@ -64,12 +71,20 @@ history comes from the wheel the image installs, and the webhooks capability's
    `__init__x.py` is not.
 3. **The image is read in the sandbox, and `sign` judges.** The sandbox's image task hands back,
    beside what it handed back before (unchanged), every path of the whole image that is no
-   regular file, including each directory only the paths below it make, and the bytes of every
-   `entry_points.txt` and of every file directly in a `migrations/versions/` directory below a
-   `site-packages` or `dist-packages` directory. A hard link takes the bytes of the file it
-   names; one to a file of a layer below whose bytes were not kept is refused rather than read
-   as empty. The image is the one the migration step's service runs or, with no step, the one
-   `api` unit's: the image whose upgrade brings every history to head.
+   regular file, including each directory only the paths below it make; the bytes of every
+   `entry_points.txt`, whatever its directory is called, and of every file directly in a
+   `migrations/versions/` directory below a `site-packages` or `dist-packages` directory, each
+   with its node; and the bytes of every `entry_points.txt` each zip archive holds, read as
+   importlib.metadata reads one. A hard link takes the bytes of the file its own layer last
+   wrote under the name it gives, rooted as every entry is, or the bytes kept for a file
+   below; one to a file below whose bytes were not kept is refused rather than read as empty.
+   The task refuses, by name: an entry whose way passes through a symbolic link, in its layer
+   or one below, which an engine writes where the link points; a path that is no UTF-8 text,
+   which it cannot hand on; one kept file over 1 MiB, more than 32 MiB kept in all, and an
+   image of more than 250,000 paths. An `entry_points.txt` holds a few kilobytes and a
+   revision tens; a large app's image holds tens of thousands of paths. The image is the one
+   the migration step's service runs or, with no step, the one `api` unit's: the image whose
+   upgrade brings every history to head.
 4. **Each revision** is decoded as the interpreter decodes a module (PEP 263) and read with
    `revision_header`, `revision_depends_on` and `destructive_operations`, each from the source.
    `revision_depends_on` is new in `terp.arch`: it reads `depends_on` by `revision_header`'s
@@ -86,6 +101,8 @@ history comes from the wheel the image installs, and the webhooks capability's
      package or a directory on the way to it, the app's modules, a module, a `migrations/` or
      `versions/` directory, any entry of `versions/`), and anything else there that is neither a
      file nor a directory: the upgrade would read through it to code no list names;
+   - kept bytes that do not hash to the node of the file the image holds there, so sign cannot
+     tell which the upgrade would read;
    - an app module, or a revision file of one, that only the image or only the tree holds, or
      whose bytes differ: the list must be what the image runs, and what the image runs must be
      what the gate read;
@@ -94,7 +111,7 @@ history comes from the wheel the image installs, and the webhooks capability's
      certain; an id or a parent outside `^[0-9A-Za-z_]{1,64}$`; a parent named twice; a
      `depends_on` other than `None`, because Alembic then writes only the dependent revision to
      the version table, and a reader that follows `down` would count the other pending ever
-     after;
+     after; an operation whose text holds a lone surrogate, which no UTF-8 document holds;
    - a revision id given twice in one history, a parent that is no revision of it, a cycle;
    - two histories with one label, which would share `alembic_version_<label>`; a label outside
      `^[a-z0-9_]{1,47}$`, since that table's name holds 63 characters;
@@ -104,31 +121,20 @@ history comes from the wheel the image installs, and the webhooks capability's
 
 ## What it does not do
 
-- **It reads no argument list.** The owner decided on 2026-11-13 that the runner runs the
-  migration step with an argument list of its own, `terp migrate upgrade --app-root /srv/app`,
-  and no migration command an app wrote. So `sign` does not read a service's `command`,
-  `entrypoint`, `working_dir` or the image's `CMD` to find the app root, nor a `PYTHONPATH`,
-  nor the step's mounts. A copy of a capability's package that a path entry could reach is
-  refused wherever it lies instead.
-- **It sees no finder installed as the interpreter starts** (a `.pth` file's `import` line, a
-  `sitecustomize`), which can map an import path anywhere, and no migration run by other means
-  than `terp migrate`, an app calling Alembic itself or a script an argv only names.
-- **It reads a header as `revision_header` reads it**: the plain top-level assignment. A header
-  rebound in an `if`, by a walrus or from a function called at import is listed under the id
-  that assignment gives. Holding a revision module to a plain shape, and the gate refusing the
-  other forms, are not part of this change; neither are the changes to what
-  `destructive_operations` reads as opaque that the same request names.
-- **`canonical()` is unchanged.** It still refuses a float, and refuses no large integer and no
-  deep nesting; nothing in the field is either.
-- **There is no `terp migrate graph`** that prints the graph Alembic loads, for a deploy to hold
-  the list to at boot.
+- **The listing does not decide what is confirmed.** Under the owner's decision 9 of
+  2026-11-13, production confirms every pending revision, and the listing of a revision's
+  operations describes that revision.
+- **A listing that misses a revision is caught at deploy time**, by the runner's comparison of
+  `outputs.migrations` with what `terp migrate graph`, now in the framework, prints of the graph
+  Alembic loads in the release's image.
 
 ## Consequences
 
 - A release `sign` signed before can be refused now: a revision that sets `depends_on`, an id
   holding a character other than a letter, a digit or `_`, a module whose name holds an
-  upper-case letter, a capability installed editable. The template, the example app, the
-  reference app and this repository's capabilities have none of these.
+  upper-case letter, a capability installed editable or declared inside a zip archive. The
+  template, the example app, the reference app and this repository's capabilities have none of
+  these.
 - On this repository's capabilities the field holds three steps in all: the webhooks
   capability's type change, and the audit capability's two trigger statements, which are
   computed and so listed `opaque`. Every release that carries the audit capability lists those
