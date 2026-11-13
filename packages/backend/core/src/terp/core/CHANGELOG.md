@@ -146,6 +146,12 @@ decision, 0001 onwards.
 - **A generated app's development group carries `terp-cap-egress`**, the one way the
   vulnerability half asks the database. Without it nothing is asked, and `not_checked` names
   the line that adds it.
+- **The framework pins terp-spec 0.48.0** (`terp-spec` on PyPI, `@terpjs/spec` on npm). That
+  release adds only the resolved deployment's schema and fixtures, so the declaration's and the
+  workbench's mirrors move to 0.48.0 unchanged, and the copies of the resolved deployment's
+  schema and fixtures (ADR 0215) are now held to the pinned release byte for byte. A check
+  report names `spec_version` 0.48.0, and a release signed on this terp-arch records Terp
+  Standard 0.48.0 as the release its declaration was written against.
 
 ### Fixed
 
@@ -178,6 +184,9 @@ decision, 0001 onwards.
   before. The likeliest causes: a revision that sets `depends_on`, a revision id holding a
   character other than a letter, a digit or `_`, an app module whose name holds an upper-case
   letter, and a capability installed editable. Each refusal names the file and the change.
+- A deploy tool that reads a declaration by the Terp Standard release it was written against
+  must carry 0.48.0 before it reads a release signed on this terp-arch. The declaration's
+  schema in 0.48.0 is 0.47.0's, byte for byte.
 
 ## 0.42.1 — unreleased
 

@@ -30,7 +30,7 @@
     "typescript-eslint": "^8.72.1"
   },
   "devDependencies": {
-    "@terpjs/spec": "0.47.0",
+    "@terpjs/spec": "0.48.0",
     "eslint": "^10.14.0",
     "vitest": "^5.1.0"
   },
