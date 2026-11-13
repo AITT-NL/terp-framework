@@ -131,6 +131,43 @@ def test_the_image_task_hands_back_what_the_migration_reading_reads_from_the_who
     assert all(data[0] == "dir" for data in inputs["nodes"].values()), "no file is handed back as a node"
 
 
+def _image_task(tmp_path: pathlib.Path, monkeypatch, *layers: bytes) -> dict:
+    fake = FakeRegistry()
+    pushed = fake.push_image(list(layers))
+    monkeypatch.setattr(_sandbox, "egress_getter", lambda host, http: fake)
+    return _sandbox.image_task({"repository": "registry.example/rel/app", "digest": pushed, "platform": "linux/amd64",
+                                "http": False, "credentials": None, "tree": str(_tree(tmp_path)), "base": None})
+
+
+def _revision(rev: str, down: str | None, body: str) -> bytes:
+    return f"revision = {rev!r}\ndown_revision = {down!r}\nfrom alembic import op\n\ndef upgrade():\n{body}\n".encode()
+
+
+@pytest.mark.parametrize("below", [False, True], ids=["link-in-its-layer", "link-in-a-layer-below"])
+def test_an_entry_written_through_a_link_is_refused_where_the_listing_reads(tmp_path: pathlib.Path, monkeypatch, below: bool) -> None:
+    """An engine follows a link on an entry's way and writes the file where the link points: here
+    a revision into a capability's versions/, which sign filed under the link's own path and never
+    listed."""
+    versions = "usr/local/lib/python3.14/site-packages/cap/migrations/versions"
+    lower = [("usr/local/lib/python3.14/site-packages/cap-1.0.dist-info/entry_points.txt", b"[terp.migrations]\ncap = cap\n"),
+             ("usr/local/lib/python3.14/site-packages/cap/__init__.py", b""), (versions, None),
+             (f"{versions}/a1_base.py", _revision("a1", None, "    pass")), ("opt/trick", f"/{versions}")]
+    upper = [("opt/trick/b2_evil.py", _revision("b2", "a1", "    op.drop_table('invoice')"))]
+    layers = (layer(*lower), layer(*upper)) if below else (layer(*lower, *upper),)
+    with pytest.raises(ReleaseError, match="the layer writes opt/trick/b2_evil.py through opt/trick, a symbolic link"):
+        _image_task(tmp_path, monkeypatch, *layers)
+
+
+def test_an_entry_written_through_a_link_is_refused_where_the_comparison_reads(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """The same over /srv: a file that lands in the app's sources through a link elsewhere was
+    never held to the tree."""
+    versions = "srv/app/modules/notes/migrations/versions"
+    lower = layer(("srv/app/modules/notes/__init__.py", b""), (versions, None), (f"{versions}/a1_base.py", _revision("a1", None, "    pass")))
+    upper = layer(("opt/t", f"/{versions}"), ("opt/t/b2_evil.py", _revision("b2", "a1", "    op.drop_table('invoice')")))
+    with pytest.raises(ReleaseError, match="the layer writes opt/t/b2_evil.py through opt/t, a symbolic link"):
+        _image_task(tmp_path, monkeypatch, lower, upper)
+
+
 def test_the_scan_asks_the_shared_vulnerability_client_and_names_the_database(monkeypatch) -> None:
     from terp.cli.release import _osv
 

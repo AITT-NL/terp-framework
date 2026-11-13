@@ -2,7 +2,9 @@
 
 The layers are tar archives applied in order, the way an engine unpacks them: a ``.wh.<name>``
 entry removes ``<name>`` from the layers below, a ``.wh..wh..opq`` entry empties its directory
-of what the layers below put there, and a hard link takes the bytes of the file it names. No
+of what the layers below put there, and a hard link takes the bytes of the file it names. An
+entry whose way passes through a symbolic link is refused: an engine follows the link and writes
+the entry where it points, and this reading files each entry under its own name. No
 entry is ever written to disk: each kept path becomes a :class:`Node` with the SHA-256 of its
 bytes, and only the few files ``sign`` reads (a distribution's ``METADATA`` and ``RECORD``, and
 the environment's ``pyvenv.cfg``) keep their text. The reading of the migration histories
@@ -78,6 +80,17 @@ def _open(blob: bytes, kind: str) -> tarfile.TarFile:
     raise ReleaseError(f"a layer of type {kind!r} cannot be read by this signer (allowed: tar, tar+gzip)")
 
 
+def _link_on_the_way(path: str, added: dict[str, Node], state: dict[str, Node]) -> str | None:
+    """The first directory on the way to *path* that is a symbolic link, in this layer or below."""
+    parts = path.split("/")
+    for end in range(1, len(parts)):
+        prefix = "/".join(parts[:end])
+        node = added.get(prefix, state.get(prefix))
+        if node is not None and node.kind == "link":
+            return prefix
+    return None
+
+
 def _linked_bytes(archive: tarfile.TarFile, member: tarfile.TarInfo, source: str, kept: dict[str, bytes]) -> bytes:
     """The bytes of the file hard link *member* names, read again from this layer or kept below.
 
@@ -114,6 +127,14 @@ def apply_layer(
     added_kept: dict[str, bytes] = {}
     for member in archive:
         path = _name(member)
+        link = _link_on_the_way(path, added, state)
+        if link is not None:
+            raise ReleaseError(
+                f"the layer writes {path} through {link}, a symbolic link: an engine follows the link "
+                "and puts the entry where it points, and sign files every entry under its own name, "
+                "so the image would hold a file sign never read: build the image so that no layer "
+                "writes through a link (copy to the directory the link names, not to the link)"
+            )
         directory, base = posixpath.split(path)
         if base == _OPAQUE:
             removed.append((True, directory))

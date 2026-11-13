@@ -136,6 +136,14 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **`sign` refuses a layer that writes through a symbolic link.** An engine follows a link on
+  an entry's way and writes the entry where the link points: a layer holding a link `opt/t` to
+  `/srv/app/modules/notes/migrations/versions` and a file `opt/t/b2.py` puts `b2.py` among the
+  app's revisions. `sign` filed each entry under its own name, so it held `/srv` to the tree,
+  and listed the migration histories, without that file. It now refuses such an entry by name,
+  with the link it passes through, whether the link is in the entry's own layer or in one
+  below. A layer an image builder writes records each file where it lies, so it holds no such
+  entry.
 - **`canonical()` refuses what JSON readers do not read back alike.** Every release document
   `sign` and `promote` write (the manifest, the SBOMs, the envelope) is now refused at an
   integer past ±(2^53 - 1) and at objects or arrays nested deeper than 64, the document itself
