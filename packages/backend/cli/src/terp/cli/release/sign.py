@@ -19,7 +19,8 @@ git and the images from the registry as data, and it judges what a sandbox compu
    empty), asks the vulnerability database about them, and scans the
    history reachable from the SHA for secrets, which it refuses to sign over. From the image that
    runs ``terp migrate upgrade`` it lists every migration history the upgrade brings to head, each
-   revision and each destructive step (:mod:`._migrations`), refusing what it cannot list.
+   revision and the operations the static reading recognises in it (:mod:`._migrations`),
+   refusing what it cannot list.
 6. In the generated state, when the pinned ``terp-arch`` writes one, it has that release write the
    resolved deployment from the images it verified (:func:`._render.resolve`), and holds the
    document to its own ``terp-arch``'s schema copy and checks

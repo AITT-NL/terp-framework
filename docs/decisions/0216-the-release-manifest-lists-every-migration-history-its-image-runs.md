@@ -17,18 +17,18 @@
 
 `sign` records in the signed manifest every migration history `terp migrate upgrade` would
 bring to head in the release's backend image: each revision, with the revisions it follows, and
-each destructive step of its `upgrade()`. It reads them as data, never by importing anything,
-and refuses a release whose histories it cannot list.
+the operations of its `upgrade()` that the static reading recognises. It reads them as data,
+never by importing anything, and refuses a release whose histories it cannot list.
 
 ## Context
 
-A deploy tool that has a person confirm a deploy's destructive steps before they run needs to
-know which steps a release brings, and it trusts only what the release's signature covers. No
-field of the manifest named a revision or an operation, so such a tool had nothing to show and
-no deploy that migrates could be confirmed from the manifest alone.
+A deploy tool that has a person confirm the revisions a deploy applies shows, beside each, what
+it does, and it trusts only what the release's signature covers. No field of the manifest named
+a revision or an operation, so such a tool had nothing to show.
 
-The rule's half existed: `destructive_operations(source)` lists a revision's destructive steps,
-and the steps it cannot see into as `opaque`, by the same reading the gate's
+The rule's half existed: `destructive_operations(source)` lists the operations of a revision's
+`upgrade()` its static reading recognises as destructive, and the calls it cannot see into as
+`opaque`, by the same reading the gate's
 `no_destructive_migrations` uses, and `revision_header(source)` gives its id and parents. What
 was missing is which revisions a release carries. The tree alone does not say: a capability's
 history comes from the wheel the image installs, and the webhooks capability's
@@ -79,10 +79,17 @@ history comes from the wheel the image installs, and the webhooks capability's
    wrote under the name it gives, rooted as every entry is, or the bytes kept for a file
    below; one to a file below whose bytes were not kept is refused rather than read as empty.
    The task refuses, by name: an entry whose way passes through a symbolic link, in its layer
-   or one below, which an engine writes where the link points; a path that is no UTF-8 text,
-   which it cannot hand on; one kept file over 1 MiB, more than 32 MiB kept in all, and an
-   image of more than 250,000 paths. An `entry_points.txt` holds a few kilobytes and a
-   revision tens; a large app's image holds tens of thousands of paths. The image is the one
+   or one below, which an engine writes where the link points; an entry past the kernel's
+   limits, a path over 4,096 bytes, a name over 255 or a link's target over 4,095, which no
+   engine writes; a path or a link's target that is no UTF-8 text, which it cannot hand on; an
+   `entry_points.txt` it cannot read in a zip archive whose central directory it reads, since
+   the image's own Python may read it (3.14 reads a member compressed with Zstandard, 3.13 does
+   not); one kept file over 1 MiB; the kept bytes and every name handed on, each path, link
+   target and kept member's name counted as JSON writes them, over 32 MiB together; an image of
+   more than 250,000 paths, the directories its paths make counted; and a zip archive of more
+   than 100,000 members. An `entry_points.txt` holds a few kilobytes and a revision tens, an
+   image's names come to a few megabytes, a large app's image holds tens of thousands of paths
+   and a wheel hundreds of members. The image is the one
    the migration step's service runs or, with no step, the one `api` unit's: the image whose
    upgrade brings every history to head.
 4. **Each revision** is decoded as the interpreter decodes a module (PEP 263) and read with
@@ -124,9 +131,14 @@ history comes from the wheel the image installs, and the webhooks capability's
 - **The listing does not decide what is confirmed.** Under the owner's decision 9 of
   2026-11-13, production confirms every pending revision, and the listing of a revision's
   operations describes that revision.
-- **A listing that misses a revision is caught at deploy time**, by the runner's comparison of
-  `outputs.migrations` with what `terp migrate graph`, now in the framework, prints of the graph
-  Alembic loads in the release's image.
+- **Nothing holds the listing to the revisions Alembic loads yet.** The runner's protocol
+  design specifies a comparison, at deploy time, of `outputs.migrations` with what `terp migrate
+  graph`, now in the framework, prints of the graph Alembic loads in the release's image. That
+  comparison is the runner's, and it is still to be built.
+- **The static reading has limits.** The operations listed are the ones it recognises, no
+  more. A `revision` rebound inside an `if` is read by its top-level assignment, so the revision
+  is listed under the id that assignment gives; and `op.execute("UPDATE note SET body = NULL")`
+  lists nothing, since the reading does not count an `UPDATE` as destructive.
 
 ## Consequences
 

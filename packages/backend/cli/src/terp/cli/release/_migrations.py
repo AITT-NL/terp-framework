@@ -1,10 +1,10 @@
 """``outputs.migrations``: every migration history the backend image brings to head, as data.
 
-A deploy tool lists the destructive steps of a deploy from the signed manifest, so ``sign``
-records, for every history ``terp migrate upgrade`` would find in the release's backend image,
-each revision with the revisions it follows, and each operation
-:func:`terp.arch.destructive_operations` lists for its ``upgrade()``, excused by its marker or
-not and ``opaque`` ones included. Nothing is imported: a revision imported is a revision run. It
+A deploy tool shows, beside each revision a deploy applies, what it does, from the signed
+manifest, so ``sign`` records, for every history ``terp migrate upgrade`` would find in the
+release's backend image, each revision with the revisions it follows, and the operations of its
+``upgrade()`` the static reading recognises, as :func:`terp.arch.destructive_operations` lists
+them, excused by their marker or not and ``opaque`` ones included. Nothing is imported: a revision imported is a revision run. It
 is read from what the sandbox read of the image (:mod:`._sandbox`) and from the commit's tree.
 
 The histories are the trees :func:`terp.core.migrations.resolve_all_migration_trees` finds,

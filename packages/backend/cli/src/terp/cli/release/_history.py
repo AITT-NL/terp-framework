@@ -2,9 +2,9 @@
 
 Each revision file is read as data, never imported: its header with
 :func:`terp.arch.revision_header`, its ``depends_on`` with :func:`terp.arch.revision_depends_on`,
-and its operations with :func:`terp.arch.destructive_operations`, which lists every destructive
-step of its ``upgrade()``, excused by its marker or not, and each step the reading cannot see
-into as ``opaque``. The listing is ``{"revisions": [{"id", "down"}], "operations": [{"revision",
+and its operations with :func:`terp.arch.destructive_operations`, which lists the operations of
+its ``upgrade()`` its static reading recognises as destructive, excused by their marker or not,
+and each call it cannot see into as ``opaque``: what the reading recognises, no more. The listing is ``{"revisions": [{"id", "down"}], "operations": [{"revision",
 "ordinal", "kind", "operation"}]}``, ``down`` being the revisions one follows: none for a base,
 one, or several for a merge. Revisions are sorted by id, each ``down`` sorted, and operations by
 revision then ordinal, all by code point, so one image and one tree give one byte string.
