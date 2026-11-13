@@ -14,6 +14,16 @@ decision, 0001 onwards.
 
 ### Added
 
+- **`terp migrate graph`: each history's revisions and their parents, as Alembic loads them.**
+  It prints one JSON object, `{"<label>": {"<revision>": ["<parent>", ...]}}`: a base's parents
+  are `[]`, a merge's keep the order its `down_revision` gives them, and a history with no
+  revision file is left out, because Alembic loads no tree for it. It opens no database, so it
+  is never refused for the default in-memory URL. A history Alembic cannot load (a parent that
+  is none of its revisions, a cycle) is refused with exit 2, naming the history and what to fix.
+  A deploy tool can run it in the release's image before anything changes, and compare
+  Alembic's own load with a static reading of the same files, such as a list of migrations the
+  release records.
+
 - **`terp maintenance`: what an app should maintain, as a report that is not a gate (ADR
   0214).** Every check that answers "what should this app maintain" already existed, and each
   ran only when someone acted: `terp upgrade --check` when someone ran it, the audit lane on a

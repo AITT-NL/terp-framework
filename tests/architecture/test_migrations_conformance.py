@@ -12,6 +12,7 @@ fail-closed boot guard, the status view, the ``terp migrate`` CLI, and the
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import pathlib
 import re
@@ -395,6 +396,35 @@ def test_cli_heads_reports_a_single_head(db_url: str, capsys: pytest.CaptureFixt
     out = capsys.readouterr().out
     assert "audit" in out and "ok" in out
 
+
+
+def test_cli_graph_prints_the_histories_alembic_loads(capsys: pytest.CaptureFixture[str]) -> None:
+    # The default in-memory database: graph opens none, so it is never refused for one.
+    migrate_main(["graph", "--app-root", str(APP_ROOT)])
+    loaded = json.loads(capsys.readouterr().out)
+    assert set(loaded) == {tree.label for tree in resolve_migration_trees(APP_ROOT)}, (
+        "one entry per history with a revision file, and no other"
+    )
+    assert loaded["audit"], "a capability's history is read as Alembic loads it"
+    for revisions in loaded.values():
+        bases = [revision for revision, parents in revisions.items() if parents == []]
+        assert bases, "every history Alembic loads has a base"
+        assert all(parent in revisions for parents in revisions.values() for parent in parents)
+
+
+def test_cli_graph_refuses_a_history_it_cannot_load(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def unloadable(*_args: object, **_kwargs: object) -> dict[str, dict[str, list[str]]]:
+        raise MigrationError("the audit migration history names the parent revision 'x'")
+
+    monkeypatch.setattr(migrate_cli, "graph", unloadable)
+    with pytest.raises(SystemExit) as exited:
+        migrate_main(["graph", "--database-url", "sqlite://"])
+    assert exited.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "names the parent revision 'x'" in captured.err
 
 def test_cli_downgrade_with_label(db_url: str, capsys: pytest.CaptureFixture[str]) -> None:
     common = ["--database-url", db_url, "--app-root", str(APP_ROOT)]
