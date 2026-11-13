@@ -450,10 +450,16 @@ def test_what_crosses_from_the_sandbox_is_bounded_in_all(monkeypatch) -> None:
     with pytest.raises(ReleaseError, match="the files sign keeps of the image for the migration histories come to more than 10 bytes at opt/b/entry_points.txt"):
         _keep(layer(("opt/a/entry_points.txt", b"123456")), layer(("opt/b/entry_points.txt", b"123456")))
     monkeypatch.setattr(_image, "MOST_KEPT", 1 << 20)
-    monkeypatch.setattr(_image, "MOST_PATHS", 3)
-    _keep(layer(("a", None), ("a/b", b""), ("c", b"")))
-    with pytest.raises(ReleaseError, match="the image holds more than 3 paths, more than sign reads of one image"):
-        _keep(layer(("a", None), ("a/b", b"")), layer(("c", b""), ("d", b"")))
+
+
+def test_the_path_bound_counts_each_path_once(monkeypatch) -> None:
+    """A layer that rewrites what the image holds, as a ``chown -R`` does, adds no path: an image of
+    six paths, all rewritten, was refused as one of more than ten."""
+    monkeypatch.setattr(_image, "MOST_PATHS", 10)
+    six = [(f"p{i}", b"x") for i in range(6)]
+    _keep(layer(*six), layer(*six), layer(*six))
+    with pytest.raises(ReleaseError, match="the image holds 11 paths by p10, more than the 10 sign reads of one image"):
+        _keep(layer(*six), layer(*six, *[(f"p{i}", b"x") for i in range(6, 11)]))
 
 
 def test_the_migration_inputs_are_every_path_but_a_file_and_the_kept_bytes() -> None:

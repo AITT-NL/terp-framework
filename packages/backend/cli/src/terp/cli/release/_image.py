@@ -206,6 +206,7 @@ def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.
     added_texts: dict[str, str] = {}
     added_kept = Kept()
     spent = kept.total() if kept is not None else 0
+    count = len(state)
     #: Where the bytes of each file this layer writes come from: one of its members, or a file below.
     written: dict[str, tarfile.TarInfo | str] = {}
     for member in archive:
@@ -218,12 +219,14 @@ def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.
                 "so the image would hold a file sign never read: build the image so that no layer "
                 "writes through a link (copy to the directory the link names, not to the link)"
             )
-        if len(state) + len(added) >= MOST_PATHS:
-            raise ReleaseError(
-                f"the image holds more than {MOST_PATHS} paths, more than sign reads of one image, at "
-                f"{path}: build the backend image from the environment and the app's sources alone"
-            )
         directory, base = posixpath.split(path)
+        if not base.startswith(_WHITEOUT) and path not in added and path not in state:
+            count += 1  # a path this image did not hold: a rewritten one is counted once
+            if count > MOST_PATHS:
+                raise ReleaseError(
+                    f"the image holds {count} paths by {path}, more than the {MOST_PATHS} sign reads of "
+                    "one image: build the backend image from the environment and the app's sources alone"
+                )
         added_kept.drop(path)
         if base == _OPAQUE:
             removed.append((True, directory))
