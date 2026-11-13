@@ -302,10 +302,15 @@ def test_a_zip_archive_that_declares_a_history_is_refused_and_one_that_does_not_
     entry = b"[terp.migrations]\nevil = evilpkg\n"
     good = _zip({"pip-24.0.dist-info/entry_points.txt": b"[console_scripts]\npip = pip:main\n"})
     empty_directory = struct.pack("<4s4H2LH", b"PK\x05\x06", 0, 0, 1, 1, 46, 4096, 0)  # a central directory that is not there
+    # A central directory every Python takes for one, whose record's extra field declares more than it holds.
+    name, extra = b"x", struct.pack("<HH", 0x1234, 100)
+    record = struct.pack("<4s4B4HL2L5H2L", b"PK\x01\x02", 20, 3, 20, 0, 0, 0, 0, 0, 0, 0, 0, len(name), len(extra), 0, 0, 0, 0, 0)
+    corrupt = record + name + extra + struct.pack("<4s4H2LH", b"PK\x05\x06", 0, 0, 1, 1, len(record) + 5, 0, 0)
     state, kept = _read_layers(layer(
         ("usr/local/lib/python313.zip", _zip({"evil-1.0.dist-info/entry_points.txt": entry, "evil-1.0.dist-info/METADATA": b"x"})),
         ("usr/local/lib/python3.13/ensurepip/_bundled/pip-24.0-py3-none-any.whl", good),
         ("opt/broken.zip", empty_directory),
+        ("opt/corrupt.zip", corrupt),
     ))
     tree = commit(tmp_path)
     answer = {**faithful(tree), "migrationInputs": json.loads(json.dumps(_image.migration_inputs(state, kept)))}
@@ -315,9 +320,11 @@ def test_a_zip_archive_that_declares_a_history_is_refused_and_one_that_does_not_
         "archive on the interpreter's path, and sign reads no history from one; install the distribution "
         "into site-packages as a wheel, and keep no such archive in the image"
     ]
-    assert sorted(kept.zipped) == ["opt/broken.zip", "usr/local/lib/python3.13/ensurepip/_bundled/pip-24.0-py3-none-any.whl",
+    assert sorted(kept.zipped) == ["opt/broken.zip", "opt/corrupt.zip",
+                                   "usr/local/lib/python3.13/ensurepip/_bundled/pip-24.0-py3-none-any.whl",
                                    "usr/local/lib/python313.zip"]
     assert kept.zipped["opt/broken.zip"] == {}, "a file that only ends like a zip archive holds nothing"
+    assert kept.zipped["opt/corrupt.zip"] == {}, "an archive whose directory cannot be read holds nothing"
 
 
 @pytest.mark.parametrize("damage", ["zstandard", "crc"])

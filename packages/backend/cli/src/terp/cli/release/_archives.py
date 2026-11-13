@@ -46,8 +46,11 @@ def zipped(path: str, data: bytes, limit: int) -> dict[str, bytes] | None:
     or ``None`` for a file that is no zip archive. An archive whose central directory cannot be
     read holds nothing, as for importlib.metadata, since a file can end like a zip archive and be
     none."""
-    if not zipfile.is_zipfile(io.BytesIO(data)):
-        return None
+    try:
+        if not zipfile.is_zipfile(io.BytesIO(data)):
+            return None
+    except Exception:  # 3.14 checks the directory an end record names and raises where 3.13 answers True
+        return {}  # either way it ends like an archive whose directory cannot be read: it holds nothing
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
         infos = archive.infolist()
