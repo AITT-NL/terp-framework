@@ -8,6 +8,7 @@ Thin argument parsing over :mod:`terp.migrations.orchestrate` and the boot guard
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import sys
 from collections.abc import Sequence
@@ -23,6 +24,7 @@ from terp.migrations.orchestrate import (
     adopt_schemas,
     downgrade,
     grant_runtime_role,
+    graph,
     heads,
     make,
     merge_heads,
@@ -211,6 +213,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_common(heads_parser)
 
+    graph_parser = sub.add_parser(
+        "graph",
+        help="Print each history's revisions and their parents as Alembic loads them, as "
+        "one JSON object, opening no database",
+    )
+    _add_common(graph_parser)
+
     merge_parser = sub.add_parser(
         "merge", help="Merge a package's multiple heads back into one"
     )
@@ -374,6 +383,14 @@ def _migrate(argv: Sequence[str] | None) -> None:
         return
     if args.migrate_command == "heads":
         _print_heads(database_url, app_root, args.package)
+        return
+    if args.migrate_command == "graph":
+        try:
+            loaded = graph(database_url, app_root, package=args.package)
+        except MigrationError as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(2) from exc
+        print(json.dumps(loaded, sort_keys=True, separators=(",", ":")))
         return
     if args.migrate_command == "merge":
         tree = merge_heads(

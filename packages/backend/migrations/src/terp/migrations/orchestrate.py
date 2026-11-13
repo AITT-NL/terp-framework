@@ -670,6 +670,54 @@ def heads(
     return result
 
 
+def graph(
+    database_url: str,
+    app_root: str | pathlib.Path | None = None,
+    *,
+    package: str = "app",
+) -> dict[str, dict[str, list[str]]]:
+    """Each history's revisions and their parents, as Alembic loads them, opening no database.
+
+    A deploy tool can run it in the release's own image before anything changes, and compare
+    Alembic's own load with a static reading of the same revision files, such as a list of
+    migrations the release records: where the two disagree, the release would not migrate as
+    listed. Parents are in the order ``down_revision`` gives them, a base's ``[]``; a history
+    with no revision file is left out, because Alembic loads no tree for it.
+    """
+    result: dict[str, dict[str, list[str]]] = {}
+    for tree in resolve_migration_trees(app_root, package=package):
+        script = ScriptDirectory.from_config(
+            alembic_config_for(tree, database_url, app_root=app_root, package=package)
+        )
+        try:
+            result[tree.label] = {
+                revision.revision: _parents(revision.down_revision)
+                for revision in script.walk_revisions()
+            }
+        except KeyError as exc:
+            raise MigrationError(
+                f"the {tree.label} migration history names the parent revision "
+                f"{exc.args[0]!r}, which is none of its revisions: restore that revision, or "
+                "point its child's down_revision at one that exists, then run "
+                "`terp migrate graph` again"
+            ) from exc
+        except CommandError as exc:
+            raise MigrationError(
+                f"the {tree.label} migration history cannot be loaded as Alembic loads it "
+                f"({exc}): fix the revisions it names, then run `terp migrate graph` again"
+            ) from exc
+    return result
+
+
+def _parents(down: str | tuple[str, ...] | list[str] | None) -> list[str]:
+    """A revision's ``down_revision`` as a list: ``[]`` for a base, one id, or a merge's ids."""
+    if down is None:
+        return []
+    if isinstance(down, str):
+        return [down]
+    return list(down)
+
+
 def merge_heads(
     label: str,
     message: str,

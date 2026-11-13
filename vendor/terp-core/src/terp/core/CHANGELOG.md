@@ -14,6 +14,16 @@ decision, 0001 onwards.
 
 ### Added
 
+- **`terp migrate graph`: each history's revisions and their parents, as Alembic loads them.**
+  It prints one JSON object, `{"<label>": {"<revision>": ["<parent>", ...]}}`: a base's parents
+  are `[]`, a merge's keep the order its `down_revision` gives them, and a history with no
+  revision file is left out, because Alembic loads no tree for it. It opens no database, so it
+  is never refused for the default in-memory URL. A history Alembic cannot load (a parent that
+  is none of its revisions, a cycle) is refused with exit 2, naming the history and what to fix.
+  A deploy tool can run it in the release's image before anything changes, and compare
+  Alembic's own load with a static reading of the same files, such as a list of migrations the
+  release records.
+
 - **`terp maintenance`: what an app should maintain, as a report that is not a gate (ADR
   0214).** Every check that answers "what should this app maintain" already existed, and each
   ran only when someone acted: `terp upgrade --check` when someone ran it, the audit lane on a
@@ -68,6 +78,13 @@ decision, 0001 onwards.
   the line that adds it.
 
 ### Fixed
+
+- **`canonical()` refuses what JSON readers do not read back alike.** Every release document
+  `sign` and `promote` write (the manifest, the SBOMs, the envelope) is now refused at an
+  integer past ±(2^53 - 1) and at objects or arrays nested deeper than 64, the document itself
+  the first, beside a float as before. Past those bounds readers disagree: one that holds
+  numbers as doubles rounds such an integer, and nesting limits differ by parser, so the
+  program that deploys a signed document could read another value than the one signed, or none.
 
 - **`sign` no longer records an answer it cannot read as a clean package.** A result of `[]`,
   `""`, `0` or `{"vulns": {}}` was read as "no advisory", and an id of `"7"` or `""` was

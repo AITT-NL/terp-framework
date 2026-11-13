@@ -1,8 +1,8 @@
 """What the three release jobs and ``terp promote`` share: the error, the tag, bytes, processes.
 
 Every job reads and writes JSON documents another job or a deploy tool reads back, so each is
-written one way, :func:`canonical`: sorted keys, no whitespace, UTF-8 and no floats, the form
-the signed manifest takes (ADR 0187 decision 6). Every external program - git, docker, uv,
+written one way, :func:`canonical`: sorted keys, no whitespace, UTF-8, no floats, no integer
+past 2^53 - 1 and no nesting past 64, the form the signed manifest takes (ADR 0187 decision 6). Every external program - git, docker, uv,
 gitleaks - is run through :func:`run`: a fixed argument list, no shell, a missing program an
 answer rather than a traceback, and one seam a test replaces.
 """
@@ -94,20 +94,52 @@ def commit_id(value: str) -> str:
     return value
 
 
-def _no_floats(value: Any, where: str = "") -> None:
+#: The largest integer a release document may hold: 2^53 - 1, the range every JSON reader
+#: holds exactly (RFC 8259 section 6). Past it a reader that holds numbers as doubles rounds,
+#: so the program that deploys a document could read another number than the one signed.
+LARGEST_INTEGER = 2**53 - 1
+
+#: How deep a release document's objects and arrays may nest, the document itself the first:
+#: the depth terp-spec's shared fixtures hold a deployment declaration's readers to, counted
+#: the same way, since a parser's own nesting limit differs from one to the next.
+DEEPEST = 64
+
+
+def _readable(value: Any, where: str = "", depth: int = 1) -> None:
+    """Refuse what JSON readers do not read back alike: a float, an integer past ±(2^53 - 1),
+    and objects and arrays nested deeper than :data:`DEEPEST`."""
+    at = where or "the document"
     if isinstance(value, float):
-        raise ReleaseError(f"{where or 'the document'} holds a float, which no release document may")
+        raise ReleaseError(f"{at} holds a float, which no release document may")
+    if isinstance(value, int) and not isinstance(value, bool) and abs(value) > LARGEST_INTEGER:
+        raise ReleaseError(
+            f"{at} holds {value}, past the largest integer a release document may hold "
+            f"(allowed: from -{LARGEST_INTEGER} to {LARGEST_INTEGER}, which every JSON reader "
+            "holds exactly)"
+        )
+    if not isinstance(value, (dict, list)):
+        return
+    if depth > DEEPEST:
+        raise ReleaseError(
+            f"{at} nests deeper than {DEEPEST} (allowed: objects and arrays nested at most "
+            f"{DEEPEST} deep, the document itself the first)"
+        )
     if isinstance(value, dict):
         for key, item in value.items():
-            _no_floats(item, f"{where}.{key}" if where else str(key))
-    elif isinstance(value, list):
+            _readable(item, f"{where}.{key}" if where else str(key), depth + 1)
+    else:
         for index, item in enumerate(value):
-            _no_floats(item, f"{where}[{index}]")
+            _readable(item, f"{where}[{index}]", depth + 1)
 
 
 def canonical(value: Any) -> bytes:
-    """*value* as the one byte string every release document is: sorted, compact, UTF-8."""
-    _no_floats(value)
+    """*value* as the one byte string every release document is: sorted, compact, UTF-8.
+
+    It refuses what JSON readers do not read back alike: a float, an integer past
+    ±(2^53 - 1), and nesting deeper than 64, so what is signed is what the program that
+    deploys it reads.
+    """
+    _readable(value)
     return json.dumps(
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
     ).encode("utf-8")

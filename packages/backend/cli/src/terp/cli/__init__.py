@@ -2025,10 +2025,10 @@ Database migrations (terp migrate)
   in a later migration.)
 - Apply / inspect / walk back across every package:
       terp migrate upgrade                 # each package to head (run on deploy)
-      terp migrate upgrade --sql > release.sql   # render DBA-reviewable offline SQL
-                                           # instead (nothing connects; flat layout)
+      terp migrate upgrade --sql > release.sql   # DBA-reviewable SQL; connects nothing, flat
       terp migrate status                  # current-vs-head per package
       terp migrate check                   # exit 0 only at head or inside the window
+      terp migrate graph                   # revisions and parents as Alembic loads them
       terp migrate downgrade               # every package back to base (or -N)
       terp migrate downgrade --label notes --revision <rev>   # one package only
   A concrete revision is package-specific, so the all-package downgrade takes only

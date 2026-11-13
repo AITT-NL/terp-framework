@@ -137,7 +137,9 @@ def test_unowned_tables_flags_a_homeless_table() -> None:
         SQLModel.metadata.remove(link)  # keep the shared metadata clean for other tests
 
 
-def _write_revision(versions: pathlib.Path, rid: str, down: str | None) -> None:
+def _write_revision(
+    versions: pathlib.Path, rid: str, down: str | tuple[str, ...] | None
+) -> None:
     versions.joinpath(f"{rid}.py").write_text(
         f'"""rev {rid}"""\n'
         "from __future__ import annotations\n"
@@ -169,6 +171,66 @@ def test_heads_reports_divergence_and_merge_resolves_it(
     orchestrate.merge_heads("audit", "merge dev branches", db)
     assert len(orchestrate.heads(db)["audit"]) == 1
 
+
+
+#: A database no test can reach: anything that opened it would fail at once.
+_UNREACHABLE = "postgresql+psycopg://graph@127.0.0.1:1/none"
+
+
+def test_graph_prints_each_revision_and_its_parents_opening_no_database(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    versions = tmp_path / "migrations" / "versions"
+    versions.mkdir(parents=True)
+    _write_revision(versions, "base0001", None)
+    _write_revision(versions, "brancha002", "base0001")
+    _write_revision(versions, "branchb003", "base0001")
+    _write_revision(versions, "merge0004", ("branchb003", "brancha002"))
+    tree = MigrationTree("audit", "terp.capabilities.audit", tmp_path / "migrations")
+    monkeypatch.setattr(orchestrate, "resolve_migration_trees", lambda *a, **k: [tree])
+
+    assert orchestrate.graph(_UNREACHABLE) == {
+        "audit": {
+            "base0001": [],
+            "brancha002": ["base0001"],
+            "branchb003": ["base0001"],
+            # A merge's parents keep the order its down_revision gives them.
+            "merge0004": ["branchb003", "brancha002"],
+        }
+    }
+
+
+def test_graph_refuses_a_history_whose_parent_is_missing(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    versions = tmp_path / "migrations" / "versions"
+    versions.mkdir(parents=True)
+    _write_revision(versions, "base0001", None)
+    _write_revision(versions, "orphan002", "missing9")
+    tree = MigrationTree("audit", "terp.capabilities.audit", tmp_path / "migrations")
+    monkeypatch.setattr(orchestrate, "resolve_migration_trees", lambda *a, **k: [tree])
+
+    # Alembic only warns about the missing parent, then fails on it while walking.
+    with pytest.warns(UserWarning, match="missing9 .* is not present"):
+        with pytest.raises(MigrationError) as caught:
+            orchestrate.graph(_UNREACHABLE)
+    message = str(caught.value)
+    assert "the audit migration history names the parent revision 'missing9'" in message
+    assert "terp migrate graph" in message  # what to run once it is fixed
+
+
+def test_graph_refuses_a_history_with_a_cycle(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    versions = tmp_path / "migrations" / "versions"
+    versions.mkdir(parents=True)
+    _write_revision(versions, "cycle006", "cycle007")
+    _write_revision(versions, "cycle007", "cycle006")
+    tree = MigrationTree("audit", "terp.capabilities.audit", tmp_path / "migrations")
+    monkeypatch.setattr(orchestrate, "resolve_migration_trees", lambda *a, **k: [tree])
+
+    with pytest.raises(MigrationError, match="the audit migration history cannot be loaded .*[Cc]ycle"):
+        orchestrate.graph(_UNREACHABLE)
 
 def test_upgrade_refuses_a_database_holding_a_revision_the_code_lost(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch

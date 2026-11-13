@@ -50,6 +50,38 @@ def test_a_document_is_one_canonical_byte_string() -> None:
     assert _common.sha256(b"") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 
+def test_a_document_holds_only_integers_every_reader_holds_exactly() -> None:
+    edge = 2**53 - 1
+    assert _common.canonical({"n": [edge, -edge]}) == f'{{"n":[{edge},-{edge}]}}'.encode()
+    for past in (edge + 1, -(edge + 1), 10**30):
+        with pytest.raises(ReleaseError, match=r"n\[1\] holds -?\d+, past the largest integer"):
+            _common.canonical({"n": [0, past]})
+    with pytest.raises(ReleaseError, match=r"the document holds \d+, past .* from -9007199254740991"):
+        _common.canonical(edge + 1)
+    # A boolean is a JSON boolean, never an integer that could be out of range.
+    assert _common.canonical({"flag": True}) == b'{"flag":true}'
+
+
+def _nested(depth: int, inner: object = 0) -> object:
+    for _ in range(depth):
+        inner = [inner]
+    return inner
+
+
+def test_a_document_nests_at_most_64_deep() -> None:
+    assert _common.canonical(_nested(64)) == b"[" * 64 + b"0" + b"]" * 64
+    with pytest.raises(ReleaseError, match="nests deeper than 64 .*the document itself the first"):
+        _common.canonical(_nested(65))
+    # Objects count like arrays, and the refusal names where the 65th level starts.
+    deep: object = {}
+    for _ in range(64):
+        deep = {"a": deep}
+    with pytest.raises(ReleaseError, match=r"^a(\.a){63} nests deeper than 64"):
+        _common.canonical(deep)
+    # Depth is of containers, so a scalar at the bottom of 64 levels is still readable.
+    assert _common.canonical(_nested(64, "x")).count(b"[") == 64
+
+
 def test_a_document_is_read_back_only_as_its_own_kind(tmp_path: pathlib.Path) -> None:
     path = tmp_path / "d.json"
     _common.write_document(path, {"kind": 1, "x": "y"})
