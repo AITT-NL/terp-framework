@@ -17,7 +17,7 @@ import tarfile
 
 import pytest
 
-from terp.cli.release import _image, _registry
+from terp.cli.release import _archives, _image, _registry
 from terp.cli.release._common import ReleaseError
 from terp.cli.release._registry import Registry, Response
 
@@ -416,7 +416,7 @@ def test_what_crosses_from_the_sandbox_is_bounded_file_by_file() -> None:
 
     most = 1 << 20
     assert _image.MOST_KEPT_FILE == most and _image.MOST_ANSWER == 32 << 20 and _image.MOST_PATHS == 250_000
-    assert _image.MOST_MEMBERS == 100_000
+    assert _archives.MOST_MEMBERS == 100_000
     assert _keep(layer(("opt/a/entry_points.txt", b"#" * most))).files["opt/a/entry_points.txt"] == b"#" * most
     with pytest.raises(ReleaseError, match=f"opt/b/entry_points.txt is {most + 1} bytes, more than the {most} sign keeps of one file"):
         _keep(layer(("opt/b/entry_points.txt", b"#" * (most + 1))))
@@ -470,7 +470,7 @@ def test_what_crosses_from_the_sandbox_is_bounded_in_all(monkeypatch) -> None:
 def test_a_zip_archive_of_more_members_than_sign_reads_is_refused(monkeypatch) -> None:
     import zipfile
 
-    monkeypatch.setattr(_image, "MOST_MEMBERS", 2)
+    monkeypatch.setattr(_archives, "MOST_MEMBERS", 2)
     raw = io.BytesIO()
     with zipfile.ZipFile(raw, "w") as archive:
         for name in ("a", "b", "c"):

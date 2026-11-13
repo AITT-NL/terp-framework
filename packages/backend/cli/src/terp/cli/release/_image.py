@@ -25,10 +25,10 @@ import json
 import posixpath
 import re
 import tarfile
-import zipfile
 from dataclasses import dataclass, field
 from typing import Any
 
+from terp.cli.release._archives import zipped
 from terp.cli.release._common import ReleaseError
 from terp.cli.release._registry import LAYER_LIMIT, Registry
 
@@ -52,7 +52,6 @@ _TEXT = re.compile(r".*/site-packages/[^/]+\.dist-info/(?:METADATA|RECORD)|srv/\
 #: ``dist-packages`` directory, where an installed package keeps its revisions. A name may hold
 #: any character but ``/``, a line feed among them.
 _KEPT = re.compile(r"(?:.+/)?entry_points\.txt|(?:.+/)?(?:site|dist)-packages/(?:.+/)?migrations/versions/[^/]+", re.DOTALL)
-_ENTRY_POINTS = "entry_points.txt"
 
 #: What crosses from the sandbox to the signer is bounded, and an image past a bound is refused by
 #: name: one kept file, or one ``entry_points.txt`` in a zip archive, at most 1 MiB, where such a
@@ -64,7 +63,6 @@ _ENTRY_POINTS = "entry_points.txt"
 MOST_KEPT_FILE = 1 << 20
 MOST_ANSWER = 32 << 20
 MOST_PATHS = 250_000
-MOST_MEMBERS = 100_000
 
 #: What an engine writes, the kernel's own limits: a path of at most 4,096 bytes, each name in it
 #: at most 255, and a link's target at most 4,095. An entry past one is in no image an engine
@@ -191,45 +189,6 @@ def _open(blob: bytes, kind: str) -> tarfile.TarFile:
     raise ReleaseError(f"a layer of type {kind!r} cannot be read by this signer (allowed: tar, tar+gzip)")
 
 
-def _member(path: str, archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes:
-    """At most one byte past :data:`MOST_KEPT_FILE` of the member *info* of the archive at *path*.
-
-    A member sign cannot read is refused: the image's own Python may read it where sign's does
-    not, as Python 3.14 reads a member compressed with Zstandard and 3.13 does not, and
-    importlib.metadata would then find the histories it declares.
-    """
-    try:
-        with archive.open(info) as handle:
-            return handle.read(MOST_KEPT_FILE + 1)
-    except Exception as exc:
-        raise ReleaseError(
-            f"{path}: {info.filename} is an entry_points.txt sign cannot read, in an archive whose "
-            "central directory it reads: the image's own Python may read it, as a newer one reads a "
-            "member compressed with Zstandard, and importlib.metadata would then find the histories "
-            "it declares; write the member with deflate or none, or keep the archive out of the image",
-            cause=str(exc),
-        ) from exc
-
-
-def _zipped(path: str, data: bytes) -> dict[str, bytes] | None:
-    """The bytes of each ``entry_points.txt`` the zip archive *data* at *path* holds, or ``None``
-    for a file that is no zip archive. An archive whose central directory cannot be read holds
-    nothing, as for importlib.metadata, since a file can end like a zip archive and be none."""
-    if not zipfile.is_zipfile(io.BytesIO(data)):
-        return None
-    try:
-        archive = zipfile.ZipFile(io.BytesIO(data))
-        infos = archive.infolist()
-    except Exception:  # importlib.metadata suppresses whatever opening an archive raises
-        return {}
-    if len(infos) > MOST_MEMBERS:
-        raise ReleaseError(
-            f"{path} is a zip archive of {len(infos)} members, more than the {MOST_MEMBERS} sign reads "
-            "of one archive, where a wheel holds hundreds: keep it out of the image"
-        )
-    return {info.filename: _member(path, archive, info) for info in infos if posixpath.basename(info.filename) == _ENTRY_POINTS}
-
-
 def _link_on_the_way(path: str, added: dict[str, Node], state: dict[str, Node]) -> str | None:
     """The first directory on the way to *path* that is a symbolic link, in this layer or below."""
     parts = path.split("/")
@@ -348,7 +307,7 @@ def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.
             if kept is not None and _KEPT.fullmatch(path):
                 spent = _charged(spent, path, len(data))
                 added_kept.files[path] = data
-            members = _zipped(path, data) if kept is not None else None
+            members = zipped(path, data, MOST_KEPT_FILE + 1) if kept is not None else None
             if members is not None:
                 for name, body in members.items():
                     spent = _charged(_counted(spent, _json_length(name), f"{path}: {name}"), f"{path}: {name}", len(body))
