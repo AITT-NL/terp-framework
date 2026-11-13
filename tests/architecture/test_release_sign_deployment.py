@@ -22,10 +22,22 @@ from terp.cli.release._common import ReleaseError
 from terp.cli.release.manifest import parse
 from tests.architecture.release_fixtures import PROJECT, TOOLCHAIN, app_files
 from tests.architecture.test_release_image import layer
-from tests.architecture.test_release_render import build_wheel, table
-from tests.architecture.test_release_sign import NAME, REGISTRY, Release
+from tests.architecture.test_release_render import ARCH, build_wheel, table
+from tests.architecture.test_release_sign import NAME, REGISTRY, Release, _push_web
 
 _RESOLVED = "terp/arch/deployment/resolved.py"
+
+
+def _writer_then(change: str) -> dict[str, bytes]:
+    """The real writer, with *change* applied to every document it writes (``document`` names it)."""
+    wrapped = (ARCH / _RESOLVED).read_bytes() + (
+        "\n_written = resolved_deployment\n"
+        "def resolved_deployment(*arguments, **options):\n"
+        "    document = _written(*arguments, **options)\n"
+        f"    {change}\n"
+        "    return document\n"
+    ).encode()
+    return {_RESOLVED: wrapped}
 
 
 def _manifest(tmp_path: pathlib.Path) -> dict:
@@ -104,13 +116,57 @@ def test_an_image_configuration_whose_volumes_are_not_paths_is_refused(tmp_path:
         release.sign()
 
 
-def test_an_image_volume_over_the_app_is_never_signed(tmp_path: pathlib.Path, monkeypatch) -> None:
+@pytest.mark.parametrize("path", ["/srv/app", "/var/cache/example/", "cache"])
+def test_an_image_volume_no_mount_can_carry_is_refused_as_the_image_s(tmp_path: pathlib.Path, monkeypatch, path: str) -> None:
     release = Release(tmp_path, monkeypatch)
     _push(release, {"architecture": "amd64", "os": "linux", "rootfs": {"diff_ids": []},
-                    "config": {"Volumes": {"/srv/app": {}}}})
-    with pytest.raises(ReleaseError, match=r"is not one this signer signs .*\n- \$\.services\[\d+\]\.mounts\[0\]\.target"):
+                    "config": {"Volumes": {path: {}}}})
+    with pytest.raises(ReleaseError, match=(
+        rf'@sha256:[0-9a-f]{{64}} declares the volume "{path}" in its configuration, where a resolved '
+        r"deployment cannot mount one .*: change the VOLUME instruction that declares it"
+    )):
         release.sign()
     assert not (tmp_path / "out" / sign.ENVELOPE).exists()
+
+
+def test_a_service_that_leaves_its_image_s_volume_unmounted_is_never_signed(tmp_path: pathlib.Path, monkeypatch) -> None:
+    release = Release(tmp_path, monkeypatch)
+    _push(release, {"architecture": "amd64", "os": "linux", "rootfs": {"diff_ids": []},
+                    "config": {"Volumes": {"/var/cache/example": {}}}})
+    _repin(release, replace=_writer_then(
+        "[service.update(mounts=[m for m in service['mounts'] if m['type'] != 'anonymous']) "
+        "for service in document['services']]"
+    ))
+    with pytest.raises(ReleaseError, match=(
+        r"is not one this signer signs .*\n- \$\.services\[\d+\]\.mounts: a mount at /var/cache/example, "
+        r"which its image declares a volume"
+    )):
+        release.sign()
+    assert not (tmp_path / "out" / sign.ENVELOPE).exists()
+
+
+def test_a_service_that_runs_another_unit_s_image_is_never_signed(tmp_path: pathlib.Path, monkeypatch) -> None:
+    release = Release(tmp_path, monkeypatch, app_files(web=True))
+    _push_web(release, (f"{PROJECT}-frontend-prod", "frontend/Dockerfile.prod", "web"))
+    # Both are images the release built, so only the manifest's own record tells them apart.
+    _repin(release, replace=_writer_then(
+        "by = {service['id']: service for service in document['services']}; "
+        "by['api']['image'], by['web']['image'] = by['web']['image'], by['api']['image']"
+    ))
+    with pytest.raises(ReleaseError, match=r"\n- \$\.services\[\d+\]\.image: \S+, the image outputs.units records for api"):
+        release.sign()
+    assert not (tmp_path / "out" / sign.ENVELOPE).exists()
+
+
+def test_a_pinned_release_that_prints_beside_its_answer_is_refused(tmp_path: pathlib.Path, monkeypatch) -> None:
+    release = Release(tmp_path, monkeypatch)
+    _repin(release, replace={_RESOLVED: (ARCH / _RESOLVED).read_bytes() + b"\nprint('loaded')\n"})
+    with pytest.raises(ReleaseError, match=(
+        f"terp-arch {TOOLCHAIN} answered writing the resolved deployment with something other than the "
+        "JSON object this signer reads"
+    )) as refused:
+        release.sign()
+    assert refused.value.cause, "what the JSON reader said is kept"
 
 
 def test_what_the_pinned_writer_refuses_is_refused_in_its_words(tmp_path: pathlib.Path, monkeypatch) -> None:

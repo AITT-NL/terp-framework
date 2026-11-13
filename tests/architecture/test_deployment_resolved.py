@@ -153,9 +153,18 @@ def test_the_profile_and_the_resolved_deployment_say_the_same(name: str) -> None
             assert "command" not in service, f"{where}: the executor owns the migration step's argv"
         else:
             assert _as_compose_reads(written.get("command")) == service.get("command"), where
-        names = {entry["name"] for entry in service["environment"]}
+        entries = {entry["name"]: entry for entry in service["environment"]}
         withheld = {"DATABASE_URL"} if service["id"] == document.get("migration") else set()
-        assert set(written.get("environment", {})) == names | withheld, where
+        assert set(written.get("environment", {})) == set(entries) | withheld, where
+        for variable, text in written.get("environment", {}).items():
+            if variable in withheld:
+                continue
+            # What the profile's own text for the variable means, read as the writer reads it; the
+            # connection is the one the executor gives the runtime role, never the profile's.
+            meant = {"source": "database", "key": "runtime"} if variable == "DATABASE_URL" else (
+                resolved._reference(service["id"], variable, text)
+            )
+            assert entries[variable] == {"name": variable, **meant}, f"{where}: {variable}"
         assert ("env_file" in written) is service["appEnvironment"], where
         named = sorted(
             (mount["source"], mount["target"]) for mount in service["mounts"] if mount["type"] == "volume"
@@ -199,6 +208,39 @@ def test_every_kind_the_published_table_carries_is_one_the_document_can_say() ->
         built = {unit.id: IMAGES[_tier(declared, unit)] for unit in declared.units if unit.kind is None}
         document = resolved_deployment(declared, "example-app", tables=tables, images=built, frontend_lock=True)
         assert {"kind": entry.kind, "version": entry.version} in [s.get("datastore") for s in document["services"]]
+
+
+def test_a_document_is_held_to_the_images_and_volumes_its_manifest_records() -> None:
+    _, declaration, _ = _sample("grown")
+    units = {**_images_for(declaration)}
+    volumes = {IMAGES["backend"]: ["/var/cache/example"]}
+    document = _resolve("grown", image_volumes=volumes)
+    units.update({s["id"]: s["image"] for s in document["services"] if "datastore" in s})
+    assert resolved_check.against_manifest(document, units=units, image_volumes=volumes) == []
+    by_id = {service["id"]: (index, service) for index, service in enumerate(document["services"])}
+    api, web = by_id["api"][1], by_id["web"][1]
+    api["image"], web["image"] = web["image"], api["image"]
+    scheduler_at, scheduler = by_id["scheduler"]
+    scheduler["mounts"] = [mount for mount in scheduler["mounts"] if mount["target"] != "/var/cache/example"]
+    found = resolved_check.against_manifest(document, units=units, image_volumes=volumes)
+    assert (f"$.services[{by_id['api'][0]}].image", f"{units['api']}, the image outputs.units records for api") in found
+    assert (f"$.services[{scheduler_at}].mounts",
+            "a mount at /var/cache/example, which its image declares a volume (outputs.images[*].volumes)") in found
+    # A document of another shape is the schema's to refuse, and is read without raising.
+    assert resolved_check.against_manifest([], units=units, image_volumes=volumes) == []
+    odd = {"services": ["db", {"id": "api", "mounts": ["x"]}]}
+    assert resolved_check.against_manifest(odd, units=units, image_volumes=volumes) == [
+        ("$.services[1].image", f"{units['api']}, the image outputs.units records for api")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("path", "mountable"),
+    [("/var/cache/example", True), ("/srv/var/files", True), ("/srv", False), ("/srv/app", False),
+     ("/var/cache/", False), ("/var/./cache", False), ("cache", False), ("", False)],
+)
+def test_a_mount_target_is_what_the_schema_allows(path: str, mountable: bool) -> None:
+    assert resolved_check.mountable(path) is mountable
 
 
 def test_every_built_service_needs_the_image_sign_verified() -> None:

@@ -26,20 +26,23 @@ owns.
    `sign` verified and from the plan its generator writes the profile from, never by reading
    the profile. The start conditions and the probes come from the very helpers the profile is
    written with, and a test holds every golden sample's profile and document together field by
-   field.
+   field, each variable's source and value read from the profile's own text for it.
 2. **`sign` holds it to its own terp-arch before signing**: to the copy of terp-spec's schema
    that terp-arch ships, and to the checks terp-spec's fixtures name beyond the schema (ids and
    names each once and in order, every reference resolving, agreement with the declared units,
-   the built images and the datastore table). It signs nothing it refuses, and the refusal
-   names each field. A writer and a signer of different releases that disagree are stopped
-   here, not at a deploy. terp-spec's fixtures are the cases every reader runs: this
+   the built images and the datastore table), then to what the manifest records beside it: each
+   service runs the image `outputs.units` records for its unit, and mounts something at every
+   volume its image declares. It signs nothing it refuses, and the refusal names each field. A
+   writer and a signer of different releases that disagree are stopped here, not at a deploy. terp-spec's fixtures are the cases every reader runs: this
    repository carries them for its tests beside terp-arch's schema copy, both held to the
    pinned terp-spec byte for byte once it is the release they name.
 3. **The manifest is version 2 when it carries the document**, and `outputs.deployment` is then
    required. `terp promote` reads versions 1 and 2, and keeps running the carried profile.
 4. **Each built image's configured volumes are recorded** at `outputs.images[*].volumes` in a
    version 2 manifest. Each path no named volume covers becomes an anonymous mount in the
-   document, which no backup covers, so an executor can show it rather than discover it.
+   document, which no backup covers, so an executor can show it rather than discover it. A
+   volume no mount can carry (the app root or a path under it, or a path that is not a clean
+   absolute one) is refused as the image's, naming the `VOLUME` instruction to change.
 5. **Version 1 is generated-only.** An app with its own Compose files signs as before, without
    the document, and so does a commit whose pinned terp-arch is from before the writer: `sign`
    reads whether the wheel ships it from the wheel's file list, never by running it.
@@ -79,6 +82,11 @@ schema uses that the declaration's did not, `maximum`.
 - An app on a terp-arch without the writer signs a version 1 manifest, which an executor that
   reads only version 2 refuses: managed deployment needs a framework release that ships this,
   and the signer's release table must carry it.
+- **The order it lands in.** A reader of version 1 manifests refuses version 2, and the runner
+  reads only version 1 today. So the order is: terp-spec 0.48.0 is tagged and the framework's
+  two pins move to it; the runner reads version 2; and only then does a signer's release table
+  carry a terp-arch that ships the writer. A table that carries it sooner leaves every
+  generated release signed on it undeployable by the runner. The release train is the owner's.
 - The profile stays, for a plain `docker compose up` and for `terp promote`, and stays the
   generator's.
 - The envelope's payload type stays `application/vnd.terp.release-manifest.v1+json`, which

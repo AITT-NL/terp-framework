@@ -173,8 +173,14 @@ def _safe_extract(wheel: pathlib.Path, destination: pathlib.Path) -> None:
         archive.extractall(destination)
 
 
-def _run_pinned(pinned: Pinned, script: str, scratch: pathlib.Path, doing: str, *arguments: str) -> Any:
-    """What *script* prints, as JSON, run by the pinned wheel and PyYAML alone."""
+def _run_pinned(
+    pinned: Pinned, script: str, scratch: pathlib.Path, doing: str, fields: dict[str, type], *arguments: str
+) -> dict[str, Any]:
+    """What *script* prints, one JSON object holding *fields*, run by the pinned wheel and PyYAML alone.
+
+    Anything else is refused by name, never read: the answer is the pinned release's, and a
+    release that prints beside it, or answers in another shape, is one this signer cannot read.
+    """
     import yaml
 
     arch, library = scratch / "terp-arch", scratch / "pyyaml"
@@ -189,12 +195,25 @@ def _run_pinned(pinned: Pinned, script: str, scratch: pathlib.Path, doing: str, 
         ),
         f"{doing} with terp-arch {pinned.version}",
     )
-    return json.loads(out)
+    cause = ""
+    try:
+        answer = json.loads(out)
+    except ValueError as exc:
+        answer, cause = None, str(exc)
+    if not isinstance(answer, dict) or any(not isinstance(answer.get(key), kind) for key, kind in fields.items()):
+        raise ReleaseError(
+            f"terp-arch {pinned.version} answered {doing} with something other than the JSON object "
+            f"this signer reads (allowed: one object holding {', '.join(sorted(fields))}, alone on its "
+            "output): the release and this signer disagree, so update the signer image, or report it "
+            "against that terp-arch release",
+            cause=cause,
+        )
+    return answer
 
 
 def render(pinned: Pinned, tree: pathlib.Path, scratch: pathlib.Path) -> tuple[dict[str, bytes], list[str], list[str]]:
     """``(files, owned paths, refusals)``: what the pinned generator renders of *tree*."""
-    answer = _run_pinned(pinned, _RENDER, scratch, "rendering", str(tree))
+    answer = _run_pinned(pinned, _RENDER, scratch, "rendering", {"files": dict, "owned": list, "refused": list}, str(tree))
     files = {path: base64.b64decode(data) for path, data in answer["files"].items()}
     return files, list(answer["owned"]), list(answer["refused"])
 
@@ -241,8 +260,10 @@ def resolve(
     """
     given = scratch / "resolve-input.json"
     given.write_text(json.dumps({"images": images, "imageVolumes": image_volumes}), encoding="utf-8")
-    answer = _run_pinned(pinned, _RESOLVE, scratch, "writing the resolved deployment", str(tree), str(given))
-    return answer["document"], list(answer["refused"])
+    answer = _run_pinned(
+        pinned, _RESOLVE, scratch, "writing the resolved deployment", {"refused": list}, str(tree), str(given)
+    )
+    return answer.get("document"), [str(message) for message in answer["refused"]]
 
 
 __all__ = [

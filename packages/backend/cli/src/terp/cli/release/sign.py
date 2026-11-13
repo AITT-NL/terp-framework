@@ -21,7 +21,8 @@ git and the images from the registry as data, and it judges what a sandbox compu
 6. In the generated state, when the pinned ``terp-arch`` writes one, it has that release write the
    resolved deployment from the images it verified (:func:`._render.resolve`), and holds the
    document to its own ``terp-arch``'s schema copy and checks
-   (:mod:`terp.arch.deployment.resolved_check`) before the manifest, then version 2, carries it.
+   (:mod:`terp.arch.deployment.resolved_check`), and to the images and volumes the manifest
+   records beside it, before the manifest, then version 2, carries it.
 7. It signs the manifest as a DSSE envelope, with ``--signer <argv>`` (the production path, whose
    key never enters this process) or ``--sign-key <file>``, which it refuses without
    ``--test-key``.
@@ -46,7 +47,7 @@ from typing import Any
 
 from terp.arch.deployment.datastores import DatastoreTable, read_table
 from terp.arch.deployment.reader import SPEC_RELEASE
-from terp.arch.deployment.resolved_check import refusals_for
+from terp.arch.deployment.resolved_check import against_manifest, mountable, refusals_for
 from terp.cli.release import dsse
 from terp.cli.release._common import (
     ReleaseError,
@@ -183,15 +184,28 @@ def _deployment(
     arch: Pinned, plan: Plan, table: DatastoreTable, root: pathlib.Path, scratch: pathlib.Path,
     images: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
-    """The resolved deployment the commit's ``terp-arch`` writes, held to this signer's checks."""
+    """The resolved deployment the commit's ``terp-arch`` writes, held to this signer's checks:
+    the schema and the checks beyond it, then what the manifest records beside it."""
+    for entry in images.values():
+        unmountable = [path for path in entry["volumes"] if not mountable(path)]
+        if unmountable:
+            raise ReleaseError(
+                f"{entry['repository']}@{entry['digest']} declares the volume "
+                f"{json.dumps(unmountable[0][:256], ensure_ascii=True)} in its configuration, where a "
+                "resolved deployment cannot mount one (allowed: an absolute path with no empty, '.' or "
+                "'..' segment, outside the app root /srv but for /srv/var/files): change the VOLUME "
+                "instruction that declares it, in the image's Dockerfile or the base image it builds on"
+            )
     built = {f"{entry['repository']}@{entry['digest']}": entry["volumes"] for entry in images.values()}
-    document, refused = resolve(arch, root, scratch, images=_running(plan, images)["units"], image_volumes=built)
+    units = _running(plan, images)["units"]
+    document, refused = resolve(arch, root, scratch, images=units, image_volumes=built)
     if refused or not isinstance(document, dict):
         raise ReleaseError(
             f"terp-arch {arch.version} cannot write this commit's resolved deployment:\n"
             + "\n".join(f"- {message}" for message in refused or ["it answered with no document"])
         )
     found = refusals_for(document, plan.declaration, table=table, images=sorted(built))
+    found = found or against_manifest(document, units=units, image_volumes=built)
     if found:
         raise ReleaseError(
             f"the resolved deployment terp-arch {arch.version} wrote is not one this signer signs "

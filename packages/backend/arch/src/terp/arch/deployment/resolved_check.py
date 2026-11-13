@@ -46,6 +46,16 @@ SCHEMA: dict[str, Any] = _load()
 REFUSED_NAMES: frozenset[str] = frozenset(SCHEMA["$defs"]["refusedEnvironmentNames"]["enum"])
 REFUSED_PREFIXES: tuple[str, ...] = tuple(SCHEMA["$defs"]["refusedEnvironmentPrefixes"]["enum"])
 
+#: What a mount's target may be: the schema's own definition of it.
+MOUNT_TARGET: dict[str, Any] = SCHEMA["properties"]["services"]["items"]["properties"]["mounts"]["items"][
+    "properties"
+]["target"]
+
+
+def mountable(path: str) -> bool:
+    """Whether *path* is a target the resolved deployment can mount a volume at."""
+    return not _jsonschema.validate(path, MOUNT_TARGET)
+
 
 def _field(problem: _jsonschema.Problem) -> str:
     """The field a schema problem is about, written as the fixtures write one (``$`` first).
@@ -81,6 +91,39 @@ def refusals_for(
         images=images,
         datastores={(entry.kind, entry.version): entry.image for entry in table.entries},
     )
+
+
+def against_manifest(
+    document: object,
+    *,
+    units: Mapping[str, str],
+    image_volumes: Mapping[str, Sequence[str]],
+) -> list[tuple[str, str]]:
+    """``(field, what it allows)`` where *document* contradicts the manifest that carries it.
+
+    *units* is the image the manifest records for each unit (``outputs.units``), and
+    *image_volumes* the paths each built image's configuration declares as volumes
+    (``outputs.images[*].volumes``), by image reference. Each service runs its unit's image, and
+    mounts something at every volume its image declares, so no image volume is left for the
+    engine to create unseen. Read against a document that passed :func:`refusals`.
+    """
+    if not isinstance(document, dict):
+        return []
+    found: list[tuple[str, str]] = []
+    for index, service in enumerate(_items(document.get("services"))):
+        if not isinstance(service, dict):
+            continue
+        ident, image = _text(service.get("id")), _text(service.get("image"))
+        if ident in units and image != units[ident]:
+            found.append((f"$.services[{index}].image", f"{units[ident]}, the image outputs.units records for {ident}"))
+        targets = {_text(mount.get("target")) for mount in _items(service.get("mounts")) if isinstance(mount, dict)}
+        for path in image_volumes.get(image or "", ()):
+            if path not in targets:
+                found.append(
+                    (f"$.services[{index}].mounts",
+                     f"a mount at {path}, which its image declares a volume (outputs.images[*].volumes)")
+                )
+    return found
 
 
 def _text(value: object) -> str | None:
@@ -275,12 +318,15 @@ def _cycle_findings(
 
 
 __all__ = [
+    "MOUNT_TARGET",
     "REFUSED_NAMES",
     "REFUSED_PREFIXES",
     "SCHEMA",
     "SCHEMA_FILE",
     "SPEC_RELEASE",
+    "against_manifest",
     "consistency",
+    "mountable",
     "refusals",
     "refusals_for",
 ]
