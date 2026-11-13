@@ -467,6 +467,34 @@ def test_what_crosses_from_the_sandbox_is_bounded_in_all(monkeypatch) -> None:
         _keep(layer(("opt/x.zip", raw.getvalue())))
 
 
+def test_the_bound_counts_what_layers_below_left_and_what_a_hard_link_repeats(monkeypatch) -> None:
+    """Each layer starts from what the image holds by then: its paths, its links' targets, its kept
+    members' names. A hard link to an archive hands the archive's members on a second time."""
+    import zipfile
+
+    def size(text: str) -> int:
+        return len(json.dumps(text))
+
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w") as archive:
+        archive.writestr("d" * 60 + ".dist-info/entry_points.txt", b"")
+    member = size("d" * 60 + ".dist-info/entry_points.txt")
+    target = "/" + "t" * 30
+    below = size("opt") + size("opt/l") + size(target)
+    monkeypatch.setattr(_image, "MOST_ANSWER", below + size("opt/m") - 1)
+    _keep(layer(("opt/l", target)))
+    with pytest.raises(ReleaseError, match="comes to more than .* bytes at opt/m"):
+        _keep(layer(("opt/l", target)), layer(("opt/m", b"")))
+    zipped = size("opt") + size("opt/z.zip") + member
+    monkeypatch.setattr(_image, "MOST_ANSWER", zipped + size("opt/m") - 1)
+    _keep(layer(("opt/z.zip", raw.getvalue())))
+    with pytest.raises(ReleaseError, match="comes to more than .* bytes at opt/m"):
+        _keep(layer(("opt/z.zip", raw.getvalue())), layer(("opt/m", b"")))
+    monkeypatch.setattr(_image, "MOST_ANSWER", zipped + size("opt/h.zip") + member - 1)
+    with pytest.raises(ReleaseError, match="comes to more than .* bytes at opt/h.zip: d{60}"):
+        _keep(layer(("opt/z.zip", raw.getvalue()), ("opt/h.zip", "opt/z.zip", "hard")))
+
+
 def test_a_zip_archive_of_more_members_than_sign_reads_is_refused(monkeypatch) -> None:
     import zipfile
 
