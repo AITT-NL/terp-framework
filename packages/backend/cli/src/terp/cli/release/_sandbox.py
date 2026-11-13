@@ -125,17 +125,31 @@ def compile_in_base(base: str, platform: str, sources: dict[str, bytes]) -> dict
     return {**json.loads(out), "diffIds": found["layers"], "baseConfig": found["config"] or {}}
 
 
-def _carried(paths: list[str]) -> None:
-    """Refuse a path no answer can carry: tarfile reads a name's bytes that are no UTF-8 as lone
-    surrogates, which no JSON document written as UTF-8 holds."""
-    for path in sorted(paths):
-        try:
-            path.encode("utf-8")
-        except UnicodeEncodeError:
+def _text(value: str) -> bool:
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _carried(nodes: dict[str, list[Any]], names: list[str]) -> None:
+    """Refuse a path, or a link's target, no answer can carry: tarfile reads bytes of a name or a
+    target that are no UTF-8 as lone surrogates, which no JSON document written as UTF-8 holds.
+    *nodes* are the nodes handed on, by path, and *names* the paths handed on besides."""
+    for path in sorted({*nodes, *names}):
+        if not _text(path):
             raise ReleaseError(
                 f"the image holds a path that is no UTF-8 text, {ascii(path)}: the sandbox hands every "
                 "path it reads to the signer as text, and cannot hand on this one; rename it"
-            ) from None
+            )
+    for path, data in sorted(nodes.items()):
+        if data[0] == "link" and not _text(data[3]):
+            raise ReleaseError(
+                f"the image holds a link, {path}, whose target is no UTF-8 text, {ascii(data[3])}: the "
+                "sandbox hands every link's target to the signer as text, and cannot hand on this one; "
+                "point the link at a path whose name is UTF-8"
+            )
 
 
 def image_task(payload: dict[str, Any]) -> dict[str, Any]:
@@ -160,7 +174,7 @@ def image_task(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("base"):
         compiled = compile_in_base(payload["base"], payload["platform"], sources)
     inputs = migration_inputs(nodes, kept)
-    _carried([*srv, *inputs["nodes"], *inputs["files"], *inputs["zipped"]])
+    _carried({**srv, **inputs["nodes"]}, [*inputs["files"], *inputs["zipped"]])
     return {
         "digest": digest,
         "configDigest": manifest["config"]["digest"],

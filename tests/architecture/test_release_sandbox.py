@@ -190,6 +190,27 @@ def test_a_path_that_is_no_utf_8_text_is_refused_by_name_not_a_traceback(tmp_pat
         _image_task(tmp_path, monkeypatch, gzip.compress(raw.getvalue(), mtime=0))
 
 
+def test_a_link_whose_target_is_no_utf_8_text_is_refused_by_name_not_a_traceback(tmp_path: pathlib.Path, monkeypatch, capsys) -> None:
+    """Every link's target crosses to the signer beside the paths, and a target can hold bytes that
+    are no UTF-8 as well: the sandbox's own process died writing its answer."""
+    import gzip
+    import tarfile
+
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w", format=tarfile.GNU_FORMAT, encoding="utf-8", errors="surrogateescape") as archive:
+        info = tarfile.TarInfo("opt/l")
+        info.type = tarfile.SYMTYPE
+        info.linkname = "x\udcff"
+        archive.addfile(info)
+    fake = FakeRegistry()
+    pushed = fake.push_image([gzip.compress(raw.getvalue(), mtime=0)])
+    monkeypatch.setattr(_sandbox, "egress_getter", lambda host, http: fake)
+    payload = {"repository": "registry.example/rel/app", "digest": pushed, "platform": "linux/amd64",
+               "http": False, "credentials": None, "tree": str(_tree(tmp_path)), "base": None}
+    assert _sandbox.main(["image"], io.BytesIO(json.dumps(payload).encode()), io.StringIO()) == 1
+    assert "the image holds a link, opt/l, whose target is no UTF-8 text, 'x\\udcff'" in capsys.readouterr().err
+
+
 def test_the_scan_asks_the_shared_vulnerability_client_and_names_the_database(monkeypatch) -> None:
     from terp.cli.release import _osv
 
