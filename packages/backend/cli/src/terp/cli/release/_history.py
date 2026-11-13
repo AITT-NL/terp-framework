@@ -14,7 +14,8 @@ no source text the interpreter can decode, that does not parse, that nests deepe
 reading goes, or whose header cannot be read for certain; an id or a parent outside
 ``^[0-9A-Za-z_]{1,64}$``; a parent named twice, or more parents than a plan holds; a
 ``depends_on`` that is not ``None``; a revision id given twice, a parent that is no revision of the
-history, a cycle; and more revisions or operations than a plan holds.
+history, a cycle; an operation whose text holds a lone surrogate, which no UTF-8 document holds;
+and more revisions or operations than a plan holds.
 """
 
 from __future__ import annotations
@@ -34,6 +35,14 @@ _REVISION_ID = re.compile(r"[0-9A-Za-z_]{1,64}")
 #: 4,096 operations, since a revision counts its operations from 1.
 MOST_IN_HISTORY = 4096
 MOST_PARENTS = 16
+
+
+def _encodes(text: str) -> bool:
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _undecodable(exc: SyntaxError | UnicodeError | LookupError) -> str:
@@ -80,10 +89,10 @@ def _revision(
             "Alembic's template writes them"
         )
         return None
-    for named in (header.revision, *header.parents):
-        if _REVISION_ID.fullmatch(named) is None:
+    for given in (header.revision, *header.parents):
+        if _REVISION_ID.fullmatch(given) is None:
             findings.append(
-                f"{path} names the revision {named!r}, outside ^[0-9A-Za-z_]{{1,64}}$, the ids a "
+                f"{path} names the revision {given!r}, outside ^[0-9A-Za-z_]{{1,64}}$, the ids a "
                 "deploy's plan holds: give the revision an id of letters, digits and underscores "
                 "(Alembic's own are twelve hexadecimal digits)"
             )
@@ -101,7 +110,13 @@ def _revision(
             "count the other pending ever after, and a Terp history is linear (ADR 0027); order "
             "the two by down_revision and set depends_on to None"
         )
-    return header, steps
+    for step in steps:
+        if not _encodes(step.operation):
+            findings.append(
+                f"{named} lists the operation {ascii(step.operation)}, whose text holds a lone surrogate "
+                "UTF-8 cannot encode: write the string literal it comes from without that escape"
+            )
+    return header, [step for step in steps if _encodes(step.operation)]
 
 
 def _cycle(down: dict[str, tuple[str, ...]]) -> list[str]:

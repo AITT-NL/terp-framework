@@ -532,6 +532,18 @@ def test_a_release_whose_migrations_cannot_be_listed_is_not_signed(tmp_path: pat
     assert not (tmp_path / "out").exists(), "nothing is signed"
 
 
+def test_an_operation_text_no_utf_8_document_holds_is_refused_not_a_traceback(tmp_path: pathlib.Path, monkeypatch) -> None:
+    release = Release(tmp_path, monkeypatch, app_files() | {
+        "app/modules/notes/migrations/versions/a1_x.py": revision(
+            "a1", None, "    op.drop_table('\\ud800')  # arch-allow-no-destructive-migrations: retired table\n"),
+    })
+    with pytest.raises(ReleaseError, match=re.escape(
+        "- app/modules/notes/migrations/versions/a1_x.py, a revision of the migration history 'notes', lists "
+        "the operation 'drop_table \\ud800', whose text holds a lone surrogate")):
+        release.sign()
+    assert not (tmp_path / "out").exists(), "nothing is signed"
+
+
 @pytest.mark.parametrize("service", ["db", "web"])
 def test_the_upgrade_is_read_from_a_backend_image_or_nothing_is_signed(tmp_path: pathlib.Path, monkeypatch, service: str) -> None:
     """The image a migration step runs on is the one whose histories are listed: a datastore's or

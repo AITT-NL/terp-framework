@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import pathlib
+import re
 import runpy
 import subprocess
 import sys
@@ -168,6 +169,21 @@ def test_an_entry_written_through_a_link_is_refused_where_the_comparison_reads(t
     upper = layer(("opt/t", f"/{versions}"), ("opt/t/b2_evil.py", _revision("b2", "a1", "    op.drop_table('invoice')")))
     with pytest.raises(ReleaseError, match="the layer writes opt/t/b2_evil.py through opt/t, a symbolic link"):
         _image_task(tmp_path, monkeypatch, lower, upper)
+
+
+def test_a_path_that_is_no_utf_8_text_is_refused_by_name_not_a_traceback(tmp_path: pathlib.Path, monkeypatch) -> None:
+    """tarfile reads a name's undecodable bytes as lone surrogates, which no answer can carry."""
+    import gzip
+    import io
+    import tarfile
+
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w", format=tarfile.GNU_FORMAT, encoding="utf-8", errors="surrogateescape") as archive:
+        info = tarfile.TarInfo("opt/caf\udce9/notes.txt")
+        info.size = 2
+        archive.addfile(info, io.BytesIO(b"hi"))
+    with pytest.raises(ReleaseError, match=re.escape("the image holds a path that is no UTF-8 text, 'opt/caf\\udce9'")):
+        _image_task(tmp_path, monkeypatch, gzip.compress(raw.getvalue(), mtime=0))
 
 
 def test_the_scan_asks_the_shared_vulnerability_client_and_names_the_database(monkeypatch) -> None:

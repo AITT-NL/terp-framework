@@ -517,6 +517,11 @@ def _module(files: dict[str, bytes]) -> dict[str, bytes]:
          "app/modules/notes/migrations/versions/a1_x.py, a revision of the migration history 'notes', "
          "nests too deeply for sign to read it: break up the expression that nests so deep"),
         ({"a1_x.py": revision("a1", None, "    x = a" + ".b" * 100000 + "\n")}, "nests too deeply for sign to read it"),
+        # A lone surrogate, escaped in ASCII source past the gate's marker: no UTF-8 document holds it.
+        ({"a1_x.py": revision("a1", None, "    op.drop_table('\\ud800')  # arch-allow-no-destructive-migrations: retired table\n")},
+         "app/modules/notes/migrations/versions/a1_x.py, a revision of the migration history 'notes', lists "
+         "the operation 'drop_table \\ud800', whose text holds a lone surrogate UTF-8 cannot encode: write "
+         "the string literal it comes from without that escape"),
         ({"a1_x.py": revision("a1"), "b2_y.py": revision("a1")},
          "the migration history 'notes' has the revision 'a1' in app/modules/notes/migrations/versions/a1_x.py "
          "and app/modules/notes/migrations/versions/b2_y.py: give each revision an id of its own"),

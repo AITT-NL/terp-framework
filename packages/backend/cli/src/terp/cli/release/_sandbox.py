@@ -125,6 +125,19 @@ def compile_in_base(base: str, platform: str, sources: dict[str, bytes]) -> dict
     return {**json.loads(out), "diffIds": found["layers"], "baseConfig": found["config"] or {}}
 
 
+def _carried(paths: list[str]) -> None:
+    """Refuse a path no answer can carry: tarfile reads a name's bytes that are no UTF-8 as lone
+    surrogates, which no JSON document written as UTF-8 holds."""
+    for path in sorted(paths):
+        try:
+            path.encode("utf-8")
+        except UnicodeEncodeError:
+            raise ReleaseError(
+                f"the image holds a path that is no UTF-8 text, {ascii(path)}: the sandbox hands every "
+                "path it reads to the signer as text, and cannot hand on this one; rename it"
+            ) from None
+
+
 def image_task(payload: dict[str, Any]) -> dict[str, Any]:
     """Read one image as data and answer every bytecode file with the base's compile."""
     host = payload["repository"].split("/", 1)[0]
@@ -146,6 +159,8 @@ def image_task(payload: dict[str, Any]) -> dict[str, Any]:
     compiled: dict[str, Any] = {"files": {}, "cacheTag": "", "magic": "", "diffIds": []}
     if payload.get("base"):
         compiled = compile_in_base(payload["base"], payload["platform"], sources)
+    inputs = migration_inputs(nodes, kept)
+    _carried([*srv, *inputs["nodes"], *inputs["files"], *inputs["zipped"]])
     return {
         "digest": digest,
         "configDigest": manifest["config"]["digest"],
@@ -153,7 +168,7 @@ def image_task(payload: dict[str, Any]) -> dict[str, Any]:
         "nodes": srv,
         "texts": {path: body for path, body in sorted(texts.items()) if path.startswith("srv/")},
         "compiled": compiled,
-        "migrationInputs": migration_inputs(nodes, kept),
+        "migrationInputs": inputs,
     }
 
 
