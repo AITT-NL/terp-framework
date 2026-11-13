@@ -82,6 +82,43 @@ decision, 0001 onwards.
   named in `not_checked`. `--osv` naming a mirror, or `--send-private-names`, sends them too. A
   package from a path, a git repository or a URL that is no registry's is never sent, nor is
   the project itself. `terp guide maintenance` covers scheduling and what each finding asks.
+- **`terp release sign` lists every migration history the backend image brings to head, in
+  the signed manifest (ADR 0216).** A deploy tool that has a person confirm a deploy's
+  destructive steps before they run had nothing to read them from: no field of the manifest
+  named a revision or an operation. `outputs.migrations` does, keyed by history label, each
+  `{"revisions": [{"id", "down"}], "operations": [{"revision", "ordinal", "kind",
+  "operation"}]}`: every revision with the revisions it follows (none for a base, several for
+  a merge), and every step `destructive_operations` lists for its `upgrade()`, excused by its
+  marker or not, `opaque` ones included. Every array is sorted by code point, so one image and
+  one tree give one byte string. The histories are the ones `terp migrate upgrade` finds in
+  the image, under the labels `resolve_all_migration_trees` gives them, read as data and
+  never imported:
+  - a capability's, from each `[terp.migrations]` section of an `entry_points.txt` in a
+    `*.dist-info` or `*.egg-info` directory anywhere in the image, its revisions read from
+    the package where its distribution installed it, in the same `site-packages` or
+    `dist-packages` directory. The sandbox hands those files back from anywhere in the image,
+    beside what it handed back before, which is unchanged;
+  - an app module's, from the commit's tree under `app/modules/`, which the image holds at
+    `/srv/app`, the root the migration step passes. The image must hold the same modules and
+    the same revision files, byte for byte.
+
+  A history with no revision yet is listed with both arrays empty. `sign` refuses, naming
+  what it found and what to change: a `[terp.migrations]` section outside such a
+  distribution; a package its distribution does not hold in place (an editable install, a
+  `.pth` path); a second copy of a capability's package anywhere else in the image, which a
+  `PYTHONPATH` entry would run in its place; a symbolic link where a reading would pass; a
+  module or a revision file in which the image and the tree differ; a revision whose source
+  does not parse or whose header cannot be read for certain; an id or a parent outside
+  `^[0-9A-Za-z_]{1,64}$`, a parent named twice, or a `depends_on` other than `None`; a
+  revision id given twice in one history, a parent that is no revision of it, or a cycle; two
+  histories with one label, or a label outside `^[a-z0-9_]{1,47}$`; and more histories (64),
+  revisions or operations in one history (4,096), or parents of one revision (16), than a
+  deploy's plan holds. On this repository's capabilities the field holds three steps in all:
+  the webhooks capability's type change and the audit capability's two computed trigger
+  statements.
+- **`terp.arch.revision_depends_on(source)`** reads a revision's `depends_on` as
+  `revision_header` reads `down_revision`, from its one plain module-level assignment, and
+  returns it as written, `None` where the file assigns none. It imports and runs nothing.
 
 ### Changed
 
@@ -115,6 +152,10 @@ decision, 0001 onwards.
 
 - `copier update` adds `terp-cap-egress` to the `dev` group of `pyproject.toml`; run `uv sync`.
   An app that does not re-render can add `"terp-cap-egress==0.43.0"` to that group by hand.
+- `sign` now refuses a release whose migration histories it cannot list, where it signed it
+  before. The likeliest causes: a revision that sets `depends_on`, a revision id holding a
+  character other than a letter, a digit or `_`, an app module whose name holds an upper-case
+  letter, and a capability installed editable. Each refusal names the file and the change.
 
 ## 0.42.1 — unreleased
 

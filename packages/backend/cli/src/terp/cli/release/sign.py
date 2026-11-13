@@ -17,7 +17,9 @@ git and the images from the registry as data, and it judges what a sandbox compu
    distributions' ``RECORD`` files and its Dockerfile (:mod:`._compare`); it computes each image's SBOM (the backend's from its filesystem, the web
    image's from the npm lock it is built from, refusing one with none rather than describing it as
    empty), asks the vulnerability database about them, and scans the
-   history reachable from the SHA for secrets, which it refuses to sign over.
+   history reachable from the SHA for secrets, which it refuses to sign over. From the image that
+   runs ``terp migrate upgrade`` it lists every migration history the upgrade brings to head, each
+   revision and each destructive step (:mod:`._migrations`), refusing what it cannot list.
 6. In the generated state, when the pinned ``terp-arch`` writes one, it has that release write the
    resolved deployment from the images it verified (:func:`._render.resolve`), and holds the
    document to its own ``terp-arch``'s schema copy and checks
@@ -61,8 +63,9 @@ from terp.cli.release._compare import compare_backend, wheel_shape
 from terp.cli.release._git import Tree
 from terp.cli.release._image import final_base
 from terp.cli.release._locks import UV_LOCK, pinned, read_uv_lock
+from terp.cli.release._migrations import migrations
 from terp.cli.release._osv import DEFAULT_OSV
-from terp.cli.release._plan import Plan, release_plan, web_packages
+from terp.cli.release._plan import Image, Plan, release_plan, web_packages
 from terp.cli.release._registry import Registry, egress_getter
 from terp.cli.release._render import DEFAULT_INDEX, DEFAULT_TABLE, Pinned, fetch, render, resolve, version_key
 from terp.cli.release._sandbox import sandboxed
@@ -168,6 +171,21 @@ def _volumes(config: dict[str, Any], where: str) -> list[str]:
             "path, which no image build writes (allowed: an object keyed by path, or none)"
         )
     return sorted(volumes)
+
+
+def _migrating(plan: Plan) -> Image:
+    """The image whose ``terp migrate upgrade`` brings every history to head: the migration
+    step's, or with no step the ``api`` unit's, which a deploy then runs the upgrade in."""
+    service = plan.migration_step or plan.api
+    assert service is not None  # the plan refuses a profile with neither
+    image = plan.image_of(service)
+    if image is None or image.web:
+        raise ReleaseError(
+            f"service {service} runs the migration step on no backend image this commit builds, so "
+            "sign cannot read the migration histories it brings to head: run the step on the "
+            "backend image"
+        )
+    return image
 
 
 def _running(plan: Plan, images: dict[str, dict[str, Any]]) -> dict[str, dict[str, str]]:
@@ -278,9 +296,11 @@ def sign(
         generator = _generated(arch, tree, root, scratch, name) if plan.declaration.build == "generated" else None
         reg = Registry(egress_getter(host, http=registry_http), http=registry_http, credentials=credentials)
         images = _images(plan, build, prefix, tag, platform, reg)
+        migrating = _migrating(plan)
         resolved = generator is not None and arch.resolves
         deployment = _deployment(arch, plan, table, root, scratch, images) if resolved else None
         outputs_images: dict[str, Any] = {}
+        backend: dict[str, dict[str, Any]] = {}
         documents: dict[str, bytes] = {}
         all_purls: dict[str, list[str]] = {}
         for image_name, entry in sorted(images.items()):
@@ -302,6 +322,7 @@ def sign(
                         f"the image {entry['repository']}@{entry['digest']} is not this commit's build:\n"
                         + "\n".join(f"- {finding}" for finding in findings)
                     )
+                backend[image_name] = answer
                 bom = sbom(image_name, tag, packages, "pypi")
             safe = image_name.replace("/", "_")
             documents[f"packages-{safe}.json"] = canonical([list(item) for item in packages])
@@ -315,6 +336,13 @@ def sign(
             }
             if deployment is not None:  # what the document's anonymous mounts were read from
                 outputs_images[image_name]["volumes"] = entry["volumes"]
+        # The image the upgrade runs in is a backend image, so the loop read it and held it to the tree.
+        refused, outputs_migrations = migrations(tree, backend[migrating.name])
+        if refused:
+            raise ReleaseError(
+                f"the migration histories of {images[migrating.name]['repository']}@"
+                f"{images[migrating.name]['digest']} cannot be listed:\n" + "\n".join(f"- {refusal}" for refusal in refused)
+            )
         scan = sandboxed("scan", {"osv": osv, "purls": sorted({p for found in all_purls.values() for p in found})})
         for image_name, found in all_purls.items():
             outputs_images[image_name]["vulnerabilities"] = {
@@ -337,6 +365,7 @@ def sign(
             ),
             {
                 "images": outputs_images,
+                "migrations": outputs_migrations,
                 "secretScan": {"tool": secrets["tool"], "version": secrets["version"], "findings": 0},
                 "vulnerabilityDatabase": scan["database"],
                 **_running(plan, images),
