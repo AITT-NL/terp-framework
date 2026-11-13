@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "services": [
+    {
+      "after": [],
+      "appEnvironment": false,
+      "datastore": {
+        "kind": "postgres",
+        "version": "17"
+      },
+      "environment": [
+        {
+          "name": "POSTGRES_DB",
+          "source": "value",
+          "value": "app"
+        },
+        {
+          "key": "POSTGRES_PASSWORD",
+          "name": "POSTGRES_PASSWORD",
+          "source": "secret"
+        },
+        {
+          "name": "POSTGRES_USER",
+          "source": "value",
+          "value": "app"
+        }
+      ],
+      "healthcheck": {
+        "form": "shell",
+        "intervalSeconds": 30,
+        "retries": 3,
+        "script": "pg_isready -U app -d app",
+        "startPeriodSeconds": 30,
+        "timeoutSeconds": 5
+      },
+      "id": "db",
+      "image": "postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
+      "init": false,
+      "lifecycle": "long-running",
+      "mounts": [
+        {
+          "readOnly": false,
+          "source": "db-data",
+          "target": "/var/lib/postgresql/data",
+          "type": "volume"
+        }
+      ],
+      "role": "database"
+    }
+  ],
+  "volumes": [
+    "db-data"
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "services": [
+    {
+      "after": [],
+      "appEnvironment": true,
+      "command": [
+        "terp",
+        "jobs",
+        "worker",
+        "--forever"
+      ],
+      "environment": [
+        {
+          "key": "BACKEND_CORS_ORIGINS",
+          "name": "BACKEND_CORS_ORIGINS",
+          "source": "config"
+        },
+        {
+          "key": "runtime",
+          "name": "DATABASE_URL",
+          "source": "database"
+        },
+        {
+          "name": "ENVIRONMENT",
+          "source": "value",
+          "value": "production"
+        },
+        {
+          "key": "SECRET_KEY",
+          "name": "SECRET_KEY",
+          "source": "secret"
+        }
+      ],
+      "healthcheck": {
+        "argv": [
+          "python",
+          "-c",
+          "import json, os, sys, tempfile, time; beat = json.load(open(os.path.join(tempfile.gettempdir(), 'terp-' + sys.argv[1] + '.heartbeat'))); age = time.time() - beat['at']; print(json.dumps({'heartbeat': sys.argv[1], 'age_seconds': round(age, 1), 'stale_after_seconds': beat['stale_after']})); sys.exit(age > beat['stale_after'])",
+          "worker"
+        ],
+        "form": "exec",
+        "intervalSeconds": 10,
+        "retries": 3,
+        "startPeriodSeconds": 30,
+        "timeoutSeconds": 5
+      },
+      "id": "worker",
+      "image": "registry.example.test/example-app-backend@sha256:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+      "init": true,
+      "lifecycle": "long-running",
+      "mounts": [],
+      "role": "worker"
+    }
+  ],
+  "volumes": []
+}

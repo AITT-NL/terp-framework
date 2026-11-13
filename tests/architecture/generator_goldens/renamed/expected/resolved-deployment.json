@@ -1,0 +1,284 @@
+{
+  "migration": "schema",
+  "schemaVersion": 1,
+  "services": [
+    {
+      "after": [
+        {
+          "condition": "healthy",
+          "unit": "backend"
+        }
+      ],
+      "appEnvironment": false,
+      "environment": [
+        {
+          "name": "API_UPSTREAM",
+          "source": "value",
+          "value": "backend:8000"
+        }
+      ],
+      "healthcheck": {
+        "form": "shell",
+        "intervalSeconds": 30,
+        "retries": 3,
+        "script": "wget -q -O /dev/null http://127.0.0.1:8080/",
+        "startPeriodSeconds": 30,
+        "timeoutSeconds": 5
+      },
+      "id": "frontend",
+      "image": "registry.example.test/example-app-frontend@sha256:2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+      "init": false,
+      "lifecycle": "long-running",
+      "mounts": [],
+      "role": "web",
+      "serves": {
+        "healthPath": "/",
+        "port": 8080
+      }
+    },
+    {
+      "after": [],
+      "appEnvironment": false,
+      "datastore": {
+        "kind": "postgres",
+        "version": "17"
+      },
+      "environment": [
+        {
+          "name": "POSTGRES_DB",
+          "source": "value",
+          "value": "app"
+        },
+        {
+          "key": "POSTGRES_PASSWORD",
+          "name": "POSTGRES_PASSWORD",
+          "source": "secret"
+        },
+        {
+          "name": "POSTGRES_USER",
+          "source": "value",
+          "value": "app"
+        }
+      ],
+      "healthcheck": {
+        "form": "shell",
+        "intervalSeconds": 30,
+        "retries": 3,
+        "script": "pg_isready -U app -d app",
+        "startPeriodSeconds": 30,
+        "timeoutSeconds": 5
+      },
+      "id": "pg",
+      "image": "postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
+      "init": false,
+      "lifecycle": "long-running",
+      "mounts": [
+        {
+          "readOnly": false,
+          "source": "pg-data",
+          "target": "/var/lib/postgresql/data",
+          "type": "volume"
+        }
+      ],
+      "role": "database"
+    },
+    {
+      "after": [
+        {
+          "condition": "healthy",
+          "unit": "pg"
+        }
+      ],
+      "appEnvironment": true,
+      "environment": [
+        {
+          "key": "BACKEND_CORS_ORIGINS",
+          "name": "BACKEND_CORS_ORIGINS",
+          "source": "config"
+        },
+        {
+          "name": "ENVIRONMENT",
+          "source": "value",
+          "value": "production"
+        },
+        {
+          "key": "SECRET_KEY",
+          "name": "SECRET_KEY",
+          "source": "secret"
+        }
+      ],
+      "id": "schema",
+      "image": "registry.example.test/example-app-backend@sha256:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+      "init": false,
+      "lifecycle": "one-shot",
+      "mounts": [],
+      "role": "one-shot"
+    },
+    {
+      "after": [
+        {
+          "condition": "healthy",
+          "unit": "pg"
+        },
+        {
+          "condition": "completed",
+          "unit": "schema"
+        }
+      ],
+      "appEnvironment": true,
+      "command": [
+        "terp",
+        "jobs",
+        "worker",
+        "--forever",
+        "--poll-seconds",
+        "2"
+      ],
+      "environment": [
+        {
+          "key": "BACKEND_CORS_ORIGINS",
+          "name": "BACKEND_CORS_ORIGINS",
+          "source": "config"
+        },
+        {
+          "key": "runtime",
+          "name": "DATABASE_URL",
+          "source": "database"
+        },
+        {
+          "name": "ENVIRONMENT",
+          "source": "value",
+          "value": "production"
+        },
+        {
+          "key": "SECRET_KEY",
+          "name": "SECRET_KEY",
+          "source": "secret"
+        }
+      ],
+      "healthcheck": {
+        "argv": [
+          "python",
+          "-c",
+          "import json, os, sys, tempfile, time; beat = json.load(open(os.path.join(tempfile.gettempdir(), 'terp-' + sys.argv[1] + '.heartbeat'))); age = time.time() - beat['at']; print(json.dumps({'heartbeat': sys.argv[1], 'age_seconds': round(age, 1), 'stale_after_seconds': beat['stale_after']})); sys.exit(age > beat['stale_after'])",
+          "worker"
+        ],
+        "form": "exec",
+        "intervalSeconds": 10,
+        "retries": 3,
+        "startPeriodSeconds": 30,
+        "timeoutSeconds": 5
+      },
+      "id": "jobs",
+      "image": "registry.example.test/example-app-backend@sha256:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+      "init": true,
+      "lifecycle": "long-running",
+      "mounts": [],
+      "role": "worker"
+    },
+    {
+      "after": [
+        {
+          "condition": "healthy",
+          "unit": "pg"
+        },
+        {
+          "condition": "completed",
+          "unit": "schema"
+        }
+      ],
+      "appEnvironment": true,
+      "environment": [
+        {
+          "key": "BACKEND_CORS_ORIGINS",
+          "name": "BACKEND_CORS_ORIGINS",
+          "source": "config"
+        },
+        {
+          "key": "runtime",
+          "name": "DATABASE_URL",
+          "source": "database"
+        },
+        {
+          "name": "ENVIRONMENT",
+          "source": "value",
+          "value": "production"
+        },
+        {
+          "key": "SECRET_KEY",
+          "name": "SECRET_KEY",
+          "source": "secret"
+        }
+      ],
+      "healthcheck": {
+        "argv": [
+          "python",
+          "-c",
+          "import sys, urllib.request; urllib.request.urlopen('http://127.0.0.1:8000' + sys.argv[1])",
+          "/live"
+        ],
+        "form": "exec",
+        "intervalSeconds": 30,
+        "retries": 3,
+        "startPeriodSeconds": 30,
+        "timeoutSeconds": 5
+      },
+      "id": "backend",
+      "image": "registry.example.test/example-app-backend@sha256:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+      "init": false,
+      "lifecycle": "long-running",
+      "mounts": [],
+      "role": "api",
+      "serves": {
+        "healthPath": "/ready",
+        "port": 8000
+      }
+    },
+    {
+      "after": [
+        {
+          "condition": "completed",
+          "unit": "schema"
+        }
+      ],
+      "appEnvironment": true,
+      "command": [
+        "terp",
+        "jobs",
+        "run",
+        "cache.warm"
+      ],
+      "environment": [
+        {
+          "key": "BACKEND_CORS_ORIGINS",
+          "name": "BACKEND_CORS_ORIGINS",
+          "source": "config"
+        },
+        {
+          "key": "runtime",
+          "name": "DATABASE_URL",
+          "source": "database"
+        },
+        {
+          "name": "ENVIRONMENT",
+          "source": "value",
+          "value": "production"
+        },
+        {
+          "key": "SECRET_KEY",
+          "name": "SECRET_KEY",
+          "source": "secret"
+        }
+      ],
+      "id": "warmup",
+      "image": "registry.example.test/example-app-backend@sha256:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+      "init": false,
+      "lifecycle": "one-shot",
+      "mounts": [],
+      "role": "one-shot"
+    }
+  ],
+  "volumes": [
+    "pg-data"
+  ]
+}

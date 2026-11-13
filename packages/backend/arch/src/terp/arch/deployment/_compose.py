@@ -187,27 +187,74 @@ def _seam(unit: Unit, recipe: KindRecipe) -> list[str]:
     ]
 
 
+#: What a unit waits for in each unit it depends on, in Terp's words, by what that unit is.
+_WAITS = {"kind": "healthy", "api": "healthy", "web": "healthy", "site": "healthy", "one-shot": "completed"}
+
+#: Compose's word for each of Terp's conditions.
+COMPOSE_CONDITIONS = {
+    "started": "service_started",
+    "healthy": "service_healthy",
+    "completed": "service_completed_successfully",
+}
+
+
+def condition_of(plan: _Plan, ident: str) -> str:
+    """What a unit that depends on *ident* waits for: ``started``, ``healthy`` or ``completed``.
+
+    The profile writes it in Compose's words and the resolved deployment in Terp's, both from
+    here, so the two cannot disagree on a start order.
+    """
+    if plan.heartbeat_of(ident) is not None:
+        return "healthy"
+    return _WAITS.get(plan.kind_of(ident), "started")
+
+
 def _depends_on(plan: _Plan, unit: Unit) -> list[str]:
     if not unit.depends_on:
         return []
-    conditions = {
-        "kind": "service_healthy",
-        "api": "service_healthy",
-        "web": "service_healthy",
-        "site": "service_healthy",
-        "one-shot": "service_completed_successfully",
-    }
     lines = ["    depends_on:"]
     for ident in unit.depends_on:
-        condition = conditions.get(plan.kind_of(ident), "service_started")
-        if plan.heartbeat_of(ident) is not None:
-            condition = "service_healthy"
+        condition = COMPOSE_CONDITIONS[condition_of(plan, ident)]
         lines += [f"      {scalar(ident)}:", f"        condition: {condition}"]
     return lines
 
 
 def _probe(test: str, timing: tuple[str, ...] = _TIMING) -> list[str]:
     return ["    healthcheck:", f"      test: {test}", *(f"      {line}" for line in timing)]
+
+
+#: A probe in Compose's form: ``CMD`` and an argv, or ``CMD-SHELL`` and a script, then the
+#: timing lines the profile writes under it.
+Probe = tuple[tuple[str, ...], tuple[str, ...]]
+
+
+def api_probe(unit: Unit) -> Probe:
+    """An api unit's probe: its liveness path, asked over HTTP from inside the container."""
+    return ("CMD", "python", "-c", HEALTH_PROBE, str(unit.liveness_path)), _TIMING
+
+
+def heartbeat_probe(heartbeat: str) -> Probe:
+    """A loop's probe: the heartbeat file its command writes is fresh (ADR 0191)."""
+    return ("CMD", "python", "-c", HEARTBEAT_PROBE, heartbeat), _HEARTBEAT_TIMING
+
+
+def probe_of(plan: _Plan, unit: Unit) -> Probe | None:
+    """The one probe *unit*'s service carries, or ``None``.
+
+    The profile writes each probe from the helpers here and the resolved deployment reads them
+    into its own form, so the two carry one probe for every unit.
+    """
+    kind = plan.kind_of(unit.id)
+    if kind == "kind":
+        return plan.kinds[unit.id].healthcheck, _TIMING
+    if kind == "web":
+        return ("CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/"), _TIMING
+    if kind == "site":
+        return ("CMD-SHELL", f"wget -q -O /dev/null http://127.0.0.1:8080{SITE_HEALTH_PATH}"), _TIMING
+    if kind == "api":
+        return api_probe(unit)
+    heartbeat = plan.heartbeat_of(unit.id)
+    return heartbeat_probe(heartbeat) if heartbeat is not None else None
 
 
 def _kind_service(plan: _Plan, unit: Unit) -> list[str]:
@@ -229,7 +276,8 @@ def _kind_service(plan: _Plan, unit: Unit) -> list[str]:
         lines += [f"      {name}: {text}" for name, text in recipe.environment]
     lines += ["    volumes:", f"      - {scalar(f'{unit.id}-data:{recipe.data_path}')}"]
     lines += _depends_on(plan, unit)
-    lines += _probe(_flow(recipe.healthcheck, fixed))
+    test, timing = _carried_probe(plan, unit)
+    lines += _probe(_flow(test, fixed), timing)
     return lines
 
 
@@ -292,9 +340,9 @@ def _backend_service(plan: _Plan, unit: Unit) -> list[str]:
         ]
     lines += _depends_on(plan, unit)
     if kind == "api":
-        probe = ("CMD", "python", "-c", HEALTH_PROBE)
+        test, timing = api_probe(unit)
         lines += _probe(
-            "[" + ", ".join(fixed(part) for part in probe) + f", {value(str(unit.liveness_path))}]"
+            "[" + ", ".join(fixed(part) for part in test[:-1]) + f", {value(test[-1])}]", timing
         )
     heartbeat = plan.heartbeat_of(unit.id)
     if heartbeat is not None:
@@ -302,8 +350,8 @@ def _backend_service(plan: _Plan, unit: Unit) -> list[str]:
             "    # Healthy while the heartbeat its loop writes is fresh (ADR 0191). The probe",
             "    # reads a file in the container, so it needs no HTTP, no database and no app.",
         ]
-        probe = ("CMD", "python", "-c", HEARTBEAT_PROBE, heartbeat)
-        lines += _probe("[" + ", ".join(fixed(part) for part in probe) + "]", _HEARTBEAT_TIMING)
+        test, timing = heartbeat_probe(heartbeat)
+        lines += _probe("[" + ", ".join(fixed(part) for part in test) + "]", timing)
     return lines
 
 
@@ -331,7 +379,8 @@ def _web_service(plan: _Plan, unit: Unit) -> list[str]:
         f"      - {fixed(WEB_PORT)}",
     ]
     lines += _depends_on(plan, unit)
-    lines += _probe(_flow(("CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/"), fixed))
+    test, timing = _carried_probe(plan, unit)
+    lines += _probe(_flow(test, fixed), timing)
     return lines
 
 
@@ -352,10 +401,20 @@ def _site_service(plan: _Plan, unit: Unit) -> list[str]:
         "      # `docker compose -f docker-compose.prod.yml up` grabs.",
         f"      - {fixed(site_port(unit.id))}",
         *_depends_on(plan, unit),
-        *_probe(
-            _flow(("CMD-SHELL", f"wget -q -O /dev/null http://127.0.0.1:8080{SITE_HEALTH_PATH}"), fixed)
-        ),
+        *_probe(*_flow_probe(plan, unit)),
     ]
+
+
+def _carried_probe(plan: _Plan, unit: Unit) -> Probe:
+    """The probe of a unit that always carries one: a ``kind`` unit, a web tier, a site."""
+    probe = probe_of(plan, unit)
+    assert probe is not None  # every kind, web and site unit has its probe
+    return probe
+
+
+def _flow_probe(plan: _Plan, unit: Unit) -> tuple[str, tuple[str, ...]]:
+    test, timing = _carried_probe(plan, unit)
+    return _flow(test, fixed), timing
 
 
 def _profile(plan: _Plan) -> str:

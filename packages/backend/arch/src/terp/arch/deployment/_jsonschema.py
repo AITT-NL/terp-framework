@@ -1,7 +1,8 @@
-"""A JSON Schema reader for exactly the keywords the deployment declaration's schema uses.
+"""A JSON Schema reader for exactly the keywords the schemas this package mirrors use.
 
 ``deployment.json`` is read against the schema the Terp Standard publishes, and this
-package ships a byte-for-byte mirror of it (ADR 0184 decision 8). Reading the
+package ships a byte-for-byte mirror of it (ADR 0184 decision 8), as it does of the
+workbench declaration's and the resolved deployment's. Reading the
 declaration *through* that mirror, rather than through a second hand-written copy of
 its rules, is what keeps the two from saying different things: the words are the
 schema's, and this module only applies them.
@@ -40,6 +41,7 @@ CONSTRAINTS = frozenset(
         "minLength",
         "maxLength",
         "minimum",
+        "maximum",
         "exclusiveMinimum",
         "minItems",
         "maxItems",
@@ -241,6 +243,8 @@ def _number_problems(value: Any, schema: dict[str, Any], path: str) -> list[Prob
         return []
     if "minimum" in schema and value < schema["minimum"]:
         return [Problem(path, f"is {_show(value)} (allowed: at least {schema['minimum']})", "minimum", (schema["minimum"],))]
+    if "maximum" in schema and value > schema["maximum"]:
+        return [Problem(path, f"is {_show(value)} (allowed: at most {schema['maximum']})", "maximum", (schema["maximum"],))]
     if "exclusiveMinimum" in schema and value <= schema["exclusiveMinimum"]:
         return [
             Problem(path, f"is {_show(value)} (allowed: more than {schema['exclusiveMinimum']})", "exclusiveMinimum", (schema["exclusiveMinimum"],))
@@ -255,10 +259,10 @@ def _array_problems(value: list[Any], schema: dict[str, Any], path: str) -> list
         return [Problem(path, f"has {len(value)} items (allowed: at most {schema['maxItems']})", "maxItems", (schema["maxItems"],))]
     if schema.get("uniqueItems"):
         seen: set[Any] = set()
-        for item in value:
+        for index, item in enumerate(value):
             canonical = _canonical(item)
-            if canonical in seen:
-                return [Problem(path, f"lists {_show(item)} more than once", "uniqueItems")]
+            if canonical in seen:  # the index of the repeat, for a reader that names the item
+                return [Problem(path, f"lists {_show(item)} more than once", "uniqueItems", (index,))]
             seen.add(canonical)
     items = schema.get("items")
     if not isinstance(items, dict):
