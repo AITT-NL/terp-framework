@@ -116,15 +116,27 @@ def _tree_paths(tree: Tree) -> _Paths:
     return _Paths(kinds)
 
 
-def _image_paths(answer: dict[str, Any]) -> tuple[_Paths, dict[str, bytes], dict[str, str]]:
-    """The image's paths, the bytes of the files the sandbox kept, and each file's SHA-256 under ``/srv``."""
+def _image_paths(answer: dict[str, Any], findings: list[str]) -> tuple[_Paths, dict[str, bytes], dict[str, str]]:
+    """The image's paths, the bytes of the files the sandbox kept, and each file's SHA-256 under
+    ``/srv``. A kept file whose bytes are not those of the file the image holds there is refused,
+    and read as no path at all."""
     inputs = answer["migrationInputs"]
-    files = {path: base64.b64decode(data) for path, data in inputs["files"].items()}
     srv = {path: Node.from_data(data) for path, data in answer["nodes"].items()}
-    kinds = {path: node.kind for path, node in srv.items()}
-    kinds.update({path: Node.from_data(data).kind for path, data in inputs["nodes"].items()})
-    kinds.update(dict.fromkeys(files, "file"))
-    return _Paths(kinds), files, {path: node.sha256 for path, node in srv.items()}
+    nodes = {**srv, **{path: Node.from_data(data) for path, data in inputs["nodes"].items()}}
+    files: dict[str, bytes] = {}
+    for path, encoded in sorted(inputs["files"].items()):
+        data = base64.b64decode(encoded)
+        node = nodes.get(path, Node("missing"))
+        if node.kind == "file" and hashlib.sha256(data).hexdigest() == node.sha256:
+            files[path] = data
+            continue
+        nodes.pop(path, None)
+        findings.append(
+            f"the bytes the sandbox kept for /{path} are not those of the file the image holds there, "
+            "so sign cannot tell which the upgrade would read: rebuild the image, writing each path "
+            "once in each layer"
+        )
+    return _Paths({path: node.kind for path, node in nodes.items()}), files, {path: node.sha256 for path, node in srv.items()}
 
 
 def _unreadable(path: str, kind: str) -> str:
@@ -316,8 +328,8 @@ def migrations(tree: Tree, answer: dict[str, Any]) -> tuple[list[str], dict[str,
     """Every reason the histories of the image the sandbox read (*answer*) cannot be listed, and
     ``outputs.migrations``: per label, ``{"revisions": [{"id", "down"}], "operations": [{"revision",
     "ordinal", "kind", "operation"}]}``."""
-    image, files, digests = _image_paths(answer)
     findings: list[str] = []
+    image, files, digests = _image_paths(answer, findings)
     histories = _capabilities(image, files, findings) + _app_modules(tree, image, digests, findings)
     if len(histories) > MOST_HISTORIES:
         findings.append(

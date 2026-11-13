@@ -355,6 +355,33 @@ def test_the_files_the_migration_reading_reads_keep_their_bytes_wherever_they_li
     assert state["opt/far/entry_points.txt"] == state["opt/source.txt"], "a reading that keeps no bytes reads it as before"
 
 
+def test_a_hard_link_takes_the_bytes_of_the_file_its_own_layer_holds_under_that_name() -> None:
+    """tarfile's own link lookup does not root names: ``opt/x`` and ``/opt/x`` were two files to it
+    and one to the engine, so a link took the first spelling's bytes and the node the second's."""
+    harmless, destructive = b"op.create_table('note')", b"op.drop_table('invoice')"
+    revision = "usr/lib/python3.14/site-packages/cap/migrations/versions/r1_x.py"
+    for entries in (
+        (("opt/x/entry_points.txt", harmless), ("/opt/x/entry_points.txt", destructive), (revision, "opt/x/entry_points.txt", "hard")),
+        (("/opt/x/entry_points.txt", destructive), (revision, "opt/x/entry_points.txt", "hard")),
+    ):
+        state: dict = {}
+        kept: dict = {}
+        with _image._open(layer(*entries), GZIP_LAYER) as archive:
+            _image.apply_layer(state, {}, archive, kept)
+        assert kept[revision] == destructive == kept["opt/x/entry_points.txt"], "the engine's file, by the signer's own names"
+        assert state[revision].sha256 == hashlib.sha256(destructive).hexdigest()
+
+
+def test_a_chain_of_hard_links_to_a_file_below_takes_that_file_s_bytes() -> None:
+    state: dict = {}
+    kept: dict = {}
+    for blob in (layer(("opt/a/entry_points.txt", b"below")),
+                 layer(("opt/b/entry_points.txt", "opt/a/entry_points.txt", "hard"), ("opt/c/entry_points.txt", "opt/b/entry_points.txt", "hard"))):
+        with _image._open(blob, GZIP_LAYER) as archive:
+            _image.apply_layer(state, {}, archive, kept)
+    assert kept == {"opt/a/entry_points.txt": b"below", "opt/b/entry_points.txt": b"below", "opt/c/entry_points.txt": b"below"}
+
+
 def test_the_migration_inputs_are_every_path_but_a_file_and_the_kept_bytes() -> None:
     state = {
         "a/b/c.txt": _image.Node("file", "1", 1), "a/link": _image.Node("link", target="x"), "a/fifo": _image.Node("other"),
@@ -362,10 +389,11 @@ def test_the_migration_inputs_are_every_path_but_a_file_and_the_kept_bytes() -> 
         "x/y": _image.Node("file", "4", 1),
     }
     assert _image.migration_inputs(state, {"a/b/c.txt": b"bytes"}) == {
-        "nodes": {"a": ["dir", "", 0, ""], "a/b": ["dir", "", 0, ""], "a/fifo": ["other", "", 0, ""],
-                  "a/link": ["link", "", 0, "x"], "d": ["dir", "", 0, ""], "d/e": ["dir", "", 0, ""]},
+        "nodes": {"a": ["dir", "", 0, ""], "a/b": ["dir", "", 0, ""], "a/b/c.txt": ["file", "1", 1, ""],
+                  "a/fifo": ["other", "", 0, ""], "a/link": ["link", "", 0, "x"], "d": ["dir", "", 0, ""],
+                  "d/e": ["dir", "", 0, ""]},
         "files": {"a/b/c.txt": base64.b64encode(b"bytes").decode()},
-    }, "a directory only the paths below it make is one, and a file is never taken for a directory"
+    }, "a directory only the paths below it make is one, a file is never taken for one, and a kept file has its node"
 
 
 def test_an_opaque_root_empties_everything_below_and_a_dangling_hard_link_is_refused() -> None:

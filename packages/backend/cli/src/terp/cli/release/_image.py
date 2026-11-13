@@ -91,26 +91,27 @@ def _link_on_the_way(path: str, added: dict[str, Node], state: dict[str, Node]) 
     return None
 
 
-def _linked_bytes(archive: tarfile.TarFile, member: tarfile.TarInfo, source: str, kept: dict[str, bytes]) -> bytes:
-    """The bytes of the file hard link *member* names, read again from this layer or kept below.
+def _linked_bytes(archive: tarfile.TarFile, path: str, origin: tarfile.TarInfo | str, kept: dict[str, bytes]) -> bytes:
+    """The bytes of the file the hard link at *path* holds, found by the reading's own names.
 
-    A hard link names a file archived before it, whose bytes were hashed and let go unless its
-    own path is one whose bytes are kept, so they are read again from the archive. A file of a
-    layer below is not in this archive: its bytes are the ones kept for it, and a link to one
-    whose bytes were not kept is refused, rather than kept as no bytes, which would leave the
-    file out of what the reading sees.
+    *origin* is the member of this layer that last wrote that file under the name the link
+    gives, rooted as every entry is, or the name of a file of a layer below. Its bytes were
+    hashed and let go unless its own path is one whose bytes are kept, so a member is read again
+    from the archive; a file below has the bytes kept for it, and a link to one whose bytes were
+    not kept is refused, rather than kept as no bytes, which would leave the file out of what the
+    reading sees. tarfile's own lookup of a link's target does not root names, so it can find
+    another member than the engine's file.
     """
-    try:
-        handle = archive.extractfile(member)
-    except KeyError as exc:  # the file it names lies in a layer below
-        if source in kept:
-            return kept[source]
-        raise ReleaseError(
-            f"the layer links {_name(member)} to {source}, a file of a layer below whose bytes sign "
-            "did not keep, so the file cannot be read: build the image so that the file is copied, "
-            "not hard-linked across layers"
-        ) from exc
-    return handle.read() if handle is not None else b""
+    if isinstance(origin, tarfile.TarInfo):
+        handle = archive.extractfile(origin)
+        return handle.read() if handle is not None else b""
+    if origin in kept:
+        return kept[origin]
+    raise ReleaseError(
+        f"the layer links {path} to {origin}, a file of a layer below whose bytes sign did not keep, "
+        "so the file cannot be read: build the image so that the file is copied, not hard-linked "
+        "across layers"
+    )
 
 
 def apply_layer(
@@ -125,6 +126,8 @@ def apply_layer(
     added: dict[str, Node] = {}
     added_texts: dict[str, str] = {}
     added_kept: dict[str, bytes] = {}
+    #: Where the bytes of each file this layer writes come from: one of its members, or a file below.
+    written: dict[str, tarfile.TarInfo | str] = {}
     for member in archive:
         path = _name(member)
         link = _link_on_the_way(path, added, state)
@@ -142,8 +145,10 @@ def apply_layer(
             removed.append((False, posixpath.join(directory, base[len(_WHITEOUT) :])))
         elif member.isdir():
             added[path] = Node("dir")
+            written.pop(path, None)
         elif member.issym():
             added[path] = Node("link", target=member.linkname)
+            written.pop(path, None)
         elif member.islnk():
             source = posixpath.normpath("/" + member.linkname).lstrip("/")
             node = added.get(source) or state.get(source)
@@ -152,18 +157,24 @@ def apply_layer(
             added[path] = node
             if source in added_texts or source in texts:
                 added_texts[path] = added_texts.get(source, texts.get(source, ""))
-            if kept is not None and node.kind == "file" and _KEPT.fullmatch(path):
-                added_kept[path] = _linked_bytes(archive, member, source, kept)
+            if node.kind != "file":
+                written.pop(path, None)
+                continue
+            written[path] = origin = written.get(source, source)
+            if kept is not None and _KEPT.fullmatch(path):
+                added_kept[path] = _linked_bytes(archive, path, origin, kept)
         elif member.isfile():
             handle = archive.extractfile(member)
             data = handle.read() if handle is not None else b""
             added[path] = Node("file", hashlib.sha256(data).hexdigest(), len(data))
+            written[path] = member
             if _TEXT.fullmatch(path):
                 added_texts[path] = data.decode("utf-8", errors="replace")
             if kept is not None and _KEPT.fullmatch(path):
                 added_kept[path] = data
         else:
             added[path] = Node("other")
+            written.pop(path, None)
     for opaque, gone in removed:
         if opaque:
             # The directory stays; what the layers below put in it goes.
@@ -203,11 +214,12 @@ def migration_inputs(state: dict[str, Node], kept: dict[str, bytes]) -> dict[str
     """What the reading of the migration histories reads of the whole image, as data.
 
     ``nodes``: every path that is no regular file, each directory, each link and anything else,
-    and each directory only the paths below it make, which an archive need not hold as an entry
-    of its own and an engine makes all the same. ``files``: the bytes of every file :data:`_KEPT`
-    names, in base64. What a path holds and where it sits is the reading's to judge.
+    each directory only the paths below it make, which an archive need not hold as an entry of
+    its own and an engine makes all the same, and the node of every kept file, whose SHA-256 the
+    reading holds the kept bytes to. ``files``: the bytes of every file :data:`_KEPT` names, in
+    base64. What a path holds and where it sits is the reading's to judge.
     """
-    nodes = {path: node.as_data() for path, node in state.items() if node.kind != "file"}
+    nodes = {path: node.as_data() for path, node in state.items() if node.kind != "file" or path in kept}
     for path in state:
         parent = posixpath.dirname(path)
         while parent and parent not in nodes and parent not in state:

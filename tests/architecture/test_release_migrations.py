@@ -214,6 +214,39 @@ def test_an_entry_point_naming_an_attribute_and_an_egg_info_directory_are_read(t
     assert listed(tree, answer) == {"notes_cap": {"revisions": [{"id": "a1", "down": []}], "operations": []}}
 
 
+def test_a_revision_hard_linked_to_a_path_its_layer_writes_twice_is_listed_as_the_engine_holds_it(tmp_path: pathlib.Path) -> None:
+    """The reviewed form: a harmless file, the same path again with a leading ``/`` and a drop, and a
+    revision hard-linked to that path. The engine's revision drops the table; the listing says so."""
+    revision_path = f"usr/lib/python3.14/site-packages/{CAPABILITY}/migrations/versions/r1_x.py"
+    blob = layer(
+        ("usr/lib/python3.14/site-packages/terp_cap_notes-1.0.dist-info/entry_points.txt",
+         b"[terp.migrations]\nnotes_cap = terp.capabilities.notes_cap\n"),
+        (f"usr/lib/python3.14/site-packages/{CAPABILITY}/__init__.py", b""),
+        ("opt/x/entry_points.txt", revision("r1", None, "    op.create_table('note')\n")),
+        ("/opt/x/entry_points.txt", revision("r1", None, "    op.drop_table('invoice')\n")),
+        (revision_path, "opt/x/entry_points.txt", "hard"),
+    )
+    state: dict = {}
+    kept: dict = {}
+    with _image._open(blob, "application/vnd.oci.image.layer.v1.tar+gzip") as archive:
+        _image.apply_layer(state, {}, archive, kept)
+    tree = commit(tmp_path)
+    answer = {**faithful(tree), "migrationInputs": json.loads(json.dumps(_image.migration_inputs(state, kept)))}
+    assert listed(tree, answer)["notes_cap"]["operations"] == [
+        {"revision": "r1", "ordinal": 1, "kind": "drop", "operation": "drop_table invoice"}]
+
+
+def test_kept_bytes_that_are_not_the_file_the_image_holds_are_refused(tmp_path: pathlib.Path) -> None:
+    tree = commit(tmp_path)
+    answer = with_paths(faithful(tree), capability({"a1_x.py": revision("a1", None, "    op.drop_table('invoice')\n")}))
+    answer["migrationInputs"]["files"][f"{VERSIONS}/a1_x.py"] = base64.b64encode(revision("a1")).decode()
+    assert refusals(tree, answer) == [
+        f"the bytes the sandbox kept for /{VERSIONS}/a1_x.py are not those of the file the image holds "
+        "there, so sign cannot tell which the upgrade would read: rebuild the image, writing each path "
+        "once in each layer"
+    ]
+
+
 # --------------------------------------------------------------------------- where a history lies
 def test_a_terp_migrations_section_outside_a_site_packages_distribution_is_refused(tmp_path: pathlib.Path) -> None:
     tree = commit(tmp_path)

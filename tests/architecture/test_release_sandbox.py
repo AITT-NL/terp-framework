@@ -128,7 +128,9 @@ def test_the_image_task_hands_back_what_the_migration_reading_reads_from_the_who
         f"{site}/x/migrations/versions/a1.py": base64.b64encode(b"revision = 'a1'\n").decode(),
     }
     assert {"usr", "usr/bin", f"{site}/x/migrations/versions", "srv/.venv/lib/python3.14/site-packages/d-1.dist-info"} <= set(inputs["nodes"])
-    assert all(data[0] == "dir" for data in inputs["nodes"].values()), "no file is handed back as a node"
+    files = {path for path, data in inputs["nodes"].items() if data[0] == "file"}
+    assert files == set(inputs["files"]), "a file is handed back as a node only where its bytes are kept"
+    assert all(data[0] == "dir" for path, data in inputs["nodes"].items() if path not in files)
 
 
 def _image_task(tmp_path: pathlib.Path, monkeypatch, *layers: bytes) -> dict:
