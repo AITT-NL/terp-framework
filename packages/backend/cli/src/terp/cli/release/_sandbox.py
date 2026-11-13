@@ -15,7 +15,9 @@ The tasks:
   ``/srv`` is answered with the SHA-256 of the checked-hash compile of the tree's source, made
   by the interpreter of the image's own base, run from that base image by digest with no
   network, a read-only filesystem and no privilege. The base's layers and configuration come
-  back with it, read from the engine that pulled it by digest. The app image is never started;
+  back with it, read from the engine that pulled it by digest, and so does what the reading of
+  the migration histories reads from anywhere in the image (:func:`._image.migration_inputs`).
+  The app image is never started;
 * ``scan``: the SBOM's packages asked of the vulnerability database (OSV's batch API);
 * ``secrets``: gitleaks over the history reachable from the SHA, with gitleaks' own rules and
   the acknowledgements the SHA's tree commits in ``.gitleaksignore``.
@@ -47,7 +49,7 @@ from terp.cli.release._common import (
     run,
 )
 from terp.cli.release._git import SAFE_DIRECTORY, SAFE_DIRECTORY_ENV
-from terp.cli.release._image import read_filesystem
+from terp.cli.release._image import migration_inputs, read_filesystem
 from terp.cli.release import _osv
 from terp.cli.release._registry import Registry, egress_getter
 
@@ -129,7 +131,8 @@ def image_task(payload: dict[str, Any]) -> dict[str, Any]:
     credentials = tuple(payload["credentials"]) if payload.get("credentials") else None
     registry = Registry(egress_getter(host, http=payload["http"]), http=payload["http"], credentials=credentials)
     digest, manifest, config = registry.image(payload["repository"], payload["digest"], payload["platform"])
-    nodes, texts = read_filesystem(registry, payload["repository"], manifest)
+    kept: dict[str, bytes] = {}
+    nodes, texts = read_filesystem(registry, payload["repository"], manifest, kept=kept)
     srv = {path: node.as_data() for path, node in sorted(nodes.items()) if path.startswith("srv/")}
     tree = pathlib.Path(payload["tree"])
     sources = {
@@ -150,6 +153,7 @@ def image_task(payload: dict[str, Any]) -> dict[str, Any]:
         "nodes": srv,
         "texts": {path: body for path, body in sorted(texts.items()) if path.startswith("srv/")},
         "compiled": compiled,
+        "migrationInputs": migration_inputs(nodes, kept),
     }
 
 

@@ -306,6 +306,68 @@ def test_a_record_is_read_as_the_csv_file_it_is() -> None:
     ], "a path with a comma is quoted, and a row may carry no hash at all"
 
 
+def test_the_files_the_migration_reading_reads_keep_their_bytes_wherever_they_lie() -> None:
+    """Every ``entry_points.txt``, and every file directly in a ``migrations/versions/`` directory below
+    a ``site-packages`` or ``dist-packages`` directory, keeps its bytes, a hard link's from the file it
+    names; a layer that removes or replaces one takes them away, and the texts stay as they were."""
+    site = "usr/lib/python3.14/site-packages"
+    state: dict = {}
+    texts: dict = {}
+    kept: dict = {}
+    for blob in (
+        layer((f"{site}/x-1.dist-info/entry_points.txt", b"[terp.migrations]\nx = x\n"),
+              (f"{site}/x/migrations/versions/a1.py", b"revision = 'a1'"),
+              (f"{site}/x/migrations/versions/sub/b2.py", b"nested"),
+              ("srv/app/modules/m/migrations/versions/c3.py", b"below no site-packages"),
+              ("opt/gone/entry_points.txt", b"gone"), ("opt/replaced/entry_points.txt", b"old"),
+              ("opt/kept/entry_points.txt", b"kept bytes"), ("opt/source.txt", b"not kept"), ("opt/adir", None),
+              ("opt/renewed/entry_points.txt", b"old bytes")),
+        layer(("opt/gone/.wh.entry_points.txt", b""), ("opt/replaced/entry_points.txt", "/elsewhere"),
+              ("opt/hard/entry_points.txt", "opt/kept/entry_points.txt", "hard"),
+              ("opt/same/data.txt", b"same layer"), ("opt/same/entry_points.txt", "opt/same/data.txt", "hard"),
+              (f"{site}/y/migrations/versions/d4.py", b"d4"),
+              (f"{site}/y/migrations/versions/d5.py", f"{site}/y/migrations/versions/d4.py", "hard"),
+              ("opt/dir/entry_points.txt", "opt/adir", "hard"),
+              ("opt/renewed/entry_points.txt", b"renewed"), ("opt/renewal/entry_points.txt", "opt/renewed/entry_points.txt", "hard")),
+    ):
+        with _image._open(blob, GZIP_LAYER) as archive:
+            _image.apply_layer(state, texts, archive, kept)
+    assert kept == {
+        f"{site}/x-1.dist-info/entry_points.txt": b"[terp.migrations]\nx = x\n",
+        f"{site}/x/migrations/versions/a1.py": b"revision = 'a1'",
+        "opt/kept/entry_points.txt": b"kept bytes",
+        "opt/hard/entry_points.txt": b"kept bytes",
+        "opt/same/entry_points.txt": b"same layer",
+        f"{site}/y/migrations/versions/d4.py": b"d4",
+        f"{site}/y/migrations/versions/d5.py": b"d4",
+        "opt/renewed/entry_points.txt": b"renewed",
+        "opt/renewal/entry_points.txt": b"renewed",
+    }, "a link takes the bytes of the file it names in its own layer over a layer below's"
+    assert state["opt/replaced/entry_points.txt"].kind == "link" and state["opt/dir/entry_points.txt"].kind == "dir"
+    assert texts == {}, "what the comparison reads is unchanged"
+    linked = layer(("opt/far/entry_points.txt", "opt/source.txt", "hard"))
+    with _image._open(linked, GZIP_LAYER) as archive, pytest.raises(
+        ReleaseError, match="links opt/far/entry_points.txt to opt/source.txt, a file of a layer below whose bytes sign did not keep"
+    ):
+        _image.apply_layer(state, texts, archive, kept)
+    with _image._open(linked, GZIP_LAYER) as archive:
+        _image.apply_layer(state, texts, archive)
+    assert state["opt/far/entry_points.txt"] == state["opt/source.txt"], "a reading that keeps no bytes reads it as before"
+
+
+def test_the_migration_inputs_are_every_path_but_a_file_and_the_kept_bytes() -> None:
+    state = {
+        "a/b/c.txt": _image.Node("file", "1", 1), "a/link": _image.Node("link", target="x"), "a/fifo": _image.Node("other"),
+        "d": _image.Node("dir"), "d/e/f": _image.Node("file", "2", 1), "x": _image.Node("file", "3", 1),
+        "x/y": _image.Node("file", "4", 1),
+    }
+    assert _image.migration_inputs(state, {"a/b/c.txt": b"bytes"}) == {
+        "nodes": {"a": ["dir", "", 0, ""], "a/b": ["dir", "", 0, ""], "a/fifo": ["other", "", 0, ""],
+                  "a/link": ["link", "", 0, "x"], "d": ["dir", "", 0, ""], "d/e": ["dir", "", 0, ""]},
+        "files": {"a/b/c.txt": base64.b64encode(b"bytes").decode()},
+    }, "a directory only the paths below it make is one, and a file is never taken for a directory"
+
+
 def test_an_opaque_root_empties_everything_below_and_a_dangling_hard_link_is_refused() -> None:
     state = {"a": _image.Node("file", "1", 1)}
     texts = {"a": "x"}

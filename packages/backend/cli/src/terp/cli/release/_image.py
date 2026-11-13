@@ -5,7 +5,9 @@ entry removes ``<name>`` from the layers below, a ``.wh..wh..opq`` entry empties
 of what the layers below put there, and a hard link takes the bytes of the file it names. No
 entry is ever written to disk: each kept path becomes a :class:`Node` with the SHA-256 of its
 bytes, and only the few files ``sign`` reads (a distribution's ``METADATA`` and ``RECORD``, and
-the environment's ``pyvenv.cfg``) keep their text. Nothing here runs anything; the archives are attacker-built data, read through
+the environment's ``pyvenv.cfg``) keep their text. The reading of the migration histories
+(:mod:`._migrations`) is handed the bytes of the files it reads apart from those texts, from
+anywhere in the image (:func:`migration_inputs`). Nothing here runs anything; the archives are attacker-built data, read through
 :mod:`tarfile` in memory and held to their digests by :mod:`terp.cli.release._registry`.
 """
 
@@ -40,6 +42,12 @@ _OPAQUE = ".wh..wh..opq"
 #: the environment's own configuration.
 _TEXT = re.compile(r".*/site-packages/[^/]+\.dist-info/(?:METADATA|RECORD)|srv/\.venv/pyvenv\.cfg")
 
+#: The files whose bytes the reading of the migration histories reads, wherever they lie: every
+#: ``entry_points.txt``, where an installed distribution declares the histories it owns, and every
+#: file directly in a ``migrations/versions/`` directory below a ``site-packages`` or
+#: ``dist-packages`` directory, where an installed package keeps its revisions.
+_KEPT = re.compile(r"(?:.+/)?entry_points\.txt|(?:.+/)?(?:site|dist)-packages/(?:.+/)?migrations/versions/[^/]+")
+
 
 @dataclass(frozen=True)
 class Node:
@@ -70,11 +78,40 @@ def _open(blob: bytes, kind: str) -> tarfile.TarFile:
     raise ReleaseError(f"a layer of type {kind!r} cannot be read by this signer (allowed: tar, tar+gzip)")
 
 
-def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.TarFile) -> None:
-    """Apply one layer to *state* (and *texts*), as an engine unpacks it over the ones below."""
+def _linked_bytes(archive: tarfile.TarFile, member: tarfile.TarInfo, source: str, kept: dict[str, bytes]) -> bytes:
+    """The bytes of the file hard link *member* names, read again from this layer or kept below.
+
+    A hard link names a file archived before it, whose bytes were hashed and let go unless its
+    own path is one whose bytes are kept, so they are read again from the archive. A file of a
+    layer below is not in this archive: its bytes are the ones kept for it, and a link to one
+    whose bytes were not kept is refused, rather than kept as no bytes, which would leave the
+    file out of what the reading sees.
+    """
+    try:
+        handle = archive.extractfile(member)
+    except KeyError as exc:  # the file it names lies in a layer below
+        if source in kept:
+            return kept[source]
+        raise ReleaseError(
+            f"the layer links {_name(member)} to {source}, a file of a layer below whose bytes sign "
+            "did not keep, so the file cannot be read: build the image so that the file is copied, "
+            "not hard-linked across layers"
+        ) from exc
+    return handle.read() if handle is not None else b""
+
+
+def apply_layer(
+    state: dict[str, Node], texts: dict[str, str], archive: tarfile.TarFile, kept: dict[str, bytes] | None = None
+) -> None:
+    """Apply one layer to *state* (and *texts*), as an engine unpacks it over the ones below.
+
+    With *kept*, the bytes of each file :data:`_KEPT` names are kept there too, and a path the
+    layer replaces or removes loses the bytes a layer below kept for it.
+    """
     removed: list[tuple[bool, str]] = []
     added: dict[str, Node] = {}
     added_texts: dict[str, str] = {}
+    added_kept: dict[str, bytes] = {}
     for member in archive:
         path = _name(member)
         directory, base = posixpath.split(path)
@@ -94,12 +131,16 @@ def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.
             added[path] = node
             if source in added_texts or source in texts:
                 added_texts[path] = added_texts.get(source, texts.get(source, ""))
+            if kept is not None and node.kind == "file" and _KEPT.fullmatch(path):
+                added_kept[path] = _linked_bytes(archive, member, source, kept)
         elif member.isfile():
             handle = archive.extractfile(member)
             data = handle.read() if handle is not None else b""
             added[path] = Node("file", hashlib.sha256(data).hexdigest(), len(data))
             if _TEXT.fullmatch(path):
                 added_texts[path] = data.decode("utf-8", errors="replace")
+            if kept is not None and _KEPT.fullmatch(path):
+                added_kept[path] = data
         else:
             added[path] = Node("other")
     for opaque, gone in removed:
@@ -111,21 +152,50 @@ def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.
         for path in doomed:
             state.pop(path)
             texts.pop(path, None)
+            if kept is not None:
+                kept.pop(path, None)
     state.update(added)
     texts.update(added_texts)
+    if kept is not None:
+        for path in added:
+            kept.pop(path, None)
+        kept.update(added_kept)
 
 
 def read_filesystem(
-    registry: Registry, repository: str, manifest: dict[str, Any]
+    registry: Registry, repository: str, manifest: dict[str, Any], *, kept: dict[str, bytes] | None = None
 ) -> tuple[dict[str, Node], dict[str, str]]:
-    """Every path of the image *manifest* describes, after all its layers, and the texts."""
+    """Every path of the image *manifest* describes, after all its layers, and the texts.
+
+    With *kept*, the bytes of each file :data:`_KEPT` names are kept there as well.
+    """
     state: dict[str, Node] = {}
     texts: dict[str, str] = {}
     for layer in manifest.get("layers", []):
         blob = registry.blob(repository, layer["digest"], LAYER_LIMIT)
         with _open(blob, str(layer.get("mediaType", ""))) as archive:
-            apply_layer(state, texts, archive)
+            apply_layer(state, texts, archive, kept)
     return state, texts
+
+
+def migration_inputs(state: dict[str, Node], kept: dict[str, bytes]) -> dict[str, Any]:
+    """What the reading of the migration histories reads of the whole image, as data.
+
+    ``nodes``: every path that is no regular file, each directory, each link and anything else,
+    and each directory only the paths below it make, which an archive need not hold as an entry
+    of its own and an engine makes all the same. ``files``: the bytes of every file :data:`_KEPT`
+    names, in base64. What a path holds and where it sits is the reading's to judge.
+    """
+    nodes = {path: node.as_data() for path, node in state.items() if node.kind != "file"}
+    for path in state:
+        parent = posixpath.dirname(path)
+        while parent and parent not in nodes and parent not in state:
+            nodes[parent] = Node("dir").as_data()
+            parent = posixpath.dirname(parent)
+    return {
+        "nodes": dict(sorted(nodes.items())),
+        "files": {path: base64.b64encode(data).decode("ascii") for path, data in sorted(kept.items())},
+    }
 
 
 def metadata(text: str) -> tuple[str, str]:
@@ -196,4 +266,4 @@ def final_base(dockerfile: str) -> str | None:
     return last
 
 
-__all__ = ["Node", "apply_layer", "final_base", "metadata", "read_filesystem", "record"]
+__all__ = ["Node", "apply_layer", "final_base", "metadata", "migration_inputs", "read_filesystem", "record"]

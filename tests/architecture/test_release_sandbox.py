@@ -107,6 +107,30 @@ def test_the_image_task_reads_the_image_and_compiles_its_bytecode_sources(tmp_pa
     assert answer["texts"] == {"srv/.venv/pyvenv.cfg": "home = /usr/local/bin\n"}
 
 
+def test_the_image_task_hands_back_what_the_migration_reading_reads_from_the_whole_image(tmp_path: pathlib.Path, monkeypatch) -> None:
+    import base64
+
+    site = "usr/local/lib/python3.14/site-packages"
+    metadata = "srv/.venv/lib/python3.14/site-packages/d-1.dist-info/METADATA"
+    fake = FakeRegistry()
+    pushed = fake.push_image([layer(
+        (f"{site}/x-1.dist-info/entry_points.txt", b"[terp.migrations]\nx = x\n"),
+        (f"{site}/x/migrations/versions/a1.py", b"revision = 'a1'\n"),
+        (metadata, b"Name: d\nVersion: 1\n"), ("usr/bin/python3", b"elf"),
+    )])
+    monkeypatch.setattr(_sandbox, "egress_getter", lambda host, http: fake)
+    answer = _sandbox.image_task({"repository": "registry.example/rel/app", "digest": pushed, "platform": "linux/amd64",
+                                  "http": False, "credentials": None, "tree": str(_tree(tmp_path)), "base": None})
+    assert list(answer["nodes"]) == [metadata] and answer["texts"] == {metadata: "Name: d\nVersion: 1\n"}, "unchanged: /srv only"
+    inputs = answer["migrationInputs"]
+    assert inputs["files"] == {
+        f"{site}/x-1.dist-info/entry_points.txt": base64.b64encode(b"[terp.migrations]\nx = x\n").decode(),
+        f"{site}/x/migrations/versions/a1.py": base64.b64encode(b"revision = 'a1'\n").decode(),
+    }
+    assert {"usr", "usr/bin", f"{site}/x/migrations/versions", "srv/.venv/lib/python3.14/site-packages/d-1.dist-info"} <= set(inputs["nodes"])
+    assert all(data[0] == "dir" for data in inputs["nodes"].values()), "no file is handed back as a node"
+
+
 def test_the_scan_asks_the_shared_vulnerability_client_and_names_the_database(monkeypatch) -> None:
     from terp.cli.release import _osv
 
