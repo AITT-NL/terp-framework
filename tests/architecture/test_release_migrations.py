@@ -401,14 +401,6 @@ def test_anything_but_a_file_or_a_directory_among_the_revisions_is_refused(tmp_p
 
 
 # --------------------------------------------------------------------------- the app's modules
-@pytest.mark.parametrize(
-    ("files", "refused"),
-    [
-        ({"app/modules/notes/migrations/versions": b"../../../../elsewhere\n"}, "app/modules/notes/migrations/versions"),
-        ({"app/modules/notes": b"../../elsewhere\n"}, "app/modules/notes"),
-        ({"app/modules/notes/migrations/versions/a1_x.py": b"../../../../../elsewhere/a1.py\n"}, "app/modules/notes/migrations/versions/a1_x.py"),
-    ],
-)
 def _linked(tmp_path: pathlib.Path, links: dict[str, str], files: dict[str, bytes] | None = None) -> Tree:
     """The fixture app with *files*, and each path of *links* committed as a link to its target."""
     root = tmp_path / "repo"
@@ -422,11 +414,19 @@ def _linked(tmp_path: pathlib.Path, links: dict[str, str], files: dict[str, byte
 
 
 @pytest.mark.parametrize(
-    "link",
-    ["app/modules/notes", "app/modules/notes/migrations/versions", "app/modules/notes/migrations/versions/a1_x.py"],
+    ("link", "target"),
+    [
+        ("app/modules/notes", "/elsewhere"),
+        ("app/modules/notes/migrations/versions", "/elsewhere"),
+        ("app/modules/notes/migrations/versions/a1_x.py", "/elsewhere"),
+        # The same three as links within the checkout, which the image would follow there too.
+        ("app/modules/notes", "../../elsewhere"),
+        ("app/modules/notes/migrations/versions", "../../../../elsewhere"),
+        ("app/modules/notes/migrations/versions/a1_x.py", "../../../../../elsewhere/a1.py"),
+    ],
 )
-def test_a_link_where_the_module_reading_passes_is_refused(tmp_path: pathlib.Path, link: str) -> None:
-    tree = _linked(tmp_path, {link: "/elsewhere"})
+def test_a_link_where_the_module_reading_passes_is_refused(tmp_path: pathlib.Path, link: str, target: str) -> None:
+    tree = _linked(tmp_path, {link: target})
     assert tree.entries[link].link
     assert _unreadable(link) in refusals(tree, faithful(tree))
 
