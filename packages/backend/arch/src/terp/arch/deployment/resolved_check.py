@@ -103,9 +103,9 @@ def against_manifest(
 
     *units* is the image the manifest records for each unit (``outputs.units``), and
     *image_volumes* the paths each built image's configuration declares as volumes
-    (``outputs.images[*].volumes``), by image reference. Each service runs its unit's image, and
-    mounts something at every volume its image declares, so no image volume is left for the
-    engine to create unseen. Read against a document that passed :func:`refusals`.
+    (``outputs.images[*].volumes``), by image reference. Each service's unit is named in *units*
+    and runs the image recorded there, and each mounts something at every volume its image
+    declares, so no image volume is left for the engine to create unseen. Read against a document that passed :func:`refusals`.
     """
     if not isinstance(document, dict):
         return []
@@ -114,8 +114,13 @@ def against_manifest(
         if not isinstance(service, dict):
             continue
         ident, image = _text(service.get("id")), _text(service.get("image"))
-        if ident in units and image != units[ident]:
-            found.append((f"$.services[{index}].image", f"{units[ident]}, the image outputs.units records for {ident}"))
+        if ident is not None and image != units.get(ident):
+            recorded = units.get(ident)
+            found.append((
+                f"$.services[{index}].image",
+                f"{recorded}, the image outputs.units records for {ident}" if recorded is not None
+                else f"an image outputs.units records for {ident}, which names none for it",
+            ))
         targets = {_text(mount.get("target")) for mount in _items(service.get("mounts")) if isinstance(mount, dict)}
         for path in image_volumes.get(image or "", ()):
             if path not in targets:
