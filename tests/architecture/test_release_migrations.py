@@ -13,6 +13,7 @@ import hashlib
 import io
 import json
 import pathlib
+import re
 import struct
 import tomllib
 import zipfile
@@ -20,6 +21,7 @@ import zipfile
 import pytest
 
 from terp.cli.release import _history, _image, _migrations, _sandbox
+from terp.cli.release._common import ReleaseError
 from terp.cli.release._git import Tree
 from terp.cli.release._image import Node
 from tests.architecture.release_fixtures import REPO_ROOT, app_files, committed_app, git
@@ -299,13 +301,11 @@ def test_a_zip_archive_that_declares_a_history_is_refused_and_one_that_does_not_
     default ``lib/python313.zip`` among them, and sign reads no history from one."""
     entry = b"[terp.migrations]\nevil = evilpkg\n"
     good = _zip({"pip-24.0.dist-info/entry_points.txt": b"[console_scripts]\npip = pip:main\n"})
-    torn = bytearray(_zip({"torn-1.0.dist-info/entry_points.txt": entry}))
-    torn[torn.index(b"evil")] ^= 0x01  # a member whose bytes fail their CRC: unreadable, so the upgrade fails on it
     empty_directory = struct.pack("<4s4H2LH", b"PK\x05\x06", 0, 0, 1, 1, 46, 4096, 0)  # a central directory that is not there
     state, kept = _read_layers(layer(
         ("usr/local/lib/python313.zip", _zip({"evil-1.0.dist-info/entry_points.txt": entry, "evil-1.0.dist-info/METADATA": b"x"})),
         ("usr/local/lib/python3.13/ensurepip/_bundled/pip-24.0-py3-none-any.whl", good),
-        ("opt/torn.zip", bytes(torn)), ("opt/broken.zip", empty_directory),
+        ("opt/broken.zip", empty_directory),
     ))
     tree = commit(tmp_path)
     answer = {**faithful(tree), "migrationInputs": json.loads(json.dumps(_image.migration_inputs(state, kept)))}
@@ -315,9 +315,26 @@ def test_a_zip_archive_that_declares_a_history_is_refused_and_one_that_does_not_
         "archive on the interpreter's path, and sign reads no history from one; install the distribution "
         "into site-packages as a wheel, and keep no such archive in the image"
     ]
-    assert sorted(kept.zipped) == ["opt/broken.zip", "opt/torn.zip", "usr/local/lib/python3.13/ensurepip/_bundled/pip-24.0-py3-none-any.whl",
+    assert sorted(kept.zipped) == ["opt/broken.zip", "usr/local/lib/python3.13/ensurepip/_bundled/pip-24.0-py3-none-any.whl",
                                    "usr/local/lib/python313.zip"]
-    assert kept.zipped["opt/torn.zip"] == {} and kept.zipped["opt/broken.zip"] == {}, "what importlib cannot read hides nothing"
+    assert kept.zipped["opt/broken.zip"] == {}, "a file that only ends like a zip archive holds nothing"
+
+
+@pytest.mark.parametrize("damage", ["zstandard", "crc"])
+def test_an_entry_points_member_sign_cannot_read_is_refused(damage: str) -> None:
+    """The image's own Python may read what sign's cannot: Python 3.14 reads a member compressed
+    with Zstandard, which 3.13 does not, and terp-cli runs on either."""
+    archive = bytearray(_zip({"evil-1.0.dist-info/entry_points.txt": b"[terp.migrations]\nevil = evilpkg\n"}))
+    if damage == "zstandard":  # method 93, in the member's local header and in the central directory
+        archive[8:10] = (93).to_bytes(2, "little")
+        directory = archive.index(b"PK\x01\x02")
+        archive[directory + 10 : directory + 12] = (93).to_bytes(2, "little")
+    else:
+        archive[archive.index(b"evil")] ^= 0x01  # bytes that fail their CRC
+    with pytest.raises(ReleaseError, match=re.escape(
+        "usr/local/lib/python314.zip: evil-1.0.dist-info/entry_points.txt is an entry_points.txt sign "
+        "cannot read, in an archive whose central directory it reads")):
+        _read_layers(layer(("usr/local/lib/python314.zip", bytes(archive))))
 
 
 def test_a_package_its_distribution_does_not_hold_in_place_is_refused(tmp_path: pathlib.Path) -> None:

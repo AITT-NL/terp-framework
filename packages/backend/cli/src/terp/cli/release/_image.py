@@ -127,19 +127,30 @@ def _open(blob: bytes, kind: str) -> tarfile.TarFile:
     raise ReleaseError(f"a layer of type {kind!r} cannot be read by this signer (allowed: tar, tar+gzip)")
 
 
-def _member(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes | None:
-    """At most one byte past :data:`MOST_KEPT_FILE` of *info*, or ``None`` where it cannot be read."""
+def _member(path: str, archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes:
+    """At most one byte past :data:`MOST_KEPT_FILE` of the member *info* of the archive at *path*.
+
+    A member sign cannot read is refused: the image's own Python may read it where sign's does
+    not, as Python 3.14 reads a member compressed with Zstandard and 3.13 does not, and
+    importlib.metadata would then find the histories it declares.
+    """
     try:
         with archive.open(info) as handle:
             return handle.read(MOST_KEPT_FILE + 1)
-    except Exception:  # importlib.metadata fails reading it as well, so the upgrade fails and hides nothing
-        return None
+    except Exception as exc:
+        raise ReleaseError(
+            f"{path}: {info.filename} is an entry_points.txt sign cannot read, in an archive whose "
+            "central directory it reads: the image's own Python may read it, as a newer one reads a "
+            "member compressed with Zstandard, and importlib.metadata would then find the histories "
+            "it declares; write the member with deflate or none, or keep the archive out of the image",
+            cause=str(exc),
+        ) from exc
 
 
-def _zipped(data: bytes) -> dict[str, bytes] | None:
-    """The bytes of each ``entry_points.txt`` the zip archive *data* holds, or ``None`` for a file
-    that is no zip archive. As importlib.metadata reads one, an archive that cannot be opened
-    holds nothing, and a member that cannot be read is left out."""
+def _zipped(path: str, data: bytes) -> dict[str, bytes] | None:
+    """The bytes of each ``entry_points.txt`` the zip archive *data* at *path* holds, or ``None``
+    for a file that is no zip archive. An archive whose central directory cannot be read holds
+    nothing, as for importlib.metadata, since a file can end like a zip archive and be none."""
     if not zipfile.is_zipfile(io.BytesIO(data)):
         return None
     try:
@@ -147,12 +158,7 @@ def _zipped(data: bytes) -> dict[str, bytes] | None:
         infos = archive.infolist()
     except Exception:  # importlib.metadata suppresses whatever opening an archive raises
         return {}
-    found: dict[str, bytes] = {}
-    for info in infos:
-        body = _member(archive, info) if posixpath.basename(info.filename) == _ENTRY_POINTS else None
-        if body is not None:
-            found[info.filename] = body
-    return found
+    return {info.filename: _member(path, archive, info) for info in infos if posixpath.basename(info.filename) == _ENTRY_POINTS}
 
 
 def _link_on_the_way(path: str, added: dict[str, Node], state: dict[str, Node]) -> str | None:
@@ -262,7 +268,7 @@ def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.
             if kept is not None and _KEPT.fullmatch(path):
                 spent = _charged(spent, path, len(data))
                 added_kept.files[path] = data
-            members = _zipped(data) if kept is not None else None
+            members = _zipped(path, data) if kept is not None else None
             if members is not None:
                 for name, body in members.items():
                     spent = _charged(spent, f"{path}: {name}", len(body))
