@@ -27,7 +27,7 @@ from terp.arch.declaration import (
     ArchDeclarationError,
     declared_roots,
 )
-from terp.arch.revisions import RevisionHeader, revision_header
+from terp.arch.revisions import RevisionHeader, revision_depends_on, revision_header
 from terp.arch.rules import (
     APP_ROOT_ONLY,
     EVERY_ROOT,
@@ -257,6 +257,7 @@ __all__ = [
     "check_update_schemas_inherit_base_update_schema",
     "destructive_operations",
     "guide_topic_for",
+    "revision_depends_on",
     "revision_header",
     "root_kinds_for",
     "ungoverned_marker_violations",
