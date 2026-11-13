@@ -53,6 +53,15 @@ _TEXT = re.compile(r".*/site-packages/[^/]+\.dist-info/(?:METADATA|RECORD)|srv/\
 _KEPT = re.compile(r"(?:.+/)?entry_points\.txt|(?:.+/)?(?:site|dist)-packages/(?:.+/)?migrations/versions/[^/]+", re.DOTALL)
 _ENTRY_POINTS = "entry_points.txt"
 
+#: What crosses from the sandbox to the signer is bounded, and an image past a bound is refused by
+#: name: one kept file, or one ``entry_points.txt`` in a zip archive, at most 1 MiB, where such a
+#: file holds a few kilobytes and a revision tens; all kept bytes together at most 32 MiB; and an
+#: image of at most 250,000 paths, every layer's counted, where a large app's holds tens of
+#: thousands.
+MOST_KEPT_FILE = 1 << 20
+MOST_KEPT = 32 << 20
+MOST_PATHS = 250_000
+
 
 @dataclass
 class Kept:
@@ -67,6 +76,26 @@ class Kept:
     def drop(self, path: str) -> None:
         self.files.pop(path, None)
         self.zipped.pop(path, None)
+
+    def total(self) -> int:
+        return sum(map(len, self.files.values())) + sum(len(data) for members in self.zipped.values() for data in members.values())
+
+
+def _charged(spent: int, path: str, size: int) -> int:
+    """*spent* kept bytes and *size* more, kept for *path*, refused past either bound."""
+    if size > MOST_KEPT_FILE:
+        raise ReleaseError(
+            f"{path} is {size} bytes, more than the {MOST_KEPT_FILE} sign keeps of one file it reads for "
+            "the migration histories: no entry_points.txt or revision is that large, so keep this one "
+            "out of the image"
+        )
+    if spent + size > MOST_KEPT:
+        raise ReleaseError(
+            f"the files sign keeps of the image for the migration histories come to more than "
+            f"{MOST_KEPT} bytes at {path}: hold the image's entry_points.txt files and revisions to "
+            "what its distributions install"
+        )
+    return spent + size
 
 
 @dataclass(frozen=True)
@@ -99,9 +128,10 @@ def _open(blob: bytes, kind: str) -> tarfile.TarFile:
 
 
 def _member(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes | None:
+    """At most one byte past :data:`MOST_KEPT_FILE` of *info*, or ``None`` where it cannot be read."""
     try:
         with archive.open(info) as handle:
-            return handle.read()
+            return handle.read(MOST_KEPT_FILE + 1)
     except Exception:  # importlib.metadata fails reading it as well, so the upgrade fails and hides nothing
         return None
 
@@ -169,6 +199,7 @@ def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.
     added: dict[str, Node] = {}
     added_texts: dict[str, str] = {}
     added_kept = Kept()
+    spent = kept.total() if kept is not None else 0
     #: Where the bytes of each file this layer writes come from: one of its members, or a file below.
     written: dict[str, tarfile.TarInfo | str] = {}
     for member in archive:
@@ -180,6 +211,11 @@ def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.
                 "and puts the entry where it points, and sign files every entry under its own name, "
                 "so the image would hold a file sign never read: build the image so that no layer "
                 "writes through a link (copy to the directory the link names, not to the link)"
+            )
+        if len(state) + len(added) >= MOST_PATHS:
+            raise ReleaseError(
+                f"the image holds more than {MOST_PATHS} paths, more than sign reads of one image, at "
+                f"{path}: build the backend image from the environment and the app's sources alone"
             )
         directory, base = posixpath.split(path)
         added_kept.drop(path)
@@ -208,9 +244,13 @@ def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.
             if kept is None:
                 continue
             if _KEPT.fullmatch(path):
-                added_kept.files[path] = _linked_bytes(archive, path, origin, kept)
+                data = _linked_bytes(archive, path, origin, kept)
+                spent = _charged(spent, path, len(data))
+                added_kept.files[path] = data
             members = added_kept.zipped.get(source) if source in added else kept.zipped.get(source)
             if members is not None:
+                for name, body in members.items():
+                    spent = _charged(spent, f"{path}: {name}", len(body))
                 added_kept.zipped[path] = members
         elif member.isfile():
             handle = archive.extractfile(member)
@@ -220,9 +260,12 @@ def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.
             if _TEXT.fullmatch(path):
                 added_texts[path] = data.decode("utf-8", errors="replace")
             if kept is not None and _KEPT.fullmatch(path):
+                spent = _charged(spent, path, len(data))
                 added_kept.files[path] = data
             members = _zipped(data) if kept is not None else None
             if members is not None:
+                for name, body in members.items():
+                    spent = _charged(spent, f"{path}: {name}", len(body))
                 added_kept.zipped[path] = members
         else:
             added[path] = Node("other")

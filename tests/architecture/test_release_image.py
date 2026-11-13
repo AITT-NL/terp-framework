@@ -400,6 +400,43 @@ def test_a_hard_link_to_a_zip_archive_carries_its_entry_points() -> None:
     assert kept.zipped == {"opt/across.zip": members, "opt/beside.zip": members, "opt/here.zip": members}
 
 
+def _keep(*blobs: bytes) -> object:
+    state: dict = {}
+    kept = _image.Kept()
+    for blob in blobs:
+        with _image._open(blob, GZIP_LAYER) as archive:
+            _image.apply_layer(state, {}, archive, kept)
+    return kept
+
+
+def test_what_crosses_from_the_sandbox_is_bounded_file_by_file() -> None:
+    """A layer of a few kilobytes held a file of 128 MiB of one byte, every byte of it kept and sent
+    on in base64: one kept file is at most 1 MiB, an archive's entry_points.txt included."""
+    import zipfile
+
+    most = 1 << 20
+    assert _image.MOST_KEPT_FILE == most and _image.MOST_KEPT == 32 << 20 and _image.MOST_PATHS == 250_000
+    assert _keep(layer(("opt/a/entry_points.txt", b"#" * most))).files["opt/a/entry_points.txt"] == b"#" * most
+    with pytest.raises(ReleaseError, match=f"opt/b/entry_points.txt is {most + 1} bytes, more than the {most} sign keeps of one file"):
+        _keep(layer(("opt/b/entry_points.txt", b"#" * (most + 1))))
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("x-1.dist-info/entry_points.txt", b"#" * (most + 1))
+    with pytest.raises(ReleaseError, match=f"opt/c.zip: x-1.dist-info/entry_points.txt is {most + 1} bytes, more than the {most} sign keeps"):
+        _keep(layer(("opt/c.zip", raw.getvalue())))
+
+
+def test_what_crosses_from_the_sandbox_is_bounded_in_all(monkeypatch) -> None:
+    monkeypatch.setattr(_image, "MOST_KEPT", 10)
+    with pytest.raises(ReleaseError, match="the files sign keeps of the image for the migration histories come to more than 10 bytes at opt/b/entry_points.txt"):
+        _keep(layer(("opt/a/entry_points.txt", b"123456")), layer(("opt/b/entry_points.txt", b"123456")))
+    monkeypatch.setattr(_image, "MOST_KEPT", 1 << 20)
+    monkeypatch.setattr(_image, "MOST_PATHS", 3)
+    _keep(layer(("a", None), ("a/b", b""), ("c", b"")))
+    with pytest.raises(ReleaseError, match="the image holds more than 3 paths, more than sign reads of one image"):
+        _keep(layer(("a", None), ("a/b", b"")), layer(("c", b""), ("d", b"")))
+
+
 def test_the_migration_inputs_are_every_path_but_a_file_and_the_kept_bytes() -> None:
     state = {
         "a/b/c.txt": _image.Node("file", "1", 1), "a/link": _image.Node("link", target="x"), "a/fifo": _image.Node("other"),
