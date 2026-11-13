@@ -31,11 +31,12 @@ owns.
    that terp-arch ships, and to the checks terp-spec's fixtures name beyond the schema (ids and
    names each once and in order, every reference resolving, agreement with the declared units,
    the built images and the datastore table), then to what the manifest records beside it: each
-   service runs the image `outputs.units` records for its unit, and mounts something at every
-   volume its image declares. It signs nothing it refuses, and the refusal names each field. A
-   writer and a signer of different releases that disagree are stopped here, not at a deploy. terp-spec's fixtures are the cases every reader runs: this
-   repository carries them for its tests beside terp-arch's schema copy, both held to the
-   pinned terp-spec byte for byte once it is the release they name.
+   service's unit is named in `outputs.units` and runs the image recorded there, and mounts
+   something at every volume its image declares. It signs nothing it refuses, and the refusal
+   names each field. A writer and a signer of different releases that disagree are stopped here,
+   not at a deploy. terp-spec's fixtures are the cases every reader runs: this repository
+   carries them for its tests beside terp-arch's schema copy, both held to the pinned terp-spec
+   byte for byte once it is the release they name.
 3. **The manifest is version 2 when it carries the document**, and `outputs.deployment` is then
    required. `terp promote` reads versions 1 and 2, and keeps running the carried profile.
 4. **Each built image's configured volumes are recorded** at `outputs.images[*].volumes` in a

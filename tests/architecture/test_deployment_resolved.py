@@ -226,6 +226,11 @@ def test_a_document_is_held_to_the_images_and_volumes_its_manifest_records() -> 
     assert (f"$.services[{by_id['api'][0]}].image", f"{units['api']}, the image outputs.units records for api") in found
     assert (f"$.services[{scheduler_at}].mounts",
             "a mount at /var/cache/example, which its image declares a volume (outputs.images[*].volumes)") in found
+    # A unit outputs.units does not name is refused as one it names with another image.
+    unnamed = {ident: image for ident, image in units.items() if ident != "worker"}
+    assert (f"$.services[{by_id['worker'][0]}].image",
+            "an image outputs.units records for worker, which names none for it") in resolved_check.against_manifest(
+        document, units=unnamed, image_volumes=volumes)
     # A document of another shape is the schema's to refuse, and is read without raising.
     assert resolved_check.against_manifest([], units=units, image_volumes=volumes) == []
     odd = {"services": ["db", {"id": "api", "mounts": ["x"]}]}

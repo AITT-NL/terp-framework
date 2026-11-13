@@ -14,24 +14,25 @@ decision, 0001 onwards.
 
 ### Added
 
-- **A generated release carries the deployment it runs (ADR 0215).** `terp release sign`
-  writes terp-spec 0.48.0's `resolved-deployment` document into the signed manifest, at
+- **A generated release carries the deployment it runs (ADR 0215).** `terp release sign` writes
+  terp-spec 0.48.0's `resolved-deployment` document into the signed manifest, at
   `outputs.deployment`: one service per declared unit, each image by digest, each command as an
   argv, where each variable's value comes from (a literal, the environment's configuration, a
   secret, or the runtime role's database connection), the mounts, the probes, the start order
-  and the one-shot service the migration step runs in. An executor can run it instead of
-  reading the Compose profile, which stays for `docker compose up` and `terp promote`. The
-  commit's own terp-arch writes it, in a process of its own as its render is, from the images `sign`
+  and the one-shot service the migration step runs in. An executor can run it instead of reading
+  the Compose profile, which stays for `docker compose up` and `terp promote`. The commit's own
+  terp-arch writes it, in a process of its own as its render is, from the images `sign`
   verified; `sign` holds it to its own copy of terp-spec's schema and to the checks terp-spec's
-  fixtures name beyond the schema, then to what the manifest records beside it (each service
-  runs its unit's image, and mounts every volume its image declares), and signs nothing it
-  refuses. Each built image's configured volumes are recorded at `outputs.images[*].volumes`,
-  and each path no named volume covers is an anonymous mount in the document, which no backup
-  covers; a volume under the app root, or at a path that is not a clean absolute one, is
-  refused as the image's. A manifest that carries the document is version 2, and `terp
-  promote` reads versions 1 and 2; any other reader of version 1 manifests must learn version
-  2 before it reads a release signed with this terp-arch. A release with its own build files,
-  and a commit pinning a terp-arch from before this one, sign a version 1 manifest as before.
+  fixtures name beyond the schema, then to what the manifest records beside it (each service's
+  unit is named in `outputs.units` and runs the image recorded there, and mounts every volume
+  its image declares), and signs nothing it refuses. Each built image's configured volumes are
+  recorded at `outputs.images[*].volumes`, and each path no named volume covers is an anonymous
+  mount in the document, which no backup covers; a volume under the app root, or at a path that
+  is not a clean absolute one, is refused as the image's. A manifest that carries the document
+  is version 2, and `terp promote` reads versions 1 and 2; any other reader of version 1
+  manifests must learn version 2 before it reads a release signed with this terp-arch. A release
+  with its own build files, and a commit pinning a terp-arch from before this one, sign a
+  version 1 manifest as before.
 
 - **`terp migrate graph`: each history's revisions and their parents, as Alembic loads them.**
   It prints one JSON object, `{"<label>": {"<revision>": ["<parent>", ...]}}`: a base's parents
