@@ -89,10 +89,12 @@ history comes from the wheel the image installs, and the webhooks capability's
    - an app module, or a revision file of one, that only the image or only the tree holds, or
      whose bytes differ: the list must be what the image runs, and what the image runs must be
      what the gate read;
-   - a revision whose source does not parse or whose header cannot be read for certain; an id
-     or a parent outside `^[0-9A-Za-z_]{1,64}$`; a parent named twice; a `depends_on` other
-     than `None`, because Alembic then writes only the dependent revision to the version table,
-     and a reader that follows `down` would count the other pending ever after;
+   - a revision that is no source text the interpreter can decode, that does not parse, that
+     nests deeper than the parser or the reading goes, or whose header cannot be read for
+     certain; an id or a parent outside `^[0-9A-Za-z_]{1,64}$`; a parent named twice; a
+     `depends_on` other than `None`, because Alembic then writes only the dependent revision to
+     the version table, and a reader that follows `down` would count the other pending ever
+     after;
    - a revision id given twice in one history, a parent that is no revision of it, a cycle;
    - two histories with one label, which would share `alembic_version_<label>`; a label outside
      `^[a-z0-9_]{1,47}$`, since that table's name holds 63 characters;
@@ -102,11 +104,12 @@ history comes from the wheel the image installs, and the webhooks capability's
 
 ## What it does not do
 
-- **It reads no argument list.** The migration step's argv is the runner's own since
-  2026-11-13, and it runs no migration command an app wrote, so `sign` does not read a
-  service's `command`, `entrypoint`, `working_dir` or the image's `CMD` to find the app root,
-  nor a `PYTHONPATH`, nor the step's mounts. A copy of a capability's package that a path entry
-  could reach is refused wherever it lies instead.
+- **It reads no argument list.** The owner decided on 2026-11-13 that the runner runs the
+  migration step with an argument list of its own, `terp migrate upgrade --app-root /srv/app`,
+  and no migration command an app wrote. So `sign` does not read a service's `command`,
+  `entrypoint`, `working_dir` or the image's `CMD` to find the app root, nor a `PYTHONPATH`,
+  nor the step's mounts. A copy of a capability's package that a path entry could reach is
+  refused wherever it lies instead.
 - **It sees no finder installed as the interpreter starts** (a `.pth` file's `import` line, a
   `sitecustomize`), which can map an import path anywhere, and no migration run by other means
   than `terp migrate`, an app calling Alembic itself or a script an argv only names.

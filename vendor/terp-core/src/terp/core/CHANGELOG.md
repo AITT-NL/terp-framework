@@ -107,8 +107,9 @@ decision, 0001 onwards.
   distribution; a package its distribution does not hold in place (an editable install, a
   `.pth` path); a second copy of a capability's package anywhere else in the image, which a
   `PYTHONPATH` entry would run in its place; a symbolic link where a reading would pass; a
-  module or a revision file in which the image and the tree differ; a revision whose source
-  does not parse or whose header cannot be read for certain; an id or a parent outside
+  module or a revision file in which the image and the tree differ; a revision that is no
+  source text the interpreter can decode, that does not parse, that nests too deeply to read,
+  or whose header cannot be read for certain; an id or a parent outside
   `^[0-9A-Za-z_]{1,64}$`, a parent named twice, or a `depends_on` other than `None`; a
   revision id given twice in one history, a parent that is no revision of it, or a cycle; two
   histories with one label, or a label outside `^[a-z0-9_]{1,47}$`; and more histories (64),

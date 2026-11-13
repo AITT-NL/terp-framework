@@ -1,8 +1,8 @@
 """``outputs.migrations``: every history the backend image's upgrade brings to head, read as data.
 
 ADR 0216. Each case starts from a tree of the fixture app and the sandbox's answer for an image
-built faithfully from it, adds or changes one thing, and expects the listing or the one refusal
-it names. The capability case goes through the sandbox for real: the capabilities of this
+built faithfully from it, adds or changes what it is about, and expects the listing, or the
+refusals that change earns. The capability case goes through the sandbox for real: the capabilities of this
 repository that declare a history, laid out as their wheels install them, in a real layer.
 """
 
@@ -407,10 +407,23 @@ def _module(files: dict[str, bytes]) -> dict[str, bytes]:
          "app/modules/notes/migrations/versions/a1_x.py, a revision of the migration history 'notes', is "
          "no Python source sign can parse ('(' was never closed, line 2): correct the file, which the "
          "upgrade would fail to load"),
+        ({"a1_x.py": b"revision = 'a1'\ndown_revision = None\nNOTE = '\x00'\n"},
+         "is no Python source sign can parse (source code string cannot contain null bytes)"),
         ({"a1_x.py": b"# -*- coding: nothing -*-\nrevision = 'a1'\n"},
-         "is no Python source sign can parse (unknown encoding: nothing)"),
+         "app/modules/notes/migrations/versions/a1_x.py, a revision of the migration history 'notes', is "
+         "no source text the interpreter can decode (unknown encoding: nothing): write it in UTF-8, as "
+         "Alembic's template does; the upgrade would not load it either"),
         ({"a1_x.py": b"revision = 'a1'\ndown_revision = None\nNOTE = '\xff'\n"},
-         "is no Python source sign can parse (its bytes are not utf-8)"),
+         "is no source text the interpreter can decode (its bytes are not utf-8)"),
+        ({"a1_x.py": b"# coding: rot13\nrevision = 'a1'\n"},
+         "is no source text the interpreter can decode (its coding declaration names no text encoding)"),
+        ({"a1_x.py": b"# coding: undefined\nrevision = 'a1'\n"},
+         "is no source text the interpreter can decode (its coding declaration names no text encoding)"),
+        # Past what the parser holds: its stack, then the depth it builds a tree to.
+        ({"a1_x.py": revision("a1", None, "    x = " + "-" * 100000 + "1\n")},
+         "app/modules/notes/migrations/versions/a1_x.py, a revision of the migration history 'notes', "
+         "nests too deeply for sign to read it: break up the expression that nests so deep"),
+        ({"a1_x.py": revision("a1", None, "    x = a" + ".b" * 100000 + "\n")}, "nests too deeply for sign to read it"),
         ({"a1_x.py": revision("a1"), "b2_y.py": revision("a1")},
          "the migration history 'notes' has the revision 'a1' in app/modules/notes/migrations/versions/a1_x.py "
          "and app/modules/notes/migrations/versions/b2_y.py: give each revision an id of its own"),

@@ -9,8 +9,9 @@ into as ``opaque``. The listing is ``{"revisions": [{"id", "down"}], "operations
 one, or several for a merge. Revisions are sorted by id, each ``down`` sorted, and operations by
 revision then ordinal, all by code point, so one image and one tree give one byte string.
 
-A history a deploy's plan cannot hold is refused by name rather than listed: a revision whose
-source does not parse or whose header cannot be read for certain; an id or a parent outside
+A history a deploy's plan cannot hold is refused by name rather than listed: a revision that is
+no source text the interpreter can decode, that does not parse, that nests deeper than the
+reading goes, or whose header cannot be read for certain; an id or a parent outside
 ``^[0-9A-Za-z_]{1,64}$``; a parent named twice, or more parents than a plan holds; a
 ``depends_on`` that is not ``None``; a revision id given twice, a parent that is no revision of the
 history, a cycle; and more revisions or operations than a plan holds.
@@ -35,32 +36,48 @@ MOST_IN_HISTORY = 4096
 MOST_PARENTS = 16
 
 
-def _unparsed(exc: SyntaxError | UnicodeDecodeError) -> str:
+def _undecodable(exc: SyntaxError | UnicodeError | LookupError) -> str:
+    if isinstance(exc, SyntaxError):  # the coding declaration, or the bytes before it
+        return exc.msg
     if isinstance(exc, UnicodeDecodeError):
         return f"its bytes are not {exc.encoding}"
-    return f"{exc.msg}, line {exc.lineno}" if exc.lineno else exc.msg
+    return "its coding declaration names no text encoding"
 
 
 def _revision(
     label: str, path: str, data: bytes, findings: list[str]
 ) -> tuple[RevisionHeader, list[DestructiveOperation]] | None:
     """One revision file's header and operations, read from its source, or ``None`` unreadable."""
+    named = f"{path}, a revision of the migration history {label!r},"
     try:
         source = importlib.util.decode_source(data)
+    except (SyntaxError, UnicodeError, LookupError) as exc:
+        findings.append(
+            f"{named} is no source text the interpreter can decode ({_undecodable(exc)}): write it in "
+            "UTF-8, as Alembic's template does; the upgrade would not load it either"
+        )
+        return None
+    try:
         header = revision_header(source)
         depends_on = revision_depends_on(source)
         steps = destructive_operations(source)
-    except (SyntaxError, UnicodeDecodeError) as exc:
+    except SyntaxError as exc:
+        where = f"{exc.msg}, line {exc.lineno}" if exc.lineno else exc.msg
         findings.append(
-            f"{path}, a revision of the migration history {label!r}, is no Python source sign can "
-            f"parse ({_unparsed(exc)}): correct the file, which the upgrade would fail to load"
+            f"{named} is no Python source sign can parse ({where}): correct the file, which the "
+            "upgrade would fail to load"
+        )
+        return None
+    except (MemoryError, RecursionError):  # past the parser's depth, or past the reading's
+        findings.append(
+            f"{named} nests too deeply for sign to read it: break up the expression that nests so deep"
         )
         return None
     except ValueError as exc:
         findings.append(
-            f"{path}, a revision of the migration history {label!r}, has a header sign cannot read "
-            f"for certain ({exc}): assign revision, down_revision and depends_on once each, at the "
-            "top level and to a literal, as Alembic's template writes them"
+            f"{named} has a header sign cannot read for certain ({exc}): assign revision, "
+            "down_revision and depends_on once each, at the top level and to a literal, as "
+            "Alembic's template writes them"
         )
         return None
     for named in (header.revision, *header.parents):

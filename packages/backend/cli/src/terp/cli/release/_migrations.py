@@ -17,8 +17,8 @@ under the labels it gives them:
   directory, and its package at ``<that directory>/<import path>/``. Any other directory at
   ``<any directory>/<import path>/`` is refused: the interpreter imports the copy that comes
   first on its path, and a copy under a ``PYTHONPATH`` entry would run in place of the one read;
-* **an app module's**, one for each directory ``modules/<name>/`` of the app root the runner's
-  migration step passes (``/srv/app``) whose name does not begin with ``_``. Its revisions are
+* **an app module's**, one for each directory ``modules/<name>/`` of the app root the migration
+  step passes (``/srv/app``) whose name does not begin with ``_``. Its revisions are
   read from the commit's tree, which the gate read, and the image must hold the same modules
   and the same revision files, byte for byte.
 
