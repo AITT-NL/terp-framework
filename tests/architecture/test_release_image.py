@@ -426,6 +426,25 @@ def test_what_crosses_from_the_sandbox_is_bounded_file_by_file() -> None:
         _keep(layer(("opt/c.zip", raw.getvalue())))
 
 
+def test_an_archive_s_member_is_read_no_further_than_the_bound() -> None:
+    """A member that inflates to 64 MiB is refused having read 1 MiB of it, not all of it."""
+    import tracemalloc
+    import zipfile
+
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("x-1.dist-info/entry_points.txt", bytes(64 << 20))
+    blob = layer(("opt/bomb.zip", raw.getvalue()))
+    tracemalloc.start()
+    try:
+        with pytest.raises(ReleaseError, match="opt/bomb.zip: x-1.dist-info/entry_points.txt is"):
+            _keep(blob)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < 16 << 20, f"read {peak} bytes for a member refused past 1 MiB"
+
+
 def test_what_crosses_from_the_sandbox_is_bounded_in_all(monkeypatch) -> None:
     monkeypatch.setattr(_image, "MOST_KEPT", 10)
     with pytest.raises(ReleaseError, match="the files sign keeps of the image for the migration histories come to more than 10 bytes at opt/b/entry_points.txt"):

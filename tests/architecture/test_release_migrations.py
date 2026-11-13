@@ -541,6 +541,20 @@ def test_a_revision_a_deploy_cannot_hold_is_refused(tmp_path: pathlib.Path, file
     assert any(refusal.startswith(expected) or expected in refusal for refusal in found), found
 
 
+def test_an_operation_no_utf_8_document_holds_is_left_out_of_the_listing_it_refuses(tmp_path: pathlib.Path) -> None:
+    from terp.cli.release._common import canonical
+
+    body = ("    op.drop_table('\\ud800')  # arch-allow-no-destructive-migrations: retired table\n"
+            "    op.drop_table('draft_note')\n")
+    tree = commit(tmp_path, _module({"a1_x.py": revision("a1", None, body)}))
+    findings, field = _migrations.migrations(tree, faithful(tree))
+    assert [finding.split(", whose text")[0] for finding in findings] == [
+        "app/modules/notes/migrations/versions/a1_x.py, a revision of the migration history 'notes', lists "
+        "the operation 'drop_table \\ud800'"]
+    assert field["notes"]["operations"] == [{"revision": "a1", "ordinal": 2, "kind": "drop", "operation": "drop_table draft_note"}]
+    assert canonical(field), "what is listed is a document"
+
+
 def test_a_cycle_beside_a_merge_is_found_once_what_is_finished_is_left(tmp_path: pathlib.Path) -> None:
     files = {"a1_x.py": revision("a1"), "b2_y.py": revision("b2", "a1"), "c3_z.py": revision("c3", ("a1", "b2")),
              "d4_w.py": revision("d4", ("c3", "e5")), "e5_v.py": revision("e5", "d4")}
