@@ -145,7 +145,7 @@ from terp.arch.rules import (
 #: not of a generated app, and the version is a property of the toolchain build. Held
 #: equal to the pinned ``terp-spec`` release by the framework gate
 #: (``tests/architecture/test_check_json.py``), so it cannot drift silently.
-SPEC_VERSION = "0.47.0"
+SPEC_VERSION = "0.48.0"
 
 __all__ = [
     "APP_ROOT_ONLY",

@@ -1016,6 +1016,15 @@ frontend design-system track below.
       (terp-runner#28).
 - [ ] Owed with terp-spec 0.47.0: the Studio's reader follows when it pins the framework
       release that carries the case, which is 0.42.1.
+- [x] Built for 0.43.0, not yet released, on terp-spec 0.48.0: a generated release carries the
+      deployment it runs in a version 2 manifest (ADR 0215, #263, #265), and every migration
+      history its image runs (ADR 0216, #264). The framework pins terp-spec 0.48.0 on both
+      registries, and holds its copies of the resolved deployment's schema and fixtures to it.
+- [ ] Owed with terp-spec 0.48.0: the runner carries the release's declaration (0.47.0's bytes)
+      and reads version 2 manifests (terp-runner#37, waiting on the stage 3 design,
+      terp-studio#198), both before a framework release that reads 0.48.0 ships.
+- [ ] Release order (ADR 0215): a signer's release table carries a terp-arch that writes the
+      resolved deployment only once the runner reads version 2.
 - [ ] Open, for the owner: whether app code may write the framework's own environment
       variables or change the working directory, each of which turns the startup comparison
       off (ADR 0213, *What it does not do*).
