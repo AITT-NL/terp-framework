@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import pathlib
+import struct
 import tomllib
+import zipfile
 
 import pytest
 
@@ -57,17 +60,17 @@ def with_paths(answer: dict, extra: dict[str, bytes | Node], drop: tuple[str, ..
     (bytes for a file, a node for anything else) and without *drop*, read again as the sandbox reads
     an image (:func:`_image.migration_inputs`)."""
     state = {path: Node.from_data(data) for path, data in answer["nodes"].items()}
-    kept = {path: base64.b64decode(data) for path, data in answer["migrationInputs"]["files"].items()}
+    kept = _image.Kept({path: base64.b64decode(data) for path, data in answer["migrationInputs"]["files"].items()})
     for path, item in extra.items():
         if isinstance(item, bytes):
             state[path] = Node("file", hashlib.sha256(item).hexdigest(), len(item))
             if _image._KEPT.fullmatch(path):
-                kept[path] = item
+                kept.files[path] = item
         else:
             state[path] = item
     for path in drop:
         state.pop(path)
-        kept.pop(path, None)
+        kept.drop(path)
     srv = {path: node.as_data() for path, node in sorted(state.items()) if path.startswith("srv/")}
     return {**answer, "nodes": srv, "migrationInputs": _image.migration_inputs(state, kept)}
 
@@ -214,6 +217,16 @@ def test_an_entry_point_naming_an_attribute_and_an_egg_info_directory_are_read(t
     assert listed(tree, answer) == {"notes_cap": {"revisions": [{"id": "a1", "down": []}], "operations": []}}
 
 
+def _read_layers(*blobs: bytes) -> tuple[dict, object]:
+    """The state and what the sandbox keeps, for *blobs* applied as an image's layers."""
+    state: dict = {}
+    kept = _image.Kept()
+    for blob in blobs:
+        with _image._open(blob, "application/vnd.oci.image.layer.v1.tar+gzip") as archive:
+            _image.apply_layer(state, {}, archive, kept)
+    return state, kept
+
+
 def test_a_revision_hard_linked_to_a_path_its_layer_writes_twice_is_listed_as_the_engine_holds_it(tmp_path: pathlib.Path) -> None:
     """The reviewed form: a harmless file, the same path again with a leading ``/`` and a drop, and a
     revision hard-linked to that path. The engine's revision drops the table; the listing says so."""
@@ -226,10 +239,7 @@ def test_a_revision_hard_linked_to_a_path_its_layer_writes_twice_is_listed_as_th
         ("/opt/x/entry_points.txt", revision("r1", None, "    op.drop_table('invoice')\n")),
         (revision_path, "opt/x/entry_points.txt", "hard"),
     )
-    state: dict = {}
-    kept: dict = {}
-    with _image._open(blob, "application/vnd.oci.image.layer.v1.tar+gzip") as archive:
-        _image.apply_layer(state, {}, archive, kept)
+    state, kept = _read_layers(blob)
     tree = commit(tmp_path)
     answer = {**faithful(tree), "migrationInputs": json.loads(json.dumps(_image.migration_inputs(state, kept)))}
     assert listed(tree, answer)["notes_cap"]["operations"] == [
@@ -258,6 +268,56 @@ def test_a_terp_migrations_section_outside_a_site_packages_distribution_is_refus
             "sign cannot hold a history to the package the distribution installed: install the "
             "distribution as a wheel into the environment the app runs from"
         ]
+
+
+def _zip(members: dict[str, bytes]) -> bytes:
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w") as archive:
+        for name, data in members.items():
+            archive.writestr(name, data)
+    return raw.getvalue()
+
+
+def test_a_distribution_whose_name_holds_a_line_feed_is_read_like_any_other(tmp_path: pathlib.Path) -> None:
+    """The interpreter's own library directory is on its path ahead of site-packages, so a
+    distribution there declares a history the upgrade runs: its name must not hide it."""
+    where = "usr/local/lib/python3.13/ev\nil-1.0.dist-info/entry_points.txt"
+    state, kept = _read_layers(layer((where, b"[terp.migrations]\nevil = evilpkg\n"),
+                                     ("usr/local/lib/python3.13/evilpkg/migrations/versions/x1_drop.py", revision("x1"))))
+    tree = commit(tmp_path)
+    answer = {**faithful(tree), "migrationInputs": json.loads(json.dumps(_image.migration_inputs(state, kept)))}
+    assert refusals(tree, answer) == [
+        f"/{where} declares the migration histories evil = evilpkg outside a distribution directory that "
+        "sits directly in a site-packages or dist-packages directory, so sign cannot hold a history to the "
+        "package the distribution installed: install the distribution as a wheel into the environment "
+        "the app runs from"
+    ]
+
+
+def test_a_zip_archive_that_declares_a_history_is_refused_and_one_that_does_not_is_read_past(tmp_path: pathlib.Path) -> None:
+    """importlib.metadata reads the distributions in a zip archive on the interpreter's path, the
+    default ``lib/python313.zip`` among them, and sign reads no history from one."""
+    entry = b"[terp.migrations]\nevil = evilpkg\n"
+    good = _zip({"pip-24.0.dist-info/entry_points.txt": b"[console_scripts]\npip = pip:main\n"})
+    torn = bytearray(_zip({"torn-1.0.dist-info/entry_points.txt": entry}))
+    torn[torn.index(b"evil")] ^= 0x01  # a member whose bytes fail their CRC: unreadable, so the upgrade fails on it
+    empty_directory = struct.pack("<4s4H2LH", b"PK\x05\x06", 0, 0, 1, 1, 46, 4096, 0)  # a central directory that is not there
+    state, kept = _read_layers(layer(
+        ("usr/local/lib/python313.zip", _zip({"evil-1.0.dist-info/entry_points.txt": entry, "evil-1.0.dist-info/METADATA": b"x"})),
+        ("usr/local/lib/python3.13/ensurepip/_bundled/pip-24.0-py3-none-any.whl", good),
+        ("opt/torn.zip", bytes(torn)), ("opt/broken.zip", empty_directory),
+    ))
+    tree = commit(tmp_path)
+    answer = {**faithful(tree), "migrationInputs": json.loads(json.dumps(_image.migration_inputs(state, kept)))}
+    assert refusals(tree, answer) == [
+        "/usr/local/lib/python313.zip is a zip archive whose evil-1.0.dist-info/entry_points.txt declares "
+        "the migration histories evil = evilpkg: importlib.metadata reads the distributions in a zip "
+        "archive on the interpreter's path, and sign reads no history from one; install the distribution "
+        "into site-packages as a wheel, and keep no such archive in the image"
+    ]
+    assert sorted(kept.zipped) == ["opt/broken.zip", "opt/torn.zip", "usr/local/lib/python3.13/ensurepip/_bundled/pip-24.0-py3-none-any.whl",
+                                   "usr/local/lib/python313.zip"]
+    assert kept.zipped["opt/torn.zip"] == {} and kept.zipped["opt/broken.zip"] == {}, "what importlib cannot read hides nothing"
 
 
 def test_a_package_its_distribution_does_not_hold_in_place_is_refused(tmp_path: pathlib.Path) -> None:

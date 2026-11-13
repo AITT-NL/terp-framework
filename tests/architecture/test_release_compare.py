@@ -20,7 +20,7 @@ import pytest
 from terp.cli.release import _compare
 from terp.cli.release._common import ReleaseError
 from terp.cli.release._git import Tree
-from terp.cli.release._image import Node, migration_inputs
+from terp.cli.release._image import Kept, Node, migration_inputs
 from terp.cli.release._locks import read_uv_lock
 from tests.architecture.release_fixtures import PROJECT, TOOLCHAIN, app_files, committed_app, git
 
@@ -113,7 +113,7 @@ def faithful(tree: Tree) -> dict:
     answer["nodes"][f"{BIN}/python"] = Node("link", target="/usr/local/bin/python3").as_data()
     answer["nodes"][f"{BIN}/python3"] = Node("link", target="python").as_data()
     answer["nodes"][f"{BIN}/python3.14"] = Node("link", target="python").as_data()
-    answer["migrationInputs"] = migration_inputs({path: Node.from_data(data) for path, data in answer["nodes"].items()}, {})
+    answer["migrationInputs"] = migration_inputs({path: Node.from_data(data) for path, data in answer["nodes"].items()}, Kept())
     return answer
 
 

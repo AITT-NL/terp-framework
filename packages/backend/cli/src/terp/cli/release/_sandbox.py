@@ -49,7 +49,7 @@ from terp.cli.release._common import (
     run,
 )
 from terp.cli.release._git import SAFE_DIRECTORY, SAFE_DIRECTORY_ENV
-from terp.cli.release._image import migration_inputs, read_filesystem
+from terp.cli.release._image import Kept, migration_inputs, read_filesystem
 from terp.cli.release import _osv
 from terp.cli.release._registry import Registry, egress_getter
 
@@ -131,7 +131,7 @@ def image_task(payload: dict[str, Any]) -> dict[str, Any]:
     credentials = tuple(payload["credentials"]) if payload.get("credentials") else None
     registry = Registry(egress_getter(host, http=payload["http"]), http=payload["http"], credentials=credentials)
     digest, manifest, config = registry.image(payload["repository"], payload["digest"], payload["platform"])
-    kept: dict[str, bytes] = {}
+    kept = Kept()
     nodes, texts = read_filesystem(registry, payload["repository"], manifest, kept=kept)
     srv = {path: node.as_data() for path, node in sorted(nodes.items()) if path.startswith("srv/")}
     tree = pathlib.Path(payload["tree"])

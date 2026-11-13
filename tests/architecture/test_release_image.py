@@ -313,7 +313,7 @@ def test_the_files_the_migration_reading_reads_keep_their_bytes_wherever_they_li
     site = "usr/lib/python3.14/site-packages"
     state: dict = {}
     texts: dict = {}
-    kept: dict = {}
+    kept = _image.Kept()
     for blob in (
         layer((f"{site}/x-1.dist-info/entry_points.txt", b"[terp.migrations]\nx = x\n"),
               (f"{site}/x/migrations/versions/a1.py", b"revision = 'a1'"),
@@ -332,7 +332,7 @@ def test_the_files_the_migration_reading_reads_keep_their_bytes_wherever_they_li
     ):
         with _image._open(blob, GZIP_LAYER) as archive:
             _image.apply_layer(state, texts, archive, kept)
-    assert kept == {
+    assert kept.files == {
         f"{site}/x-1.dist-info/entry_points.txt": b"[terp.migrations]\nx = x\n",
         f"{site}/x/migrations/versions/a1.py": b"revision = 'a1'",
         "opt/kept/entry_points.txt": b"kept bytes",
@@ -365,21 +365,39 @@ def test_a_hard_link_takes_the_bytes_of_the_file_its_own_layer_holds_under_that_
         (("/opt/x/entry_points.txt", destructive), (revision, "opt/x/entry_points.txt", "hard")),
     ):
         state: dict = {}
-        kept: dict = {}
+        kept = _image.Kept()
         with _image._open(layer(*entries), GZIP_LAYER) as archive:
             _image.apply_layer(state, {}, archive, kept)
-        assert kept[revision] == destructive == kept["opt/x/entry_points.txt"], "the engine's file, by the signer's own names"
+        assert kept.files[revision] == destructive == kept.files["opt/x/entry_points.txt"], "the engine's file, by the signer's own names"
         assert state[revision].sha256 == hashlib.sha256(destructive).hexdigest()
 
 
 def test_a_chain_of_hard_links_to_a_file_below_takes_that_file_s_bytes() -> None:
     state: dict = {}
-    kept: dict = {}
+    kept = _image.Kept()
     for blob in (layer(("opt/a/entry_points.txt", b"below")),
                  layer(("opt/b/entry_points.txt", "opt/a/entry_points.txt", "hard"), ("opt/c/entry_points.txt", "opt/b/entry_points.txt", "hard"))):
         with _image._open(blob, GZIP_LAYER) as archive:
             _image.apply_layer(state, {}, archive, kept)
-    assert kept == {"opt/a/entry_points.txt": b"below", "opt/b/entry_points.txt": b"below", "opt/c/entry_points.txt": b"below"}
+    assert kept.files == {"opt/a/entry_points.txt": b"below", "opt/b/entry_points.txt": b"below", "opt/c/entry_points.txt": b"below"}
+
+
+def test_a_hard_link_to_a_zip_archive_carries_its_entry_points() -> None:
+    """In its own layer, and across a whiteout of the archive below: the link is the archive now."""
+    import zipfile
+
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w") as archive:
+        archive.writestr("x-1.dist-info/entry_points.txt", b"[terp.migrations]\nx = x\n")
+    state: dict = {}
+    kept = _image.Kept()
+    for blob in (layer(("opt/below.zip", raw.getvalue())),
+                 layer(("opt/.wh.below.zip", b""), ("opt/across.zip", "opt/below.zip", "hard"),
+                       ("opt/here.zip", raw.getvalue()), ("opt/beside.zip", "opt/here.zip", "hard"))):
+        with _image._open(blob, GZIP_LAYER) as archive:
+            _image.apply_layer(state, {}, archive, kept)
+    members = {"x-1.dist-info/entry_points.txt": b"[terp.migrations]\nx = x\n"}
+    assert kept.zipped == {"opt/across.zip": members, "opt/beside.zip": members, "opt/here.zip": members}
 
 
 def test_the_migration_inputs_are_every_path_but_a_file_and_the_kept_bytes() -> None:
@@ -388,11 +406,12 @@ def test_the_migration_inputs_are_every_path_but_a_file_and_the_kept_bytes() -> 
         "d": _image.Node("dir"), "d/e/f": _image.Node("file", "2", 1), "x": _image.Node("file", "3", 1),
         "x/y": _image.Node("file", "4", 1),
     }
-    assert _image.migration_inputs(state, {"a/b/c.txt": b"bytes"}) == {
+    assert _image.migration_inputs(state, _image.Kept({"a/b/c.txt": b"bytes"})) == {
         "nodes": {"a": ["dir", "", 0, ""], "a/b": ["dir", "", 0, ""], "a/b/c.txt": ["file", "1", 1, ""],
                   "a/fifo": ["other", "", 0, ""], "a/link": ["link", "", 0, "x"], "d": ["dir", "", 0, ""],
                   "d/e": ["dir", "", 0, ""]},
         "files": {"a/b/c.txt": base64.b64encode(b"bytes").decode()},
+        "zipped": {},
     }, "a directory only the paths below it make is one, a file is never taken for one, and a kept file has its node"
 
 

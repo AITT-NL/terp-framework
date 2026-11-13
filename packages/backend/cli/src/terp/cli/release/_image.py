@@ -24,7 +24,8 @@ import io
 import posixpath
 import re
 import tarfile
-from dataclasses import dataclass
+import zipfile
+from dataclasses import dataclass, field
 from typing import Any
 
 from terp.cli.release._common import ReleaseError
@@ -47,8 +48,25 @@ _TEXT = re.compile(r".*/site-packages/[^/]+\.dist-info/(?:METADATA|RECORD)|srv/\
 #: The files whose bytes the reading of the migration histories reads, wherever they lie: every
 #: ``entry_points.txt``, where an installed distribution declares the histories it owns, and every
 #: file directly in a ``migrations/versions/`` directory below a ``site-packages`` or
-#: ``dist-packages`` directory, where an installed package keeps its revisions.
-_KEPT = re.compile(r"(?:.+/)?entry_points\.txt|(?:.+/)?(?:site|dist)-packages/(?:.+/)?migrations/versions/[^/]+")
+#: ``dist-packages`` directory, where an installed package keeps its revisions. A name may hold
+#: any character but ``/``, a line feed among them.
+_KEPT = re.compile(r"(?:.+/)?entry_points\.txt|(?:.+/)?(?:site|dist)-packages/(?:.+/)?migrations/versions/[^/]+", re.DOTALL)
+_ENTRY_POINTS = "entry_points.txt"
+
+
+@dataclass
+class Kept:
+    """What the reading of the migration histories reads of an image beside its paths: the bytes
+    of every file :data:`_KEPT` names, and of every ``entry_points.txt`` each zip archive holds,
+    by the archive's path and then the member's name, since importlib.metadata reads the
+    distributions in a zip archive on the interpreter's path, whatever the archive is called."""
+
+    files: dict[str, bytes] = field(default_factory=dict)
+    zipped: dict[str, dict[str, bytes]] = field(default_factory=dict)
+
+    def drop(self, path: str) -> None:
+        self.files.pop(path, None)
+        self.zipped.pop(path, None)
 
 
 @dataclass(frozen=True)
@@ -80,6 +98,33 @@ def _open(blob: bytes, kind: str) -> tarfile.TarFile:
     raise ReleaseError(f"a layer of type {kind!r} cannot be read by this signer (allowed: tar, tar+gzip)")
 
 
+def _member(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes | None:
+    try:
+        with archive.open(info) as handle:
+            return handle.read()
+    except Exception:  # importlib.metadata fails reading it as well, so the upgrade fails and hides nothing
+        return None
+
+
+def _zipped(data: bytes) -> dict[str, bytes] | None:
+    """The bytes of each ``entry_points.txt`` the zip archive *data* holds, or ``None`` for a file
+    that is no zip archive. As importlib.metadata reads one, an archive that cannot be opened
+    holds nothing, and a member that cannot be read is left out."""
+    if not zipfile.is_zipfile(io.BytesIO(data)):
+        return None
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+        infos = archive.infolist()
+    except Exception:  # importlib.metadata suppresses whatever opening an archive raises
+        return {}
+    found: dict[str, bytes] = {}
+    for info in infos:
+        body = _member(archive, info) if posixpath.basename(info.filename) == _ENTRY_POINTS else None
+        if body is not None:
+            found[info.filename] = body
+    return found
+
+
 def _link_on_the_way(path: str, added: dict[str, Node], state: dict[str, Node]) -> str | None:
     """The first directory on the way to *path* that is a symbolic link, in this layer or below."""
     parts = path.split("/")
@@ -91,7 +136,7 @@ def _link_on_the_way(path: str, added: dict[str, Node], state: dict[str, Node]) 
     return None
 
 
-def _linked_bytes(archive: tarfile.TarFile, path: str, origin: tarfile.TarInfo | str, kept: dict[str, bytes]) -> bytes:
+def _linked_bytes(archive: tarfile.TarFile, path: str, origin: tarfile.TarInfo | str, kept: Kept) -> bytes:
     """The bytes of the file the hard link at *path* holds, found by the reading's own names.
 
     *origin* is the member of this layer that last wrote that file under the name the link
@@ -105,8 +150,8 @@ def _linked_bytes(archive: tarfile.TarFile, path: str, origin: tarfile.TarInfo |
     if isinstance(origin, tarfile.TarInfo):
         handle = archive.extractfile(origin)
         return handle.read() if handle is not None else b""
-    if origin in kept:
-        return kept[origin]
+    if origin in kept.files:
+        return kept.files[origin]
     raise ReleaseError(
         f"the layer links {path} to {origin}, a file of a layer below whose bytes sign did not keep, "
         "so the file cannot be read: build the image so that the file is copied, not hard-linked "
@@ -114,18 +159,16 @@ def _linked_bytes(archive: tarfile.TarFile, path: str, origin: tarfile.TarInfo |
     )
 
 
-def apply_layer(
-    state: dict[str, Node], texts: dict[str, str], archive: tarfile.TarFile, kept: dict[str, bytes] | None = None
-) -> None:
+def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.TarFile, kept: Kept | None = None) -> None:
     """Apply one layer to *state* (and *texts*), as an engine unpacks it over the ones below.
 
-    With *kept*, the bytes of each file :data:`_KEPT` names are kept there too, and a path the
-    layer replaces or removes loses the bytes a layer below kept for it.
+    With *kept*, what the reading of the migration histories reads is kept there too, and a path
+    the layer replaces or removes loses what a layer below kept for it.
     """
     removed: list[tuple[bool, str]] = []
     added: dict[str, Node] = {}
     added_texts: dict[str, str] = {}
-    added_kept: dict[str, bytes] = {}
+    added_kept = Kept()
     #: Where the bytes of each file this layer writes come from: one of its members, or a file below.
     written: dict[str, tarfile.TarInfo | str] = {}
     for member in archive:
@@ -139,6 +182,7 @@ def apply_layer(
                 "writes through a link (copy to the directory the link names, not to the link)"
             )
         directory, base = posixpath.split(path)
+        added_kept.drop(path)
         if base == _OPAQUE:
             removed.append((True, directory))
         elif base.startswith(_WHITEOUT):
@@ -161,8 +205,13 @@ def apply_layer(
                 written.pop(path, None)
                 continue
             written[path] = origin = written.get(source, source)
-            if kept is not None and _KEPT.fullmatch(path):
-                added_kept[path] = _linked_bytes(archive, path, origin, kept)
+            if kept is None:
+                continue
+            if _KEPT.fullmatch(path):
+                added_kept.files[path] = _linked_bytes(archive, path, origin, kept)
+            members = added_kept.zipped.get(source) if source in added else kept.zipped.get(source)
+            if members is not None:
+                added_kept.zipped[path] = members
         elif member.isfile():
             handle = archive.extractfile(member)
             data = handle.read() if handle is not None else b""
@@ -171,7 +220,10 @@ def apply_layer(
             if _TEXT.fullmatch(path):
                 added_texts[path] = data.decode("utf-8", errors="replace")
             if kept is not None and _KEPT.fullmatch(path):
-                added_kept[path] = data
+                added_kept.files[path] = data
+            members = _zipped(data) if kept is not None else None
+            if members is not None:
+                added_kept.zipped[path] = members
         else:
             added[path] = Node("other")
             written.pop(path, None)
@@ -185,21 +237,22 @@ def apply_layer(
             state.pop(path)
             texts.pop(path, None)
             if kept is not None:
-                kept.pop(path, None)
+                kept.drop(path)
     state.update(added)
     texts.update(added_texts)
     if kept is not None:
         for path in added:
-            kept.pop(path, None)
-        kept.update(added_kept)
+            kept.drop(path)
+        kept.files.update(added_kept.files)
+        kept.zipped.update(added_kept.zipped)
 
 
 def read_filesystem(
-    registry: Registry, repository: str, manifest: dict[str, Any], *, kept: dict[str, bytes] | None = None
+    registry: Registry, repository: str, manifest: dict[str, Any], *, kept: Kept | None = None
 ) -> tuple[dict[str, Node], dict[str, str]]:
     """Every path of the image *manifest* describes, after all its layers, and the texts.
 
-    With *kept*, the bytes of each file :data:`_KEPT` names are kept there as well.
+    With *kept*, what the reading of the migration histories reads is kept there as well.
     """
     state: dict[str, Node] = {}
     texts: dict[str, str] = {}
@@ -210,16 +263,20 @@ def read_filesystem(
     return state, texts
 
 
-def migration_inputs(state: dict[str, Node], kept: dict[str, bytes]) -> dict[str, Any]:
+def migration_inputs(state: dict[str, Node], kept: Kept) -> dict[str, Any]:
     """What the reading of the migration histories reads of the whole image, as data.
 
     ``nodes``: every path that is no regular file, each directory, each link and anything else,
     each directory only the paths below it make, which an archive need not hold as an entry of
     its own and an engine makes all the same, and the node of every kept file, whose SHA-256 the
     reading holds the kept bytes to. ``files``: the bytes of every file :data:`_KEPT` names, in
-    base64. What a path holds and where it sits is the reading's to judge.
+    base64. ``zipped``: for every zip archive, the bytes of each ``entry_points.txt`` it holds,
+    in base64. What a path holds and where it sits is the reading's to judge.
     """
-    nodes = {path: node.as_data() for path, node in state.items() if node.kind != "file" or path in kept}
+    def encoded(data: bytes) -> str:
+        return base64.b64encode(data).decode("ascii")
+
+    nodes = {path: node.as_data() for path, node in state.items() if node.kind != "file" or path in kept.files}
     for path in state:
         parent = posixpath.dirname(path)
         while parent and parent not in nodes and parent not in state:
@@ -227,7 +284,8 @@ def migration_inputs(state: dict[str, Node], kept: dict[str, bytes]) -> dict[str
             parent = posixpath.dirname(parent)
     return {
         "nodes": dict(sorted(nodes.items())),
-        "files": {path: base64.b64encode(data).decode("ascii") for path, data in sorted(kept.items())},
+        "files": {path: encoded(data) for path, data in sorted(kept.files.items())},
+        "zipped": {path: {name: encoded(data) for name, data in sorted(members.items())} for path, members in sorted(kept.zipped.items())},
     }
 
 
@@ -299,4 +357,4 @@ def final_base(dockerfile: str) -> str | None:
     return last
 
 
-__all__ = ["Node", "apply_layer", "final_base", "metadata", "migration_inputs", "read_filesystem", "record"]
+__all__ = ["Kept", "Node", "apply_layer", "final_base", "metadata", "migration_inputs", "read_filesystem", "record"]

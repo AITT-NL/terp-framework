@@ -12,9 +12,11 @@ under the labels it gives them:
 
 * **a capability's**, one for each line ``label = import.path`` or ``label = import.path:attr``
   of a ``[terp.migrations]`` section, in the ``entry_points.txt`` of a ``*.dist-info`` or
-  ``*.egg-info`` directory anywhere in the image, as ``importlib.metadata`` finds them on any
-  path entry. The distribution must sit directly in a ``site-packages`` or ``dist-packages``
-  directory, and its package at ``<that directory>/<import path>/``. Any other directory at
+  ``*.egg-info`` directory anywhere in the image, wherever a path entry could hold it. The
+  distribution must sit directly in a ``site-packages`` or ``dist-packages`` directory, and its
+  package at ``<that directory>/<import path>/``. A zip archive whose ``entry_points.txt``
+  declares a history is refused wherever it lies: importlib.metadata reads the distributions in
+  a zip archive on the interpreter's path, and sign reads no history from one. Any other directory at
   ``<any directory>/<import path>/`` is refused: the interpreter imports the copy that comes
   first on its path, and a copy under a ``PYTHONPATH`` entry would run in place of the one read;
 * **an app module's**, one for each directory ``modules/<name>/`` of the app root the migration
@@ -116,11 +118,16 @@ def _tree_paths(tree: Tree) -> _Paths:
     return _Paths(kinds)
 
 
-def _image_paths(answer: dict[str, Any], findings: list[str]) -> tuple[_Paths, dict[str, bytes], dict[str, str]]:
-    """The image's paths, the bytes of the files the sandbox kept, and each file's SHA-256 under
-    ``/srv``. A kept file whose bytes are not those of the file the image holds there is refused,
-    and read as no path at all."""
+def _image_paths(
+    answer: dict[str, Any], findings: list[str]
+) -> tuple[_Paths, dict[str, bytes], dict[str, dict[str, bytes]], dict[str, str]]:
+    """The image's paths, the bytes of the files the sandbox kept and of each zip archive's
+    ``entry_points.txt``, and each file's SHA-256 under ``/srv``. A kept file whose bytes are not
+    those of the file the image holds there is refused, and read as no path at all."""
     inputs = answer["migrationInputs"]
+    zipped = {
+        path: {name: base64.b64decode(data) for name, data in members.items()} for path, members in inputs["zipped"].items()
+    }
     srv = {path: Node.from_data(data) for path, data in answer["nodes"].items()}
     nodes = {**srv, **{path: Node.from_data(data) for path, data in inputs["nodes"].items()}}
     files: dict[str, bytes] = {}
@@ -136,7 +143,8 @@ def _image_paths(answer: dict[str, Any], findings: list[str]) -> tuple[_Paths, d
             "so sign cannot tell which the upgrade would read: rebuild the image, writing each path "
             "once in each layer"
         )
-    return _Paths({path: node.kind for path, node in nodes.items()}), files, {path: node.sha256 for path, node in srv.items()}
+    kinds = {path: node.kind for path, node in nodes.items()}
+    return _Paths(kinds), files, zipped, {path: node.sha256 for path, node in srv.items()}
 
 
 def _unreadable(path: str, kind: str) -> str:
@@ -228,8 +236,18 @@ def _capability(
     return _History(label, f"the entry point in /{declared_in}", tuple((f"/{path}", files[path]) for path in revisions))
 
 
-def _capabilities(paths: _Paths, files: dict[str, bytes], findings: list[str]) -> list[_History]:
-    """Every history an installed distribution declares, as ``importlib.metadata`` would find it."""
+def _capabilities(paths: _Paths, files: dict[str, bytes], zipped: dict[str, dict[str, bytes]], findings: list[str]) -> list[_History]:
+    """Every history an installed distribution declares, wherever a path entry could hold it."""
+    for archive, members in sorted(zipped.items()):
+        for member, data in sorted(members.items()):
+            declared = _section(data.decode("utf-8", errors="replace"))
+            if declared:
+                findings.append(
+                    f"/{archive} is a zip archive whose {member} declares the migration histories "
+                    f"{', '.join(declared)}: importlib.metadata reads the distributions in a zip archive "
+                    "on the interpreter's path, and sign reads no history from one; install the "
+                    "distribution into site-packages as a wheel, and keep no such archive in the image"
+                )
     for path in sorted(path for path, kind in paths.kinds.items() if kind == "link"):
         directory, _, name = path.rpartition("/")
         if _named_as_distribution(name) or (name == _ENTRY_POINTS and _named_as_distribution(posixpath.basename(directory))):
@@ -329,8 +347,8 @@ def migrations(tree: Tree, answer: dict[str, Any]) -> tuple[list[str], dict[str,
     ``outputs.migrations``: per label, ``{"revisions": [{"id", "down"}], "operations": [{"revision",
     "ordinal", "kind", "operation"}]}``."""
     findings: list[str] = []
-    image, files, digests = _image_paths(answer, findings)
-    histories = _capabilities(image, files, findings) + _app_modules(tree, image, digests, findings)
+    image, files, zipped, digests = _image_paths(answer, findings)
+    histories = _capabilities(image, files, zipped, findings) + _app_modules(tree, image, digests, findings)
     if len(histories) > MOST_HISTORIES:
         findings.append(
             f"the image holds {len(histories)} migration histories, more than the {MOST_HISTORIES} a "
