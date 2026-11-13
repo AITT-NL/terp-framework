@@ -122,7 +122,11 @@ def test_the_image_task_hands_back_what_the_migration_reading_reads_from_the_who
     monkeypatch.setattr(_sandbox, "egress_getter", lambda host, http: fake)
     answer = _sandbox.image_task({"repository": "registry.example/rel/app", "digest": pushed, "platform": "linux/amd64",
                                   "http": False, "credentials": None, "tree": str(_tree(tmp_path)), "base": None})
-    assert list(answer["nodes"]) == [metadata] and answer["texts"] == {metadata: "Name: d\nVersion: 1\n"}, "unchanged: /srv only"
+    directories = ["srv/.venv", "srv/.venv/lib", "srv/.venv/lib/python3.14", "srv/.venv/lib/python3.14/site-packages",
+                   "srv/.venv/lib/python3.14/site-packages/d-1.dist-info"]
+    assert list(answer["nodes"]) == [*directories, metadata], "/srv only: the file, and the directories an engine makes for it"
+    assert all(answer["nodes"][path][0] == "dir" for path in directories)
+    assert answer["texts"] == {metadata: "Name: d\nVersion: 1\n"}, "unchanged"
     inputs = answer["migrationInputs"]
     assert inputs["files"] == {
         f"{site}/x-1.dist-info/entry_points.txt": base64.b64encode(b"[terp.migrations]\nx = x\n").decode(),

@@ -21,6 +21,7 @@ import csv
 import gzip
 import hashlib
 import io
+import json
 import posixpath
 import re
 import tarfile
@@ -55,12 +56,31 @@ _ENTRY_POINTS = "entry_points.txt"
 
 #: What crosses from the sandbox to the signer is bounded, and an image past a bound is refused by
 #: name: one kept file, or one ``entry_points.txt`` in a zip archive, at most 1 MiB, where such a
-#: file holds a few kilobytes and a revision tens; all kept bytes together at most 32 MiB; and an
-#: image of at most 250,000 paths, every layer's counted, where a large app's holds tens of
-#: thousands.
+#: file holds a few kilobytes and a revision tens; the kept bytes and every name handed on (each
+#: path of the image, each link's target, each kept member's name, counted as JSON writes them)
+#: at most 32 MiB together, where an image's names come to a few megabytes; an image of at most
+#: 250,000 paths, the directories its paths make counted, where a large app's holds tens of
+#: thousands; and a zip archive of at most 100,000 members, where a wheel holds hundreds.
 MOST_KEPT_FILE = 1 << 20
-MOST_KEPT = 32 << 20
+MOST_ANSWER = 32 << 20
 MOST_PATHS = 250_000
+MOST_MEMBERS = 100_000
+
+#: What an engine writes, the kernel's own limits: a path of at most 4,096 bytes, each name in it
+#: at most 255, and a link's target at most 4,095. An entry past one is in no image an engine
+#: unpacks, and is refused, which also bounds the directories one path makes.
+_PATH_MAX = 4096
+_NAME_MAX = 255
+_TARGET_MAX = 4095
+
+
+def _json_length(text: str) -> int:
+    """At least the bytes *text* takes in the answer: JSON with every character past ASCII escaped."""
+    return len(json.dumps(text))
+
+
+def _shown(path: str) -> str:
+    return path if len(path) <= 120 else f"{path[:120]}…"
 
 
 @dataclass
@@ -78,24 +98,68 @@ class Kept:
         self.zipped.pop(path, None)
 
     def total(self) -> int:
-        return sum(map(len, self.files.values())) + sum(len(data) for members in self.zipped.values() for data in members.values())
+        """The kept bytes, and each kept member's name as the answer carries it."""
+        zipped = sum(_json_length(name) + len(data) for members in self.zipped.values() for name, data in members.items())
+        return sum(map(len, self.files.values())) + zipped
+
+
+def _handed(state: dict[str, Node], kept: Kept) -> int:
+    """What the answer carries of an image so far: every path, every link's target, all that is kept."""
+    targets = sum(_json_length(node.target) for node in state.values() if node.kind == "link")
+    return sum(map(_json_length, state)) + targets + kept.total()
+
+
+def _counted(spent: int, cost: int, where: str) -> int:
+    """*spent* and *cost* more of what the answer carries, refused past :data:`MOST_ANSWER`."""
+    if spent + cost > MOST_ANSWER:
+        raise ReleaseError(
+            f"what sign hands on of the image, its names and the files it keeps, comes to more than "
+            f"{MOST_ANSWER} bytes at {_shown(where)}: an image's names come to a few megabytes, so build "
+            "this one from the files the backend runs"
+        )
+    return spent + cost
 
 
 def _charged(spent: int, path: str, size: int) -> int:
-    """*spent* kept bytes and *size* more, kept for *path*, refused past either bound."""
+    """*spent* and *size* bytes more, kept for *path*, refused past either bound."""
     if size > MOST_KEPT_FILE:
         raise ReleaseError(
             f"{path} is {size} bytes, more than the {MOST_KEPT_FILE} sign keeps of one file it reads for "
             "the migration histories: no entry_points.txt or revision is that large, so keep this one "
             "out of the image"
         )
-    if spent + size > MOST_KEPT:
-        raise ReleaseError(
-            f"the files sign keeps of the image for the migration histories come to more than "
-            f"{MOST_KEPT} bytes at {path}: hold the image's entry_points.txt files and revisions to "
-            "what its distributions install"
-        )
-    return spent + size
+    return _counted(spent, size, path)
+
+
+def _engine_writes(path: str, member: tarfile.TarInfo) -> None:
+    """Refuse an entry past the kernel's limits on a path, a name and a link's target."""
+    raw = path.encode("utf-8", "surrogateescape")
+    longest = max(map(len, raw.split(b"/")))
+    target = member.linkname.encode("utf-8", "surrogateescape") if member.issym() else b""
+    if len(raw) > _PATH_MAX:
+        what = f"a path of {len(raw)} bytes, longer than the {_PATH_MAX}"
+    elif longest > _NAME_MAX:
+        what = f"a name of {longest} bytes, longer than the {_NAME_MAX}"
+    elif len(target) > _TARGET_MAX:
+        what = f"a link to a target of {len(target)} bytes, longer than the {_TARGET_MAX}"
+    else:
+        return
+    raise ReleaseError(
+        f"the layer holds {_shown(path)}, {what} an engine writes: no image an engine unpacks holds it, "
+        "so sign reads no further; build the image again"
+    )
+
+
+def _fresh(path: str, added: dict[str, Node], state: dict[str, Node]) -> list[str]:
+    """The paths an entry at *path* adds to the image: each directory on its way that no layer
+    holds, which an engine makes, the outermost first, and *path* itself where it is new."""
+    found: list[str] = []
+    parent = posixpath.dirname(path)
+    while parent and parent not in added and parent not in state:
+        found.append(parent)
+        parent = posixpath.dirname(parent)
+    found.reverse()
+    return [*found, path] if path not in added and path not in state else found
 
 
 @dataclass(frozen=True)
@@ -158,6 +222,11 @@ def _zipped(path: str, data: bytes) -> dict[str, bytes] | None:
         infos = archive.infolist()
     except Exception:  # importlib.metadata suppresses whatever opening an archive raises
         return {}
+    if len(infos) > MOST_MEMBERS:
+        raise ReleaseError(
+            f"{path} is a zip archive of {len(infos)} members, more than the {MOST_MEMBERS} sign reads "
+            "of one archive, where a wheel holds hundreds: keep it out of the image"
+        )
     return {info.filename: _member(path, archive, info) for info in infos if posixpath.basename(info.filename) == _ENTRY_POINTS}
 
 
@@ -205,12 +274,13 @@ def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.
     added: dict[str, Node] = {}
     added_texts: dict[str, str] = {}
     added_kept = Kept()
-    spent = kept.total() if kept is not None else 0
+    spent = _handed(state, kept) if kept is not None else 0
     count = len(state)
     #: Where the bytes of each file this layer writes come from: one of its members, or a file below.
     written: dict[str, tarfile.TarInfo | str] = {}
     for member in archive:
         path = _name(member)
+        _engine_writes(path, member)
         link = _link_on_the_way(path, added, state)
         if link is not None:
             raise ReleaseError(
@@ -220,13 +290,20 @@ def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.
                 "writes through a link (copy to the directory the link names, not to the link)"
             )
         directory, base = posixpath.split(path)
-        if not base.startswith(_WHITEOUT) and path not in added and path not in state:
+        for fresh in _fresh(path, added, state) if not base.startswith(_WHITEOUT) else ():
             count += 1  # a path this image did not hold: a rewritten one is counted once
             if count > MOST_PATHS:
                 raise ReleaseError(
-                    f"the image holds {count} paths by {path}, more than the {MOST_PATHS} sign reads of "
-                    "one image: build the backend image from the environment and the app's sources alone"
+                    f"the image holds {count} paths by {_shown(fresh)}, more than the {MOST_PATHS} sign "
+                    "reads of one image: build the backend image from the environment and the app's "
+                    "sources alone"
                 )
+            if kept is not None:
+                spent = _counted(spent, _json_length(fresh), fresh)
+            if fresh != path:
+                added[fresh] = Node("dir")
+        if kept is not None and member.issym():
+            spent = _counted(spent, _json_length(member.linkname), f"the target of {path}")
         added_kept.drop(path)
         if base == _OPAQUE:
             removed.append((True, directory))
@@ -259,7 +336,7 @@ def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.
             members = added_kept.zipped.get(source) if source in added else kept.zipped.get(source)
             if members is not None:
                 for name, body in members.items():
-                    spent = _charged(spent, f"{path}: {name}", len(body))
+                    spent = _charged(_counted(spent, _json_length(name), f"{path}: {name}"), f"{path}: {name}", len(body))
                 added_kept.zipped[path] = members
         elif member.isfile():
             handle = archive.extractfile(member)
@@ -274,7 +351,7 @@ def apply_layer(state: dict[str, Node], texts: dict[str, str], archive: tarfile.
             members = _zipped(path, data) if kept is not None else None
             if members is not None:
                 for name, body in members.items():
-                    spent = _charged(spent, f"{path}: {name}", len(body))
+                    spent = _charged(_counted(spent, _json_length(name), f"{path}: {name}"), f"{path}: {name}", len(body))
                 added_kept.zipped[path] = members
         else:
             added[path] = Node("other")

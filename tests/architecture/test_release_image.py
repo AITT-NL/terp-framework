@@ -415,7 +415,8 @@ def test_what_crosses_from_the_sandbox_is_bounded_file_by_file() -> None:
     import zipfile
 
     most = 1 << 20
-    assert _image.MOST_KEPT_FILE == most and _image.MOST_KEPT == 32 << 20 and _image.MOST_PATHS == 250_000
+    assert _image.MOST_KEPT_FILE == most and _image.MOST_ANSWER == 32 << 20 and _image.MOST_PATHS == 250_000
+    assert _image.MOST_MEMBERS == 100_000
     assert _keep(layer(("opt/a/entry_points.txt", b"#" * most))).files["opt/a/entry_points.txt"] == b"#" * most
     with pytest.raises(ReleaseError, match=f"opt/b/entry_points.txt is {most + 1} bytes, more than the {most} sign keeps of one file"):
         _keep(layer(("opt/b/entry_points.txt", b"#" * (most + 1))))
@@ -446,10 +447,59 @@ def test_an_archive_s_member_is_read_no_further_than_the_bound() -> None:
 
 
 def test_what_crosses_from_the_sandbox_is_bounded_in_all(monkeypatch) -> None:
-    monkeypatch.setattr(_image, "MOST_KEPT", 10)
-    with pytest.raises(ReleaseError, match="the files sign keeps of the image for the migration histories come to more than 10 bytes at opt/b/entry_points.txt"):
+    """The kept bytes and every name the answer carries share one bound: the paths, counted as JSON
+    writes them, the directories they make among them, and a link's target and a kept member's name."""
+    import zipfile
+
+    names = len('"opt"') + len('"opt/a"') + len('"opt/a/entry_points.txt"')
+    monkeypatch.setattr(_image, "MOST_ANSWER", names + 6 + 10)
+    _keep(layer(("opt/a/entry_points.txt", b"123456")))
+    with pytest.raises(ReleaseError, match="what sign hands on of the image, its names and the files it keeps, comes to more than 52 bytes at opt/b"):
         _keep(layer(("opt/a/entry_points.txt", b"123456")), layer(("opt/b/entry_points.txt", b"123456")))
-    monkeypatch.setattr(_image, "MOST_KEPT", 1 << 20)
+    with pytest.raises(ReleaseError, match="comes to more than 52 bytes at the target of opt/link"):
+        _keep(layer(("opt/a/entry_points.txt", b"123456")), layer(("opt/link", "/" + "t" * 40)))
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w") as archive:
+        archive.writestr("d" * 60 + ".dist-info/entry_points.txt", b"")
+    bound = len('"opt"') + len('"opt/x.zip"') + 40
+    monkeypatch.setattr(_image, "MOST_ANSWER", bound)
+    with pytest.raises(ReleaseError, match=f"comes to more than {bound} bytes at opt/x.zip: d{{60}}.dist-info/entry_points.txt"):
+        _keep(layer(("opt/x.zip", raw.getvalue())))
+
+
+def test_a_zip_archive_of_more_members_than_sign_reads_is_refused(monkeypatch) -> None:
+    import zipfile
+
+    monkeypatch.setattr(_image, "MOST_MEMBERS", 2)
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w") as archive:
+        for name in ("a", "b", "c"):
+            archive.writestr(name, b"")
+    with pytest.raises(ReleaseError, match="opt/x.zip is a zip archive of 3 members, more than the 2 sign reads of one archive"):
+        _keep(layer(("opt/x.zip", raw.getvalue())))
+
+
+@pytest.mark.parametrize(
+    ("entry", "refusal"),
+    [
+        (("opt/" + "d/" * 2047 + "f", b""), "a path of 4099 bytes, longer than the 4096 an engine writes"),
+        (("opt/" + "n" * 256, None), "a name of 256 bytes, longer than the 255 an engine writes"),
+        (("opt/link", "/" + "t" * 4095), "a link to a target of 4096 bytes, longer than the 4095 an engine writes"),
+    ],
+    ids=["path", "name", "target"],
+)
+def test_an_entry_no_engine_writes_is_refused(entry: tuple, refusal: str) -> None:
+    """One path of a thousand one-letter directories made a thousand directories the answer carried:
+    no engine writes a path, a name or a link's target past the kernel's limits."""
+    with pytest.raises(ReleaseError, match=refusal):
+        _keep(layer(entry))
+
+
+def test_the_directories_a_path_makes_are_paths_of_the_image(monkeypatch) -> None:
+    monkeypatch.setattr(_image, "MOST_PATHS", 5)
+    _keep(layer(("a/b/c/d/e", b"")))
+    with pytest.raises(ReleaseError, match="the image holds 6 paths by a/b/c/d/e/f, more than the 5"):
+        _keep(layer(("a/b/c/d/e/f", b"")))
 
 
 def test_the_path_bound_counts_each_path_once(monkeypatch) -> None:
