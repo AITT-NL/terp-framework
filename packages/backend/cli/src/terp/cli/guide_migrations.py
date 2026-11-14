@@ -185,12 +185,15 @@ Database migrations (terp migrate)
   the two you made before the first deploy, as the owner. It reads the catalog by role
   name and changes nothing:
       terp migrate check-roles <runtime role> --owner-role <owner role>
-  It exits 1, one line per failure naming what to change, when a role is missing; when
+  It exits 3, one line per failure naming what to change, when a role is missing; when
   the runtime role is a superuser or has CREATEROLE, CREATEDB, REPLICATION or BYPASSRLS,
   is a member of the owner role (even without INHERIT: SET ROLE still works), owns a
   relation in the app's schemas, may CREATE in the database or in those schemas (public
   too, which everyone may before PostgreSQL 15), or can act as public's owner; or when
   the owner role does not own the app's other schemas. A schema not created yet is named.
+  It exits 0 when the roles hold, and 1 when it could not check, such as a connection
+  that fails. Every line it prints begins "check-roles: ", so a deploy tool can tell its
+  answer from a container engine's own output.
 - Operate safely: run `terp migrate upgrade` ONCE per deploy (e.g. a release job), not
   on every replica - it takes no lock, so concurrent runs race. The boot guard below is
   read-only and safe on every replica. The migration engine is built from DATABASE_URL,

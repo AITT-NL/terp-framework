@@ -180,10 +180,15 @@ connection in `DATABASE_URL`), in the release's own image. It reads both roles b
 the catalog, so it needs no runtime connection. It changes nothing: it sets its transaction
 `READ ONLY`, so PostgreSQL refuses any write in it, and never commits it.
 
-It exits 0 with one line naming the roles and the schemas it read, or 1 with every failure,
-one per line, each naming what to change. Nothing it prints is a value of the connection: a
-connection that fails is one line too, without the driver's message, which names the host,
-the port and the user.
+It exits 0 with one line naming the roles and the schemas it read; 3 with every failure, one
+per line, each naming what to change; and 1 with one line when it could not check, such as a
+connection that fails. argparse's usage error stays 2. Every line it prints begins
+`check-roles: `. A deploy tool runs it through a container engine, which exits non-zero for
+failures of its own and writes its own lines to standard error, so the mark and the exit tell
+the command's answer from the engine's: 3 is an exit no engine gives for a failure of its own,
+and an exit 1 carries a marked line only when the command itself said why. Nothing it prints is
+a value of the connection: a connection that fails is one line too, without the driver's
+message, which names the host, the port and the user.
 Role names are held to `grant-runtime`'s pattern and refused before connecting. The pattern is
 now matched against the whole name, by both commands: a pattern's `$` also matches before a
 trailing newline, which let `"terp_rt\n"` through to the server. A database that is not
@@ -229,5 +234,5 @@ What this amendment decides, and why:
 
 | Layer | Control |
 |---|---|
-| Runtime | `check-roles` exits 1 with every failure and what to change; a deploy reports it as its refusal |
+| Runtime | `check-roles` exits 3 with every failure and what to change, each line marked `check-roles: `; a deploy reports it as its refusal |
 | CI | The PostgreSQL lane: each fault alone, named with its remedy; several at once; a pair `grant-runtime` shaped passes under both layouts; nothing changes, and the transaction is read-only before the first catalog read; the command line's exit codes, the refusal of a name before connecting, and no password in what it prints |

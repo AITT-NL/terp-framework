@@ -1522,7 +1522,7 @@ def test_check_roles_changes_nothing(pg_url: str) -> None:
     assert all(statement.lower().startswith(("select", "show")) for statement in rest), rest
 
 
-def test_cli_check_roles_exits_0_or_1_and_never_prints_the_connection(
+def test_cli_check_roles_exits_0_or_3_and_never_prints_the_connection(
     pg_url: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with _owned_database(pg_url) as (owner, owner_url, role):
@@ -1547,9 +1547,12 @@ def test_cli_check_roles_exits_0_or_1_and_never_prints_the_connection(
     assert passed.out.count("\n") == 1 and passed.err == ""
     assert f"'{role}'" in passed.out and f"'{owner}'" in passed.out
     assert "hold on ['public']; not created yet: [" in passed.out
-    assert refused.value.code == 1 and failed.out == ""
+    assert refused.value.code == 3 and failed.out == ""
     lines = failed.err.splitlines()
     assert len(lines) == 2 and "CREATEDB" in lines[0] and "BYPASSRLS" in lines[1]
+    # Every line carries the mark a deploy tool reads to know it is the command's own answer.
+    assert passed.out.startswith("check-roles: the runtime role ")
+    assert all(line.startswith("check-roles: the runtime role ") for line in lines)
     for output in (passed.out, failed.err):
         assert "rt-secret" not in output and owner_url not in output
 
@@ -1564,7 +1567,7 @@ def test_cli_check_roles_says_it_could_not_connect_without_the_connection(
         migrate_main(["check-roles", "terp_rt", "--owner-role", "terp_owner", "--database-url", url])
     err = capsys.readouterr().err
     assert refused.value.code == 1 and err.count("\n") == 1
-    assert "could not connect to the database as the owner" in err
+    assert err.startswith("check-roles: could not connect to the database as the owner")
     for value in ("pw-9f3k2", unknown.username, unknown.host, str(unknown.port)):
         assert value not in err
 
@@ -1580,8 +1583,9 @@ def test_cli_check_roles_refuses_a_name_that_is_not_plain_before_connecting(
     url = "postgresql+psycopg://u:secret@host.invalid/appdb"
     with pytest.raises(SystemExit) as refused:
         migrate_main(["check-roles", role, "--owner-role", owner, "--database-url", url])
-    assert refused.value.code == 1
-    assert "is not a plain identifier" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert refused.value.code == 1 and err.count("\n") == 1
+    assert err.startswith("check-roles: ") and "is not a plain identifier" in err
 
 
 def test_cli_check_roles_needs_an_owner_role_and_postgresql(
@@ -1596,7 +1600,7 @@ def test_cli_check_roles_needs_an_owner_role_and_postgresql(
             ["check-roles", "terp_rt", "--owner-role", "terp_owner", "--database-url", url]
         )
     assert refused.value.code == 1
-    assert "check-roles requires PostgreSQL" in capsys.readouterr().err
+    assert capsys.readouterr().err.startswith("check-roles: requires PostgreSQL")
 
 
 # --------------------------------------------------------------------------- #

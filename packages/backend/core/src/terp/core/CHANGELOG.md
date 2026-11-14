@@ -65,9 +65,11 @@ decision, 0001 onwards.
   `CREATE` in the database or in one of those schemas (`public` included, where everyone may
   before PostgreSQL 15); when it can act as the owner of `public`; and when the owner role
   does not own one of the app's other schemas. A schema the database does not hold yet is
-  named, not read. It exits 0 with one line naming the roles and the schemas it read, and
-  prints no value of the connection, a connection that fails included. `check_roles()`
-  returns the same as a `RoleCheck`.
+  named, not read. It exits 0 with one line naming the roles and the schemas it read, 3 with
+  the failures, and 1 with one line when it could not check, such as a connection that fails.
+  Every line begins `check-roles: `, so a tool that runs it through a container engine tells
+  its answer from the engine's own. It prints no value of the connection, a connection that
+  fails included. `check_roles()` returns the same as a `RoleCheck`.
 
 - **`terp migrate graph`: each history's revisions and their parents, as Alembic loads them.**
   It prints one JSON object, `{"<label>": {"<revision>": ["<parent>", ...]}}`: a base's parents
