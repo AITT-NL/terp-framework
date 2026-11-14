@@ -24,7 +24,7 @@ from alembic import command
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from alembic.util import CommandError
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.pool import NullPool
 
 from terp.core import get_settings
@@ -229,6 +229,13 @@ def runtime_grant_statements(
     executing role's future tables. No CREATE, no ownership, no DDL: a compromised
     app process cannot alter, drop, or create a table — the database itself refuses.
 
+    The last statement takes away the ``EXECUTE`` PostgreSQL gives PUBLIC on every new
+    routine: a function, procedure, aggregate or window function, which ``ON FUNCTIONS``
+    covers alike. It is the global default, written without ``IN SCHEMA``, because a
+    default given per schema adds to the global one and cannot take back what the global
+    one grants; *owner_role* scopes it as it scopes the table defaults.
+    :func:`grant_runtime_role` revokes the routines that already exist by name.
+
     Deliberately **not** module-to-module isolation: one runtime role holds DML on
     every write schema, because audit and outbox rows ride the business write's
     single session (ADR 0007 / 0045) — cross-module DML stays code-enforced
@@ -258,7 +265,47 @@ def runtime_grant_statements(
                 f'GRANT SELECT ON TABLES TO "{role}"',
             ]
         )
+    statements.append(
+        f"ALTER DEFAULT PRIVILEGES {for_owner}REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC"
+    )
     return statements
+
+
+def _routines_public_may_execute(
+    connection: Any, schemas: list[str]
+) -> list[tuple[str, str, str]]:
+    """Each routine in *schemas* PUBLIC may execute (ADR 0071).
+
+    Every kind of routine: function, procedure, aggregate and window function. An
+    aggregate counts as much as a function, because PostgreSQL checks ``EXECUTE`` on its
+    state and final functions against its owner, not its caller, so a ``SECURITY
+    DEFINER`` state function is reachable through any aggregate PUBLIC may execute.
+    ``FUNCTION`` names all but a procedure in ``REVOKE``.
+
+    As ``(statement, routine, owner)``, where *statement* is the ``REVOKE`` that takes it
+    from PUBLIC. PostgreSQL renders both the statement and the routine: ``regprocedure``
+    quotes every name, and under the search_path :func:`grant_runtime_role` pins, it
+    qualifies every name with its schema too. Python composes no name or signature into
+    a statement.
+
+    A member of an extension is left to the extension's own script, which decides what
+    PUBLIC may call.
+    """
+    rows = connection.execute(
+        text(
+            "SELECT format('REVOKE EXECUTE ON %s %s FROM PUBLIC',"
+            " CASE p.prokind WHEN 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END,"
+            " p.oid::regprocedure), p.oid::regprocedure::text, pg_get_userbyid(p.proowner)"
+            " FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+            " WHERE n.nspname = ANY(:schemas) AND p.prokind IN ('f', 'p', 'a', 'w')"
+            " AND has_function_privilege('public', p.oid, 'EXECUTE')"
+            " AND NOT EXISTS (SELECT 1 FROM pg_depend d"
+            " WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')"
+            " ORDER BY 2"
+        ),
+        {"schemas": schemas},
+    )
+    return [(row[0], row[1], row[2]) for row in rows]
 
 
 def grant_runtime_role(
@@ -289,6 +336,18 @@ def grant_runtime_role(
     (and version-table tampering remains possible — one more reason to adopt the
     layout). Run it *after* ``upgrade`` / ``adopt-schemas``: granting on a schema
     that does not exist yet fails loudly rather than silently skipping.
+
+    It also takes ``EXECUTE`` from PUBLIC on every function, procedure, aggregate and
+    window function in those schemas: on the routines made later through the owner's
+    default (see :func:`runtime_grant_statements`), and on the ones that exist by name.
+    A ``SECURITY DEFINER`` function runs as its owner, so one PUBLIC may execute, or an
+    aggregate over one, would reach further than these grants. A trigger keeps firing, because PostgreSQL checks
+    ``EXECUTE`` on a trigger's function when the trigger is created (what that function
+    calls is checked as usual, as the role whose statement fired it). A ``REVOKE`` from a
+    role that may not revoke is only a warning, so the catalog is read again afterwards,
+    and a routine PUBLIC may still execute is refused with a :class:`MigrationError`
+    that names it and its owner. Everything runs in one transaction, so a refusal or a
+    failed statement leaves nothing changed.
     """
     for name, kind in ((role, "runtime role"), (owner_role, "owner role")):
         if name is not None and not _ROLE_NAME_RE.match(name):
@@ -313,6 +372,9 @@ def grant_runtime_role(
                     f"{connection.dialect.name!r} (ADR 0071)"
                 )
             database = engine.url.database or ""
+            # For this transaction only: every routine the catalog renders comes back
+            # schema-qualified, whatever search_path the database or the role carries.
+            connection.exec_driver_sql("SET LOCAL search_path TO pg_catalog")
             for statement in runtime_grant_statements(
                 database,
                 role,
@@ -321,6 +383,21 @@ def grant_runtime_role(
                 owner_role=owner_role,
             ):
                 connection.exec_driver_sql(statement)
+            schemas = [*write_schemas, *read_schemas]
+            for statement, _, _ in _routines_public_may_execute(connection, schemas):
+                connection.exec_driver_sql(statement)
+            kept = _routines_public_may_execute(connection, schemas)
+            if kept:
+                named = ", ".join(f"{routine} (owner {owner})" for _, routine, owner in kept[:5])
+                more = f" and {len(kept) - 5} more" if len(kept) > 5 else ""
+                raise MigrationError(
+                    "grant-runtime revoked EXECUTE from PUBLIC, and PUBLIC may still execute "
+                    f"{named}{more}: PostgreSQL lets only a routine's owner, a member of its "
+                    "owning role or a superuser revoke what the owner granted, and answers "
+                    "anyone else's REVOKE with a warning. Run grant-runtime as that owner, or "
+                    "make the migration owner the routine's owner (ALTER ROUTINE ... OWNER "
+                    "TO), then run it again; nothing was changed (ADR 0071)"
+                )
     finally:
         engine.dispose()
     return [*write_schemas, *read_schemas]

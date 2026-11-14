@@ -1041,6 +1041,86 @@ def test_runtime_grant_statements_scope_defaults_to_the_owner_role() -> None:
     assert 'GRANT CONNECT ON DATABASE "appdb" TO "terp_rt"' in joined
 
 
+def test_runtime_grant_statements_revoke_execute_from_public_by_the_global_default() -> None:
+    # PostgreSQL lets PUBLIC execute every new routine. A default given IN SCHEMA only adds
+    # to the global one and cannot take that back, so the revocation is one global default,
+    # scoped to the migration owner exactly as the table defaults are.
+    def revocations(owner_role: str | None) -> list[str]:
+        statements = orchestrate.runtime_grant_statements(
+            "appdb",
+            "terp_rt",
+            write_schemas=["notes", "tasks"],
+            read_schemas=["public"],
+            owner_role=owner_role,
+        )
+        return [statement for statement in statements if "EXECUTE" in statement]
+
+    assert revocations("terp_owner") == [
+        'ALTER DEFAULT PRIVILEGES FOR ROLE "terp_owner" REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC'
+    ]
+    # Without an owner role it is the executing role's own default, as the table defaults are.
+    assert revocations(None) == ["ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC"]
+
+
+class _CatalogConnection(_FakeConnection):
+    """A PostgreSQL connection whose catalog reads answer in turn: the sweep, then the check."""
+
+    def __init__(self, *answers: list[tuple[str, str, str]]) -> None:
+        super().__init__("postgresql")
+        self._answers = list(answers)
+        self.reads: list[object] = []
+
+    def execute(self, statement: object, params: object = None) -> _FakeResult:
+        self.reads.append(params)
+        self.statements.append(str(statement))
+        return _FakeResult(self._answers.pop(0))
+
+
+def test_grant_runtime_role_revokes_each_routine_as_the_catalog_renders_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    revoke = 'REVOKE EXECUTE ON FUNCTION notes."Odd name"(integer) FROM PUBLIC'
+    connection = _CatalogConnection([(revoke, 'notes."Odd name"(integer)', "terp_owner")], [])
+    monkeypatch.setattr(orchestrate, "create_engine", lambda url, **kw: _FakeEngine(connection))
+    orchestrate.grant_runtime_role("postgresql://u:p@h/appdb", "terp_rt", schema_layout="flat")
+    # The catalog is read with the schemas the grants cover, bound and never interpolated, and
+    # under a search_path of pg_catalog alone, so each routine it renders comes back qualified.
+    assert connection.statements[0] == "SET LOCAL search_path TO pg_catalog"
+    assert connection.reads == [{"schemas": ["public"]}, {"schemas": ["public"]}]
+    # The transaction ends: the global default, the sweep, each statement PostgreSQL rendered,
+    # sent as rendered, and the check that reads the catalog again.
+    tail = ["<catalog>" if "pg_proc" in s else s for s in connection.statements[-4:]]
+    assert tail == [
+        "ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC",
+        "<catalog>",
+        revoke,
+        "<catalog>",
+    ]
+
+
+def test_grant_runtime_role_refuses_a_routine_public_may_still_execute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # PostgreSQL answers a REVOKE from a role that may not revoke with a WARNING and revokes
+    # nothing, so the command reads the catalog again rather than trust the statements.
+    kept = ("REVOKE EXECUTE ON PROCEDURE public.tidy() FROM PUBLIC", "public.tidy()", "dba")
+    connection = _CatalogConnection([kept], [kept])
+    monkeypatch.setattr(orchestrate, "create_engine", lambda url, **kw: _FakeEngine(connection))
+    with pytest.raises(MigrationError) as refused:
+        orchestrate.grant_runtime_role("postgresql://u:p@h/appdb", "terp_rt", schema_layout="flat")
+    message = str(refused.value)
+    assert "PUBLIC may still execute public.tidy() (owner dba): " in message
+    assert "Run grant-runtime as that owner" in message
+    assert "nothing was changed" in message and "ADR 0071" in message
+
+    # A restore that lost its owners keeps hundreds: the first five are named, the rest counted.
+    many = [(f"REVOKE ... f{n}()", f"public.f{n}()", "dba") for n in range(7)]
+    connection = _CatalogConnection(many, many)
+    monkeypatch.setattr(orchestrate, "create_engine", lambda url, **kw: _FakeEngine(connection))
+    with pytest.raises(MigrationError, match=r"public\.f4\(\) \(owner dba\) and 2 more: "):
+        orchestrate.grant_runtime_role("postgresql://u:p@h/appdb", "terp_rt", schema_layout="flat")
+
+
 def test_grant_runtime_role_is_layout_aware(monkeypatch: pytest.MonkeyPatch) -> None:
     connection = _FakeConnection("postgresql")
     monkeypatch.setattr(

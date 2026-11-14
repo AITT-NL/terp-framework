@@ -235,7 +235,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     grant_parser = sub.add_parser(
         "grant-runtime",
-        help="Grant least-privilege DML to an existing runtime login role (ADR 0071)",
+        help="Grant least-privilege DML to an existing runtime login role, and revoke "
+        "EXECUTE from PUBLIC on the functions, procedures, aggregates and window functions "
+        "in the app's schemas (ADR 0071)",
     )
     grant_parser.add_argument(
         "role", help="Existing PostgreSQL login role the app connects as"
@@ -366,7 +368,10 @@ def _migrate(argv: Sequence[str] | None) -> None:
         except MigrationError as exc:
             print(str(exc), file=sys.stderr)
             raise SystemExit(1) from exc
-        print(f"granted runtime DML to {args.role!r} on: {schemas}")
+        print(
+            f"granted runtime DML to {args.role!r}, and revoked EXECUTE from PUBLIC, "
+            f"on: {schemas}"
+        )
         return
     if args.migrate_command == "status":
         _print_status(database_url, app_root, args.package)
