@@ -129,6 +129,16 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
    write on one session (ADR 0007/0045) — so module-to-module isolation stays
    code-enforced, not database-enforced.
 
+   `grant-runtime` also revokes `EXECUTE` from `PUBLIC` on every function, procedure,
+   aggregate and window function in the app's schemas, and through the owning role's
+   default on the routines it makes later, so a `SECURITY DEFINER` function a migration
+   made, or an aggregate over one, cannot reach past the runtime role's grants. Triggers
+   keep firing, and an extension's functions are left to the extension. If the app's statements reach a function of its own, wherever the call
+   sits (the statement, a view, a column default, a generated column, an index
+   expression, a check, a policy, or a trigger function), grant it to the runtime role
+   (`GRANT EXECUTE ON FUNCTION … TO terp_rt`): `grant-runtime` does not, and a re-run
+   keeps that grant.
+
 
 ## Operational notes
 

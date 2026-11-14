@@ -12,6 +12,24 @@ decision, 0001 onwards.
 
 ## 0.43.0 — unreleased
 
+### Security
+
+- **`terp migrate grant-runtime` takes `EXECUTE` from `PUBLIC` on the app's routines (ADR
+  0071).** PostgreSQL lets `PUBLIC` execute every function, procedure, aggregate and window
+  function it creates, and a `SECURITY DEFINER` function runs as its owner, so one a
+  migration made, or an aggregate over one, let the runtime role reach further than its row
+  grants. In the transaction that grants, `grant-runtime` now also revokes `EXECUTE` from
+  `PUBLIC`: on each routine already in the schemas it grants on, by name, and on those made
+  later through the owner's global default (`ALTER DEFAULT PRIVILEGES [FOR ROLE <owner>]
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC`, without `IN SCHEMA`, because a default given per
+  schema cannot take back the global one). PostgreSQL renders each statement from the
+  catalog, so Python composes no name into one. A trigger keeps firing, since PostgreSQL
+  checks `EXECUTE` on a trigger's function when the trigger is created. An extension's
+  functions are left to the extension. PostgreSQL answers a `REVOKE` from a role that may not
+  revoke with a warning and revokes nothing, so `grant-runtime` reads the catalog again and
+  refuses a routine `PUBLIC` may still execute, naming it and its owner, and changes
+  nothing.
+
 ### Added
 
 - **A generated release carries the deployment it runs (ADR 0215).** `terp release sign` writes
@@ -187,6 +205,17 @@ decision, 0001 onwards.
 - A deploy tool that reads a declaration by the Terp Standard release it was written against
   must carry 0.48.0 before it reads a release signed on this terp-arch. The declaration's
   schema in 0.48.0 is 0.47.0's, byte for byte.
+- Re-run `terp migrate grant-runtime <role>` after upgrading (with `--owner-role` where
+  another role runs `migrate`), so the routines already in the app's schemas are revoked
+  from `PUBLIC`. A statement the runtime role runs that reaches one of the app's
+  own functions is then refused with `permission denied for function …`, wherever the call
+  sits: in the statement, a view, a column default, a generated column, an index
+  expression, a check, a policy, or a trigger function (the trigger itself still fires).
+  Grant that function to the runtime role by hand (`GRANT EXECUTE ON FUNCTION
+  <schema>.<name>(<args>) TO <role>`), which a re-run keeps; this release does not grant it.
+  A routine in those schemas that `PUBLIC` may execute and the running role may not revoke
+  (another role owns it) makes `grant-runtime` refuse until it runs as that owner, or the
+  routine is given to the migration owner.
 
 ## 0.42.1 — unreleased
 

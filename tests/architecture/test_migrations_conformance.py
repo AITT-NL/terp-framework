@@ -25,7 +25,7 @@ from types import SimpleNamespace
 import pytest
 from alembic import command
 from alembic.util import CommandError
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import Engine, create_engine, event, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.pool import NullPool
@@ -935,6 +935,313 @@ def test_runtime_role_gets_dml_and_is_refused_ddl_and_tampering(pg_url: str) -> 
         admin.dispose()
 
 
+# What grant-runtime takes from PUBLIC (ADR 0071, amended 2026-11-14): EXECUTE on every
+# function, procedure, aggregate and window function in the app's schemas, by name for
+# those that exist and as the owner's global default for those made later.
+@contextlib.contextmanager
+def _login(pg_url: str, prefix: str) -> Iterator[tuple[str, str]]:
+    """A throwaway login and its URL on *pg_url*'s database, dropped with all it holds after."""
+    role = f"{prefix}_{uuid.uuid4().hex[:10]}"
+    admin = create_engine(pg_url, isolation_level="AUTOCOMMIT", poolclass=NullPool)
+    try:
+        with admin.connect() as conn:
+            conn.exec_driver_sql(f"CREATE ROLE \"{role}\" LOGIN PASSWORD 'rt-secret'")
+        yield role, make_url(pg_url).set(username=role, password="rt-secret").render_as_string(
+            hide_password=False
+        )
+    finally:
+        with admin.connect() as conn:
+            conn.exec_driver_sql(f'DROP OWNED BY "{role}"')
+            conn.exec_driver_sql(f'DROP ROLE "{role}"')
+        admin.dispose()
+
+
+def _run(url: str, *statements: str) -> None:
+    """Run *statements* on *url* in one transaction, as the role *url* logs in as."""
+    engine = create_engine(url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.exec_driver_sql(statement)
+    finally:
+        engine.dispose()
+
+
+def _answer(url: str, query: str, **params: object) -> object:
+    """The one value *query* answers on *url*, with *params* bound."""
+    engine = create_engine(url, poolclass=NullPool)
+    try:
+        with engine.connect() as conn:
+            return conn.execute(text(query), params).scalar()
+    finally:
+        engine.dispose()
+
+
+def _may_execute(url: str, role: str, routine: str) -> bool:
+    """Whether *role* (``public`` for PUBLIC) may execute *routine*, by its signature."""
+    query = "SELECT has_function_privilege(:role, :routine, 'EXECUTE')"
+    return bool(_answer(url, query, role=role, routine=routine))
+
+
+@contextlib.contextmanager
+def _sent() -> Iterator[list[str]]:
+    """Every statement any engine sends while the block runs."""
+    seen: list[str] = []
+
+    def record(conn: object, cursor: object, statement: str, *rest: object) -> None:
+        seen.append(statement)
+
+    event.listen(Engine, "before_cursor_execute", record)
+    try:
+        yield seen
+    finally:
+        event.remove(Engine, "before_cursor_execute", record)
+
+
+#: Every privilege the app's objects carry: routines, relations, schemas, the database and the
+#: default privileges, one line each, in one string a second run must leave as it found it.
+_PRIVILEGES = """
+SELECT string_agg(entry, E'\\n' ORDER BY entry) FROM (
+    SELECT 'routine ' || p.oid::regprocedure::text || ' ' || coalesce(p.proacl::text, '-')
+        AS entry
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname !~ '^(pg_|information_schema$)'
+    UNION ALL
+    SELECT 'relation ' || c.oid::regclass::text || ' ' || coalesce(c.relacl::text, '-')
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname !~ '^(pg_|information_schema$)'
+    UNION ALL
+    SELECT 'schema ' || nspname || ' ' || coalesce(nspacl::text, '-') FROM pg_namespace
+    UNION ALL
+    SELECT 'database ' || coalesce(datacl::text, '-') FROM pg_database
+    WHERE datname = current_database()
+    UNION ALL
+    SELECT 'default ' || defaclrole::regrole::text || ' ' || defaclnamespace::text || ' '
+        || defaclobjtype::text || ' ' || defaclacl::text FROM pg_default_acl
+) AS entries
+"""
+
+
+def test_grant_runtime_revokes_execute_on_what_migrations_made_and_triggers_still_fire(
+    pg_url: str,
+) -> None:
+    """A ``SECURITY DEFINER`` function runs as its owner, and PUBLIC may execute every
+    function by default: one a migration made would let the runtime role reach further than
+    its grants. A trigger keeps firing once its function is revoked, because PostgreSQL checks
+    ``EXECUTE`` on a trigger's function when the trigger is created, not each time it fires.
+    """
+    upgrade(pg_url, APP_ROOT, package="app", schema_layout="per-module")
+    _run(  # what a migration, run as the owner, makes
+        pg_url,
+        "CREATE FUNCTION notes.probe_definer() RETURNS int LANGUAGE sql SECURITY DEFINER"
+        " AS 'SELECT 1'",
+        "CREATE PROCEDURE notes.probe_procedure() LANGUAGE sql AS 'SELECT 1'",
+        "CREATE TABLE notes.probe (id int)",
+        "CREATE TABLE notes.probe_log (id int)",
+        "CREATE FUNCTION notes.probe_logged() RETURNS trigger LANGUAGE plpgsql"
+        " AS $$BEGIN INSERT INTO notes.probe_log VALUES (NEW.id); RETURN NEW; END$$",
+        "CREATE TRIGGER probe_logs AFTER INSERT ON notes.probe"
+        " FOR EACH ROW EXECUTE FUNCTION notes.probe_logged()",
+    )
+    with _login(pg_url, "terp_rt") as (role, runtime_url):
+        grant_runtime_role(
+            pg_url,
+            role,
+            APP_ROOT,
+            package="app",
+            schema_layout="per-module",
+            owner_role=make_url(pg_url).username,
+        )
+        runtime = create_engine(runtime_url, poolclass=NullPool)
+        try:
+            for refused, kind in (
+                ("SELECT notes.probe_definer()", "function"),
+                ("CALL notes.probe_procedure()", "procedure"),
+            ):
+                with runtime.connect() as conn, pytest.raises(
+                    DBAPIError, match=f"permission denied for {kind} probe_"
+                ):
+                    conn.exec_driver_sql(refused)
+            # The audit capability's own migration made a trigger function: swept the same way.
+            assert not _may_execute(pg_url, "public", "audit.terp_audit_event_append_only()")
+            # The grants hold, and the trigger fires for a role that may not execute it.
+            with runtime.begin() as conn:
+                conn.exec_driver_sql("INSERT INTO notes.probe VALUES (7)")
+            with runtime.connect() as conn:
+                assert conn.exec_driver_sql("SELECT id FROM notes.probe_log").scalar() == 7
+            assert not _may_execute(pg_url, role, "notes.probe_logged()")
+        finally:
+            runtime.dispose()
+
+
+def test_grant_runtime_revokes_aggregates_and_window_functions_by_name_too(pg_url: str) -> None:
+    """PostgreSQL checks ``EXECUTE`` on an aggregate's state function against the
+    aggregate's owner, not its caller: revoking a ``SECURITY DEFINER`` state function alone
+    leaves it reachable through an aggregate made before grant-runtime ran. So aggregates
+    are revoked by name like every routine, and window functions with them."""
+    upgrade(pg_url, APP_ROOT, package="app", schema_layout="per-module")
+    _run(  # what migrations, run as the owner, make; the window function is row_number's C
+        pg_url,
+        "CREATE SCHEMA probe_private",
+        "CREATE TABLE probe_private.secret (v int)",
+        "INSERT INTO probe_private.secret VALUES (99)",
+        "CREATE FUNCTION notes.probe_peek(state int, x int) RETURNS int LANGUAGE sql"
+        " SECURITY DEFINER AS 'SELECT max(v) FROM probe_private.secret'",
+        "CREATE AGGREGATE notes.probe_peek_agg(int) (SFUNC = notes.probe_peek, STYPE = int)",
+        "CREATE FUNCTION notes.probe_window() RETURNS bigint LANGUAGE internal WINDOW"
+        " IMMUTABLE AS 'window_row_number'",
+    )
+    with _login(pg_url, "terp_rt") as (role, runtime_url):
+        grant_runtime_role(
+            pg_url,
+            role,
+            APP_ROOT,
+            package="app",
+            schema_layout="per-module",
+            owner_role=make_url(pg_url).username,
+        )
+        runtime = create_engine(runtime_url, poolclass=NullPool)
+        try:
+            # The secret is beyond the runtime role's grants, and so is the state function:
+            # the aggregate over it was the way round both.
+            with runtime.connect() as conn, pytest.raises(
+                DBAPIError, match="permission denied for schema probe_private"
+            ):
+                conn.exec_driver_sql("SELECT v FROM probe_private.secret")
+            assert not _may_execute(pg_url, role, "notes.probe_peek(integer, integer)")
+            for refused, denied in (
+                ("SELECT notes.probe_peek_agg(1)", "aggregate probe_peek_agg"),
+                ("SELECT notes.probe_window() OVER ()", "function probe_window"),
+            ):
+                with runtime.connect() as conn, pytest.raises(
+                    DBAPIError, match=f"permission denied for {denied}"
+                ):
+                    conn.exec_driver_sql(refused)
+        finally:
+            runtime.dispose()
+
+
+def test_a_routine_the_owner_makes_after_grant_runtime_is_not_public_either(pg_url: str) -> None:
+    """The owner's global default, written without ``IN SCHEMA``: a default given per schema
+    adds to the global one, which lets PUBLIC execute every new function, and cannot take it
+    back. So it holds in a schema grant-runtime never named as well."""
+    upgrade(pg_url, APP_ROOT, package="app", schema_layout="per-module")
+    with _login(pg_url, "terp_rt") as (role, runtime_url):
+        grant_runtime_role(
+            pg_url,
+            role,
+            APP_ROOT,
+            package="app",
+            schema_layout="per-module",
+            owner_role=make_url(pg_url).username,
+        )
+        _run(
+            pg_url,
+            "CREATE FUNCTION notes.probe_later() RETURNS int LANGUAGE sql SECURITY DEFINER"
+            " AS 'SELECT 1'",
+            "CREATE PROCEDURE audit.probe_later() LANGUAGE sql AS 'SELECT 1'",
+            "CREATE SCHEMA probe_elsewhere",
+            "CREATE FUNCTION probe_elsewhere.probe_later() RETURNS int LANGUAGE sql AS 'SELECT 1'",
+        )
+        runtime = create_engine(runtime_url, poolclass=NullPool)
+        try:
+            for refused, kind in (
+                ("SELECT notes.probe_later()", "function"),
+                ("CALL audit.probe_later()", "procedure"),
+            ):
+                with runtime.connect() as conn, pytest.raises(
+                    DBAPIError, match=f"permission denied for {kind} probe_later"
+                ):
+                    conn.exec_driver_sql(refused)
+        finally:
+            runtime.dispose()
+        assert not _may_execute(pg_url, "public", "probe_elsewhere.probe_later()")
+
+
+def test_grant_runtime_runs_again_without_changing_anything(pg_url: str) -> None:
+    """Idempotent: a second run leaves every privilege as the first left it and finds nothing
+    to revoke by name, and a function granted to the runtime role by name keeps its grant,
+    because grant-runtime revokes only what PUBLIC holds."""
+    upgrade(pg_url, APP_ROOT, package="app", schema_layout="per-module")
+    _run(pg_url, "CREATE FUNCTION notes.probe_called() RETURNS int LANGUAGE sql AS 'SELECT 1'")
+    owner = make_url(pg_url).username
+    with _login(pg_url, "terp_rt") as (role, runtime_url):
+        with _sent() as first:
+            grant_runtime_role(
+                pg_url, role, APP_ROOT, package="app", schema_layout="per-module", owner_role=owner
+            )
+        assert "REVOKE EXECUTE ON FUNCTION notes.probe_called() FROM PUBLIC" in first
+        _run(pg_url, f'GRANT EXECUTE ON FUNCTION notes.probe_called() TO "{role}"')
+        before = _answer(pg_url, _PRIVILEGES)
+        with _sent() as second:
+            grant_runtime_role(
+                pg_url, role, APP_ROOT, package="app", schema_layout="per-module", owner_role=owner
+            )
+        assert _answer(pg_url, _PRIVILEGES) == before
+        assert [statement for statement in second if statement.startswith("REVOKE")] == []
+        assert not _may_execute(pg_url, "public", "notes.probe_called()")
+        assert _answer(runtime_url, "SELECT notes.probe_called()") == 1
+
+
+def test_grant_runtime_refuses_a_routine_it_cannot_revoke_and_changes_nothing(
+    pg_url: str,
+) -> None:
+    """PostgreSQL revokes only for a routine's owner, a member of its owning role or a
+    superuser; from any other role, ``REVOKE`` is a WARNING that revokes nothing. So
+    grant-runtime reads the catalog again and refuses what PUBLIC may still execute, and its
+    one transaction takes back everything with it: the revocations it could make, the
+    default, the grants."""
+    admin = make_url(pg_url).username
+    with _login(pg_url, "terp_own") as (owner, owner_url), _login(pg_url, "terp_rt") as (role, _):
+        _run(
+            pg_url,
+            f'GRANT CREATE ON SCHEMA public TO "{owner}"',
+            "CREATE FUNCTION public.probe_foreign() RETURNS int LANGUAGE sql SECURITY DEFINER"
+            " AS 'SELECT 1'",
+        )
+        _run(
+            owner_url,
+            "CREATE TABLE public.probe (id int)",
+            "CREATE FUNCTION public.probe_own() RETURNS int LANGUAGE sql AS 'SELECT 1'",
+        )
+        with pytest.raises(MigrationError) as refused:
+            grant_runtime_role(owner_url, role, schema_layout="flat", owner_role=owner)
+        assert f"PUBLIC may still execute public.probe_foreign() (owner {admin})" in str(
+            refused.value
+        )
+        # Nothing changed: the routine it could revoke, the default and the grants.
+        assert _may_execute(pg_url, "public", "public.probe_own()")
+        defaults = "SELECT count(*) FROM pg_default_acl WHERE defaclrole = CAST(:owner AS regrole)"
+        assert _answer(pg_url, defaults, owner=owner) == 0
+        granted = "SELECT has_table_privilege(:role, 'public.probe', 'SELECT')"
+        assert not _answer(pg_url, granted, role=role)
+
+
+def test_grant_runtime_leaves_an_extension_s_functions_to_the_extension(pg_url: str) -> None:
+    """An extension's script decides what PUBLIC may call, and its operators are its
+    interface: revoked, citext's own ``=`` would refuse the runtime role a plain comparison.
+    Nor could the owner revoke them: a superuser created the extension, so they are its."""
+    with _login(pg_url, "terp_own") as (owner, owner_url), _login(pg_url, "terp_rt") as (
+        role,
+        runtime_url,
+    ):
+        _run(
+            pg_url,
+            f'GRANT CREATE ON SCHEMA public TO "{owner}"',
+            "CREATE EXTENSION citext SCHEMA public",
+        )
+        _run(
+            owner_url,
+            "CREATE TABLE public.probe (email public.citext)",
+            "INSERT INTO public.probe VALUES ('Someone@example.com')",
+        )
+        grant_runtime_role(owner_url, role, schema_layout="flat", owner_role=owner)
+        assert _may_execute(pg_url, "public", "public.citext_eq(public.citext, public.citext)")
+        assert _answer(
+            runtime_url, "SELECT count(*) FROM public.probe WHERE email = 'someone@example.com'"
+        ) == 1
+
+
 def test_cli_grant_runtime_reports_the_surfaces(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -957,6 +1264,7 @@ def test_cli_grant_runtime_reports_the_surfaces(
     )
     out = capsys.readouterr().out
     assert "terp_rt" in out and "notes" in out
+    assert "revoked EXECUTE from PUBLIC" in out
     assert seen["owner_role"] == "terp_owner"
 
 

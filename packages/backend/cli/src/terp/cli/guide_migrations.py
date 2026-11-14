@@ -167,6 +167,18 @@ Database migrations (terp migrate)
       terp migrate grant-runtime <role>    # idempotent; run after upgrade/adopt
   Run it as the role that runs `terp migrate` - or pass --owner-role <role> so the
   ALTER DEFAULT PRIVILEGES it emits covers tables that future upgrades create.
+  It also revokes EXECUTE from PUBLIC on the functions, procedures, aggregates and
+  window functions in those schemas, by name and as the owner's default for later
+  ones: a SECURITY DEFINER function runs as its owner, also when an aggregate calls it.
+  Triggers keep firing; an extension's functions are left to the extension. A
+  statement that reaches one of the app's own functions, wherever the call sits (the
+  statement, a view, a column default, a generated column, an index expression, a check,
+  a policy, or a trigger function), then needs it granted to the runtime role, which
+  grant-runtime does not do; a grant made by hand survives a re-run:
+      GRANT EXECUTE ON FUNCTION <schema>.<name>(<args>) TO <role>;
+  A routine PUBLIC may execute that the running role may not revoke (another role owns
+  it) makes grant-runtime refuse, changing nothing: run it as that owner, or give the
+  routine to the migration owner.
   Module-to-module DML is deliberately NOT database-blocked (one runtime role spans
   every write schema; audit/outbox ride the business write's single session).
 - Operate safely: run `terp migrate upgrade` ONCE per deploy (e.g. a release job), not
