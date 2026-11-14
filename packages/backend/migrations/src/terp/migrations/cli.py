@@ -432,13 +432,34 @@ def _migrate(argv: Sequence[str] | None) -> None:
     _check(database_url, app_root, args.package)
 
 
+#: Every line ``check-roles`` prints begins with this, so a deploy tool that runs it through a
+#: container engine tells the command's own answer from the engine's (ADR 0071).
+CHECK_ROLES_MARK = "check-roles: "
+
+#: ``check-roles`` exits 3 when the roles do not hold: an exit no container engine gives for
+#: a failure of its own, and argparse's 2 stays a usage error (ADR 0071).
+ROLES_DO_NOT_HOLD = 3
+
+
+def _marked(text: str) -> str:
+    """Each line of *text* behind :data:`CHECK_ROLES_MARK`, said once."""
+    return "\n".join(
+        CHECK_ROLES_MARK
+        + line.removeprefix(CHECK_ROLES_MARK).removeprefix("check-roles ")
+        for line in text.splitlines()
+    )
+
+
 def _check_roles(
     database_url: str, app_root: pathlib.Path | None, args: argparse.Namespace
 ) -> None:
-    """Exit 0 with one line when the two roles hold, else 1 with every failure, one per line.
+    """Exit 0 when the two roles hold, 3 when they do not, 1 when it could not check them.
 
-    A deploy reports what this prints as its refusal. Nothing in it is a value of the
-    connection: the roles, the schemas and the database are named, never the URL.
+    Every line begins with :data:`CHECK_ROLES_MARK`: the one line on standard output when
+    the roles hold; on standard error, one line per failure (exit 3), or the one line that
+    says why it could not check, such as a connection that fails (exit 1). argparse's usage
+    error stays 2. A deploy reports what this prints as its refusal. Nothing in it is a value
+    of the connection: the roles, the schemas and the database are named, never the URL.
     """
     try:
         found = check_roles(
@@ -450,14 +471,14 @@ def _check_roles(
             schema_layout=args.schema_layout,
         )
     except MigrationError as exc:
-        print(str(exc), file=sys.stderr)
+        print(_marked(str(exc)), file=sys.stderr)
         raise SystemExit(1) from exc
     if found.failures:
-        print("\n".join(found.failures), file=sys.stderr)
-        raise SystemExit(1)
+        print(_marked("\n".join(found.failures)), file=sys.stderr)
+        raise SystemExit(ROLES_DO_NOT_HOLD)
     pending = f"; not created yet: {list(found.pending)}" if found.pending else ""
     print(
-        f"check-roles: the runtime role {args.role!r} and the owner role "
+        f"{CHECK_ROLES_MARK}the runtime role {args.role!r} and the owner role "
         f"{args.owner_role!r} hold on {list(found.schemas)}{pending}"
     )
 
