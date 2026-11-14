@@ -52,6 +52,23 @@ decision, 0001 onwards.
   with its own build files, and a commit pinning a terp-arch from before this one, sign a
   version 1 manifest as before.
 
+- **`terp migrate check-roles`: whether a database's two roles are the ones ADR 0071 splits.**
+  Where an operator brings the database, Terp creates no role, so a deploy checks the two it is
+  given before anything is backed up or migrated: `terp migrate check-roles <runtime role>
+  --owner-role <owner role>`, run as the owner. It reads both roles from the catalog by name,
+  so it needs no runtime connection, and changes nothing: its transaction is read-only and
+  never committed. It fails, one line per failure naming what to change, when either role is
+  missing; when the runtime role is a superuser or has `CREATEROLE`, `CREATEDB`,
+  `REPLICATION` or `BYPASSRLS`; when it is a member of the owner role, directly or through
+  another role, which `SET ROLE` turns into the owner's rights even without `INHERIT`; when
+  it owns, or is a member of a role that owns, a relation in the app's schemas; when it may
+  `CREATE` in the database or in one of those schemas (`public` included, where everyone may
+  before PostgreSQL 15); when it can act as the owner of `public`; and when the owner role
+  does not own one of the app's other schemas. A schema the database does not hold yet is
+  named, not read. It exits 0 with one line naming the roles and the schemas it read, and
+  prints no value of the connection, a connection that fails included. `check_roles()`
+  returns the same as a `RoleCheck`.
+
 - **`terp migrate graph`: each history's revisions and their parents, as Alembic loads them.**
   It prints one JSON object, `{"<label>": {"<revision>": ["<parent>", ...]}}`: a base's parents
   are `[]`, a merge's keep the order its `down_revision` gives them, and a history with no
@@ -173,6 +190,10 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **`grant-runtime` refuses a role name that ends in a line break.** Its pattern was matched
+  with `re.match`, whose `$` also matches before a trailing newline, so `"terp_rt\n"` reached
+  the server, which refused it as a role that does not exist. The whole name is matched now,
+  by `grant-runtime` and `check-roles` alike, before anything connects.
 - **`sign` refuses a layer that writes through a symbolic link.** An engine follows a link on
   an entry's way and writes the entry where the link points: a layer holding a link `opt/t` to
   `/srv/app/modules/notes/migrations/versions` and a file `opt/t/b2.py` puts `b2.py` among the

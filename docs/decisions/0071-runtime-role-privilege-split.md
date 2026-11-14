@@ -168,3 +168,66 @@ What this amendment decides, and why:
 | Database (fail-closed) | Through `PUBLIC`, the runtime role may execute none of the routines that were in the app's schemas when `grant-runtime` ran (an extension's aside), nor any the owner makes after it; triggers fire regardless |
 | Runtime | `grant-runtime` reads the catalog again after revoking, and refuses a routine `PUBLIC` may still execute, changing nothing |
 | CI | The PostgreSQL lane: a `SECURITY DEFINER` function, a procedure, an aggregate over a `SECURITY DEFINER` state function and a window function made before refuse the runtime role, and the audit capability's trigger function is no longer `PUBLIC`'s; ones made after refuse it, and the default holds in a schema `grant-runtime` never named; a trigger still fires and the grants still hold; a second run changes no privilege, revokes nothing and keeps a grant made by hand; a routine the running role cannot revoke is refused, leaving the routine it could revoke, the default and the table grants as they were; an extension's functions stay `PUBLIC`'s |
+
+## Amendment (2026-11-14): check-roles holds an external database's two roles
+
+Where Terp provisions the database, it makes both roles. Where an operator brings one, a
+managed or external PostgreSQL, Terp creates no role, and the split this ADR draws holds only
+if the two roles it is given are shaped as the ADR says. A deploy tool checks them before it
+backs anything up or migrates anything, and asked for the command it runs:
+`terp migrate check-roles <runtime role> --owner-role <owner role>`, as the owner (the owner's
+connection in `DATABASE_URL`), in the release's own image. It reads both roles by name from
+the catalog, so it needs no runtime connection. It changes nothing: it sets its transaction
+`READ ONLY`, so PostgreSQL refuses any write in it, and never commits it.
+
+It exits 0 with one line naming the roles and the schemas it read, or 1 with every failure,
+one per line, each naming what to change. Nothing it prints is a value of the connection: a
+connection that fails is one line too, without the driver's message, which names the host,
+the port and the user.
+Role names are held to `grant-runtime`'s pattern and refused before connecting. The pattern is
+now matched against the whole name, by both commands: a pattern's `$` also matches before a
+trailing newline, which let `"terp_rt\n"` through to the server. A database that is not
+PostgreSQL is refused as `grant-runtime` refuses it.
+
+The app's schemas are the ones `grant-runtime` grants on under the layout, and `public`
+always. A schema the database does not hold yet is not read, and is named as not created yet:
+the check runs before a fresh database's first migration, when the owner has created none of
+the package schemas, and `has_schema_privilege` raises on a schema that does not exist.
+
+| Check | Why |
+|---|---|
+| Both roles exist | Every other check reads them |
+| The runtime role is not a superuser | A superuser passes every privilege check, so the split is void |
+| It has none of `CREATEROLE`, `CREATEDB`, `REPLICATION`, `BYPASSRLS` | Decision 1 |
+| It is not a member of the owner role, directly or through another role (`pg_has_role(…, 'MEMBER')`) | A membership without `INHERIT` reads false in `has_schema_privilege`, yet `SET ROLE` gives the runtime role the owner's rights: on 16.15, a runtime role linked to the owner through a `NOINHERIT` role read false for `CREATE` in the owner's schema, and true after `SET ROLE`. The same role named for both reads as its own member, and is named as one role for both |
+| It owns no relation in the app's schemas, and is a member of no role that owns one there | A relation's owner may alter or drop it. Matching `pg_has_role` against `relowner` rather than equality also finds a table a third role owns that the runtime role belongs to |
+| It may not `CREATE` in the database (`has_database_privilege`) | It could create schemas, one a package has not created yet among them |
+| It may not `CREATE` in any of the app's schemas (`has_schema_privilege`) | That is DDL; before PostgreSQL 15 everyone may `CREATE` in `public`, which this finds |
+| It cannot act as the owner of `public` | Decision 2 |
+| The owner role owns each of the app's schemas, `public` aside (`pg_namespace.nspowner`) | The migrations run as the owner, and `grant-runtime`'s defaults and revocations are the owner's |
+
+What this amendment decides, and why:
+
+1. **Every attribute beside superuser is refused too.** An app's connection needs none of them,
+   and each widens what a compromised app process reaches: `REPLICATION` streams every
+   database's changes off the server, `BYPASSRLS` passes every row-level security policy,
+   `CREATEROLE` creates roles and, before PostgreSQL 16, could grant itself any non-superuser
+   role, the owner included, and `CREATEDB` creates databases on the server.
+2. **`public` may have any owner the runtime role cannot act as.** It holds the version tables
+   and the window record under `per-module`, and every table under `flat`, and a schema's
+   owner may drop every table in it, whoever owns the tables. So the runtime role must not own
+   `public` or be a member of its owner. Who owns it otherwise varies: `pg_database_owner` from
+   PostgreSQL 15 (the owner role, while it owns the database), the bootstrap superuser before
+   that, a provider's administrator role on a managed service. Requiring the owner role would
+   refuse most external databases as they come, for nothing the rule above does not give, so
+   `public` is the one schema the ownership check sets aside.
+3. **A failure that only follows from another is not listed twice.** A superuser passes every
+   privilege check, so for one only its attributes are reported. A member of the owner role
+   holds the owner's rights, so for one `CREATE` in the database and the schemas, the owner
+   of `public` and the owner's own relations are not checked. The line naming the cause
+   fails the check, and a run once it is fixed lists what remains.
+
+| Layer | Control |
+|---|---|
+| Runtime | `check-roles` exits 1 with every failure and what to change; a deploy reports it as its refusal |
+| CI | The PostgreSQL lane: each fault alone, named with its remedy; several at once; a pair `grant-runtime` shaped passes under both layouts; nothing changes, and the transaction is read-only before the first catalog read; the command line's exit codes, the refusal of a name before connecting, and no password in what it prints |

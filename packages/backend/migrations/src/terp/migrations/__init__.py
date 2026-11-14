@@ -60,6 +60,7 @@ from terp.migrations.orchestrate import (
     upgrade_sql,
     window_of,
 )
+from terp.migrations.roles import RoleCheck, check_roles
 from terp.migrations.window import (
     RECORD_TABLE,
     RETIRED_NAME,
@@ -84,6 +85,7 @@ __all__ = [
     "OrphanedRevisionsError",
     "PendingMigrationsError",
     "RetiredMigrationsError",
+    "RoleCheck",
     "Window",
     "adopt_schemas",
     "assert_migrations_current",
@@ -92,6 +94,7 @@ __all__ = [
     "assert_no_missing_histories",
     "assert_no_orphaned_revisions",
     "assert_operation_on_expand_list",
+    "check_roles",
     "downgrade",
     "ensure_database_search_path",
     "grant_runtime_role",

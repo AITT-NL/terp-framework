@@ -1121,6 +1121,15 @@ def test_grant_runtime_role_refuses_a_routine_public_may_still_execute(
         orchestrate.grant_runtime_role("postgresql://u:p@h/appdb", "terp_rt", schema_layout="flat")
 
 
+def test_a_check_roles_failure_stays_on_one_line() -> None:
+    # A name read from the catalog may hold a line break; each failure is still one line.
+    from terp.migrations import roles
+
+    assert roles._one_line('may CREATE in database "odd\r\nname"') == (
+        'may CREATE in database "odd\\r\\nname"'
+    )
+
+
 def test_grant_runtime_role_is_layout_aware(monkeypatch: pytest.MonkeyPatch) -> None:
     connection = _FakeConnection("postgresql")
     monkeypatch.setattr(
@@ -1151,6 +1160,9 @@ def test_grant_runtime_role_rejects_a_non_identifier_role() -> None:
     # fails closed before any connection is opened (runtime AND owner role).
     with pytest.raises(MigrationError, match="plain identifier"):
         orchestrate.grant_runtime_role("postgresql://u:p@h/appdb", 'rt"; DROP ROLE x')
+    # The whole name, not a prefix: a regex's $ also matches before a trailing newline.
+    with pytest.raises(MigrationError, match="plain identifier"):
+        orchestrate.grant_runtime_role("postgresql://u:p@h/appdb", "terp_rt\n")
     with pytest.raises(MigrationError, match="owner role"):
         orchestrate.grant_runtime_role(
             "postgresql://u:p@h/appdb", "terp_rt", owner_role="bad owner"
