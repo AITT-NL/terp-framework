@@ -33,6 +33,7 @@ from terp.migrations.orchestrate import (
     upgrade,
     upgrade_sql,
 )
+from terp.migrations.roles import check_roles
 
 
 # The commands whose ANSWER is about the database itself: applying, recording or
@@ -46,7 +47,16 @@ from terp.migrations.orchestrate import (
 # workflow — `terp new module x` then `terp migrate make x` — failed out of the box on
 # the default in-memory URL, in a raw Alembic traceback that never said DATABASE_URL.
 _STATEFUL_COMMANDS = frozenset(
-    {"upgrade", "downgrade", "stamp", "status", "check", "adopt-schemas", "grant-runtime"}
+    {
+        "upgrade",
+        "downgrade",
+        "stamp",
+        "status",
+        "check",
+        "adopt-schemas",
+        "grant-runtime",
+        "check-roles",
+    }
 )
 
 
@@ -250,6 +260,19 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_common(grant_parser)
 
+    roles_parser = sub.add_parser(
+        "check-roles",
+        help="Check a database's runtime and owner roles against ADR 0071 before anything "
+        "is backed up or migrated; reads the catalog as the owner and changes nothing",
+    )
+    roles_parser.add_argument("role", help="The runtime login role the app connects as")
+    roles_parser.add_argument(
+        "--owner-role",
+        required=True,
+        help="The role that owns the app's schemas and runs `terp migrate`",
+    )
+    _add_common(roles_parser)
+
     return parser
 
 
@@ -373,6 +396,9 @@ def _migrate(argv: Sequence[str] | None) -> None:
             f"on: {schemas}"
         )
         return
+    if args.migrate_command == "check-roles":
+        _check_roles(database_url, app_root, args)
+        return
     if args.migrate_command == "status":
         _print_status(database_url, app_root, args.package)
         return
@@ -404,6 +430,36 @@ def _migrate(argv: Sequence[str] | None) -> None:
         print(f"merged heads for {tree.label} in {tree.versions_path}")
         return
     _check(database_url, app_root, args.package)
+
+
+def _check_roles(
+    database_url: str, app_root: pathlib.Path | None, args: argparse.Namespace
+) -> None:
+    """Exit 0 with one line when the two roles hold, else 1 with every failure, one per line.
+
+    A deploy reports what this prints as its refusal. Nothing in it is a value of the
+    connection: the roles, the schemas and the database are named, never the URL.
+    """
+    try:
+        found = check_roles(
+            database_url,
+            args.role,
+            app_root,
+            owner_role=args.owner_role,
+            package=args.package,
+            schema_layout=args.schema_layout,
+        )
+    except MigrationError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1) from exc
+    if found.failures:
+        print("\n".join(found.failures), file=sys.stderr)
+        raise SystemExit(1)
+    pending = f"; not created yet: {list(found.pending)}" if found.pending else ""
+    print(
+        f"check-roles: the runtime role {args.role!r} and the owner role "
+        f"{args.owner_role!r} hold on {list(found.schemas)}{pending}"
+    )
 
 
 def _print_status(

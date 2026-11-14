@@ -209,6 +209,36 @@ def adopt_schemas(
 _ROLE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def _refuse_role_names_that_are_not_plain(*names: tuple[str | None, str]) -> None:
+    """Refuse each ``(name, kind)`` whose name is not a plain identifier, before connecting.
+
+    The whole name must match, so ``fullmatch``: a pattern's ``$`` also matches before a
+    trailing newline, which would let ``"terp_rt\\n"`` through.
+    """
+    for name, kind in names:
+        if name is not None and not _ROLE_NAME_RE.fullmatch(name):
+            raise MigrationError(
+                f"{kind} name {name!r} is not a plain identifier "
+                "([A-Za-z_][A-Za-z0-9_]*); pick a simple role name"
+            )
+
+
+def _runtime_schemas(
+    schema_layout: str | None, app_root: str | pathlib.Path | None, package: str
+) -> tuple[list[str], list[str]]:
+    """The schemas the runtime role writes and reads under the layout (ADR 0070 / 0071).
+
+    Under ``per-module`` every package schema is written and ``public`` only read; under
+    ``flat`` every table lives in ``public``, which is written.
+    """
+    if _effective_layout(schema_layout) == "per-module":
+        labels = [
+            tree.label for tree in resolve_all_migration_trees(app_root, package=package)
+        ]
+        return labels, ["public"]
+    return ["public"], []
+
+
 def runtime_grant_statements(
     database: str,
     role: str,
@@ -349,20 +379,8 @@ def grant_runtime_role(
     that names it and its owner. Everything runs in one transaction, so a refusal or a
     failed statement leaves nothing changed.
     """
-    for name, kind in ((role, "runtime role"), (owner_role, "owner role")):
-        if name is not None and not _ROLE_NAME_RE.match(name):
-            raise MigrationError(
-                f"{kind} name {name!r} is not a plain identifier "
-                "([A-Za-z_][A-Za-z0-9_]*); pick a simple role name"
-            )
-    layout = _effective_layout(schema_layout)
-    if layout == "per-module":
-        labels = [
-            tree.label for tree in resolve_all_migration_trees(app_root, package=package)
-        ]
-        write_schemas, read_schemas = labels, ["public"]
-    else:
-        write_schemas, read_schemas = ["public"], []
+    _refuse_role_names_that_are_not_plain((role, "runtime role"), (owner_role, "owner role"))
+    write_schemas, read_schemas = _runtime_schemas(schema_layout, app_root, package)
     engine = create_engine(database_url, hide_parameters=True, poolclass=NullPool)
     try:
         with engine.begin() as connection:

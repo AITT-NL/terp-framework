@@ -139,6 +139,17 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
    (`GRANT EXECUTE ON FUNCTION … TO terp_rt`): `grant-runtime` does not, and a re-run
    keeps that grant.
 
+   On a database you provision yourself (a managed or external PostgreSQL, where the
+   `db` service is dropped), Terp creates no role: check the two you made before the
+   first deploy, as the owning role. It reads the catalog, changes nothing, and lists
+   each failure with what to change, such as a runtime role that is a superuser, may
+   `CREATE` in a schema, owns a table, or is a member of the owning role:
+
+   ```bash
+   docker compose -f docker-compose.prod.yml run --rm api \
+     terp migrate check-roles terp_rt --owner-role <owning role>
+   ```
+
 
 ## Operational notes
 

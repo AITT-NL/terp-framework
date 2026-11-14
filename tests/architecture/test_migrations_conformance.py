@@ -31,17 +31,23 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.pool import NullPool
 
 from terp.core import ModuleSpec, Policy, create_app
-from terp.core.migrations import MigrationTree, resolve_migration_trees
+from terp.core.migrations import (
+    MigrationTree,
+    resolve_all_migration_trees,
+    resolve_migration_trees,
+)
 from terp.core.testing import TERP_REQUIRE_POSTGRES_LANE_ENV
 from terp.migrations import (
     DatabaseBehindForAutogenerateError,
     MigrationDriftError,
     MigrationError,
     PendingMigrationsError,
+    RoleCheck,
     adopt_schemas,
     assert_migrations_current,
     assert_migrations_match_models,
     assert_migrations_reverse_cleanly,
+    check_roles,
     downgrade,
     grant_runtime_role,
     migration_status,
@@ -1276,6 +1282,321 @@ def test_cli_grant_runtime_fails_closed(capsys: pytest.CaptureFixture[str]) -> N
         )
     assert excinfo.value.code == 1
     assert "plain identifier" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------- #
+# check-roles (ADR 0071, amended 2026-11-14): an external database's two roles, read
+# from the catalog as the owner before anything is backed up or migrated.
+# --------------------------------------------------------------------------- #
+@contextlib.contextmanager
+def _owned_database(pg_url: str) -> Iterator[tuple[str, str, str]]:
+    """A fresh owner role that owns *pg_url*'s database, its URL, and a fresh runtime role.
+
+    The shape of an external database before its first deploy: the owner owns the database
+    (and so ``public``, through ``pg_database_owner``), and the runtime role is a plain login.
+    """
+    database, admin = make_url(pg_url).database, make_url(pg_url).username
+    with _login(pg_url, "terp_own") as (owner, owner_url), _login(pg_url, "terp_rt") as (role, _):
+        _run(pg_url, f'ALTER DATABASE "{database}" OWNER TO "{owner}"')
+        try:
+            yield owner, owner_url, role
+        finally:
+            _run(pg_url, f'ALTER DATABASE "{database}" OWNER TO "{admin}"')
+
+
+#: Every role, membership and owner the server holds, one line each, beside _PRIVILEGES.
+_ROLES_AND_OWNERS = """
+SELECT string_agg(entry, E'\\n' ORDER BY entry) FROM (
+    SELECT 'role ' || rolname || ' ' || concat_ws(',', rolsuper, rolinherit, rolcreaterole,
+        rolcreatedb, rolcanlogin, rolreplication, rolbypassrls) AS entry FROM pg_roles
+    UNION ALL
+    SELECT 'member ' || roleid::regrole::text || ' ' || member::regrole::text || ' '
+        || admin_option::text FROM pg_auth_members
+    UNION ALL
+    SELECT 'schema ' || nspname || ' ' || nspowner::regrole::text FROM pg_namespace
+    UNION ALL
+    SELECT 'relation ' || c.oid::regclass::text || ' ' || c.relowner::regrole::text
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname !~ '^(pg_|information_schema$)'
+    UNION ALL
+    SELECT 'database ' || datname || ' ' || datdba::regrole::text FROM pg_database
+) AS entries
+"""
+
+
+@pytest.mark.parametrize("layout", ["flat", "per-module"])
+def test_check_roles_passes_a_pair_shaped_by_grant_runtime(pg_url: str, layout: str) -> None:
+    labels = [tree.label for tree in resolve_all_migration_trees(APP_ROOT, package="app")]
+    expected = ["public"] if layout == "flat" else [*labels, "public"]
+    with _owned_database(pg_url) as (owner, owner_url, role):
+        upgrade(owner_url, APP_ROOT, package="app", schema_layout=layout)
+        grant_runtime_role(
+            owner_url, role, APP_ROOT, package="app", schema_layout=layout, owner_role=owner
+        )
+        found = check_roles(
+            owner_url, role, APP_ROOT, owner_role=owner, package="app", schema_layout=layout
+        )
+    assert found == RoleCheck(schemas=tuple(expected), pending=(), failures=())
+
+
+#: Each fault alone, as the server's admin makes it: the layout it is checked under, the
+#: statements, what the one failure says, and what it says to change.
+_ALONE = {
+    "superuser": (
+        "flat", ['ALTER ROLE "{role}" SUPERUSER'], "is a superuser", 'NOSUPERUSER'
+    ),
+    "createrole": (
+        "flat", ['ALTER ROLE "{role}" CREATEROLE'], "has CREATEROLE", "NOCREATEROLE"
+    ),
+    "createdb": ("flat", ['ALTER ROLE "{role}" CREATEDB'], "has CREATEDB", "NOCREATEDB"),
+    "replication": (
+        "flat", ['ALTER ROLE "{role}" REPLICATION'], "has REPLICATION", "NOREPLICATION"
+    ),
+    "bypassrls": (
+        "flat", ['ALTER ROLE "{role}" BYPASSRLS'], "has BYPASSRLS", "NOBYPASSRLS"
+    ),
+    "create-in-the-database": (
+        "flat",
+        ['GRANT CREATE ON DATABASE "{database}" TO "{role}"'],
+        "may CREATE in database",
+        'REVOKE CREATE ON DATABASE "{database}" FROM "{role}"',
+    ),
+    "create-in-public-as-before-postgresql-15": (
+        "flat",
+        ["GRANT CREATE ON SCHEMA public TO PUBLIC"],
+        "may CREATE in schema 'public'",
+        'REVOKE CREATE ON SCHEMA "public" FROM "{role}", and from PUBLIC',
+    ),
+    "create-in-an-app-schema": (
+        "per-module",
+        ['CREATE SCHEMA notes AUTHORIZATION "{owner}"', 'GRANT CREATE ON SCHEMA notes TO "{role}"'],
+        "may CREATE in schema 'notes'",
+        'REVOKE CREATE ON SCHEMA "notes" FROM "{role}"',
+    ),
+    "owns-a-relation": (
+        "flat",
+        ["CREATE TABLE public.probe (id int)", 'ALTER TABLE public.probe OWNER TO "{role}"'],
+        "can act as the owner of 1 relation(s) in the app's schemas: 'public.probe' (table",
+        'OWNER TO "{owner}"',
+    ),
+    "owns-a-relation-through-another-role": (
+        "flat",
+        [
+            "CREATE TABLE public.probe (id int)",
+            'ALTER TABLE public.probe OWNER TO "{other}"',
+            'GRANT "{other}" TO "{role}"',
+        ],
+        "'public.probe' (table, owned by '{other}')",
+        "REASSIGN OWNED BY their owner TO \"{owner}\"",
+    ),
+    "member-of-the-owner": (  # the owner's own table is that membership's, not a second line
+        "flat",
+        [
+            "CREATE TABLE public.probe (id int)",
+            'ALTER TABLE public.probe OWNER TO "{owner}"',
+            'GRANT "{owner}" TO "{role}"',
+        ],
+        "is a member of the owner role",
+        'REVOKE "{owner}" FROM "{role}"',
+    ),
+    "member-through-a-noinherit-role": (
+        "flat",
+        ['ALTER ROLE "{role}" NOINHERIT', 'GRANT "{owner}" TO "{other}"', 'GRANT "{other}" TO "{role}"'],
+        "is a member of the owner role",
+        'REVOKE "{owner}" FROM "{role}", or from the role it holds it through',
+    ),
+    "an-app-schema-another-role-owns": (
+        "per-module",
+        ['CREATE SCHEMA notes AUTHORIZATION "{other}"'],
+        "schema 'notes' is owned by '{other}', not the owner role '{owner}'",
+        'ALTER SCHEMA "notes" OWNER TO "{owner}"',
+    ),
+    "public-the-runtime-role-can-act-as-owner-of": (
+        "flat",
+        ['ALTER ROLE "{role}" NOINHERIT', 'ALTER SCHEMA public OWNER TO "{other}"', 'GRANT "{other}" TO "{role}"'],
+        "can act as the owner of schema 'public'",
+        'ALTER SCHEMA public OWNER TO "{owner}"',
+    ),
+}
+
+
+@pytest.mark.parametrize("fault", sorted(_ALONE))
+def test_check_roles_names_each_failure_alone_and_what_to_change(pg_url: str, fault: str) -> None:
+    layout, statements, says, change = _ALONE[fault]
+    with _owned_database(pg_url) as (owner, owner_url, role), _login(pg_url, "terp_other") as (
+        other,
+        _,
+    ):
+        names = {"role": role, "owner": owner, "other": other}
+        names["database"] = make_url(pg_url).database
+
+        def check() -> RoleCheck:
+            return check_roles(owner_url, role, APP_ROOT, owner_role=owner, schema_layout=layout)
+
+        assert check().failures == ()  # the pair holds before the fault
+        _run(pg_url, *(statement.format(**names) for statement in statements))
+        found = check()
+    assert len(found.failures) == 1, found.failures
+    assert says.format(**names) in found.failures[0]
+    assert change.format(**names) in found.failures[0]
+
+
+@pytest.mark.parametrize(
+    ("runtime", "owning", "says"),
+    [
+        ("{role}_gone", "{owner}", "the runtime role '{role}_gone' does not exist"),
+        ("{role}", "{owner}_gone", "the owner role '{owner}_gone' does not exist"),
+        ("{owner}", "{owner}", "the runtime role and the owner role are both '{owner}'"),
+    ],
+)
+def test_check_roles_names_a_missing_role_and_one_role_for_both(
+    pg_url: str, runtime: str, owning: str, says: str
+) -> None:
+    with _owned_database(pg_url) as (owner, owner_url, role):
+        names = {"role": role, "owner": owner}
+        found = check_roles(
+            owner_url,
+            runtime.format(**names),
+            APP_ROOT,
+            owner_role=owning.format(**names),
+            schema_layout="flat",
+        )
+    assert len(found.failures) == 1, found.failures
+    assert found.failures[0].startswith(says.format(**names))
+
+
+def test_check_roles_lists_every_failure_at_once(pg_url: str) -> None:
+    with _owned_database(pg_url) as (owner, owner_url, role), _login(pg_url, "terp_other") as (
+        other,
+        _,
+    ):
+        database = make_url(pg_url).database
+        _run(
+            pg_url,
+            f'ALTER ROLE "{role}" CREATEDB',
+            f'GRANT CREATE ON DATABASE "{database}" TO "{role}"',
+            "GRANT CREATE ON SCHEMA public TO PUBLIC",
+            f'CREATE SCHEMA notes AUTHORIZATION "{other}"',
+            *[f"CREATE TABLE public.probe_{n} (id int)" for n in range(4)],
+            "CREATE VIEW public.probe_view AS SELECT 1 AS one",
+            "CREATE SEQUENCE public.probe_sequence",
+            *[f'ALTER TABLE public.probe_{n} OWNER TO "{role}"' for n in range(4)],
+            f'ALTER VIEW public.probe_view OWNER TO "{role}"',
+            f'ALTER SEQUENCE public.probe_sequence OWNER TO "{role}"',
+        )
+        found = check_roles(owner_url, role, APP_ROOT, owner_role=owner, schema_layout="per-module")
+    said = [
+        "has CREATEDB",
+        "can act as the owner of 6 relation(s)",
+        "may CREATE in database",
+        "may CREATE in schema 'public'",
+        f"schema 'notes' is owned by '{other}'",
+    ]
+    assert len(found.failures) == len(said), found.failures
+    for failure, fragment in zip(found.failures, said, strict=True):
+        assert fragment in failure
+    assert "and 1 more" in found.failures[1]  # five are named, the rest counted
+    assert found.schemas == ("notes", "public")
+    assert "audit" in found.pending and "notes" not in found.pending
+
+
+def test_check_roles_changes_nothing(pg_url: str) -> None:
+    """It holds the transaction read-only, sends only reads, and leaves every privilege, role,
+    membership and owner as it found them, though it finds faults to report."""
+    with _owned_database(pg_url) as (owner, owner_url, role):
+        _run(
+            pg_url,
+            f'ALTER ROLE "{role}" CREATEDB',
+            "CREATE TABLE public.probe (id int)",
+            f'ALTER TABLE public.probe OWNER TO "{role}"',
+        )
+        before = (_answer(pg_url, _PRIVILEGES), _answer(pg_url, _ROLES_AND_OWNERS))
+        with _sent() as seen:
+            found = check_roles(owner_url, role, APP_ROOT, owner_role=owner, schema_layout="flat")
+        after = (_answer(pg_url, _PRIVILEGES), _answer(pg_url, _ROLES_AND_OWNERS))
+    assert len(found.failures) == 2 and after == before
+    statements = [statement.strip() for statement in seen]
+    start = statements.index("SET TRANSACTION READ ONLY")
+    assert any("pg_roles" in statement for statement in statements[start + 1 :])
+    rest = statements[:start] + statements[start + 1 :]
+    assert all(statement.lower().startswith(("select", "show")) for statement in rest), rest
+
+
+def test_cli_check_roles_exits_0_or_1_and_never_prints_the_connection(
+    pg_url: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with _owned_database(pg_url) as (owner, owner_url, role):
+        argv = [
+            "check-roles",
+            role,
+            "--owner-role",
+            owner,
+            "--database-url",
+            owner_url,
+            "--app-root",
+            str(APP_ROOT),
+            "--schema-layout",
+            "per-module",
+        ]
+        migrate_main(argv)
+        passed = capsys.readouterr()
+        _run(pg_url, f'ALTER ROLE "{role}" CREATEDB', f'ALTER ROLE "{role}" BYPASSRLS')
+        with pytest.raises(SystemExit) as refused:
+            migrate_main(argv)
+        failed = capsys.readouterr()
+    assert passed.out.count("\n") == 1 and passed.err == ""
+    assert f"'{role}'" in passed.out and f"'{owner}'" in passed.out
+    assert "hold on ['public']; not created yet: [" in passed.out
+    assert refused.value.code == 1 and failed.out == ""
+    lines = failed.err.splitlines()
+    assert len(lines) == 2 and "CREATEDB" in lines[0] and "BYPASSRLS" in lines[1]
+    for output in (passed.out, failed.err):
+        assert "rt-secret" not in output and owner_url not in output
+
+
+def test_cli_check_roles_says_it_could_not_connect_without_the_connection(
+    pg_url: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A login that does not exist fails whatever the server's authentication method.
+    unknown = make_url(pg_url).set(username=f"terp_nobody_{uuid.uuid4().hex[:8]}", password="pw-9f3k2")
+    url = unknown.render_as_string(hide_password=False)
+    with pytest.raises(SystemExit) as refused:
+        migrate_main(["check-roles", "terp_rt", "--owner-role", "terp_owner", "--database-url", url])
+    err = capsys.readouterr().err
+    assert refused.value.code == 1 and err.count("\n") == 1
+    assert "could not connect to the database as the owner" in err
+    for value in ("pw-9f3k2", unknown.username, unknown.host, str(unknown.port)):
+        assert value not in err
+
+
+@pytest.mark.parametrize(
+    ("role", "owner"),
+    [("bad role", "terp_owner"), ("terp_rt", 'owner"; DROP ROLE x'), ("terp_rt\n", "terp_owner")],
+)
+def test_cli_check_roles_refuses_a_name_that_is_not_plain_before_connecting(
+    role: str, owner: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # host.invalid never resolves: a refusal that reached for the server would say so instead.
+    url = "postgresql+psycopg://u:secret@host.invalid/appdb"
+    with pytest.raises(SystemExit) as refused:
+        migrate_main(["check-roles", role, "--owner-role", owner, "--database-url", url])
+    assert refused.value.code == 1
+    assert "is not a plain identifier" in capsys.readouterr().err
+
+
+def test_cli_check_roles_needs_an_owner_role_and_postgresql(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    url = f"sqlite:///{tmp_path / 'app.db'}"
+    with pytest.raises(SystemExit) as unnamed:
+        migrate_main(["check-roles", "terp_rt", "--database-url", url])
+    assert unnamed.value.code == 2 and "--owner-role" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as refused:
+        migrate_main(
+            ["check-roles", "terp_rt", "--owner-role", "terp_owner", "--database-url", url]
+        )
+    assert refused.value.code == 1
+    assert "check-roles requires PostgreSQL" in capsys.readouterr().err
 
 
 # --------------------------------------------------------------------------- #

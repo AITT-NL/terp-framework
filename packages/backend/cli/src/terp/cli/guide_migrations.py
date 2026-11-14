@@ -181,6 +181,16 @@ Database migrations (terp migrate)
   routine to the migration owner.
   Module-to-module DML is deliberately NOT database-blocked (one runtime role spans
   every write schema; audit/outbox ride the business write's single session).
+- Bringing your own database (managed or external)? Terp creates no role there, so check
+  the two you made before the first deploy, as the owner. It reads the catalog by role
+  name and changes nothing:
+      terp migrate check-roles <runtime role> --owner-role <owner role>
+  It exits 1, one line per failure naming what to change, when a role is missing; when
+  the runtime role is a superuser or has CREATEROLE, CREATEDB, REPLICATION or BYPASSRLS,
+  is a member of the owner role (even without INHERIT: SET ROLE still works), owns a
+  relation in the app's schemas, may CREATE in the database or in those schemas (public
+  too, which everyone may before PostgreSQL 15), or can act as public's owner; or when
+  the owner role does not own the app's other schemas. A schema not created yet is named.
 - Operate safely: run `terp migrate upgrade` ONCE per deploy (e.g. a release job), not
   on every replica - it takes no lock, so concurrent runs race. The boot guard below is
   read-only and safe on every replica. The migration engine is built from DATABASE_URL,
