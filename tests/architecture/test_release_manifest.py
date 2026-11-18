@@ -45,7 +45,8 @@ def test_a_manifest_that_carries_the_resolved_deployment_is_version_2() -> None:
 @pytest.mark.parametrize(
     ("change", "expected"),
     [
-        (lambda m: m.update(schemaVersion=3), "schemaVersion 3, which this terp promote does not read"),
+        (lambda m: m.update(schemaVersion=4), "schemaVersion 4, which this terp promote does not read"),
+        (lambda m: m.update(schemaVersion=3), "dependencyRisk is missing"),
         (lambda m: m.update(schemaVersion=True), "schemaVersion True, which this terp promote does not read"),
         (lambda m: m.update(schemaVersion=2), "outputs.deployment is missing"),
         (lambda m: m["outputs"].update(deployment={}), "is schemaVersion 1 and carries outputs.deployment"),
@@ -77,6 +78,13 @@ def test_a_payload_that_is_not_one_object_is_refused() -> None:
         manifest.parse(b"{")
     with pytest.raises(ReleaseError, match="top level is missing"):
         manifest.parse(json.dumps([1]).encode())
+
+
+def test_an_exception_cannot_be_hidden_in_an_old_manifest_version():
+    body = good()
+    body["dependencyRisk"] = {}
+    with pytest.raises(ReleaseError, match="requires manifest version 3"):
+        manifest.parse(canonical(body))
 
 
 class _Tree:

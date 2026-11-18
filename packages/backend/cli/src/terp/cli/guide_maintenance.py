@@ -79,6 +79,26 @@ gate before it lands:
 Nothing here merges or deploys a fix by itself, and nothing should: adopting the newest
 release of everything automatically is how a compromised package reaches production.
 
+WHEN A DEPENDENCY AUDIT BLOCKS A RELEASE
+
+First look for a compatible patched dependency. When an owner decides to accept the
+remaining exposure temporarily, Studio's Controles view can record a dependency-risk
+acceptance against a complete release scan. It covers one finding, the exact commit and
+lock set, selected environments, an expiry, a reason and supporting evidence. Only the
+project owner can record or revoke it. An agent can prepare the evidence, never approve it.
+
+This requires a Studio and Framework version that support dependency-risk acceptance and
+an operator-configured approval authority. If that service is not configured, there is no
+working approval path: ask the operator to configure it. Do not promise that an older
+Studio has a generic approval button. Escape-hatch budgets govern a different decision.
+
+The audit remains red. A protected release host uses `terp release gate`, `terp release
+sign` and `terp promote` with `--risk-policy` pointing to its operator-owned policy outside
+the app. The verifier asks the authority again before deployment. An expired, revoked or
+mismatched acceptance, an incomplete scan or another failed check blocks the release.
+Repo allowlists, audit-level changes and an agent's approval note do not grant permission.
+Development-only metadata helps assess exposure; it does not prove a build is safe.
+
 WHAT LEAVES THIS MACHINE
 
 By default, the names and versions of the packages your locks take from a PUBLIC registry

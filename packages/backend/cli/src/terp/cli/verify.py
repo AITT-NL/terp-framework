@@ -52,7 +52,7 @@ import tomllib
 from dataclasses import dataclass
 
 from terp.cli.authz_surface import pinned_problem, verdict as _authz_verdict
-from terp.cli.dependency_audit import NPM_SCOPE, run_dependency_audit_npm
+from terp.cli.dependency_audit import NPM_SCOPE
 from terp.cli.npm_tree import argv_workspace as _npm_workspace
 from terp.cli.npm_tree import node_modules_problem as _node_modules_problem
 
@@ -613,9 +613,10 @@ _API_DOCS_DRIFT = VerifyCheck(
 _DEPENDENCY_AUDIT_PYTHON = VerifyCheck(
     id="dependency-audit-python",
     category="architecture",
-    command="uv run --with pip-audit pip-audit --progress-spinner off",
+    command="terp verify --profile release --only dependency-audit-python",
     scope=("pyproject.toml", "uv.lock"),
     requires="network access to the advisory databases",
+    runner="dependency-audit-python",
 )
 
 # The npm half audits every npm lock the release jobs read, each in its own workspace, through
@@ -2246,7 +2247,13 @@ def run_verify_command(
 
             exit_code, output = run_api_contract_check(project_root)
         elif check.runner == "dependency-audit-npm":
-            exit_code, output = run_dependency_audit_npm(project_root)
+            from terp.cli.dependency_scan import scan_dependencies
+
+            exit_code, output, extra = scan_dependencies(project_root, "npm")
+        elif check.runner == "dependency-audit-python":
+            from terp.cli.dependency_scan import scan_dependencies
+
+            exit_code, output, extra = scan_dependencies(project_root, "pypi")
         elif check.runner == "conformance":
             exit_code, output = _run_conformance(project_root)
         else:

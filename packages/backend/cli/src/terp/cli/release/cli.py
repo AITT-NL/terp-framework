@@ -43,6 +43,7 @@ def add_parsers(subcommands: Any) -> None:
     gate.add_argument("--build", required=True, help="The build document terp release build wrote")
     gate.add_argument("--out", default="terp-release-gate.json", help="The gate document to write")
     gate.add_argument("--pull-credentials", default=None, help="A docker config.json holding only a pull credential")
+    gate.add_argument("--risk-policy", default=None, help="Operator-owned dependency risk authority policy")
     sign.add_argument("--build", required=True, help="The build document")
     sign.add_argument("--gate", required=True, help="The gate document")
     sign.add_argument(
@@ -59,6 +60,7 @@ def add_parsers(subcommands: Any) -> None:
     sign.add_argument("--registry-credentials", default=None, help='A JSON file {"username": ..., "password": ...}')
     sign.add_argument("--osv", default=None, help="The vulnerability database (default: https://api.osv.dev)")
     sign.add_argument("--gitleaks", default="gitleaks", help="The gitleaks executable (default: gitleaks on PATH)")
+    sign.add_argument("--risk-policy", default=None, help="Operator-owned dependency risk authority policy")
 
     promote = subcommands.add_parser(
         "promote",
@@ -71,6 +73,7 @@ def add_parsers(subcommands: Any) -> None:
     promote.add_argument("--undo-to", default=None, help="The envelope of the release running now, started again if this one fails")
     promote.add_argument("--rollback", action="store_true", help="This promotion goes back to an earlier release")
     promote.add_argument("--restored", action="store_true", help="With --rollback: the database was restored first")
+    promote.add_argument("--risk-policy", default=None, help="Operator-owned dependency risk authority policy")
 
 
 def _signer(value: str | None) -> list[str] | None:
@@ -96,7 +99,7 @@ def run_release(args: argparse.Namespace) -> int:
             for line in promote(
                 args.envelope, args.public_key, args.project_dir,
                 require_generated=args.require_generated, undo_to=args.undo_to,
-                rollback=args.rollback, restored=args.restored,
+                rollback=args.rollback, restored=args.restored, risk_policy=args.risk_policy,
             ):
                 emit(line)
             return 0
@@ -110,10 +113,16 @@ def run_release(args: argparse.Namespace) -> int:
             emit(f"wrote {args.out}")
             return 0
         if args.release_command == "gate":
-            from terp.cli.release.gate import gate, red
+            from terp.cli.release.gate import APPLICABLE_SINCE, gate, red, require_passed
 
             document = gate(args.repo, args.sha, args.build, pull_credentials=args.pull_credentials)
             write_document(args.out, document)
+            admission = None
+            if args.risk_policy and red(document):
+                admission = require_passed(document, APPLICABLE_SINCE, risk_policy=args.risk_policy, checkout=args.repo)
+                document["admission"] = admission
+                write_document(args.out, document)
+                emit("release permitted with recorded dependency risk acceptance; raw audit results are unchanged")
             emit(f"read {len(document['schedules'])} schedules from {document['image']}")
             failed = red(document)
             emit(
@@ -122,12 +131,13 @@ def run_release(args: argparse.Namespace) -> int:
             )
             emit(f"the release-assurance claim {'holds' if document['assurance']['ok'] else 'does NOT hold'}")
             emit(f"wrote {args.out}")
-            return 0 if not failed and document["assurance"]["ok"] else 1
+            return 0 if admission is not None or (not failed and document["assurance"]["ok"]) else 1
         from terp.cli.release.sign import sign
 
         options: dict[str, Any] = {
             key: value for key, value in (
                 ("releases", args.terp_arch_releases), ("index", args.terp_index), ("osv", args.osv),
+                ("risk_policy", args.risk_policy),
             ) if value is not None
         }
         done = sign(

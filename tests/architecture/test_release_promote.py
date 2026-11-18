@@ -32,6 +32,42 @@ POSTGRES = published_table().find("postgres", "17").image
 BEFORE = {"alembic_version_audit": ["a1"]}
 
 
+@pytest.mark.parametrize("mode", ["no-policy", "wrong-project", "allowed", "promotion", "revoked-after-pull"])
+def test_risk_release_requires_current_permission_before_compose(tmp_path, keys, monkeypatch, mode):
+    from terp.cli import risk_authority
+    from terp.cli.dependency_risk import RiskRefused
+
+    body = make_manifest()
+    body["schemaVersion"] = 3
+    body["outputs"]["deployment"] = {}
+    body["inputs"]["commit"] = {"sha": "a" * 40}
+    body["dependencyRisk"] = {"project_id": "example-project", "environment": "production", "commit": "a" * 40, "checks": []}
+    runs = docker()
+    monkeypatch.setattr(promote, "run", runs)
+    calls = []
+
+    def current(*args, **kwargs):
+        calls.append(bool(runs.calls))
+        if mode == "revoked-after-pull" and runs.calls:
+            raise RiskRefused("revoked")
+        return {**body["dependencyRisk"], "project_id": "other" if mode == "wrong-project" else "example-project",
+                "environment": "another-approved-target" if mode == "promotion" else "production"}
+
+    monkeypatch.setattr(risk_authority, "authorize", current)
+    options = {} if mode == "no-policy" else {"risk_policy": "protected-policy.json"}
+    path = envelope(tmp_path, keys, body)
+    def deploy():
+        return promote.promote(path, [tmp_path / "trusted.pub"], tmp_path / "deploy",
+                               env={"SECRET_KEY": "s" * 40, "POSTGRES_PASSWORD": "test-only"}, **options)
+    if mode in {"allowed", "promotion"}:
+        assert deploy()[-1] == "promoted r1"
+        assert calls == [False, True]
+    else:
+        with pytest.raises(ReleaseError, match="dependency risk authorization"):
+            deploy()
+        assert not runs.ran("docker", "compose")
+
+
 def _file(path: str, data: bytes) -> dict:
     return {"path": path, "sha256": sha256(data), "content": data.decode()}
 
@@ -222,7 +258,7 @@ def test_a_changed_image_under_a_valid_signature_is_refused_before_compose(tmp_p
     [
         (lambda m: m, {"require_generated": True, "_build": "own"}, '--require-generated: the release says "build": "own"'),
         (lambda m: m["inputs"]["spec"].update(release="9.0.0"), {}, "Terp Standard 9.0.0, newer than"),
-        (lambda m: m.update(schemaVersion=3), {}, "schemaVersion 3, which this terp promote does not read"),
+        (lambda m: m.update(schemaVersion=4), {}, "schemaVersion 4, which this terp promote does not read"),
         (lambda m: m["inputs"]["declaration"].update(sha256="0" * 64), {}, "is not the content its SHA-256 names"),
         (lambda m: m["inputs"].update(releaseTag="-bad"), {}, "is not a Docker tag"),
         (lambda m: m["inputs"].update(build="maybe"), {}, "neither own nor generated"),
@@ -370,6 +406,36 @@ def test_the_undo_starts_the_previous_release_after_its_own_check(tmp_path: path
     assert composes[-1][-1] == "api" and "--no-build" in composes[-1]
     assert runs.ran("docker", "tag") == [["docker", "tag", f"{REPO}@{DIGEST}", f"{PROJECT}-backend-prod:r1"]], "the undo pulls nothing"
     assert json.loads((tmp_path / "deploy" / "deployment.json").read_text())["units"]
+
+
+@pytest.mark.parametrize("refused_at_start", [False, True])
+def test_automatic_undo_keeps_its_initial_permission_through_deployment(tmp_path, keys, monkeypatch, refused_at_start):
+    from terp.cli import risk_authority
+    from terp.cli.dependency_risk import RiskRefused
+
+    body = make_manifest(tag="r0")
+    body["schemaVersion"] = 3
+    body["outputs"]["deployment"] = {}
+    body["inputs"]["commit"] = {"sha": "a" * 40}
+    body["dependencyRisk"] = {"project_id": "example-project", "environment": "production", "commit": "a" * 40, "checks": []}
+    previous = envelope(tmp_path, keys, body, name="previous.dsse.json")
+    runs = docker(migrate_code=1)
+    calls = []
+
+    def current(*args, **kwargs):
+        calls.append(bool(runs.calls))
+        if refused_at_start or runs.calls:
+            raise RiskRefused("expired")
+        return body["dependencyRisk"]
+
+    monkeypatch.setattr(risk_authority, "authorize", current)
+    with pytest.raises(ReleaseError) as raised:
+        _promote(tmp_path, keys, runs=runs, monkeypatch=monkeypatch, env={}, undo_to=previous, risk_policy="protected")
+    assert calls == [False]
+    if refused_at_start:
+        assert not runs.calls and "authorization refused" in raised.value.message
+    else:
+        assert "undone: r0 runs again" in raised.value.message
 
 
 def test_a_rollback_in_an_invocation_of_its_own_is_restore_based(tmp_path: pathlib.Path, keys, monkeypatch) -> None:

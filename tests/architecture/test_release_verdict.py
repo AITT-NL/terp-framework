@@ -73,6 +73,21 @@ def test_a_green_profile_whose_claim_holds_passes() -> None:
     gate.require_passed(CLAIM_ONLY, TOOLCHAIN)
 
 
+def test_acceptance_preserves_failed_audit_and_cannot_replace_another_required_lane(monkeypatch):
+    from terp.cli import risk_authority
+
+    admission = {"decision": {"allowed": True}}
+    monkeypatch.setattr(risk_authority, "authorize", lambda *args, **kwargs: admission)
+    document = _judged(red=("dependency-audit-npm",))
+    document["commit"] = "a" * 40
+    assert gate.require_passed(document, APPLICABLE, risk_policy="protected") == admission
+    assert document["profile"]["ok"] is False and document["assurance"]["ok"] is False
+    document["profile"]["checks"] = [c for c in document["profile"]["checks"] if c["id"] != "architecture"]
+    document["assurance"] = assurance_document(document["profile"]["checks"])
+    with pytest.raises(ReleaseError, match="required assurance lane"):
+        gate.require_passed(document, APPLICABLE, risk_policy="protected")
+
+
 def test_an_api_only_app_s_claim_names_no_lane_passed_that_judged_nothing() -> None:
     """ADR 0202 decision 4. The suite and the frontend checks had nothing to judge, so the lane
     the suite alone composes is not-run, and a lane with a backend half composes from that half,
@@ -314,3 +329,30 @@ def test_a_pre_release_pin_is_refused_naming_the_lock(pin: str) -> None:
     says where the pin comes from rather than only that the number does not compare."""
     with pytest.raises(ReleaseError, match=re.escape(f"the commit's uv.lock pins terp-cli {pin}, which is not a release number")):
         gate.require_passed(_strict(), pin)
+
+
+def test_legacy_gate_cannot_carry_dependency_risk_acceptance():
+    with pytest.raises(ReleaseError, match="version 3 release gate"):
+        gate.require_passed(_strict(("dependency-audit-npm",)), STRICT, risk_policy="protected.json")
+
+
+def test_refused_risk_authority_cannot_satisfy_the_gate(monkeypatch):
+    from terp.cli import risk_authority
+    from terp.cli.dependency_risk import RiskRefused
+
+    def refuse(*args, **kwargs):
+        raise RiskRefused("not accepted")
+    monkeypatch.setattr(risk_authority, "authorize", refuse)
+    document = {**_judged(("dependency-audit-npm",)), "commit": "a" * 40}
+    with pytest.raises(ReleaseError, match="not accepted"):
+        gate.require_passed(document, gate.APPLICABLE_SINCE, risk_policy="protected.json")
+
+
+def test_a_clean_release_needs_no_exception_or_authority_availability(monkeypatch):
+    from unittest.mock import Mock
+    from terp.cli import risk_authority
+
+    authority = Mock(side_effect=AssertionError("a clean release needs no waiver"))
+    monkeypatch.setattr(risk_authority, "authorize", authority)
+    assert gate.require_passed(_judged(), APPLICABLE, risk_policy="protected.json") is None
+    authority.assert_not_called()
