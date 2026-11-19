@@ -45,9 +45,9 @@ BASE_IMAGE_SOURCES: dict[str, str] = {
         "linux/386, amd64, arm/v6, arm/v7, arm64, ppc64le, riscv64 and s390x"
     ),
     "node": (
-        "the registry's OCI image index for node:26-slim (what docker buildx imagetools "
-        "inspect reads), read 2026-11-10: Node.js 26.13.0 on Debian slim, built 2026-11-05, "
-        "for linux/amd64, arm64/v8, ppc64le and s390x"
+        "the registry's OCI image index for node:26-slim, read 2026-11-19 with docker "
+        "buildx imagetools inspect --raw; the index digest was recomputed from the registry "
+        "response, for linux/amd64, arm64/v8, ppc64le and s390x"
     ),
     "python": (
         "the registry's OCI image index for python:3.15-slim, read 2026-11-19 with docker "
