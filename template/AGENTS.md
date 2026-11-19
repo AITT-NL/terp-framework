@@ -54,6 +54,20 @@ Screens compose the **`@terpjs/react-core` component surface** — the full cata
 `DatePicker`/`DateRangePicker`, overlay primitives `Popover`/`Menu`, plus `Tabs`
 for in-page tab sets and `Markdown` for safe rich text).
 
+Start a frontend with the user's main task and the standard component that serves it.
+Use the existing app or house design as the baseline. Give an app-owned layout a specific
+job, such as putting a source document beside the decision that depends on it. Keep the
+platform's controls, readable measure, theme pairs and responsive defaults where they fit.
+Apply scoped classes to native layout elements. Configure controls through their supported props.
+If two directions serve the task equally well and the preference matters, offer one short
+choice. When asked to choose, pick a direction and record the rationale in the app README.
+Check the rendered screen at desktop and mobile widths. Verify that the main action is easy
+to find and reach by keyboard, and measure text against its actual background in light and
+dark appearances, including hover and focus. If an action disappears, check where keyboard focus lands.
+At narrow widths, use `expectControlFitsHorizontally` from `@terpjs/conformance` on
+the inputs and buttons the task needs. A page can fit while a container clips a control. For an unusual layout, compare it with the
+standard composition using the same content before making it the app's default.
+
 1. Token-styled primitives only — never raw `<button>` / `<input>` / `<select>` /
    `<textarea>` / `<table>` / `<dialog>` / `<form>`; use `Button` / `Input` / `Select` /
    `Textarea` / `DataView` / `ConfirmDialog` / `Stack as="form"`.
@@ -61,12 +75,12 @@ for in-page tab sets and `Markdown` for safe rich text).
    `XMLHttpRequest` / `WebSocket` / `EventSource` / `navigator.sendBeacon`.
 3. Data collections render via `DataView` (repository-driven; see
    `node_modules/@terpjs/react-core/src/dataview/README.md`).
-4. Style with design tokens (`var(--color-*)`, `var(--space-*)`) — no inline colours,
-   no `style={}`, no `className`, no stylesheets in any `src/` file: layout comes from
-   `Stack` / `Grid` / `DetailList` / `Divider` / the typography primitives (`Heading` /
-   `Text` / `Code` / `Link`) / the page archetypes; theming from the app's token source.
-   A bare `<p>` or `<code>` carries no marker for any rule to reach, so prose in a module
-   goes through `Text` and `Code` or it can never be themed.
+4. Choose the layout for the user’s task. Compose existing controls and use the body of
+   a plain `Page` when a screen needs its own layout. A component can import a sibling
+   `./Board.module.css` with a static default import and use `className={styles.board}`.
+   Use local class selectors and theme tokens for colors, typography and spacing.
+   Responsive rules can use `@media` or `@container`. Keep keyboard focus visible and
+   check the layout in narrow viewports and each supported theme.
 5. Every routed view renders a page archetype (`Page` / `OverviewPage` / `DetailPage` /
    `FormPage` / `SettingsPage` / `SplitPage` / `DashboardPage` /
    `HubPage` / `WorkspacePage`) — the router refuses an unframed view at runtime. In-app links go through

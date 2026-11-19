@@ -1,6 +1,6 @@
 # `frontend/no-inline-styling`
 
-**style and className attributes are refused in app modules**
+**App classes come from local CSS Modules**
 
 > Generated from the catalog by `tools/generate_rule_docs.py` — do not
 > edit by hand; the parity test holds this page to
@@ -8,11 +8,11 @@
 
 ## Why this rule exists
 
-A style or className attribute is a side channel into hand-authored CSS that drifts per screen; styling flows from the app's design tokens and sanctioned layout primitives only. The refused attributes are declared in restricted-surface.json (restrictedAttributes).
+Apply classes to native elements through a direct property naming a class defined in a sibling CSS Module. Configure framework controls through their component props. Inline style, arbitrary class names and hardcoded color literals in app script are refused.
 
 ## How Terp realises this
 
-Layout via Stack, DetailList and the page archetypes from @terpjs/react-core; theming via the app's token source.
+Use theme tokens for component colors, typography and spacing. Use a plain Page for a custom screen.
 
 ## If you really need an exception
 
@@ -29,4 +29,5 @@ exactly match the checked-in budget (which can only shrink).
 ## Enforcement
 
 - Checked while the app runs? No — this is a property of the written source only; the build-time check is the control, by recorded decision.
+- `build-time`: `@terpjs/eslint-boundaries` — `terp/no-inline-styling`
 - `build-time`: `@terpjs/eslint-boundaries` — `BOUNDARY_SPEC.restrictedAttributes`

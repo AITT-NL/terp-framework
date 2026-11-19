@@ -182,14 +182,27 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   it. An app ships on one with `defaultTheme` — never by restyling to imitate it. Every theme
   is a complete colour set held to WCAG AA on every declared text pairing (`contrast` to AAA);
   geometry is declared once in `:root` and inherited.
-- **No `style={}`, no `className`, no stylesheets anywhere in app source** — layout
-  comes from the react-core primitives (`Stack`, `Grid`, `DetailList`, the page archetypes);
-  theming from the token source. Every boundary rule covers all of `src/`, not only
-  `src/modules/` (ADR 0175): a component beside the modules is held exactly like one inside.
-  The bootstrap (`src/main.tsx`) is the one file that imports stylesheets, and only the token
-  pipeline's three: `@terpjs/contract/tokens.css`, `./house-style.css` and `./theme.css`. A
-  stylesheet loaded through `import()` or `import.meta.glob` is refused like an imported one,
-  and code outside the modules never imports from one (shared code is what modules depend on).
+Start a frontend with the user's main task and the standard component that serves it.
+Use the existing app or house design as the baseline. Give an app-owned layout a specific
+job, such as putting a source document beside the decision that depends on it. Keep the
+platform's controls, readable measure, theme pairs and responsive defaults where they fit.
+Apply scoped classes to native layout elements. Configure controls through their supported props.
+If two directions serve the task equally well and the preference matters, offer one short
+choice. When asked to choose, pick a direction and record the rationale in the app README.
+Check the rendered screen at desktop and mobile widths. Verify that the main action is easy
+to find and reach by keyboard, and measure text against its actual background in light and
+dark appearances, including hover and focus. If an action disappears, check where keyboard focus lands.
+At narrow widths, use `expectControlFitsHorizontally` from `@terpjs/conformance` on
+the inputs and buttons the task needs. A page can fit while a container clips a control. For an unusual layout, compare it with the
+standard composition using the same content before making it the app's default.
+
+- **App-owned component styles.** Choose the layout for the user’s task. Compose existing controls and use the body of
+  a plain `Page` when a screen needs its own layout. A component can import a sibling
+  `./Board.module.css` with a static default import and use `className={styles.board}`.
+  Use local class selectors and theme tokens for colors, typography and spacing.
+  Responsive rules can use `@media` or `@container`. Keep keyboard focus visible and
+  check the layout in narrow viewports and each supported theme.
+  Inline styles and arbitrary classes are refused. The bootstrap loads the global token pipeline.
 - **Nav and route visibility is declarative data, not a predicate** — `NavItem` and
   `ModuleRoute` take `role` and `permission`, ANDed and fail-closed, resolved by the adapter
   against what `/me` returns. A function on the manifest would not survive the boundary: it is

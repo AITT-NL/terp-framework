@@ -1,10 +1,16 @@
 {
   "id": "frontend/no-inline-styling",
   "surface": "frontend",
-  "title": "style and className attributes are refused in app modules",
-  "intent": "A style or className attribute is a side channel into hand-authored CSS that drifts per screen; styling flows from the app's design tokens and sanctioned layout primitives only. The refused attributes are declared in restricted-surface.json (restrictedAttributes).",
+  "title": "App classes come from local CSS Modules",
+  "intent": "Apply classes to native elements through a direct property naming a class defined in a sibling CSS Module. Configure framework controls through their component props. Inline style, arbitrary class names and hardcoded color literals in app script are refused.",
   "layer": "static-portable",
   "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "@terpjs/eslint-boundaries",
+      "ref": "terp/no-inline-styling",
+      "reported_as": "terp/no-inline-styling"
+    },
     {
       "kind": "build-time",
       "tool": "@terpjs/eslint-boundaries",
@@ -12,7 +18,7 @@
       "reported_as": "no-restricted-syntax"
     }
   ],
-  "reference": "Layout via Stack, DetailList and the page archetypes from @terpjs/react-core; theming via the app's token source.",
+  "reference": "Use theme tokens for component colors, typography and spacing. Use a plain Page for a custom screen.",
   "opt_out": "// terp-allow-no-inline-styling: <reason>",
   "runtime": {
     "applicability": "not-applicable",

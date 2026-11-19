@@ -16,6 +16,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { localModuleSource, moduleClassNames, moduleImports } from "./cssModules.js";
 import tseslint from "typescript-eslint";
 
 import {
@@ -1229,6 +1230,8 @@ const terpPlugin = {
   rules: {
     "locale-catalogs-complete": localeCatalogsComplete,
     "layout-contract": layoutContract,
+    "no-inline-styling": moduleClassNames,
+    "no-style-imports": moduleImports,
     "no-cross-module-imports": noCrossModuleImports,
     "no-dom-html-injection": noDomHtmlInjection,
     "no-eval": noEval,
@@ -1260,14 +1263,9 @@ const localDateTimeMessage =
 const deepImportMessage =
   "Import from the package root (@terpjs/react-core, @terpjs/contract), not its internals.";
 const styleImportMessage =
-  "App-authored stylesheets are forbidden, a library's included; theming flows from the " +
-  "design tokens, which only the bootstrap loads (tokens.css, house-style.css, theme.css), " +
-  "and layout from the react-core components (Stack, the page archetypes).";
+  "Use a sibling CSS Module for component layout. Global stylesheet imports belong to the bootstrap token pipeline.";
 const dynamicStyleImportMessage =
-  "A stylesheet loaded through import() or import.meta.glob is a stylesheet import like any " +
-  "other, and is refused the same way: theming flows from the design tokens, which only the " +
-  "bootstrap loads, statically (tokens.css, house-style.css, theme.css), and layout from the " +
-  "react-core components (Stack, the page archetypes).";
+  "A stylesheet loaded through import() or import.meta.glob is a stylesheet import like any other. Use a static default import for a local CSS Module.";
 
 /**
  * The stylesheet extensions the boundary refuses, read off `BOUNDARY_SPEC.styleImportPatterns`
@@ -1304,7 +1302,7 @@ function restrictedSyntaxWithCatalogIds() {
         (guidance === undefined ? "" : ` ${guidance}`),
     };
   });
-  const rawAttributes = BOUNDARY_SPEC.restrictedAttributes.map((attribute) => ({
+  const rawAttributes = BOUNDARY_SPEC.restrictedAttributes.filter((attribute) => attribute !== "className").map((attribute) => ({
     catalogId: "frontend/no-inline-styling",
     selector: `JSXAttribute[name.name='${attribute}']`,
     message:
@@ -1529,7 +1527,9 @@ export function catalogRuleIds() {
  */
 function suppressibleRuleName(message) {
   const id = catalogRuleId(message);
-  if (id === null || id === "frontend/escape-hatch") {
+  // A marker on an import governs that edge, never every CSS line behind it.
+  if (id === null || id === "frontend/escape-hatch" ||
+      (id === "frontend/no-style-imports" && message.messageId === "stylesheetContent")) {
     return null;
   }
   return id.slice("frontend/".length);
@@ -1667,29 +1667,18 @@ function escapeHatchProcessor() {
 }
 
 /**
- * The `no-restricted-imports` entry: deep imports are refused everywhere, and so is every
- * stylesheet except the ones `allowedStylesheets` names.
- *
- * With no allowance, the stylesheet refusal is the declared glob group, which ESLint matches in
- * any letter case. An allowance cannot be a negated glob in that group: the negation would match
- * case-insensitively too, so `./THEME.css` would pass as `./theme.css`. It is a regular
- * expression instead, matched case-sensitively, that refuses a specifier ending in a stylesheet
- * extension in any letter case unless it is exactly one of the allowed specifiers. Exact
- * specifiers, so the allowance is never a shape a library's stylesheet, a nested `theme.css` or a
- * `?inline` / `?url` / `?raw` variant could also match.
+ * The generic import rule checks path spelling. A sibling CSS Module passes through to
+ * moduleImports, which checks its binding and file contents. Only the bootstrap adds
+ * the three exact global token imports. Other stylesheet extensions match in any case.
  */
 function restrictedImports(allowedStylesheets = []) {
   const anyCase = (extension) =>
     [...extension].map((letter) => `[${letter.toLowerCase()}${letter.toUpperCase()}]`).join("");
-  const stylesheets =
-    allowedStylesheets.length === 0
-      ? { group: BOUNDARY_SPEC.styleImportPatterns }
-      : {
-          regex:
-            `^(?!(?:${allowedStylesheets.map(escapeRegExp).join("|")})$)` +
-            `.*\\.(?:${STYLESHEET_EXTENSIONS.map(anyCase).join("|")})(?:\\?.*)?$`,
-          caseSensitive: true,
-        };
+  const allowed = [localModuleSource, ...allowedStylesheets.map(escapeRegExp)];
+  const stylesheets = {
+    regex: `^(?!(?:${allowed.join("|")})$).*\\.(?:${STYLESHEET_EXTENSIONS.map(anyCase).join("|")})(?:\\?.*)?$`,
+    caseSensitive: true,
+  };
   return [
     "error",
     {
@@ -1737,6 +1726,8 @@ export function terpBoundaries() {
         "terp/no-framework-markers": "error",
         "terp/no-untranslated-ui": "error",
         "terp/layout-contract": "error",
+        "terp/no-inline-styling": "error",
+        "terp/no-style-imports": "error",
         "terp/no-cross-module-imports": "error",
         "terp/no-dom-html-injection": "error",
         "terp/no-eval": "error",

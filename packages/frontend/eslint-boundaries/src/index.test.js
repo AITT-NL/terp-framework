@@ -108,9 +108,9 @@ describe("terpBoundaries", () => {
     expect(await lint('export const W = ({ label }) => <a href="https://example.com">{label}</a>;')).toEqual([]);
   });
 
-  it("flags className (no side channel into hand-authored CSS)", async () => {
+  it("flags an arbitrary class name", async () => {
     expect(await lint('export const W = () => <div className="x">y</div>;')).toContain(
-      "no-restricted-syntax",
+      "terp/no-inline-styling",
     );
   });
 
@@ -123,6 +123,33 @@ describe("terpBoundaries", () => {
     expect(await lint('import "./widget.less";\nexport const W = () => null;')).toContain(
       "no-restricted-imports",
     );
+  });
+
+  it("checks class bindings and stylesheet scope independently", async () => {
+    fs.mkdirSync(path.dirname(MODULE_FILE), { recursive: true });
+    const sheet = path.join(path.dirname(MODULE_FILE), "Board.module.css");
+    const prefix = 'import layout from "./Board.module.css"; ';
+    fs.writeFileSync(sheet, ".board { display: grid }");
+    expect(await lint(prefix + 'export const W = () => <div className={layout.board} />;')).toEqual([]);
+    expect(await lint(prefix + 'export const W = (layout) => <div className={layout.board} />;')).toContain("terp/no-inline-styling");
+    expect(await lint('import "./Board.module.css";')).toContain("terp/no-style-imports");
+    expect(await lint('export * from "./Board.module.css";')).toContain("terp/no-style-imports");
+    expect(await lint(prefix + 'export const W = () => <div className={layout.boarrd} />;')).toContain("terp/no-inline-styling");
+    expect(await lint(prefix + 'export const W = () => <Button className={layout.board} />;')).toContain("terp/no-inline-styling");
+    fs.writeFileSync(sheet, "@media (width < 40rem) { .board:hover, .lane { color: var(--color-fg-default); } }");
+    expect(await lint(prefix + 'export const W = () => <div className={layout.lane} />;')).toEqual([]);
+    for (const decl of ["color: white", "background: #fff", "background: currentColor", "border: 1px solid red", "color: var(--color-fg-default, white)",
+      "--color-fg-default: white", "outline: none", "background-image: linear-gradient(red, red)", "padding: 1px !important"]) {
+      fs.writeFileSync(sheet, `.board { ${decl} }`);
+      const marked = "// terp-allow-no-style-imports: approved import edge\n" + prefix;
+      expect(await lint(marked), decl).toEqual(["terp/no-style-imports"]);
+    }
+    for (const css of ['@import "./global.css";', ".board, body { display: grid }",
+      '.board { composes: external from "./global.css" }', ".board { & ~ * { display: none } }"]) {
+      fs.writeFileSync(sheet, css);
+      expect(await lint(prefix + 'export const W = () => <div className={layout.board} />;'), css)
+        .toEqual(["terp/no-style-imports"]);
+    }
   });
 
   it("flags a hardcoded colour (design tokens only)", async () => {
@@ -530,7 +557,7 @@ describe("terpBoundaries", () => {
       const messages = await lintMessages(`import "${source}";\nexport {};`, BOOTSTRAP_FILE);
       expect(messages, source).toHaveLength(1);
       expect(messages[0], source).toContain(
-        "App-authored stylesheets are forbidden, a library's included",
+        "Use a sibling CSS Module",
       );
     }
   });

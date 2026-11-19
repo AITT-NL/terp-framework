@@ -1,10 +1,16 @@
 {
   "id": "frontend/no-style-imports",
   "surface": "frontend",
-  "title": "Module-authored stylesheets are refused",
-  "intent": "Importing a stylesheet from an app module reintroduces per-screen CSS; theming flows from the app's token source only. The refused stylesheet extensions are declared in restricted-surface.json (styleImportExtensions).",
+  "title": "Component styles come from a local CSS Module",
+  "intent": "App components may statically default-import a sibling Name.module.css file. Its rules style local classes and may group them with media, container or supports conditions. Use supported layout and typography properties and theme tokens for paint. Framework controls own their focus treatment. The import opt-out covers the import form only. Findings inside a sibling module identify the CSS line and survive an import opt-out. Global selectors, imports and cross-file composition are refused. The bootstrap may also import the three token stylesheets.",
   "layer": "static-portable",
   "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "@terpjs/eslint-boundaries",
+      "ref": "terp/no-style-imports",
+      "reported_as": "terp/no-style-imports"
+    },
     {
       "kind": "build-time",
       "tool": "@terpjs/eslint-boundaries",
@@ -20,5 +26,6 @@
   "restricted_surface": [
     "styleImportExtensions"
   ],
-  "corpus": true
+  "corpus": true,
+  "reference": "Use theme tokens for component colors, typography and spacing. Use a plain Page for a custom screen."
 }
