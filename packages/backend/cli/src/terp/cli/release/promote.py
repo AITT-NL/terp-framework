@@ -117,11 +117,32 @@ def _tags(text_: str) -> list[str]:
     return [token.value[1] for token in yaml.scan(text_) if isinstance(token, yaml.TagToken)]
 
 
-def load(envelope: bytes, public_keys: Sequence[bytes], *, require_generated: bool = False) -> Release:
+def _authorize_risk(manifest: dict, risk_policy: str | None) -> None:
+    if manifest["schemaVersion"] == 3:
+        from terp.cli.dependency_risk import RiskRefused
+        from terp.cli.risk_authority import authorize
+
+        if risk_policy is None:
+            raise ReleaseError("this release requires current dependency risk authorization")
+        risk = manifest["dependencyRisk"]
+        try:
+            current = authorize(risk["checks"], policy_file=risk_policy,
+                                commit=manifest["inputs"]["commit"]["sha"], checkout=pathlib.Path.cwd())
+            # Promotion keeps the artifact. The protected target policy selects the
+            # environment, which the authority must cover afresh at this decision.
+            if any(current[key] != risk[key] for key in ("project_id", "commit")):
+                raise RiskRefused("the risk policy belongs to another release")
+        except (KeyError, TypeError, RiskRefused) as exc:
+            raise ReleaseError("current dependency risk authorization refused") from exc
+
+
+def load(envelope: bytes, public_keys: Sequence[bytes], *, require_generated: bool = False,
+         risk_policy: str | None = None) -> Release:
     """The release *envelope* signs, verified and checked before anything is pulled or started."""
     keys = [dsse.load_public_key(pem) for pem in public_keys]
     payload, keyid = dsse.verify(envelope, keys)
     manifest = parse(payload)
+    _authorize_risk(manifest, risk_policy)
     given = manifest["inputs"]
     release = str(given["spec"]["release"])
     if version_key(release) > version_key(SPEC_RELEASE):
@@ -349,12 +370,13 @@ def promote(
     rollback: bool = False,
     restored: bool = False,
     env: Mapping[str, str] | None = None,
+    risk_policy: str | None = None,
 ) -> list[str]:
     """Deploy the release *envelope* signs into *project_dir*; what was done, line by line."""
     dsse.require_cryptography()
     keys = [pathlib.Path(key).read_bytes() for key in public_keys]
-    release = load(pathlib.Path(envelope).read_bytes(), keys, require_generated=require_generated)
-    previous = load(pathlib.Path(undo_to).read_bytes(), keys) if undo_to is not None else None
+    release = load(pathlib.Path(envelope).read_bytes(), keys, require_generated=require_generated, risk_policy=risk_policy)
+    previous = load(pathlib.Path(undo_to).read_bytes(), keys, risk_policy=risk_policy) if undo_to is not None else None
     if rollback and not restored:
         raise ReleaseError(
             f"a rollback to {release.tag} in an invocation of its own has no reading of the version "
@@ -367,6 +389,7 @@ def promote(
     project.mkdir(parents=True, exist_ok=True)
     log = [f"verified {release.tag} (key {release.keyid[:16]})"]
     _images(release, environment, pull=True)
+    _authorize_risk(release.manifest, risk_policy)
     _write(project, release)
     compose = _compose(project, release)
     if _kinds(release):
@@ -401,6 +424,9 @@ def promote(
             "previous release again is restore-free: promote it with --no-build semantics, or pass "
             "--undo-to <its envelope> to have this command do it."
         )
+    # The fallback was verified and authorized before this deployment started.
+    # Losing permission during an attempted change must not prevent its recovery.
+    # A rollback requested as a new invocation still goes through load above.
     _undo(project, previous, env if env is not None else os.environ, log)
     raise ReleaseError(f"{why}\n" + "\n".join(log))
 

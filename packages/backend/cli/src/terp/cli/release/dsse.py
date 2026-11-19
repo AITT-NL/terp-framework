@@ -95,10 +95,10 @@ def keyid(public_key: Any) -> str:
     return hashlib.sha256(der).hexdigest()
 
 
-def sign_with_key(private_key: Any, payload: bytes) -> dict[str, str]:
+def sign_with_key(private_key: Any, payload: bytes, *, payload_type: str = PAYLOAD_TYPE) -> dict[str, str]:
     """One signature over *payload*'s PAE, made in this process with *private_key*."""
     crypto = _cryptography()
-    message = pae(PAYLOAD_TYPE, payload)
+    message = pae(payload_type, payload)
     if _kind(private_key, crypto) == "ed25519":
         signature = private_key.sign(message)
     else:
@@ -106,13 +106,13 @@ def sign_with_key(private_key: Any, payload: bytes) -> dict[str, str]:
     return {"keyid": keyid(private_key.public_key()), "sig": base64.b64encode(signature).decode()}
 
 
-def sign_with_command(argv: Sequence[str], payload: bytes) -> dict[str, str]:
+def sign_with_command(argv: Sequence[str], payload: bytes, *, payload_type: str = PAYLOAD_TYPE) -> dict[str, str]:
     """One signature made by the signer *argv* names: the PAE on its stdin, JSON on its stdout.
 
     The production path: the key lives wherever that command reaches it (a KMS, an HSM, an
     agent), never in this process. The command answers ``{"keyid": ..., "sig": ...}``.
     """
-    out = require(run(list(argv), stdin=pae(PAYLOAD_TYPE, payload)), "the signer")
+    out = require(run(list(argv), stdin=pae(payload_type, payload)), "the signer")
     try:
         answer = json.loads(out)
         return {"keyid": str(answer["keyid"]), "sig": str(answer["sig"])}
@@ -120,11 +120,11 @@ def sign_with_command(argv: Sequence[str], payload: bytes) -> dict[str, str]:
         raise ReleaseError('the signer did not answer {"keyid": ..., "sig": ...}') from exc
 
 
-def envelope(payload: bytes, signatures: Sequence[dict[str, str]]) -> dict[str, Any]:
+def envelope(payload: bytes, signatures: Sequence[dict[str, str]], *, payload_type: str = PAYLOAD_TYPE) -> dict[str, Any]:
     """The DSSE envelope of *payload* and its *signatures*."""
     return {
         "payload": base64.b64encode(payload).decode(),
-        "payloadType": PAYLOAD_TYPE,
+        "payloadType": payload_type,
         "signatures": list(signatures),
     }
 
@@ -143,7 +143,7 @@ def _verifies(key: Any, signature: bytes, message: bytes) -> bool:
     return True
 
 
-def verify(raw: bytes, public_keys: Sequence[Any]) -> tuple[bytes, str]:
+def verify(raw: bytes, public_keys: Sequence[Any], *, payload_type: str = PAYLOAD_TYPE) -> tuple[bytes, str]:
     """``(payload, keyid)``: the payload of the envelope *raw*, once a signature verifies.
 
     Refused, before anything is parsed of the payload: an envelope that is not DSSE's shape,
@@ -159,7 +159,7 @@ def verify(raw: bytes, public_keys: Sequence[Any]) -> tuple[bytes, str]:
         raise ReleaseError("the envelope is not JSON") from exc
     if not isinstance(document, dict) or set(document) != {"payload", "payloadType", "signatures"}:
         raise ReleaseError("the envelope is not a DSSE envelope (payload, payloadType, signatures)")
-    if document["payloadType"] != PAYLOAD_TYPE:
+    if document["payloadType"] != payload_type:
         raise ReleaseError(f"the envelope's payload is {document['payloadType']!r}, not a release manifest")
     signatures = document["signatures"]
     if not isinstance(signatures, list) or not signatures:
@@ -168,7 +168,7 @@ def verify(raw: bytes, public_keys: Sequence[Any]) -> tuple[bytes, str]:
         payload = base64.b64decode(str(document["payload"]), validate=True)
     except binascii.Error as exc:
         raise ReleaseError("the envelope's payload is not base64") from exc
-    message = pae(PAYLOAD_TYPE, payload)
+    message = pae(payload_type, payload)
     keys = {keyid(key): key for key in public_keys}
     for signature in signatures:
         if not isinstance(signature, dict) or not isinstance(signature.get("sig"), str):

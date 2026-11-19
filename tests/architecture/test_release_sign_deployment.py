@@ -73,6 +73,55 @@ def test_a_generated_release_carries_the_deployment_its_own_terp_arch_writes(tmp
     assert out["images"][NAME]["volumes"] == []
 
 
+def test_exception_release_rechecks_permission_before_signing_and_uses_version_three(tmp_path, monkeypatch):
+    release = Release(tmp_path, monkeypatch)
+    calls = []
+    from terp.cli.release._common import sha256
+
+    admission = {"checks": [{"dependency_audit": {"locks": {"uv.lock": "sha256:" + sha256(release.tree.bytes("uv.lock"))}}}],
+                 "commit": release.sha, "project_id": "example-project", "environment": "production"}
+
+    def approved(*args, **kwargs):
+        calls.append(kwargs)
+        return admission
+
+    monkeypatch.setattr(sign, "require_passed", approved)
+    release.sign(risk_policy="protected-policy")
+    assert len(calls) == 2
+    manifest = _manifest(tmp_path)
+    assert manifest["schemaVersion"] == 3 and manifest["dependencyRisk"] == admission
+
+
+def test_revocation_during_image_inspection_prevents_signature(tmp_path, monkeypatch):
+    release = Release(tmp_path, monkeypatch)
+    calls = []
+
+    def revoked(*args, **kwargs):
+        calls.append(True)
+        if len(calls) > 1:
+            raise ReleaseError("revoked")
+        return {"checks": []}
+
+    monkeypatch.setattr(sign, "require_passed", revoked)
+    with pytest.raises(ReleaseError, match="revoked"):
+        release.sign(risk_policy="protected-policy")
+    assert not (tmp_path / "out" / sign.ENVELOPE).exists()
+
+
+@pytest.mark.parametrize("problem", ["changed-lock", "old-reader"])
+def test_acceptance_requires_committed_locks_and_an_enforcing_manifest(tmp_path, monkeypatch, problem):
+    release = Release(tmp_path, monkeypatch)
+    admission = {"checks": []}
+    if problem == "changed-lock":
+        admission["checks"] = [{"dependency_audit": {"locks": {"uv.lock": "sha256:" + "f" * 64}}}]
+    else:
+        _repin(release, drop=_RESOLVED)
+    monkeypatch.setattr(sign, "require_passed", lambda *args, **kwargs: admission)
+    with pytest.raises(ReleaseError, match="committed dependency locks|resolved deployment"):
+        release.sign(risk_policy="protected-policy")
+    assert not (tmp_path / "out" / sign.ENVELOPE).exists()
+
+
 def test_a_pinned_terp_arch_without_the_writer_signs_a_version_1_manifest(tmp_path: pathlib.Path, monkeypatch) -> None:
     release = Release(tmp_path, monkeypatch)
     _repin(release, drop=_RESOLVED)

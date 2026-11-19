@@ -52,7 +52,8 @@ import tomllib
 from dataclasses import dataclass
 
 from terp.cli.authz_surface import pinned_problem, verdict as _authz_verdict
-from terp.cli.dependency_audit import NPM_SCOPE, run_dependency_audit_npm
+from terp.cli.dependency_audit import NPM_SCOPE
+from terp.cli.dependency_scan import dependency_checks
 from terp.cli.npm_tree import argv_workspace as _npm_workspace
 from terp.cli.npm_tree import node_modules_problem as _node_modules_problem
 
@@ -599,35 +600,8 @@ _API_DOCS_DRIFT = VerifyCheck(
     runner="api-docs-drift",
 )
 
-# The dependency-audit assurance lane (the spec's required generic evidence):
-# both dependency trees against known-vulnerability databases.
-#
-# In `full` as well as `release`, and that is a correction rather than a widening.
-# They used to be release-only on the argument that advisory databases move
-# independently of the code, so a red here means "do not ship" rather than "this
-# change broke something". That argument is right about the merge *bar* and was
-# wrong about the *profile*: a consumer's CI runs `full`, so a known-vulnerable
-# dependency was reported only by a release someone remembered to run, which for a
-# project that has not cut one yet is never. `full` already carries the whole
-# backend suite; these two are a few seconds beside it.
-_DEPENDENCY_AUDIT_PYTHON = VerifyCheck(
-    id="dependency-audit-python",
-    category="architecture",
-    command="uv run --with pip-audit pip-audit --progress-spinner off",
-    scope=("pyproject.toml", "uv.lock"),
-    requires="network access to the advisory databases",
-)
-
-# The npm half audits every npm lock the release jobs read, each in its own workspace, through
-# a runner of its own (terp.cli.dependency_audit).
-_DEPENDENCY_AUDIT_NPM = VerifyCheck(
-    id="dependency-audit-npm",
-    category="architecture",
-    command="terp verify --profile full --only dependency-audit-npm",
-    scope=("deployment.json", *NPM_SCOPE),
-    requires="network access to the advisory databases",
-    runner="dependency-audit-npm",
-)
+# Audit definitions live with the runners; both profiles retain the same mandatory checks.
+_DEPENDENCY_AUDIT_PYTHON, _DEPENDENCY_AUDIT_NPM = dependency_checks(VerifyCheck)
 
 # The secret-scanning assurance lane. The framework has run this over its own
 # repository for some time; what it never did was make it available to the apps it
@@ -2246,7 +2220,13 @@ def run_verify_command(
 
             exit_code, output = run_api_contract_check(project_root)
         elif check.runner == "dependency-audit-npm":
-            exit_code, output = run_dependency_audit_npm(project_root)
+            from terp.cli.dependency_scan import scan_dependencies
+
+            exit_code, output, extra = scan_dependencies(project_root, "npm")
+        elif check.runner == "dependency-audit-python":
+            from terp.cli.dependency_scan import scan_dependencies
+
+            exit_code, output, extra = scan_dependencies(project_root, "pypi")
         elif check.runner == "conformance":
             exit_code, output = _run_conformance(project_root)
         else:

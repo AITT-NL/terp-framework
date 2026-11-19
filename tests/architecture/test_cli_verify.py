@@ -3134,7 +3134,10 @@ def test_the_audit_is_reached_by_its_own_runner(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _workspace(tmp_path, "site")
-    _audits(monkeypatch)
+    from terp.cli import verify as verify_module
+
+    audit = {"auditReportVersion": 2, "vulnerabilities": {}, "metadata": {"vulnerabilities": {"total": 0}}}
+    monkeypatch.setattr(verify_module, "_run_argv", lambda *args: subprocess.CompletedProcess(args[0], 0, json.dumps(audit), ""))
     with pytest.raises(SystemExit) as excinfo:
         main(["verify", "--profile", "release", "--root", str(tmp_path), "--only",
               "dependency-audit-npm", "--format", "json"])
@@ -3142,7 +3145,8 @@ def test_the_audit_is_reached_by_its_own_runner(
     (result,) = json.loads(capsys.readouterr().out)["checks"]
     assert result["command"] == "terp verify --profile full --only dependency-audit-npm"
     assert result["applicable"] is True
-    assert "site/package-lock.json passed" in result["output_tail"]
+    assert result["dependency_audit"]["complete"] is True
+    assert "site/package-lock.json" in result["dependency_audit"]["locks"]
 
 
 def _manifest(path: pathlib.Path, depends_on: str) -> None:

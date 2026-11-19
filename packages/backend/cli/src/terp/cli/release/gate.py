@@ -120,7 +120,9 @@ def _verify(checkout: pathlib.Path) -> list[dict[str, Any]]:
             _relay_red(check)
         elif not check["applicable"]:
             _relay_inapplicable(check)
-    return [{"id": check["id"], "ok": check["ok"], "applicable": check["applicable"]} for check in checks]
+    return [{"id": check["id"], "ok": check["ok"], "applicable": check["applicable"],
+             **({"dependency_audit": check["dependency_audit"]} if "dependency_audit" in check else {})}
+            for check in checks]
 
 
 def _relay_red(check: dict[str, Any]) -> None:
@@ -233,7 +235,7 @@ def red(document: dict[str, Any]) -> list[str]:
     return [check["id"] for check in document["profile"]["checks"] if not check["ok"]]
 
 
-def _green(document: dict[str, Any]) -> None:
+def _green(document: dict[str, Any], *, accepted_dependencies: bool = False) -> None:
     """Refused unless a version 2 or 3 *document* holds a verdict of each check of the release
     profile, agrees with it, and every check passed."""
     profile = document.get("profile")
@@ -255,6 +257,8 @@ def _green(document: dict[str, Any]) -> None:
             + (f"green and {', '.join(failed)} red" if failed else "red and every check of it green")
             + ". sign signs only what one run of `terp release gate` wrote, so run it again"
         )
+    if accepted_dependencies:
+        failed = [name for name in failed if name not in {"dependency-audit-npm", "dependency-audit-python"}]
     if failed:
         raise ReleaseError(
             f"the release profile the gate ran is red ({', '.join(failed)}), and sign signs only a "
@@ -264,7 +268,8 @@ def _green(document: dict[str, Any]) -> None:
         )
 
 
-def require_passed(document: dict[str, Any], terp_cli: str) -> None:
+def require_passed(document: dict[str, Any], terp_cli: str, *, risk_policy: str | None = None,
+                   checkout: str | os.PathLike[str] = ".") -> dict | None:
     """Refused unless *document*, the gate of a commit pinning ``terp-cli`` *terp_cli*, passed.
 
     The gate is the commit's own pinned toolchain, so its document is read in the version that
@@ -295,10 +300,22 @@ def require_passed(document: dict[str, Any], terp_cli: str) -> None:
             "its own toolchain wrote it. Run `uv run terp release gate` in the commit's checkout, "
             "and sign what it writes"
         )
+    admission = None
+    if risk_policy is not None and red(document):
+        if expected != 3:
+            raise ReleaseError("dependency risk acceptance requires a version 3 release gate with structured audits")
+        from terp.cli.risk_authority import authorize
+        from terp.cli.dependency_risk import RiskRefused
+
+        try:
+            admission = authorize(document.get("profile", {}).get("checks", []), policy_file=risk_policy,
+                                  commit=document["commit"], checkout=checkout)
+        except RiskRefused as exc:
+            raise ReleaseError("dependency risk authorization refused", cause=str(exc)) from exc
     if strict:
-        _green(document)
+        _green(document, accepted_dependencies=admission is not None)
     claim = document.get("assurance")
-    if not isinstance(claim, dict) or claim.get("ok") is not True:
+    if not isinstance(claim, dict) or (claim.get("ok") is not True and admission is None):
         raise ReleaseError(
             "the gate's release-assurance claim does not hold: sign signs only a release the gate "
             "passed, and `terp verify --profile release --format assurance` in a checkout of the "
@@ -306,6 +323,14 @@ def require_passed(document: dict[str, Any], terp_cli: str) -> None:
         )
     if strict:
         _composed(document, claim)
+    if admission is not None:
+        from terp.cli.verify import ASSURANCE_LANES
+
+        required = {name for name, requirement, _checks in ASSURANCE_LANES if requirement == "required"}
+        lanes = {lane["id"]: lane["status"] for lane in claim["lanes"]}
+        if any(lanes.get(name) != "passed" for name in required - {"dependency-audit"}):
+            raise ReleaseError("risk acceptance cannot replace a missing or failed required assurance lane")
+    return admission
 
 
 def _composed(document: dict[str, Any], claim: dict[str, Any]) -> None:

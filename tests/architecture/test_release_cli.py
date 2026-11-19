@@ -115,3 +115,42 @@ def test_release_sign_with_a_test_key_has_no_signer(monkeypatch, capsys) -> None
                   "--hosts", "separated", "--sign-key", "k.pem", "--test-key", "--terp-arch-releases", "t.json"]) == 0
     assert seen["signer"] is None and seen["sign_key"] == "k.pem" and seen["test_key"] is True
     assert seen["releases"] == "t.json"
+
+
+@pytest.mark.parametrize("allowed", [False, True])
+def test_gate_keeps_raw_failure_when_permission_is_allowed_or_refused(tmp_path, monkeypatch, capsys, allowed):
+    from terp.cli import risk_authority
+    from terp.cli.dependency_risk import RiskRefused
+    from tests.architecture.test_release_verdict import _judged
+
+    document = {**_judged(red=("dependency-audit-npm",)), "commit": SHA, "schedules": [], "image": "example@sha256:1"}
+    monkeypatch.setattr(gate, "gate", lambda *args, **kwargs: document)
+    def authorize(*args, **kwargs):
+        assert kwargs["policy_file"] == "protected-policy.json" and kwargs["commit"] == SHA
+        if not allowed:
+            raise RiskRefused("not accepted")
+        return {"decision": {"allowed": True, "status": "accepted"}}
+    monkeypatch.setattr(risk_authority, "authorize", authorize)
+    out = tmp_path / "gate.json"
+    assert _exit(["release", "gate", "--sha", SHA, "--build", "build.json", "--out", str(out),
+                  "--risk-policy", "protected-policy.json"]) == (0 if allowed else 1)
+    saved = json.loads(out.read_text())
+    assert saved["profile"]["ok"] is False and saved["assurance"]["ok"] is False
+    assert ("admission" in saved) == allowed
+    if allowed:
+        assert "profile is RED" in capsys.readouterr().out
+
+
+def test_gate_acceptance_cannot_replace_a_missing_required_lane(tmp_path, monkeypatch):
+    from terp.cli import risk_authority
+    from terp.cli.verify import assurance_document
+    from tests.architecture.test_release_verdict import _judged
+
+    document = {**_judged(red=("dependency-audit-npm",)), "commit": SHA, "schedules": [], "image": "example@sha256:1"}
+    document["profile"]["checks"] = [c for c in document["profile"]["checks"] if c["id"] != "architecture"]
+    document["assurance"] = assurance_document(document["profile"]["checks"])
+    monkeypatch.setattr(gate, "gate", lambda *args, **kwargs: document)
+    monkeypatch.setattr(risk_authority, "authorize", lambda *args, **kwargs: {"decision": {"allowed": True}})
+    out = tmp_path / "gate.json"
+    assert _exit(["release", "gate", "--sha", SHA, "--build", "build.json", "--out", str(out), "--risk-policy", "protected"]) == 1
+    assert "admission" not in json.loads(out.read_text())

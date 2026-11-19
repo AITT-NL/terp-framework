@@ -168,7 +168,7 @@
     {
       "id": "dependency-audit-python",
       "category": "architecture",
-      "command": "uv run --with pip-audit pip-audit --progress-spinner off",
+      "command": "terp verify --profile release --only dependency-audit-python",
       "scope": [
         "pyproject.toml",
         "uv.lock"

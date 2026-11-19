@@ -17,7 +17,9 @@ signed as a DSSE envelope (:mod:`terp.cli.release.dsse`). Three sections:
   each (ADR 0216). A
   generated release whose pinned ``terp-arch`` writes it also carries the resolved deployment
   (terp-spec's ``resolved-deployment``) at ``outputs.deployment``, and each built image's
-  configured volumes; that manifest is version 2, and any other version 1;
+  configured volumes; that manifest is version 2, and any other version 1. A release
+  admitted with dependency risk acceptance uses version 3 with ``dependencyRisk``;
+  its raw assurance remains unchanged and deployment requires current permission;
 * ``collected``, other jobs' word, recorded as such: the gate's assurance and schedules, the
   build's own account of itself, and the operator's statement of whether the jobs ran on
   separate hosts. Nothing here decides whether a rollback is restore-free: the target's own
@@ -231,14 +233,18 @@ def parse(payload: bytes) -> dict[str, Any]:
         raise ReleaseError("the signed payload is not JSON") from exc
     _need(manifest, dict, "top level")
     version = manifest.get("schemaVersion")
-    if type(version) is not int or version not in (SCHEMA_VERSION, DEPLOYMENT_VERSION):  # never true or 1.0
+    if type(version) is not int or version not in (SCHEMA_VERSION, DEPLOYMENT_VERSION, 3):  # never true or 1.0
         raise ReleaseError(
             f"the manifest is schemaVersion {version!r}, which this terp promote does not read "
-            f"(allowed: {SCHEMA_VERSION} or {DEPLOYMENT_VERSION})"
+            f"(allowed: {SCHEMA_VERSION}, {DEPLOYMENT_VERSION} or 3)"
         )
     given = _need(manifest.get("inputs"), dict, "inputs")
     out = _need(manifest.get("outputs"), dict, "outputs")
-    if version == DEPLOYMENT_VERSION:
+    if version == 3:
+        _need(manifest.get("dependencyRisk"), dict, "dependencyRisk")
+    elif "dependencyRisk" in manifest:
+        raise ReleaseError("dependencyRisk requires manifest version 3")
+    if version in (DEPLOYMENT_VERSION, 3):
         _need(out.get("deployment"), dict, "outputs.deployment")
     elif "deployment" in out:
         raise ReleaseError(

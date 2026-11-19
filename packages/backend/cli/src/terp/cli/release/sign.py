@@ -254,6 +254,7 @@ def sign(
     registry_credentials: str | os.PathLike[str] | None = None,
     osv: str = DEFAULT_OSV,
     gitleaks: str = "gitleaks",
+    risk_policy: str | None = None,
 ) -> dict[str, Any]:
     """Check commit *sha*'s release and sign its manifest; what was written, and where."""
     private, public = _signing(signer, public_key, sign_key, test_key)
@@ -278,7 +279,7 @@ def sign(
     cli_pin, arch_pin = pinned(lock, "terp-cli"), pinned(lock, "terp-arch")
     if cli_pin is None or arch_pin is None:
         raise ReleaseError(f"{UV_LOCK} pins no single terp-cli and terp-arch, so the commit's toolchain is unknown")
-    require_passed(gate, cli_pin)  # the commit's own gate, read as its pinned terp-cli writes it
+    admission = require_passed(gate, cli_pin, risk_policy=risk_policy, checkout=repo)
     platform = str(build["platform"])
     with tempfile.TemporaryDirectory(prefix="terp-sign-") as scratch_dir:
         scratch = pathlib.Path(scratch_dir)
@@ -382,6 +383,20 @@ def sign(
                 "hosts": hosts,
             },
         )
+    if admission is not None:
+        # Recheck after image inspection: expiry or revocation while building cannot ride
+        # an earlier answer. Check lock digests against the committed bytes independently.
+        admission = require_passed(gate, cli_pin, risk_policy=risk_policy, checkout=repo)
+        for check in admission["checks"]:
+            for path, expected in check.get("dependency_audit", {}).get("locks", {}).items():
+                if not tree.has(path) or tree.entries[path].link or "sha256:" + sha256(tree.bytes(path)) != expected:
+                    raise ReleaseError("risk acceptance does not match the committed dependency locks")
+        carried = json.loads(manifest)
+        if "deployment" not in carried["outputs"]:
+            raise ReleaseError("risk acceptance requires a release with a resolved deployment")
+        carried["schemaVersion"] = 3
+        carried["dependencyRisk"] = admission
+        manifest = canonical(carried)
     signature = dsse.sign_with_key(private, manifest) if private is not None else dsse.sign_with_command(signer or [], manifest)
     envelope = dsse.envelope(manifest, [signature])
     dsse.verify(canonical(envelope), [public if public is not None else private.public_key()])
