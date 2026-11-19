@@ -32,6 +32,17 @@ decision, 0001 onwards.
 
 ### Added
 
+- **Temporary dependency-risk acceptance through an external approval authority.**
+  Release audits now retain structured findings and lock digests. An authenticated
+  human decision can cover an exact finding, commit, lock set and environment for
+  at most thirty days. Protected release hosts can use `--risk-policy` with `terp
+  release gate`, `terp release sign` and `terp promote`; the authority is queried
+  afresh with a signed, purpose-bound response. Expired, revoked or mismatched
+  decisions, incomplete scans and other failed checks remain blocking. The raw
+  check and assurance stay red. Accepted releases use manifest version 3, which
+  needs updated deployment readers and operator-configured issuer trust. See
+  `terp guide maintenance` for the owner and agent workflow.
+
 - **A generated release carries the deployment it runs (ADR 0215).** `terp release sign` writes
   terp-spec 0.48.0's `resolved-deployment` document into the signed manifest, at
   `outputs.deployment`: one service per declared unit, each image by digest, each command as an
