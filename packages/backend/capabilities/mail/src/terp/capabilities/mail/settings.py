@@ -107,7 +107,7 @@ def parse_address(value: str) -> Address:
     dot, and a non-ASCII local part — which needs an extension (SMTPUTF8) this capability
     does not negotiate, so accepting it here would only move the refusal to the relay.
     """
-    if not value or len(value) > MAX_ADDRESS_LENGTH:
+    if not value or len(value) > MAX_ADDRESS_LENGTH or not value.isascii():
         raise ValueError(f"not a mail address: {value!r}")
     try:
         address = Address(addr_spec=value)
