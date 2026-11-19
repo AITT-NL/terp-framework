@@ -35,7 +35,7 @@ _WORKBENCH_SERVICES = {"db", "migrate", "seed", "api", "web"}
 #: the only bases a deployable may pin. Naming a set rather than one literal is what
 #: lets the supported range move without this file being the thing that refuses it;
 #: what the tests below hold is that every image agrees on ONE member of the set.
-_SUPPORTED_PYTHON_BASES = frozenset({"python:3.13-slim", "python:3.14-slim"})
+_SUPPORTED_PYTHON_BASES = frozenset({"python:3.13-slim", "python:3.14-slim", "python:3.15-slim"})
 _BACKEND_DOCKERFILES = (
     _EXAMPLE_DOCKERFILE,
     _EXAMPLE_PROD_DOCKERFILE,
