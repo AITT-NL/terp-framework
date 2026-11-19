@@ -288,6 +288,7 @@ FROM deps AS app
 
 def test_the_dockerfiles_compared_are_the_release_plan_s(tmp_path: pathlib.Path) -> None:
     """Under "build": "own" an image may build from any Dockerfile: the plan names it."""
+    from terp.arch.deployment.tables import published_tables
     from tests.architecture.test_release_build import _own_with_webs
 
     files = _own_with_webs({"web": {"context": "www", "dockerfile": "Dockerfile"}}, {"www/Dockerfile": f"# node:26-slim\nFROM node@{_OLD}\n".encode()})
@@ -300,7 +301,9 @@ def test_the_dockerfiles_compared_are_the_release_plan_s(tmp_path: pathlib.Path)
     registry = FakeRegistry()
     registry.repo_tags[("library/node", "26-slim")] = moved = registry.push_image([layer(("a", b"1"))])
     kept = registry.push_image([layer(("b", b"2"))])
-    for repository, tag in (("library/python", "3.14-slim"), ("astral-sh/uv", "0.13.7")):
+    bases = published_tables().base_images
+    for name, repository in (("python", "library/python"), ("uv", "astral-sh/uv")):
+        tag = bases.get(name).tag.rsplit(":", 1)[1]
         registry.repo_tags[(repository, tag)] = kept  # the generated Dockerfile.prod's own bases
     report = Report("app", str(root))
     _images.base_image_findings(root, report, getter=registry)

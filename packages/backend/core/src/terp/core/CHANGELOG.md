@@ -184,6 +184,10 @@ decision, 0001 onwards.
 
 ### Changed
 
+- Example and generated backend images use Python 3.15 slim. The production
+  generator pins its verified image digest, and the newest-interpreter CI lanes
+  run on Python 3.15 while the lower-bound lane continues to prove Python 3.13.
+
 - **`sign` and `terp maintenance` ask OSV through one client** (`terp.cli.release._osv`), behind
   `terp-cap-egress` as before. A package with more advisories than one answer holds is now
   asked again with its continuation token. Until now `sign` recorded only the first page of
