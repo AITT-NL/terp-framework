@@ -19,6 +19,14 @@ test("the tasks module lists the seeded tasks", async ({ page }) => {
   }
 });
 
+test("the planning board shows the task list's seeded records in status lanes", async ({ page }) => {
+  await page.getByRole("link", { name: "Planning board" }).click();
+  await expect(page.getByRole("heading", { name: "Planning board" })).toBeVisible();
+  for (const title of TASKS.seedText) {
+    await expect(page.getByRole("region").getByText(title, { exact: true })).toBeVisible();
+  }
+});
+
 test("the projects module lists the tenant's seeded projects", async ({ page }) => {
   await page.getByRole("link", { name: PROJECTS.link }).click();
   for (const text of PROJECTS.seedText) {

@@ -249,6 +249,21 @@ describe("terp-boundaries-lint (the bin)", () => {
     expect(JSON.parse(complete.stdout).findings).toEqual([]);
   });
 
+  it("rechecks an imported CSS Module when only the stylesheet changes", () => {
+    const root = appRoot({
+      "package.json": '{ "type": "module" }',
+      "eslint.config.js": config,
+      "escape-hatch-budget.json": "{}",
+      "src/Layout.tsx": 'import layout from "./Layout.module.css"; export const View = () => <div className={layout.board} />;',
+      "src/Layout.module.css": "@media (width < 40rem) { .board { display: grid } }",
+    });
+    expect(runBin(root).status).toBe(0);
+    fs.writeFileSync(path.join(root, "src/Layout.module.css"), ":global(body) { display: none }");
+    const changed = runBin(root);
+    expect(changed.status).toBe(1);
+    expect(JSON.parse(changed.stdout).findings.map(({ rule }) => rule)).toEqual(["frontend/no-style-imports"]);
+  });
+
   it("reports budget drift even when the boundary lint fails (both halves always run)", () => {
     // The regression the merged bin exists for: with `eslint . && terp-boundaries-budget`
     // a boundary violation short-circuited the ratchet, hiding budget drift from the run.

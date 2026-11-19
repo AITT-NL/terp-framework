@@ -247,9 +247,12 @@ marker, counted by the escape-hatch budget.
 
 ## Layout
 
-App code never writes `style={}` or CSS — the boundary lint refuses the `style`
-attribute anywhere in `src/**` (ADR 0175). Layout comes from these primitives (gaps index the
-token spacing scale, so spacing is themed centrally):
+Choose the layout for the user’s task. Compose existing controls and use the body of
+a plain `Page` when a screen needs its own layout. A component can import a sibling
+`./Board.module.css` with a static default import and use `className={styles.board}`.
+Use local class selectors and theme tokens for colors, typography and spacing.
+Responsive rules can use `@media` or `@container`. Keep keyboard focus visible and
+check the layout in narrow viewports and each supported theme. The following primitives implement common layouts.
 
 | Export | Use |
 |---|---|

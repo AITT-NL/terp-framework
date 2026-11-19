@@ -43,6 +43,11 @@ decision, 0001 onwards.
   needs updated deployment readers and operator-configured issuer trust. See
   `terp guide maintenance` for the owner and agent workflow.
 
+- App components can own their layout in a sibling CSS Module (ADR 0217). Use
+  `import styles from "./Board.module.css"` and `className={styles.board}`.
+  The example app's planning board uses the same tasks API as its list and
+  reflows its lanes on smaller screens.
+
 - **A generated release carries the deployment it runs (ADR 0215).** `terp release sign` writes
   terp-spec 0.48.0's `resolved-deployment` document into the signed manifest, at
   `outputs.deployment`: one service per declared unit, each image by digest, each command as an

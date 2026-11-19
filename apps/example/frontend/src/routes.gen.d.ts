@@ -21,5 +21,6 @@ declare module "@terpjs/react-core" {
     "/journals": Record<never, never>;
     "/projects": Record<never, never>;
     "/tasks": Record<never, never>;
+    "/tasks/board": Record<never, never>;
   }
 }
