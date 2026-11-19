@@ -138,13 +138,27 @@ def evaluate(checks: list[dict], acceptances: list[dict], *, project: str,
                 blocked.append(key)
         if check["ok"] != (not blocked):
             raise RiskRefused("dependency scan contradicts its verdict")
-    covered = {}
+    # Select the current decision before validating its lifetime or revocation. An
+    # expired older record must not defeat a renewal, and withdrawing the renewal
+    # must never bring an older approval back into force.
+    latest = {}
     for record in acceptances:
+        if not isinstance(record, dict):
+            raise RiskRefused("an acceptance record is malformed")
+        key = fingerprint(record.get("finding"))
+        approved = time_value(record.get("approved_at"))
+        if key in latest:
+            previous = time_value(latest[key]["approved_at"])
+            if approved == previous:
+                raise RiskRefused("ambiguous acceptance decisions for a finding")
+            if approved < previous:
+                continue
+        latest[key] = record
+    covered = {}
+    for record in latest.values():
         key = valid_acceptance(record, project=project, commit=commit, environment=environment, locks=locks, now=now)
         if key not in findings or record["finding"] != findings[key]:
             raise RiskRefused("acceptance is stale or describes another finding")
-        if key in covered:
-            raise RiskRefused("duplicate acceptance for a finding")
         covered[key] = record["id"]
     unaccepted = sorted(key for key, item in findings.items() if blocking(item) and key not in covered)
     used = sorted(covered[key] for key, item in findings.items() if blocking(item) and key in covered)

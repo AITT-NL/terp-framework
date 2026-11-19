@@ -47,6 +47,34 @@ def test_acceptance_permits_only_the_reviewed_finding_without_changing_raw_resul
     assert decide(checks, [approval])["allowed"] is False
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("state", ["current", "revoked", "expired"])
+def test_latest_renewal_supersedes_older_decisions_before_validation(reverse, state):
+    checks, renewal = evidence()
+    older = deepcopy(renewal)
+    older.update(id="older-approval", approved_at="2026-11-16T12:00:00Z")
+    if state == "current":
+        older["expires_at"] = "2026-11-17T12:00:00Z"
+    elif state == "revoked":
+        renewal["revoked_at"] = NOW.isoformat()
+    else:
+        renewal["expires_at"] = NOW.isoformat()
+    records = [older, renewal]
+    if reverse:
+        records.reverse()
+    if state == "current":
+        assert decide(checks, records)["acceptance_ids"] == [renewal["id"]]
+    else:
+        with pytest.raises(RiskRefused):
+            decide(checks, records)
+
+
+def test_malformed_acceptance_records_fail_closed():
+    checks, _ = evidence()
+    with pytest.raises(RiskRefused, match="malformed"):
+        decide(checks, [None])
+
+
 @pytest.mark.parametrize(("field", "value"), [
     ("project_id", "other-project"), ("commit", "d" * 40), ("environments", ["test"]),
     ("locks", {}), ("approved_by", ""), ("reason", " "), ("evidence", []),
