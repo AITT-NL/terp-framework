@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login } from "@terpjs/conformance";
+import { expectControlFitsHorizontally, login } from "@terpjs/conformance";
 
 import { JOURNALS, PROJECTS, TASKS } from "./seed";
 
@@ -16,6 +16,15 @@ test("the tasks module lists the seeded tasks", async ({ page }) => {
   await page.getByRole("link", { name: TASKS.link }).click();
   for (const text of TASKS.seedText) {
     await expect(page.getByText(text)).toBeVisible();
+  }
+});
+
+test("task entry controls fit narrow screens", async ({ page }) => {
+  await page.getByRole("link", { name: TASKS.link }).click();
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expectControlFitsHorizontally(page.getByLabel("Title"));
+    await expectControlFitsHorizontally(page.getByRole("button", { name: "Add", exact: true }));
   }
 });
 

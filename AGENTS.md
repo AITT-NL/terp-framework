@@ -191,7 +191,9 @@ If two directions serve the task equally well and the preference matters, offer 
 choice. When asked to choose, pick a direction and record the rationale in the app README.
 Check the rendered screen at desktop and mobile widths. Verify that the main action is easy
 to find and reach by keyboard, and measure text against its actual background in light and
-dark appearances, including hover and focus. If an action disappears, check where keyboard focus lands. For an unusual layout, compare it with the
+dark appearances, including hover and focus. If an action disappears, check where keyboard focus lands.
+At narrow widths, use `expectControlFitsHorizontally` from `@terpjs/conformance` on
+the inputs and buttons the task needs. A page can fit while a container clips a control. For an unusual layout, compare it with the
 standard composition using the same content before making it the app's default.
 
 - **App-owned component styles.** Choose the layout for the user’s task. Compose existing controls and use the body of
