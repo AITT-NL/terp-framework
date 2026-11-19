@@ -176,6 +176,8 @@ decision, 0001 onwards.
 - Example and generated backend images use Python 3.15 slim. The production
   generator pins its verified image digest, and the newest-interpreter CI lanes
   run on Python 3.15 while the lower-bound lane continues to prove Python 3.13.
+  Mail address validation explicitly retains the ASCII-only contract when the
+  standard-library parser accepts an internationalized local part.
 
 - **`sign` and `terp maintenance` ask OSV through one client** (`terp.cli.release._osv`), behind
   `terp-cap-egress` as before. A package with more advisories than one answer holds is now
