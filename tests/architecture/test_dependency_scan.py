@@ -131,7 +131,8 @@ def test_root_only_python_lock_has_no_registry_dependencies(tmp_path, monkeypatc
     assert scan_dependencies(tmp_path, "pypi")[0] == 0
 
 
-def test_npm_scan_explicitly_includes_every_dependency_type(tmp_path, monkeypatch):
+@pytest.mark.parametrize("contradiction", [False, True])
+def test_npm_scan_explicitly_includes_every_dependency_type(tmp_path, monkeypatch, contradiction):
     frontend = tmp_path / "frontend"
     frontend.mkdir()
     (frontend / "package.json").write_text('{}')
@@ -140,7 +141,9 @@ def test_npm_scan_explicitly_includes_every_dependency_type(tmp_path, monkeypatc
 
     def scanner(argv, root):
         assert {"--include=prod", "--include=dev", "--include=optional", "--include=peer", "--audit-level=high"} <= set(argv)
-        return subprocess.CompletedProcess(argv, 0, json.dumps({"auditReportVersion": 2, "vulnerabilities": {}, "metadata": {"vulnerabilities": {"total": 0}}}), "")
+        return subprocess.CompletedProcess(argv, int(contradiction), json.dumps({"auditReportVersion": 2, "vulnerabilities": {}, "metadata": {"vulnerabilities": {"total": 0}}}), "")
 
     monkeypatch.setattr(verify, "_run_argv", scanner)
-    assert scan_dependencies(tmp_path, "npm")[0] == 0
+    code, _, extra = scan_dependencies(tmp_path, "npm")
+    assert code == (2 if contradiction else 0)
+    assert extra["dependency_audit"]["complete"] is not contradiction

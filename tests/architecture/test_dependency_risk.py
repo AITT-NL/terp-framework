@@ -151,6 +151,18 @@ def test_python_skipped_dependencies_are_not_clean():
         python_findings({"dependencies": [{"name": "example-package", "skip_reason": "not found"}]})
 
 
+def test_python_skips_only_explicitly_declared_project_roots():
+    report = {"dependencies": [{"name": "Example_App", "skip_reason": "local project"}]}
+    assert python_findings(report, project_names=frozenset({"example-app"})) == []
+    with pytest.raises(AuditUnreadable, match="skipped"):
+        python_findings(report, project_names=frozenset({"another-app"}))
+
+
+def test_python_dependencies_must_report_their_findings():
+    with pytest.raises(AuditUnreadable, match="findings"):
+        python_findings({"dependencies": [{"name": "example-package", "version": "1.0.0"}]})
+
+
 def test_python_aliases_and_fixes_are_retained():
     report = {"dependencies": [{"name": "example-package", "version": "1.0.0", "vulns": [
         {"id": "GHSA-aaaa-bbbb-cccc", "aliases": ["CVE-2026-0001"], "fix_versions": ["1.0.1"]}]}]}
