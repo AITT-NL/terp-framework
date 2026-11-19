@@ -86,7 +86,7 @@ def main() -> int:
                            checkout=request.get("checkout", Path(policy_file).parent / "no-app-checkout"))
         if result["project_id"] != request["project_id"] or result["environment"] != request["environment"]:
             raise RiskRefused("policy belongs to another project or environment")
-        print(json.dumps(result))
+        sys.stdout.write(json.dumps(result) + "\n")
         return 0
     except (KeyError, TypeError, ValueError, OSError, ReleaseError):
         sys.stderr.write("Dependency risk authorization refused. Check the protected authority configuration.\n")

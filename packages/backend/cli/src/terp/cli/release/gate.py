@@ -311,7 +311,7 @@ def require_passed(document: dict[str, Any], terp_cli: str, *, risk_policy: str 
             admission = authorize(document.get("profile", {}).get("checks", []), policy_file=risk_policy,
                                   commit=document["commit"], checkout=checkout)
         except RiskRefused as exc:
-            raise ReleaseError(str(exc)) from exc
+            raise ReleaseError("dependency risk authorization refused", cause=str(exc)) from exc
     if strict:
         _green(document, accepted_dependencies=admission is not None)
     claim = document.get("assurance")

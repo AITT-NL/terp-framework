@@ -10,6 +10,44 @@ from pathlib import Path
 from terp.cli.audit_findings import AuditUnreadable, blocking, npm_findings, python_findings
 
 
+def dependency_checks(check_type):
+    """The mandatory audit checks, constructed with the verify manifest's check type."""
+    from terp.cli.release._locks import NPM_SCOPE
+
+    # The dependency-audit assurance lane (the spec's required generic evidence):
+    # both dependency trees against known-vulnerability databases.
+    #
+    # In `full` as well as `release`, and that is a correction rather than a widening.
+    # They used to be release-only on the argument that advisory databases move
+    # independently of the code, so a red here means "do not ship" rather than "this
+    # change broke something". That argument is right about the merge *bar* and was
+    # wrong about the *profile*: a consumer's CI runs `full`, so a known-vulnerable
+    # dependency was reported only by a release someone remembered to run, which for a
+    # project that has not cut one yet is never. `full` already carries the whole
+    # backend suite; these two are a few seconds beside it.
+    python = check_type(
+        id="dependency-audit-python",
+        category="architecture",
+        command="terp verify --profile release --only dependency-audit-python",
+        scope=("pyproject.toml", "uv.lock"),
+        requires="network access to the advisory databases",
+        runner="dependency-audit-python",
+    )
+
+    # The npm half audits every npm lock the release jobs read, each in its own workspace, through
+    # the structured scanner below.
+    npm = check_type(
+        id="dependency-audit-npm",
+        category="architecture",
+        command="terp verify --profile full --only dependency-audit-npm",
+        scope=("deployment.json", *NPM_SCOPE),
+        requires="network access to the advisory databases",
+        runner="dependency-audit-npm",
+    )
+
+    return python, npm
+
+
 def scan_dependencies(root: Path, ecosystem: str) -> tuple[int, str, dict]:
     """Run the scanner; an error keeps all evidence explicitly incomplete."""
     from terp.arch.deployment import published_table
