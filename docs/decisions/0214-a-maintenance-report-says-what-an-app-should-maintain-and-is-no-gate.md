@@ -3,6 +3,10 @@
 - **Status:** Proposed on 2026-11-12. The owner asked for it on 2026-11-12, as the framework
   half of a design for maintenance signals that depend on no code host, and delegated the
   open questions review raised (item 7's default among them) to its author the same day.
+  Amended 2026-11-20 by
+  [ADR 0218](0218-a-process-that-cannot-write-its-storage-root-does-not-start.md):
+  `template-behind` also names one defect in a render's own production files that a template
+  release fixed, with the fixing release as `fixed_in` and no version pair (item 2).
 - **Date:** 2026-11-12.
 - **Relates:** [ADR 0187](0187-in-the-generated-state-the-framework-renders-the-build-files.md)
   (`sign` scans each image's SBOM against OSV; a framework release moves the base digests),
@@ -73,6 +77,16 @@ yesterday for a reason no one in the change introduced (the reasoning of ADR 011
      configuration.
    - `template-behind`: copier's `_commit` against the platform the app runs, the comparison
      `terp upgrade --check` already prints.
+
+     *Amended by ADR 0218.* It also names one defect in a render's own production files that
+     a template release fixed, as a finding of its own with the subject `terp-cap-files`. For
+     an app that installs `terp-cap-files` and builds its own image, it reads
+     `Dockerfile.prod` and `docker-compose.prod.yml`: either one in which no line but a
+     comment names `var/files`, or either one missing where the recorded ref is a release
+     older than 0.35.0, is reported. Its `location` is the first such file, its `fixed_in` the
+     template release whose production files first carried the fix (0.35.0), and its
+     `installed` and `latest` are `null`. It is not a version behind: a render from a later
+     template can lack the line too, and a version pair would then read as a downgrade.
    - `known-vulnerability`: one finding per package, installed version and lock (or image).
      The locks are `uv.lock` and every npm lock the release plan builds a web image from
      (`terp.cli.release._plan.planned_images`), the set `dependency-audit-npm` reads. Each

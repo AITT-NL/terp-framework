@@ -170,6 +170,11 @@ def files_storage(root: pathlib.Path, report: Report) -> None:
     outside ``ENVIRONMENT=local``. Read from the app's own files, so a Dockerfile fixed by
     hand is not reported and one whose re-render dropped the line is. Under ``"build":
     "generated"`` the framework writes the image and its mounts, and nothing here applies.
+
+    The finding is a defect in the render's own files, not a version behind, so it names the
+    file (``location``) and the template release whose production files first carried the
+    fix (``fixed_in``), and leaves ``installed`` and ``latest`` unset: a render from a later
+    template can lack the line too (ADR 0214, amended by ADR 0218).
     """
     if not _installs_files(root):
         return
@@ -214,8 +219,7 @@ def files_storage(root: pathlib.Path, report: Report) -> None:
             + ". "
             + _FILES_ROOT_REMEDY.format(template=FILES_ROOT_TEMPLATE),
             location=missing[0][0],
-            installed=ref,
-            latest=FILES_ROOT_TEMPLATE,
+            fixed_in=FILES_ROOT_TEMPLATE,
         )
     )
 

@@ -193,8 +193,10 @@ def _headline(finding: Finding) -> str:
         return f"{finding.subject} {finding.installed}{where}: {ids}{new}"
     if finding.kind == "source-unavailable":
         return f"{finding.subject} could not be asked"
-    if finding.installed is None:
-        return f"{finding.subject}{where}: needs {finding.latest}"
+    if finding.kind == "template-behind" and finding.fixed_in is not None:
+        # A defect in the render's own files that a template release fixed, not a version
+        # behind: the render may come from a later template than the fix (ADR 0218).
+        return f"{finding.subject}{where}: lacks what template {finding.fixed_in} added"
     return f"{finding.subject}{where}: {finding.installed} -> {finding.latest}"
 
 

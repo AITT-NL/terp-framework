@@ -214,7 +214,11 @@ decision, 0001 onwards.
   `/srv/var/files`, or a production profile with no volume there, is a `template-behind`
   finding with the subject `terp-cap-files`. Its remedy gives the lines to add to the image and
   the profile, the re-render that brings them, and the one-time `chown` of a volume an older
-  image created. The finding kinds and the `terp_maintenance: 1` document are unchanged.
+  image created. It is a defect in the render's files, not a version behind, so its `location`
+  is the file, its `fixed_in` is 0.35.0, the template release that fixed it, and its
+  `installed` and `latest` are `null`: a later render that dropped the line never reads as a
+  downgrade. ADR 0214's `template-behind` is amended to name it. The finding kinds and the
+  `terp_maintenance: 1` document are unchanged.
 
 ### Changed
 

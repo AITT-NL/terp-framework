@@ -14,9 +14,10 @@
   after it. The files volume of
   [ADR 0187](0187-in-the-generated-state-the-framework-renders-the-build-files.md) ("The files
   volume and the production boot"), which fixed the template in 0.35.0 and reached no app
-  rendered before it. The maintenance report of
-  [ADR 0214](0214-a-maintenance-report-says-what-an-app-should-maintain-and-is-no-gate.md),
-  whose `template-behind` gains a finding with a subject of its own. The deployment notes of
+  rendered before it. Amends the maintenance report of
+  [ADR 0214](0214-a-maintenance-report-says-what-an-app-should-maintain-and-is-no-gate.md):
+  its `template-behind` gains a finding with a subject of its own, which is a defect in a
+  render's files rather than a version behind (item 7). The deployment notes of
   [ADR 0184](0184-a-deployment-declares-its-units.md) stay notes. Supersedes nothing.
 
 ## Decision
@@ -106,8 +107,13 @@ cannot read a shell `RUN` line reliably and does not reach an app that never ado
    `terp-cap-files`, with the lines to add to the image and the profile, the re-render that
    brings them, and the one-time `chown` of a volume an older image created. When a file is missing, a release ref older than
    0.35.0 decides. A `Dockerfile.prod` fixed by hand is not reported. One whose re-render dropped
-   the line is, whatever its ref. The kinds and the `terp_maintenance: 1` document do not
-   change.
+   the line is, whatever its ref. So the finding is a defect in the render's files, not a
+   version behind: its `location` is the file, its `fixed_in` is 0.35.0, the template release
+   whose production files first carried the fix, and its `installed` and `latest` are `null`,
+   so a render from a later template never reads as a downgrade. Its text headline reads
+   `terp-cap-files in Dockerfile.prod: lacks what template 0.35.0 added`. ADR 0214 defined
+   `template-behind` as the scaffolding's ref against the platform, and is amended to name
+   this finding too. The kinds and the `terp_maintenance: 1` document do not change.
 8. **Celery beat keeps its schedule file out of the app root.** Celery opens beat's schedule
    file under a relative default name in the working directory, `/srv` in the production image,
    which the runtime user cannot write. The template's production profile runs no beat and the

@@ -146,9 +146,17 @@ def _files_findings(root: pathlib.Path) -> list[Finding]:
 
 def test_an_app_rendered_before_0_35_with_files_is_told_its_image_cannot_write_the_root(tmp_path: pathlib.Path) -> None:
     [finding] = _files_findings(_files_app(tmp_path))
-    assert (finding.kind, finding.subject, finding.location, finding.installed, finding.latest) == (
-        "template-behind", "terp-cap-files", "Dockerfile.prod", "v0.34.0", _platform.FILES_ROOT_TEMPLATE
-    )
+    # A defect in the render's files that a template release fixed, not a version pair (ADR 0214
+    # as ADR 0218 amends it): the file, and the release whose production files carry the fix.
+    found = finding.as_dict()
+    assert {key: found[key] for key in ("kind", "subject", "location", "installed", "latest", "fixed_in")} == {
+        "kind": "template-behind",
+        "subject": "terp-cap-files",
+        "location": "Dockerfile.prod",
+        "installed": None,
+        "latest": None,
+        "fixed_in": _platform.FILES_ROOT_TEMPLATE,
+    }
     assert finding.remedy.startswith(
         "This app installs terp-cap-files and its scaffolding was rendered from template v0.34.0: the production "
         "image does not create /srv/var/files owned by the user it runs as"
@@ -162,7 +170,7 @@ def test_an_app_rendered_before_0_35_with_files_is_told_its_image_cannot_write_t
     assert finding.remedy.endswith("See: terp guide files.")
     report = Report("app", str(tmp_path), checked_at="T")
     report.findings.append(finding)
-    assert "  template-behind: terp-cap-files in Dockerfile.prod: v0.34.0 -> 0.35.0\n" in report.as_text()
+    assert "  template-behind: terp-cap-files in Dockerfile.prod: lacks what template 0.35.0 added\n" in report.as_text()
 
 
 def test_an_older_render_with_neither_production_file_is_told_both_halves(tmp_path: pathlib.Path) -> None:
@@ -173,8 +181,14 @@ def test_an_older_render_with_neither_production_file_is_told_both_halves(tmp_pa
 def test_a_root_fixed_by_hand_is_not_reported_and_a_dropped_line_is_whatever_the_ref(tmp_path: pathlib.Path) -> None:
     assert _files_findings(_files_app(tmp_path / "fixed", dockerfile=_035_DOCKERFILE, compose=_035_COMPOSE)) == []
     [image] = _files_findings(_files_app(tmp_path / "dropped", commit="v0.40.0", compose=_035_COMPOSE))
-    assert image.location == "Dockerfile.prod" and image.installed == "v0.40.0"
+    assert image.location == "Dockerfile.prod"
     assert "mounts no volume" not in image.remedy
+    # A render later than the fix reads as what it is, never as a downgrade to 0.35.0.
+    assert (image.installed, image.latest, image.fixed_in) == (None, None, _platform.FILES_ROOT_TEMPLATE)
+    report = Report("app", str(tmp_path), checked_at="T")
+    report.findings.append(image)
+    assert "  template-behind: terp-cap-files in Dockerfile.prod: lacks what template 0.35.0 added\n" in report.as_text()
+    assert "v0.40.0 -> " not in report.as_text()
     [volume] = _files_findings(_files_app(tmp_path / "no-volume", commit="v0.40.0", dockerfile=_035_DOCKERFILE))
     assert volume.location == "docker-compose.prod.yml"
     assert volume.remedy.startswith(
@@ -186,12 +200,13 @@ def test_a_root_fixed_by_hand_is_not_reported_and_a_dropped_line_is_whatever_the
 
 def test_an_app_with_no_recorded_template_is_read_from_its_files_alone(tmp_path: pathlib.Path) -> None:
     [finding] = _files_findings(_files_app(tmp_path / "unrendered", commit=None, compose=_035_COMPOSE))
-    assert finding.installed is None and finding.remedy.startswith(
+    assert (finding.installed, finding.fixed_in) == (None, _platform.FILES_ROOT_TEMPLATE)
+    assert finding.remedy.startswith(
         "This app installs terp-cap-files and its scaffolding records no template ref: the production image"
     )
     report = Report("app", str(tmp_path), checked_at="T")
     report.findings.append(finding)
-    assert "  template-behind: terp-cap-files in Dockerfile.prod: needs 0.35.0\n" in report.as_text()
+    assert "  template-behind: terp-cap-files in Dockerfile.prod: lacks what template 0.35.0 added\n" in report.as_text()
     # Neither file to read and no ref to place the render: nothing is claimed.
     assert _files_findings(_files_app(tmp_path / "bare", commit=None, dockerfile=None, compose=None)) == []
     # A ref that is not a release cannot be placed either.
