@@ -107,17 +107,17 @@ cannot read a shell `RUN` line reliably and does not reach an app that never ado
    with the subject `terp-cap-files`, with the lines to add to the image and the profile, the
    re-render that brings them, and the one-time `chown` of a volume an older image created.
    When a file is missing, a release ref older than 0.35.0 decides. A `Dockerfile.prod` fixed
-   by hand is not reported. One whose re-render dropped the line is, whatever its ref. It
-   reads text, not ownership: any line that names the path counts, so a
-   `VOLUME /srv/var/files`, which leaves the mount point owned by root, reads as fixed. Whether
-   the root can be written is proven by the process itself (items 1 to 3), not by this
-   report. So the finding is a defect in the render's files, not a
-   version behind: its `location` is the file, its `fixed_in` is 0.35.0, the template release
-   whose production files first carried the fix, and its `installed` and `latest` are `null`,
-   so a render from a later template never reads as a downgrade. Its text headline reads
-   `terp-cap-files in Dockerfile.prod: lacks what template 0.35.0 added`. ADR 0214 defined
-   `template-behind` as the scaffolding's ref against the platform, and is amended to name
-   this finding too. The kinds and the `terp_maintenance: 1` document do not change.
+   by hand is not reported. One whose re-render dropped the line is, whatever its ref, so the
+   finding is a defect in the render's files, not a version behind: its `location` is the
+   file, its `fixed_in` is 0.35.0, the template release whose production files first carried
+   the fix, and its `installed` and `latest` are `null`, so a render from a later template
+   never reads as a downgrade. Its text headline reads
+   `terp-cap-files in Dockerfile.prod: lacks what template 0.35.0 added`. It reads text, not
+   ownership: any line that names the path counts, so a `VOLUME /srv/var/files`, which leaves
+   the mount point owned by root, reads as fixed. Whether the root can be written is proven by
+   the process itself (items 1 to 3), not by this report. ADR 0214 defined `template-behind`
+   as the scaffolding's ref against the platform, and is amended to name this finding too.
+   The kinds and the `terp_maintenance: 1` document do not change.
 8. **Celery beat keeps its schedule file out of the app root.** Celery opens beat's schedule
    file under a relative default name in the working directory, `/srv` in the production image,
    which the runtime user cannot write. The template's production profile runs no beat and the
