@@ -192,10 +192,13 @@ class CeleryBeatScheduler(Scheduler):
         nothing (ADR 0218). Celery's default would open a file in the working directory,
         which the production image's user cannot write, and read it with :mod:`shelve`. The
         file was only beat's cache of when each entry last ran: the schedule ledger is what a
-        tick is settled against, and :meth:`catch_up` covers the time beat was down. A
-        scheduler or a file the app's config names is kept. At the command line a schedule
-        file takes a scheduler that keeps one: ``celery beat -S celery.beat:PersistentScheduler
-        -s <path>``; ``-s`` alone is ignored by the in-memory scheduler.
+        tick is settled against, and :meth:`catch_up` settles the time beat was down once the
+        app wires it from ``beat_init`` (see the module docstring); nothing calls it for the
+        app. A scheduler or a file the app's config names is kept. At the command line a
+        schedule file takes a scheduler that keeps one: ``celery beat -S
+        celery.beat:PersistentScheduler -s <path>``, in a directory only the app's user can
+        write, because beat unpickles that file. ``-s`` alone is ignored by the in-memory
+        scheduler, and nothing says so at start.
         """
         merged = dict(self._app.conf.beat_schedule or {})
         merged.update(self._beat_schedule)

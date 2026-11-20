@@ -275,10 +275,11 @@ decision, 0001 onwards.
   that file with `shelve`, which unpickles it. Where the app chose neither `beat_scheduler` nor
   `beat_schedule_filename`, `CeleryBeatScheduler.install()` now sets Celery's in-memory
   `celery.beat:Scheduler`: beat writes no file, makes no directory and unpickles nothing. The
-  file was beat's cache; the schedule ledger settles each tick, and `catch_up()` covers the
-  time beat was down. A scheduler or a file the app's config names is kept. At the command
-  line `-s` alone is now ignored; pass `-S celery.beat:PersistentScheduler -s <path>` to keep a
-  file.
+  file was beat's cache; the schedule ledger settles each tick, and `catch_up()`, once the app
+  wires it from `beat_init`, settles the time beat was down. A scheduler or a file the app's
+  config names is kept. At the command line `-s` alone is now ignored; pass `-S
+  celery.beat:PersistentScheduler -s <path>` to keep a file, in a directory only the app's user
+  can write (see the upgrade notes).
 - **`grant-runtime` refuses a role name that ends in a line break.** Its pattern was matched
   with `re.match`, whose `$` also matches before a trailing newline, so `"terp_rt\n"` reached
   the server, which refused it as a role that does not exist. The whole name is matched now,
@@ -324,6 +325,17 @@ decision, 0001 onwards.
   storage profile's root if it is missing: for the default profile, `./var/files` relative to
   the working directory. In a checkout that is an empty directory, which the template's
   `.gitignore` already ignores (`/var/`).
+- **An app that runs Celery beat with `-s <path>` now gets beat's in-memory scheduler and no
+  schedule file**, where its config names neither `beat_scheduler` nor
+  `beat_schedule_filename` (`CeleryBeatScheduler.install()`, ADR 0218). `-s` alone is ignored:
+  beat reads and writes no file, says nothing about it, and its banner shows `. scheduler ->
+  celery.beat.Scheduler` with no `. db ->` line. To keep a file, pass `-S
+  celery.beat:PersistentScheduler -s <path>` or set `beat_schedule_filename`, in a directory
+  only the app's user can write, because beat unpickles that file. Without a file, beat no
+  longer fires at start a tick it missed while it was down: the missed slots are folded into
+  the next on-time run. To settle them at start by each schedule's misfire policy, wire
+  `catch_up()` from `beat_init`, which then covers every restart: `beat_init.connect(lambda
+  **_: scheduler.catch_up(), weak=False)`. Nothing calls it for the app.
 - `copier update` adds `terp-cap-egress` to the `dev` group of `pyproject.toml`; run `uv sync`.
   An app that does not re-render can add `"terp-cap-egress==0.43.0"` to that group by hand.
 - `sign` now refuses a release whose migration histories it cannot list, where it signed it

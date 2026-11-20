@@ -13,7 +13,8 @@ app chose neither a scheduler nor a schedule file, so beat writes no file and un
 nothing: Celery's default would open one in the working directory, which the production
 image's user cannot write, and read it with ``shelve`` (ADR 0218). A scheduler or a file the
 app's config names is kept; at the command line, ``-s`` takes ``-S
-celery.beat:PersistentScheduler`` with it.
+celery.beat:PersistentScheduler`` with it, and a directory only the app's user can write.
+``-s`` alone is ignored, silently.
 
 For each :class:`~terp.core.ScheduleDefinition` it registers a small **tick task** on the
 Celery app and a ``beat_schedule`` entry that runs that task on the schedule's cron. When beat
