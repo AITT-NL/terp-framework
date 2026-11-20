@@ -296,9 +296,9 @@ def test_both_prod_images_carry_the_record_and_the_smoke_holds_the_comparison() 
 
     assert (_REPO_ROOT / "apps" / "example" / SURFACE_ARTIFACT).is_file()
     example = _PROD_DOCKERFILE.read_text(encoding="utf-8")
-    assert f"COPY apps/example/{SURFACE_ARTIFACT} ./" in example
+    assert f"COPY --chmod=0444 apps/example/{SURFACE_ARTIFACT} ./" in example
     template = _TEMPLATE_PROD_DOCKERFILE.read_text(encoding="utf-8")
-    assert "COPY authz-surface.jso[n] ./" in template
+    assert "COPY --chmod=0444 authz-surface.jso[n] ./" in template
     for text in (example, template):
         assert text.index("WORKDIR /srv") < text.index(SURFACE_ARTIFACT[:-1]), (
             "the record lands in /srv, the directory every process of the image starts in"

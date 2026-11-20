@@ -211,7 +211,7 @@ def test_the_interpreter_version_comes_from_the_image(tree: Tree) -> None:
 # the record the app compares its routes with when it starts (ADR 0212)
 # --------------------------------------------------------------------------- #
 RECORD = b'{"authz_surface": 1}\n'
-COPIES_RECORD = b"COPY authz-surface.jso[n] ./\n"
+COPIES_RECORD = b"COPY --chmod=0444 authz-surface.jso[n] ./\n"
 
 
 def _recorded(tmp_path: pathlib.Path, files: dict[str, bytes] | None = None) -> Tree:
