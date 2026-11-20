@@ -66,6 +66,14 @@ cannot read a shell `RUN` line reliably and does not reach an app that never ado
    `register_mandatory_store`. A second, different check under one name is refused, so two
    capabilities cannot replace each other's. A check that raises is a problem too, never a
    pass.
+
+   It is in the core because the core imports nothing above itself: `create_app` can run a
+   capability's check only through something the core owns, so every capability with a
+   precondition that only the starting process can see registers here. That is the shape
+   `register_mandatory_store` already has for the realtime capability. The files capability
+   is the registry's first consumer. `AGENTIC_PLATFORM_DESIGN.md` asks that anything in the
+   core be validated by two structurally divergent consumers (principle 7); the owner accepted
+   this registry with one on 2026-11-20, for the reason above.
 2. **`create_app` runs them, last.** Directly after the ADR 0212 comparison, so the same
    asymmetry holds: outside `ENVIRONMENT=local` a sentence is a `BootError`, which the
    uncaught-exception hook logs as `uncaught BootError: ...`, the line Terp Studio already reads
