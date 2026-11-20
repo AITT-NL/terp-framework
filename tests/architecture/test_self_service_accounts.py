@@ -532,6 +532,12 @@ def test_closing_is_refused_without_a_session_a_password_or_an_active_account(en
     assert ghost.post(_CLOSE, json={"password": _PASSWORD}).status_code == 401
 
 
+def test_account_closure_requires_a_human_caller(engine: Any, mail: CapturingMailTransport) -> None:
+    service = Principal(id=uuid.uuid4(), role=Roles.ADMIN, kind="service")
+    response = _client(engine, principal=service).post(_CLOSE, json={"password": _PASSWORD})
+    assert (response.status_code, response.json()["code"]) == (403, "permission_denied")
+
+
 def test_the_last_administrator_cannot_close_their_own_account(engine: Any, mail: CapturingMailTransport) -> None:
     admin = _user(engine, "admin@example.test", role=Roles.ADMIN)
     response = _client(engine, principal=Principal(id=admin, role=Roles.ADMIN)).post(_CLOSE, json={"password": _PASSWORD})

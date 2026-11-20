@@ -122,6 +122,12 @@ def test_a_service_account_is_named_by_its_own_name_not_a_users(engine: object) 
     assert response.json() == {"id": str(_SHARED_ID), "name": "nightly-sync"}
 
 
+def test_an_unknown_subject_kind_has_no_identity_mapping(engine: object) -> None:
+    principal = Principal(id=_SHARED_ID, role=Roles.VIEWER, kind="unknown")
+    response = _client(engine, principal).get("/api/v1/who/")
+    assert response.status_code == 401
+
+
 @pytest.mark.parametrize("kind", ["user", "service"])
 def test_a_subject_whose_row_is_gone_is_unauthenticated(engine: object, kind: str) -> None:
     """A token for a removed subject is refused, not named by an id nobody can read."""

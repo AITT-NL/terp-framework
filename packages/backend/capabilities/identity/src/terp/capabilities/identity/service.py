@@ -31,6 +31,7 @@ from terp.capabilities.auth import (
 )
 from terp.core import (
     AuthenticationError,
+    PermissionDeniedError,
     PermissionModel,
     Principal,
     project_module_ranks,
@@ -156,6 +157,8 @@ class IdentityService:
         since-removed subject reaching the *stateless* provider) is rejected as
         unauthenticated rather than rendered.
         """
+        if principal.kind != SubjectKind.USER:
+            raise PermissionDeniedError()
         user = self.get_by_id(session, principal.id)
         if user is None:
             raise AuthenticationError()
