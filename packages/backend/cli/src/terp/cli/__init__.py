@@ -4065,7 +4065,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     module_parser.add_argument("name", help="Module name (lowercase identifier, e.g. invoices)")
     module_parser.add_argument("--root", default=".", help="App root to scaffold into (default: .)")
-    module_parser.add_argument("--package", default="app", help="Module package root (default: app)")
+    module_parser.add_argument("--package", default="app", help="Top-level Python package (default: app)")
     module_parser.add_argument(
         "--no-frontend",
         action="store_true",
@@ -4684,14 +4684,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             raise SystemExit(status)
         return
     if args.command == "new" and args.new_command == "module":
-        paths = new_module(
-            args.name,
-            root=args.root,
-            package=args.package,
-            frontend=not args.no_frontend,
-            profile=args.profile,
-        )
-        emit(new_module_message(args.name, paths, profile=args.profile))
+        options = {"root": args.root, "package": args.package, "profile": args.profile}
+        paths = new_module(args.name, frontend=not args.no_frontend, **options)
+        emit(new_module_message(args.name, paths, **options))
         return
     if args.command == "api-docs":
         for path in api_docs(args.out):

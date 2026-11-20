@@ -223,6 +223,13 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- `terp new module` generates PascalCase model and view names for compound module names.
+  The starter view uses the read schema exported by its backend in the typed-client
+  example and propagates failed requests through the resource hook. Its navigation label
+  and heading share a localizable title. Set its source text in the generated `title.ts`
+  and translate it in each target locale in `frontend/i18n.json`. The follow-up commands
+  use the chosen Python package and the project’s checked-in architecture budget.
+
 - **`grant-runtime` refuses a role name that ends in a line break.** Its pattern was matched
   with `re.match`, whose `$` also matches before a trailing newline, so `"terp_rt\n"` reached
   the server, which refused it as a role that does not exist. The whole name is matched now,

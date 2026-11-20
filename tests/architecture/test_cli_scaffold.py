@@ -50,6 +50,38 @@ def test_singularize_and_model_name() -> None:
     assert _model_name("billing") == "Billing"
 
 
+@pytest.mark.parametrize(
+    ("name", "model"),
+    [("s", "S"), ("false", "FalseRecord"), ("_2fa", "Module2fa"), ("_", "Module")],
+)
+def test_generated_python_compiles_for_edge_names(
+    tmp_path: pathlib.Path, name: str, model: str
+) -> None:
+    paths = new_module(name, root=tmp_path)
+    for path in paths:
+        compile(path.read_text(), str(path), "exec")
+    models = ast.parse((tmp_path / "app" / "modules" / name / "models.py").read_text())
+    assert [node.name for node in models.body if isinstance(node, ast.ClassDef)] == [model]
+
+
+def test_frontend_recipe_uses_the_schema_and_route_exported_by_the_module(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from terp.core import create_app
+
+    (tmp_path / "frontend/src/modules").mkdir(parents=True)
+    new_module("purchase_orders", root=tmp_path, package="recipe_app")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    spec = importlib.import_module("recipe_app.modules.purchase_orders.module").module
+    api = create_app([spec]).openapi()
+    route = api["paths"]["/api/v1/purchase_orders/"]["post"]
+    assert route["operationId"].startswith("create_purchase_order_")
+    read_ref = route["responses"]["201"]["content"]["application/json"]["schema"]["$ref"]
+    assert read_ref == "#/components/schemas/PurchaseOrderRead"
+    view = (tmp_path / "frontend/src/modules/purchase_orders/PurchaseOrdersList.tsx").read_text()
+    assert f'components["schemas"]["{read_ref.split("/")[-1]}"]' in view
+
+
 def test_new_module_writes_the_canonical_slots_and_the_test_package(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -86,6 +118,7 @@ def test_new_module_emits_frontend_when_app_present(tmp_path: pathlib.Path) -> N
     paths = new_module("invoices", root=tmp_path)
     assert _written(paths, tmp_path) == _SLOTS | _TEST_SLOTS | {
         "frontend/src/modules/invoices/module.tsx",
+        "frontend/src/modules/invoices/title.ts",
         "frontend/src/modules/invoices/InvoicesList.tsx",
         "frontend/src/modules/invoices/InvoicesList.test.tsx",
     }
@@ -131,6 +164,7 @@ def test_new_module_message_mentions_openapi_when_frontend(tmp_path: pathlib.Pat
     (tmp_path / "frontend" / "src" / "modules").mkdir(parents=True)
     paths = new_module("invoices", root=tmp_path)
     message = new_module_message("invoices", paths)
+    assert "invoices.title in frontend/i18n.json" in message
     assert "terp openapi" in message
     # Both halves of the codegen pipeline: exporting the contract alone leaves
     # the typed client stale — the npm generate step must be taught too.
@@ -148,7 +182,7 @@ def test_scaffold_passes_every_rule_but_migrations(tmp_path: pathlib.Path) -> No
     new_module("invoices", root=tmp_path)
     violations = check_app(tmp_path, package="app")
     # The only outstanding item is the first migration (run `terp migrate make`).
-    assert {v.rule for v in violations} <= {"tables_have_migrations"}
+    assert {v.rule for v in violations} == {"tables_have_migrations"}
 
 
 def test_scaffold_modules_import_and_build_an_app(tmp_path: pathlib.Path) -> None:
@@ -184,7 +218,7 @@ def test_every_profile_scaffold_passes_the_gate(
     # the output stays canonical — only the first migration remains outstanding.
     new_module("invoices", root=tmp_path, profile=profile)
     violations = check_app(tmp_path, package="app")
-    assert {v.rule for v in violations} <= {"tables_have_migrations"}
+    assert {v.rule for v in violations} == {"tables_have_migrations"}
 
 
 @pytest.mark.parametrize(
@@ -259,6 +293,32 @@ def test_cli_new_module_prints_summary(tmp_path: pathlib.Path, capsys: pytest.Ca
     main(["new", "module", "billing", "--root", str(tmp_path)])
     assert (tmp_path / "app" / "modules" / "billing" / "service.py").exists()
     assert "Scaffolded module 'billing'" in capsys.readouterr().out
+
+
+def test_cli_next_steps_follow_the_project_and_package(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "escape-hatch-budget.json").write_text("{}")
+    (tmp_path / "authz-surface.json").write_text("{}")
+    main(["new", "module", "orders", "--root", str(tmp_path), "--package", "warehouse"])
+    message = capsys.readouterr().out
+    assert (tmp_path / "warehouse/modules/orders/module.py").is_file()
+    assert "warehouse/main.py" in message
+    assert "from warehouse.modules.orders.module import module" in message
+    assert "terp migrate make orders --app-root warehouse --package warehouse" in message
+    assert "terp openapi --app warehouse.main:app" in message
+    assert "terp check --package warehouse --budget escape-hatch-budget.json" in message
+    assert "terp inspect access --app warehouse.main:app --format surface > authz-surface.json" in message
+    assert "npm --prefix" not in message
+
+
+@pytest.mark.parametrize("package", ["invalid-folder", "company.api", "class"])
+def test_new_module_refuses_an_unimportable_package_before_writing(
+    tmp_path: pathlib.Path, package: str
+) -> None:
+    with pytest.raises(SystemExit, match="Python import package"):
+        new_module("orders", root=tmp_path, package=package)
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_api_docs_generate_contract(tmp_path: pathlib.Path) -> None:
