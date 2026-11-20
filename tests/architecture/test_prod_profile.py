@@ -51,6 +51,30 @@ def test_prod_compose_is_present_and_valid_yaml() -> None:
         assert "services" in data
 
 
+@pytest.mark.parametrize(
+    ("directory", "owner", "database"),
+    [(_PROD_COMPOSE.parent, "terp", "terp"), (_TEMPLATE_PROD_DOCKERFILE.parent, "app", "app")],
+)
+def test_runtime_role_overlay_checks_the_login_before_starting_the_api(
+    directory: pathlib.Path, owner: str, database: str
+) -> None:
+    services = yaml.safe_load((directory / "compose.runtime-role.yml").read_text())["services"]
+    api = services["api"]["environment"]
+    migrate = services["migrate"]
+    assert api["DB_SCHEMA_LAYOUT"] == migrate["environment"]["DB_SCHEMA_LAYOUT"] == "per-module"
+    url = api["DATABASE_URL"]
+    assert url.startswith("postgresql+psycopg://terp_rt:${TERP_RUNTIME_DB_PASSWORD:?")
+    assert url.endswith(f"@db:5432/{database}")
+    assert "POSTGRES_PASSWORD" not in url
+    shell, flags, steps = migrate["command"]
+    assert (shell, flags) == ("sh", "-ec")
+    assert steps.splitlines() == [
+        "terp migrate upgrade --app-root /srv/app",
+        "terp migrate grant-runtime terp_rt --app-root /srv/app",
+        f"terp migrate check-roles terp_rt --owner-role {owner} --app-root /srv/app",
+    ]
+
+
 def test_prod_profile_has_no_seed_service() -> None:
     """Seed data is dev/demo only; production bootstraps via `terp user create`."""
     for data in _both_composes():
@@ -361,6 +385,7 @@ _ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _PLATFORM_OWNED_NAMES = {
     "SECRET_KEY",
     "POSTGRES_PASSWORD",
+    "TERP_RUNTIME_DB_PASSWORD",
     "DATABASE_URL",
     "ENVIRONMENT",
     "WEB_PORT",

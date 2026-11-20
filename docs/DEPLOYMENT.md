@@ -27,18 +27,40 @@ browser ──► web (nginx, port 8080)
 
 ## Quickstart (single host)
 
+For a fresh bundled PostgreSQL database, use the scaffold's
+`compose.runtime-role.yml` together with the base profile on every invocation.
+The migration service connects as the database owner. The API connects as
+`terp_rt`. Give any added worker or scheduler the same environment as the API.
+Existing volumes need the schema adoption procedure below before switching layouts.
+
+Load `SECRET_KEY`, `POSTGRES_PASSWORD` and `TERP_RUNTIME_DB_PASSWORD` from
+your secret store. Generate separate random hex values for both database
+passwords so they can be used directly in the connection URLs.
+
 ```bash
-export SECRET_KEY="$(openssl rand -hex 32)"     # >= 32 chars, required
-export POSTGRES_PASSWORD="$(openssl rand -hex 16)"
-export TERP_RELEASE_TAG="$(git rev-parse --short=12 HEAD)"   # required, new per release
+export COMPOSE_FILE=docker-compose.prod.yml:compose.runtime-role.yml
+export TERP_RELEASE_TAG="$(git rev-parse --short=12 HEAD)"
+docker compose build api
+docker compose up -d --wait db
 
-docker compose -f docker-compose.prod.yml up -d --wait --build
+# Once, on the new database. Enter the runtime password at the psql prompt.
+docker compose exec db psql -U app -d app -c 'CREATE ROLE terp_rt LOGIN' -c '\password terp_rt'
 
-# Bootstrap the first administrator (the password rides an env var, never argv):
-docker compose -f docker-compose.prod.yml run --rm \
-  -e TERP_USER_PASSWORD api \
+# The migration service upgrades, grants and checks the runtime role before the API starts.
+docker compose up -d --wait --build
+
+# Supply the first administrator's password through TERP_USER_PASSWORD.
+docker compose run --rm -e TERP_USER_PASSWORD api \
   terp user create admin@your-domain.example --role admin
 ```
+
+The repository example uses database and owner `terp` in place of `app`.
+Its overlay already selects those names.
+
+The base Compose file alone gives the API the migration owner's credentials.
+Keep both files selected for subsequent starts so the migration service applies
+and checks the grants for every schema in each release. Export `COMPOSE_FILE`
+in each deployment shell, including during rollback or key rotation.
 
 The profile publishes its HTTP entry point on `127.0.0.1` by default. Route
 external traffic through a TLS ingress. If that ingress connects to another
@@ -63,6 +85,7 @@ weak `SECRET_KEY`, `DEBUG=true`, SQLite, CORS `*`, or an insecure refresh cookie
 | `SECRET_KEY_FALLBACKS` | no | Previous keys, comma-separated, that only **verify** signatures, each for its own lifetime (ADR 0076, 0189); each ≥ 32 chars, never `SECRET_KEY` itself — see [Rotating `SECRET_KEY`](#rotating-secret_key) |
 | `SECRET_KEY_DECRYPT_FALLBACKS` | no | Previous keys, comma-separated, that only **decrypt** values sealed at rest, until `terp secrets reseal` has moved them (ADR 0189); same rules |
 | `POSTGRES_PASSWORD` | yes | Bundled Postgres; compose fails fast when unset |
+| `TERP_RUNTIME_DB_PASSWORD` | role overlay | Password for the restricted `terp_rt` serving role |
 | `TERP_RELEASE_TAG` | yes | The tag of this release's images, `<project>-backend-prod:<tag>` and `<project>-frontend-prod:<tag>` (ADR 0185), and a static site's `<project>-site-prod:<tag>` (ADR 0198): a Docker tag, new for every release, so the previous release's images stay on the host and can be started again. Compose fails fast when unset; it cannot tell a stale value from a new one, so set it per release. Platform-owned: `environment.schema.json` may not declare it |
 | `DATABASE_URL` | derived | Defaults to the bundled `db` service. Set it to run on a managed/external PostgreSQL — then also drop the `db` service (and the `depends_on` waiting on it) with a compose override |
 | `BACKEND_CORS_ORIGINS` | no | The browser origins that may call the API, as a JSON list, for a control plane that declares `CorsPolicy.from_environment()` (ADR 0210); empty serves none. An entry that is not an origin refuses the boot, and so does `*`. A control plane that declares its CORS in source does not read it |
@@ -111,7 +134,7 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
    `public`):
 
    ```bash
-   docker compose -f docker-compose.prod.yml run --rm api terp migrate adopt-schemas
+   docker compose run --rm migrate terp migrate adopt-schemas
    ```
 
 2. **Owner / runtime role split** — migrate as the owning role, serve as a login that
@@ -121,7 +144,7 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
    ```bash
    # once, as the database admin:
    psql -c "CREATE ROLE terp_rt LOGIN PASSWORD '…'"
-   docker compose -f docker-compose.prod.yml run --rm api \
+   docker compose run --rm migrate \
      terp migrate grant-runtime terp_rt
    ```
 
@@ -151,7 +174,7 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
    `CREATE` in a schema, owns a table, or is a member of the owning role:
 
    ```bash
-   docker compose -f docker-compose.prod.yml run --rm api \
+   docker compose run --rm migrate \
      terp migrate check-roles terp_rt --owner-role <owning role>
    ```
 
@@ -181,7 +204,7 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   compose` build.
 - **Migrations on upgrade:** back up the database, then pull/build the new images, re-run
   the `migrate` one-shot, and restart `api`. With a new `TERP_RELEASE_TAG`,
-  `docker compose -f docker-compose.prod.yml up -d --wait --build` does the last three in
+  `docker compose up -d --wait --build` does the last three in
   order, and leaves the previous release's images under their own tag. The backup comes
   first, before every `migrate`: a rollback that is not restore-free (below) restores it.
 - **Starting the previous release again:** see *Rolling back a release* below.
@@ -254,7 +277,7 @@ A rollback starts the previous release's images again. It never runs a downgrade
 applies a revision (ADR 0185). Whether it needs a restore is decided before it is offered,
 by the previous release's own check, run from its image against the live database:
 
-    TERP_RELEASE_TAG=<previous tag> docker compose -f docker-compose.prod.yml \
+    TERP_RELEASE_TAG=<previous tag> docker compose \
         run --rm --no-deps migrate terp migrate check --app-root /srv/app
 
 That is the migration step's own command with `upgrade` as `check` (with no `migrate`
@@ -263,7 +286,7 @@ release's heads, or inside its schema window: one migration run ahead, every rev
 that run expand-only, on the same Terp version. Then the rollback is **restore-free**: set
 the previous tag and run nothing else but
 
-    TERP_RELEASE_TAG=<previous tag> docker compose -f docker-compose.prod.yml \
+    TERP_RELEASE_TAG=<previous tag> docker compose \
         up -d --wait --no-build --pull never
 
 `--no-build` and `--pull never` are the point: the profile builds the images it names, so
@@ -410,13 +433,13 @@ The procedure, in this order:
 
    ```bash
    export SECRET_KEY="$(openssl rand -hex 32)"
-   docker compose -f docker-compose.prod.yml up -d --wait
+   docker compose up -d --wait
    ```
 
 2. **Re-seal.** Run the re-seal in the app's own container, so it reads the deployed environment:
 
    ```bash
-   docker compose -f docker-compose.prod.yml run --rm api terp secrets reseal
+   docker compose run --rm api terp secrets reseal
    ```
 
    It rewrites every value sealed under a fallback under `SECRET_KEY`, one transaction per

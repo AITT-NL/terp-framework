@@ -280,14 +280,15 @@ backup policy, and the profile mounts it: the render of that seed, held the same
 backend image makes /srv/var/files owned by the user it runs as, and Docker gives an empty
 named volume the owner of the directory it is mounted over, so that user can write it.
 
-  start it, with its required secrets and a new per-release image tag set (compose
-  stops on an unset one; the tag keeps the previous release's images beside this
-  one's, so it can be started again):
-    SECRET_KEY=... POSTGRES_PASSWORD=... TERP_RELEASE_TAG=$(git rev-parse --short=12 HEAD) \\
-      docker compose -f docker-compose.prod.yml up -d --wait --build
+  for a fresh bundled database, use the scaffold's compose.runtime-role.yml overlay.
+  Follow docs/DEPLOYMENT.md, Quickstart (single host), to create the runtime login,
+  run migrations, grant its DML privileges and check them before starting the API.
+  Keep the two files selected for subsequent starts (and for the command below):
+    export COMPOSE_FILE=docker-compose.prod.yml:compose.runtime-role.yml
+    docker compose up -d --wait --build
   bootstrap the first administrator (`terp seed` refuses ENVIRONMENT=production), with
   the same variables set:
-    docker compose -f docker-compose.prod.yml run --rm -e TERP_USER_PASSWORD api \\
+    docker compose run --rm -e TERP_USER_PASSWORD api \\
       terp user create admin@your-domain.example --role admin
   start an earlier release again: set its TERP_RELEASE_TAG and run `up -d --wait
     --no-build`, so an image that is gone fails instead of being rebuilt from this

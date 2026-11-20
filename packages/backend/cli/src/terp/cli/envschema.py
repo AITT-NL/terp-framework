@@ -49,6 +49,7 @@ PLATFORM_OWNED_NAMES = frozenset(
     {
         "SECRET_KEY",
         "POSTGRES_PASSWORD",
+        "TERP_RUNTIME_DB_PASSWORD",
         "DATABASE_URL",
         "ENVIRONMENT",
         "WEB_PORT",
