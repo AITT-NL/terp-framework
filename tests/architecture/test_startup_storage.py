@@ -90,13 +90,13 @@ def _logged(caplog: pytest.LogCaptureFixture) -> str:
 class _NetworkStore(StorageBackend):
     """A store behind a provider: never called at boot (the base defaults)."""
 
-    def put(self, key: str, source: BinaryIO) -> None:  # pragma: no cover - never called
+    def put(self, key: str, source: BinaryIO) -> None:
         raise AssertionError("a boot check must not call a network store")
 
-    def open(self, key: str) -> BinaryIO:  # pragma: no cover - never called
+    def open(self, key: str) -> BinaryIO:
         raise AssertionError("a boot check must not call a network store")
 
-    def delete(self, key: str) -> None:  # pragma: no cover - never called
+    def delete(self, key: str) -> None:
         raise AssertionError("a boot check must not call a network store")
 
 
@@ -420,7 +420,7 @@ class _BrokenStore(StorageBackend):
     def put(self, key: str, source: BinaryIO) -> None:
         raise FileStorageError(log_context={"operation": "put"})
 
-    def open(self, key: str) -> BinaryIO:  # pragma: no cover - never reached
+    def open(self, key: str) -> BinaryIO:
         raise FileNotFoundError(key)
 
     def delete(self, key: str) -> None:
