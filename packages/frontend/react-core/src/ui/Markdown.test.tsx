@@ -20,6 +20,20 @@ describe("Markdown", () => {
     expect(screen.getAllByRole("list")).toHaveLength(2);
   });
 
+  it("preserves supported destinations and renders ambiguous destinations as text", () => {
+    const allowed = [
+      "https://example.test/path", "HTTP://example.test/", "mailto:help@example.test",
+      "../records", "#details", "?page=2",
+    ];
+    const refused = ["f\ttp://example.test/", "//example.test", "\\\\example.test", "/\\example.test", "https://[", "https:records"];
+    const source = [...allowed, ...refused].map((href, i) => `[item ${i}](${href})`).join(" ");
+    render(<Markdown source={source} />);
+    expect(screen.getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(allowed);
+    for (const [index] of refused.entries()) {
+      expect(screen.getByText(`item ${index + allowed.length}`, { exact: false })).toBeInTheDocument();
+    }
+  });
+
   it("allows only safe links and renders raw html as text", () => {
     const { container } = render(
       <Markdown source={'[safe](records/1) [bad](javascript:alert(1)) <img src=x onerror=alert(1)>'} />,

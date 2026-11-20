@@ -30,10 +30,22 @@ type Block =
   | { type: "code"; text: string }
   | { type: "list"; ordered: boolean; items: string[] };
 
-const SAFE_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
+const RELATIVE_LINK_BASE = "https://markdown.invalid";
 
 function isSafeLink(href: string): boolean {
-  return /^(https?:\/\/|mailto:)/i.test(href) || (!SAFE_SCHEME_RE.test(href) && !href.startsWith("//"));
+  // Browsers strip ASCII controls or interpret backslashes as URL separators.
+  // Reject those spellings before resolving the same href the anchor will use.
+  if (href.startsWith("//") || href.includes("\\") || /[\u0000-\u001f\u007f]/u.test(href)) {
+    return false;
+  }
+  try {
+    const url = new URL(href, RELATIVE_LINK_BASE);
+    if (/^https?:\/\//i.test(href)) return url.protocol === "https:" || url.protocol === "http:";
+    if (/^mailto:/i.test(href)) return url.protocol === "mailto:";
+    return !/^[a-z][a-z0-9+.-]*:/i.test(href) && url.origin === RELATIVE_LINK_BASE;
+  } catch {
+    return false;
+  }
 }
 
 function parseBlocks(source: string): Block[] {
