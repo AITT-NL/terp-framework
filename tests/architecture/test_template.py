@@ -1454,7 +1454,7 @@ def test_an_api_only_app_trusts_no_proxy_hop_because_nothing_in_its_profile_prox
     prod = template_profile(frontend=False)
     assert "\n  web:" not in prod
     api_block = prod.split("\n  api:", 1)[1].split("\nvolumes:", 1)[0]
-    assert '- "${API_PORT:-23200}:8000"' in api_block, "the api is the only way in"
+    assert '- "${TERP_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-23200}:8000"' in api_block, "the api is the only way in"
 
 def test_template_gives_the_credential_family_a_bucket_its_own_suite_can_finish_in() -> None:
     """The shipped conformance helper signs in for real, once per spec.

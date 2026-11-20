@@ -39,7 +39,7 @@ BASE_CONFIG = {
 #: than replayed, so the replay is held to it.
 IMAGE_CONFIG = {
     "Env": ["PATH=/srv/.venv/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-            "LANG=C.UTF-8", "PYTHON_VERSION=3.14.8", "PYTHONUNBUFFERED=1", "PYTHONDONTWRITEBYTECODE=1",
+            "LANG=C.UTF-8", "PYTHON_VERSION=3.14.8", "ENVIRONMENT=production", "PYTHONUNBUFFERED=1", "PYTHONDONTWRITEBYTECODE=1",
             "VIRTUAL_ENV=/srv/.venv"],
     "Cmd": ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "8"],  # noqa: S104 - the image's command, as data
     "WorkingDir": "/srv", "User": "appuser", "ExposedPorts": {"8000/tcp": {}}, "ArgsEscaped": True,

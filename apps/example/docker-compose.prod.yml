@@ -112,7 +112,7 @@ services:
     restart: unless-stopped
     ports:
       # 23100, not 8080: the same argument as the development file, one range up.
-      - "${WEB_PORT:-23100}:8080"
+      - "${TERP_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-23100}:8080"
     depends_on:
       api:
         condition: service_healthy

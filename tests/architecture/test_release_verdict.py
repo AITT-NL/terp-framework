@@ -82,7 +82,7 @@ def test_acceptance_preserves_failed_audit_and_cannot_replace_another_required_l
     document["commit"] = "a" * 40
     assert gate.require_passed(document, APPLICABLE, risk_policy="protected") == admission
     assert document["profile"]["ok"] is False and document["assurance"]["ok"] is False
-    document["profile"]["checks"] = [c for c in document["profile"]["checks"] if c["id"] != "architecture"]
+    next(c for c in document["profile"]["checks"] if c["id"] == "secret-scanning")["applicable"] = False
     document["assurance"] = assurance_document(document["profile"]["checks"])
     with pytest.raises(ReleaseError, match="required assurance lane"):
         gate.require_passed(document, APPLICABLE, risk_policy="protected")
@@ -313,7 +313,7 @@ def test_a_claim_that_its_checks_do_not_compose_contradicts_itself() -> None:
     a claim that holds, was not written by one run of the gate."""
     borrowed = _strict()
     borrowed["profile"]["checks"] = [{"id": "architecture", "ok": True}]
-    with pytest.raises(ReleaseError, match="contradicts itself: its release-assurance claim is not the one its checks compose"):
+    with pytest.raises(ReleaseError, match="missing required checks"):
         gate.require_passed(borrowed, STRICT)
     failed_lanes = _strict()
     failed_lanes["assurance"]["lanes"] = [{**lane, "status": "failed"} for lane in failed_lanes["assurance"]["lanes"]]
@@ -356,3 +356,32 @@ def test_a_clean_release_needs_no_exception_or_authority_availability(monkeypatc
     monkeypatch.setattr(risk_authority, "authorize", authority)
     assert gate.require_passed(_judged(), APPLICABLE, risk_policy="protected.json") is None
     authority.assert_not_called()
+
+
+@pytest.mark.parametrize(("make_document", "pin"), [(_strict, STRICT), (_judged, APPLICABLE)])
+def test_strict_signer_requires_one_verdict_for_each_release_check(make_document, pin) -> None:
+    doc = make_document()
+    checks = doc["profile"]["checks"]
+    checks.append(checks[0].copy())
+    with pytest.raises(ReleaseError, match="duplicate check ids"):
+        gate.require_passed(doc, pin)
+    checks.pop()
+    checks.remove(next(check for check in checks if check["id"] == "backend-tests"))
+    with pytest.raises(ReleaseError, match="missing required checks: backend-tests"):
+        gate.require_passed(doc, pin)
+
+
+def test_sign_uses_the_check_declarations_in_the_commit(tmp_path, monkeypatch) -> None:
+    files = _pinning(STRICT)
+    files["pyproject.toml"] += b"""
+[[tool.terp.verify.checks]]
+id = "domain-invariants"
+profile = "release"
+command = "python -V"
+scope = ["app/**"]
+"""
+    release = Release(tmp_path, monkeypatch, files)
+    release.write_gate(**_strict())
+    _asked_nothing(release, monkeypatch)
+    with pytest.raises(ReleaseError, match="missing required checks: domain-invariants"):
+        release.sign()

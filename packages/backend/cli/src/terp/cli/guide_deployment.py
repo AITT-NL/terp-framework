@@ -50,7 +50,7 @@ FOUR STATES, EXACTLY ONE AT A TIME
                                   committed copy that is not the render is refused.
                                   frontend/Dockerfile.prod only beside a web unit: an api
                                   unit with no web unit in front of it is the deployment's
-                                  only way in and publishes ${API_PORT:-23200}:8000 (ADR
+                                  only way in and publishes ${TERP_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-23200}:8000 (ADR
                                   0202) -- the shape an app rendered API-only (the
                                   template's `frontend: false`) has from the start
   {"unmanaged": true, "reason"}   no tool can drive this deploy; the checks are off and
@@ -204,7 +204,7 @@ proxies nothing, and connect-src 'self' leaves a page no other origin to call. I
 its own files under dist/. Its nginx answers its health at /healthz, where the profile probes
 it, so the site unit declares that healthPath or none: a deploy tool waits on the declared
 path, and the readable rule refuses another. It is published on WEB_PORT_ and its unit id
-upper-cased, with - and . as _ (unit site: ${WEB_PORT_SITE:-23101}:8080), beside the SPA's
+upper-cased, with - and . as _ (unit site: ${TERP_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT_SITE:-23101}:8080), beside the SPA's
 WEB_PORT, and its image is <project>-site-prod, tagged per release like the other two. One
 SPA and one site render together; a site alone is fine too, and the api then publishes
 API_PORT as it does with no web unit. A site that needs another policy, a lifecycle script,

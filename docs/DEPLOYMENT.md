@@ -40,9 +40,14 @@ docker compose -f docker-compose.prod.yml run --rm \
   terp user create admin@your-domain.example --role admin
 ```
 
-The app is now on `http://<host>:8080` (put your TLS terminator — a cloud load balancer,
-Caddy, or certbot-managed nginx — in front; the refresh cookie is `Secure` in
-production, so **HTTPS is required** for logins to work in real browsers).
+The profile publishes its HTTP entry point on `127.0.0.1` by default. Route
+external traffic through a TLS ingress. If that ingress connects to another
+host interface, set `TERP_BIND_ADDRESS` to its address and restrict that port
+to the ingress. A deployment executor that publishes its own ports owns their
+binding and TLS configuration.
+
+Serve browser traffic over HTTPS. The production refresh cookie carries the
+`Secure` flag, so login requires a secure browser connection.
 
 ## Environment reference
 

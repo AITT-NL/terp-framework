@@ -105,7 +105,7 @@ services:
       # deployment sets API_PORT explicitly -- this default only decides what a
       # first `docker compose -f docker-compose.prod.yml up` grabs on a machine
       # that is also running the developer's own things.
-      - "${API_PORT:-23200}:8000"
+      - "${TERP_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-23200}:8000"
 {%- endif %}
 {%- if use_files %}
     # The files capability's storage root. The backend image makes it, owned by the
@@ -139,7 +139,7 @@ services:
       # A deployment sets WEB_PORT explicitly -- this default only decides what a
       # first `docker compose -f docker-compose.prod.yml up` grabs on a machine
       # that is also running the developer's own things.
-      - "${WEB_PORT:-23100}:8080"
+      - "${TERP_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-23100}:8080"
     depends_on:
       api:
         condition: service_healthy

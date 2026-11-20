@@ -14,6 +14,18 @@ decision, 0001 onwards.
 
 ### Security
 
+- Production backend images enable production settings when launched directly. The
+  runtime refuses published workbench keys in every key slot. Supply a generated
+  key through the deployment secret store. A deployment that used the development
+  key needs credential rotation and review of existing sessions and sealed data.
+- Compose publishes HTTP on loopback by default. A host TLS proxy can reach it
+  there. Set `TERP_BIND_ADDRESS` when the production ingress needs another host
+  interface. Development Compose keeps its local services on loopback.
+- Strict release gates require a unique verdict for every built-in release check
+  and every check declared by the committed application. The scaffold requires
+  the pytest plugin that enforces runtime isolation.
+
+
 - **`terp migrate grant-runtime` takes `EXECUTE` from `PUBLIC` on the app's routines (ADR
   0071).** PostgreSQL lets `PUBLIC` execute every function, procedure, aggregate and window
   function it creates, and a `SECURITY DEFINER` function runs as its owner, so one a

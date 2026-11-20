@@ -13,8 +13,10 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+import secrets
 import tomllib
 
+import pytest
 import yaml
 
 from tests.architecture.deployment_fixtures import template_profile
@@ -69,6 +71,27 @@ def test_prod_secrets_have_no_dev_fallback() -> None:
         assert ":?" in env["SECRET_KEY"], "SECRET_KEY must be required (no dev default)"
         db_env = data["services"]["db"]["environment"]
         assert ":?" in db_env["POSTGRES_PASSWORD"], "POSTGRES_PASSWORD must be required"
+
+
+@pytest.mark.parametrize("field", ["SECRET_KEY", "SECRET_KEY_FALLBACKS", "SECRET_KEY_DECRYPT_FALLBACKS"])
+def test_workbench_key_is_refused_in_every_production_key_slot(field: str) -> None:
+    from terp.core.config import Settings
+
+    scaffold = _REPO_ROOT / "template" / "project"
+    development = (scaffold / "docker-compose.yml.jinja").read_text()
+    match = re.search(r"SECRET_KEY: \$\{SECRET_KEY:-(.+?)\}", development)
+    assert match
+    key = match[1]
+    assert not re.search(r"^SECRET_KEY=", (scaffold / ".env.example.jinja").read_text(), re.M)
+    settings = {
+        "ENVIRONMENT": "production",
+        "DATABASE_URL": "postgresql://db/app",
+        "SECRET_KEY": secrets.token_hex(32),
+    }
+    for weak in (key, " " * 32):
+        settings[field] = weak if field == "SECRET_KEY" else [weak]
+        with pytest.raises(ValueError, match=field):
+            Settings(**settings)
 
 
 def test_the_template_s_images_carry_a_required_per_release_tag() -> None:
@@ -145,6 +168,8 @@ def test_prod_backend_images_are_multistage_wheel_builds() -> None:
         )
         assert "uv build --wheel" in text
         assert "-e " not in text, f"{path.name} must not install editable"
+        runtime = text.rsplit("\nFROM ", 1)[1]
+        assert "\nENV ENVIRONMENT=production " in runtime
         assert "USER " in text, f"{path.name} must drop root"
         code_lines = [
             line for line in text.splitlines() if line.strip() and not line.strip().startswith("#")

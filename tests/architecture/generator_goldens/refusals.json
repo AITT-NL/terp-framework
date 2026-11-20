@@ -1014,7 +1014,7 @@
       "project": "demo",
       "frontendLock": false,
       "refused": [
-        "units: 2 api units (api, reports) and no web unit in front of them, so which one callers reach is undeclared and the generator cannot publish a port for both (allowed: one api unit, which then publishes ${API_PORT:-23200}:8000, or a web unit that depends on the api it proxies to)"
+        "units: 2 api units (api, reports) and no web unit in front of them, so which one callers reach is undeclared and the generator cannot publish a port for both (allowed: one api unit, which then publishes ${TERP_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-23200}:8000, or a web unit that depends on the api it proxies to)"
       ]
     },
     "an-api-without-its-liveness-path": {

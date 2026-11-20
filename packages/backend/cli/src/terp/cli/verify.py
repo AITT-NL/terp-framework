@@ -909,6 +909,11 @@ def app_declared_checks(root: pathlib.Path) -> tuple[tuple[VerifyCheck, str], ..
             f"pyproject.toml is unreadable ({exc}), so whether this app declares "
             "checks of its own cannot be established"
         ) from exc
+    return declared_checks_from_manifest(declared)
+
+
+def declared_checks_from_manifest(declared: dict) -> tuple[tuple[VerifyCheck, str], ...]:
+    """Read check declarations from an already parsed project manifest, including a signed tree."""
     table = ((declared.get("tool") or {}).get("terp") or {}).get("verify") or {}
     if not isinstance(table, dict):
         raise _declaration_error("[tool.terp.verify] is not a table")
