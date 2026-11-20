@@ -74,7 +74,7 @@ def current_caller(
             and not ServiceAccountService._is_expired(account)
         ):
             name = account.name
-    else:
+    elif principal.kind == SubjectKind.USER:
         user = session.get(User, principal.id)
         if user is not None and user.is_active:
             name = user.email

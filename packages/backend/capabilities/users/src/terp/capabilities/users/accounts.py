@@ -21,9 +21,9 @@ from typing import Any
 
 from sqlmodel import Session
 
-from terp.core import AppError, AuthenticationError, InvalidTokenError, Principal, validate_password
+from terp.core import AppError, AuthenticationError, InvalidTokenError, PermissionDeniedError, Principal, validate_password
 
-from terp.capabilities.auth import hash_password, verify_password, verify_password_dummy
+from terp.capabilities.auth import SubjectKind, hash_password, verify_password, verify_password_dummy
 from terp.capabilities.identity import User
 from terp.capabilities.mail import MailMessage
 from terp.capabilities.users.account_tokens import (
@@ -217,6 +217,8 @@ class AccountsService:
         from it is asked too: a stolen password and a stolen session together still do not
         close an account its owner protected with a second factor.
         """
+        if principal.kind != SubjectKind.USER:
+            raise PermissionDeniedError()
         user = self._users.find(session, principal.id)
         if user is None or not user.is_active:
             verify_password_dummy()

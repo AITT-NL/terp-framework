@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends
 from terp.core import (
     AuthenticationError,
     ModuleSpec,
+    PermissionDeniedError,
     Policy,
     Principal,
     Roles,
@@ -89,7 +90,7 @@ def reset_mfa_issuer() -> None:
 
 
 def _caller(principal: Principal | None) -> Principal:
-    """The authenticated caller, or a clean 401.
+    """The authenticated user permitted to manage their factor.
 
     The module guard rejects an anonymous caller before any handler runs; this keeps the
     router correct — a 401, never an ``AttributeError`` — if it is ever mounted without
@@ -97,6 +98,8 @@ def _caller(principal: Principal | None) -> Principal:
     """
     if principal is None:
         raise AuthenticationError()
+    if principal.kind != "user":
+        raise PermissionDeniedError()
     return principal
 
 
@@ -169,7 +172,7 @@ def disable(
 
 
 def build_mfa_module(*, name: str = "mfa") -> ModuleSpec:
-    """The self-scoped second-factor ``ModuleSpec`` (any authenticated caller).
+    """The self-scoped second-factor ``ModuleSpec`` for authenticated users.
 
     VIEWER on the write tier, not the EDITOR a bare ``Policy.default()`` would impose.
     Enrolling is a POST, but it changes nothing except the caller's own security, and a

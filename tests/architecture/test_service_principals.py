@@ -515,3 +515,33 @@ def test_half_wired_client_credentials_are_refused_at_construction() -> None:
         build_login_router(
             _authenticate, service_token_version_resolver=lambda session, p: 0
         )
+
+
+@pytest.mark.parametrize("kind", [SubjectKind.USER, SubjectKind.SERVICE])
+def test_browser_logout_routes_cookie_and_bearer_revocations_by_subject_kind(kind: SubjectKind) -> None:
+    from unittest.mock import Mock
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from terp.core import Principal, get_principal, get_session
+
+    revoke_user, revoke_family = Mock(), Mock()
+    app = FastAPI()
+    app.include_router(build_login_router(
+        Mock(), revoke_sessions=revoke_user, refresh_issuer=Mock(), refresh_rotator=Mock(),
+        refresh_revoker=revoke_family, principal_resolver=Mock(),
+    ))
+    principal = Principal(id=uuid.uuid4(), role=Roles.VIEWER, kind=kind.value)
+    app.dependency_overrides[get_principal] = lambda: principal
+    app.dependency_overrides[get_session] = lambda: None
+    client = TestClient(app)
+    client.cookies.set(settings.REFRESH_COOKIE_NAME, "test-cookie", path="/")
+    response = client.post("/logout")
+    assert response.status_code == 204
+    assert "Max-Age=0" in response.headers["set-cookie"]
+    revoke_family.assert_called_once_with(None, "test-cookie")
+    if kind == SubjectKind.USER:
+        revoke_user.assert_called_once_with(None, principal.id)
+    else:
+        revoke_user.assert_not_called()

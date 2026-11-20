@@ -332,7 +332,9 @@ def build_login_router(
             raw = request.cookies.get(settings.REFRESH_COOKIE_NAME)
             if raw is not None and refresh_revoker is not None:
                 refresh_revoker(session, raw)
-            if principal is not None and revoke_sessions is not None:
+            # This callback operates on human user epochs. Machine tokens use
+            # a separate store; a presented cookie still revokes its own family.
+            if principal is not None and principal.kind == SubjectKind.USER and revoke_sessions is not None:
                 revoke_sessions(session, principal.id)
             response = Response(status_code=204)
             if refresh_enabled:
