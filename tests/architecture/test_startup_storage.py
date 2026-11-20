@@ -18,6 +18,7 @@ import io
 import logging
 import os
 import pathlib
+import re
 import textwrap
 from collections.abc import Iterator
 from typing import BinaryIO
@@ -36,7 +37,6 @@ from terp.core.boot_checks import (
     boot_check_refusal,
     boot_checks,
     register_boot_check,
-    unregister_boot_check,
 )
 from terp.core.config import settings
 
@@ -338,20 +338,38 @@ def test_the_files_capability_registers_its_check_on_import() -> None:
     assert boot_checks()["files_storage"] is storage_boot_problem
 
 
-def test_registration_is_idempotent_and_refuses_a_second_check_under_one_name() -> None:
+def test_registration_is_idempotent_and_refuses_a_second_check_under_one_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def check() -> str | None:
         return None
 
-    try:
-        register_boot_check("test_check", check)
-        register_boot_check("test_check", check)  # the same registration again
-        with pytest.raises(ValueError, match="boot check 'test_check' is already registered"):
-            register_boot_check("test_check", lambda: None)
-        assert list(boot_checks()) == sorted(boot_checks())
-    finally:
-        unregister_boot_check("test_check")
-    assert "test_check" not in boot_checks()
-    unregister_boot_check("test_check")  # removing an absent check is a no-op
+    # The registry has no unregister, so the test registers into a copy of it.
+    monkeypatch.setattr(boot_checks_module, "_checks", dict(boot_checks_module._checks))
+    register_boot_check("test_check", check)
+    register_boot_check("test_check", check)  # the same registration again
+    with pytest.raises(ValueError, match="boot check 'test_check' is already registered"):
+        register_boot_check("test_check", lambda: None)
+    assert boot_checks()["test_check"] is check
+    assert list(boot_checks()) == sorted(boot_checks())
+
+
+def test_the_public_registry_offers_no_way_to_remove_a_check() -> None:
+    """A refusal that application code could switch off in one quiet line would not be one
+    (ADR 0218): the module has no unregister, and what it lists is a copy."""
+    assert set(boot_checks_module.__all__) == {
+        "BOOT_CHECK_ADR",
+        "BootCheck",
+        "boot_check_refusal",
+        "boot_checks",
+        "register_boot_check",
+    }
+    public = [name for name in vars(boot_checks_module) if not name.startswith("_")]
+    assert not [name for name in public if re.search(r"unregister|remove|reset|clear|discard|pop", name)]
+    listed = boot_checks()
+    listed.pop("files_storage")
+    listed.clear()
+    assert boot_checks()["files_storage"] is storage_boot_problem
 
 
 def test_a_check_that_cannot_run_refuses_rather_than_passing(

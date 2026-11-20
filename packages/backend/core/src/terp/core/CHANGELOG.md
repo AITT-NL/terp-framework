@@ -202,7 +202,8 @@ decision, 0001 onwards.
   rendered from the 0.34 template answered 500 to every upload in production: its image ran as
   a user that cannot write `/srv/var/files`, and nothing noticed before a user uploaded.
   `terp.core.boot_checks.register_boot_check(name, check)` lets a capability register a check when it is
-  imported, and `create_app` runs every registered check beside the ADR 0212 comparison:
+  imported, and nothing removes one again, so no line of app code switches the refusal off.
+  `create_app` runs every registered check beside the ADR 0212 comparison:
   outside `ENVIRONMENT=local` a check's sentence is a `BootError` (logged as `uncaught
   BootError: ...`, which Terp Studio shows on a deploy and at release verification), in local
   a warning. The files capability registers one. `StorageBackend.boot_problem()` (default
@@ -314,7 +315,8 @@ decision, 0001 onwards.
   (`docker compose -f docker-compose.prod.yml run --rm --no-deps --user root api chown 10001
   /srv/var/files`). `uv run --frozen terp maintenance` names the case. A composition root
   registers its storage profiles before it calls `create_app`: one registered later is not
-  probed.
+  probed. A local profile on a read-only mount refuses the start outside local too; there is
+  no read-only profile to declare yet (ADR 0218 names the route).
 - Every `create_app` in a process that imports the files capability now creates each local
   storage profile's root if it is missing: for the default profile, `./var/files` relative to
   the working directory. In a checkout that is an empty directory, which the template's

@@ -16,6 +16,10 @@ import, as the realtime capability fills :func:`~terp.core.register_mandatory_st
 check is therefore registered whenever its capability is imported in the process, whether
 or not the app mounts a router of it, which is right: a service that stores through a
 capability without serving its routes needs the same things from the image.
+
+Nothing here removes a registered check. A refusal that application code could switch off in
+one line would not be a refusal, so the registry offers no unregister; a test isolates it by
+replacing the private ``_checks`` mapping for the length of the test.
 """
 
 from __future__ import annotations
@@ -49,13 +53,11 @@ def register_boot_check(name: str, check: BootCheck) -> None:
 
 
 def boot_checks() -> dict[str, BootCheck]:
-    """Every registered check, in name order (a stable order for tests and output)."""
+    """Every registered check, in name order (a stable order for tests and output).
+
+    A copy: changing it changes nothing the starting process runs.
+    """
     return {name: _checks[name] for name in sorted(_checks)}
-
-
-def unregister_boot_check(name: str) -> None:
-    """Remove the check registered under *name*, if any (a test seam)."""
-    _checks.pop(name, None)
 
 
 def _run(name: str, check: BootCheck) -> str | None:
@@ -98,5 +100,4 @@ __all__ = [
     "boot_check_refusal",
     "boot_checks",
     "register_boot_check",
-    "unregister_boot_check",
 ]

@@ -65,7 +65,10 @@ cannot read a shell `RUN` line reliably and does not reach an app that never ado
    `terp.core`: a capability fills it at import, as the realtime capability fills
    `register_mandatory_store`. A second, different check under one name is refused, so two
    capabilities cannot replace each other's. A check that raises is a problem too, never a
-   pass.
+   pass. Nothing removes a registered check: a refusal that application code could switch off
+   in one line would not be one, so the registry has no unregister, and `boot_checks()` returns
+   a copy. A test isolates the registry by replacing its private mapping for the length of the
+   test.
 
    It is in the core because the core imports nothing above itself: `create_app` can run a
    capability's check only through something the core owns, so every capability with a
@@ -175,6 +178,12 @@ right, because a worker that reads stored files needs the same root.
 - **It does not add a catalog rule.** The invariant is a property of the image, the user and
   the mounts, which no source form holds. The build-time half is the template's and the
   generator's own tests of the image text, and the lanes that store a real file.
+- **It does not start a read-only local profile outside local, yet.** A local profile on a
+  read-only mount, such as an archive under `:ro`, fails the probe like any root that cannot
+  be written, and there is no declared way past it. That is a known limit, accepted by the
+  owner on 2026-11-20 rather than given a quiet route. The route is a profile that declares
+  itself read-only: the probe would then hold it to reading its root instead of writing one,
+  and a write to it would be refused by type. It waits for an app that needs one.
 
 ## Consequences
 
