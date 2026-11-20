@@ -2256,18 +2256,12 @@ def create_app(
     app.state.terp_module_specs = tuple(collected)
     app.state.terp_control_plane = resolved_plane
     freeze_app_route_registration(app)
-    # Last, over the frozen app: the routes it will serve are compared with the record it
-    # was released with, so an app that composes differently here does not serve (ADR 0212).
-    surface_refusal = startup_refusal(
-        app, resolved_plane, collected, local=settings.ENVIRONMENT == "local"
-    )
-    if surface_refusal is not None:
-        raise BootError(surface_refusal)
-    # Beside it, what the capabilities this process imported need from the image it runs
-    # in: a storage root the app's user can write, for one (ADR 0218).
-    check_refusal = boot_check_refusal(local=settings.ENVIRONMENT == "local")
-    if check_refusal is not None:
-        raise BootError(check_refusal)
+    # Last: its routes against its record (ADR 0212), then its image's needs (ADR 0218).
+    local = settings.ENVIRONMENT == "local"
+    refusal = startup_refusal(app, resolved_plane, collected, local=local)
+    refusal = refusal or boot_check_refusal(local=local)
+    if refusal is not None:
+        raise BootError(refusal)
     return app
 
 
