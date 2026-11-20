@@ -1904,12 +1904,18 @@ File objects (files capability, ADR 0056/0057)
   refusal. The production image makes the root its runtime user's before it drops to it:
       RUN useradd --create-home --uid 10001 appuser \\
           && mkdir -p /srv/var/files && chown appuser /srv/var/files
-  and the profile mounts the volume there:
-      api:
-        volumes:
-          - "files-data:/srv/var/files"
-  An app rendered before template 0.35 has neither: re-render (`copier update`) or add both
-  (`terp maintenance` names the case). A volume an older image made is root's; chown it once:
+  and the profile mounts the volume there, declared under its top-level volumes too (Compose
+  refuses a named volume a service mounts and the file does not declare):
+      services:
+        api:
+          volumes:
+            - "files-data:/srv/var/files"
+      volumes:
+        files-data:
+  An app rendered before template 0.35 has neither: re-render (`copier update`; the volume
+  comes only when the recorded use_files answer is true, so where it is false:
+  `copier update --data use_files=true`) or add both (`terp maintenance` names the case).
+  A volume an older image made is root's; chown it once:
       docker compose -f docker-compose.prod.yml run --rm --no-deps --user root api \\
           chown 10001 /srv/var/files
   Register every storage profile BEFORE create_app: one registered later is not probed. A

@@ -157,6 +157,8 @@ def test_an_app_rendered_before_0_35_with_files_is_told_its_image_cannot_write_t
     assert "; the production profile mounts no volume at /srv/var/files" in finding.remedy
     assert "`&& mkdir -p /srv/var/files && chown appuser /srv/var/files`" in finding.remedy
     assert "`files-data:/srv/var/files`" in finding.remedy and "chown 10001 /srv/var/files" in finding.remedy
+    # Followed as written, the compose file must load: the mounted volume is declared too.
+    assert "with `files-data:` under its top-level `volumes`" in finding.remedy
     assert finding.remedy.endswith("See: terp guide files.")
     report = Report("app", str(tmp_path), checked_at="T")
     report.findings.append(finding)

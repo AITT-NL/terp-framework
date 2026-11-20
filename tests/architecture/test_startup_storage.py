@@ -18,10 +18,12 @@ import io
 import logging
 import os
 import pathlib
+import textwrap
 from collections.abc import Iterator
 from typing import BinaryIO
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, create_engine
@@ -115,10 +117,38 @@ def test_a_deployed_app_whose_storage_root_cannot_be_written_refuses_to_start(
     # The remedy, for the image and for an app rendered before the template had it.
     assert "make that directory writable by the user the app runs as" in message
     assert "mount a named volume there" in message
-    assert "older than 0.35 re-renders it (`copier update`)" in message
+    assert "older than 0.35 re-renders it (`copier update`;" in message
+    # A re-render brings the volume only with the use_files answer, so the remedy says how.
+    assert "where it is false: `copier update --data use_files=true`" in message
     assert "mkdir -p /srv/var/files && chown appuser /srv/var/files" in message
-    assert "files-data:/srv/var/files" in message
+    # Followed as written, the compose file must load: the mounted volume is declared too.
+    assert "a `files-data:/srv/var/files` volume on `api` in docker-compose.prod.yml" in message
+    assert "with `files-data:` under its top-level `volumes`" in message
     assert message.endswith("see: terp guide files")
+
+
+def test_the_guides_hand_remedy_is_a_profile_that_declares_the_volume_it_mounts() -> None:
+    """``terp guide files`` gives the production profile's lines to copy by hand. Followed as
+    written they must leave a file Compose loads, and Compose refuses a named volume that a
+    service mounts and the file does not declare under its top-level ``volumes``."""
+    from terp.cli import _GUIDE_TOPICS
+
+    lines = _GUIDE_TOPICS["files"].splitlines()
+    start = next(i for i, line in enumerate(lines) if "the profile mounts the volume there" in line)
+    snippet: list[str] = []
+    for line in lines[start + 1 :]:
+        if line.startswith("      "):  # a snippet sits deeper than the bullet's prose
+            snippet.append(line)
+        elif snippet:
+            break
+    profile = yaml.safe_load(textwrap.dedent("\n".join(snippet)))
+    assert profile["services"]["api"]["volumes"] == ["files-data:/srv/var/files"]
+    mounted = {
+        mount.split(":", 1)[0]
+        for service in profile["services"].values()
+        for mount in service.get("volumes", [])
+    }
+    assert mounted <= set(profile.get("volumes") or {}), "every mounted volume is declared"
 
 
 def test_the_refusal_is_logged_the_way_a_deploy_reads_it(

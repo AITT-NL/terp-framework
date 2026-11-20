@@ -186,14 +186,18 @@ def _skip_to(stream: BinaryIO, offset: int) -> None:
 
 
 #: The remedy a refused start names: what makes the default root writable in the image the
-#: template renders, and how an app rendered before template 0.35 gets it.
+#: template renders, and how an app rendered before template 0.35 gets it. Followed as
+#: written it must leave a compose file that loads, so the volume the service mounts is
+#: declared under the top-level ``volumes`` too.
 _WRITABLE_ROOT_REMEDY: Final[str] = (
     "make that directory writable by the user the app runs as, and mount a named volume "
     "there so the files outlive the container. An app rendered from a template older than "
-    "0.35 re-renders it (`copier update`), or adds what the 0.35 Dockerfile.prod has: "
-    "`&& mkdir -p /srv/var/files && chown appuser /srv/var/files` on its `RUN useradd` line, "
-    "and a `files-data:/srv/var/files` volume on `api` in docker-compose.prod.yml "
-    "- see: terp guide files"
+    "0.35 re-renders it (`copier update`; the volume comes only when the recorded use_files "
+    "answer is true, so where it is false: `copier update --data use_files=true`), or adds "
+    "what the 0.35 production profile has: `&& mkdir -p /srv/var/files && chown appuser "
+    "/srv/var/files` on the `RUN useradd` line of Dockerfile.prod, and a "
+    "`files-data:/srv/var/files` volume on `api` in docker-compose.prod.yml, with "
+    "`files-data:` under its top-level `volumes` - see: terp guide files"
 )
 
 

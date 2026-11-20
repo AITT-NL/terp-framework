@@ -79,8 +79,11 @@ cannot read a shell `RUN` line reliably and does not reach an app that never ado
    `os.access`, because permission bits do not tell the whole truth on a network filesystem,
    under ACLs, or on a read-only mount. The sentence names the root, the error, the uid the
    process runs as, and the remedy: make the directory writable by that user and mount a named
-   volume there, and for an app rendered before 0.35, re-render or add the two lines the 0.35
-   `Dockerfile.prod` has.
+   volume there, and for an app rendered before 0.35, re-render (with `--data use_files=true`
+   where the recorded answer is false, or the volume does not come) or add what the 0.35
+   production profile has: the `RUN useradd` line's `mkdir` and `chown` in `Dockerfile.prod`,
+   and the `files-data` volume on `api` in `docker-compose.prod.yml`, declared under its
+   top-level `volumes`.
 4. **Only an unwritable root refuses.** A root that can be written but lies on the same
    filesystem as `/` is, in a container, not on a mounted volume: its files go with the
    container at the next deploy. That is a warning outside local
@@ -100,8 +103,8 @@ cannot read a shell `RUN` line reliably and does not reach an app that never ado
 7. **`terp maintenance` names this defect.** For an app that installs `terp-cap-files` and
    builds its own image, a `Dockerfile.prod` that never makes `/srv/var/files`, or a production
    profile with no volume there, is a `template-behind` finding with the subject
-   `terp-cap-files`, with the two lines, the re-render that brings them, and the one-time
-   `chown` of a volume an older image created. When a file is missing, a release ref older than
+   `terp-cap-files`, with the lines to add to the image and the profile, the re-render that
+   brings them, and the one-time `chown` of a volume an older image created. When a file is missing, a release ref older than
    0.35.0 decides. A `Dockerfile.prod` fixed by hand is not reported. One whose re-render dropped
    the line is, whatever its ref. The kinds and the `terp_maintenance: 1` document do not
    change.
@@ -142,7 +145,8 @@ right, because a worker that reads stored files needs the same root.
   the same app started and failed every upload.
 - The sentence an operator sees names the fix. `terp maintenance` names it ahead of the
   upgrade.
-- Every `create_app` creates the default root, `./var/files` relative to the working
-  directory, if it is missing. In a checkout that is an empty, untracked directory.
+- Every `create_app` in a process that imports the files capability creates each local
+  storage profile's root if it is missing: for the default profile, `./var/files` relative to
+  the working directory. In a checkout that is an empty, untracked directory.
 - A volume an older image created is root-owned and refuses too. The one-time `chown` from the
   0.35.0 upgrade notes repairs it.

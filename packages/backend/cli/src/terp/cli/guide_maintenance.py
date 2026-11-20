@@ -75,7 +75,7 @@ gate before it lands:
   platform-behind      `uv run terp upgrade --check` prints the recipe; read
                        `uv run terp guide changelog --since <your version>` first
   template-behind      `copier update`, reviewed as one change
-                       (for terp-cap-files: the two lines the remedy names, or
+                       (for terp-cap-files: the lines the remedy names, or
                        the re-render; `terp guide files`)
   known-vulnerability  `uv lock --upgrade-package <name>`; for npm,
                        `npm --prefix frontend install <name>@<fixed>` when package.json

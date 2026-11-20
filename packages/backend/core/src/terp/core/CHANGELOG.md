@@ -198,9 +198,9 @@ decision, 0001 onwards.
 - **`terp maintenance` names the files defect of a pre-0.35 render.** For an app that
   installs `terp-cap-files` and builds its own image, a `Dockerfile.prod` that never makes
   `/srv/var/files`, or a production profile with no volume there, is a `template-behind`
-  finding with the subject `terp-cap-files`. Its remedy gives the two lines, the re-render
-  that brings them, and the one-time `chown` of a volume an older image created. The finding
-  kinds and the `terp_maintenance: 1` document are unchanged.
+  finding with the subject `terp-cap-files`. Its remedy gives the lines to add to the image and
+  the profile, the re-render that brings them, and the one-time `chown` of a volume an older
+  image created. The finding kinds and the `terp_maintenance: 1` document are unchanged.
 
 ### Changed
 
@@ -278,17 +278,19 @@ decision, 0001 onwards.
   outside `ENVIRONMENT=local` on this release** until its image makes the storage root
   writable (ADR 0218). Before, it started and failed every upload with a 500. Terp Studio shows
   the refusal at release verification, before production. Re-render the scaffolding (`copier
-  update`; the volume comes only when the recorded `use_files` answer is true), or add `&&
-  mkdir -p /srv/var/files && chown appuser /srv/var/files` to the `RUN useradd` line of
-  `Dockerfile.prod` and a `files-data:/srv/var/files` volume on `api` in
-  `docker-compose.prod.yml`. A volume an older image created is owned by root: chown it once
+  update`; the volume comes only when the recorded `use_files` answer is true, so where it is
+  false run `copier update --data use_files=true`), or add `&& mkdir -p /srv/var/files &&
+  chown appuser /srv/var/files` to the `RUN useradd` line of `Dockerfile.prod`, and a
+  `files-data:/srv/var/files` volume on `api` in `docker-compose.prod.yml` with `files-data:`
+  under its top-level `volumes`. A volume an older image created is owned by root: chown it once
   (`docker compose -f docker-compose.prod.yml run --rm --no-deps --user root api chown 10001
   /srv/var/files`). `uv run --frozen terp maintenance` names the case. A composition root
   registers its storage profiles before it calls `create_app`: one registered later is not
   probed.
-- Every `create_app` now creates the default storage root, `./var/files` relative to the
-  working directory, if it is missing. In a checkout that is an empty directory, which the
-  template's `.gitignore` already ignores (`/var/`).
+- Every `create_app` in a process that imports the files capability now creates each local
+  storage profile's root if it is missing: for the default profile, `./var/files` relative to
+  the working directory. In a checkout that is an empty directory, which the template's
+  `.gitignore` already ignores (`/var/`).
 - `copier update` adds `terp-cap-egress` to the `dev` group of `pyproject.toml`; run `uv sync`.
   An app that does not re-render can add `"terp-cap-egress==0.43.0"` to that group by hand.
 - `sign` now refuses a release whose migration histories it cannot list, where it signed it
