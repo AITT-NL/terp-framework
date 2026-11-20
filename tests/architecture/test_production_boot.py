@@ -403,8 +403,20 @@ def test_template_acceptance_runs_the_production_profile_with_files_and_sso_on_d
         f'grep -F "{boot_tool.COMPARED}"',
         '-v "$RUNNER_TEMP/stale-surface.json:/srv/authz-surface.json:ro"',
         'grep -F "this app does not serve what authz-surface.json records"',
+        # A file is stored and read back through the files capability at the root the app
+        # composes, not written with pathlib to a path the step assumes; the api said it
+        # probed that root, and the image does not start as a user that cannot write it
+        # (ADR 0218).
+        'active_storage_backend().put("acceptance/probe", io.BytesIO(b"stored by the api"))',
+        'with active_storage_backend().open("acceptance/probe") as stored:',
+        'grep -E "boot checks passed: [a-z_, ]*files_storage"',
+        "$profile run --rm --no-deps -T --user 10002 api",
+        "files storage profile 'default': the storage root /srv/var/files cannot be written",
     ):
         assert fragment in run, fragment
+    assert '(root / "probe").write_text' not in run, (
+        "the volume is proved by storing through the capability, not by a pathlib write"
+    )
     # The image is built after a module was grown, so the record was written again with it.
     (grow,) = [s for s in _acceptance()["steps"] if "Grow the app the real way" in s.get("name", "")]
     written = "uv run terp inspect access --app app.main:build --format surface > authz-surface.json"
