@@ -146,23 +146,31 @@ def _files_findings(root: pathlib.Path) -> list[Finding]:
 
 def test_an_app_rendered_before_0_35_with_files_is_told_its_image_cannot_write_the_root(tmp_path: pathlib.Path) -> None:
     [finding] = _files_findings(_files_app(tmp_path))
-    # A defect in the render's files that a template release fixed, not a version pair (ADR 0214
-    # as ADR 0218 amends it): the file, and the release whose production files carry the fix.
+    # A kind of its own (ADR 0214 as ADR 0218 amends it): a defect in the render's files that a
+    # template release fixed, never a version pair.
     found = finding.as_dict()
     assert {key: found[key] for key in ("kind", "subject", "location", "installed", "latest", "fixed_in")} == {
-        "kind": "template-behind",
+        "kind": "scaffolding-defect",
         "subject": "terp-cap-files",
         "location": "Dockerfile.prod",
         "installed": None,
         "latest": None,
         "fixed_in": _platform.FILES_ROOT_TEMPLATE,
     }
-    assert finding.remedy.startswith(
-        "This app installs terp-cap-files and its scaffolding was rendered from template v0.34.0: the production "
-        "image does not create /srv/var/files owned by the user it runs as"
+    # A reader that does not know the kind shows the subject and the remedy's opening only (the
+    # tool that manages the app clips it at 300 characters): the opening says what is wrong and the fix.
+    opening = finding.remedy[:299]
+    assert opening.startswith(
+        "The production image does not make the files storage root /srv/var/files writable for its user: "
+        "uploads fail, and on Terp 0.43 or later the app refuses to start outside ENVIRONMENT=local. "
     )
-    assert "refuses to start outside ENVIRONMENT=local" in finding.remedy
-    assert "; the production profile mounts no volume at /srv/var/files" in finding.remedy
+    assert "Fix: re-render from template 0.35.0 or later, or add its lines by hand (terp guide files)." in opening
+    assert "The production profile mounts no volume there either" in finding.remedy
+    assert (
+        "Read from this app, which installs terp-cap-files: Dockerfile.prod names var/files on no line but a "
+        "comment; docker-compose.prod.yml names var/files on no line but a comment; its scaffolding was "
+        "rendered from template v0.34.0." in finding.remedy
+    )
     assert "`&& mkdir -p /srv/var/files && chown appuser /srv/var/files`" in finding.remedy
     assert "`files-data:/srv/var/files`" in finding.remedy and "chown 10001 /srv/var/files" in finding.remedy
     # Followed as written, the compose file must load: the mounted volume is declared too.
@@ -170,12 +178,13 @@ def test_an_app_rendered_before_0_35_with_files_is_told_its_image_cannot_write_t
     assert finding.remedy.endswith("See: terp guide files.")
     report = Report("app", str(tmp_path), checked_at="T")
     report.findings.append(finding)
-    assert "  template-behind: terp-cap-files in Dockerfile.prod: lacks what template 0.35.0 added\n" in report.as_text()
+    assert "  scaffolding-defect: terp-cap-files in Dockerfile.prod: lacks what template 0.35.0 added\n" in report.as_text()
 
 
 def test_an_older_render_with_neither_production_file_is_told_both_halves(tmp_path: pathlib.Path) -> None:
     [finding] = _files_findings(_files_app(tmp_path, dockerfile=None, compose=None))
-    assert finding.location == "Dockerfile.prod" and "mounts no volume" in finding.remedy
+    assert finding.location == "Dockerfile.prod" and "mounts no volume there either" in finding.remedy
+    assert "there is no Dockerfile.prod; there is no docker-compose.prod.yml;" in finding.remedy
 
 
 def test_a_root_fixed_by_hand_is_not_reported_and_a_dropped_line_is_whatever_the_ref(tmp_path: pathlib.Path) -> None:
@@ -187,26 +196,28 @@ def test_a_root_fixed_by_hand_is_not_reported_and_a_dropped_line_is_whatever_the
     assert (image.installed, image.latest, image.fixed_in) == (None, None, _platform.FILES_ROOT_TEMPLATE)
     report = Report("app", str(tmp_path), checked_at="T")
     report.findings.append(image)
-    assert "  template-behind: terp-cap-files in Dockerfile.prod: lacks what template 0.35.0 added\n" in report.as_text()
+    assert "  scaffolding-defect: terp-cap-files in Dockerfile.prod: lacks what template 0.35.0 added\n" in report.as_text()
     assert "v0.40.0 -> " not in report.as_text()
     [volume] = _files_findings(_files_app(tmp_path / "no-volume", commit="v0.40.0", dockerfile=_035_DOCKERFILE))
-    assert volume.location == "docker-compose.prod.yml"
+    assert (volume.kind, volume.location) == ("scaffolding-defect", "docker-compose.prod.yml")
     assert volume.remedy.startswith(
-        "This app installs terp-cap-files and its scaffolding was rendered from template v0.40.0: the production "
-        "profile mounts no volume at /srv/var/files, so the files stored there go with the container"
+        "The production profile mounts no volume at the files storage root /srv/var/files, so the files stored "
+        "there go with the container at the next deploy. Fix: re-render from template 0.35.0 or later"
     )
+    # An image that can write its root is not said to fail uploads or to refuse its start.
+    assert "uploads fail" not in volume.remedy and "refuses to start" not in volume.remedy
+    assert "its scaffolding was rendered from template v0.40.0." in volume.remedy
     assert "`copier update --data use_files=true`" in volume.remedy
 
 
 def test_an_app_with_no_recorded_template_is_read_from_its_files_alone(tmp_path: pathlib.Path) -> None:
     [finding] = _files_findings(_files_app(tmp_path / "unrendered", commit=None, compose=_035_COMPOSE))
-    assert (finding.installed, finding.fixed_in) == (None, _platform.FILES_ROOT_TEMPLATE)
-    assert finding.remedy.startswith(
-        "This app installs terp-cap-files and its scaffolding records no template ref: the production image"
-    )
+    assert (finding.kind, finding.installed, finding.fixed_in) == ("scaffolding-defect", None, "0.35.0")
+    assert finding.remedy.startswith("The production image does not make the files storage root /srv/var/files")
+    assert "its scaffolding records no template ref." in finding.remedy
     report = Report("app", str(tmp_path), checked_at="T")
     report.findings.append(finding)
-    assert "  template-behind: terp-cap-files in Dockerfile.prod: lacks what template 0.35.0 added\n" in report.as_text()
+    assert "  scaffolding-defect: terp-cap-files in Dockerfile.prod: lacks what template 0.35.0 added\n" in report.as_text()
     # Neither file to read and no ref to place the render: nothing is claimed.
     assert _files_findings(_files_app(tmp_path / "bare", commit=None, dockerfile=None, compose=None)) == []
     # A ref that is not a release cannot be placed either.

@@ -116,15 +116,34 @@ def template(root: pathlib.Path, report: Report, platform: str) -> None:
 #: whose user cannot write ``/srv/var/files``.
 FILES_ROOT_TEMPLATE = "0.35.0"
 
+#: How the remedy opens: what is wrong, then the fix. A reader that does not know the kind
+#: shows the subject and the remedy's opening only (the tool that manages the app clips it at
+#: 300 characters), so the opening alone must say both.
+_FILES_ROOT_IMAGE = (
+    "The production image does not make the files storage root /srv/var/files writable for its "
+    "user: uploads fail, and on Terp 0.43 or later the app refuses to start outside "
+    "ENVIRONMENT=local."
+)
+_FILES_ROOT_VOLUME = (
+    "The production profile mounts no volume at the files storage root /srv/var/files, so the "
+    "files stored there go with the container at the next deploy."
+)
+_FILES_ROOT_ALSO_VOLUME = (
+    "The production profile mounts no volume there either, so stored files go with the container "
+    "at the next deploy."
+)
+_FILES_ROOT_FIX = "Fix: re-render from template {template} or later, or add its lines by hand (terp guide files)."
+
+#: The detail after the opening: the re-render's one condition, the lines by hand, the chown.
 _FILES_ROOT_REMEDY = (
-    "Re-render the scaffolding from template {template} or later (`copier update`; it brings the "
-    "volume only when the recorded use_files answer is true: `copier update --data use_files=true`), "
-    "or add what that production profile has: `&& mkdir -p /srv/var/files && chown appuser "
-    "/srv/var/files` on the `RUN useradd` line of Dockerfile.prod, and a "
-    "`files-data:/srv/var/files` volume on `api` in docker-compose.prod.yml, with `files-data:` "
-    "under its top-level `volumes`. A volume an older image already created is owned by root: "
-    "chown it once, `docker compose -f docker-compose.prod.yml run --rm --no-deps --user root api "
-    "chown 10001 /srv/var/files`. See: terp guide files."
+    "A re-render (`copier update`) brings the volume only when the recorded use_files answer is "
+    "true: `copier update --data use_files=true`. By hand, add what that template's production "
+    "profile has: `&& mkdir -p /srv/var/files && chown appuser /srv/var/files` on the `RUN "
+    "useradd` line of Dockerfile.prod, and a `files-data:/srv/var/files` volume on `api` in "
+    "docker-compose.prod.yml, with `files-data:` under its top-level `volumes`. A volume an older "
+    "image already created is owned by root: chown it once, `docker compose -f "
+    "docker-compose.prod.yml run --rm --no-deps --user root api chown 10001 /srv/var/files`. "
+    "See: terp guide files."
 )
 
 
@@ -174,10 +193,11 @@ def files_storage(root: pathlib.Path, report: Report) -> None:
     Under ``"build": "generated"`` the framework writes the image and its mounts, and nothing
     here applies.
 
-    The finding is a defect in the render's own files, not a version behind, so it names the
-    file (``location``) and the template release whose production files first carried the
-    fix (``fixed_in``), and leaves ``installed`` and ``latest`` unset: a render from a later
-    template can lack the line too (ADR 0214, amended by ADR 0218).
+    The finding is a kind of its own, ``scaffolding-defect`` (ADR 0214 as ADR 0218 amends it):
+    a defect in the render's own files, not a version behind. It names the file (``location``)
+    and the template release whose production files first carried the fix (``fixed_in``), and
+    leaves ``installed`` and ``latest`` unset, because a render from a later template can lack
+    the line too. Its remedy opens with what is wrong and the fix.
     """
     if not _installs_files(root):
         return
@@ -190,38 +210,30 @@ def files_storage(root: pathlib.Path, report: Report) -> None:
     ref = scaffold_ref(root)
     release = re.fullmatch(r"v?(\d+(?:\.\d+)*)", ref or "")
     older = release is not None and _version_key(release.group(1)) < _version_key(FILES_ROOT_TEMPLATE)
-    image = _names_files_root(root / "Dockerfile.prod")
-    volume = _names_files_root(root / "docker-compose.prod.yml")
-    missing: list[tuple[str, str]] = []
-    if image is False or (image is None and older):
-        missing.append(
-            (
-                "Dockerfile.prod",
-                "the production image does not create /srv/var/files owned by the user it runs as, "
-                "so the files capability cannot write its storage root: every upload fails, and on "
-                "Terp 0.43 or later the process refuses to start outside ENVIRONMENT=local",
-            )
-        )
-    if volume is False or (volume is None and older):
-        missing.append(
-            (
-                "docker-compose.prod.yml",
-                "the production profile mounts no volume at /srv/var/files, so the files stored "
-                "there go with the container at the next deploy",
-            )
-        )
-    if not missing:
+    read = {
+        name: _names_files_root(root / name) for name in ("Dockerfile.prod", "docker-compose.prod.yml")
+    }
+    gaps = [name for name, named in read.items() if named is False or (named is None and older)]
+    if not gaps:
         return
+    image = gaps[0] == "Dockerfile.prod"
+    opening = [_FILES_ROOT_IMAGE if image else _FILES_ROOT_VOLUME]
+    opening.append(_FILES_ROOT_FIX.format(template=FILES_ROOT_TEMPLATE))
+    if image and len(gaps) == 2:
+        opening.append(_FILES_ROOT_ALSO_VOLUME)
+    found = "; ".join(
+        f"{name} names var/files on no line but a comment" if read[name] is False else f"there is no {name}"
+        for name in gaps
+    )
     rendered = f"was rendered from template {ref}" if ref else "records no template ref"
     report.findings.append(
         Finding(
-            "template-behind",
+            "scaffolding-defect",
             "terp-cap-files",
-            f"This app installs terp-cap-files and its scaffolding {rendered}: "
-            + "; ".join(sentence for _, sentence in missing)
-            + ". "
-            + _FILES_ROOT_REMEDY.format(template=FILES_ROOT_TEMPLATE),
-            location=missing[0][0],
+            " ".join(opening)
+            + f" Read from this app, which installs terp-cap-files: {found}; its scaffolding {rendered}. "
+            + _FILES_ROOT_REMEDY,
+            location=gaps[0],
             fixed_in=FILES_ROOT_TEMPLATE,
         )
     )

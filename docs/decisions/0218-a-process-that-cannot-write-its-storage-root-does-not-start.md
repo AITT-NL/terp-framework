@@ -16,8 +16,8 @@
   volume and the production boot"), which fixed the template in 0.35.0 and reached no app
   rendered before it. Amends the maintenance report of
   [ADR 0214](0214-a-maintenance-report-says-what-an-app-should-maintain-and-is-no-gate.md):
-  its `template-behind` gains a finding with a subject of its own, which is a defect in a
-  render's files rather than a version behind (item 7). The deployment notes of
+  its kinds gain `scaffolding-defect`, a defect in a render's files rather than a version
+  behind (item 7). The deployment notes of
   [ADR 0184](0184-a-deployment-declares-its-units.md) stay notes. Supersedes nothing.
 
 ## Decision
@@ -101,23 +101,32 @@ cannot read a shell `RUN` line reliably and does not reach an app that never ado
    it back, reads it again from a new api container, and holds the start to the `boot checks
    passed` line. Template acceptance stores and reads through the capability's own backend,
    and shows that the same image refuses to start as a user that cannot write the volume.
-7. **`terp maintenance` names this defect.** For an app that installs `terp-cap-files` and
-   builds its own image, it reads the text of `Dockerfile.prod` and `docker-compose.prod.yml`.
-   Either one in which no line but a comment names `var/files` is a `template-behind` finding
-   with the subject `terp-cap-files`, with the lines to add to the image and the profile, the
-   re-render that brings them, and the one-time `chown` of a volume an older image created.
-   When a file is missing, a release ref older than 0.35.0 decides. A `Dockerfile.prod` fixed
-   by hand is not reported. One whose re-render dropped the line is, whatever its ref, so the
-   finding is a defect in the render's files, not a version behind: its `location` is the
-   file, its `fixed_in` is 0.35.0, the template release whose production files first carried
-   the fix, and its `installed` and `latest` are `null`, so a render from a later template
-   never reads as a downgrade. Its text headline reads
-   `terp-cap-files in Dockerfile.prod: lacks what template 0.35.0 added`. It reads text, not
-   ownership: any line that names the path counts, so a `VOLUME /srv/var/files`, which leaves
-   the mount point owned by root, reads as fixed. Whether the root can be written is proven by
-   the process itself (items 1 to 3), not by this report. ADR 0214 defined `template-behind`
-   as the scaffolding's ref against the platform, and is amended to name this finding too.
-   The kinds and the `terp_maintenance: 1` document do not change.
+7. **`terp maintenance` names this defect, under a kind of its own.** For an app that installs
+   `terp-cap-files` and builds its own image, it reads the text of `Dockerfile.prod` and
+   `docker-compose.prod.yml`. Either one in which no line but a comment names `var/files` is a
+   `scaffolding-defect` finding with the subject `terp-cap-files`. When a file is missing, a
+   release ref older than 0.35.0 decides. A `Dockerfile.prod` fixed by hand is not reported.
+   One whose re-render dropped the line is, whatever its ref, so the finding is a defect in
+   the render's files, not a version behind: its `location` is the file, its `fixed_in` is
+   0.35.0, the template release whose production files first carried the fix, and its
+   `installed` and `latest` are `null`. Its text headline reads
+   `terp-cap-files in Dockerfile.prod: lacks what template 0.35.0 added`. Its remedy opens with
+   what is wrong (a storage root the image's user cannot write, so uploads fail and the start
+   is refused outside `ENVIRONMENT=local`; or no volume there) and the fix, then names what it
+   read, the lines to add to the image and the profile, the re-render that brings them, and
+   the one-time `chown` of a volume an older image created. It reads text, not ownership: any
+   line that names the path counts, so a `VOLUME /srv/var/files`, which leaves the mount point
+   owned by root, reads as fixed. Whether the root can be written is proven by the process
+   itself (items 1 to 3), not by this report.
+
+   It is not a `template-behind` finding. ADR 0214 defines that kind as the scaffolding's ref
+   against the platform, and a reader of it shows the `installed` ref, which this finding does
+   not have. What changes in the document is one kind: ADR 0214's list gains
+   `scaffolding-defect`, after `template-behind`. Every finding keeps the same keys, and the
+   format version stays `terp_maintenance: 1`, because the kind joins before that version is
+   first released, in 0.43.0 with the report itself. The tool that manages the app shows a
+   kind it does not know by its subject and the opening of its remedy, which is why that
+   opening says what is wrong and what to do.
 8. **Celery beat keeps its schedule file out of the app root.** Celery opens beat's schedule
    file under a relative default name in the working directory, `/srv` in the production image,
    which the runtime user cannot write. The template's production profile runs no beat and the

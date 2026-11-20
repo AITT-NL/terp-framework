@@ -14,16 +14,16 @@ changes nothing:
                        or @terpjs/* (from the frontend's registry, read by npm view)
   template-behind      the scaffolding was rendered from an older template than the
                        platform the app runs (copier's _commit)
-                       and, apart from that, one defect a re-render fixes, named
-                       on its own (subject terp-cap-files): an app that installs the
+  scaffolding-defect   a defect in the app's own scaffolding that a template release
+                       fixed, read from its files, never a version behind (ADR 0218).
+                       One so far, subject terp-cap-files: an app that installs the
                        files capability and builds its own image, whose
                        Dockerfile.prod or docker-compose.prod.yml has no line but a
                        comment that names var/files (a render older than template
                        0.35, or one that dropped the line). Such an app's uploads
                        fail, and on Terp 0.43 or later it refuses to start outside
-                       ENVIRONMENT=local (ADR 0218). The report reads the text, not
-                       who owns the directory: the process's own boot check proves
-                       that
+                       ENVIRONMENT=local. The report reads the text, not who owns
+                       the directory: the process's own boot check proves that
   known-vulnerability  a package in uv.lock or a web image's package-lock.json matches a
                        published advisory in OSV, with the lowest version that clears
                        every advisory that has a fix
@@ -78,8 +78,8 @@ gate before it lands:
   platform-behind      `uv run terp upgrade --check` prints the recipe; read
                        `uv run terp guide changelog --since <your version>` first
   template-behind      `copier update`, reviewed as one change
-                       (for terp-cap-files: the lines the remedy names, or
-                       the re-render; `terp guide files`)
+  scaffolding-defect   what its remedy names: the re-render, or the lines by hand
+                       (for terp-cap-files: `terp guide files`)
   known-vulnerability  `uv lock --upgrade-package <name>`; for npm,
                        `npm --prefix frontend install <name>@<fixed>` when package.json
                        names it, `npm --prefix frontend update <name>` when another

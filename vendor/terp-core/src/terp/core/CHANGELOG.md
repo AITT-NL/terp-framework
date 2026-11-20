@@ -117,6 +117,8 @@ decision, 0001 onwards.
     view`, against the frontend's registry);
   - `template-behind`: the scaffolding was rendered from an older template than the platform
     the app runs;
+  - `scaffolding-defect`: a defect in the app's own scaffolding that a template release fixed,
+    read from its files, never a version behind (ADR 0218, below);
   - `known-vulnerability`: a package in `uv.lock` or in any npm lock the release plan builds a
     web image from matches a published advisory in OSV. One advisory per flaw, with its
     aliases, the severity its source gives, and the lowest version that clears every
@@ -209,19 +211,20 @@ decision, 0001 onwards.
   failure names the path, the cause, the user the app runs as, and the remedy. A writable root
   on the same filesystem as `/` is a warning outside local (`boot_warning()`), never a
   refusal.
-- **`terp maintenance` names the files defect of a pre-0.35 render.** For an app that
-  installs `terp-cap-files` and builds its own image, a `Dockerfile.prod` or
-  `docker-compose.prod.yml` in which no line but a comment names `var/files` (or either file
-  missing, where the recorded ref is a release older than 0.35.0) is a `template-behind`
-  finding with the subject `terp-cap-files`. It reads the text, not ownership: a line such as
-  `VOLUME /srv/var/files`, which leaves the mount point owned by root, reads as fixed, and the
-  process's own boot check is what proves the root writable. Its remedy gives the lines to add
-  to the image and the profile, the re-render that brings them, and the one-time `chown` of a
-  volume an older image created. It is a defect in the render's files, not a version behind, so
-  its `location` is the file, its `fixed_in` is 0.35.0, the template release that fixed it,
-  and its `installed` and `latest` are `null`: a later render that dropped the line never reads
-  as a downgrade. ADR 0214's `template-behind` is amended to name it. The finding kinds and the
-  `terp_maintenance: 1` document are unchanged.
+- **`terp maintenance` names the files defect of a pre-0.35 render, under a new kind,
+  `scaffolding-defect`.** For an app that installs `terp-cap-files` and builds its own image,
+  a `Dockerfile.prod` or `docker-compose.prod.yml` in which no line but a comment names
+  `var/files` (or either file missing, where the recorded ref is a release older than 0.35.0)
+  is a `scaffolding-defect` finding with the subject `terp-cap-files`. It reads the text, not
+  ownership: a line such as `VOLUME /srv/var/files`, which leaves the mount point owned by
+  root, reads as fixed, and the process's own boot check is what proves the root writable. Its
+  remedy opens with what is wrong and the fix, then gives the lines to add to the image and the
+  profile, the re-render that brings them, and the one-time `chown` of a volume an older image
+  created. It is a defect in the render's files, not a version behind, so its `location` is the
+  file, its `fixed_in` is 0.35.0, the template release that fixed it, and its `installed` and
+  `latest` are `null`. In the document this adds one kind and nothing else: ADR 0214's list
+  gains `scaffolding-defect` after `template-behind`, every finding keeps the same keys, and
+  the format version stays `terp_maintenance: 1`, which this release is the first to publish.
 
 ### Changed
 
