@@ -778,7 +778,8 @@ def test_a_declared_operation_in_the_catalog_boots() -> None:
     assert create_app([spec], control_plane=plane).title == "Terp app"
 
 
-def test_an_undeclared_route_boots_with_coverage_off_and_is_refused_under_strict() -> None:
+@pytest.mark.parametrize("coverage", [OperationCoverage.STRICT, "strict"])
+def test_an_undeclared_route_boots_with_coverage_off_and_is_refused_under_strict(coverage: OperationCoverage) -> None:
     # The feature is optional, the guarantee is not. Both halves in one test because
     # each is only meaningful against the other: if OFF refused, the control would be
     # a breaking change for every existing app; if STRICT accepted, there would be no
@@ -789,10 +790,17 @@ def test_an_undeclared_route_boots_with_coverage_off_and_is_refused_under_strict
     assert create_app([spec], control_plane=ControlPlane()).title == "Terp app"
 
     strict = ControlPlane(
-        operations=OperationCatalog(coverage=OperationCoverage.STRICT)
+        operations=OperationCatalog(coverage=coverage)
     )
     with pytest.raises(BootError, match="coverage is STRICT"):
         create_app([spec], control_plane=strict)
+
+
+def test_unknown_control_plane_coverage_modes_fail_at_configuration() -> None:
+    with pytest.raises(ValueError, match="OperationCoverage"):
+        OperationCatalog(coverage="strcit")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="LabelCoverage"):
+        PermissionModel(label_coverage="strcit")  # type: ignore[arg-type]
 
 
 def test_decide_answers_every_branch_the_guard_used_to_answer_inline() -> None:
@@ -930,7 +938,8 @@ def test_the_undeclared_permission_gate_sees_a_dependency_in_the_signature_too()
         assert create_app([spec], control_plane=plane).title == "Terp app"
 
 
-def test_an_unlabelled_permission_boots_with_coverage_off_and_is_refused_under_strict() -> None:
+@pytest.mark.parametrize("coverage", [LabelCoverage.STRICT, "strict"])
+def test_an_unlabelled_permission_boots_with_coverage_off_and_is_refused_under_strict(coverage: LabelCoverage) -> None:
     """The permission half of ADR 0102's promise, staged the same way.
 
     Both halves in one test for the same reason the operation-coverage case gives: each is
@@ -946,7 +955,7 @@ def test_an_unlabelled_permission_boots_with_coverage_off_and_is_refused_under_s
 
     strict = ControlPlane(
         permissions=PermissionModel(
-            permissions=(unlabelled,), label_coverage=LabelCoverage.STRICT
+            permissions=(unlabelled,), label_coverage=coverage
         )
     )
     with pytest.raises(BootError, match="label coverage is STRICT"):

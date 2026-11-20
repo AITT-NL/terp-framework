@@ -117,6 +117,7 @@ class OperationCatalog:
     coverage: OperationCoverage = OperationCoverage.OFF
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "coverage", OperationCoverage(self.coverage))
         operations = tuple(self.operations)
         by_id: dict[str, OperationDefinition] = {}
         for definition in operations:
