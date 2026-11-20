@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import pathlib
 import re
 import sys
@@ -187,6 +188,48 @@ def test_compose_runs_with_an_allowlisted_environment_never_its_own(tmp_path: pa
         assert env_seen["SECRET_KEY"] == "s" * 40 and env_seen["POSTGRES_PASSWORD"] == "p"
         assert "AWS_SECRET_ACCESS_KEY" not in env_seen and not any(name.startswith("COMPOSE_") for name in env_seen)
         assert env_seen["DOCKER_HOST"] == "unix:///d"
+
+
+def test_promotions_disable_implicit_compose_environment_files(tmp_path: pathlib.Path, keys, monkeypatch) -> None:
+    runs = docker()
+    _promote(tmp_path, keys, runs=runs, monkeypatch=monkeypatch)
+    calls = runs.ran("docker", "compose")
+    assert calls
+    for call in calls:
+        assert call[call.index("--env-file") + 1] == os.devnull
+
+
+def test_project_outputs_stay_in_the_deployment_directory(tmp_path: pathlib.Path) -> None:
+    project = tmp_path / "deploy"
+    project.mkdir()
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (project / ".terp").symlink_to(shared, target_is_directory=True)
+    with pytest.raises(ReleaseError, match="filesystem link"):
+        promote._write_project_file(project, ".terp/reading.json", "{}")
+    assert list(shared.iterdir()) == []
+
+    original = shared / "original"
+    original.write_text("original")
+    target = project / "profile.yml"
+    target.symlink_to(original)
+    with pytest.raises(ReleaseError, match="filesystem link"):
+        promote._write_project_file(project, "profile.yml", "updated")
+    target.unlink()
+    target.hardlink_to(original)
+    promote._write_project_file(project, "profile.yml", "updated")
+    assert target.read_text() == "updated"
+    assert original.read_text() == "original"
+
+
+def test_redirected_journal_is_refused_before_docker_runs(tmp_path: pathlib.Path, keys, monkeypatch) -> None:
+    project = tmp_path / "deploy"
+    project.mkdir()
+    (project / ".terp").symlink_to(tmp_path, target_is_directory=True)
+    runs = docker()
+    with pytest.raises(ReleaseError, match="filesystem link"):
+        _promote(tmp_path, keys, runs=runs, monkeypatch=monkeypatch)
+    assert not runs.calls
 
 
 def test_without_a_migration_step_the_one_api_runs_the_upgrade(tmp_path: pathlib.Path, keys, monkeypatch) -> None:

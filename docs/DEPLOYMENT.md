@@ -357,6 +357,14 @@ declares that `healthPath` or none. A site that needs another policy is `"build"
 
 ## Releasing and promoting (`terp release`, `terp promote`)
 
+Keep the promotion directory writable only by the deployment operator. Promotion
+replaces its carried files and version journal atomically per file and refuses
+linked output paths inside that directory. Supply Compose interpolation values
+through the operator environment. Promotion disables implicit project and
+working-directory `.env` loading. Explicit service `env_file` entries in the
+signed profile still apply to the services that declare them.
+
+
 A declared app can be released as a signed, exact-commit set of images and deployed from it
 without a checkout or a rebuild (ADR 0187 decision 6). The release is three jobs, and each is
 meant to run on a fresh host that is discarded after it, because the second one runs the app:

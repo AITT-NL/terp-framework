@@ -267,14 +267,36 @@ def _compose(project: pathlib.Path, release: Release) -> list[str]:
     files: list[str] = []
     for path in release.declaration.profile_files:
         files += ["-f", str(project / path)]
-    return ["docker", "compose", "--project-directory", str(project), *files]
+    # Compose also reads the project or working directory's .env by default.
+    # The signed profile obtains interpolation values only from _environment.
+    return ["docker", "compose", "--env-file", os.devnull, "--project-directory", str(project), *files]
+
+
+def _project_target(project: pathlib.Path, relative: str) -> pathlib.Path:
+    """Resolve output beneath the operator-owned root without following nested links."""
+    root = project.resolve()
+    target = root / _relative(relative)
+    if target.parent.resolve() != target.parent or target.is_symlink():
+        raise ReleaseError(f"deployment output {relative!r} is redirected by a filesystem link")
+    return target
+
+
+def _write_project_file(project: pathlib.Path, relative: str, content: str) -> None:
+    target = _project_target(project, relative)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # Replacing the directory entry also avoids following pre-existing hard links.
+    fd, staged = tempfile.mkstemp(dir=target.parent)
+    try:
+        with os.fdopen(fd, "wb") as output:
+            output.write(content.encode("utf-8"))
+        os.replace(staged, target)
+    finally:
+        pathlib.Path(staged).unlink(missing_ok=True)
 
 
 def _write(project: pathlib.Path, release: Release) -> None:
     for item in release.files:
-        target = project / item["path"]
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(item["content"].encode("utf-8"))
+        _write_project_file(project, item["path"], item["content"])
 
 
 def _upgrade_unit(release: Release) -> tuple[str, list[str] | None]:
@@ -387,6 +409,12 @@ def promote(
     environment = _environment(release, env if env is not None else os.environ)
     project = pathlib.Path(project_dir)
     project.mkdir(parents=True, exist_ok=True)
+    journal = f".terp/versions-before-{release.tag}.json"
+    _project_target(project, journal)
+    for candidate in (release, previous):
+        if candidate is not None:
+            for item in candidate.files:
+                _project_target(project, item["path"])
     log = [f"verified {release.tag} (key {release.keyid[:16]})"]
     _images(release, environment, pull=True)
     _authorize_risk(release.manifest, risk_policy)
@@ -396,9 +424,7 @@ def promote(
         require(run(_up(compose, _kinds(release), environment, no_deps=False), env=environment), "starting the datastores")
         log.append(f"started {', '.join(_kinds(release))}")
     reading = _versions(compose, _upgrade_unit(release)[0], environment)
-    journal = project / ".terp" / f"versions-before-{release.tag}.json"
-    journal.parent.mkdir(parents=True, exist_ok=True)
-    journal.write_text(json.dumps(reading, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    _write_project_file(project, journal, json.dumps(reading, sort_keys=True, indent=2) + "\n")
     log.append(f"read {len(reading)} version tables before the migration step ({journal})")
     if rollback:
         # Restored, the target's own check must pass on the database before its step runs.
