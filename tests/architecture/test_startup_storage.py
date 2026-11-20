@@ -24,9 +24,8 @@ from typing import BinaryIO
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import SQLModel, create_engine
 
-import terp.capabilities.files.storage as storage_module
 import terp.core.boot_checks as boot_checks_module
 from terp.core import BootError, ControlPlane, ModuleSpec, Policy, create_app, register_boot_check
 from terp.core._internal.session_guard import WriteGuardedSession
