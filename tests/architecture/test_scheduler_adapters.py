@@ -331,6 +331,51 @@ def test_celery_beat_install_merges_onto_the_app_config(session_factory) -> None
     assert "sync.customers.nightly" in app.conf.beat_schedule
 
 
+def test_celery_beat_keeps_its_schedule_file_out_of_the_working_directory(session_factory, tmp_path) -> None:
+    """ADR 0218: beat opens a relative schedule file in its working directory, which the
+    production image's user cannot write. install() moves Celery's default to the temporary
+    directory, and the file beat then writes lands there, never in the working directory."""
+    import os
+    import tempfile
+
+    from celery.beat import PersistentScheduler
+
+    from terp.capabilities.scheduler_celery_beat.scheduler import CELERY_DEFAULT_SCHEDULE_FILENAME
+
+    configure_jobs(JobCatalog([_job()]))
+    app = Celery("terp-beat-schedule-file-test")
+    assert app.conf.beat_schedule_filename == CELERY_DEFAULT_SCHEDULE_FILENAME, "Celery's default moved"
+    CeleryBeatScheduler(app, session_factory).install()
+    assert app.conf.beat_schedule_filename == os.path.join(tempfile.gettempdir(), CELERY_DEFAULT_SCHEDULE_FILENAME)
+    assert os.path.isabs(app.conf.beat_schedule_filename)
+
+    # Beat's own scheduler, opened as `celery beat` opens it, writes where the config says.
+    temp = tmp_path / "tmp"
+    temp.mkdir()
+    cwd = tmp_path / "srv"
+    cwd.mkdir()
+    moved = Celery("terp-beat-schedule-file-written")
+    previous_tempdir, previous_cwd = tempfile.tempdir, os.getcwd()
+    tempfile.tempdir = str(temp)
+    os.chdir(cwd)
+    try:
+        CeleryBeatScheduler(moved, session_factory).install()
+        scheduler = PersistentScheduler(app=moved, schedule_filename=moved.conf.beat_schedule_filename, lazy=True)
+        scheduler.setup_schedule()
+        scheduler.close()
+    finally:
+        tempfile.tempdir = previous_tempdir
+        os.chdir(previous_cwd)
+    assert list(cwd.iterdir()) == [], "nothing is written in the working directory"
+    assert any(path.name.startswith(CELERY_DEFAULT_SCHEDULE_FILENAME) for path in temp.iterdir())
+
+    # A path the app chose is its own.
+    own = Celery("terp-beat-schedule-file-own")
+    own.conf.beat_schedule_filename = str(tmp_path / "state" / "beat")
+    CeleryBeatScheduler(own, session_factory).install()
+    assert own.conf.beat_schedule_filename == str(tmp_path / "state" / "beat")
+
+
 def test_to_crontab_parses_five_fields_and_rejects_others() -> None:
     parsed = _to_crontab("30 4 * * 1")
     assert isinstance(parsed, crontab)

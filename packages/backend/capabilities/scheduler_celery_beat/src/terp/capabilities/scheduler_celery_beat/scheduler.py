@@ -35,6 +35,8 @@ identically) for the ticks.
 
 from __future__ import annotations
 
+import os
+import tempfile
 from collections.abc import Callable
 from typing import Any
 
@@ -55,6 +57,11 @@ from celery import Celery  # arch-allow-no-adhoc-background-runtime: this capabi
 from celery.schedules import crontab  # arch-allow-no-adhoc-background-runtime: the cron parser the scheduler seam delegates to
 
 _TASK_PREFIX = "terp.schedule."
+
+#: Celery's own default for beat's schedule file: a relative name, so beat opens it in its
+#: working directory. In the production image that is the app root, which the user the app
+#: runs as cannot write, so beat would stop at its first start (ADR 0218).
+CELERY_DEFAULT_SCHEDULE_FILENAME = "celerybeat-schedule"
 
 
 def _to_crontab(cron: str) -> crontab:
@@ -169,10 +176,22 @@ class CeleryBeatScheduler(Scheduler):
         return dict(self._beat_schedule)
 
     def install(self) -> None:
-        """Merge the built ``beat_schedule`` onto the Celery app's config (then run beat)."""
+        """Merge the built ``beat_schedule`` onto the Celery app's config (then run beat).
+
+        Where the app left beat's schedule file at Celery's relative default, it moves to the
+        temporary directory, which the user the app runs as can write: the working directory
+        of the production image cannot be written (ADR 0218). The file is beat's own cache of
+        when each entry last ran; the schedule ledger is what a tick is settled against, and
+        :meth:`catch_up` covers a file that did not survive a restart. A path the app set
+        itself (``beat_schedule_filename``, or ``celery beat -s``) is kept.
+        """
         merged = dict(self._app.conf.beat_schedule or {})
         merged.update(self._beat_schedule)
         self._app.conf.beat_schedule = merged
+        if self._app.conf.beat_schedule_filename == CELERY_DEFAULT_SCHEDULE_FILENAME:
+            self._app.conf.beat_schedule_filename = os.path.join(
+                tempfile.gettempdir(), CELERY_DEFAULT_SCHEDULE_FILENAME
+            )
 
 
-__all__ = ["CeleryBeatScheduler"]
+__all__ = ["CELERY_DEFAULT_SCHEDULE_FILENAME", "CeleryBeatScheduler"]

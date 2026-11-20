@@ -8,6 +8,10 @@ deployment already running the Celery stack. Wiring is composition-root only::
     scheduler.install()                                 # -> celery_app.conf.beat_schedule
     # then run:  celery -A your.celery_app beat   (plus a worker to run the enqueued jobs)
 
+``install()`` also moves beat's schedule file from Celery's relative default (opened in the
+working directory, which the production image's user cannot write) to the temporary
+directory, unless the app set a path of its own (ADR 0218).
+
 For each :class:`~terp.core.ScheduleDefinition` it registers a small **tick task** on the
 Celery app and a ``beat_schedule`` entry that runs that task on the schedule's cron. When beat
 fires the tick (on a worker), the tick opens a session and settles the schedule through
