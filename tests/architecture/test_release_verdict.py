@@ -82,7 +82,11 @@ def test_acceptance_preserves_failed_audit_and_cannot_replace_another_required_l
     document["commit"] = "a" * 40
     assert gate.require_passed(document, APPLICABLE, risk_policy="protected") == admission
     assert document["profile"]["ok"] is False and document["assurance"]["ok"] is False
-    next(c for c in document["profile"]["checks"] if c["id"] == "secret-scanning")["applicable"] = False
+    # The admission check also holds if a later assurance vocabulary adds a required lane.
+    from terp.cli import verify
+
+    monkeypatch.setattr(verify, "ASSURANCE_LANES", (*verify.ASSURANCE_LANES, ("extra", "required", ())))
+
     document["assurance"] = assurance_document(document["profile"]["checks"])
     with pytest.raises(ReleaseError, match="required assurance lane"):
         gate.require_passed(document, APPLICABLE, risk_policy="protected")
@@ -385,3 +389,17 @@ scope = ["app/**"]
     _asked_nothing(release, monkeypatch)
     with pytest.raises(ReleaseError, match="missing required checks: domain-invariants"):
         release.sign()
+
+
+@pytest.mark.parametrize("name", ["architecture", "backend-tests", "dependency-audit-python"])
+def test_required_backend_evidence_must_be_applicable(name) -> None:
+    with pytest.raises(ReleaseError, match=f"cannot mark {name} as not applicable"):
+        gate.require_passed(_judged(inapplicable=(name,)), APPLICABLE)
+
+
+def test_workspace_evidence_follows_the_declared_workspaces() -> None:
+    assert gate.workspace_evidence(set().__contains__) == set()
+    assert gate.workspace_evidence({"frontend/package.json", "conformance/package.json"}.__contains__) == {
+        "frontend-boundaries", "dependency-audit-npm", "conformance",
+    }
+    assert gate.workspace_evidence({"site/package.json"}.__contains__) == {"dependency-audit-npm"}

@@ -881,14 +881,8 @@ def _app_check_from(entry: object, index: int, known: frozenset[str]) -> VerifyC
 def app_declared_checks(root: pathlib.Path) -> tuple[tuple[VerifyCheck, str], ...]:
     """The app's own checks from ``[[tool.terp.verify.checks]]``, with their profiles.
 
-    The profile table above is the platform's floor. It used to be the whole
-    ceiling too — a literal dict no app could reach — so an app with a check of
-    its own (a sidecar package's architecture scan, a domain invariant, a
-    generated-artifact drift test) had two options: a pytest wrapper shelling out
-    to the real command, or a CI step outside the one command documented as
-    "what green means". Both put the app's own gate somewhere ``terp verify``
-    does not look, which is how a check comes to be skipped by everyone driving
-    the project through the manifest.
+    An app extends the platform profile with checks such as a domain invariant
+    or a generated-artifact drift test.
 
     Each entry names the CHEAPEST profile it joins and rides the ratchet from
     there, exactly as a built-in does: ``profile = "quick"`` also runs in ``full``

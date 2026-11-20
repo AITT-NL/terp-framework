@@ -74,7 +74,7 @@ from terp.cli.release.build import DOCUMENT as BUILD_DOCUMENT
 from terp.cli.release.build import loopback, registry
 from terp.cli.release.gate import DOCUMENT as GATE_DOCUMENT
 from terp.cli.release.gate import VERSION as GATE_VERSION
-from terp.cli.release.gate import require_passed
+from terp.cli.release.gate import require_passed, workspace_evidence
 from terp.cli.release.manifest import HOSTS, assemble, inputs, purls, sbom
 from terp.cli.verify import declared_checks_from_manifest
 
@@ -280,12 +280,13 @@ def sign(
     cli_pin, arch_pin = pinned(lock, "terp-cli"), pinned(lock, "terp-arch")
     if cli_pin is None or arch_pin is None:
         raise ReleaseError(f"{UV_LOCK} pins no single terp-cli and terp-arch, so the commit's toolchain is unknown")
-    declared_ids = ()
+    required_ids = set()
     if gate[GATE_DOCUMENT] > 1:
         project = tomllib.loads(tree.read_text("pyproject.toml"))
-        declared_ids = tuple(check.id for check, _ in declared_checks_from_manifest(project))
+        required_ids = workspace_evidence(tree.has)
+        required_ids.update(check.id for check, _ in declared_checks_from_manifest(project))
     admission = require_passed(
-        gate, cli_pin, risk_policy=risk_policy, checkout=repo, declared_ids=declared_ids
+        gate, cli_pin, risk_policy=risk_policy, checkout=repo, required_ids=tuple(required_ids)
     )
     platform = str(build["platform"])
     with tempfile.TemporaryDirectory(prefix="terp-sign-") as scratch_dir:
@@ -394,7 +395,7 @@ def sign(
         # Recheck after image inspection: expiry or revocation while building cannot ride
         # an earlier answer. Check lock digests against the committed bytes independently.
         admission = require_passed(
-            gate, cli_pin, risk_policy=risk_policy, checkout=repo, declared_ids=declared_ids
+            gate, cli_pin, risk_policy=risk_policy, checkout=repo, required_ids=tuple(required_ids)
         )
         for check in admission["checks"]:
             for path, expected in check.get("dependency_audit", {}).get("locks", {}).items():

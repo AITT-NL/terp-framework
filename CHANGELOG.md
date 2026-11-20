@@ -21,6 +21,8 @@ decision, 0001 onwards.
 - Compose publishes HTTP on loopback by default. A host TLS proxy can reach it
   there. Set `TERP_BIND_ADDRESS` when the production ingress needs another host
   interface. Development Compose keeps its local services on loopback.
+- Frontend lint evaluates the shipped boundary rules on the app source tree even
+  when the project customizes its ESLint rules or ignores.
 - Strict release gates require a unique verdict for every built-in release check
   and every check declared by the committed application. The scaffold requires
   the pytest plugin that enforces runtime isolation.
