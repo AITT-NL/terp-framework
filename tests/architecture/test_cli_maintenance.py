@@ -347,17 +347,18 @@ def test_the_app_target_asks_every_part_of_the_app_it_runs_in(tmp_path: pathlib.
     asked: list[str] = []
     monkeypatch.setattr(_platform, "python_platform", lambda root, report: asked.append(f"python {root.name}") or "0.42.0")
     monkeypatch.setattr(_platform, "template", lambda root, report, platform: asked.append(f"template {platform}"))
+    monkeypatch.setattr(_platform, "files_storage", lambda root, report: asked.append("files"))
     monkeypatch.setattr(_platform, "npm_platform", lambda root, report: asked.append("npm"))
     monkeypatch.setattr(_images, "base_image_findings", lambda root, report: asked.append("images"))
     root = write_app(tmp_path / "app", uv=None)
     monkeypatch.chdir(root)
     code, out, _ = _run(["maintenance"], capsys)
-    assert code == 0 and asked == ["python app", "template 0.42.0", "npm", "images"]
+    assert code == 0 and asked == ["python app", "template 0.42.0", "files", "npm", "images"]
     assert "Nothing found by the checks that ran. Not every check could run:\n  - known-vulnerability: pyproject.toml" in out
     asked.clear()
     monkeypatch.setattr(_platform, "python_platform", lambda root, report: asked.append("python") and None)
     _run(["maintenance"], capsys)
-    assert asked == ["python", "npm", "images"], "no platform version, nothing to compare the scaffolding with"
+    assert asked == ["python", "files", "npm", "images"], "no platform version, nothing to compare the scaffolding with"
 
 
 def test_private_names_leave_only_for_a_mirror_or_when_the_person_says_so(tmp_path: pathlib.Path, monkeypatch, capsys) -> None:

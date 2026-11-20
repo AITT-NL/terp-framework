@@ -105,6 +105,127 @@ def test_a_behind_scaffolding_offers_the_re_render_or_says_why_it_cannot(tmp_pat
     assert in_git.findings[0].remedy.startswith("Re-render the scaffolding from the template of the installed release: `copier update`")
 
 
+_PRE_035_DOCKERFILE = """\
+WORKDIR /srv
+# var/files is where the files capability stores (a comment does not count)
+RUN useradd --create-home --uid 10001 appuser
+USER appuser
+"""
+_035_DOCKERFILE = _PRE_035_DOCKERFILE.replace(
+    "uid 10001 appuser\n", "uid 10001 appuser \\\n    && mkdir -p /srv/var/files && chown appuser /srv/var/files\n"
+)
+_PRE_035_COMPOSE = "services:\n  api:\n    image: app\nvolumes:\n  db-data:\n"
+_035_COMPOSE = 'services:\n  api:\n    volumes:\n      - "files-data:/srv/var/files"\nvolumes:\n  files-data:\n'
+
+
+def _files_app(
+    root: pathlib.Path,
+    *,
+    commit: str | None = "v0.34.0",
+    pyproject: str = '[project]\nname = "app"\ndependencies = ["terp-core==0.42.0", "terp_cap.Files[s3]==0.42.0"]\n',
+    dockerfile: str | None = _PRE_035_DOCKERFILE,
+    compose: str | None = _PRE_035_COMPOSE,
+    deployment: str | None = None,
+) -> pathlib.Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "pyproject.toml").write_text(pyproject, encoding="utf-8")
+    if commit is not None:
+        _answers(root, commit)
+    for name, text in (("Dockerfile.prod", dockerfile), ("docker-compose.prod.yml", compose), ("deployment.json", deployment)):
+        if text is not None:
+            (root / name).write_text(text, encoding="utf-8")
+    return root
+
+
+def _files_findings(root: pathlib.Path) -> list[Finding]:
+    report = Report("app", str(root))
+    _platform.files_storage(root, report)
+    assert report.not_checked == [] and report.sources == []
+    return report.findings
+
+
+def test_an_app_rendered_before_0_35_with_files_is_told_its_image_cannot_write_the_root(tmp_path: pathlib.Path) -> None:
+    [finding] = _files_findings(_files_app(tmp_path))
+    assert (finding.kind, finding.subject, finding.location, finding.installed, finding.latest) == (
+        "template-behind", "terp-cap-files", "Dockerfile.prod", "v0.34.0", _platform.FILES_ROOT_TEMPLATE
+    )
+    assert finding.remedy.startswith(
+        "This app installs terp-cap-files and its scaffolding was rendered from template v0.34.0: the production "
+        "image does not create /srv/var/files owned by the user it runs as"
+    )
+    assert "refuses to start outside ENVIRONMENT=local" in finding.remedy
+    assert "; the production profile mounts no volume at /srv/var/files" in finding.remedy
+    assert "`&& mkdir -p /srv/var/files && chown appuser /srv/var/files`" in finding.remedy
+    assert "`files-data:/srv/var/files`" in finding.remedy and "chown 10001 /srv/var/files" in finding.remedy
+    assert finding.remedy.endswith("See: terp guide files.")
+    report = Report("app", str(tmp_path), checked_at="T")
+    report.findings.append(finding)
+    assert "  template-behind: terp-cap-files in Dockerfile.prod: v0.34.0 -> 0.35.0\n" in report.as_text()
+
+
+def test_an_older_render_with_neither_production_file_is_told_both_halves(tmp_path: pathlib.Path) -> None:
+    [finding] = _files_findings(_files_app(tmp_path, dockerfile=None, compose=None))
+    assert finding.location == "Dockerfile.prod" and "mounts no volume" in finding.remedy
+
+
+def test_a_root_fixed_by_hand_is_not_reported_and_a_dropped_line_is_whatever_the_ref(tmp_path: pathlib.Path) -> None:
+    assert _files_findings(_files_app(tmp_path / "fixed", dockerfile=_035_DOCKERFILE, compose=_035_COMPOSE)) == []
+    [image] = _files_findings(_files_app(tmp_path / "dropped", commit="v0.40.0", compose=_035_COMPOSE))
+    assert image.location == "Dockerfile.prod" and image.installed == "v0.40.0"
+    assert "mounts no volume" not in image.remedy
+    [volume] = _files_findings(_files_app(tmp_path / "no-volume", commit="v0.40.0", dockerfile=_035_DOCKERFILE))
+    assert volume.location == "docker-compose.prod.yml"
+    assert volume.remedy.startswith(
+        "This app installs terp-cap-files and its scaffolding was rendered from template v0.40.0: the production "
+        "profile mounts no volume at /srv/var/files, so the files stored there go with the container"
+    )
+    assert "`copier update --data use_files=true`" in volume.remedy
+
+
+def test_an_app_with_no_recorded_template_is_read_from_its_files_alone(tmp_path: pathlib.Path) -> None:
+    [finding] = _files_findings(_files_app(tmp_path / "unrendered", commit=None, compose=_035_COMPOSE))
+    assert finding.installed is None and finding.remedy.startswith(
+        "This app installs terp-cap-files and its scaffolding records no template ref: the production image"
+    )
+    report = Report("app", str(tmp_path), checked_at="T")
+    report.findings.append(finding)
+    assert "  template-behind: terp-cap-files in Dockerfile.prod: needs 0.35.0\n" in report.as_text()
+    # Neither file to read and no ref to place the render: nothing is claimed.
+    assert _files_findings(_files_app(tmp_path / "bare", commit=None, dockerfile=None, compose=None)) == []
+    # A ref that is not a release cannot be placed either.
+    assert _files_findings(_files_app(tmp_path / "dev", commit="v0.34.0-3-gabc1234", dockerfile=None, compose=None)) == []
+
+
+@pytest.mark.parametrize(
+    "pyproject",
+    [
+        '[project]\nname = "app"\ndependencies = ["terp-core==0.42.0", "terp-cap-filesystem==1", 7]\n',
+        "not = toml = at all",
+        '[project]\nname = "app"\noptional-dependencies = "nope"\ndependency-groups = "nope"\n',
+        'project = "nope"\n',
+    ],
+)
+def test_an_app_without_terp_cap_files_is_not_asked(tmp_path: pathlib.Path, pyproject: str) -> None:
+    assert _files_findings(_files_app(tmp_path, pyproject=pyproject)) == []
+
+
+def test_terp_cap_files_is_found_in_any_dependency_list(tmp_path: pathlib.Path) -> None:
+    for where, pyproject in {
+        "optional": '[project]\nname = "app"\n[project.optional-dependencies]\nstore = ["terp-cap-files"]\n',
+        "group": '[project]\nname = "app"\n[dependency-groups]\nprod = [" terp-cap-files>=0.42"]\n',
+    }.items():
+        assert [f.subject for f in _files_findings(_files_app(tmp_path / where, pyproject=pyproject))] == ["terp-cap-files"]
+    assert _files_findings(_files_app(tmp_path / "missing", pyproject="")) == []
+    (tmp_path / "missing" / "pyproject.toml").unlink()
+    assert _files_findings(tmp_path / "missing") == []
+
+
+def test_a_generated_build_is_the_framework_s_to_render(tmp_path: pathlib.Path) -> None:
+    assert _files_findings(_files_app(tmp_path / "generated", deployment='{"build": "generated"}')) == []
+    for name, deployment in (("own", '{"build": "own"}'), ("unreadable", "{not json"), ("list", "[]")):
+        assert [f.subject for f in _files_findings(_files_app(tmp_path / name, deployment=deployment))] == ["terp-cap-files"]
+
+
 #: A stand-in for npm: answers ``npm view <name> version --json`` from the table in its
 #: environment, or fails as npm fails.
 _NPM = """\

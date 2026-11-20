@@ -193,6 +193,8 @@ def _headline(finding: Finding) -> str:
         return f"{finding.subject} {finding.installed}{where}: {ids}{new}"
     if finding.kind == "source-unavailable":
         return f"{finding.subject} could not be asked"
+    if finding.installed is None:
+        return f"{finding.subject}{where}: needs {finding.latest}"
     return f"{finding.subject}{where}: {finding.installed} -> {finding.latest}"
 
 

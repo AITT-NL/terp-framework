@@ -111,6 +111,115 @@ def template(root: pathlib.Path, report: Report, platform: str) -> None:
     )
 
 
+#: The template release whose production profile first gave the files capability a writable
+#: storage root and a volume (ADR 0218): an older render installs terp-cap-files in an image
+#: whose user cannot write ``/srv/var/files``.
+FILES_ROOT_TEMPLATE = "0.35.0"
+
+_FILES_ROOT_REMEDY = (
+    "Re-render the scaffolding from template {template} or later (`copier update`; it brings the "
+    "volume only when the recorded use_files answer is true: `copier update --data use_files=true`), "
+    "or add what that production profile has: `&& mkdir -p /srv/var/files && chown appuser "
+    "/srv/var/files` on the `RUN useradd` line of Dockerfile.prod, and a "
+    "`files-data:/srv/var/files` volume on `api` in docker-compose.prod.yml, with `files-data:` "
+    "under its top-level `volumes`. A volume an older image already created is owned by root: "
+    "chown it once, `docker compose -f docker-compose.prod.yml run --rm --no-deps --user root api "
+    "chown 10001 /srv/var/files`. See: terp guide files."
+)
+
+
+def _installs_files(root: pathlib.Path) -> bool:
+    """Whether ``pyproject.toml`` asks for terp-cap-files, in any dependency list it keeps."""
+    import tomllib
+
+    try:
+        project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    lists: list[object] = []
+    body = project.get("project")
+    if isinstance(body, dict):
+        lists.append(body.get("dependencies"))
+        optional = body.get("optional-dependencies")
+        lists += list(optional.values()) if isinstance(optional, dict) else []
+    groups = project.get("dependency-groups")
+    lists += list(groups.values()) if isinstance(groups, dict) else []
+    for entries in lists:
+        for entry in entries if isinstance(entries, list) else ():
+            name = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", entry) if isinstance(entry, str) else None
+            if name is not None and re.sub(r"[._-]+", "-", name.group(1)).lower() == "terp-cap-files":
+                return True
+    return False
+
+
+def _names_files_root(path: pathlib.Path) -> bool | None:
+    """Whether a line of *path* that is not a comment names ``var/files``; ``None`` without the file."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return any("var/files" in line and not line.lstrip().startswith("#") for line in text.splitlines())
+
+
+def files_storage(root: pathlib.Path, report: Report) -> None:
+    """The production defect a re-render is known to fix: no writable files root (ADR 0218).
+
+    An app that installs terp-cap-files and builds its own production image from a render
+    older than template 0.35 runs as a user that cannot write ``/srv/var/files``, with no
+    volume there: every upload failed, and a process on Terp 0.43 or later refuses to start
+    outside ``ENVIRONMENT=local``. Read from the app's own files, so a Dockerfile fixed by
+    hand is not reported and one whose re-render dropped the line is. Under ``"build":
+    "generated"`` the framework writes the image and its mounts, and nothing here applies.
+    """
+    if not _installs_files(root):
+        return
+    try:
+        declared = json.loads((root / "deployment.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        declared = None
+    if isinstance(declared, dict) and declared.get("build") == "generated":
+        return
+    ref = scaffold_ref(root)
+    release = re.fullmatch(r"v?(\d+(?:\.\d+)*)", ref or "")
+    older = release is not None and _version_key(release.group(1)) < _version_key(FILES_ROOT_TEMPLATE)
+    image = _names_files_root(root / "Dockerfile.prod")
+    volume = _names_files_root(root / "docker-compose.prod.yml")
+    missing: list[tuple[str, str]] = []
+    if image is False or (image is None and older):
+        missing.append(
+            (
+                "Dockerfile.prod",
+                "the production image does not create /srv/var/files owned by the user it runs as, "
+                "so the files capability cannot write its storage root: every upload fails, and on "
+                "Terp 0.43 or later the process refuses to start outside ENVIRONMENT=local",
+            )
+        )
+    if volume is False or (volume is None and older):
+        missing.append(
+            (
+                "docker-compose.prod.yml",
+                "the production profile mounts no volume at /srv/var/files, so the files stored "
+                "there go with the container at the next deploy",
+            )
+        )
+    if not missing:
+        return
+    rendered = f"was rendered from template {ref}" if ref else "records no template ref"
+    report.findings.append(
+        Finding(
+            "template-behind",
+            "terp-cap-files",
+            f"This app installs terp-cap-files and its scaffolding {rendered}: "
+            + "; ".join(sentence for _, sentence in missing)
+            + ". "
+            + _FILES_ROOT_REMEDY.format(template=FILES_ROOT_TEMPLATE),
+            location=missing[0][0],
+            installed=ref,
+            latest=FILES_ROOT_TEMPLATE,
+        )
+    )
+
+
 def _declared(root: pathlib.Path) -> dict[str, tuple[str, str]]:
     """Each ``@terpjs/*`` package a manifest declares: name -> (installed version, manifest)."""
     found: dict[str, tuple[str, str]] = {}
@@ -199,4 +308,4 @@ def npm_platform(root: pathlib.Path, report: Report) -> None:
     )
 
 
-__all__ = ["NPM_MANIFESTS", "npm_platform", "python_platform", "template"]
+__all__ = ["FILES_ROOT_TEMPLATE", "NPM_MANIFESTS", "files_storage", "npm_platform", "python_platform", "template"]

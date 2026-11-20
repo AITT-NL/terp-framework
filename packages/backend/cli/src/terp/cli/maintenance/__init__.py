@@ -170,6 +170,7 @@ def _build_report(args: argparse.Namespace) -> Any:
     platform = _platform.python_platform(here, report)
     if platform is not None:
         _platform.template(here, report, platform)
+    _platform.files_storage(here, report)
     _platform.npm_platform(here, report)
     _audit(report, here, osv, only_public=only_public)
     _images.base_image_findings(here, report)

@@ -14,6 +14,13 @@ changes nothing:
                        or @terpjs/* (from the frontend's registry, read by npm view)
   template-behind      the scaffolding was rendered from an older template than the
                        platform the app runs (copier's _commit)
+                       and, apart from that, one defect a re-render fixes, named
+                       on its own (subject terp-cap-files): an app that installs the
+                       files capability whose Dockerfile.prod does not make
+                       /srv/var/files writable, or whose production profile mounts
+                       no volume there (a render older than template 0.35). Its
+                       uploads fail, and on Terp 0.43 or later it refuses to start
+                       outside ENVIRONMENT=local (ADR 0218)
   known-vulnerability  a package in uv.lock or a web image's package-lock.json matches a
                        published advisory in OSV, with the lowest version that clears
                        every advisory that has a fix
@@ -68,6 +75,8 @@ gate before it lands:
   platform-behind      `uv run terp upgrade --check` prints the recipe; read
                        `uv run terp guide changelog --since <your version>` first
   template-behind      `copier update`, reviewed as one change
+                       (for terp-cap-files: the two lines the remedy names, or
+                       the re-render; `terp guide files`)
   known-vulnerability  `uv lock --upgrade-package <name>`; for npm,
                        `npm --prefix frontend install <name>@<fixed>` when package.json
                        names it, `npm --prefix frontend update <name>` when another
