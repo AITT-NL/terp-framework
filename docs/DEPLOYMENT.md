@@ -30,7 +30,10 @@ browser ──► web (nginx, port 8080)
 For a fresh bundled PostgreSQL database, use the scaffold's
 `compose.runtime-role.yml` together with the base profile on every invocation.
 The migration service connects as the database owner. The API connects as
-`terp_rt`. Give any added worker or scheduler the same environment as the API.
+`terp_rt`. Give a database-backed Terp jobs worker or scheduler the restricted
+connection. A separate worker that only calls the API needs the API URL and its
+own service-account credential. Keep database URLs and the API signing key out
+of that worker's environment.
 Existing volumes need the schema adoption procedure below before switching layouts.
 
 Load `SECRET_KEY`, `POSTGRES_PASSWORD` and `TERP_RUNTIME_DB_PASSWORD` from
@@ -96,6 +99,22 @@ binding and TLS configuration.
 
 Serve browser traffic over HTTPS. The production refresh cookie carries the
 `Secure` flag, so login requires a secure browser connection.
+
+### Verify the route from an API client
+
+If a worker or publisher calls the API over the network, configure it to use
+HTTPS and verify the certificate for the configured hostname before sending
+its service-account secret or bearer token. A private network still needs
+an authenticated endpoint.
+
+During rollout, use the same network and hostname as the deployed caller.
+For an app with the identity module, an anonymous `GET /api/v1/me/` should reach
+the application and return HTTP 401. Then use the caller's
+normal credentials for a permitted read or an ordinary poll and confirm it
+succeeds. A browser loading the sign-in page only exercises the browser route.
+If ingress denies the machine request, check its routing and access policy
+before changing application grants. A host that offers internal HTTPS ingress
+can route these clients privately while keeping the browser allowlist in place.
 
 ## Environment reference
 
