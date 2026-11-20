@@ -1608,9 +1608,8 @@ def test_the_generated_app_s_updater_holds_back_the_typescript_major_the_framewo
     )
 
 
-#: The updater's Playwright block, as apps that pinned Playwright by hand already carry it.
-#: Byte for byte on purpose: `copier update` merges a change both sides made alike, and
-#: conflicts on the same change worded twice.
+#: The updater's Playwright ignore, line for line as apps that pinned Playwright by hand
+#: already carry it: `copier update` merges a change both sides made alike.
 _PLAYWRIGHT_IGNORE = (
     "    ignore:\n"
     '      - dependency-name: "@playwright/test"\n'
@@ -1620,14 +1619,13 @@ _PLAYWRIGHT_IGNORE = (
 
 
 def test_the_conformance_suite_pins_the_playwright_whose_browser_its_runner_carries() -> None:
-    """The suite runs where no browser can be fetched, so it asks for one Playwright release.
+    """The suite runs with a browser it did not download, so it asks for one Playwright release.
 
-    Playwright looks for the browser build its own release names. Terp Studio bakes the
-    Chromium of exactly one release into its image and verifies a built release in a worker
-    that cannot download another, so the range this manifest used to carry resolved to the
-    newest release npm had, whose browser was not there, and every test failed. Studio holds
-    the version it bakes to this pin at the framework release it carries; the two move
-    together, this one first.
+    Playwright looks for the browser build its own release names, and a test run downloads
+    none. Terp Studio runs the suite with the Chromium of exactly one release, baked into its
+    image, so the range this manifest used to carry resolved to the newest release npm had,
+    whose browser was not there, and every test failed. Studio's image follows this pin;
+    the two move together, this one first.
 
     Dependabot would lift the pin above the image within a week, so the app's updater leaves
     Playwright alone, and its comment names the pinned version, held to it here so a bump
@@ -1637,15 +1635,20 @@ def test_the_conformance_suite_pins_the_playwright_whose_browser_its_runner_carr
     pin = package["devDependencies"]["@playwright/test"]
     assert re.fullmatch(r"\d+\.\d+\.\d+", pin), (
         f'conformance/package.json asks for "@playwright/test": "{pin}". A range resolves to '
-        "the newest release, whose browser a runner without a network does not have; pin the "
-        "one Terp Studio bakes, exactly"
+        "the newest release, whose browser a runner that bakes one release does not have; pin "
+        "the one Terp Studio bakes, exactly"
     )
     updater = (_PROJECT / ".github" / "dependabot.yml.jinja").read_text(encoding="utf-8")
     conformance = updater.split("directory: /conformance\n", 1)[1]
     assert _PLAYWRIGHT_IGNORE in conformance, (
         "the generated app's updater would lift Playwright above the browser its runner carries"
     )
-    assert f"(PLAYWRIGHT_VERSION in Studio's Dockerfile, {pin})" in conformance, (
+    comment = " ".join(
+        line.strip().lstrip("#").strip()
+        for line in conformance.splitlines()
+        if line.strip().startswith("#")
+    )
+    assert f"pins that release exactly ({pin})" in comment, (
         f"the updater's comment names another Playwright than the pin ({pin}); move them together"
     )
 
