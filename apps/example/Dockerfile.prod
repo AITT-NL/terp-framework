@@ -71,7 +71,12 @@ COPY apps/example/control_plane control_plane
 COPY apps/example/authz-surface.json ./
 
 # Drop privileges; the runtime never writes to the image filesystem (read-only-FS safe).
-RUN useradd --create-home --uid 10001 terp
+# `var/files`, the files capability's default storage root, is a mount point and not image
+# filesystem: it exists, owned by that user, so the volume the production profile mounts
+# there can be written (a named volume mounted at a path the image does not have is created
+# owned by root). Without it the app refuses to start outside local (ADR 0218).
+RUN useradd --create-home --uid 10001 terp \
+    && mkdir -p /srv/var/files && chown terp /srv/var/files
 USER terp
 
 EXPOSE 8000

@@ -325,6 +325,53 @@ def test_with_files_the_api_keeps_them_in_a_volume_its_user_can_write() -> None:
     assert made < runtime.index("\nUSER appuser\n"), "made and handed over before the drop"
 
 
+def test_the_example_keeps_its_files_in_a_volume_and_the_smoke_stores_one() -> None:
+    """The example mounts files in production, so its profile holds them as the template's
+    does (ADR 0218): the image makes the storage root and hands it to the user it runs as,
+    the api mounts a named volume there, and the declaration says so with a backup policy.
+
+    Before, the example's image ran as a user that could not create ``/srv/var``, and the
+    smoke lane stayed green because nothing in it stored a file. Now the lane stores one
+    through the API, reads it back from a new api container, and holds the start to the
+    storage probe the api logged."""
+    example = _prod_compose()
+    assert example["volumes"] == {"db-data": None, "files-data": None}
+    assert example["services"]["api"]["volumes"] == ["files-data:/srv/var/files"]
+    for name in ("db", "migrate", "web"):
+        assert "files-data:/srv/var/files" not in (example["services"][name].get("volumes") or [])
+
+    runtime = _PROD_DOCKERFILE.read_text(encoding="utf-8").rsplit("\nFROM ", 1)[1]
+    assert "WORKDIR /srv\n" in runtime
+    made = runtime.index("mkdir -p /srv/var/files && chown terp /srv/var/files")
+    assert runtime.index("useradd --create-home --uid 10001 terp") < made
+    assert made < runtime.index("\nUSER terp\n"), "made and handed over before the drop"
+
+    declared = json.loads((_REPO_ROOT / "apps" / "example" / "deployment.json").read_text("utf-8"))
+    assert declared["volumes"] == [
+        {
+            "id": "files-data",
+            "mount": {"path": "var/files", "units": ["api"]},
+            "backup": {"every": "P1D", "keep": "P30D"},
+        }
+    ]
+
+    steps = {
+        step.get("name"): step.get("run", "")
+        for step in yaml.safe_load(_PROD_SMOKE_WORKFLOW.read_text(encoding="utf-8"))["jobs"][
+            "prod-smoke"
+        ]["steps"]
+    }
+    probed = steps["The api checked that it can write its storage root"]
+    assert "boot checks passed: [a-z_, ]*files_storage" in probed
+    assert 'grep -F "not on a mounted volume"' in probed
+    stored = steps["Store a file through the API and read it back from a new container"]
+    assert "-X POST http://localhost:23100/api/v1/files/" in stored
+    assert '-F "file=@$RUNNER_TEMP/upload.txt;type=text/plain"' in stored
+    assert 'cmp "$RUNNER_TEMP/upload.txt" "$RUNNER_TEMP/download.txt"' in stored
+    assert "--force-recreate api" in stored
+    assert 'assert response.read() == b"prod-smoke stored bytes\\n"' in stored
+
+
 # ---- app-declared environment variables (plan: app-declared-environment-config) --
 
 _APP_ENV_SEAM = [{"path": ".app.env", "required": False}]
