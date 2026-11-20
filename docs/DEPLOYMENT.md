@@ -74,6 +74,13 @@ and owner credentials. Existing signed profiles retain their original configurat
 Update the promotion tool to recognize the new Compose interpolations before signing
 or promoting a newly rendered release.
 
+If the declaration has an API and no migration unit, `terp promote` uses
+one-off API containers to read migration versions, check rollback compatibility,
+and upgrade the schema. Set `TERP_MIGRATION_DATABASE_URL` in the promotion
+process to the owning connection for these commands. The running API keeps
+its restricted connection. An invocation without this override uses the API
+connection for both, so a restricted login will refuse schema changes.
+
 For a managed database, supply
 the restricted application URL in `DATABASE_URL` and the owner URL in
 `TERP_MIGRATION_DATABASE_URL`. The host supplies and validates both accounts. If no migration URL is

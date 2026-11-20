@@ -549,7 +549,7 @@ def test_a_carried_declaration_with_a_key_twice_is_refused_as_terp_runner_refuse
     assert 'the key "schemaVersion" appears twice in one object' in refused.value.cause
 
 
-def test_without_a_migration_step_the_check_is_terp_migrate_check_in_the_api(keys) -> None:
+def _api_only_files() -> dict[str, bytes]:
     files = app_files()
     profile = yaml.safe_load(files["docker-compose.prod.yml"])
     profile["services"].pop("migrate")
@@ -558,10 +558,55 @@ def test_without_a_migration_step_the_check_is_terp_migrate_check_in_the_api(key
     declaration["build"] = "own"
     declaration["units"] = [unit for unit in declaration["units"] if unit["id"] != "migrate"]
     declaration["units"][1]["dependsOn"] = ["db"]
-    files = {**files, "deployment.json": json.dumps(declaration).encode(), "docker-compose.prod.yml": yaml.safe_dump(profile).encode()}
-    body = canonical(make_manifest(files))
+    return {**files, "deployment.json": json.dumps(declaration).encode(), "docker-compose.prod.yml": yaml.safe_dump(profile).encode()}
+
+
+def test_without_a_migration_step_the_check_is_terp_migrate_check_in_the_api(keys) -> None:
+    body = canonical(make_manifest(_api_only_files()))
     release = promote.load(canonical(dsse.envelope(body, [dsse.sign_with_key(keys, body)])), [pem_public(keys)])
     assert promote._check_command(release) == ("api", ["terp", "migrate", "check"])
+
+
+@pytest.mark.parametrize("mode", ["restored", "automatic-undo", "no-override"])
+def test_api_fallback_uses_the_owner_connection_only_in_one_offs(tmp_path, keys, monkeypatch, mode):
+    files = _api_only_files()
+    profile = yaml.safe_load(files["docker-compose.prod.yml"])
+    profile["services"]["api"]["environment"]["SERVICE_SETTING"] = "${TERP_MIGRATION_DATABASE_URL:-}"
+    files["docker-compose.prod.yml"] = yaml.safe_dump(profile).encode()
+    owner = "postgresql://owner@db.example/migrations"
+    runtime = "postgresql://runtime@db.example/application"
+    env = {"DATABASE_URL": runtime}
+    if mode != "no-override":
+        env["TERP_MIGRATION_DATABASE_URL"] = owner
+    runs = docker(migrate_code=int(mode == "automatic-undo"))
+    recorded = []
+
+    def recording(argv, **kwargs):
+        recorded.append((argv, dict(kwargs["env"])))
+        return runs(argv, **kwargs)
+
+    options = dict(body=make_manifest(files), runs=recording, env=env, monkeypatch=monkeypatch)
+    if mode == "automatic-undo":
+        previous = envelope(tmp_path, keys, make_manifest(files, tag="r0"), "previous.dsse.json")
+        with pytest.raises(ReleaseError, match="undone: r0 runs again"):
+            _promote(tmp_path, keys, undo_to=previous, **options)
+    else:
+        restored = mode == "restored"
+        _promote(tmp_path, keys, rollback=restored, restored=restored, **options)
+
+    for argv, seen in recorded:
+        assert owner not in " ".join(argv)
+        assert "TERP_MIGRATION_DATABASE_URL" not in seen
+        override = "run" in argv and mode != "no-override"
+        assert seen["DATABASE_URL"] == (owner if override else runtime)
+        assert ("-e" in argv) == override
+        if override:
+            assert argv[argv.index("-e") + 1] == "DATABASE_URL"
+    assert any("--entrypoint" in argv for argv, _ in recorded)
+    assert any(argv[-1] == "upgrade" for argv, _ in recorded)
+    assert any("up" in argv and "api" in argv for argv, _ in recorded)
+    if mode != "no-override":
+        assert any(argv[-1] == "check" for argv, _ in recorded)
 
 
 def test_an_unmanaged_carried_declaration_is_refused(tmp_path: pathlib.Path, keys, monkeypatch) -> None:

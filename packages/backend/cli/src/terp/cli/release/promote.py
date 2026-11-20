@@ -38,6 +38,7 @@ import json
 import os
 import pathlib
 import re
+import subprocess
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -225,6 +226,10 @@ def _environment(release: Release, env: Mapping[str, str]) -> dict[str, str]:
         for found in _NAMES.finditer(item["content"].replace("$$", "")):
             names.add(found.group("braced") or found.group("bare"))
     names.discard(RELEASE_TAG_VARIABLE)
+    if "TERP_MIGRATION_DATABASE_URL" in names and _upgrade_unit(release)[1] is not None:
+        # In a profile without a migration unit, the operator's owner credential belongs
+        # exclusively to the one-off invocation; an app-owned interpolation cannot inherit it.
+        names.discard("TERP_MIGRATION_DATABASE_URL")
     chosen = {name: env[name] for name in sorted(names) if name in env}
     return os_environment({**chosen, RELEASE_TAG_VARIABLE: release.tag}, names=DOCKER_NAMES, source=env)
 
@@ -325,9 +330,30 @@ def _check_command(release: Release) -> tuple[str, list[str]]:
     return service, [*(str(part) for part in written[:2]), "check", *(str(part) for part in written[3:])]
 
 
-def _versions(compose: list[str], service: str, env: Mapping[str, str]) -> dict[str, list[str]]:
+@dataclass(frozen=True)
+class _MigrationRun:
+    prefix: list[str]
+    environment: Mapping[str, str]
+
+    def run(self, *args: str) -> subprocess.CompletedProcess[bytes]:
+        return run([*self.prefix, *args], env=self.environment)
+
+
+def _migration_run(
+    compose: list[str], release: Release, environment: Mapping[str, str], owner_url: str | None
+) -> _MigrationRun:
+    prefix = [*compose, "run", "--rm", "--no-deps", "-T"]
+    _, fallback_command = _upgrade_unit(release)
+    if fallback_command is not None and owner_url:
+        # A one-off API container normally inherits the serving login. Pass the operator's
+        # migration DSN by environment name only, scoped to this invocation.
+        return _MigrationRun([*prefix, "-e", "DATABASE_URL"], {**environment, "DATABASE_URL": owner_url})
+    return _MigrationRun(prefix, environment)
+
+
+def _versions(migration: _MigrationRun, service: str) -> dict[str, list[str]]:
     out = require(
-        run([*compose, "run", "--rm", "--no-deps", "-T", "--entrypoint", "python", service, "-I", "-c", _READ_VERSIONS], env=env),
+        migration.run("--entrypoint", "python", service, "-I", "-c", _READ_VERSIONS),
         "reading the version tables before the migration step",
     )
     try:
@@ -356,10 +382,12 @@ def _up(compose: list[str], services: list[str], env: Mapping[str, str], *, no_d
     return [*compose, "up", "-d", "--wait", "--no-build", "--pull", "never", *(["--no-deps"] if no_deps else []), *services]
 
 
-def _migrate_and_start(compose: list[str], release: Release, env: Mapping[str, str], log: list[str]) -> tuple[bool, str]:
+def _migrate_and_start(
+    compose: list[str], release: Release, env: Mapping[str, str], migration: _MigrationRun, log: list[str]
+) -> tuple[bool, str]:
     """Run *release*'s migration step exactly once, then start the rest. ``(ok, why)``."""
     service, command = _upgrade_unit(release)
-    upgrade = run([*compose, "run", "--rm", "--no-deps", "-T", service, *(command or [])], env=env)
+    upgrade = migration.run(service, *(command or []))
     if upgrade.returncode != 0:
         return False, f"the migration step failed (exit {upgrade.returncode}): {output_of(upgrade)[-2000:]}"
     log.append(f"ran the migration step once, in {service}")
@@ -377,7 +405,8 @@ def _undo(project: pathlib.Path, previous: Release, env: Mapping[str, str], log:
     _write(project, previous)
     compose = _compose(project, previous)
     service, command = _check_command(previous)
-    require(run([*compose, "run", "--rm", "--no-deps", "-T", service, *command], env=environment), f"{previous.tag}'s own migration check")
+    migration = _migration_run(compose, previous, environment, env.get("TERP_MIGRATION_DATABASE_URL"))
+    require(migration.run(service, *command), f"{previous.tag}'s own migration check")
     require(run(_up(compose, _rest(previous), environment), env=environment), f"starting {previous.tag} again")
     log.append(f"undone: {previous.tag} runs again on the database as it was, without a restore")
 
@@ -406,7 +435,8 @@ def promote(
             "decision 6): restore the backup taken before that release, then promote again with "
             "--rollback --restored"
         )
-    environment = _environment(release, env if env is not None else os.environ)
+    source = env if env is not None else os.environ
+    environment = _environment(release, source)
     project = pathlib.Path(project_dir)
     project.mkdir(parents=True, exist_ok=True)
     journal = f".terp/versions-before-{release.tag}.json"
@@ -423,22 +453,23 @@ def promote(
     if _kinds(release):
         require(run(_up(compose, _kinds(release), environment, no_deps=False), env=environment), "starting the datastores")
         log.append(f"started {', '.join(_kinds(release))}")
-    reading = _versions(compose, _upgrade_unit(release)[0], environment)
+    migration = _migration_run(compose, release, environment, source.get("TERP_MIGRATION_DATABASE_URL"))
+    reading = _versions(migration, _upgrade_unit(release)[0])
     _write_project_file(project, journal, json.dumps(reading, sort_keys=True, indent=2) + "\n")
     log.append(f"read {len(reading)} version tables before the migration step ({journal})")
     if rollback:
         # Restored, the target's own check must pass on the database before its step runs.
         service, command = _check_command(release)
         require(
-            run([*compose, "run", "--rm", "--no-deps", "-T", service, *command], env=environment),
+            migration.run(service, *command),
             f"{release.tag}'s own migration check on the restored database",
         )
         log.append(f"{release.tag}'s own migration check passes on the restored database")
-    ok, why = _migrate_and_start(compose, release, environment, log)
+    ok, why = _migrate_and_start(compose, release, environment, migration, log)
     if ok:
         log.append(f"promoted {release.tag}")
         return log
-    unchanged = _versions(compose, _upgrade_unit(release)[0], environment) == reading
+    unchanged = _versions(migration, _upgrade_unit(release)[0]) == reading
     if not unchanged:
         raise ReleaseError(
             f"{why}\nThe migration step changed the version tables, so going back is restore-based: "
@@ -453,7 +484,7 @@ def promote(
     # The fallback was verified and authorized before this deployment started.
     # Losing permission during an attempted change must not prevent its recovery.
     # A rollback requested as a new invocation still goes through load above.
-    _undo(project, previous, env if env is not None else os.environ, log)
+    _undo(project, previous, source, log)
     raise ReleaseError(f"{why}\n" + "\n".join(log))
 
 
