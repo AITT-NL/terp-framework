@@ -292,14 +292,17 @@ def _stat_with_device(monkeypatch: pytest.MonkeyPatch, path: pathlib.Path, devic
 def test_a_deployed_root_on_the_containers_own_disk_is_a_warning(
     project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    root = project / "files"
+    root = (project / "files").resolve()
     set_storage_backend(LocalFilesystemStorage(root))
+    # On the device of `/`, as a container's own disk is: pytest's temporary directory can
+    # be on another filesystem (a tmpfs `/tmp`), and then nothing would be said.
+    _stat_with_device(monkeypatch, root, device=os.stat(root.anchor).st_dev)
     _deployed(monkeypatch)
     with caplog.at_level("WARNING", logger="terp.capabilities.files"):
         app = _app()
     assert TestClient(app).get("/health/live").status_code == 200
     logged = _logged(caplog)
-    assert f"files storage profile 'default': the storage root {root.resolve()}" in logged
+    assert f"files storage profile 'default': the storage root {root}" in logged
     assert "not on a mounted volume" in logged
     assert "Mount a named volume there" in logged
 
