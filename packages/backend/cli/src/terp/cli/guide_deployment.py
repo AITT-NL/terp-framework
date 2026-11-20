@@ -279,6 +279,8 @@ the seed also declares the files-data volume, mounted at var/files on api with a
 backup policy, and the profile mounts it: the render of that seed, held the same way. The
 backend image makes /srv/var/files owned by the user it runs as, and Docker gives an empty
 named volume the owner of the directory it is mounted over, so that user can write it.
+A process that cannot write its storage root refuses to start outside ENVIRONMENT=local
+(ADR 0218, `terp guide files`).
 
   start it, with its required secrets and a new per-release image tag set (compose
   stops on an unset one; the tag keeps the previous release's images beside this

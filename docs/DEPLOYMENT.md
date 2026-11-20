@@ -205,6 +205,12 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   first mount. A volume made by an image that predates the directory stays owned by root;
   hand it over once, with the release's `TERP_RELEASE_TAG` and secrets set (`docker compose
   -f docker-compose.prod.yml run --rm --no-deps --user root api chown 10001 /srv/var/files`).
+  Every process checks this before it serves (ADR 0218): it creates the storage root and
+  writes and removes a probe file there. Outside `ENVIRONMENT=local`, a root the app's user
+  cannot write refuses the start with one sentence that names the path, the cause and the
+  fix; a writable root that is not on a volume is a warning. An app rendered before template
+  0.35 has neither the directory nor the volume, so it refuses until it re-renders or adds
+  both (`terp guide files`, and `terp maintenance` names the case).
 - **Single sign-on:** a production boot with SSO configured refuses an empty
   `OIDC_ALLOWED_EMAIL_DOMAINS`, the email domains whose verified users get an account. Set it
   with the other `OIDC_*` values wherever the app runs as production; with SSO not configured,
