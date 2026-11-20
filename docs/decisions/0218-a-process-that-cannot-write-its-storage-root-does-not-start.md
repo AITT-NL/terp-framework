@@ -65,10 +65,16 @@ cannot read a shell `RUN` line reliably and does not reach an app that never ado
    `terp.core`: a capability fills it at import, as the realtime capability fills
    `register_mandatory_store`. A second, different check under one name is refused, so two
    capabilities cannot replace each other's. A check that raises is a problem too, never a
-   pass. Nothing removes a registered check: a refusal that application code could switch off
-   in one line would not be one, so the registry has no unregister, and `boot_checks()` returns
-   a copy. A test isolates the registry by replacing its private mapping for the length of the
-   test.
+   pass. The registry's public surface offers no way to remove a registered check: it has no
+   unregister, and `boot_checks()` returns a copy. That closes the named route, not every
+   route. Its private mapping, `_checks`, can still be emptied from app code
+   (`terp.core.boot_checks._checks.clear()`, or a `pop` or `del` of one entry), and no rule
+   refuses it: `no_framework_patching` refuses rebinding `_checks` (`_checks = {}`) but not a
+   change made through it, by a call or by `del` of an entry, the residual ADR 0213 records as
+   a change made without an assignment the source shows, and `no_internal_imports` covers only
+   `terp.core._internal`. Refusing such a change is a change to that rule, with its own
+   catalog entry, corpus and residuals, and is not made here. A test isolates the registry by
+   replacing the private mapping for the length of the test.
 
    It is in the core because the core imports nothing above itself: `create_app` can run a
    capability's check only through something the core owns, so every capability with a

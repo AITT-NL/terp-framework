@@ -355,8 +355,9 @@ def test_registration_is_idempotent_and_refuses_a_second_check_under_one_name(
 
 
 def test_the_public_registry_offers_no_way_to_remove_a_check() -> None:
-    """A refusal that application code could switch off in one quiet line would not be one
-    (ADR 0218): the module has no unregister, and what it lists is a copy."""
+    """The registry's public surface offers no way to remove a check (ADR 0218): the module has
+    no unregister, and what it lists is a copy. This holds the public surface only: the private
+    mapping can still be emptied from app code, which ADR 0218 records as a gap no rule closes."""
     assert set(boot_checks_module.__all__) == {
         "BOOT_CHECK_ADR",
         "BootCheck",

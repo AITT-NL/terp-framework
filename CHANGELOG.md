@@ -202,8 +202,11 @@ decision, 0001 onwards.
   rendered from the 0.34 template answered 500 to every upload in production: its image ran as
   a user that cannot write `/srv/var/files`, and nothing noticed before a user uploaded.
   `terp.core.boot_checks.register_boot_check(name, check)` lets a capability register a check when it is
-  imported, and nothing removes one again, so no line of app code switches the refusal off.
-  `create_app` runs every registered check beside the ADR 0212 comparison:
+  imported, and the registry's public surface offers no way to remove one. Its private
+  mapping can still be emptied from app code (`terp.core.boot_checks._checks.clear()`), and no
+  rule refuses that: it is a change made without an assignment, which ADR 0213 records as a
+  residual of `no_framework_patching`. `create_app` runs every registered check beside the ADR
+  0212 comparison:
   outside `ENVIRONMENT=local` a check's sentence is a `BootError` (logged as `uncaught
   BootError: ...`, which Terp Studio shows on a deploy and at release verification), in local
   a warning. The files capability registers one. `StorageBackend.boot_problem()` (default

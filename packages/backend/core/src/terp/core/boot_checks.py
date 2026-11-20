@@ -17,9 +17,10 @@ check is therefore registered whenever its capability is imported in the process
 or not the app mounts a router of it, which is right: a service that stores through a
 capability without serving its routes needs the same things from the image.
 
-Nothing here removes a registered check. A refusal that application code could switch off in
-one line would not be a refusal, so the registry offers no unregister; a test isolates it by
-replacing the private ``_checks`` mapping for the length of the test.
+The public surface offers no way to remove a registered check: there is no unregister, and
+:func:`boot_checks` returns a copy. The private ``_checks`` mapping can still be emptied by
+code that reaches for it, and no rule refuses that (ADR 0218 says why); a test isolates the
+registry by replacing that mapping for the length of the test.
 """
 
 from __future__ import annotations
