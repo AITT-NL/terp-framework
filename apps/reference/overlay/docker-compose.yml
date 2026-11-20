@@ -194,7 +194,7 @@ services:
       # loud version of a failure that used to be silent. `terp docker dev`
       # assigns on demand, so this is only ever reached by a bare
       # `docker compose` (ADR 0134).
-      - "${API_PORT:?unset - run 'terp ports assign' to claim a host port pair for this checkout}:8000"
+      - "127.0.0.1:${API_PORT:?unset - run 'terp ports assign' to claim a host port pair for this checkout}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -227,7 +227,7 @@ services:
     ports:
       # 21100, not 5173 -- see the api service's note on the port range, and on
       # why this is required rather than defaulted.
-      - "${WEB_PORT:?unset - run 'terp ports assign' to claim a host port pair for this checkout}:5173"
+      - "127.0.0.1:${WEB_PORT:?unset - run 'terp ports assign' to claim a host port pair for this checkout}:5173"
     healthcheck:
       # Vite answers its root as soon as the port binds — which is BEFORE
       # dependency pre-bundling settles, and a request during that window can

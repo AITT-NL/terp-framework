@@ -122,8 +122,8 @@ def _coverage_is_strict(app_root: pathlib.Path) -> bool:
 
     This is a syntactic match, not a resolved reference: it recognizes
     ``coverage=OperationCoverage.STRICT`` (or a bare ``coverage=STRICT`` given an
-    aliased import) written directly at the call site, the spelling this
-    codebase's own control-plane modules use throughout. It does not follow a
+    aliased import), or the string literal ``"strict"`` at the call site.
+    The runtime also handles a configured value. This check does not follow a
     value assigned to an intermediate variable, and it does not check that the
     matched ``OperationCatalog(...)`` is the one actually mounted on a
     ``ControlPlane`` -- so it is a best-effort static signal, paired with (never
@@ -139,7 +139,11 @@ def _coverage_is_strict(app_root: pathlib.Path) -> bool:
                 if not (isinstance(node, ast.Call) and base_name(node.func) == "OperationCatalog"):
                     continue
                 for keyword in node.keywords:
-                    if keyword.arg == "coverage" and base_name(keyword.value) == "STRICT":
+                    value = keyword.value
+                    if keyword.arg == "coverage" and (
+                        base_name(value) == "STRICT"
+                        or (isinstance(value, ast.Constant) and value.value == "strict")
+                    ):
                         return True
     return False
 

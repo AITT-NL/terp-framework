@@ -21,7 +21,8 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from terp.core.logging import configure_logging
 
-_PLACEHOLDER_SECRETS = {"", "changethis"}
+# Keep historical workbench defaults here so upgrading protects existing checkouts.
+_PLACEHOLDER_SECRETS = {"", "changethis", "dev-secret-change-me-please-0123456789ab"}
 _MIN_SECRET_LEN = 32
 
 #: A list of previous keys as the environment spells it: comma-separated, which is what a
@@ -29,6 +30,11 @@ _MIN_SECRET_LEN = 32
 #: ``NoDecode`` hands the raw string to ``Settings._split_key_list`` rather than to the
 #: settings source's JSON decoder, which would refuse the comma-separated form.
 _KeyList = Annotated[list[str], NoDecode]
+
+
+def _weak_key(key: str) -> bool:
+    value = key.strip()
+    return value in _PLACEHOLDER_SECRETS or len(value) < _MIN_SECRET_LEN
 
 
 def _entries(positions: list[int]) -> str:
@@ -49,7 +55,7 @@ def _key_list_problems(name: str, keys: list[str], current: str, weak_reason: st
     weak = [
         position
         for position, key in enumerate(keys, start=1)
-        if key in _PLACEHOLDER_SECRETS or len(key) < _MIN_SECRET_LEN
+        if _weak_key(key)
     ]
     current_again = [position for position, key in enumerate(keys, start=1) if key == current]
     repeated = [
@@ -201,7 +207,7 @@ class Settings(BaseSettings):
             return self
 
         problems: list[str] = []
-        if self.SECRET_KEY in _PLACEHOLDER_SECRETS or len(self.SECRET_KEY) < _MIN_SECRET_LEN:
+        if _weak_key(self.SECRET_KEY):
             problems.append(f"SECRET_KEY must be a strong value (>= {_MIN_SECRET_LEN} chars)")
         problems += _key_list_problems(
             "SECRET_KEY_FALLBACKS", self.SECRET_KEY_FALLBACKS, self.SECRET_KEY,

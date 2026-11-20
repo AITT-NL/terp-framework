@@ -33,6 +33,7 @@ import tomllib
 import urllib.request
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
 
@@ -334,6 +335,17 @@ def _lock_environment() -> dict[str, str]:
         key: value for key, value in os.environ.items()
         if not key.upper().startswith(("UV_", "PIP_", "NPM_CONFIG_", "VIRTUAL_ENV"))
     }
+
+
+def pinned_assurance(app: pathlib.Path, checks: list[dict[str, Any]]) -> dict[str, Any]:
+    """Compose the lane's check results with the toolchain installed from the app's lock."""
+    done = run(
+        ["uv", "run", "--locked", "--no-dev", "python", "-I", "-c",
+         "import json, sys; from terp.cli.verify import assurance_document; "
+         "print(json.dumps(assurance_document(json.load(sys.stdin))))"],
+        cwd=app, env=_lock_environment(), stdin=json.dumps(checks).encode(),
+    )
+    return json.loads(done.stdout)
 
 
 def pin_framework(app: pathlib.Path, version: str) -> None:

@@ -948,7 +948,7 @@ jobs:
           grep -q '^deploy_build: generated$' .copier-answers.yml
           uv run terp verify --only generated
           uv run pytest
-          SECRET_KEY=acceptance-only-not-a-secret-0123456789 POSTGRES_PASSWORD=acceptance \
+          SECRET_KEY=acceptance-only-not-a-secret-0123456789 POSTGRES_PASSWORD=acceptance TERP_RUNTIME_DB_PASSWORD=runtime \
             TERP_RELEASE_TAG=acceptance docker compose -f docker-compose.prod.yml config -q
 
       # The generated app's own conformance job, end to end, on one variant. It had never
@@ -1020,7 +1020,7 @@ jobs:
         if: matrix.variant == 'hub-all-capabilities'
         working-directory: /tmp/acceptance-app
         run: |
-          set -eux
+          set -eu
           mkdir -p .terp-dist/wheels
           cp /tmp/terp-wheels/*.whl .terp-dist/wheels/
           # The image installs exactly uv.lock (`uv sync --locked`), so the lock names the
@@ -1032,6 +1032,7 @@ jobs:
           # Every compose command on the production profile names the release's image tag.
           TERP_RELEASE_TAG=acceptance
           export SECRET_KEY POSTGRES_PASSWORD TERP_RELEASE_TAG
+          export TERP_RUNTIME_DB_PASSWORD="$(secret)"
           {
             echo "OIDC_ISSUER=https://idp.example.test"
             echo "OIDC_CLIENT_ID=terp-production-boot"
@@ -1043,6 +1044,12 @@ jobs:
           # Built once, by the one service that declares the build; up starts db and migrate
           # first, and --wait holds out for the api's healthcheck in production.
           $profile build api
+          $profile up -d --wait db
+          $profile exec -T -e TERP_RUNTIME_DB_PASSWORD db psql -X -v ON_ERROR_STOP=1 -U app -d app <<'SQL'
+          \getenv runtime_password TERP_RUNTIME_DB_PASSWORD
+          CREATE ROLE terp_rt LOGIN PASSWORD :'runtime_password';
+          SQL
+          $profile run --rm migrate terp migrate grant-runtime terp_rt --app-root /srv/app
           $profile up -d --wait api
           # Stored through the capability, after the app composed itself, so the root it
           # writes is the one the app resolves, not a path this step assumes.

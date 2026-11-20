@@ -60,6 +60,7 @@ from terp.arch.deployment._generator_text import (
     MIGRATION_STEP,
     MOUNT_PATH,
     NO_DATABASE_URL,
+    migration_url,
     OWN_REMEDY,
     OWNED_PATHS,
     PROFILE,
@@ -69,6 +70,7 @@ from terp.arch.deployment._generator_text import (
     SITE_DOCKERFILE,
     SITE_LOCK,
     API_PORT,
+    PUBLISH_ADDRESS,
     WEB_PORT,
     heartbeat_role,
 )
@@ -146,14 +148,18 @@ def fixed_interpolations(tables: Tables) -> tuple[tuple[str, re.Pattern[str]], .
     port, published when no web tier fronts it (ADR 0202), and 0.40.0 a static site's own
     host port and its image name (ADR 0198).
     """
+    # Also accept the exact port forms in releases signed before the loopback default.
+    address = f"(?:{re.escape(PUBLISH_ADDRESS)})?"
     places = [
         ("environment.DATABASE_URL", re.escape(EXTERNAL_DATABASE_URL)),
         ("environment.DATABASE_URL", re.escape(NO_DATABASE_URL)),
+        ("environment.DATABASE_URL", re.escape(migration_url(EXTERNAL_DATABASE_URL))),
+        ("environment.DATABASE_URL", re.escape(migration_url(NO_DATABASE_URL))),
         ("environment.SECRET_KEY", re.escape(KEY_SEAM)),
         ("environment.BACKEND_CORS_ORIGINS", re.escape(CORS_ORIGINS)),
-        ("ports[]", re.escape(WEB_PORT)),
-        ("ports[]", re.escape(API_PORT)),
-        ("ports[]", SITE_PORT_PATTERN),
+        ("ports[]", address + re.escape(WEB_PORT.removeprefix(PUBLISH_ADDRESS))),
+        ("ports[]", address + re.escape(API_PORT.removeprefix(PUBLISH_ADDRESS))),
+        ("ports[]", address + SITE_PORT_PATTERN),
         ("*.image", rf"{_PROJECT}-(?:backend|frontend)-prod:{re.escape(RELEASE_TAG_SEAM)}"),
         ("*.image", rf"{_PROJECT}-site-prod:{re.escape(RELEASE_TAG_SEAM)}"),
     ]
@@ -162,6 +168,10 @@ def fixed_interpolations(tables: Tables) -> tuple[tuple[str, re.Pattern[str]], .
         places.append(
             (f"environment.{recipe.variable}", rf"\$\{{{recipe.variable}:-{url}\}}")
         )
+        if recipe.runtime_url is not None:
+            owner = "${" + recipe.variable + ":-" + recipe.url + "}"
+            for seam in (recipe.service_url(), migration_url(owner)):
+                places.append((f"environment.{recipe.variable}", re.escape(seam).replace(re.escape("{host}"), _ID)))
         for name, text in recipe.environment:
             if "$" in text:
                 places.append((f"environment.{name}", re.escape(text)))
@@ -203,7 +213,7 @@ def escape_findings(
 
     def site_port_refusal(node: str, path: tuple[str, ...]) -> str | None:
         unit = path[1] if len(path) == 3 and path[0] == "services" else None
-        if unit not in sites or node != site_port(unit):
+        if unit not in sites or node.removeprefix(PUBLISH_ADDRESS) != site_port(unit).removeprefix(PUBLISH_ADDRESS):
             return (
                 f"{'.'.join(path)}: {node!r} is a static site's port, which only the service "
                 "of a unit the static-site recipe builds may publish, on that unit's own "
@@ -227,7 +237,7 @@ def escape_findings(
             place = path[-1] if path[-1].endswith("[]") else ".".join(path[-2:])
             if not any(_at(where, place) and pattern.fullmatch(node) for where, pattern in allowed):
                 found.append(f"{'.'.join(path)}: {node!r} interpolates outside the fixed list")
-            elif place == "ports[]" and _SITE_PORT.fullmatch(node):
+            elif place == "ports[]" and _SITE_PORT.fullmatch(node.removeprefix(PUBLISH_ADDRESS)):
                 refusal = site_port_refusal(node, path)
                 if refusal is not None:
                     found.append(refusal)

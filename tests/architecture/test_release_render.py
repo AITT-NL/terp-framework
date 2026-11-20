@@ -86,10 +86,17 @@ def test_the_pinned_wheel_is_hash_checked_and_read_as_data(tmp_path: pathlib.Pat
         _render.fetch(releases, str(tmp_path / "empty"), TOOLCHAIN, tmp_path)
 
 
+def test_the_assurance_spec_is_read_from_the_pinned_wheels_own_export(tmp_path: pathlib.Path) -> None:
+    wheel = build_wheel(tmp_path / "index", replace={"terp/arch/__init__.py": b'SPEC_VERSION = "0.40.0"\n'})
+    pinned = _render.fetch(table(tmp_path, wheel), str(tmp_path / "index"), TOOLCHAIN, tmp_path)
+    assert pinned.assurance_spec == "0.40.0"
+
+
 @pytest.mark.parametrize(
     ("drop", "replace", "expected"),
     [
         ("terp/arch/deployment/reader.py", None, "holds no deployment reader"),
+        (None, {"terp/arch/__init__.py": b""}, "names no Terp Standard version for its assurance claim"),
         (None, {"terp/arch/deployment/reader.py": b"SPEC = 1\n"}, "names no Terp Standard release"),
     ],
 )

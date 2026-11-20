@@ -46,7 +46,8 @@ FROM python:3.15-slim
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
-ENV PYTHONUNBUFFERED=1 \
+ENV ENVIRONMENT=production \
+    PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/srv
 
@@ -68,7 +69,7 @@ COPY apps/example/app app
 COPY apps/example/control_plane control_plane
 # The record of who can reach what, beside them: the app compares the routes it composed
 # with it before it serves, and does not start on a difference (ADR 0212).
-COPY apps/example/authz-surface.json ./
+COPY --chmod=0444 apps/example/authz-surface.json ./
 
 # Drop privileges; the runtime never writes to the image filesystem (read-only-FS safe).
 # `var/files`, the files capability's default storage root, is a mount point and not image

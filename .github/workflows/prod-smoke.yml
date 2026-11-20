@@ -28,6 +28,8 @@ env:
   SMOKE_ADMIN_PASSWORD: Terp-Sm0ke-Cred-2026-xyz!
   SECRET_KEY: ci-prod-smoke-secret-key-0123456789abcdef
   POSTGRES_PASSWORD: ci-prod-smoke-db-password
+  TERP_RUNTIME_DB_PASSWORD: ci-prod-smoke-runtime-password
+  COMPOSE_FILE: apps/example/docker-compose.prod.yml:apps/example/compose.runtime-role.yml
 
 jobs:
   prod-smoke:
@@ -37,17 +39,25 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Provision the database runtime login
+        run: |
+          docker compose up -d --wait db
+          docker compose exec -T -e TERP_RUNTIME_DB_PASSWORD db psql -X -v ON_ERROR_STOP=1 -U terp -d terp <<'SQL'
+          \getenv runtime_password TERP_RUNTIME_DB_PASSWORD
+          CREATE ROLE terp_rt LOGIN PASSWORD :'runtime_password';
+          SQL
+
       - name: Build and start the production profile
-        run: docker compose -f apps/example/docker-compose.prod.yml up -d --wait --build api web
+        run: docker compose up -d --wait --build api web
 
       # `--wait` reports only "container X is unhealthy" — never why.
       - name: Why the production profile did not come up
         if: failure()
-        run: docker compose -f apps/example/docker-compose.prod.yml logs --no-color --tail=120
+        run: docker compose logs --no-color --tail=120
 
       - name: Liveness + readiness through the API container
         run: |
-          docker compose -f apps/example/docker-compose.prod.yml exec -T api \
+          docker compose exec -T api \
             python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"
 
       # The image carries the app's record of who can reach what, and the api compared the
@@ -55,9 +65,9 @@ jobs:
       # so a start that skipped the comparison is not a pass.
       - name: The api compared the routes it serves with its record
         run: |
-          docker compose -f apps/example/docker-compose.prod.yml exec -T api \
+          docker compose exec -T api \
             test -f /srv/authz-surface.json
-          docker compose -f apps/example/docker-compose.prod.yml logs --no-color api \
+          docker compose logs --no-color api \
             > "$RUNNER_TEMP/api.log" 2>&1
           grep -F "authz-surface.json matches the routes this app serves" "$RUNNER_TEMP/api.log"
 
@@ -75,7 +85,7 @@ jobs:
 
       - name: Bootstrap the first administrator (terp user create)
         run: |
-          docker compose -f apps/example/docker-compose.prod.yml run --rm \
+          docker compose run --rm \
             -e TERP_USER_PASSWORD="$SMOKE_ADMIN_PASSWORD" api \
             terp user create smoke-admin@example.test --role admin --app-root /srv
 
@@ -129,7 +139,7 @@ jobs:
 
       - name: WebSocket upgrade + typed frame through production nginx
         run: |
-          docker compose -f apps/example/docker-compose.prod.yml exec -T \
+          docker compose exec -T \
             -e SMOKE_ADMIN_PASSWORD="$SMOKE_ADMIN_PASSWORD" api python - <<'PY'
           import asyncio
           import json
@@ -198,14 +208,14 @@ jobs:
 
       - name: Seed refuses production (fail-closed check)
         run: |
-          if docker compose -f apps/example/docker-compose.prod.yml run --rm api terp seed; then
+          if docker compose run --rm api terp seed; then
             echo "terp seed must refuse ENVIRONMENT=production" && exit 1
           fi
 
       - name: Show logs on failure
         if: failure()
-        run: docker compose -f apps/example/docker-compose.prod.yml logs
+        run: docker compose logs
 
       - name: Stop the profile
         if: always()
-        run: docker compose -f apps/example/docker-compose.prod.yml down -v
+        run: docker compose down -v

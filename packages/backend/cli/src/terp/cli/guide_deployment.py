@@ -50,7 +50,7 @@ FOUR STATES, EXACTLY ONE AT A TIME
                                   committed copy that is not the render is refused.
                                   frontend/Dockerfile.prod only beside a web unit: an api
                                   unit with no web unit in front of it is the deployment's
-                                  only way in and publishes ${API_PORT:-23200}:8000 (ADR
+                                  only way in and publishes ${TERP_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-23200}:8000 (ADR
                                   0202) -- the shape an app rendered API-only (the
                                   template's `frontend: false`) has from the start
   {"unmanaged": true, "reason"}   no tool can drive this deploy; the checks are off and
@@ -204,7 +204,7 @@ proxies nothing, and connect-src 'self' leaves a page no other origin to call. I
 its own files under dist/. Its nginx answers its health at /healthz, where the profile probes
 it, so the site unit declares that healthPath or none: a deploy tool waits on the declared
 path, and the readable rule refuses another. It is published on WEB_PORT_ and its unit id
-upper-cased, with - and . as _ (unit site: ${WEB_PORT_SITE:-23101}:8080), beside the SPA's
+upper-cased, with - and . as _ (unit site: ${TERP_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT_SITE:-23101}:8080), beside the SPA's
 WEB_PORT, and its image is <project>-site-prod, tagged per release like the other two. One
 SPA and one site render together; a site alone is fine too, and the api then publishes
 API_PORT as it does with no web unit. A site that needs another policy, a lifecycle script,
@@ -282,14 +282,15 @@ named volume the owner of the directory it is mounted over, so that user can wri
 A process that cannot write its storage root refuses to start outside ENVIRONMENT=local
 (ADR 0218, `terp guide files`).
 
-  start it, with its required secrets and a new per-release image tag set (compose
-  stops on an unset one; the tag keeps the previous release's images beside this
-  one's, so it can be started again):
-    SECRET_KEY=... POSTGRES_PASSWORD=... TERP_RELEASE_TAG=$(git rev-parse --short=12 HEAD) \\
-      docker compose -f docker-compose.prod.yml up -d --wait --build
+  for a fresh bundled database, use the scaffold's compose.runtime-role.yml overlay.
+  Follow docs/DEPLOYMENT.md, Quickstart (single host), to create the runtime login,
+  run migrations, grant its DML privileges and check them before starting the API.
+  Keep the two files selected for subsequent starts (and for the command below):
+    export COMPOSE_FILE=docker-compose.prod.yml:compose.runtime-role.yml
+    docker compose up -d --wait --build
   bootstrap the first administrator (`terp seed` refuses ENVIRONMENT=production), with
   the same variables set:
-    docker compose -f docker-compose.prod.yml run --rm -e TERP_USER_PASSWORD api \\
+    docker compose run --rm -e TERP_USER_PASSWORD api \\
       terp user create admin@your-domain.example --role admin
   start an earlier release again: set its TERP_RELEASE_TAG and run `up -d --wait
     --no-build`, so an image that is gone fails instead of being rebuilt from this

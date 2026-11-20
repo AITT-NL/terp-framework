@@ -563,7 +563,7 @@ def test_the_site_is_served_from_a_root_only_its_build_fills() -> None:
 )
 def test_a_site_is_published_on_a_variable_compose_reads(unit: str, variable: str) -> None:
     assert port_variable(unit) == variable
-    assert site_port(unit) == f"${{{variable}:-23101}}:8080"
+    assert site_port(unit) == f"${{TERP_BIND_ADDRESS:-127.0.0.1}}:${{{variable}:-23101}}:8080"
 
 
 def test_the_escape_audit_takes_the_site_s_scalars_and_nothing_near_them() -> None:

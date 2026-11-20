@@ -1,0 +1,15 @@
+services:
+  migrate:
+    command:
+      - sh
+      - -ec
+      - |
+        terp migrate upgrade --app-root /srv/app
+        terp migrate grant-runtime terp_rt --app-root /srv/app
+        terp migrate check-roles terp_rt --owner-role app --app-root /srv/app
+    environment:
+      DB_SCHEMA_LAYOUT: per-module
+  api:
+    environment:
+      DB_SCHEMA_LAYOUT: per-module
+      DATABASE_URL: postgresql+psycopg://terp_rt:${TERP_RUNTIME_DB_PASSWORD:?supply the separately provisioned runtime password}@db:5432/app

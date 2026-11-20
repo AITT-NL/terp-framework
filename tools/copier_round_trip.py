@@ -72,7 +72,7 @@ FRONTEND_BLOCK = re.compile(r"\{%- if frontend %\}(.*?)\s*\{%- endif %\}", re.DO
 #: Where the files capability's volume lands in the production profile.
 FILES_MOUNT = '"files-data:/srv/var/files"'
 #: How the api unit is published when no web tier fronts it (ADR 0202).
-API_PUBLISHED = '"${API_PORT:-23200}:8000"'
+API_PUBLISHED = '"${TERP_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-23200}:8000"'
 
 #: What each later revision adds, so a merge can be told apart from a re-render.
 MARKERS = {

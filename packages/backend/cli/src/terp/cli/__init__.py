@@ -2505,7 +2505,7 @@ else. A `"format": "secret"` declaration must appear with an EMPTY value: this f
 committed, .app.env is not.
 
 Never write a secret value into the manifest, .env.example, .app.env.example, source,
-tests, prompts or logs. Platform-owned names (SECRET_KEY, POSTGRES_PASSWORD, DATABASE_URL,
+tests, prompts or logs. Platform-owned names (SECRET_KEY, POSTGRES_PASSWORD, TERP_RUNTIME_DB_PASSWORD, TERP_MIGRATION_DATABASE_URL, DATABASE_URL,
 ENVIRONMENT, WEB_PORT, BACKEND_CORS_ORIGINS) are refused in the manifest: they already
 have an owner.
 
