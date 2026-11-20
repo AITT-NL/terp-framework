@@ -1896,6 +1896,25 @@ File objects (files capability, ADR 0056/0057)
   backs it up. A unit of your own that reads stored bytes (a worker) mounts the same volume:
   add it to the profile and to the volume's "mount": {"units": [...]}. A store behind
   another adapter needs no volume. `terp guide deployment` has the rest.
+- Every process checks its local roots BEFORE it serves (ADR 0218): create_app creates each
+  local profile's root and writes and removes a probe file there. Outside ENVIRONMENT=local a
+  root the app's user cannot write REFUSES the start, one sentence naming the path, the cause
+  and the uid (a BootError, which Terp Studio shows at release verification); in local it is
+  a warning. A writable root on the container's own disk (no volume) is a warning, never a
+  refusal. The production image makes the root its runtime user's before it drops to it:
+      RUN useradd --create-home --uid 10001 appuser \\
+          && mkdir -p /srv/var/files && chown appuser /srv/var/files
+  and the profile mounts the volume there:
+      api:
+        volumes:
+          - "files-data:/srv/var/files"
+  An app rendered before template 0.35 has neither: re-render (`copier update`) or add both
+  (`terp maintenance` names the case). A volume an older image made is root's; chown it once:
+      docker compose -f docker-compose.prod.yml run --rm --no-deps --user root api \\
+          chown 10001 /srv/var/files
+  Register every storage profile BEFORE create_app: one registered later is not probed. A
+  store behind a network adapter is not called at boot; its failures, like a local root that
+  breaks after boot, answer a typed 502 (file_storage_failed), the cause in the log only.
 """,
     "capability": guide_capability.TOPIC,
     "mail": """\

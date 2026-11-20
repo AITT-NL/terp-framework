@@ -182,6 +182,26 @@ decision, 0001 onwards.
   `revision_header` reads `down_revision`, from its one plain module-level assignment, and
   returns it as written, `None` where the file assigns none. It imports and runs nothing.
 
+- **A process that cannot write its storage root does not start (ADR 0218).** An app
+  rendered from the 0.34 template answered 500 to every upload in production: its image ran as
+  a user that cannot write `/srv/var/files`, and nothing noticed before a user uploaded.
+  `terp.core.register_boot_check(name, check)` lets a capability register a check when it is
+  imported, and `create_app` runs every registered check beside the ADR 0212 comparison:
+  outside `ENVIRONMENT=local` a check's sentence is a `BootError` (logged as `uncaught
+  BootError: ...`, which Terp Studio shows on a deploy and at release verification), in local
+  a warning. The files capability registers one. `StorageBackend.boot_problem()` (default
+  `None`, so a network store is not called at boot) is asked of every storage profile, and
+  `LocalFilesystemStorage` creates its root and writes and removes a probe file there. A
+  failure names the path, the cause, the user the app runs as, and the remedy. A writable root
+  on the same filesystem as `/` is a warning outside local (`boot_warning()`), never a
+  refusal.
+- **`terp maintenance` names the files defect of a pre-0.35 render.** For an app that
+  installs `terp-cap-files` and builds its own image, a `Dockerfile.prod` that never makes
+  `/srv/var/files`, or a production profile with no volume there, is a `template-behind`
+  finding with the subject `terp-cap-files`. Its remedy gives the two lines, the re-render
+  that brings them, and the one-time `chown` of a volume an older image created. The finding
+  kinds and the `terp_maintenance: 1` document are unchanged.
+
 ### Changed
 
 - Example and generated backend images use Python 3.15 slim. The production
@@ -209,6 +229,24 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **A late storage failure is a typed 502, not a 500.** An `OSError` from the local
+  adapter's `put`, `open` or `delete` is now a `FileStorageError` (`file_storage_failed`),
+  with the operation, root, key and error in `log_context` and never in the response. An
+  unknown key stays a 404. An upload whose cleanup fails too keeps its own error and logs the
+  cleanup's.
+- **The example app can store a file in production.** Its image now makes `/srv/var/files`
+  owned by the user it runs as, its production profile mounts a `files-data` volume there,
+  and its `deployment.json` declares that volume with a backup policy. `prod-smoke` stores a
+  file through the API and reads it back from a new container, and template acceptance stores
+  and reads through the files capability instead of writing the path itself, so this kind of
+  defect turns both lanes red.
+- **Celery beat's schedule file no longer lands in the app root.** Celery opens it under a
+  relative default name in the working directory, which the production image's user cannot
+  write, so an app that ran the documented `celery -A your.celery_app beat` from the backend
+  image would stop at beat's first start. `CeleryBeatScheduler.install()` moves Celery's
+  default to the temporary directory and keeps a path the app set itself. The file is beat's
+  cache; the schedule ledger settles each tick, and `catch_up()` covers a file that did not
+  survive a restart.
 - **`grant-runtime` refuses a role name that ends in a line break.** Its pattern was matched
   with `re.match`, whose `$` also matches before a trailing newline, so `"terp_rt\n"` reached
   the server, which refused it as a role that does not exist. The whole name is matched now,
@@ -236,6 +274,21 @@ decision, 0001 onwards.
 
 ### Upgrade notes
 
+- **An app rendered before template 0.35 that uses the files capability refuses to start
+  outside `ENVIRONMENT=local` on this release** until its image makes the storage root
+  writable (ADR 0218). Before, it started and failed every upload with a 500. Terp Studio shows
+  the refusal at release verification, before production. Re-render the scaffolding (`copier
+  update`; the volume comes only when the recorded `use_files` answer is true), or add `&&
+  mkdir -p /srv/var/files && chown appuser /srv/var/files` to the `RUN useradd` line of
+  `Dockerfile.prod` and a `files-data:/srv/var/files` volume on `api` in
+  `docker-compose.prod.yml`. A volume an older image created is owned by root: chown it once
+  (`docker compose -f docker-compose.prod.yml run --rm --no-deps --user root api chown 10001
+  /srv/var/files`). `uv run --frozen terp maintenance` names the case. A composition root
+  registers its storage profiles before it calls `create_app`: one registered later is not
+  probed.
+- Every `create_app` now creates the default storage root, `./var/files` relative to the
+  working directory, if it is missing. In a checkout that is an empty directory, which the
+  template's `.gitignore` already ignores (`/var/`).
 - `copier update` adds `terp-cap-egress` to the `dev` group of `pyproject.toml`; run `uv sync`.
   An app that does not re-render can add `"terp-cap-egress==0.43.0"` to that group by hand.
 - `sign` now refuses a release whose migration histories it cannot list, where it signed it
