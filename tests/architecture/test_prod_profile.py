@@ -13,8 +13,10 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+import secrets
 import tomllib
 
+import pytest
 import yaml
 
 from tests.architecture.deployment_fixtures import template_profile
@@ -49,6 +51,30 @@ def test_prod_compose_is_present_and_valid_yaml() -> None:
         assert "services" in data
 
 
+@pytest.mark.parametrize(
+    ("directory", "owner", "database"),
+    [(_PROD_COMPOSE.parent, "terp", "terp"), (_TEMPLATE_PROD_DOCKERFILE.parent, "app", "app")],
+)
+def test_runtime_role_overlay_checks_the_login_before_starting_the_api(
+    directory: pathlib.Path, owner: str, database: str
+) -> None:
+    services = yaml.safe_load((directory / "compose.runtime-role.yml").read_text())["services"]
+    api = services["api"]["environment"]
+    migrate = services["migrate"]
+    assert api["DB_SCHEMA_LAYOUT"] == migrate["environment"]["DB_SCHEMA_LAYOUT"] == "per-module"
+    url = api["DATABASE_URL"]
+    assert url.startswith("postgresql+psycopg://terp_rt:${TERP_RUNTIME_DB_PASSWORD:?")
+    assert url.endswith(f"@db:5432/{database}")
+    assert "POSTGRES_PASSWORD" not in url
+    shell, flags, steps = migrate["command"]
+    assert (shell, flags) == ("sh", "-ec")
+    assert steps.splitlines() == [
+        "terp migrate upgrade --app-root /srv/app",
+        "terp migrate grant-runtime terp_rt --app-root /srv/app",
+        f"terp migrate check-roles terp_rt --owner-role {owner} --app-root /srv/app",
+    ]
+
+
 def test_prod_profile_has_no_seed_service() -> None:
     """Seed data is dev/demo only; production bootstraps via `terp user create`."""
     for data in _both_composes():
@@ -69,6 +95,27 @@ def test_prod_secrets_have_no_dev_fallback() -> None:
         assert ":?" in env["SECRET_KEY"], "SECRET_KEY must be required (no dev default)"
         db_env = data["services"]["db"]["environment"]
         assert ":?" in db_env["POSTGRES_PASSWORD"], "POSTGRES_PASSWORD must be required"
+
+
+@pytest.mark.parametrize("field", ["SECRET_KEY", "SECRET_KEY_FALLBACKS", "SECRET_KEY_DECRYPT_FALLBACKS"])
+def test_workbench_key_is_refused_in_every_production_key_slot(field: str) -> None:
+    from terp.core.config import Settings
+
+    scaffold = _REPO_ROOT / "template" / "project"
+    development = (scaffold / "docker-compose.yml.jinja").read_text()
+    match = re.search(r"SECRET_KEY: \$\{SECRET_KEY:-(.+?)\}", development)
+    assert match
+    key = match[1]
+    assert not re.search(r"^SECRET_KEY=", (scaffold / ".env.example.jinja").read_text(), re.M)
+    settings = {
+        "ENVIRONMENT": "production",
+        "DATABASE_URL": "postgresql://db/app",
+        "SECRET_KEY": secrets.token_hex(32),
+    }
+    for weak in (key, " " * 32):
+        settings[field] = weak if field == "SECRET_KEY" else [weak]
+        with pytest.raises(ValueError, match=field):
+            Settings(**settings)
 
 
 def test_the_template_s_images_carry_a_required_per_release_tag() -> None:
@@ -99,7 +146,13 @@ def test_prod_database_url_reads_from_the_environment() -> None:
     for data in _both_composes():
         for name in ("migrate", "api"):
             url = data["services"][name]["environment"]["DATABASE_URL"]
-            assert url.startswith("${DATABASE_URL:-"), f"{name} must read the seam"
+            if name == "migrate":
+                assert url.startswith("${TERP_MIGRATION_DATABASE_URL:-${DATABASE_URL:-")
+                assert "${POSTGRES_PASSWORD}" in url
+            else:
+                assert url.startswith("${DATABASE_URL:-postgresql+psycopg://terp_rt:")
+                assert "POSTGRES_PASSWORD" not in url
+                assert "${TERP_RUNTIME_DB_PASSWORD:?" in url
             assert "@db:5432/" in url, f"{name} must default to the bundled db"
 
 
@@ -145,6 +198,8 @@ def test_prod_backend_images_are_multistage_wheel_builds() -> None:
         )
         assert "uv build --wheel" in text
         assert "-e " not in text, f"{path.name} must not install editable"
+        runtime = text.rsplit("\nFROM ", 1)[1]
+        assert "\nENV ENVIRONMENT=production " in runtime
         assert "USER " in text, f"{path.name} must drop root"
         code_lines = [
             line for line in text.splitlines() if line.strip() and not line.strip().startswith("#")
@@ -271,9 +326,9 @@ def test_both_prod_images_carry_the_record_and_the_smoke_holds_the_comparison() 
 
     assert (_REPO_ROOT / "apps" / "example" / SURFACE_ARTIFACT).is_file()
     example = _PROD_DOCKERFILE.read_text(encoding="utf-8")
-    assert f"COPY apps/example/{SURFACE_ARTIFACT} ./" in example
+    assert f"COPY --chmod=0444 apps/example/{SURFACE_ARTIFACT} ./" in example
     template = _TEMPLATE_PROD_DOCKERFILE.read_text(encoding="utf-8")
-    assert "COPY authz-surface.jso[n] ./" in template
+    assert "COPY --chmod=0444 authz-surface.jso[n] ./" in template
     for text in (example, template):
         assert text.index("WORKDIR /srv") < text.index(SURFACE_ARTIFACT[:-1]), (
             "the record lands in /srv, the directory every process of the image starts in"
@@ -336,6 +391,8 @@ _ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _PLATFORM_OWNED_NAMES = {
     "SECRET_KEY",
     "POSTGRES_PASSWORD",
+    "TERP_RUNTIME_DB_PASSWORD",
+    "TERP_MIGRATION_DATABASE_URL",
     "DATABASE_URL",
     "ENVIRONMENT",
     "WEB_PORT",

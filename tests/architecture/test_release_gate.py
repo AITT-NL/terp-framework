@@ -95,6 +95,7 @@ def test_the_gate_runs_the_release_profile_then_reads_the_schedules_sealed(tmp_p
     [run] = runs.ran("docker", "run")
     assert {"--network", "none", "--read-only", "--cap-drop", "ALL"} <= set(run)
     assert run[run.index("--network") + 1] == "none" and run[run.index("--pull") + 1] == "never"
+    assert run[run.index("--env") + 1] == "ENVIRONMENT=local"
     assert run[-4:] == ["inspect", "control-plane", "--format", "json"]
     assert "--user" not in run, "the image runs as its own user, which the gate checked is not root"
     _cwd, pull_env = seen["docker pull"]

@@ -29,7 +29,7 @@ x-backend: &backend
   environment: &backend-env
     # Unset: the bundled `db` service. Set: any external PostgreSQL -- the seam an
     # external-database deployment overrides (nothing else in the profile changes).
-    DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://app:${POSTGRES_PASSWORD}@db:5432/app}
+    DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://terp_rt:${TERP_RUNTIME_DB_PASSWORD:?TERP_RUNTIME_DB_PASSWORD is required}@db:5432/app}
     SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required (>= 32 chars)}
     ENVIRONMENT: production
     BACKEND_CORS_ORIGINS: '${BACKEND_CORS_ORIGINS:-[]}'
@@ -93,6 +93,9 @@ services:
   migrate:
     <<: *backend
     command: ["terp", "migrate", "upgrade", "--app-root", "/srv/app"]
+    environment:
+      <<: *backend-env
+      DATABASE_URL: ${TERP_MIGRATION_DATABASE_URL:-${DATABASE_URL:-postgresql+psycopg://app:${POSTGRES_PASSWORD}@db:5432/app}}
     env_file:
       - path: .app.env
         required: false
@@ -124,7 +127,7 @@ services:
       # deployment sets API_PORT explicitly -- this default only decides what a
       # first `docker compose -f docker-compose.prod.yml up` grabs on a machine
       # that is also running the developer's own things.
-      - "${API_PORT:-23200}:8000"
+      - "${TERP_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-23200}:8000"
     depends_on:
       db:
         condition: service_healthy

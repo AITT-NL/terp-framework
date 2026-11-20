@@ -22,6 +22,7 @@ import pathlib
 import subprocess
 import sys
 import textwrap
+import tomllib
 from importlib.metadata import entry_points
 
 _PLUGIN = "terp.core.testing"
@@ -111,3 +112,14 @@ def test_strict_isolation_reads_the_ini_option_too(tmp_path: pathlib.Path) -> No
     """A project adopts it once in pyproject/pytest.ini, not on every invocation."""
     _write_project(tmp_path, strict=True)
     _assert_failed_on_the_missing_catalog(_run(tmp_path))
+
+
+def test_scaffold_requires_the_strict_isolation_plugin(tmp_path: pathlib.Path) -> None:
+    source = pathlib.Path(__file__).resolve().parents[2] / "template/project/pyproject.toml.jinja"
+    section = source.read_text().split("[tool.pytest.ini_options]", 1)[1].split("\n[", 1)[0]
+    options = tomllib.loads(section)
+    assert options["terp_strict_isolation"] is True
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]" + section)
+    result = _run(tmp_path, "-p", "no:terp")
+    assert result.returncode == 4
+    assert "Missing required plugins: terp-core" in result.stderr

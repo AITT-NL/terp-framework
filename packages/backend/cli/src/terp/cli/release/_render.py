@@ -46,6 +46,7 @@ DEFAULT_INDEX = "https://pypi.org/simple/"
 TABLE_DOCUMENT = "terpArchReleases"
 
 _SPEC_LINE = re.compile(r'^SPEC_RELEASE = "(?P<release>[0-9]+(?:\.[0-9]+)*)"\r?$', re.MULTILINE)
+_ASSURANCE_SPEC_LINE = re.compile(r'^SPEC_VERSION = "(?P<release>[0-9]+(?:\.[0-9]+)*)"\r?$', re.MULTILINE)
 _READER = "terp/arch/deployment/reader.py"
 _SCHEMA = "terp/arch/deployment/deployment-declaration.schema.json"
 _DATASTORES = "terp/arch/deployment/datastore-table.json"
@@ -68,6 +69,7 @@ class Pinned:
     version: str
     wheel: pathlib.Path
     spec: str
+    assurance_spec: str
     schema_sha256: str
     datastores: dict[str, Any]
     #: Whether the release writes the resolved deployment: read from the wheel's file list.
@@ -130,6 +132,7 @@ def fetch(table: str | pathlib.Path, index: str, version: str, scratch: pathlib.
     with zipfile.ZipFile(wheel) as archive:
         try:
             reader = archive.read(_READER).decode("utf-8")
+            assurance_reader = archive.read("terp/arch/__init__.py").decode("utf-8")
             schema = archive.read(_SCHEMA)
             datastores = json.loads(archive.read(_DATASTORES))
             resolves = _RESOLVED in archive.namelist()
@@ -138,7 +141,11 @@ def fetch(table: str | pathlib.Path, index: str, version: str, scratch: pathlib.
     found = _SPEC_LINE.search(reader)
     if found is None:
         raise ReleaseError(f"{name} names no Terp Standard release its declaration reader mirrors")
-    return Pinned(version, wheel, found.group("release"), hashlib.sha256(schema).hexdigest(), datastores, resolves)
+    assurance = _ASSURANCE_SPEC_LINE.search(assurance_reader)
+    if assurance is None:
+        raise ReleaseError(f"{name} names no Terp Standard version for its assurance claim")
+    return Pinned(version, wheel, found.group("release"), assurance.group("release"),
+                  hashlib.sha256(schema).hexdigest(), datastores, resolves)
 
 
 #: The render, run by the pinned ``terp-arch`` on nothing but itself and PyYAML.

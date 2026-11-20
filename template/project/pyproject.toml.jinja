@@ -135,6 +135,7 @@ addopts = "-q"
 # runtime it installed itself -- never on one a stray import installed at collection
 # time. A new project starts clean, which is the one cheap moment to adopt it; turning
 # it off later means accepting that a suite can be green together and red alone.
+required_plugins = ["terp-core==0.42.0"]
 terp_strict_isolation = true
 
 # The delegated generic AppSec baseline (ADR 0085): ruff's bandit-derived `S`

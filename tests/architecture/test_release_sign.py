@@ -33,7 +33,8 @@ from tests.architecture.test_release_render import build_wheel, table
 
 REGISTRY = "127.0.0.1:5000/rel"
 NAME = f"{PROJECT}-backend-prod"
-ASSURANCE = {"terp_assurance": 1, "ok": True, "lanes": []}
+ASSURANCE = {"terp_assurance": 1, "spec_version": SPEC_VERSION, "profile": "release",
+             "toolchain": {"tool": "terp-verify", "version": TOOLCHAIN}, "ok": True, "lanes": []}
 SCHEDULES = [{"name": "nightly", "cron": "0 3 * * *", "job": "sync"}]
 
 
@@ -79,7 +80,7 @@ class Release:
 
     def write_gate(self, **changes) -> None:  # type: ignore[no-untyped-def]
         write_document(self.gate_doc, {"terpReleaseGate": 1, "commit": self.sha, "assurance": ASSURANCE,
-                                       "schedules": SCHEDULES, "image": "x"} | changes)
+                                       "schedules": SCHEDULES, "image": f"{REGISTRY}/{NAME}@{self.digest}"} | changes)
 
     def sign(self, **options):  # type: ignore[no-untyped-def]
         options = {"hosts": "separated", "sign_key": self.tmp / "key.pem", "test_key": True,
@@ -153,6 +154,32 @@ def test_sign_signs_a_release_whose_app_fails_on_import_and_runs_none_of_it(tmp_
     [image_task] = [payload for task, payload in release.tasks if task == "image"]
     assert image_task["base"].startswith("python@sha256:"), "the compile runs in the Dockerfile's own pinned base"
     assert "key" not in json.dumps(image_task) and str(tmp_path / "key.pem") not in json.dumps(release.tasks)
+
+
+@pytest.mark.parametrize("different", ["repository", "digest", "missing"])
+def test_gate_evidence_belongs_to_the_verified_backend_image(tmp_path: pathlib.Path, monkeypatch, different: str) -> None:
+    release = Release(tmp_path, monkeypatch)
+    gate = json.loads(release.gate_doc.read_text())
+    if different == "repository":
+        gate["image"] = f"{REGISTRY}/other@{release.digest}"
+    elif different == "digest":
+        gate["image"] = f"{REGISTRY}/{NAME}@sha256:{'f' * 64}"
+    else:
+        del gate["image"]
+    write_document(release.gate_doc, gate)
+    with pytest.raises(ReleaseError, match="gate must name the verified backend image"):
+        release.sign()
+    assert not (tmp_path / "out").exists()
+
+
+def test_one_build_record_per_image_is_required(tmp_path: pathlib.Path, monkeypatch) -> None:
+    release = Release(tmp_path, monkeypatch)
+    build = json.loads(release.build_doc.read_text())
+    build["images"].append(build["images"][0].copy())
+    write_document(release.build_doc, build)
+    with pytest.raises(ReleaseError, match="duplicate image names"):
+        release.sign()
+    assert not (tmp_path / "out").exists()
 
 
 def test_two_signs_of_one_commit_record_the_same_inputs(tmp_path: pathlib.Path, monkeypatch) -> None:

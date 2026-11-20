@@ -97,6 +97,19 @@ you are embedding the dev server in something of your own: one origin, no list a
 anything malformed falls back to `'none'`. Production is unaffected — `nginx.conf` says
 `frame-ancestors 'none'` with no knob.
 {% endif %}
+## First production deployment
+
+With the bundled PostgreSQL service, select both `docker-compose.prod.yml` and
+`compose.runtime-role.yml`. Provision a separate runtime login, run migrations and
+grant it the application's data privileges before starting the API. The single-host
+quickstart includes the exact commands. [Deployment guide](https://github.com/AITT-NL/terp-framework/blob/main/docs/DEPLOYMENT.md#quickstart-single-host)
+
+If you add a worker that calls this API over the network, give it a scoped
+service account and an HTTPS URL with a certificate it can verify. Keep the
+database credentials and API signing key with the services that use them.
+After deployment, confirm a permitted API call succeeds from the worker's own
+network using its normal identity. A healthy web page exercises a different path.
+
 ## Upgrading Terp
 
 Terp releases in lockstep: every `terp-*` pin and every `@terpjs/*` dependency moves to the
