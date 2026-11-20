@@ -57,10 +57,29 @@ docker compose run --rm -e TERP_USER_PASSWORD api \
 The repository example uses database and owner `terp` in place of `app`.
 Its overlay already selects those names.
 
-The base Compose file alone gives the API the migration owner's credentials.
-Keep both files selected for subsequent starts so the migration service applies
+The base profile also gives each serving backend unit the restricted login.
+With the bundled database it requires `TERP_RUNTIME_DB_PASSWORD`. Only the migration
+service receives the owner connection. Keep both files selected for subsequent
+starts with per-module schemas so the migration service applies
 and checks the grants for every schema in each release. Export `COMPOSE_FILE`
 in each deployment shell, including during rollback or key rotation.
+
+For a base-only deployment, including `terp promote` of a generated release, provision
+`terp_rt` as above. With its default flat layout, run
+`docker compose -f docker-compose.prod.yml run --rm migrate terp migrate grant-runtime terp_rt --app-root /srv/app`
+as the owning login before the first promotion. Its grants cover existing tables and its
+default privileges cover future tables. When upgrading an existing volume, provision and
+grant before starting the first image that uses the new runtime login. Keep the volume
+and owner credentials. Existing signed profiles retain their original configuration.
+Update the promotion tool to recognize the new Compose interpolations before signing
+or promoting a newly rendered release.
+
+For a managed database, supply
+the restricted application URL in `DATABASE_URL` and the owner URL in
+`TERP_MIGRATION_DATABASE_URL`. The host supplies and validates both accounts. If no migration URL is
+provided for an explicit runtime URL, the migration step uses that same connection.
+An older signed release may still use the original shared owner connection for serving;
+inspect its profile and role assignments before rollback.
 
 The profile publishes its HTTP entry point on `127.0.0.1` by default. Route
 external traffic through a TLS ingress. If that ingress connects to another
@@ -85,8 +104,9 @@ weak `SECRET_KEY`, `DEBUG=true`, SQLite, CORS `*`, or an insecure refresh cookie
 | `SECRET_KEY_FALLBACKS` | no | Previous keys, comma-separated, that only **verify** signatures, each for its own lifetime (ADR 0076, 0189); each ≥ 32 chars, never `SECRET_KEY` itself — see [Rotating `SECRET_KEY`](#rotating-secret_key) |
 | `SECRET_KEY_DECRYPT_FALLBACKS` | no | Previous keys, comma-separated, that only **decrypt** values sealed at rest, until `terp secrets reseal` has moved them (ADR 0189); same rules |
 | `POSTGRES_PASSWORD` | yes | Bundled Postgres; compose fails fast when unset |
-| `TERP_RUNTIME_DB_PASSWORD` | role overlay | Password for the restricted `terp_rt` serving role |
+| `TERP_RUNTIME_DB_PASSWORD` | bundled database | Password for the restricted `terp_rt` serving role |
 | `TERP_RELEASE_TAG` | yes | The tag of this release's images, `<project>-backend-prod:<tag>` and `<project>-frontend-prod:<tag>` (ADR 0185), and a static site's `<project>-site-prod:<tag>` (ADR 0198): a Docker tag, new for every release, so the previous release's images stay on the host and can be started again. Compose fails fast when unset; it cannot tell a stale value from a new one, so set it per release. Platform-owned: `environment.schema.json` may not declare it |
+| `TERP_MIGRATION_DATABASE_URL` | managed database | Owning connection for the migration step |
 | `DATABASE_URL` | derived | Defaults to the bundled `db` service. Set it to run on a managed/external PostgreSQL — then also drop the `db` service (and the `depends_on` waiting on it) with a compose override |
 | `BACKEND_CORS_ORIGINS` | no | The browser origins that may call the API, as a JSON list, for a control plane that declares `CorsPolicy.from_environment()` (ADR 0210); empty serves none. An entry that is not an origin refuses the boot, and so does `*`. A control plane that declares its CORS in source does not read it |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_TIMEOUT` / `DB_POOL_RECYCLE` | no | Pool tuning (ADR 0024) |

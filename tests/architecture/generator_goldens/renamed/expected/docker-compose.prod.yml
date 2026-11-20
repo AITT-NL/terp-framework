@@ -29,7 +29,7 @@ x-backend: &backend
   environment: &backend-env
     # Unset: the bundled `pg` service. Set: any external PostgreSQL -- the seam an
     # external-database deployment overrides (nothing else in the profile changes).
-    DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://app:${POSTGRES_PASSWORD}@pg:5432/app}
+    DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://terp_rt:${TERP_RUNTIME_DB_PASSWORD:?TERP_RUNTIME_DB_PASSWORD is required}@pg:5432/app}
     SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required (>= 32 chars)}
     ENVIRONMENT: production
     BACKEND_CORS_ORIGINS: '${BACKEND_CORS_ORIGINS:-[]}'
@@ -99,6 +99,9 @@ services:
   schema:
     <<: *backend
     command: ["terp", "migrate", "upgrade", "--app-root", "/srv/app"]
+    environment:
+      <<: *backend-env
+      DATABASE_URL: ${TERP_MIGRATION_DATABASE_URL:-${DATABASE_URL:-postgresql+psycopg://app:${POSTGRES_PASSWORD}@pg:5432/app}}
     env_file:
       - path: .app.env
         required: false

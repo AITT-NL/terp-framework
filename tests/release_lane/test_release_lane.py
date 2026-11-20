@@ -170,6 +170,9 @@ def lane(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Lane]:
     )
     name = f"{rl.prefix()}app"
     work = tmp_path_factory.mktemp("lane")
+    # The fixture drives build/gate in-process for both synthetic framework versions.
+    # The assurance emitter and its package identity must come from each app's own install.
+    patch.setattr(gate_module, "assurance_document", lambda checks: rl.pinned_assurance(work / "app", checks))
     rl.remove_everything(name)
     try:
         start = time.monotonic()
@@ -186,10 +189,11 @@ def lane(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Lane]:
         environment = {
             key: value for key, value in os.environ.items()
             if key.upper() not in ("DATABASE_URL", "BACKEND_CORS_ORIGINS", "WEB_PORT", "SECRET_KEY",
-                                   "POSTGRES_PASSWORD", "TERP_RELEASE_TAG", "COMPOSE_PROJECT_NAME", "COMPOSE_FILE")
+                                   "POSTGRES_PASSWORD", "TERP_RUNTIME_DB_PASSWORD", "TERP_MIGRATION_DATABASE_URL",
+                                   "TERP_RELEASE_TAG", "COMPOSE_PROJECT_NAME", "COMPOSE_FILE")
         }
         environment |= {"SECRET_KEY": os.urandom(32).hex(), "POSTGRES_PASSWORD": os.urandom(16).hex(),
-                        "WEB_PORT": str(rl.free_port())}
+                        "TERP_RUNTIME_DB_PASSWORD": os.urandom(16).hex(), "WEB_PORT": str(rl.free_port())}
         lane_ = Lane(work, work / "app", name, services, signer, private, public, table,
                      work / "index" / "files", work / "deploy", environment)
         _timed(lane_, "set up (wheels, tarballs, index, registry, signer)", start)
@@ -203,6 +207,7 @@ def lane(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Lane]:
         _cut(lane_, "c", "lane-c", RELEASE_PATH)
         for release in lane_.releases.values():
             release.signed = _sign(lane_, release)
+        _provision_bundled_login(lane_)
         yield lane_
         print(f"\nrelease lane timings (s): {json.dumps(lane_.timings)}")
     finally:
@@ -326,6 +331,25 @@ def test_sign_refuses_an_image_whose_app_layer_changed_after_the_build(lane: Lan
 # --------------------------------------------------------------------------- #
 # promote                                                                      #
 # --------------------------------------------------------------------------- #
+def _provision_bundled_login(lane: Lane) -> None:
+    """The operator's first-deploy step, before promote runs the signed migration step."""
+    env = {**lane.env, "TERP_RELEASE_TAG": "lane-a"}
+    compose = ["docker", "compose", "-p", lane.project, "-f", str(lane.app / "docker-compose.prod.yml")]
+    rl.run([*compose, "up", "-d", "--wait", "db"], env=env)
+    rl.run(
+        [*compose, "exec", "-T", "-e", "TERP_RUNTIME_DB_PASSWORD", "db", "psql", "-X",
+         "-v", "ON_ERROR_STOP=1", "-U", "app", "-d", "app"],
+        env=env, stdin=b"\\getenv runtime_password TERP_RUNTIME_DB_PASSWORD\nCREATE ROLE terp_rt LOGIN PASSWORD :'runtime_password';\n",
+    )
+    image = lane.releases["a"].image(web=False)
+    rl.run(
+        ["docker", "run", "--rm", "--network", f"{lane.project}_default", "-e", "DATABASE_URL",
+         "-e", "SECRET_KEY", f"{image['repository']}@{image['digest']}",
+         "terp", "migrate", "grant-runtime", "terp_rt", "--app-root", "/srv/app"],
+        env={**env, "DATABASE_URL": f"postgresql+psycopg://app:{env['POSTGRES_PASSWORD']}@db:5432/app"},
+    )
+
+
 def _promote(lane: Lane, label: str, *, undo_to: str | None = None) -> list[str]:
     from terp.cli.release.promote import promote
 

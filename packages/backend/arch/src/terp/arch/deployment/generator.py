@@ -60,6 +60,7 @@ from terp.arch.deployment._generator_text import (
     MIGRATION_STEP,
     MOUNT_PATH,
     NO_DATABASE_URL,
+    migration_url,
     OWN_REMEDY,
     OWNED_PATHS,
     PROFILE,
@@ -152,6 +153,8 @@ def fixed_interpolations(tables: Tables) -> tuple[tuple[str, re.Pattern[str]], .
     places = [
         ("environment.DATABASE_URL", re.escape(EXTERNAL_DATABASE_URL)),
         ("environment.DATABASE_URL", re.escape(NO_DATABASE_URL)),
+        ("environment.DATABASE_URL", re.escape(migration_url(EXTERNAL_DATABASE_URL))),
+        ("environment.DATABASE_URL", re.escape(migration_url(NO_DATABASE_URL))),
         ("environment.SECRET_KEY", re.escape(KEY_SEAM)),
         ("environment.BACKEND_CORS_ORIGINS", re.escape(CORS_ORIGINS)),
         ("ports[]", address + re.escape(WEB_PORT.removeprefix(PUBLISH_ADDRESS))),
@@ -165,6 +168,10 @@ def fixed_interpolations(tables: Tables) -> tuple[tuple[str, re.Pattern[str]], .
         places.append(
             (f"environment.{recipe.variable}", rf"\$\{{{recipe.variable}:-{url}\}}")
         )
+        if recipe.runtime_url is not None:
+            owner = "${" + recipe.variable + ":-" + recipe.url + "}"
+            for seam in (recipe.service_url(), migration_url(owner)):
+                places.append((f"environment.{recipe.variable}", re.escape(seam).replace(re.escape("{host}"), _ID)))
         for name, text in recipe.environment:
             if "$" in text:
                 places.append((f"environment.{name}", re.escape(text)))

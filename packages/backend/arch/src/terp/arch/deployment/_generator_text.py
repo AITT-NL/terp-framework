@@ -360,6 +360,13 @@ _HEARTBEAT_TIMING = ("interval: 10s", "timeout: 5s", "retries: 3", "start_period
 #: The database seam when no unit of this deployment runs the database.
 EXTERNAL_DATABASE_URL = "${DATABASE_URL:?DATABASE_URL is required (externalDatabase)}"
 NO_DATABASE_URL = "${DATABASE_URL:?DATABASE_URL is required (no database unit)}"
+
+
+def migration_url(default: str) -> str:
+    """The independently configurable migration connection, with the profile's default."""
+    return "${TERP_MIGRATION_DATABASE_URL:-" + default + "}"
+
+
 KEY_SEAM = "${SECRET_KEY:?SECRET_KEY is required (>= 32 chars)}"
 CORS_ORIGINS = "${BACKEND_CORS_ORIGINS:-[]}"
 PUBLISH_ADDRESS = "${TERP_BIND_ADDRESS:-127.0.0.1}:"

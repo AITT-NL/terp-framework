@@ -52,6 +52,9 @@ services:
   migrate:
     <<: *backend
     command: ["terp", "migrate", "upgrade", "--app-root", "/srv/app"]
+    environment:
+      <<: *backend-env
+      DATABASE_URL: ${TERP_MIGRATION_DATABASE_URL:-${DATABASE_URL:?DATABASE_URL is required (externalDatabase)}}
     env_file:
       - path: .app.env
         required: false

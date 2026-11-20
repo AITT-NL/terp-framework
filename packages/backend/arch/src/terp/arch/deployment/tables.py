@@ -141,6 +141,11 @@ class KindRecipe:
     environment: tuple[tuple[str, str], ...]
     variable: str
     url: str
+    runtime_url: str | None = None
+
+    def service_url(self) -> str:
+        """The exact Compose interpolation for this unit, before substituting its hostname."""
+        return "${" + self.variable + ":-" + (self.runtime_url or self.url) + "}"
 
 
 POSTGRES = KindRecipe(
@@ -155,6 +160,7 @@ POSTGRES = KindRecipe(
     ),
     variable="DATABASE_URL",
     url="postgresql+psycopg://app:${POSTGRES_PASSWORD}@{host}:5432/app",
+    runtime_url="postgresql+psycopg://terp_rt:${TERP_RUNTIME_DB_PASSWORD:?TERP_RUNTIME_DB_PASSWORD is required}@{host}:5432/app",
 )
 
 #: One recipe per kind the published datastore table carries.

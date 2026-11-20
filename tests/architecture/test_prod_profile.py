@@ -146,7 +146,13 @@ def test_prod_database_url_reads_from_the_environment() -> None:
     for data in _both_composes():
         for name in ("migrate", "api"):
             url = data["services"][name]["environment"]["DATABASE_URL"]
-            assert url.startswith("${DATABASE_URL:-"), f"{name} must read the seam"
+            if name == "migrate":
+                assert url.startswith("${TERP_MIGRATION_DATABASE_URL:-${DATABASE_URL:-")
+                assert "${POSTGRES_PASSWORD}" in url
+            else:
+                assert url.startswith("${DATABASE_URL:-postgresql+psycopg://terp_rt:")
+                assert "POSTGRES_PASSWORD" not in url
+                assert "${TERP_RUNTIME_DB_PASSWORD:?" in url
             assert "@db:5432/" in url, f"{name} must default to the bundled db"
 
 
@@ -386,6 +392,7 @@ _PLATFORM_OWNED_NAMES = {
     "SECRET_KEY",
     "POSTGRES_PASSWORD",
     "TERP_RUNTIME_DB_PASSWORD",
+    "TERP_MIGRATION_DATABASE_URL",
     "DATABASE_URL",
     "ENVIRONMENT",
     "WEB_PORT",
