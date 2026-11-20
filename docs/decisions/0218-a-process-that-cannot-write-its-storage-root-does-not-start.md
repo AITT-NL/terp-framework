@@ -102,12 +102,16 @@ cannot read a shell `RUN` line reliably and does not reach an app that never ado
    passed` line. Template acceptance stores and reads through the capability's own backend,
    and shows that the same image refuses to start as a user that cannot write the volume.
 7. **`terp maintenance` names this defect.** For an app that installs `terp-cap-files` and
-   builds its own image, a `Dockerfile.prod` that never makes `/srv/var/files`, or a production
-   profile with no volume there, is a `template-behind` finding with the subject
-   `terp-cap-files`, with the lines to add to the image and the profile, the re-render that
-   brings them, and the one-time `chown` of a volume an older image created. When a file is missing, a release ref older than
-   0.35.0 decides. A `Dockerfile.prod` fixed by hand is not reported. One whose re-render dropped
-   the line is, whatever its ref. So the finding is a defect in the render's files, not a
+   builds its own image, it reads the text of `Dockerfile.prod` and `docker-compose.prod.yml`.
+   Either one in which no line but a comment names `var/files` is a `template-behind` finding
+   with the subject `terp-cap-files`, with the lines to add to the image and the profile, the
+   re-render that brings them, and the one-time `chown` of a volume an older image created.
+   When a file is missing, a release ref older than 0.35.0 decides. A `Dockerfile.prod` fixed
+   by hand is not reported. One whose re-render dropped the line is, whatever its ref. It
+   reads text, not ownership: any line that names the path counts, so a
+   `VOLUME /srv/var/files`, which leaves the mount point owned by root, reads as fixed. Whether
+   the root can be written is proven by the process itself (items 1 to 3), not by this
+   report. So the finding is a defect in the render's files, not a
    version behind: its `location` is the file, its `fixed_in` is 0.35.0, the template release
    whose production files first carried the fix, and its `installed` and `latest` are `null`,
    so a render from a later template never reads as a downgrade. Its text headline reads
@@ -139,7 +143,7 @@ right, because a worker that reads stored files needs the same root.
   its storage profiles before it composes the app. One registered later is not asked, and the
   default it replaced was.
 - **It does not call a network store at boot.** An S3 or Azure profile is asked nothing, so a
-  missing bucket or a wrong credential still shows on the first request, now as a 502.
+  missing bucket or a wrong credential still shows on the first request, as a 502.
 - **It does not make the deployment note a finding.** The note still runs only with
   `deployment.json`, and the catalog entry's intent keeps backup a property of the resolved
   plan. Ownership, which the note never saw, is now held by the process.

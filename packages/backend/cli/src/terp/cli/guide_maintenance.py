@@ -16,11 +16,13 @@ changes nothing:
                        platform the app runs (copier's _commit)
                        and, apart from that, one defect a re-render fixes, named
                        on its own (subject terp-cap-files): an app that installs the
-                       files capability whose Dockerfile.prod does not make
-                       /srv/var/files writable, or whose production profile mounts
-                       no volume there (a render older than template 0.35). Its
-                       uploads fail, and on Terp 0.43 or later it refuses to start
-                       outside ENVIRONMENT=local (ADR 0218)
+                       files capability and builds its own image, whose
+                       Dockerfile.prod or docker-compose.prod.yml has no line but a
+                       comment that names var/files (a render older than template
+                       0.35, or one that dropped the line). It reads the text, not
+                       who owns the directory: the process's own boot check proves
+                       that. Such an image's uploads fail, and on Terp 0.43 or later
+                       it refuses to start outside ENVIRONMENT=local (ADR 0218)
   known-vulnerability  a package in uv.lock or a web image's package-lock.json matches a
                        published advisory in OSV, with the lowest version that clears
                        every advisory that has a fix

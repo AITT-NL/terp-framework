@@ -168,8 +168,11 @@ def files_storage(root: pathlib.Path, report: Report) -> None:
     older than template 0.35 runs as a user that cannot write ``/srv/var/files``, with no
     volume there: every upload failed, and a process on Terp 0.43 or later refuses to start
     outside ``ENVIRONMENT=local``. Read from the app's own files, so a Dockerfile fixed by
-    hand is not reported and one whose re-render dropped the line is. Under ``"build":
-    "generated"`` the framework writes the image and its mounts, and nothing here applies.
+    hand is not reported and one whose re-render dropped the line is. It reads text, not
+    ownership: any line outside a comment that names ``var/files`` counts, ``VOLUME
+    /srv/var/files`` too, and the process's own boot check is what proves the root writable.
+    Under ``"build": "generated"`` the framework writes the image and its mounts, and nothing
+    here applies.
 
     The finding is a defect in the render's own files, not a version behind, so it names the
     file (``location``) and the template release whose production files first carried the
