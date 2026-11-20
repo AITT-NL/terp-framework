@@ -204,9 +204,9 @@ decision, 0001 onwards.
   `terp.core.boot_checks.register_boot_check(name, check)` lets a capability register a check when it is
   imported, and the registry's public surface offers no way to remove one. Its private
   mapping can still be emptied from app code (`terp.core.boot_checks._checks.clear()`), and no
-  rule refuses that: it is a change made without an assignment, which ADR 0213 records as a
-  residual of `no_framework_patching`. `create_app` runs every registered check beside the ADR
-  0212 comparison:
+  rule refuses that: it changes what the framework reads rather than one of its functions,
+  which ADR 0213 records as outside the subject of `no_framework_patching`. `create_app` runs
+  every registered check beside the ADR 0212 comparison:
   outside `ENVIRONMENT=local` a check's sentence is a `BootError` (logged as `uncaught
   BootError: ...`, which Terp Studio shows on a deploy and at release verification), in local
   a warning. The files capability registers one. `StorageBackend.boot_problem()` (default
