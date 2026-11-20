@@ -319,7 +319,10 @@ def test_celery_beat_builds_a_beat_entry_and_tick_task(session_factory) -> None:
     assert app.tasks["terp.schedule.sync.customers.nightly"].run() is None, "already settled"
 
 
-def test_celery_beat_install_merges_onto_the_app_config(session_factory) -> None:
+def test_celery_beat_install_merges_onto_the_app_config(session_factory, tmp_path, monkeypatch) -> None:
+    import tempfile
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))  # where install() makes beat's directory
     job = _job()
     configure_jobs(JobCatalog([job]))
     app = Celery("terp-beat-install-test")
@@ -331,43 +334,82 @@ def test_celery_beat_install_merges_onto_the_app_config(session_factory) -> None
     assert "sync.customers.nightly" in app.conf.beat_schedule
 
 
-def test_celery_beat_keeps_its_schedule_file_out_of_the_working_directory(session_factory, tmp_path) -> None:
+#: What a shelf planted at a fixed name ran when beat unpickled it (ADR 0218).
+_UNPICKLED: list[str] = []
+
+
+def _ran_when_unpickled(label: str) -> str:
+    _UNPICKLED.append(label)
+    return label
+
+
+class _PlantedPayload:
+    """What another local user could plant in a shared directory: unpickling it runs a call."""
+
+    def __reduce__(self) -> tuple[object, tuple[str]]:
+        return _ran_when_unpickled, ("planted",)
+
+
+def test_celery_beat_keeps_its_schedule_file_in_a_private_directory_made_per_start(
+    session_factory, tmp_path, monkeypatch
+) -> None:
     """ADR 0218: beat opens a relative schedule file in its working directory, which the
-    production image's user cannot write. install() moves Celery's default to the temporary
-    directory, and the file beat then writes lands there, never in the working directory."""
+    production image's user cannot write, so install() moves Celery's default. Beat opens the
+    file with shelve, which unpickles what it reads, so it moves into a directory made for this
+    start: under the temporary directory, with a name nobody can guess and access for the app's
+    user alone. A fixed name in a temporary directory other users share would let one of them
+    plant the file first, and beat would run what it holds as the app's user."""
+    import dbm
     import os
+    import pickle
+    import stat
     import tempfile
 
     from celery.beat import PersistentScheduler
 
-    from terp.capabilities.scheduler_celery_beat.scheduler import CELERY_DEFAULT_SCHEDULE_FILENAME
+    from terp.capabilities.scheduler_celery_beat.scheduler import (
+        CELERY_DEFAULT_SCHEDULE_FILENAME,
+        SCHEDULE_DIRECTORY_PREFIX,
+    )
 
     configure_jobs(JobCatalog([_job()]))
-    app = Celery("terp-beat-schedule-file-test")
-    assert app.conf.beat_schedule_filename == CELERY_DEFAULT_SCHEDULE_FILENAME, "Celery's default moved"
-    CeleryBeatScheduler(app, session_factory).install()
-    assert app.conf.beat_schedule_filename == os.path.join(tempfile.gettempdir(), CELERY_DEFAULT_SCHEDULE_FILENAME)
-    assert os.path.isabs(app.conf.beat_schedule_filename)
-
-    # Beat's own scheduler, opened as `celery beat` opens it, writes where the config says.
     temp = tmp_path / "tmp"
     temp.mkdir()
     cwd = tmp_path / "srv"
     cwd.mkdir()
-    moved = Celery("terp-beat-schedule-file-written")
-    previous_tempdir, previous_cwd = tempfile.tempdir, os.getcwd()
-    tempfile.tempdir = str(temp)
-    os.chdir(cwd)
-    try:
-        CeleryBeatScheduler(moved, session_factory).install()
-        scheduler = PersistentScheduler(app=moved, schedule_filename=moved.conf.beat_schedule_filename, lazy=True)
-        scheduler.setup_schedule()
-        scheduler.close()
-    finally:
-        tempfile.tempdir = previous_tempdir
-        os.chdir(previous_cwd)
+    monkeypatch.setattr(tempfile, "tempdir", str(temp))
+    monkeypatch.chdir(cwd)
+    # Another user got there first: under Celery's name in the shared directory, a database
+    # whose `entries` holds a pickle, the shape shelve reads back.
+    with dbm.open(str(temp / CELERY_DEFAULT_SCHEDULE_FILENAME), "c") as planted:
+        planted[b"entries"] = pickle.dumps(_PlantedPayload())
+    _UNPICKLED.clear()
+
+    app = Celery("terp-beat-schedule-file-test")
+    assert app.conf.beat_schedule_filename == CELERY_DEFAULT_SCHEDULE_FILENAME, "Celery's default moved"
+    CeleryBeatScheduler(app, session_factory).install()
+
+    # Beat's own scheduler, opened as `celery beat` opens it, reads and writes where the config says.
+    scheduler = PersistentScheduler(app=app, schedule_filename=app.conf.beat_schedule_filename, lazy=True)
+    scheduler.setup_schedule()
+    scheduler.close()
+    assert _UNPICKLED == [], "beat unpickled a file another user could have put there first"
+
+    path = pathlib.Path(app.conf.beat_schedule_filename)
+    assert path.is_absolute() and path.name == CELERY_DEFAULT_SCHEDULE_FILENAME
+    private = path.parent
+    assert private.parent == temp, "under the temporary directory, which the app's user can write"
+    assert private.name.startswith(SCHEDULE_DIRECTORY_PREFIX), "a directory of its own, never the shared one"
+    if hasattr(os, "getuid"):  # owner-only; Windows already keeps each user's temporary directory apart
+        made = private.stat()
+        assert made.st_uid == os.getuid() and (stat.S_IMODE(made.st_mode) & 0o077) == 0
+    assert any(entry.name.startswith(CELERY_DEFAULT_SCHEDULE_FILENAME) for entry in private.iterdir())
     assert list(cwd.iterdir()) == [], "nothing is written in the working directory"
-    assert any(path.name.startswith(CELERY_DEFAULT_SCHEDULE_FILENAME) for path in temp.iterdir())
+
+    # The next start gets a directory of its own too: there is no name to plant in advance.
+    again = Celery("terp-beat-schedule-file-again")
+    CeleryBeatScheduler(again, session_factory).install()
+    assert pathlib.Path(again.conf.beat_schedule_filename).parent not in (private, temp)
 
     # A path the app chose is its own.
     own = Celery("terp-beat-schedule-file-own")

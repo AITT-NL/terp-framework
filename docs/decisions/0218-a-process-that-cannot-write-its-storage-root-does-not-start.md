@@ -113,9 +113,13 @@ cannot read a shell `RUN` line reliably and does not reach an app that never ado
    which the runtime user cannot write. The template's production profile runs no beat and the
    framework's own scheduler keeps its state in the database, so no rendered app hits this
    today. An app that opts into `terp-cap-scheduler-celery-beat` and runs the documented
-   command would. `CeleryBeatScheduler.install()` moves Celery's default to the temporary
-   directory, and keeps a path the app set itself. The file is only beat's cache: the schedule
-   ledger settles each tick (ADR 0191).
+   command would. `CeleryBeatScheduler.install()` moves Celery's default into a directory made
+   for that start by `tempfile.mkdtemp()`, under the temporary directory: a name nobody can
+   guess, and access for the app's user alone. Beat reads the file with `shelve`, which
+   unpickles it, so a fixed name in a temporary directory other users share would let one of
+   them plant it first and have beat run it as the app's user. A path the app set itself is
+   kept. The file is only beat's cache, and a new start does not find the last one's: the
+   schedule ledger settles each tick, and `catch_up()` covers the gap (ADR 0191).
 
 ## What it costs
 

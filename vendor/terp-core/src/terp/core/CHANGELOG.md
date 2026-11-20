@@ -258,9 +258,12 @@ decision, 0001 onwards.
   relative default name in the working directory, which the production image's user cannot
   write, so an app that ran the documented `celery -A your.celery_app beat` from the backend
   image would stop at beat's first start. `CeleryBeatScheduler.install()` moves Celery's
-  default to the temporary directory and keeps a path the app set itself. The file is beat's
-  cache; the schedule ledger settles each tick, and `catch_up()` covers a file that did not
-  survive a restart.
+  default into a directory made for that start by `tempfile.mkdtemp()`, under the temporary
+  directory, with a name nobody can guess and access for the app's user alone. Beat unpickles
+  the file, so it is never a fixed name in a directory other users share, where one of them
+  could plant it first. A path the app set itself is kept. The file is beat's cache; the
+  schedule ledger settles each tick, and `catch_up()` covers the file a new start does not
+  find.
 - **`grant-runtime` refuses a role name that ends in a line break.** Its pattern was matched
   with `re.match`, whose `$` also matches before a trailing newline, so `"terp_rt\n"` reached
   the server, which refused it as a role that does not exist. The whole name is matched now,
