@@ -319,10 +319,7 @@ def test_celery_beat_builds_a_beat_entry_and_tick_task(session_factory) -> None:
     assert app.tasks["terp.schedule.sync.customers.nightly"].run() is None, "already settled"
 
 
-def test_celery_beat_install_merges_onto_the_app_config(session_factory, tmp_path, monkeypatch) -> None:
-    import tempfile
-
-    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))  # where install() makes beat's directory
+def test_celery_beat_install_merges_onto_the_app_config(session_factory) -> None:
     job = _job()
     configure_jobs(JobCatalog([job]))
     app = Celery("terp-beat-install-test")
@@ -350,72 +347,92 @@ class _PlantedPayload:
         return _ran_when_unpickled, ("planted",)
 
 
-def test_celery_beat_keeps_its_schedule_file_in_a_private_directory_made_per_start(
+def test_celery_beat_keeps_its_schedule_in_memory_unless_the_app_names_a_scheduler_or_a_file(
     session_factory, tmp_path, monkeypatch
 ) -> None:
-    """ADR 0218: beat opens a relative schedule file in its working directory, which the
-    production image's user cannot write, so install() moves Celery's default. Beat opens the
-    file with shelve, which unpickles what it reads, so it moves into a directory made for this
-    start: under the temporary directory, with a name nobody can guess and access for the app's
-    user alone. A fixed name in a temporary directory other users share would let one of them
-    plant the file first, and beat would run what it holds as the app's user."""
+    """ADR 0218: Celery's default scheduler opens a schedule file in beat's working directory,
+    which the production image's user cannot write, and reads it with shelve, which unpickles
+    it. Where the app chose neither a scheduler nor a file, install() has beat keep its schedule
+    in memory: nothing is made when the app loads or while beat runs, nothing is left when it
+    stops, and nothing anyone planted is read. The ledger settles each tick and catch_up()
+    covers a restart, so the file had nothing to add. A scheduler or a file the app names is
+    kept."""
     import dbm
-    import os
     import pickle
-    import stat
     import tempfile
 
-    from celery.beat import PersistentScheduler
+    from celery.beat import PersistentScheduler, Service
+    from celery.beat import Scheduler as InMemoryScheduler
 
     from terp.capabilities.scheduler_celery_beat.scheduler import (
         CELERY_DEFAULT_SCHEDULE_FILENAME,
-        SCHEDULE_DIRECTORY_PREFIX,
+        CELERY_DEFAULT_SCHEDULER,
+        IN_MEMORY_SCHEDULER,
     )
 
-    configure_jobs(JobCatalog([_job()]))
+    def built_by_beat(app: Celery, **options: str):
+        # As `celery beat` builds it: Beat reads the config and the -S / -s options, and the
+        # service resolves the scheduler and opens it.
+        beat = app.Beat(**options)
+        return Service(app, scheduler_cls=beat.scheduler_cls, schedule_filename=beat.schedule).get_scheduler()
+
+    job = _job()
+    configure_jobs(JobCatalog([job]))
     temp = tmp_path / "tmp"
     temp.mkdir()
     cwd = tmp_path / "srv"
     cwd.mkdir()
+    state = tmp_path / "state"
+    state.mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(temp))
     monkeypatch.chdir(cwd)
-    # Another user got there first: under Celery's name in the shared directory, a database
-    # whose `entries` holds a pickle, the shape shelve reads back.
-    with dbm.open(str(temp / CELERY_DEFAULT_SCHEDULE_FILENAME), "c") as planted:
-        planted[b"entries"] = pickle.dumps(_PlantedPayload())
+    # Another user got there first: under Celery's name in the shared directory and in the
+    # working directory, a database whose `entries` holds a pickle, the shape shelve reads back.
+    for where in (temp, cwd):
+        with dbm.open(str(where / CELERY_DEFAULT_SCHEDULE_FILENAME), "c") as planted:
+            planted[b"entries"] = pickle.dumps(_PlantedPayload())
+    there = {where: sorted(where.iterdir()) for where in (temp, cwd)}
     _UNPICKLED.clear()
 
-    app = Celery("terp-beat-schedule-file-test")
-    assert app.conf.beat_schedule_filename == CELERY_DEFAULT_SCHEDULE_FILENAME, "Celery's default moved"
-    CeleryBeatScheduler(app, session_factory).install()
+    app = Celery("terp-beat-schedule-test")
+    assert (app.conf.beat_scheduler, app.conf.beat_schedule_filename) == (
+        CELERY_DEFAULT_SCHEDULER,
+        CELERY_DEFAULT_SCHEDULE_FILENAME,
+    ), "Celery's defaults moved"
+    beat = CeleryBeatScheduler(app, session_factory)
+    beat.register(_schedule(job))
+    beat.install()
+    assert app.conf.beat_scheduler == IN_MEMORY_SCHEDULER
+    assert {where: sorted(where.iterdir()) for where in there} == there, "nothing is made when the app loads"
 
-    # Beat's own scheduler, opened as `celery beat` opens it, reads and writes where the config says.
-    scheduler = PersistentScheduler(app=app, schedule_filename=app.conf.beat_schedule_filename, lazy=True)
-    scheduler.setup_schedule()
+    scheduler = built_by_beat(app)
+    assert type(scheduler) is InMemoryScheduler
+    assert "sync.customers.nightly" in scheduler.schedule, "beat holds the schedule, in memory"
     scheduler.close()
-    assert _UNPICKLED == [], "beat unpickled a file another user could have put there first"
+    assert _UNPICKLED == [], "beat read nothing anyone could have put there"
+    assert {where: sorted(where.iterdir()) for where in there} == there, "nothing is left when beat stops"
+    # -s alone is ignored, as install() says; a file takes a scheduler that keeps one.
+    assert type(built_by_beat(app, schedule=str(state / "ignored"))) is InMemoryScheduler
+    assert list(state.iterdir()) == []
+    at_the_command_line = built_by_beat(app, scheduler=CELERY_DEFAULT_SCHEDULER, schedule=str(state / "cli"))
+    assert type(at_the_command_line) is PersistentScheduler
+    at_the_command_line.close()
 
-    path = pathlib.Path(app.conf.beat_schedule_filename)
-    assert path.is_absolute() and path.name == CELERY_DEFAULT_SCHEDULE_FILENAME
-    private = path.parent
-    assert private.parent == temp, "under the temporary directory, which the app's user can write"
-    assert private.name.startswith(SCHEDULE_DIRECTORY_PREFIX), "a directory of its own, never the shared one"
-    if hasattr(os, "getuid"):  # owner-only; Windows already keeps each user's temporary directory apart
-        made = private.stat()
-        assert made.st_uid == os.getuid() and (stat.S_IMODE(made.st_mode) & 0o077) == 0
-    assert any(entry.name.startswith(CELERY_DEFAULT_SCHEDULE_FILENAME) for entry in private.iterdir())
-    assert list(cwd.iterdir()) == [], "nothing is written in the working directory"
+    # A scheduler the app names is its own.
+    named = Celery("terp-beat-schedule-named")
+    named.conf.beat_scheduler = "some.module:SomeScheduler"
+    CeleryBeatScheduler(named, session_factory).install()
+    assert named.conf.beat_scheduler == "some.module:SomeScheduler"
 
-    # The next start gets a directory of its own too: there is no name to plant in advance.
-    again = Celery("terp-beat-schedule-file-again")
-    CeleryBeatScheduler(again, session_factory).install()
-    assert pathlib.Path(again.conf.beat_schedule_filename).parent not in (private, temp)
-
-    # A path the app chose is its own.
-    own = Celery("terp-beat-schedule-file-own")
-    own.conf.beat_schedule_filename = str(tmp_path / "state" / "beat")
+    # So is a file: beat keeps its schedule there, with Celery's own scheduler.
+    own = Celery("terp-beat-schedule-own")
+    own.conf.beat_schedule_filename = str(state / "beat")
     CeleryBeatScheduler(own, session_factory).install()
-    assert own.conf.beat_schedule_filename == str(tmp_path / "state" / "beat")
+    assert (own.conf.beat_scheduler, own.conf.beat_schedule_filename) == (CELERY_DEFAULT_SCHEDULER, str(state / "beat"))
+    kept = built_by_beat(own)
+    assert type(kept) is PersistentScheduler
+    kept.close()
+    assert any(entry.name.startswith("beat") for entry in state.iterdir())
 
 
 def test_to_crontab_parses_five_fields_and_rejects_others() -> None:

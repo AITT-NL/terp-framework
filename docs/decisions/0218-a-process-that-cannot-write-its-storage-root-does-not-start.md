@@ -127,18 +127,26 @@ cannot read a shell `RUN` line reliably and does not reach an app that never ado
    first released, in 0.43.0 with the report itself. The tool that manages the app shows a
    kind it does not know by its subject and the opening of its remedy, which is why that
    opening says what is wrong and what to do.
-8. **Celery beat keeps its schedule file out of the app root.** Celery opens beat's schedule
-   file under a relative default name in the working directory, `/srv` in the production image,
-   which the runtime user cannot write. The template's production profile runs no beat and the
-   framework's own scheduler keeps its state in the database, so no rendered app hits this
-   today. An app that opts into `terp-cap-scheduler-celery-beat` and runs the documented
-   command would. `CeleryBeatScheduler.install()` moves Celery's default into a directory made
-   for that start by `tempfile.mkdtemp()`, under the temporary directory: a name nobody can
-   guess, and access for the app's user alone. Beat reads the file with `shelve`, which
-   unpickles it, so a fixed name in a temporary directory other users share would let one of
-   them plant it first and have beat run it as the app's user. A path the app set itself is
-   kept. The file is only beat's cache, and a new start does not find the last one's: the
-   schedule ledger settles each tick, and `catch_up()` covers the gap (ADR 0191).
+8. **Celery beat keeps its schedule in memory unless the app names a file.** Celery's default
+   scheduler opens beat's schedule file under a relative default name in the working
+   directory, `/srv` in the production image, which the runtime user cannot write. The
+   template's production profile runs no beat and the framework's own scheduler keeps its state
+   in the database, so no rendered app hits this today. An app that opts into
+   `terp-cap-scheduler-celery-beat` and runs the documented command would. Where the app chose
+   neither a scheduler (`beat_scheduler`) nor a file (`beat_schedule_filename`),
+   `CeleryBeatScheduler.install()` sets Celery's in-memory `celery.beat:Scheduler`, so beat
+   writes no file, makes no directory and unpickles nothing. The file was only beat's cache of
+   when each entry last ran: the schedule ledger settles each tick, and `catch_up()` covers the
+   time beat was down (ADR 0191). A scheduler or a file the app's config names is kept. At the
+   command line, `-s` alone is ignored by the in-memory scheduler; a schedule file there takes
+   `-S celery.beat:PersistentScheduler -s <path>`.
+
+   Two places for the file were considered and left. A fixed name in the shared temporary
+   directory: Celery reads the file with `shelve`, which unpickles it, so another local user
+   could plant it first and have beat run it as the app's user. A private directory made per
+   start: made when the app loads, which is before `celery beat --uid` drops privileges, so the
+   user beat runs as could not write it, and nothing removed it, so a restarting beat left one
+   behind each time.
 
 ## What it costs
 

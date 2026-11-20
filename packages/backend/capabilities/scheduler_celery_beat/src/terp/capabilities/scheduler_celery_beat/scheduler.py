@@ -13,12 +13,12 @@ The cron string is translated to a Celery ``crontab`` (a standard 5-field ``minu
 day-of-month month day-of-week``), so a malformed cron fails at registration.
 
 **A tick missed while beat was down** (ADR 0191). The tick decides what it is from the ledger,
-not from beat: a tick beat fires late on start (beat's own catch-up, when its schedule file
-survived the restart) is settled as the misfire it is, and the schedule's declared policy runs
-it once or records it skipped. Where beat's schedule file does not survive (a container that
-starts clean, or the directory :meth:`CeleryBeatScheduler.install` makes per start), beat fires
-nothing for the gap, so call :meth:`CeleryBeatScheduler.catch_up` once when beat starts, from
-Celery's ``beat_init`` signal::
+not from beat: a tick beat fires late on start (beat's own catch-up, when the app gave it a
+schedule file that survived the restart) is settled as the misfire it is, and the schedule's
+declared policy runs it once or records it skipped. Where beat keeps no schedule across a
+restart (the in-memory scheduler :meth:`CeleryBeatScheduler.install` chooses by default, or a
+container that starts clean), beat fires nothing for the gap, so call
+:meth:`CeleryBeatScheduler.catch_up` once when beat starts, from Celery's ``beat_init`` signal::
 
     from celery.signals import beat_init
     beat_init.connect(lambda **_: scheduler.catch_up(), weak=False)
@@ -36,8 +36,6 @@ identically) for the ticks.
 
 from __future__ import annotations
 
-import os
-import tempfile
 from collections.abc import Callable
 from typing import Any
 
@@ -64,9 +62,14 @@ _TASK_PREFIX = "terp.schedule."
 #: runs as cannot write, so beat would stop at its first start (ADR 0218).
 CELERY_DEFAULT_SCHEDULE_FILENAME = "celerybeat-schedule"
 
-#: The prefix of the directory :meth:`CeleryBeatScheduler.install` makes for beat's schedule
-#: file, once per start; :func:`tempfile.mkdtemp` adds a part nobody can guess.
-SCHEDULE_DIRECTORY_PREFIX = "terp-celerybeat-"
+#: Celery's own default scheduler, the one that keeps beat's schedule in that file. It opens
+#: the file with :mod:`shelve`, which unpickles what it reads.
+CELERY_DEFAULT_SCHEDULER = "celery.beat:PersistentScheduler"
+
+#: Celery's scheduler that keeps beat's schedule in memory: no file, nothing unpickled. What
+#: :meth:`CeleryBeatScheduler.install` chooses where the app chose neither a scheduler nor a
+#: file (ADR 0218).
+IN_MEMORY_SCHEDULER = "celery.beat:Scheduler"
 
 
 def _to_crontab(cron: str) -> crontab:
@@ -183,25 +186,31 @@ class CeleryBeatScheduler(Scheduler):
     def install(self) -> None:
         """Merge the built ``beat_schedule`` onto the Celery app's config (then run beat).
 
-        Where the app left beat's schedule file at Celery's relative default, it moves to a
-        directory made for this start by :func:`tempfile.mkdtemp`: under the temporary
-        directory, which the user the app runs as can write (the working directory of the
-        production image cannot be written, ADR 0218), with a name nobody can guess and access
-        for that user alone. Beat opens the file with :mod:`shelve`, which unpickles what it
-        reads, so it is never a fixed name in a directory other users share: one of them could
-        put it there first, and beat would run what it holds. The file is beat's own cache of
-        when each entry last ran; the schedule ledger is what a tick is settled against, and
-        :meth:`catch_up` covers the file a new start does not find. A path the app set itself
-        (``beat_schedule_filename``, or ``celery beat -s``) is kept.
+        Where the app chose neither a scheduler (``beat_scheduler``) nor a schedule file
+        (``beat_schedule_filename``), beat keeps its schedule in memory
+        (:data:`IN_MEMORY_SCHEDULER`), so it writes no file, makes no directory and unpickles
+        nothing (ADR 0218). Celery's default would open a file in the working directory,
+        which the production image's user cannot write, and read it with :mod:`shelve`. The
+        file was only beat's cache of when each entry last ran: the schedule ledger is what a
+        tick is settled against, and :meth:`catch_up` covers the time beat was down. A
+        scheduler or a file the app's config names is kept. At the command line a schedule
+        file takes a scheduler that keeps one: ``celery beat -S celery.beat:PersistentScheduler
+        -s <path>``; ``-s`` alone is ignored by the in-memory scheduler.
         """
         merged = dict(self._app.conf.beat_schedule or {})
         merged.update(self._beat_schedule)
         self._app.conf.beat_schedule = merged
-        if self._app.conf.beat_schedule_filename == CELERY_DEFAULT_SCHEDULE_FILENAME:
-            private = tempfile.mkdtemp(prefix=SCHEDULE_DIRECTORY_PREFIX)
-            self._app.conf.beat_schedule_filename = os.path.join(
-                private, CELERY_DEFAULT_SCHEDULE_FILENAME
-            )
+        conf = self._app.conf
+        if (
+            conf.beat_scheduler == CELERY_DEFAULT_SCHEDULER
+            and conf.beat_schedule_filename == CELERY_DEFAULT_SCHEDULE_FILENAME
+        ):
+            conf.beat_scheduler = IN_MEMORY_SCHEDULER
 
 
-__all__ = ["CELERY_DEFAULT_SCHEDULE_FILENAME", "SCHEDULE_DIRECTORY_PREFIX", "CeleryBeatScheduler"]
+__all__ = [
+    "CELERY_DEFAULT_SCHEDULER",
+    "CELERY_DEFAULT_SCHEDULE_FILENAME",
+    "IN_MEMORY_SCHEDULER",
+    "CeleryBeatScheduler",
+]

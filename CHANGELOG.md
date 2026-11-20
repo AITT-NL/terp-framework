@@ -264,16 +264,17 @@ decision, 0001 onwards.
   file through the API and reads it back from a new container, and template acceptance stores
   and reads through the files capability instead of writing the path itself, so this kind of
   defect turns both lanes red.
-- **Celery beat's schedule file no longer lands in the app root.** Celery opens it under a
-  relative default name in the working directory, which the production image's user cannot
-  write, so an app that ran the documented `celery -A your.celery_app beat` from the backend
-  image would stop at beat's first start. `CeleryBeatScheduler.install()` moves Celery's
-  default into a directory made for that start by `tempfile.mkdtemp()`, under the temporary
-  directory, with a name nobody can guess and access for the app's user alone. Beat unpickles
-  the file, so it is never a fixed name in a directory other users share, where one of them
-  could plant it first. A path the app set itself is kept. The file is beat's cache; the
-  schedule ledger settles each tick, and `catch_up()` covers the file a new start does not
-  find.
+- **Celery beat keeps its schedule in memory unless the app names a file.** Celery's default
+  scheduler opens a schedule file under a relative default name in the working directory,
+  which the production image's user cannot write, so an app that ran the documented `celery -A
+  your.celery_app beat` from the backend image would stop at beat's first start; it also reads
+  that file with `shelve`, which unpickles it. Where the app chose neither `beat_scheduler` nor
+  `beat_schedule_filename`, `CeleryBeatScheduler.install()` now sets Celery's in-memory
+  `celery.beat:Scheduler`: beat writes no file, makes no directory and unpickles nothing. The
+  file was beat's cache; the schedule ledger settles each tick, and `catch_up()` covers the
+  time beat was down. A scheduler or a file the app's config names is kept. At the command
+  line `-s` alone is now ignored; pass `-S celery.beat:PersistentScheduler -s <path>` to keep a
+  file.
 - **`grant-runtime` refuses a role name that ends in a line break.** Its pattern was matched
   with `re.match`, whose `$` also matches before a trailing newline, so `"terp_rt\n"` reached
   the server, which refused it as a role that does not exist. The whole name is matched now,
