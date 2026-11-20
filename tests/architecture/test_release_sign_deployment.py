@@ -55,6 +55,7 @@ def _push(release: Release, config: dict) -> None:
     release.config_digest = json.loads(release.registry.manifests[release.digest][1])["config"]["digest"]
     release.answer.update(digest=release.digest, configDigest=release.config_digest)
     release.write_build()
+    release.write_gate()
 
 
 def test_a_generated_release_carries_the_deployment_its_own_terp_arch_writes(tmp_path: pathlib.Path, monkeypatch) -> None:

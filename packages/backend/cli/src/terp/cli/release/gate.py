@@ -90,7 +90,7 @@ def _is_verdict(check: object, version: int = VERSION) -> bool:
     passed, and from version 3 whether it had anything to judge."""
     return (
         isinstance(check, dict) and isinstance(check.get("id"), str) and isinstance(check.get("ok"), bool)
-        and (version < VERSION or isinstance(check.get("applicable"), bool))
+        and (isinstance(check.get("applicable"), bool) if version >= VERSION else "applicable" not in check)
     )
 
 

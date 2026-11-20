@@ -73,6 +73,14 @@ def test_a_green_profile_whose_claim_holds_passes() -> None:
     gate.require_passed(CLAIM_ONLY, TOOLCHAIN)
 
 
+@pytest.mark.parametrize("value", [True, False, 0, None])
+def test_version_two_verdicts_do_not_carry_an_applicability_field(value: object) -> None:
+    document = _strict()
+    document["profile"]["checks"][0]["applicable"] = value
+    with pytest.raises(ReleaseError, match="no verdict of the release profile"):
+        gate.require_passed(document, STRICT)
+
+
 def test_acceptance_preserves_failed_audit_and_cannot_replace_another_required_lane(monkeypatch):
     from terp.cli import risk_authority
 
@@ -261,12 +269,29 @@ def _asked_nothing(release: Release, monkeypatch) -> None:  # type: ignore[no-un
 def test_sign_signs_a_release_whose_every_check_passed(tmp_path: pathlib.Path, monkeypatch) -> None:
     release = _strict_release(tmp_path, monkeypatch)
     verdict = _strict()
+    verdict["assurance"]["toolchain"]["version"] = STRICT
     release.write_gate(**verdict)
     release.sign()
     manifest = parse((tmp_path / "out" / sign.MANIFEST).read_bytes().strip())
     assert manifest["inputs"]["toolchain"]["terpCli"] == STRICT
     assert manifest["collected"]["assurance"] == verdict["assurance"], "collected carries the claim, as it did"
     assert "profile" not in manifest["collected"]
+
+
+@pytest.mark.parametrize(("key", "value"), [
+    ("terp_assurance", True), ("profile", "quick"), ("spec_version", "0.0.0"),
+    ("toolchain", {"tool": "terp-verify", "version": "0.0.0"}),
+    ("toolchain", {"tool": "other", "version": STRICT}),
+])
+def test_sign_checks_the_assurance_identity_before_reading_images(tmp_path, monkeypatch, key, value):
+    release = _strict_release(tmp_path, monkeypatch)
+    verdict = _strict()
+    verdict["assurance"]["toolchain"]["version"] = STRICT
+    verdict["assurance"][key] = value
+    release.write_gate(**verdict)
+    with pytest.raises(ReleaseError, match="gate's assurance identity"):
+        release.sign()
+    assert not release.tasks and not (tmp_path / "out").exists()
 
 
 def test_sign_refuses_a_release_whose_contract_check_is_red_although_its_claim_holds(tmp_path: pathlib.Path, monkeypatch) -> None:

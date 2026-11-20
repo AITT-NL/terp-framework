@@ -117,6 +117,20 @@ def _project(tree: Tree) -> tuple[str, str]:
     return name, version
 
 
+def _check_assurance_identity(claim: dict[str, Any], cli_pin: str, spec: str) -> None:
+    """Verify the gate emitter's identity from the commit's CLI pin and hash-checked arch wheel."""
+    expected = {
+        "terp_assurance": 1, "profile": "release", "spec_version": spec,
+        "toolchain": {"tool": "terp-verify", "version": cli_pin},
+    }
+    metadata = {key: value for key, value in claim.items() if key not in ("ok", "lanes")}
+    if canonical(metadata) != canonical(expected):
+        raise ReleaseError(
+            f"the gate's assurance identity must be terp_assurance 1, profile release, "
+            f"from terp-verify {cli_pin} against Terp Standard {spec}; gate with the commit's locked toolchain"
+        )
+
+
 def _generated(pinned_arch: Pinned, tree: Tree, root: pathlib.Path, scratch: pathlib.Path, name: str) -> dict[str, Any]:
     files, owned, refused = render(pinned_arch, root, scratch)
     if refused:
@@ -139,6 +153,8 @@ def _generated(pinned_arch: Pinned, tree: Tree, root: pathlib.Path, scratch: pat
 
 def _images(plan: Plan, build: dict[str, Any], prefix: str, tag: str, platform: str, reg: Registry) -> dict[str, dict[str, Any]]:
     pushed = {image["name"]: image for image in build["images"]}
+    if len(pushed) != len(build["images"]):
+        raise ReleaseError("the build records duplicate image names; each pushed image must be unique")
     if sorted(pushed) != sorted(image.name for image in plan.images):
         raise ReleaseError(
             f"the build pushed {', '.join(sorted(pushed)) or 'nothing'}, and this commit builds "
@@ -299,6 +315,7 @@ def sign(
                 f"the commit's declaration was written against Terp Standard {arch.spec}, newer than "
                 f"{SPEC_RELEASE}, the release this signer reads: update the signer image first"
             )
+        _check_assurance_identity(gate["assurance"], cli_pin, arch.assurance_spec)
         table = read_table(arch.datastores)
         plan = release_plan(tree, root, table)
         wheel_shape(tree)
@@ -306,6 +323,13 @@ def sign(
         generator = _generated(arch, tree, root, scratch, name) if plan.declaration.build == "generated" else None
         reg = Registry(egress_getter(host, http=registry_http), http=registry_http, credentials=credentials)
         images = _images(plan, build, prefix, tag, platform, reg)
+        # Every gate format records the one backend image it inspected for schedules.
+        # Compute that reference from the checked registry digests and the commit's plan.
+        backend_refs = [
+            f"{entry['repository']}@{entry['digest']}" for entry in images.values() if not entry["image"].web
+        ]
+        if backend_refs != [gate.get("image")]:
+            raise ReleaseError("the gate must name the verified backend image it inspected; gate this build again")
         migrating = _migrating(plan)
         resolved = generator is not None and arch.resolves
         deployment = _deployment(arch, plan, table, root, scratch, images) if resolved else None
