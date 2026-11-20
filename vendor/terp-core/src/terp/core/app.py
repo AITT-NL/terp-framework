@@ -92,6 +92,7 @@ from terp.core.passwords import configure_password_policy
 from terp.core.operations import OperationCatalog, OperationCoverage
 from terp.core.route_timestamps import request_timestamps_refusal
 from terp.core.authz_surface import startup_refusal
+from terp.core.boot_checks import boot_check_refusal
 from terp.core.composition_freeze import freeze_app_route_registration
 from terp.core._root_signpost import mount_root_signpost
 from terp.core.routing import (
@@ -2262,6 +2263,11 @@ def create_app(
     )
     if surface_refusal is not None:
         raise BootError(surface_refusal)
+    # Beside it, what the capabilities this process imported need from the image it runs
+    # in: a storage root the app's user can write, for one (ADR 0218).
+    check_refusal = boot_check_refusal(local=settings.ENVIRONMENT == "local")
+    if check_refusal is not None:
+        raise BootError(check_refusal)
     return app
 
 

@@ -301,3 +301,25 @@ def test_unauthenticated_malformed_upload_is_refused_before_multipart_parse(
     )
     assert response.status_code == 401
     assert response.json()["code"] == "authentication_required"
+
+
+def test_an_upload_into_a_root_that_cannot_be_written_is_a_typed_502(
+    client_factory, tmp_path: Path
+) -> None:
+    """A root that breaks after the start fails legibly, and tells the client nothing more.
+
+    Its parent is a regular file, which makes it unwritable on every OS. Before ADR 0218 the
+    ``OSError`` reached the catch-all and answered ``500 internal_error``.
+    """
+    blocker = tmp_path / "srv-var"
+    blocker.write_text("a file where a directory should be", encoding="utf-8")
+    set_storage_backend(LocalFilesystemStorage(blocker / "files"))
+    response = _admin(client_factory).post(
+        "/api/v1/files/", files={"file": ("report.txt", _CONTENT, "text/plain")}
+    )
+    assert response.status_code == 502
+    body = response.json()
+    assert body["code"] == "file_storage_failed"
+    assert "srv-var" not in response.text
+    assert "Errno" not in response.text
+    assert "Error:" not in response.text
