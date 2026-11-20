@@ -402,4 +402,5 @@ def test_workspace_evidence_follows_the_declared_workspaces() -> None:
     assert gate.workspace_evidence({"frontend/package.json", "conformance/package.json"}.__contains__) == {
         "frontend-boundaries", "dependency-audit-npm", "conformance",
     }
+    assert gate.workspace_evidence({"conformance/package.json"}.__contains__) == {"conformance"}
     assert gate.workspace_evidence({"site/package.json"}.__contains__) == {"dependency-audit-npm"}

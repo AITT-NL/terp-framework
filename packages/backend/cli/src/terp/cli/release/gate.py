@@ -100,7 +100,7 @@ def workspace_evidence(has_file: Callable[[str], bool]) -> set[str]:
     if has_file("frontend/package.json"):
         checks.update(("frontend-boundaries", "dependency-audit-npm"))
     if has_file("conformance/package.json"):
-        checks.update(("conformance", "dependency-audit-npm"))
+        checks.add("conformance")
     if has_file("site/package.json"):
         checks.add("dependency-audit-npm")
     return checks
