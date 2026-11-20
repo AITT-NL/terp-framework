@@ -305,6 +305,11 @@ def test_sign_from_the_signer_image_signs_every_release(lane: Lane) -> None:
 def test_sign_refuses_an_image_whose_app_layer_changed_after_the_build(lane: Lane) -> None:
     """An image with one more layer that rewrites the app's entry module, pushed under a tag of
     its own with the web image beside it: everything about it is real but the app layer."""
+    from terp.cli.release._compare import _roots
+    from terp.cli.release._git import Tree
+    from terp.cli.release._image import read_filesystem
+    from terp.cli.release._registry import Registry, egress_getter
+
     release = lane.releases["a"]
     backend, web = release.image(web=False), release.image(web=True)
     repository = backend["repository"].split("/", 1)[1]
@@ -323,9 +328,20 @@ def test_sign_refuses_an_image_whose_app_layer_changed_after_the_build(lane: Lan
     refused = _sign(lane, release, build_file=tampered, tag="lane-tampered", out=lane.work / "out-tampered")
     said = refused.stdout + refused.stderr
     assert refused.returncode == 1, said
-    assert f"{repository}@{digest} is not this commit's build" in said, said
-    assert "- /srv/app/main.py is not the tree's app/main.py" in said, said
+    assert json.loads(release.gate_file.read_text())["image"] == f"{backend['repository']}@{backend['digest']}"
+    assert digest != backend["digest"]
+    assert "the gate must name the verified backend image it inspected" in said, said
     assert not (lane.work / "out-tampered" / "release.dsse.json").exists()
+
+    # The digest check stops signing before source comparison. Exercise the comparison
+    # directly against the same registry image and Git tree, without changing the gate.
+    registry = Registry(egress_getter(lane.services.registry, http=True), http=True)
+    _, manifest, _ = registry.image(backend["repository"], digest, release.build["platform"])
+    nodes, _ = read_filesystem(registry, backend["repository"], manifest)
+    findings: list[str] = []
+    app_nodes = {path: node for path, node in nodes.items() if path.startswith("srv/")}
+    _roots(Tree.read(lane.app, release.sha), app_nodes, findings)
+    assert "/srv/app/main.py is not the tree's app/main.py" in findings
 
 
 # --------------------------------------------------------------------------- #
