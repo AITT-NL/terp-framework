@@ -223,6 +223,19 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **A generated app's conformance suite pins the Playwright whose browser its runner
+  carries.** `conformance/package.json` asked for `"@playwright/test": "^1.50.0"`, so an
+  install resolved to the newest Playwright on npm. Terp Studio bakes the Chromium of one
+  release (1.62.1) into its image and verifies a built release in a worker that cannot
+  download another, so the suite found no browser there and every deploy failed its
+  verification. The template now pins `1.62.1` exactly, Studio holds the version it bakes to
+  this pin, and the app's Dependabot leaves `@playwright/test`, `playwright` and
+  `playwright-core` alone in `/conformance`, with a comment saying why. The block is worded
+  exactly as the apps that pinned Playwright by hand already carry it, so the update that
+  brings it merges without a conflict there. A test holds the pin exact and the comment to it,
+  and another holds `.gitignore` over everything the suite writes while it runs
+  (`node_modules`, `test-results/`, `playwright-report/`), so a gate that runs it leaves the
+  checkout unchanged.
 - **`grant-runtime` refuses a role name that ends in a line break.** Its pattern was matched
   with `re.match`, whose `$` also matches before a trailing newline, so `"terp_rt\n"` reached
   the server, which refused it as a role that does not exist. The whole name is matched now,
@@ -250,6 +263,13 @@ decision, 0001 onwards.
 
 ### Upgrade notes
 
+- `copier update` pins `@playwright/test` to `1.62.1` in `conformance/package.json` and adds
+  the Playwright ignore to the `/conformance` block of `.github/dependabot.yml`. Run
+  `npm --prefix conformance install` and commit `conformance/package-lock.json` (Terp Studio's
+  update runs the install for you). An app that already pinned `1.62.1` and added the ignore by
+  hand, worded as above, merges both without a conflict. An app rendered before 0.35.0 also
+  gains `/conformance/test-results/` and `/conformance/playwright-report/` in `.gitignore`; a
+  line it added for the same paths can go.
 - `copier update` adds `terp-cap-egress` to the `dev` group of `pyproject.toml`; run `uv sync`.
   An app that does not re-render can add `"terp-cap-egress==0.43.0"` to that group by hand.
 - `sign` now refuses a release whose migration histories it cannot list, where it signed it

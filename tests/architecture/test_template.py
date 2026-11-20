@@ -1608,6 +1608,48 @@ def test_the_generated_app_s_updater_holds_back_the_typescript_major_the_framewo
     )
 
 
+#: The updater's Playwright block, as apps that pinned Playwright by hand already carry it.
+#: Byte for byte on purpose: `copier update` merges a change both sides made alike, and
+#: conflicts on the same change worded twice.
+_PLAYWRIGHT_IGNORE = (
+    "    ignore:\n"
+    '      - dependency-name: "@playwright/test"\n'
+    "      - dependency-name: playwright\n"
+    "      - dependency-name: playwright-core\n"
+)
+
+
+def test_the_conformance_suite_pins_the_playwright_whose_browser_its_runner_carries() -> None:
+    """The suite runs where no browser can be fetched, so it asks for one Playwright release.
+
+    Playwright looks for the browser build its own release names. Terp Studio bakes the
+    Chromium of exactly one release into its image and verifies a built release in a worker
+    that cannot download another, so the range this manifest used to carry resolved to the
+    newest release npm had, whose browser was not there, and every test failed. Studio holds
+    the version it bakes to this pin at the framework release it carries; the two move
+    together, this one first.
+
+    Dependabot would lift the pin above the image within a week, so the app's updater leaves
+    Playwright alone, and its comment names the pinned version, held to it here so a bump
+    cannot leave the comment behind.
+    """
+    package = json.loads((_PROJECT / "conformance" / "package.json.jinja").read_text(encoding="utf-8"))
+    pin = package["devDependencies"]["@playwright/test"]
+    assert re.fullmatch(r"\d+\.\d+\.\d+", pin), (
+        f'conformance/package.json asks for "@playwright/test": "{pin}". A range resolves to '
+        "the newest release, whose browser a runner without a network does not have; pin the "
+        "one Terp Studio bakes, exactly"
+    )
+    updater = (_PROJECT / ".github" / "dependabot.yml.jinja").read_text(encoding="utf-8")
+    conformance = updater.split("directory: /conformance\n", 1)[1]
+    assert _PLAYWRIGHT_IGNORE in conformance, (
+        "the generated app's updater would lift Playwright above the browser its runner carries"
+    )
+    assert f"(PLAYWRIGHT_VERSION in Studio's Dockerfile, {pin})" in conformance, (
+        f"the updater's comment names another Playwright than the pin ({pin}); move them together"
+    )
+
+
 def test_the_generated_workflow_verifies_the_binary_it_downloads() -> None:
     """It fetches a binary over the network and runs it against a full-depth checkout.
     An unverified fetch is the supply-chain hole the tool it installs exists to find,

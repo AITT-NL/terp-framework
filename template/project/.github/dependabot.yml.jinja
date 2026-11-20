@@ -71,4 +71,13 @@ updates:
     groups:
       conformance-deps:
         patterns: ["*"]
+    # Not Playwright: Terp Studio bakes the Chromium of one Playwright version into its image
+    # (PLAYWRIGHT_VERSION in Studio's Dockerfile, 1.62.1) and runs the release verification
+    # with --network none, so a newer @playwright/test finds no browser and every test fails
+    # (the test deploy of 19-11-2026). conformance/package.json pins it exactly; bump it only
+    # together with Studio's PLAYWRIGHT_VERSION.
+    ignore:
+      - dependency-name: "@playwright/test"
+      - dependency-name: playwright
+      - dependency-name: playwright-core
 {% endif %}

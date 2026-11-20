@@ -464,6 +464,33 @@ def test_the_files_that_have_leaked_before_are_out_of_the_context(path: str) -> 
 @pytest.mark.parametrize(
     "path",
     [
+        "conformance/node_modules/@playwright/test/package.json",
+        "conformance/test-results/.last-run.json",
+        "conformance/test-results/auth-signs-in-chromium/trace.zip",
+        "conformance/playwright-report/index.html",
+    ],
+)
+def test_what_the_conformance_suite_writes_while_it_runs_is_never_a_change(path: str) -> None:
+    """A gate may run the suite, and a gate leaves the checkout as it found it.
+
+    Terp Studio compares the checkout before and after a gate run and fails the run when a
+    check changed it. The suite's install writes ``node_modules``, and every run, a failed one
+    included, writes Playwright's results (its default ``outputDir``) and its HTML report, so
+    each of those paths has to be one git does not see.
+    """
+    assert _git_ignores(path, _patterns(_GITIGNORE)), (
+        f"{path} is written whenever the conformance suite runs; .gitignore must cover it, or "
+        "the run that wrote it reads as a change to the app"
+    )
+    config = (_PROJECT / "conformance" / "playwright.config.ts").read_text(encoding="utf-8")
+    assert "outputDir" not in config and "outputFolder" not in config, (
+        "the suite's output moved from Playwright's defaults; move the .gitignore entries with it"
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
         "pyproject.toml",
         "uv.lock",
         "app/main.py",
