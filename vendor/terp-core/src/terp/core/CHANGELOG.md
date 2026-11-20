@@ -185,7 +185,7 @@ decision, 0001 onwards.
 - **A process that cannot write its storage root does not start (ADR 0218).** An app
   rendered from the 0.34 template answered 500 to every upload in production: its image ran as
   a user that cannot write `/srv/var/files`, and nothing noticed before a user uploaded.
-  `terp.core.register_boot_check(name, check)` lets a capability register a check when it is
+  `terp.core.boot_checks.register_boot_check(name, check)` lets a capability register a check when it is
   imported, and `create_app` runs every registered check beside the ADR 0212 comparison:
   outside `ENVIRONMENT=local` a check's sentence is a `BootError` (logged as `uncaught
   BootError: ...`, which Terp Studio shows on a deploy and at release verification), in local

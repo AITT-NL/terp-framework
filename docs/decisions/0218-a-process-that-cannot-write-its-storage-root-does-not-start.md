@@ -59,7 +59,7 @@ cannot read a shell `RUN` line reliably and does not reach an app that never ado
 
 ## What changes
 
-1. **A boot-check registry in the core.** `terp.core.register_boot_check(name, check)`. A
+1. **A boot-check registry in the core.** `terp.core.boot_checks.register_boot_check(name, check)`. A
    check is a function that returns `None` or one sentence. The registry imports nothing above
    `terp.core`: a capability fills it at import, as the realtime capability fills
    `register_mandatory_store`. A second, different check under one name is refused, so two

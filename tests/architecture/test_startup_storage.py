@@ -29,12 +29,13 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, create_engine
 
 import terp.core.boot_checks as boot_checks_module
-from terp.core import BootError, ControlPlane, ModuleSpec, Policy, create_app, register_boot_check
+from terp.core import BootError, ControlPlane, ModuleSpec, Policy, create_app
 from terp.core._internal.session_guard import WriteGuardedSession
 from terp.core.boot_checks import (
     BOOT_CHECK_ADR,
     boot_check_refusal,
     boot_checks,
+    register_boot_check,
     unregister_boot_check,
 )
 from terp.core.config import settings

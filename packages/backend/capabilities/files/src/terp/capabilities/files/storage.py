@@ -36,7 +36,8 @@ import tempfile
 from datetime import timedelta
 from typing import BinaryIO, Final
 
-from terp.core import AppError, get_settings, register_boot_check
+from terp.core import AppError, get_settings
+from terp.core.boot_checks import register_boot_check
 
 _logger = logging.getLogger("terp.capabilities.files")
 

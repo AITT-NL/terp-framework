@@ -227,7 +227,6 @@ from terp.core.scheduling import (
     settle_schedule,
     trigger_schedule,
 )
-from terp.core.boot_checks import BootCheck, register_boot_check
 from terp.core.health import (
     HealthDetail,
     ReadinessProbe,
@@ -284,7 +283,6 @@ __all__ = [
     "BaseTable",
     "BaseUpdateSchema",
     "BeginOutcome",
-    "BootCheck",
     "BootError",
     "CacheStore",
     "ConflictError",
@@ -468,7 +466,6 @@ __all__ = [
     "read_only",
     "redact_personal",
     "reference_delete_policy",
-    "register_boot_check",
     "register_decrypt_call_site",
     "register_health_detail",
     "register_job_tenant_context",
