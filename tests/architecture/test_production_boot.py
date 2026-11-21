@@ -420,6 +420,6 @@ def test_template_acceptance_runs_the_production_profile_with_files_and_sso_on_d
     # The image is built after a module was grown, so the record was written again with it.
     (grow,) = [s for s in _acceptance()["steps"] if "Grow the app the real way" in s.get("name", "")]
     written = "uv run terp inspect access --app app.main:build --format surface > authz-surface.json"
-    assert grow["run"].index("records_module") < grow["run"].index(written)
+    assert grow["run"].index("switch_module") < grow["run"].index(written)
     assert "uv run terp verify --profile full --only authz-surface" in grow["run"]
     assert "SECRET_KEY=\"$(secret)\"" in run and "POSTGRES_PASSWORD=\"$(secret)\"" in run

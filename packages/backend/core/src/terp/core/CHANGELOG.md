@@ -281,6 +281,19 @@ decision, 0001 onwards.
   ignored, and beat says so in a warning when it starts; pass `-S
   celery.beat:PersistentScheduler -s <path>` to keep a file, in a directory only the app's user
   can write (see the upgrade notes).
+- `terp new module` generates PascalCase model and view names for compound module names.
+  Names whose generated code did not compile, such as `switch`, `false` and `s`, now get
+  valid code.
+  The starter view uses the read schema exported by its backend in the typed-client
+  example and propagates failed requests through the resource hook. Its navigation label
+  and heading share a localizable title. Set its source text in the generated `title.ts`
+  and translate it in each target locale in `frontend/i18n.json`. The follow-up commands
+  use the chosen Python package and the project’s checked-in architecture budget, and the
+  gate command the generated README and AGENTS.md teach passes that budget too. A
+  `--package` that is not a top-level Python import package, such as a path, a dotted or
+  hyphenated name or a keyword, is now refused before any file is written; the modules
+  generated for one did not import.
+
 - **`grant-runtime` refuses a role name that ends in a line break.** Its pattern was matched
   with `re.match`, whose `$` also matches before a trailing newline, so `"terp_rt\n"` reached
   the server, which refused it as a role that does not exist. The whole name is matched now,

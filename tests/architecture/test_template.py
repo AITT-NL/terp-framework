@@ -333,6 +333,18 @@ def test_docs_teach_venv_correct_commands() -> None:
     assert "static/local replacement" in agents
 
 
+def test_every_gate_run_the_readme_teaches_passes_the_budget() -> None:
+    # Every generated app carries a governed escape hatch (app/seed.py) counted in its
+    # escape-hatch-budget.json, and `terp check` without `--budget` reports that marker as
+    # ungoverned. A README step that runs the gate without the budget is red on a fresh
+    # render, the first time anyone follows it.
+    readme = (_PROJECT / "README.md.jinja").read_text(encoding="utf-8")
+    runs = re.findall(r"\bterp check\b[^\n]*", readme)
+    assert len(runs) >= 2, "the README teaches the gate in setup and when a module is added"
+    unbudgeted = [run for run in runs if "--budget escape-hatch-budget.json" not in run]
+    assert not unbudgeted, f"README.md.jinja runs terp check without the app's budget: {unbudgeted}"
+
+
 def test_frontend_skeleton_present() -> None:
     # A runnable full-stack repo ships a Vite React app whose whole wiring is renderTerpApp
     # discovering the module slots — no per-module registration.

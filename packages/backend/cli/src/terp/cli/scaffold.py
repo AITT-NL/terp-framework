@@ -2,9 +2,8 @@
 
 Emits the five fixed slots (``models`` / ``schemas`` / ``service`` / ``router`` /
 ``module``) plus the package ``__init__`` into ``<app>/modules/<name>/``. The output
-is deliberately the *canonical* shape: it passes every ``terp.arch`` rule out of the
-box, so the only remaining step before a green gate is the model's first migration
-(``terp migrate make <name>``) — the 10-minute path of design §13.
+includes the module manifest and its tests. The CLI prints the project-specific steps
+to mount the module, create its first migration and refresh generated contracts.
 
 The generated code is yours to edit (Level-1 sugar, never a runtime black box):
 inherit ``BaseTable``, declare DTOs, set ``model`` on a ``BaseService``, keep the
@@ -22,22 +21,24 @@ import pathlib
 from collections.abc import Sequence
 
 from terp.cli.profiles import DEFAULT_PROFILE, ModuleProfile, get_profile
+from terp.cli.scaffold_frontend import frontend_files
 
 
 def _singular(name: str) -> str:
     """``invoices`` -> ``invoice``; ``billing`` -> ``billing`` (drop a trailing ``s``)."""
-    return name[:-1] if name.endswith("s") else name
+    return name[:-1] if len(name) > 1 and name.endswith("s") else name
 
 
 def _model_name(name: str) -> str:
     """``invoices`` -> ``Invoice``; ``billing`` -> ``Billing`` (PascalCase, singular)."""
-    singular = _singular(name)
-    return singular[:1].upper() + singular[1:]
+    model = _pascal(_singular(name))
+    return f"{model}Record" if keyword.iskeyword(model) else model
 
 
 def _pascal(name: str) -> str:
     """``invoices`` -> ``Invoices`` (PascalCase, plurality unchanged) for view/nav names."""
-    return name[:1].upper() + name[1:]
+    pascal = "".join(word[:1].upper() + word[1:] for word in name.split("_"))
+    return pascal if pascal.isidentifier() else f"Module{pascal}"
 
 
 def _validate_name(name: str) -> str:
@@ -124,6 +125,7 @@ class {model}Service({base}[{model}, {model}Create, {model}Update]):
 
 
 def _router_py(model: str, name: str, package: str) -> str:
+    singular = _singular(name).lower()
     return f'''\
 """``{name}`` router — thin CRUD over :class:`{model}Service` using kernel seams only."""
 
@@ -151,24 +153,24 @@ def list_{name}(session: SessionDep, pagination: PaginationDep) -> Page[{model}R
 
 
 @router.post("/", response_model={model}Read, status_code=201)
-def create_{model.lower()}(payload: {model}Create, session: SessionDep) -> {model}Read:
+def create_{singular}(payload: {model}Create, session: SessionDep) -> {model}Read:
     return {model}Read.model_validate(_service.create(session, payload))
 
 
 @router.get("/{{item_id}}", response_model={model}Read)
-def get_{model.lower()}(item_id: uuid.UUID, session: SessionDep) -> {model}Read:
+def get_{singular}(item_id: uuid.UUID, session: SessionDep) -> {model}Read:
     return {model}Read.model_validate(_service.get(session, item_id))
 
 
 @router.patch("/{{item_id}}", response_model={model}Read)
-def update_{model.lower()}(
+def update_{singular}(
     item_id: uuid.UUID, payload: {model}Update, session: SessionDep
 ) -> {model}Read:
     return {model}Read.model_validate(_service.update(session, item_id, payload))
 
 
 @router.delete("/{{item_id}}", status_code=204)
-def delete_{model.lower()}(item_id: uuid.UUID, session: SessionDep) -> None:
+def delete_{singular}(item_id: uuid.UUID, session: SessionDep) -> None:
     _service.delete(session, item_id)
 '''
 
@@ -230,6 +232,7 @@ def test_writing_requires_more_authority_than_reading() -> None:
 def _test_py(model: str, name: str, package: str) -> str:
     return _TEST_PY.format(model=model, name=name, package=package)
 
+
 def _files(name: str, package: str, profile: ModuleProfile) -> dict[str, str]:
     model = _model_name(name)
     return {
@@ -256,100 +259,6 @@ def _test_files(name: str, package: str) -> dict[str, str]:
     }
 
 
-_MODULE_TSX = """\
-import { defineModuleManifest } from "@terpjs/contract";
-
-import { __PASCAL__List } from "./__PASCAL__List";
-
-// Dropped in and auto-discovered by renderTerpApp's import.meta.glob — no registration.
-export const manifest = defineModuleManifest({
-  name: "__NAME__",
-  routes: [{ path: "/__NAME__", view: "__PASCAL__List" }],
-  nav: [{ label: "__PASCAL__", to: "/__NAME__" }],
-});
-
-export const views = { __PASCAL__List };
-"""
-
-_VIEW_TSX = """\
-// The `__NAME__` module view — a starting point you own (real React, no hidden DSL). It composes
-// the shared <ResourceList> so every module lists + creates the same way, with the write-gate
-// applied for you. Wire it to YOUR endpoint once you've generated the typed client:
-//
-//   uv run terp openapi && npm --prefix frontend run generate   // -> src/api/schema.d.ts
-//
-//   import { useResource, useTerpClient } from "@terpjs/react-core";
-//   import type { paths, components } from "../../api/schema";
-//   type __PASCAL__ = components["schemas"]["__PASCAL__Read"];
-//   const client = useTerpClient<paths>();
-//   const __NAME__ = useResource<__PASCAL__, string>({
-//     list: async () => (await client.GET("/api/v1/__NAME__/", {})).data?.items ?? [],
-//     create: async (name) => { await client.POST("/api/v1/__NAME__/", { body: { name } }); },
-//   });
-//   // ...then pass createPlaceholder="New __NAME__" to <ResourceList> so writers can add rows.
-//
-import { OverviewPage, ResourceList, useResource } from "@terpjs/react-core";
-
-export function __PASCAL__List() {
-  // Placeholder until you wire the typed client above: an empty, read-only list (compiles pre-codegen).
-  const __NAME__ = useResource<{ id: string; name: string }, string>({ list: async () => [] });
-  return (
-    <OverviewPage title="__PASCAL__">
-      <ResourceList
-        resource={__NAME__}
-        renderItem={(item) => <strong>{item.name}</strong>}
-      />
-    </OverviewPage>
-  );
-}
-"""
-
-
-_VIEW_TEST_TSX = """// The `__NAME__` module's first frontend test, written in the same breath as the view for
-// the same reason the backend test package is (ADR 0119): a module whose default shape has
-// no test owes a debt nobody mentioned, and until the vitest seam existed the frontend had
-// nowhere to pay it. Run it with `npm --prefix frontend test`; `terp verify` runs it too.
-//
-// What belongs here is the logic between a type check and a browser -- branches, empty and
-// error states, formatters, plural rules, a column definition. The Playwright suite in
-// conformance/ still owns "does the whole app work against a real backend".
-import { render, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-
-import { __PASCAL__List } from "./__PASCAL__List";
-
-describe("__PASCAL__List", () => {
-  it("renders its page title", () => {
-    const { container } = render(<__PASCAL__List />);
-    expect(within(container).getByText("__PASCAL__")).toBeInTheDocument();
-  });
-
-  it("shows the empty state, and no rows, until the typed client is wired", async () => {
-    const { container } = render(<__PASCAL__List />);
-    const marker = (name: string) => container.querySelector(`[data-terp="${name}"]`);
-    // The starter view lists nothing, so the empty marker is what renders. Once you wire
-    // a real endpoint this is the assertion to change -- expect a row, and expect the
-    // empty marker to be gone. Asserting BOTH sides is the point: a test that only checks
-    // the wanted element is present still passes when the unwanted one is there too.
-    await waitFor(() => expect(marker("resource-list-empty")).not.toBeNull());
-    expect(marker("resource-list-items")).toBeNull();
-  });
-});
-"""
-
-
-def _frontend_files(name: str) -> dict[str, str]:
-    """The frontend slot: ``module.tsx``, a starter list view, and that view's first test."""
-    pascal = _pascal(name)
-    return {
-        "module.tsx": _MODULE_TSX.replace("__PASCAL__", pascal).replace("__NAME__", name),
-        f"{pascal}List.tsx": _VIEW_TSX.replace("__PASCAL__", pascal).replace("__NAME__", name),
-        f"{pascal}List.test.tsx": _VIEW_TEST_TSX.replace("__PASCAL__", pascal).replace(
-            "__NAME__", name
-        ),
-    }
-
-
 def new_module(
     name: str,
     *,
@@ -361,8 +270,9 @@ def new_module(
     """Scaffold the canonical ``<package>/modules/<name>/`` module under *root*.
 
     When *frontend* is true and a ``frontend/src/modules`` app exists under *root*, the
-    matching frontend slot (``module.tsx``, a starter ``<Name>List.tsx`` view and that
-    view's first test) is emitted too, so the module is full-stack and auto-discovered by
+    matching frontend slot (``module.tsx``, the ``title.ts`` its navigation entry and page
+    heading share, a starter ``<Name>List.tsx`` view and that view's first test) is emitted
+    too, so the module is full-stack and auto-discovered by
     ``renderTerpApp`` — no central registration. A backend-only repo (no frontend app)
     silently gets just the backend.
 
@@ -372,6 +282,8 @@ def new_module(
     name = _validate_name(name)
     module_profile = get_profile(profile)
     root_path = pathlib.Path(root)
+    if not package.isidentifier() or keyword.iskeyword(package):
+        raise SystemExit(f"invalid package {package!r}: use a top-level Python import package such as app")
     destination = root_path / package / "modules" / name
     if destination.exists():
         raise SystemExit(f"refusing to overwrite existing module directory: {destination}")
@@ -406,7 +318,7 @@ def new_module(
 
     if emit_frontend:
         frontend_destination.mkdir(parents=True)
-        for filename, content in _frontend_files(name).items():
+        for filename, content in frontend_files(name, _pascal(name), _model_name(name)).items():
             path = frontend_destination / filename
             path.write_text(content, encoding="utf-8")
             created.append(path)
@@ -415,33 +327,48 @@ def new_module(
 
 
 def new_module_message(
-    name: str, paths: Sequence[pathlib.Path], *, profile: str = DEFAULT_PROFILE
+    name: str,
+    paths: Sequence[pathlib.Path],
+    *,
+    profile: str = DEFAULT_PROFILE,
+    root: str | pathlib.Path = ".",
+    package: str = "app",
 ) -> str:
     """The human/agent-facing next-steps note after scaffolding *name*."""
     module_profile = get_profile(profile)
     listing = "\n".join(f"  {path}" for path in paths)
-    has_frontend = any(path.suffix == ".tsx" for path in paths)
+    project = pathlib.Path(root)
+    migrate_args = check_args = app_arg = ""
+    if package != "app":
+        migrate_args = f" --app-root {package} --package {package}"
+        check_args = f" --package {package}"
+        app_arg = f" --app {package}.main:app"
+    if (project / "escape-hatch-budget.json").is_file():
+        check_args += " --budget escape-hatch-budget.json"
     steps = [
-        f"  app/main.py                       # mount it: from app.modules.{name}.module "
+        f"  {package}/main.py   # mount it: from {package}.modules.{name}.module "
         f"import module as {name}_module; add {name}_module to the modules list",
-        f"  uv run terp migrate make {name}   # first migration (before a green gate)",
+        f"  uv run terp migrate make {name}{migrate_args}   # generate the first migration",
+        f"  uv run terp openapi{app_arg}   # regenerate the contract for /api/v1/{name}/",
     ]
-    if has_frontend:
+    if (project / "authz-surface.json").is_file():
         steps.append(
-            f"  uv run terp openapi               # regenerate the contract so the client sees /api/v1/{name}/"
+            f"  uv run terp inspect access --app {package}.main:app --format surface > authz-surface.json"
+            "   # review and commit the changed access surface"
         )
-        steps.append(
-            "  npm --prefix frontend run generate   # openapi.json -> frontend/src/api/schema.d.ts (typed client)"
+    if any(path.suffix == ".tsx" for path in paths):
+        steps.extend(
+            [
+                f"  frontend/src/modules/{name}/title.ts   # set the source-language title, then translate "
+                f"{name}.title in frontend/i18n.json for each non-source locale",
+                "  npm --prefix frontend run generate   # regenerate the typed client",
+                f"  uv run terp routes   # regenerate src/routes.gen.d.ts for /{name}",
+            ]
         )
-        # The new manifest declares a route, so the committed route table is now a
-        # stale statement about this app's manifests and `terp verify` says so.
-        steps.append(
-            f"  uv run terp routes                # regenerate src/routes.gen.d.ts (it now declares /{name})"
-        )
-    steps.append("  uv run terp check                 # run the architecture gate locally")
+    steps.append(f"  uv run terp check{check_args}   # run the architecture gate locally")
     notes = "".join(f"\nNote: {note}" for note in module_profile.notes)
     return (
         f"Scaffolded module {name!r} ({len(paths)} files, profile {module_profile.name!r}):\n"
         f"{listing}\n\n"
-        "Next:\n" + "\n".join(steps) + notes
+        f"Next (from {project}):\n" + "\n".join(steps) + notes
     )

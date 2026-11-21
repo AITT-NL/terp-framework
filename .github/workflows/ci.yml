@@ -599,14 +599,25 @@ jobs:
           DATABASE_URL: sqlite:///./acceptance.db
         run: |
           set -eux
-          uv run terp new module records
+          uv run terp new module switch
+          # The module name is also a reserved JavaScript word. Its label belongs
+          # to the app, whose source locale is Dutch and whose target here is English.
+          sed -i 's/message: "Switch"/message: "Schakelaar"/' frontend/src/modules/switch/title.ts
+          python3 - <<'PYTHON'
+          import json
+          from pathlib import Path
+          path = Path("frontend/i18n.json")
+          catalog = json.loads(path.read_text(encoding="utf-8"))
+          catalog["locales"]["en"]["messages"]["switch.title"] = "Switch"
+          path.write_text(json.dumps(catalog, indent=2) + "\n", encoding="utf-8")
+          PYTHON
           # Mount it in the composition root (the gate refuses unmounted modules).
-          sed -i 's/^from control_plane import control_plane$/from control_plane import control_plane\nfrom app.modules.records.module import module as records_module/' app/main.py
-          sed -i 's/modules = \[login_module, me_module, oidc_module\]/modules = [login_module, me_module, oidc_module, records_module]/' app/main.py
-          grep -Fq 'modules = [login_module, me_module, oidc_module, records_module]' app/main.py
+          sed -i 's/^from control_plane import control_plane$/from control_plane import control_plane\nfrom app.modules.switch.module import module as switch_module/' app/main.py
+          sed -i 's/modules = \[login_module, me_module, oidc_module\]/modules = [login_module, me_module, oidc_module, switch_module]/' app/main.py
+          grep -Fq 'modules = [login_module, me_module, oidc_module, switch_module]' app/main.py
           # Autogenerate only diffs meaningfully from head; bring the file up first.
           uv run terp migrate upgrade
-          uv run terp migrate make records -m "create records table"
+          uv run terp migrate make switch -m "create switch table"
           # A new module is new routes, so the record of who can reach what is written again
           # in the same change, as a developer writes it, and the check holds it. The
           # production profile below copies it into the image, where an app that serves a
@@ -657,7 +668,10 @@ jobs:
           # The hub variant scaffolded a module after render, so it first regenerates the
           # table exactly as `terp new module` instructs; --check then proves the
           # generator is idempotent and the artifact is a pure function of the manifests.
-          if [ "${{ matrix.variant }}" = "hub-all-capabilities" ]; then npm run routes; fi
+          if [ "${{ matrix.variant }}" = "hub-all-capabilities" ]; then
+            npm run routes
+            npm run lint
+          fi
           npm run routes -- --check
           npm run typecheck
           npm run build
@@ -1092,7 +1106,7 @@ jobs:
           python3 -c '
           import json, pathlib, sys
           record = json.loads(pathlib.Path("authz-surface.json").read_text(encoding="utf-8"))
-          kept = [module for module in record["modules"] if module["name"] != "records"]
+          kept = [module for module in record["modules"] if module["name"] != "switch"]
           assert len(kept) == len(record["modules"]) - 1, "the record holds the grown module"
           record["modules"] = kept
           pathlib.Path(sys.argv[1]).write_text(json.dumps(record), encoding="utf-8")
@@ -1100,7 +1114,7 @@ jobs:
           if $profile run --rm --no-deps -T \
               -v "$RUNNER_TEMP/stale-surface.json:/srv/authz-surface.json:ro" \
               api python -c "from app.main import app" > "$RUNNER_TEMP/refused.log" 2>&1; then
-            echo "the api started against a record that lacks its records routes" >&2
+            echo "the api started against a record that lacks its switch routes" >&2
             exit 1
           fi
           grep -F "this app does not serve what authz-surface.json records" "$RUNNER_TEMP/refused.log"
