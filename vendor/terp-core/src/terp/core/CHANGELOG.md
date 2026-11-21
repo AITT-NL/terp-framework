@@ -224,6 +224,8 @@ decision, 0001 onwards.
 ### Fixed
 
 - `terp new module` generates PascalCase model and view names for compound module names.
+  Names whose generated code did not compile, such as `switch`, `false` and `s`, now get
+  valid code.
   The starter view uses the read schema exported by its backend in the typed-client
   example and propagates failed requests through the resource hook. Its navigation label
   and heading share a localizable title. Set its source text in the generated `title.ts`

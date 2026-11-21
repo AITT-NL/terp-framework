@@ -270,8 +270,9 @@ def new_module(
     """Scaffold the canonical ``<package>/modules/<name>/`` module under *root*.
 
     When *frontend* is true and a ``frontend/src/modules`` app exists under *root*, the
-    matching frontend slot (``module.tsx``, a starter ``<Name>List.tsx`` view and that
-    view's first test) is emitted too, so the module is full-stack and auto-discovered by
+    matching frontend slot (``module.tsx``, the ``title.ts`` its navigation entry and page
+    heading share, a starter ``<Name>List.tsx`` view and that view's first test) is emitted
+    too, so the module is full-stack and auto-discovered by
     ``renderTerpApp`` — no central registration. A backend-only repo (no frontend app)
     silently gets just the backend.
 

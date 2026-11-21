@@ -307,9 +307,10 @@ def test_sign_refuses_an_image_whose_app_layer_changed_after_the_build(lane: Lan
     """An image with one more layer that rewrites the app's entry module, pushed under a tag of
     its own with the web image beside it: everything about it is real but the app layer.
 
-    Signed against the gate that inspected the build, it is refused because that gate names
-    another image. Signed against a gate that inspected it, which is what gating the changed
-    build records, the gate's binding holds and sign's comparison with the tree refuses it."""
+    Signed against the gate of the original build, it is refused because that gate names
+    another image. Signed against a copy of that gate edited to name the changed image, as a
+    gate run over the changed build would, the binding holds and sign's comparison with the
+    tree refuses it."""
     release = lane.releases["a"]
     backend, web = release.image(web=False), release.image(web=True)
     repository = backend["repository"].split("/", 1)[1]
