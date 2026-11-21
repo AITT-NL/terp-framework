@@ -94,6 +94,10 @@ services:
       context: ../..
       dockerfile: apps/example/Dockerfile.prod
     restart: unless-stopped
+    # The files capability's storage root (/srv/var/files, which the image makes owned by
+    # the user it runs as): on a named volume, so stored files outlive the container.
+    volumes:
+      - files-data:/srv/var/files
     depends_on:
       db:
         condition: service_healthy
@@ -129,3 +133,4 @@ services:
 
 volumes:
   db-data:
+  files-data:

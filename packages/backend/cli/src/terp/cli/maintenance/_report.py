@@ -16,8 +16,16 @@ import json
 from dataclasses import dataclass, field
 from importlib import metadata
 
-#: The kinds of finding, in the order a report lists them.
-KINDS = ("platform-behind", "template-behind", "known-vulnerability", "base-image-behind", "source-unavailable")
+#: The kinds of finding, in the order a report lists them. ``scaffolding-defect`` is a defect in
+#: the app's own scaffolding that a template release fixed (ADR 0218); it is no version behind.
+KINDS = (
+    "platform-behind",
+    "template-behind",
+    "scaffolding-defect",
+    "known-vulnerability",
+    "base-image-behind",
+    "source-unavailable",
+)
 
 #: The sources a report may consult, in the order it lists them.
 SOURCES = ("python-index", "npm-registry", "osv", "registry")
@@ -193,6 +201,9 @@ def _headline(finding: Finding) -> str:
         return f"{finding.subject} {finding.installed}{where}: {ids}{new}"
     if finding.kind == "source-unavailable":
         return f"{finding.subject} could not be asked"
+    if finding.kind == "scaffolding-defect":
+        # Not a version behind: the render may come from a later template than the fix.
+        return f"{finding.subject}{where}: lacks what template {finding.fixed_in} added"
     return f"{finding.subject}{where}: {finding.installed} -> {finding.latest}"
 
 

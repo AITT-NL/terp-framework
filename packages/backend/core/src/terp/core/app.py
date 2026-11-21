@@ -92,6 +92,7 @@ from terp.core.passwords import configure_password_policy
 from terp.core.operations import OperationCatalog, OperationCoverage
 from terp.core.route_timestamps import request_timestamps_refusal
 from terp.core.authz_surface import startup_refusal
+from terp.core.boot_checks import boot_check_refusal
 from terp.core.composition_freeze import freeze_app_route_registration
 from terp.core._root_signpost import mount_root_signpost
 from terp.core.routing import (
@@ -2255,13 +2256,12 @@ def create_app(
     app.state.terp_module_specs = tuple(collected)
     app.state.terp_control_plane = resolved_plane
     freeze_app_route_registration(app)
-    # Last, over the frozen app: the routes it will serve are compared with the record it
-    # was released with, so an app that composes differently here does not serve (ADR 0212).
-    surface_refusal = startup_refusal(
-        app, resolved_plane, collected, local=settings.ENVIRONMENT == "local"
-    )
-    if surface_refusal is not None:
-        raise BootError(surface_refusal)
+    # Last: its routes against its record (ADR 0212), then its image's needs (ADR 0218).
+    local = settings.ENVIRONMENT == "local"
+    refusal = startup_refusal(app, resolved_plane, collected, local=local)
+    refusal = refusal or boot_check_refusal(local=local)
+    if refusal is not None:
+        raise BootError(refusal)
     return app
 
 

@@ -8,16 +8,24 @@ deployment already running the Celery stack. Wiring is composition-root only::
     scheduler.install()                                 # -> celery_app.conf.beat_schedule
     # then run:  celery -A your.celery_app beat   (plus a worker to run the enqueued jobs)
 
+``install()`` also has beat keep its schedule in memory (``celery.beat:Scheduler``) where the
+app chose neither a scheduler nor a schedule file, so beat writes no file and unpickles
+nothing: Celery's default would open one in the working directory, which the production
+image's user cannot write, and read it with ``shelve`` (ADR 0218). A scheduler or a file the
+app's config names is kept; at the command line, ``-s`` takes ``-S
+celery.beat:PersistentScheduler`` with it, and a directory only the app's user can write.
+``-s`` alone is ignored, and beat logs a warning that says so when it starts.
+
 For each :class:`~terp.core.ScheduleDefinition` it registers a small **tick task** on the
 Celery app and a ``beat_schedule`` entry that runs that task on the schedule's cron. When beat
 fires the tick (on a worker), the tick opens a session and settles the schedule through
 :func:`~terp.core.settle_schedule` — it **enqueues** the schedule's job through the typed
 chokepoint and the active :class:`~terp.core.JobQueue`, and records the slot in the active
 :class:`~terp.core.ScheduleLedger`, so a tick beat missed is settled by the schedule's misfire
-policy (ADR 0191; call ``catch_up()`` from ``beat_init`` where beat's schedule file does not
-survive a restart). Routing through a tick task (rather than sending a fixed message) keeps
-the schedule's ``payload_factory`` dynamic per fire and the no-drift ``enqueue`` validation in
-force.
+policy (ADR 0191; ``install()`` connects ``catch_up()`` to ``beat_init``, because beat keeps no schedule
+across a restart by default). Routing through a tick task (rather than sending a fixed
+message) keeps the schedule's ``payload_factory`` dynamic per fire and the no-drift
+``enqueue`` validation in force.
 
 It depends only on ``terp-core`` + ``celery`` and imports the engine solely behind the
 scheduler seam (``no_adhoc_background_runtime`` keeps it out of app code).

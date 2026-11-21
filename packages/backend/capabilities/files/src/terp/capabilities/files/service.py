@@ -48,6 +48,7 @@ chokepoint that applies both before any byte lands.
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import BinaryIO, ClassVar
@@ -94,6 +95,8 @@ from terp.capabilities.files.storage import (
     DEFAULT_STORAGE_PROFILE,
     resolve_storage_backend,
 )
+
+_logger = logging.getLogger("terp.capabilities.files")
 
 
 def _new_storage_key() -> str:
@@ -247,7 +250,17 @@ class FileService(BaseService[File, FileCreate, FileUpdate]):
                 ),
             )
         except Exception:
-            backend.delete(key)
+            # The upload's own failure is what the caller is told and what the log carries:
+            # a cleanup that fails too (the same broken root, say) is logged beside it,
+            # never raised in its place.
+            try:
+                backend.delete(key)
+            except Exception:
+                _logger.warning(
+                    "files: could not remove the blob of a failed upload",
+                    extra={"storage_key": key, "storage_profile": selected},
+                    exc_info=True,
+                )
             raise
 
     def open_stream(
