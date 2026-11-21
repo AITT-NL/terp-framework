@@ -17,13 +17,11 @@ not from beat: a tick beat fires late on start (beat's own catch-up, when the ap
 schedule file that survived the restart) is settled as the misfire it is, and the schedule's
 declared policy runs it once or records it skipped. Where beat keeps no schedule across a
 restart (the in-memory scheduler :meth:`CeleryBeatScheduler.install` chooses by default, or a
-container that starts clean), beat fires nothing for the gap, so call
-:meth:`CeleryBeatScheduler.catch_up` once when beat starts, from Celery's ``beat_init`` signal::
-
-    from celery.signals import beat_init
-    beat_init.connect(lambda **_: scheduler.catch_up(), weak=False)
-
-Both paths settle through the same ledger, so whichever runs second finds the slot settled.
+container that starts clean), beat fires nothing for the gap, so
+:meth:`CeleryBeatScheduler.install` connects :meth:`CeleryBeatScheduler.catch_up` to Celery's
+``beat_init`` signal, and beat settles the gap once when it starts (ADR 0218). Both paths
+settle through the same ledger, so whichever runs second finds the slot settled, and an app
+that also connects ``catch_up()`` itself settles nothing twice.
 
 **Deployment.** The tick tasks are registered on the Celery app *in the calling process*, so
 every Celery **worker** that may run them must be bootstrapped the same way — import the
@@ -36,6 +34,7 @@ identically) for the ticks.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -54,6 +53,9 @@ from terp.core.scheduling import SlotFinder
 
 from celery import Celery  # arch-allow-no-adhoc-background-runtime: this capability IS the Celery-beat adapter — the one governed place the engine is imported, behind the scheduler seam
 from celery.schedules import crontab  # arch-allow-no-adhoc-background-runtime: the cron parser the scheduler seam delegates to
+from celery.signals import beat_init  # arch-allow-no-adhoc-background-runtime: beat's start-up signal, where install() settles the time beat was down and says when a schedule file is ignored (ADR 0218, owner decision 2026-11-21)
+
+_logger = logging.getLogger("terp.capabilities.scheduler_celery_beat")
 
 _TASK_PREFIX = "terp.schedule."
 
@@ -147,6 +149,7 @@ class CeleryBeatScheduler(Scheduler):
         self._clock = clock
         self._beat_schedule: dict[str, dict[str, Any]] = {}
         self._registered: list[tuple[ScheduleDefinition, SlotFinder]] = []
+        self._wired = False
 
     def register(self, schedule: ScheduleDefinition) -> None:
         """Register *schedule*'s tick task and a beat entry firing it on its cron."""
@@ -165,8 +168,25 @@ class CeleryBeatScheduler(Scheduler):
             )
 
     def catch_up(self) -> list[Settled]:
-        """Settle every registered schedule now; call it once when beat starts (``beat_init``)."""
+        """Settle every registered schedule now; :meth:`install` runs it when beat starts."""
         return [self.settle(schedule, finder) for schedule, finder in self._registered]
+
+    def _on_beat_init(self, sender: Any = None, **_: Any) -> None:
+        """At beat's start, for this app's beat only: say an ignored file, then catch up."""
+        if getattr(sender, "app", None) is not self._app:
+            return
+        built = type(getattr(sender, "scheduler", None))
+        filename = getattr(sender, "schedule_filename", None)
+        in_memory = f"{built.__module__}:{built.__qualname__}" == IN_MEMORY_SCHEDULER
+        if in_memory and filename not in (None, "", CELERY_DEFAULT_SCHEDULE_FILENAME):
+            _logger.warning(
+                "celery beat was given the schedule file %s, but keeps its schedule in memory, so "
+                "the file is neither read nor written (ADR 0218). To keep one, pass -S "
+                "celery.beat:PersistentScheduler -s <path>, or set beat_schedule_filename, in a "
+                "directory only the app's user can write: beat unpickles that file.",
+                filename,
+            )
+        self.catch_up()
 
     def _make_tick(
         self, schedule: ScheduleDefinition, finder: SlotFinder
@@ -192,13 +212,12 @@ class CeleryBeatScheduler(Scheduler):
         nothing (ADR 0218). Celery's default would open a file in the working directory,
         which the production image's user cannot write, and read it with :mod:`shelve`. The
         file was only beat's cache of when each entry last ran: the schedule ledger is what a
-        tick is settled against, and :meth:`catch_up` settles the time beat was down once the
-        app wires it from ``beat_init`` (see the module docstring); nothing calls it for the
-        app. A scheduler or a file the app's config names is kept. At the command line a
-        schedule file takes a scheduler that keeps one: ``celery beat -S
-        celery.beat:PersistentScheduler -s <path>``, in a directory only the app's user can
-        write, because beat unpickles that file. ``-s`` alone is ignored by the in-memory
-        scheduler, and nothing says so at start.
+        tick is settled against, and this connects :meth:`catch_up` to ``beat_init``, so beat
+        settles the time it was down whenever it starts. A scheduler or a file the app's config
+        names is kept. At the command line a schedule file takes a scheduler that keeps one:
+        ``celery beat -S celery.beat:PersistentScheduler -s <path>``, in a directory only the
+        app's user can write, because beat unpickles that file. ``-s`` alone is ignored by the
+        in-memory scheduler, and beat logs a warning that says so when it starts.
         """
         merged = dict(self._app.conf.beat_schedule or {})
         merged.update(self._beat_schedule)
@@ -209,6 +228,9 @@ class CeleryBeatScheduler(Scheduler):
             and conf.beat_schedule_filename == CELERY_DEFAULT_SCHEDULE_FILENAME
         ):
             conf.beat_scheduler = IN_MEMORY_SCHEDULER
+        if not self._wired:
+            beat_init.connect(self._on_beat_init, weak=False)
+            self._wired = True
 
 
 __all__ = [

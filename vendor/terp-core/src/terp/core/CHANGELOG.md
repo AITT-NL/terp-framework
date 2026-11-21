@@ -275,9 +275,10 @@ decision, 0001 onwards.
   that file with `shelve`, which unpickles it. Where the app chose neither `beat_scheduler` nor
   `beat_schedule_filename`, `CeleryBeatScheduler.install()` now sets Celery's in-memory
   `celery.beat:Scheduler`: beat writes no file, makes no directory and unpickles nothing. The
-  file was beat's cache; the schedule ledger settles each tick, and `catch_up()`, once the app
-  wires it from `beat_init`, settles the time beat was down. A scheduler or a file the app's
-  config names is kept. At the command line `-s` alone is now ignored; pass `-S
+  file was beat's cache; the schedule ledger settles each tick, and `install()` connects
+  `catch_up()` to `beat_init`, so beat settles the time it was down whenever it starts. A
+  scheduler or a file the app's config names is kept. At the command line `-s` alone is now
+  ignored, and beat says so in a warning when it starts; pass `-S
   celery.beat:PersistentScheduler -s <path>` to keep a file, in a directory only the app's user
   can write (see the upgrade notes).
 - **`grant-runtime` refuses a role name that ends in a line break.** Its pattern was matched
@@ -328,14 +329,14 @@ decision, 0001 onwards.
 - **An app that runs Celery beat with `-s <path>` now gets beat's in-memory scheduler and no
   schedule file**, where its config names neither `beat_scheduler` nor
   `beat_schedule_filename` (`CeleryBeatScheduler.install()`, ADR 0218). `-s` alone is ignored:
-  beat reads and writes no file, says nothing about it, and its banner shows `. scheduler ->
-  celery.beat.Scheduler` with no `. db ->` line. To keep a file, pass `-S
+  beat reads and writes no file, logs a warning at start that names the file, and its banner
+  shows `. scheduler -> celery.beat.Scheduler` with no `. db ->` line. To keep a file, pass `-S
   celery.beat:PersistentScheduler -s <path>` or set `beat_schedule_filename`, in a directory
-  only the app's user can write, because beat unpickles that file. Without a file, beat no
-  longer fires at start a tick it missed while it was down: the missed slots are folded into
-  the next on-time run. To settle them at start by each schedule's misfire policy, wire
-  `catch_up()` from `beat_init`, which then covers every restart: `beat_init.connect(lambda
-  **_: scheduler.catch_up(), weak=False)`. Nothing calls it for the app.
+  only the app's user can write, because beat unpickles that file. A tick beat missed while it
+  was down is settled at start by each schedule's misfire policy: `install()` connects
+  `catch_up()` to `beat_init` itself, so the app needs no Celery import and no escape marker of
+  its own for it. An app that wired `catch_up()` itself can drop that line and its marker;
+  running it twice settles nothing twice.
 - `copier update` adds `terp-cap-egress` to the `dev` group of `pyproject.toml`; run `uv sync`.
   An app that does not re-render can add `"terp-cap-egress==0.43.0"` to that group by hand.
 - `sign` now refuses a release whose migration histories it cannot list, where it signed it

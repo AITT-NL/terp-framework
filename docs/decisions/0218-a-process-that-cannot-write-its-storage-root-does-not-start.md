@@ -155,15 +155,19 @@ cannot read a shell `RUN` line reliably and does not reach an app that never ado
    neither a scheduler (`beat_scheduler`) nor a file (`beat_schedule_filename`),
    `CeleryBeatScheduler.install()` sets Celery's in-memory `celery.beat:Scheduler`, so beat
    writes no file, makes no directory and unpickles nothing. The file was only beat's cache of
-   when each entry last ran: the schedule ledger settles each tick, and `catch_up()` settles
-   the time beat was down once the app wires it from `beat_init` (ADR 0191); nothing calls it
-   for the app. Without it, a slot beat missed while it was down is folded into the next
-   on-time run. A scheduler or a file the app's config names is kept. At the command line,
-   `-s` alone is ignored by the in-memory scheduler, silently; a schedule file there takes
+   when each entry last ran: the schedule ledger settles each tick, and `install()` connects
+   `catch_up()` to `beat_init`, so beat settles the time it was down whenever it starts
+   (ADR 0191). A scheduler or a file the app's config names is kept. At the command line,
+   `-s` alone is ignored by the in-memory scheduler, and beat logs a warning that names the
+   file and the remedy when it starts; a schedule file there takes
    `-S celery.beat:PersistentScheduler -s <path>`, in a directory only the app's user can
    write, because beat unpickles the file. The upgrade notes say so to an app that ran beat
-   with `-s`. Beat does not warn at start that it ignores `-s`: that would take a third import
-   of Celery in the capability, and with it a third escape marker, and the owner chose not to.
+   with `-s`.
+
+   The owner decided on 2026-11-21 that the capability does both itself: it takes a third
+   import of Celery, `celery.signals.beat_init`, under a justified marker that raises its
+   escape-hatch budget from two to three. Otherwise every app that runs beat would need that
+   import, and an escape marker of its own, to wire `catch_up()`.
 
    Two places for the file were considered and left. A fixed name in the shared temporary
    directory: Celery reads the file with `shelve`, which unpickles it, so another local user

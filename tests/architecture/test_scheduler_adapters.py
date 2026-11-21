@@ -435,6 +435,52 @@ def test_celery_beat_keeps_its_schedule_in_memory_unless_the_app_names_a_schedul
     assert any(entry.name.startswith("beat") for entry in state.iterdir())
 
 
+def test_celery_beat_catches_up_at_start_and_says_an_ignored_schedule_file(
+    session_factory, tmp_path, monkeypatch, caplog
+) -> None:
+    """ADR 0218 (owner decision 2026-11-21): install() connects catch_up() to beat_init, so
+    beat settles the time it was down whenever it starts, and says so when it was given a
+    schedule file (-s) that the in-memory scheduler ignores. Only this app's beat is acted on."""
+    import logging
+
+    from celery.beat import Service
+    from celery.signals import beat_init
+
+    from terp.capabilities.scheduler_celery_beat.scheduler import CELERY_DEFAULT_SCHEDULER
+
+    def started(app: Celery, **options: str) -> None:
+        # As `celery beat` starts: the scheduler is built, then beat_init is sent.
+        beat = app.Beat(**options)
+        service = Service(app, scheduler_cls=beat.scheduler_cls, schedule_filename=beat.schedule)
+        scheduler = service.scheduler
+        beat_init.send(sender=service)
+        scheduler.close()
+
+    monkeypatch.chdir(tmp_path)
+    job = _job()
+    configure_jobs(JobCatalog([job]))
+    app = Celery("terp-beat-init-test")
+    beat = CeleryBeatScheduler(app, session_factory, task_prefix="terp.init.")
+    beat.register(_schedule(job))
+    calls: list[str] = []
+    monkeypatch.setattr(beat, "catch_up", lambda: calls.append("caught up") or [])
+    beat.install()
+    beat.install()  # wired once, however often install() runs
+    with caplog.at_level(logging.WARNING, logger="terp.capabilities.scheduler_celery_beat"):
+        started(app)
+        assert calls == ["caught up"], "beat settles the time it was down when it starts"
+        assert "schedule file" not in caplog.text
+        started(app, schedule=str(tmp_path / "ignored"))
+        assert calls == ["caught up"] * 2
+        assert f"celery beat was given the schedule file {tmp_path / 'ignored'}" in caplog.text
+        assert "-S celery.beat:PersistentScheduler -s <path>" in caplog.text
+        caplog.clear()
+        started(app, scheduler=CELERY_DEFAULT_SCHEDULER, schedule=str(tmp_path / "kept"))
+        assert "schedule file" not in caplog.text, "a file its scheduler keeps is not ignored"
+        started(Celery("terp-beat-init-other"))
+    assert len(calls) == 3, "another app's beat is not this scheduler's to settle"
+
+
 def test_to_crontab_parses_five_fields_and_rejects_others() -> None:
     parsed = _to_crontab("30 4 * * 1")
     assert isinstance(parsed, crontab)
