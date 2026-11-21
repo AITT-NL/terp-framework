@@ -37,12 +37,29 @@ def test_a_finding_and_a_source_only_take_their_own_words() -> None:
         _report.Source("github", True)
 
 
+def test_the_kinds_are_the_adrs_in_its_order() -> None:
+    """ADR 0214's list of kinds, as ADR 0218 amends it with ``scaffolding-defect``. A kind joins
+    the list without a new format version: every finding keeps the same keys."""
+    assert _report.KINDS == (
+        "platform-behind",
+        "template-behind",
+        "scaffolding-defect",
+        "known-vulnerability",
+        "base-image-behind",
+        "source-unavailable",
+    )
+    assert _report.VERSION == 1
+    with pytest.raises(ValueError, match="not a kind of finding"):
+        Finding("files-behind", "terp-cap-files", "r")
+
+
 def test_every_finding_carries_every_key_and_a_report_lists_them_in_order() -> None:
     report = Report("app", "/app", checked_at="2026-11-12T10:00:00Z", terp_cli="0.43.0")
     report.answered("osv")
     report.unreachable("python-index", "uv failed: offline.", "Check the index.")
     report.findings.append(Finding("known-vulnerability", "b", "r", advisories=(Advisory("A", ("CVE-1",), "s", "HIGH"),)))
     report.findings.append(Finding("platform-behind", "terp-*", "r", installed="1", latest="2"))
+    report.findings.append(Finding("scaffolding-defect", "terp-cap-files", "r", location="Dockerfile.prod", fixed_in="0.35.0"))
     report.not_made("known-vulnerability: a gap")
     report.not_made("known-vulnerability: a gap")
     document = report.as_dict()
@@ -51,13 +68,16 @@ def test_every_finding_carries_every_key_and_a_report_lists_them_in_order() -> N
     assert [s["name"] for s in document["sources"]] == ["python-index", "osv"]
     assert document["sources"][0] == {"name": "python-index", "reachable": False, "detail": "uv failed: offline."}
     assert document["not_checked"] == ["known-vulnerability: a gap"], "a gap met twice is named once"
-    assert [f["kind"] for f in document["findings"]] == ["platform-behind", "known-vulnerability", "source-unavailable"]
-    assert document["findings"][2]["remedy"] == "uv failed: offline. Check the index."
+    assert [f["kind"] for f in document["findings"]] == [
+        "platform-behind", "scaffolding-defect", "known-vulnerability", "source-unavailable"
+    ]
+    assert set(document["findings"][1]) == set(document["findings"][0]), "a new kind keeps every key"
+    assert document["findings"][3]["remedy"] == "uv failed: offline. Check the index."
     assert set(document["findings"][0]) == {
         "kind", "subject", "ecosystem", "location", "installed", "latest", "fixed_in", "advisories",
         "new_since_release", "remedy",
     }
-    assert document["findings"][1]["advisories"] == [
+    assert document["findings"][2]["advisories"] == [
         {"id": "A", "aliases": ["CVE-1"], "summary": "s", "severity": "HIGH", "url": "https://osv.dev/vulnerability/A"}
     ]
     assert json.loads(report.as_json()) == document
@@ -347,17 +367,18 @@ def test_the_app_target_asks_every_part_of_the_app_it_runs_in(tmp_path: pathlib.
     asked: list[str] = []
     monkeypatch.setattr(_platform, "python_platform", lambda root, report: asked.append(f"python {root.name}") or "0.42.0")
     monkeypatch.setattr(_platform, "template", lambda root, report, platform: asked.append(f"template {platform}"))
+    monkeypatch.setattr(_platform, "files_storage", lambda root, report: asked.append("files"))
     monkeypatch.setattr(_platform, "npm_platform", lambda root, report: asked.append("npm"))
     monkeypatch.setattr(_images, "base_image_findings", lambda root, report: asked.append("images"))
     root = write_app(tmp_path / "app", uv=None)
     monkeypatch.chdir(root)
     code, out, _ = _run(["maintenance"], capsys)
-    assert code == 0 and asked == ["python app", "template 0.42.0", "npm", "images"]
+    assert code == 0 and asked == ["python app", "template 0.42.0", "files", "npm", "images"]
     assert "Nothing found by the checks that ran. Not every check could run:\n  - known-vulnerability: pyproject.toml" in out
     asked.clear()
     monkeypatch.setattr(_platform, "python_platform", lambda root, report: asked.append("python") and None)
     _run(["maintenance"], capsys)
-    assert asked == ["python", "npm", "images"], "no platform version, nothing to compare the scaffolding with"
+    assert asked == ["python", "files", "npm", "images"], "no platform version, nothing to compare the scaffolding with"
 
 
 def test_private_names_leave_only_for_a_mirror_or_when_the_person_says_so(tmp_path: pathlib.Path, monkeypatch, capsys) -> None:

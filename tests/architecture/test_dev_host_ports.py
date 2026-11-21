@@ -334,13 +334,16 @@ _DIALLING_FILES = (
 #: sentence in the module docstring that exempts a database client mapping.
 _DIALLED_HOST_PORT = re.compile(r"https?://(?:localhost|127\.0\.0\.1):(\d{2,5})")
 
-#: The one line where ``localhost`` is NOT the host, named rather than pattern-matched:
-#: it runs THROUGH ``docker compose exec``, so localhost is the api container and 8000 is
-#: its internal port -- the case the module docstring exempts. A second such probe adds a
+#: The lines where ``localhost`` is NOT the host, named rather than pattern-matched:
+#: each runs THROUGH ``docker compose exec``, so localhost is the api container and 8000 is
+#: its internal port -- the case the module docstring exempts. A further such probe adds a
 #: line here with its reason; a pattern would quietly exempt every future host-side call
 #: that happened to look similar.
 _CONTAINER_INTERNAL_PROBES = (
     "urllib.request.urlopen('http://localhost:8000/health/ready')",
+    # prod-smoke reads a stored file back from a recreated api container, from inside it,
+    # because nginx still holds the address the old container had.
+    "f\"http://localhost:8000/api/v1/files/{os.environ['FILE_ID']}/content\"",
 )
 
 

@@ -1025,9 +1025,11 @@ jobs:
       # The backend image is built from this render, the api comes up healthy in production
       # with SSO configured and its OIDC_ALLOWED_EMAIL_DOMAINS set, and the files volume is
       # the runtime user's: the image makes var/files owned by that user, Docker gives an
-      # empty named volume the owner of the directory it is mounted over, and a file the api
-      # writes there is read back from a second container. Last in the job, because it locks
-      # the app against the wheels where its build context holds them.
+      # empty named volume the owner of the directory it is mounted over, and a file stored
+      # through the files capability, at the root the app composes, is read back through it
+      # from a second container. The api said it probed that root before it served, and the
+      # same image does not start as a user that cannot write it (ADR 0218). Last in the
+      # job, because it locks the app against the wheels where its build context holds them.
       - name: The production profile on Docker - SSO and the files volume (hub-all-capabilities)
         if: matrix.variant == 'hub-all-capabilities'
         working-directory: /tmp/acceptance-app
@@ -1063,19 +1065,37 @@ jobs:
           SQL
           $profile run --rm migrate terp migrate grant-runtime terp_rt --app-root /srv/app
           $profile up -d --wait api
+          # Stored through the capability, after the app composed itself, so the root it
+          # writes is the one the app resolves, not a path this step assumes.
           $profile exec -T api python -c '
-          import os, pathlib
+          import io, os, pathlib
+          import app.main
+          from terp.capabilities.files import active_storage_backend
           root = pathlib.Path("/srv/var/files")
           assert os.path.ismount(root), "var/files is not a mount: the profile mounts no volume"
           assert os.getuid() == 10001, os.getuid()
           assert root.stat().st_uid == os.getuid(), ("owned by", root.stat().st_uid)
-          (root / "probe").write_text("written by the api", encoding="utf-8")
+          active_storage_backend().put("acceptance/probe", io.BytesIO(b"stored by the api"))
+          assert (root / "acceptance" / "probe").read_bytes() == b"stored by the api"
           '
           $profile run --rm --no-deps api python -c '
-          import pathlib
-          assert pathlib.Path("/srv/var/files/probe").read_text(encoding="utf-8") == "written by the api"
+          import app.main
+          from terp.capabilities.files import active_storage_backend
+          with active_storage_backend().open("acceptance/probe") as stored:
+              assert stored.read() == b"stored by the api"
           '
           docker volume inspect --format '{{ .Name }}' my-terp-app-prod_files-data
+          $profile logs --no-color api > "$RUNNER_TEMP/api.log" 2>&1
+          grep -E "boot checks passed: [a-z_, ]*files_storage" "$RUNNER_TEMP/api.log"
+          # The same image, as a user that cannot write the volume, does not start: what an
+          # image without the directory, or a volume an older image made root's, looks like.
+          if $profile run --rm --no-deps -T --user 10002 api \
+              python -c "from app.main import app" > "$RUNNER_TEMP/unwritable.log" 2>&1; then
+            echo "the api started as a user that cannot write its storage root" >&2
+            exit 1
+          fi
+          grep -F "files storage profile 'default': the storage root /srv/var/files cannot be written" \
+            "$RUNNER_TEMP/unwritable.log"
           # The image carries the record, and the api compared the routes it serves with it
           # before it served (ADR 0212).
           $profile exec -T api test -f /srv/authz-surface.json

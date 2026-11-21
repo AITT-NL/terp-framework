@@ -380,6 +380,65 @@ def test_with_files_the_api_keeps_them_in_a_volume_its_user_can_write() -> None:
     assert made < runtime.index("\nUSER appuser\n"), "made and handed over before the drop"
 
 
+def test_the_example_keeps_its_files_in_a_volume_and_the_smoke_stores_one() -> None:
+    """The example mounts files in production, so its profile holds them as the template's
+    does (ADR 0218): the image makes the storage root and hands it to the user it runs as,
+    the api mounts a named volume there, and the declaration says so with a backup policy.
+
+    Before, the example's image ran as a user that could not create ``/srv/var``, and the
+    smoke lane stayed green because nothing in it stored a file. Now the lane stores one
+    through the API, reads it back from a new api container, and holds the start to the
+    storage probe the api logged. The new container is made from the job's own composition,
+    and it is the last thing the lane does against the stack, because nginx keeps the
+    address of the api it replaced."""
+    example = _prod_compose()
+    assert example["volumes"] == {"db-data": None, "files-data": None}
+    assert example["services"]["api"]["volumes"] == ["files-data:/srv/var/files"]
+    for name in ("db", "migrate", "web"):
+        assert "files-data:/srv/var/files" not in (example["services"][name].get("volumes") or [])
+
+    runtime = _PROD_DOCKERFILE.read_text(encoding="utf-8").rsplit("\nFROM ", 1)[1]
+    assert "WORKDIR /srv\n" in runtime
+    made = runtime.index("mkdir -p /srv/var/files && chown terp /srv/var/files")
+    assert runtime.index("useradd --create-home --uid 10001 terp") < made
+    assert made < runtime.index("\nUSER terp\n"), "made and handed over before the drop"
+
+    declared = json.loads((_REPO_ROOT / "apps" / "example" / "deployment.json").read_text("utf-8"))
+    assert declared["volumes"] == [
+        {
+            "id": "files-data",
+            "mount": {"path": "var/files", "units": ["api"]},
+            "backup": {"every": "P1D", "keep": "P30D"},
+        }
+    ]
+
+    workflow = yaml.safe_load(_PROD_SMOKE_WORKFLOW.read_text(encoding="utf-8"))
+    ordered = workflow["jobs"]["prod-smoke"]["steps"]
+    steps = {step.get("name"): step.get("run", "") for step in ordered}
+    # Every call runs on the job's composition, the runtime-role overlay included: a step
+    # that names a file of its own makes an api the job does not declare.
+    assert "compose.runtime-role.yml" in workflow["env"]["COMPOSE_FILE"]
+    assert [
+        name for name, run in steps.items() if re.search(r"docker compose\s+(-f|--file)\b", run)
+    ] == []
+    probed = steps["The api checked that it can write its storage root"]
+    assert "boot checks passed: [a-z_, ]*files_storage" in probed
+    assert 'grep -F "not on a mounted volume"' in probed
+    stored = steps["Store a file through the API and read it back from a new container"]
+    assert "-X POST http://localhost:23100/api/v1/files/" in stored
+    assert '-F "file=@$RUNNER_TEMP/upload.txt;type=text/plain"' in stored
+    assert 'cmp "$RUNNER_TEMP/upload.txt" "$RUNNER_TEMP/download.txt"' in stored
+    assert "--force-recreate api" in stored
+    assert 'assert response.read() == b"prod-smoke stored bytes\\n"' in stored
+    # nginx keeps the address of the api the step replaced, so nothing runs against the
+    # stack after it: only the logs on a failure and the teardown.
+    names = [step.get("name") for step in ordered]
+    after = ordered[names.index("Store a file through the API and read it back from a new container") + 1 :]
+    assert after and all(step.get("if") in ("failure()", "always()") for step in after), [
+        step.get("name") for step in after
+    ]
+
+
 # ---- app-declared environment variables (plan: app-declared-environment-config) --
 
 _APP_ENV_SEAM = [{"path": ".app.env", "required": False}]

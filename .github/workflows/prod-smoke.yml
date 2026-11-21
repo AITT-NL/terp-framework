@@ -71,6 +71,18 @@ jobs:
             > "$RUNNER_TEMP/api.log" 2>&1
           grep -F "authz-surface.json matches the routes this app serves" "$RUNNER_TEMP/api.log"
 
+      # The api probed the files capability's storage root before it served (ADR 0218): an
+      # image whose user cannot write it refuses to start, and a root on the container's own
+      # disk is said in the log. Held by what the api logged, as the comparison above is.
+      - name: The api checked that it can write its storage root
+        run: |
+          docker compose logs --no-color api \
+            > "$RUNNER_TEMP/api.log" 2>&1
+          grep -E "boot checks passed: [a-z_, ]*files_storage" "$RUNNER_TEMP/api.log"
+          if grep -F "not on a mounted volume" "$RUNNER_TEMP/api.log"; then
+            echo "the storage root must be the files-data volume" && exit 1
+          fi
+
       - name: Bootstrap the first administrator (terp user create)
         run: |
           docker compose run --rm \
@@ -165,6 +177,41 @@ jobs:
           if docker compose run --rm api terp seed; then
             echo "terp seed must refuse ENVIRONMENT=production" && exit 1
           fi
+
+      # Stores a real file through the API and reads it back, then again from a new api
+      # container: an image whose user cannot write the storage root, or a profile that keeps
+      # the files in the container, turns this red. Health and login never touch the disk.
+      # The last step against the stack: the api it recreates is not the one nginx reaches,
+      # so no step after it may depend on the api the profile started.
+      - name: Store a file through the API and read it back from a new container
+        run: |
+          payload=$(python3 -c 'import json,os; print(json.dumps({"email": "smoke-admin@example.test", "password": os.environ["SMOKE_ADMIN_PASSWORD"]}))')
+          token=$(curl -fsS -X POST http://localhost:23100/api/v1/auth/login \
+            -H 'Content-Type: application/json' -d "$payload" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          printf 'prod-smoke stored bytes\n' > "$RUNNER_TEMP/upload.txt"
+          file_id=$(curl -fsS -X POST http://localhost:23100/api/v1/files/ \
+            -H "Authorization: Bearer $token" \
+            -F "file=@$RUNNER_TEMP/upload.txt;type=text/plain" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          curl -fsS "http://localhost:23100/api/v1/files/$file_id/content" \
+            -H "Authorization: Bearer $token" -o "$RUNNER_TEMP/download.txt"
+          cmp "$RUNNER_TEMP/upload.txt" "$RUNNER_TEMP/download.txt"
+          # A new api container on the same volume still serves it. It is read from inside
+          # that container, because nginx keeps the address the old one had.
+          docker compose up -d --wait --no-deps --force-recreate api
+          docker compose exec -T \
+            -e TOKEN="$token" -e FILE_ID="$file_id" api python - <<'PY'
+          import os
+          import urllib.request
+
+          request = urllib.request.Request(
+              f"http://localhost:8000/api/v1/files/{os.environ['FILE_ID']}/content",
+              headers={"Authorization": f"Bearer {os.environ['TOKEN']}"},
+          )
+          with urllib.request.urlopen(request) as response:
+              assert response.read() == b"prod-smoke stored bytes\n"
+          PY
 
       - name: Show logs on failure
         if: failure()
