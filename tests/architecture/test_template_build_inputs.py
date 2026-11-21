@@ -29,6 +29,7 @@ each other by what they match, path by path.
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 
@@ -459,6 +460,46 @@ def test_the_files_that_have_leaked_before_are_out_of_the_context(path: str) -> 
     # file missed, a Vite env file below the root, a local database's write-ahead log, and
     # an upload stored outside Docker.
     assert _docker_ignores(path, _patterns(_DOCKERIGNORE)), path
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "conformance/node_modules/@playwright/test/package.json",
+        "conformance/test-results/.last-run.json",
+        "conformance/test-results/auth-signs-in-chromium/trace.zip",
+        "conformance/playwright-report/index.html",
+    ],
+)
+def test_what_the_conformance_suite_writes_while_it_runs_is_never_a_change(path: str) -> None:
+    """A gate may run the suite, and a gate leaves the checkout as it found it.
+
+    Terp Studio compares the checkout before and after a gate run and fails the run when a
+    check changed it. The suite's install writes ``node_modules``, and every run, a failed one
+    included, writes Playwright's results (its default ``outputDir``) and its HTML report, so
+    each of those paths has to be one git does not see.
+
+    Those are Playwright's defaults while the suite's config (``outputDir``, a reporter's
+    ``outputFolder``) and its npm scripts (``--output``, a ``PLAYWRIGHT_*`` variable) name no
+    other place, which the asserts below hold. An environment variable set anywhere else is
+    not held here.
+    """
+    assert _git_ignores(path, _patterns(_GITIGNORE)), (
+        f"{path} is written whenever the conformance suite runs; .gitignore must cover it, or "
+        "the run that wrote it reads as a change to the app"
+    )
+    config = (_PROJECT / "conformance" / "playwright.config.ts").read_text(encoding="utf-8")
+    assert "outputDir" not in config and "outputFolder" not in config, (
+        "the suite's config moves Playwright's output from its defaults; move the .gitignore "
+        "entries with it"
+    )
+    manifest = (_PROJECT / "conformance" / "package.json.jinja").read_text(encoding="utf-8")
+    scripts = json.loads(manifest)["scripts"]
+    moved = [name for name, run in scripts.items() if "--output" in run or "PLAYWRIGHT_" in run]
+    assert not moved, (
+        f"the suite's npm scripts {moved} move Playwright's output from its defaults; move the "
+        ".gitignore entries with it"
+    )
 
 
 @pytest.mark.parametrize(

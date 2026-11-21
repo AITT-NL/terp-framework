@@ -34,6 +34,11 @@ ran. After changing a dependency, `uv lock` (or `uv add`) and `npm --prefix fron
 install` bring the locks along; a lock left behind fails the build, and `uv run terp
 verify --only locks` names the file and the command before it gets that far.
 
+**Commit `conformance/package-lock.json` too.** No image ships the conformance suite, but
+CI and Terp Studio install it from that lock with `npm ci`; without one, they install what
+`conformance/package.json` names and write no lock. `npm --prefix conformance install`
+writes it.
+
 No starter module ships — sign-in, admin and audit are wired, and a fresh checkout is
 gate-green as-is. `uv run terp new module <name>` (named after your actual domain) adds
 the first module: model, migration, service, policy, router and a typed frontend view.
@@ -118,11 +123,14 @@ same version together. Bump them all, then re-lock **with a fresh index read**:
 ```bash
 uv sync --refresh                     # --refresh: see below
 {% if frontend %}npm --prefix frontend install
+npm --prefix conformance install
 {% endif %}uv run terp verify --profile full
 ```
 
-{% if frontend %}Both installs rewrite a lock (`uv.lock`, `frontend/package-lock.json`); commit them with
-the bumped pins.{% else %}The install rewrites `uv.lock`; commit it with the bumped pins.{% endif %}
+{% if frontend %}Each install rewrites a lock (`uv.lock`, `frontend/package-lock.json`,
+`conformance/package-lock.json`); commit them with the bumped pins. CI installs the suite with
+`npm ci`, which refuses a conformance lock the new pins left behind.{% else %}The install rewrites
+`uv.lock`; commit it with the bumped pins.{% endif %}
 
 Where `deployment.json` says `"build": "generated"`, the production build files
 (`Dockerfile.prod`{% if frontend %}, `frontend/Dockerfile.prod`{% endif %}, `docker-compose.prod.yml`) are the

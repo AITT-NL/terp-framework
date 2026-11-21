@@ -257,6 +257,26 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **A generated app's conformance suite pins the Playwright whose browser its runner
+  carries.** `conformance/package.json` asked for `"@playwright/test": "^1.50.0"`, so an
+  install resolved to the newest Playwright on npm. Terp Studio runs the suite with the
+  Chromium of one release (1.62.1), baked into its image, and a test run downloads no
+  browser, so the suite found none there and every deploy failed its verification. The
+  template now pins `1.62.1` exactly, and the app's Dependabot leaves `@playwright/test`,
+  `playwright` and `playwright-core` alone in `/conformance`, with a comment saying why.
+  Studio moves its image to a new pin together with the framework release that carries it.
+  A test holds the pin exact and the comment to it, and another holds `.gitignore` over
+  everything the suite writes while it runs (`node_modules`, `test-results/`,
+  `playwright-report/`), so a gate that runs it leaves the checkout unchanged.
+  `conformance/package-lock.json` is committed like the frontend's lock: the generated CI
+  installs the suite the way Terp Studio does, `npm ci` from that lock and
+  `npm install --no-package-lock` where an app has none yet, and its comment and the
+  README say so. Every release moves the suite's `@terpjs/conformance` pin, and `npm ci`
+  refuses the lock it left behind, so the upgrade re-locks the suite too: both recipes of
+  `terp upgrade --check`, the README's upgrade block and `terp guide deployment` run
+  `npm --prefix conformance install` and say to commit its lock. Tests hold every install
+  of the suite in the workflow to that step, run the step with a lock and without one, and
+  hold the three upgrade texts to the suite's install.
 - **A late storage failure is a typed 502, not a 500.** An `OSError` from the local
   adapter's `put`, `open` or `delete` is now a `FileStorageError` (`file_storage_failed`),
   with the operation, root, key and error in `log_context` and never in the response. An
@@ -321,6 +341,15 @@ decision, 0001 onwards.
 
 ### Upgrade notes
 
+- `copier update` pins `@playwright/test` to `1.62.1` in `conformance/package.json` and adds
+  the Playwright ignore to the `/conformance` block of `.github/dependabot.yml`. Run
+  `npm --prefix conformance install` and commit `conformance/package-lock.json`; a Terp Studio
+  that installs the suite runs it as part of the update. An app that already pinned `1.62.1`
+  merges the pin cleanly, and an ignore it added by hand with the same three lines merges too;
+  only a comment it wrote above them meets the template's, once: keep the template's. An app
+  rendered before 0.35.0 also
+  gains `/conformance/test-results/` and `/conformance/playwright-report/` in `.gitignore`; a
+  line it added for the same paths can go.
 - **An app rendered before template 0.35 that uses the files capability refuses to start
   outside `ENVIRONMENT=local` on this release** until its image makes the storage root
   writable (ADR 0218). Before, it started and failed every upload with a 500. Terp Studio shows

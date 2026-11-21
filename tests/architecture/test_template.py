@@ -1620,6 +1620,95 @@ def test_the_generated_app_s_updater_holds_back_the_typescript_major_the_framewo
     )
 
 
+#: The updater's Playwright ignore, line for line as apps that pinned Playwright by hand
+#: already carry it: `copier update` merges a change both sides made alike.
+_PLAYWRIGHT_IGNORE = (
+    "    ignore:\n"
+    '      - dependency-name: "@playwright/test"\n'
+    "      - dependency-name: playwright\n"
+    "      - dependency-name: playwright-core\n"
+)
+
+
+def test_the_conformance_suite_pins_the_playwright_whose_browser_its_runner_carries() -> None:
+    """The suite runs with a browser it did not download, so it asks for one Playwright release.
+
+    Playwright looks for the browser build its own release names, and a test run downloads
+    none. Terp Studio runs the suite with the Chromium of exactly one release, baked into its
+    image, so the range this manifest used to carry resolved to the newest release npm had,
+    whose browser was not there, and every test failed. Studio's image follows this pin;
+    the two move together, this one first.
+
+    Dependabot would lift the pin above the image within a week, so the app's updater leaves
+    Playwright alone, and its comment names the pinned version, held to it here so a bump
+    cannot leave the comment behind.
+    """
+    package = json.loads((_PROJECT / "conformance" / "package.json.jinja").read_text(encoding="utf-8"))
+    pin = package["devDependencies"]["@playwright/test"]
+    assert re.fullmatch(r"\d+\.\d+\.\d+", pin), (
+        f'conformance/package.json asks for "@playwright/test": "{pin}". A range resolves to '
+        "the newest release, whose browser a runner that bakes one release does not have; pin "
+        "the one Terp Studio bakes, exactly"
+    )
+    updater = (_PROJECT / ".github" / "dependabot.yml.jinja").read_text(encoding="utf-8")
+    # The /conformance entry alone: from its directory to the next entry, or to the end.
+    after = updater.split("directory: /conformance\n", 1)[1]
+    conformance = after.split("\n  - package-ecosystem:", 1)[0]
+    assert _PLAYWRIGHT_IGNORE in conformance, (
+        "the generated app's updater would lift Playwright above the browser its runner carries"
+    )
+    comment = " ".join(
+        line.strip().lstrip("#").strip()
+        for line in conformance.splitlines()
+        if line.strip().startswith("#")
+    )
+    assert f"pins that release exactly ({pin})" in comment, (
+        f"the updater's comment names another Playwright than the pin ({pin}); move them together"
+    )
+
+
+#: How every job of the generated CI installs the conformance suite: from its committed
+#: lock, the way Terp Studio does, or, in an app that has none yet, without writing one.
+_CONFORMANCE_INSTALL = (
+    "      - run: |\n"
+    "          if [ -f conformance/package-lock.json ]; then npm --prefix conformance ci\n"
+    "          else npm --prefix conformance install --no-package-lock; fi\n"
+)
+
+
+def test_the_conformance_suite_is_installed_from_its_committed_lock() -> None:
+    """The suite's lock is committed like the frontend's, though no image ships the suite.
+
+    Terp Studio installs the suite with `npm ci` from that lock, and without one installs
+    what conformance/package.json names and writes no lock. The generated CI does the same
+    in every job that installs it, so a run cannot resolve the suite afresh or leave a lock
+    behind, and the workflow's comment and the README say the lock is committed. The
+    README's upgrade block re-locks the suite as well: every release moves its
+    @terpjs/conformance pin, and `npm ci` refuses the lock that pin left behind.
+    """
+    workflow = (_PROJECT / ".github" / "workflows" / "ci.yml.jinja").read_text(encoding="utf-8")
+    # Every npm install of the suite, `ci` or `install`, sits in the step: one of each.
+    commands = re.findall(r"npm --prefix conformance (?:ci|install)\b", workflow)
+    assert commands and len(commands) == 2 * workflow.count(_CONFORMANCE_INSTALL), (
+        "a job of the generated CI installs the conformance suite another way; install it "
+        "with `npm ci` from conformance/package-lock.json, else `npm install --no-package-lock`"
+    )
+    assert "its lock is committed like the frontend's" in workflow, (
+        "the generated CI's comment no longer says the conformance suite's lock is committed"
+    )
+    readme = (_PROJECT / "README.md.jinja").read_text(encoding="utf-8")
+    assert "**Commit `conformance/package-lock.json` too.**" in readme, (
+        "the generated README no longer tells the app to commit the conformance suite's lock"
+    )
+    upgrading = readme.split("## Upgrading Terp", 1)[1].split("\n## ", 1)[0]
+    assert "npm --prefix conformance install" in upgrading, (
+        "the README's upgrade leaves the conformance suite's lock on the old pin"
+    )
+    assert "`conformance/package-lock.json`); commit them" in " ".join(upgrading.split()), (
+        "the README's upgrade no longer says to commit the conformance suite's lock"
+    )
+
+
 def test_the_generated_workflow_verifies_the_binary_it_downloads() -> None:
     """It fetches a binary over the network and runs it against a full-depth checkout.
     An unverified fetch is the supply-chain hole the tool it installs exists to find,
