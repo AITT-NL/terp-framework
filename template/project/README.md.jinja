@@ -11,7 +11,7 @@ uv sync                               # backend deps (creates ./.venv and uv.loc
 {% endif %}{% if deploy_build == 'generated' %}uv run terp deployment render         # the production build files, from deployment.json
 {% endif %}# who can reach which route, pinned: write it once and commit it
 uv run terp inspect access --app app.main:build --format surface > authz-surface.json
-uv run terp check                     # the architecture gate (== CI)
+uv run terp check --budget escape-hatch-budget.json   # the architecture gate (== CI)
 {% if frontend %}uv run terp dev                       # runs the API (:22100) + frontend (:21100) together
 {% else %}uv run terp dev                       # runs the API (:22100); this app has no frontend of its own
 {% endif %}```
