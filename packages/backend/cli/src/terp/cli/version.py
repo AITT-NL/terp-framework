@@ -274,6 +274,22 @@ def _render_step(number: int) -> list[str]:
     ]
 
 
+def _suite_install(conformance: bool) -> list[str]:
+    """The conformance suite's install, for an app that has one.
+
+    Its lock is committed like the frontend's, and every release moves the
+    ``@terpjs/conformance`` pin in its manifest. CI installs the suite with ``npm ci``,
+    which refuses a lock the new pin left behind, so the upgrade re-locks it too.
+    """
+    if not conformance:
+        return []
+    return [
+        "     npm --prefix conformance install",
+        "     (commit conformance/package-lock.json with the rest: CI installs the suite",
+        "     from it with npm ci, which refuses a lock the new pins left behind.)",
+    ]
+
+
 def _scaffold_lines(
     root: pathlib.Path,
     platform: str,
@@ -460,7 +476,7 @@ def _copier_update_blocker(root: pathlib.Path) -> str | None:
 
 
 def _rerender_recipe(
-    target: str, current: str, count: int, *, generated: bool = False
+    target: str, current: str, count: int, *, generated: bool = False, conformance: bool = False
 ) -> list[str]:
     """The upgrade for an app the template rendered: re-render first, sync once.
 
@@ -508,6 +524,7 @@ def _rerender_recipe(
         "                                 control_plane/app_operations.py, which no",
         "                                 re-render touches (ADR 0130).",
         "  5. uv sync --refresh && npm --prefix frontend install",
+        *_suite_install(conformance),
         "     (once, now that the manifests are final — not before the re-render.)",
         *render,
         f"  {after}. uv run terp --version          (confirm the set agrees)",
@@ -530,7 +547,13 @@ def _rerender_recipe(
 
 
 def _hand_pin_recipe(
-    target: str, current: str, count: int, reason: str, *, generated: bool = False
+    target: str,
+    current: str,
+    count: int,
+    reason: str,
+    *,
+    generated: bool = False,
+    conformance: bool = False,
 ) -> list[str]:
     """The upgrade for an app that cannot re-render: every pin by hand.
 
@@ -560,6 +583,7 @@ def _hand_pin_recipe(
         "     declares one — frontend/package.json AND conformance/package.json",
         "     (a recipe that names only one is how the other goes stale).",
         "  4. uv sync --refresh && npm --prefix frontend install",
+        *_suite_install(conformance),
         *render,
         f"  {after}. uv run terp --version          (confirm the set agrees)",
         f"  {after + 1}. uv run terp verify --profile full",
@@ -740,10 +764,15 @@ def render_upgrade_check(root: pathlib.Path | None = None, *, fmt: str = "text")
     # halfway through.
     blocker = status.rerender_blocker
     generated = _is_generated(project_root)
+    conformance = (project_root / "conformance" / "package.json").is_file()
     if blocker is None:
-        lines += _rerender_recipe(target, current, len(landing), generated=generated)
+        lines += _rerender_recipe(
+            target, current, len(landing), generated=generated, conformance=conformance
+        )
     else:
-        lines += _hand_pin_recipe(target, current, len(landing), blocker, generated=generated)
+        lines += _hand_pin_recipe(
+            target, current, len(landing), blocker, generated=generated, conformance=conformance
+        )
     # Suppressed on both paths: the re-render recipe numbers the command as a step, and
     # the hand-pin recipe has just said why it is unavailable. Either way, printing it
     # again below reads as a second, different thing to do.

@@ -123,11 +123,14 @@ same version together. Bump them all, then re-lock **with a fresh index read**:
 ```bash
 uv sync --refresh                     # --refresh: see below
 {% if frontend %}npm --prefix frontend install
+npm --prefix conformance install
 {% endif %}uv run terp verify --profile full
 ```
 
-{% if frontend %}Both installs rewrite a lock (`uv.lock`, `frontend/package-lock.json`); commit them with
-the bumped pins.{% else %}The install rewrites `uv.lock`; commit it with the bumped pins.{% endif %}
+{% if frontend %}Each install rewrites a lock (`uv.lock`, `frontend/package-lock.json`,
+`conformance/package-lock.json`); commit them with the bumped pins. CI installs the suite with
+`npm ci`, which refuses a conformance lock the new pins left behind.{% else %}The install rewrites
+`uv.lock`; commit it with the bumped pins.{% endif %}
 
 Where `deployment.json` says `"build": "generated"`, the production build files
 (`Dockerfile.prod`{% if frontend %}, `frontend/Dockerfile.prod`{% endif %}, `docker-compose.prod.yml`) are the

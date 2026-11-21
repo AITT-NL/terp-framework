@@ -1670,11 +1670,14 @@ def test_the_conformance_suite_is_installed_from_its_committed_lock() -> None:
     Terp Studio installs the suite with `npm ci` from that lock, and without one installs
     what conformance/package.json names and writes no lock. The generated CI does the same
     in every job that installs it, so a run cannot resolve the suite afresh or leave a lock
-    behind, and the workflow's comment and the README say the lock is committed.
+    behind, and the workflow's comment and the README say the lock is committed. The
+    README's upgrade block re-locks the suite as well: every release moves its
+    @terpjs/conformance pin, and `npm ci` refuses the lock that pin left behind.
     """
     workflow = (_PROJECT / ".github" / "workflows" / "ci.yml.jinja").read_text(encoding="utf-8")
-    installs = workflow.count("npm --prefix conformance install")
-    assert installs and workflow.count(_CONFORMANCE_INSTALL) == installs, (
+    # Every npm install of the suite, `ci` or `install`, sits in the step: one of each.
+    commands = re.findall(r"npm --prefix conformance (?:ci|install)\b", workflow)
+    assert commands and len(commands) == 2 * workflow.count(_CONFORMANCE_INSTALL), (
         "a job of the generated CI installs the conformance suite another way; install it "
         "with `npm ci` from conformance/package-lock.json, else `npm install --no-package-lock`"
     )
@@ -1684,6 +1687,13 @@ def test_the_conformance_suite_is_installed_from_its_committed_lock() -> None:
     readme = (_PROJECT / "README.md.jinja").read_text(encoding="utf-8")
     assert "**Commit `conformance/package-lock.json` too.**" in readme, (
         "the generated README no longer tells the app to commit the conformance suite's lock"
+    )
+    upgrading = readme.split("## Upgrading Terp", 1)[1].split("\n## ", 1)[0]
+    assert "npm --prefix conformance install" in upgrading, (
+        "the README's upgrade leaves the conformance suite's lock on the old pin"
+    )
+    assert "`conformance/package-lock.json`); commit them" in " ".join(upgrading.split()), (
+        "the README's upgrade no longer says to commit the conformance suite's lock"
     )
 
 

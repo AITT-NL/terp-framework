@@ -248,8 +248,10 @@ A copier answers file is optional: an app without one changes deployment.json on
 
 A FRAMEWORK UPDATE OF A GENERATED APP
 
-`copier update`, then the install (`uv sync`, `npm --prefix frontend install`), then
-`uv run terp deployment render`, committed together, in the copy the update is made in.
+`copier update`, then the install (`uv sync`, `npm --prefix frontend install`, and
+`npm --prefix conformance install` where the app has the suite), then `uv run terp
+deployment render`, committed together, conformance/package-lock.json with the other
+locks, in the copy the update is made in.
 The template leaves the three files to the generator of the release just installed, so a
 missed render is red there under `terp verify --only generated`. `uv run terp upgrade
 --check` prints the render as its own step for an app whose deployment.json says
