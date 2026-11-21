@@ -1655,6 +1655,38 @@ def test_the_conformance_suite_pins_the_playwright_whose_browser_its_runner_carr
     )
 
 
+#: How every job of the generated CI installs the conformance suite: from its committed
+#: lock, the way Terp Studio does, or, in an app that has none yet, without writing one.
+_CONFORMANCE_INSTALL = (
+    "      - run: |\n"
+    "          if [ -f conformance/package-lock.json ]; then npm --prefix conformance ci\n"
+    "          else npm --prefix conformance install --no-package-lock; fi\n"
+)
+
+
+def test_the_conformance_suite_is_installed_from_its_committed_lock() -> None:
+    """The suite's lock is committed like the frontend's, though no image ships the suite.
+
+    Terp Studio installs the suite with `npm ci` from that lock, and without one installs
+    what conformance/package.json names and writes no lock. The generated CI does the same
+    in every job that installs it, so a run cannot resolve the suite afresh or leave a lock
+    behind, and the workflow's comment and the README say the lock is committed.
+    """
+    workflow = (_PROJECT / ".github" / "workflows" / "ci.yml.jinja").read_text(encoding="utf-8")
+    installs = workflow.count("npm --prefix conformance install")
+    assert installs and workflow.count(_CONFORMANCE_INSTALL) == installs, (
+        "a job of the generated CI installs the conformance suite another way; install it "
+        "with `npm ci` from conformance/package-lock.json, else `npm install --no-package-lock`"
+    )
+    assert "its lock is committed like the frontend's" in workflow, (
+        "the generated CI's comment no longer says the conformance suite's lock is committed"
+    )
+    readme = (_PROJECT / "README.md.jinja").read_text(encoding="utf-8")
+    assert "**Commit `conformance/package-lock.json` too.**" in readme, (
+        "the generated README no longer tells the app to commit the conformance suite's lock"
+    )
+
+
 def test_the_generated_workflow_verifies_the_binary_it_downloads() -> None:
     """It fetches a binary over the network and runs it against a full-depth checkout.
     An unverified fetch is the supply-chain hole the tool it installs exists to find,

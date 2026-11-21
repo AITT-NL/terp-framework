@@ -234,6 +234,10 @@ decision, 0001 onwards.
   A test holds the pin exact and the comment to it, and another holds `.gitignore` over
   everything the suite writes while it runs (`node_modules`, `test-results/`,
   `playwright-report/`), so a gate that runs it leaves the checkout unchanged.
+  `conformance/package-lock.json` is committed like the frontend's lock: the generated CI
+  installs the suite the way Terp Studio does, `npm ci` from that lock and
+  `npm install --no-package-lock` where an app has none yet, and its comment and the
+  README say so. A test holds both jobs' install, the comment and the README to it.
 - **`grant-runtime` refuses a role name that ends in a line break.** Its pattern was matched
   with `re.match`, whose `$` also matches before a trailing newline, so `"terp_rt\n"` reached
   the server, which refused it as a role that does not exist. The whole name is matched now,

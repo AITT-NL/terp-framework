@@ -103,11 +103,14 @@ jobs:
       # Both manifests that pin @terpjs/*. The profile's platform-install check reads the
       # INSTALLED copy under each node_modules, not just the declared range, so they have
       # to be here for its verdict to mean anything — and a name left under the
-      # pre-rename @terp/ scope fails at this step, loudly, instead of much later. The
-      # conformance suite is a test harness no image ships, so it keeps `npm install`
-      # and needs no committed lock.
+      # pre-rename @terp/ scope fails at this step, loudly, instead of much later. No
+      # image ships the conformance suite, but its lock is committed like the frontend's,
+      # and CI installs it the way Terp Studio does: `npm ci` from that lock, or, in an
+      # app that has none yet, what conformance/package.json names, writing no lock.
       - run: npm --prefix frontend ci
-      - run: npm --prefix conformance install
+      - run: |
+          if [ -f conformance/package-lock.json ]; then npm --prefix conformance ci
+          else npm --prefix conformance install --no-package-lock; fi
 {%- endif %}
       # The merge bar. platform-install runs first and refuses a mixed install before the
       # rest of the run spends time proving things about a combination never released.
@@ -152,7 +155,10 @@ jobs:
         with:
           node-version: "22"
       - run: uv sync --locked
-      - run: npm --prefix conformance install
+      # The suite's install, from its committed lock, as in the job above.
+      - run: |
+          if [ -f conformance/package-lock.json ]; then npm --prefix conformance ci
+          else npm --prefix conformance install --no-package-lock; fi
       - name: Install Playwright (Chromium + OS deps)
         run: npx playwright install --with-deps chromium
         working-directory: conformance
