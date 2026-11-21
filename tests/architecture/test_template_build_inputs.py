@@ -29,6 +29,7 @@ each other by what they match, path by path.
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 
@@ -477,6 +478,11 @@ def test_what_the_conformance_suite_writes_while_it_runs_is_never_a_change(path:
     check changed it. The suite's install writes ``node_modules``, and every run, a failed one
     included, writes Playwright's results (its default ``outputDir``) and its HTML report, so
     each of those paths has to be one git does not see.
+
+    Those are Playwright's defaults while the suite's config (``outputDir``, a reporter's
+    ``outputFolder``) and its npm scripts (``--output``, a ``PLAYWRIGHT_*`` variable) name no
+    other place, which the asserts below hold. An environment variable set anywhere else is
+    not held here.
     """
     assert _git_ignores(path, _patterns(_GITIGNORE)), (
         f"{path} is written whenever the conformance suite runs; .gitignore must cover it, or "
@@ -484,7 +490,15 @@ def test_what_the_conformance_suite_writes_while_it_runs_is_never_a_change(path:
     )
     config = (_PROJECT / "conformance" / "playwright.config.ts").read_text(encoding="utf-8")
     assert "outputDir" not in config and "outputFolder" not in config, (
-        "the suite's output moved from Playwright's defaults; move the .gitignore entries with it"
+        "the suite's config moves Playwright's output from its defaults; move the .gitignore "
+        "entries with it"
+    )
+    manifest = (_PROJECT / "conformance" / "package.json.jinja").read_text(encoding="utf-8")
+    scripts = json.loads(manifest)["scripts"]
+    moved = [name for name, run in scripts.items() if "--output" in run or "PLAYWRIGHT_" in run]
+    assert not moved, (
+        f"the suite's npm scripts {moved} move Playwright's output from its defaults; move the "
+        ".gitignore entries with it"
     )
 
 

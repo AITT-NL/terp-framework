@@ -1639,7 +1639,9 @@ def test_the_conformance_suite_pins_the_playwright_whose_browser_its_runner_carr
         "the one Terp Studio bakes, exactly"
     )
     updater = (_PROJECT / ".github" / "dependabot.yml.jinja").read_text(encoding="utf-8")
-    conformance = updater.split("directory: /conformance\n", 1)[1]
+    # The /conformance entry alone: from its directory to the next entry, or to the end.
+    after = updater.split("directory: /conformance\n", 1)[1]
+    conformance = after.split("\n  - package-ecosystem:", 1)[0]
     assert _PLAYWRIGHT_IGNORE in conformance, (
         "the generated app's updater would lift Playwright above the browser its runner carries"
     )
