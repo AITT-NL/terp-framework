@@ -130,13 +130,14 @@ def _cut(lane_: Lane, label: str, tag: str, path: str) -> Release:
     return release
 
 
-def _sign(lane_: Lane, release: Release, *, build_file: pathlib.Path | None = None, tag: str | None = None,
+def _sign(lane_: Lane, release: Release, *, build_file: pathlib.Path | None = None,
+          gate_file: pathlib.Path | None = None, tag: str | None = None,
           out: pathlib.Path | None = None) -> subprocess.CompletedProcess[str]:
     start = time.monotonic()
     done = rl.sign_in_image(
         lane_.signer, repo=lane_.app, sha=release.sha, tag=tag or release.tag,
         registry=f"{lane_.services.registry}/{release.path}", build=build_file or release.build_file,
-        gate=release.gate_file, key=lane_.private, table=lane_.table, wheels=lane_.wheels,
+        gate=gate_file or release.gate_file, key=lane_.private, table=lane_.table, wheels=lane_.wheels,
         out=out or release.out,
     )
     _timed(lane_, f"sign {release.label if out is None else out.name}", start)
@@ -304,7 +305,12 @@ def test_sign_from_the_signer_image_signs_every_release(lane: Lane) -> None:
 
 def test_sign_refuses_an_image_whose_app_layer_changed_after_the_build(lane: Lane) -> None:
     """An image with one more layer that rewrites the app's entry module, pushed under a tag of
-    its own with the web image beside it: everything about it is real but the app layer."""
+    its own with the web image beside it: everything about it is real but the app layer.
+
+    Signed against the gate of the original build, it is refused because that gate names
+    another image. Signed against a copy of that gate edited to name the changed image, as a
+    gate run over the changed build would, the binding holds and sign's comparison with the
+    tree refuses it."""
     release = lane.releases["a"]
     backend, web = release.image(web=False), release.image(web=True)
     repository = backend["repository"].split("/", 1)[1]
@@ -323,9 +329,24 @@ def test_sign_refuses_an_image_whose_app_layer_changed_after_the_build(lane: Lan
     refused = _sign(lane, release, build_file=tampered, tag="lane-tampered", out=lane.work / "out-tampered")
     said = refused.stdout + refused.stderr
     assert refused.returncode == 1, said
+    gate = json.loads(release.gate_file.read_text())
+    assert gate["image"] == f"{backend['repository']}@{backend['digest']}"
+    assert digest != backend["digest"]
+    assert "the gate must name the verified backend image it inspected" in said, said
+    assert not (lane.work / "out-tampered" / "release.dsse.json").exists()
+
+    # The same build against a gate that names the changed image: the binding holds, so
+    # what refuses it now is sign reading the image and holding its app layer to the tree.
+    gate["image"] = f"{backend['repository']}@{digest}"
+    gated = lane.work / "gate-tampered.json"
+    gated.write_text(json.dumps(gate), encoding="utf-8")
+    refused = _sign(lane, release, build_file=tampered, gate_file=gated, tag="lane-tampered",
+                    out=lane.work / "out-tampered-gated")
+    said = refused.stdout + refused.stderr
+    assert refused.returncode == 1, said
     assert f"{repository}@{digest} is not this commit's build" in said, said
     assert "- /srv/app/main.py is not the tree's app/main.py" in said, said
-    assert not (lane.work / "out-tampered" / "release.dsse.json").exists()
+    assert not (lane.work / "out-tampered-gated" / "release.dsse.json").exists()
 
 
 # --------------------------------------------------------------------------- #
