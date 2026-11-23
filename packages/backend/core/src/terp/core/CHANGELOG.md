@@ -31,24 +31,6 @@ decision, 0001 onwards.
   twelve clicks per year away. The day of the month is kept where the target month has it, so
   29 February steps to the 28th.
 
-### Fixed
-
-- **A calendar step past `min` or `max` lands on the bound's month.** The calendar showed the
-  month it stepped to while clamping the cursor to the bound, so a step past a bound could show
-  a month that held no cell for the cursor: Tab then skipped the grid, and a step from the
-  keyboard dropped focus to `<body>`. The view now follows the clamped cursor, so a step past a
-  bound lands on the bound itself; once the cursor is there, a further step past it changes
-  nothing, as an arrow key there already did. A grid key that leaves the cursor where it is, such
-  as ArrowLeft on `min`, no longer makes the next header click pull focus into the grid.
-
-### Upgrade notes
-
-- **A non-English framework catalog of an app's own supplies two new keys.** `previousYear`
-  ("Previous year") and `nextYear` ("Next year"), the names of the calendar's year buttons.
-  `LocaleProvider` and `defineAppLocales` refuse a catalog without them at start, naming the
-  missing keys: add both to the `strings` of that locale's catalog. An app on `LOCALE_NL` or
-  `LOCALE_EN`, or whose catalog spreads `LOCALE_NL.strings`, changes nothing.
-
 ### Changed
 
 - **On terp-spec 0.50.0.** Both pins move: `terp-spec` in `pyproject.toml` and `@terpjs/spec`
@@ -77,8 +59,23 @@ decision, 0001 onwards.
   pinned release's, and its fixtures run through the reader. The three commands now print what
   the record or the audit broke, where they said only that authorization could not be verified.
 
+### Fixed
+
+- **A calendar step past `min` or `max` lands on the bound's month.** The calendar showed the
+  month it stepped to while clamping the cursor to the bound, so a step past a bound could show
+  a month that held no cell for the cursor: Tab then skipped the grid, and a step from the
+  keyboard dropped focus to `<body>`. The view now follows the clamped cursor, so a step past a
+  bound lands on the bound itself; once the cursor is there, a further step past it changes
+  nothing, as an arrow key there already did. A grid key that leaves the cursor where it is, such
+  as ArrowLeft on `min`, no longer makes the next header click pull focus into the grid.
+
 ### Upgrade notes
 
+- **A non-English framework catalog of an app's own supplies two new keys.** `previousYear`
+  ("Previous year") and `nextYear` ("Next year"), the names of the calendar's year buttons.
+  `LocaleProvider` and `defineAppLocales` refuse a catalog without them at start, naming the
+  missing keys: add both to the `strings` of that locale's catalog. An app on `LOCALE_NL` or
+  `LOCALE_EN`, or whose catalog spreads `LOCALE_NL.strings`, changes nothing.
 - **A release made with 0.44.0 names terp-spec 0.50.0.** The signer refuses a commit whose
   pinned `terp-arch` reads a newer standard than its own, and `terp promote` refuses a release
   declared against one, so update the signer image and `terp promote` to 0.44.0 before you sign
