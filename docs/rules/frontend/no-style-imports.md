@@ -8,11 +8,11 @@
 
 ## Why this rule exists
 
-App components may statically default-import a sibling Name.module.css file. Its rules style local classes and may group them with media, container or supports conditions. Use supported layout and typography properties and theme tokens for paint. Framework controls own their focus treatment. The import opt-out covers the import form only. Findings inside a sibling module identify the CSS line and survive an import opt-out. Global selectors, imports and cross-file composition are refused. The bootstrap may also import the three token stylesheets.
+Paint follows the theme and a stylesheet reaches only what its component owns. A global stylesheet, a library's included, paints outside the palettes and reaches every element on the page, so only the bootstrap imports global ones, and only the token pipeline's three. A component may statically default-import its sibling Name.module.css, whose rules select its own classes, group them in @media, @container or @supports, set layout and typography properties and take paint only from theme tokens; framework controls keep their own focus treatment. The import opt-out covers the import's form only: a finding inside the module names its CSS line and survives a marker on the import. Global selectors, imports, cross-file composition and a stylesheet loaded through import() or import.meta.glob are refused.
 
 ## How Terp realises this
 
-Use theme tokens for component colors, typography and spacing. Use a plain Page for a custom screen.
+A component's own layout: import styles from "./Board.module.css", one static default binding, beside the component, with className={styles.board} on a native element. Otherwise Stack, Grid and the page archetypes from @terpjs/react-core. The bootstrap imports @terpjs/contract/tokens.css, ./house-style.css and ./theme.css.
 
 ## If you really need an exception
 

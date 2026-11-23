@@ -345,7 +345,8 @@ a plain `Page` when a screen needs its own layout. A component can import a sibl
 Use local class selectors and theme tokens for colors, typography and spacing.
 Responsive rules can use `@media` or `@container`. Keep keyboard focus visible and
 check the layout in narrow viewports and each supported theme. The lint reads the module:
-local class selectors, layout and typography properties, and paint only from `var(--color-*)`;
+local class selectors named like `.taskCard` (never `.task-card`, which `styles.x` cannot name),
+layout and typography properties, and paint only from `var(--color-*)`;
 a class goes on a native element, never on a framework control, which takes its props.
 
 This app also opts into the **`standard` layout contract** (ADR 0079), declared once in
@@ -390,8 +391,8 @@ Apply scoped classes to native layout elements. Configure controls through their
 If two directions serve the task equally well and the preference matters, offer one short
 choice. When asked to choose, pick a direction and record the rationale in the app README.
 Check the rendered screen at desktop and mobile widths. Verify that the main action is easy
-to find and reach by keyboard, and measure text against its actual background in light and
-dark appearances, including hover and focus. If an action disappears, check where keyboard focus lands.
+to find and reach by keyboard, and measure text against its actual background in every shipped
+theme, including hover and focus. If an action disappears, check where keyboard focus lands.
 At narrow widths, use `expectControlFitsHorizontally` from `@terpjs/conformance` on
 the inputs and buttons the task needs. A page can fit while a container clips a control. For an unusual layout, compare it with the
 standard composition using the same content before making it the app's default.

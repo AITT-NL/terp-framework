@@ -3,7 +3,10 @@
 - **Status:** Accepted (2026-10-03); being implemented in phases, sequenced and tracked in
   [presentation-and-composition-design.md](../internal/drafts/presentation-and-composition-design.md).
   Amends [ADR 0158](0158-a-quantity-is-shown-one-way.md)'s trigger for building charts — its
-  contract stands (§6).
+  contract stands (§6). Amended by
+  [ADR 0217](0217-app-components-can-own-a-scoped-stylesheet.md): §1 and §2 bind the framework's
+  blocks and the archetype slots; a layout an app owns in a plain `Page` places and paints its own
+  native elements from tokens, and never restyles a framework block.
 - **Date:** 2026-10-03
 - **Relates:** [ADR 0158](0158-a-quantity-is-shown-one-way.md) (the chart contract kept, the
   trigger amended), [ADR 0098](0098-archetypes-measures-and-the-density-island.md) (the

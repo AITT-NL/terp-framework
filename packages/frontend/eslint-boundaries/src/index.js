@@ -1312,7 +1312,9 @@ function restrictedSyntaxWithCatalogIds() {
     selector: `JSXAttribute[name.name='${attribute}']`,
     message:
       `The ${attribute} attribute is forbidden in app source; layout comes from the ` +
-      "react-core components (Stack, Page, ...) and styling from the design tokens.",
+      "react-core components (Stack, Page, ...) and styling from the design tokens. A layout " +
+      'a component owns goes in its sibling CSS Module: import styles from "./Board.module.css" ' +
+      "and className={styles.board} on a native element.",
   }));
   const inAppAnchors = BOUNDARY_SPEC.restrictInAppAnchors
     ? [

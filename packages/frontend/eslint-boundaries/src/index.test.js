@@ -151,7 +151,18 @@ describe("terpBoundaries", () => {
     expect(lines).toEqual([
       expect.stringContaining("Board.module.css:1: drop !important from padding"),
       expect.stringContaining("Board.module.css:2: color takes a theme token, var(--color-...)"),
-      expect.stringContaining("Board.module.css:3: outline is not a layout or typography property"),
+      expect.stringContaining("Board.module.css:3: outline is not admitted"),
+    ]);
+    // A border longhand, a keyword the property does not take, a string marker (copy no catalog
+    // translates) and a class script cannot name: each refusal says what would be admitted.
+    fs.writeFileSync(sheet, [".board { border-top-color: var(--color-border-default); }",
+      ".lane { background: none; list-style-type: 'Pay now '; }", ".task-card { display: grid }"].join("\n"));
+    expect((await lintMessages(prefix + 'export const W = () => <div className={layout.board} />;'))
+      .filter((text) => text.includes("Board.module.css:"))).toEqual([
+      expect.stringContaining("Board.module.css:1: border-top-color is not admitted: a stylesheet sets layout and typography properties, and paints only through color, background, background-color, border-color and the border shorthands (border-top: 1px solid var(--color-...))"),
+      expect.stringContaining("Board.module.css:2: background takes a theme token, var(--color-...), with no fallback, or transparent"),
+      expect.stringContaining("Board.module.css:2: list-style-type takes a counter style keyword, such as disc or decimal; a string or symbols() puts copy on screen that no catalog translates"),
+      expect.stringContaining("Board.module.css:3: .task-card cannot be named from script, since className reads a class as styles.<name>; call it .taskCard."),
     ]);
     fs.writeFileSync(sheet, ".board { display: grid }\n.lane { display: grid }");
     expect(await lintMessages(prefix + 'export const W = () => <div className={layout.card} />;')).toEqual([
@@ -441,7 +452,9 @@ describe("terpBoundaries", () => {
     expect(messages.some((message) => message.startsWith("dangerouslySetInnerHTML"))).toBe(true);
     expect(messages).toContain(
       "The style attribute is forbidden in app source; layout comes from the react-core " +
-        "components (Stack, Page, ...) and styling from the design tokens.",
+        "components (Stack, Page, ...) and styling from the design tokens. A layout a component " +
+        'owns goes in its sibling CSS Module: import styles from "./Board.module.css" and ' +
+        "className={styles.board} on a native element.",
     );
     expect(messages.some((message) => message.startsWith("The className attribute"))).toBe(true);
     expect(messages.some((message) => message.includes("Button"))).toBe(true);

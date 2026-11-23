@@ -16,15 +16,27 @@ decision, 0001 onwards.
 
 - **An app component can own its layout in a sibling CSS Module (ADR 0217).** A component
   default-imports `./Board.module.css` and puts `className={styles.board}` on a native
-  element. The boundary lint reads the stylesheet: local class selectors, `@media`,
-  `@container` and `@supports` groups, layout and typography properties, and paint only from
-  `var(--color-*)` tokens. Inline `style`, a class that is not the module's own, a global
-  selector, an `@import` and a stylesheet loaded through `import()` stay refused, and only
-  the bootstrap imports the token pipeline's three global stylesheets. The example app's
-  planning board uses the same tasks API as its list and stacks its lanes on a narrow screen.
+  element. The boundary lint reads the stylesheet: local classes named as script identifiers
+  (`.taskCard`), `@media`, `@container` and `@supports` groups, layout and typography
+  properties, and paint only from `var(--color-*)` tokens. Inline `style`, a class that is not
+  the module's own, a class on a framework component, a global selector, an `@import`, a string
+  list marker and a stylesheet loaded through `import()` stay refused, and only the bootstrap
+  imports the token pipeline's three global stylesheets. The example app's planning board uses
+  the same tasks API as its list and stacks its lanes on a narrow screen.
 - `expectControlFitsHorizontally` in `@terpjs/conformance` checks that a control fits its
   viewport and every ancestor whose overflow clips it: a page can fit while a container cuts
   a control off.
+
+### Upgrade notes
+
+- **A CSS Module imported under a `terp-allow-no-style-imports` marker is read now.** On 0.43.0
+  the marker waived the import and nothing read the file. It now covers the import's form only,
+  so each line of the sibling `*.module.css` outside the vocabulary above is refused by its line,
+  and a hyphenated class is refused with its identifier spelling (`.task-card` becomes
+  `.taskCard`, and `styles.taskCard` in the component). Bring the stylesheet inside the
+  vocabulary, or move what it refuses to the react-core component that owns that styling. The
+  import's marker, and a `terp-allow-no-inline-styling` marker on a `className={styles.x}` of a
+  native element, then waive nothing: remove them and lower `escape-hatch-budget.json` to match.
 
 ## 0.43.0 — 2026-11-23
 

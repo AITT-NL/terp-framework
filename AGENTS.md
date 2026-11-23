@@ -187,7 +187,8 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   page archetypes), or, for a layout a component owns, from a sibling CSS Module (ADR 0217): the
   component default-imports `./Board.module.css` and puts `className={styles.board}` on a native
   element. A framework control takes its props, never a class. The boundary lint reads the
-  stylesheet and admits local class selectors, `@media` / `@container` / `@supports` groups,
+  stylesheet and admits local class selectors named as script identifiers (`.taskCard`, never
+  `.task-card`), `@media` / `@container` / `@supports` groups,
   layout and typography properties, and paint only from `var(--color-*)` tokens; a global
   selector, `@import`, `composes` and `!important` are refused, and a marker on the import never
   waives a finding inside the file. A screen with a composition of its own uses the body of a
@@ -199,7 +200,7 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   modules never imports from one (shared code is what modules depend on).
 - **A layout of your own is checked where it breaks** — start from the user's main task and the
   standard component that serves it, and give an app-owned layout a specific job. Check the
-  rendered screen at desktop and mobile widths and in light and dark themes, with the main action
+  rendered screen at desktop and mobile widths and in every shipped theme, with the main action
   reachable by keyboard, and hold the task's inputs and buttons to
   `expectControlFitsHorizontally` from `@terpjs/conformance` at narrow widths: a page can fit
   while a container clips a control.
