@@ -128,10 +128,14 @@ function assertFrameworkStringsComplete(locales: Record<string, LocaleCatalog>):
       (key) => catalog.strings?.[key as keyof TerpStrings] === undefined,
     );
     if (missing.length > 0) {
+      // A release that adds a framework string lands here for every app with a catalog of its
+      // own, so the refusal names the keys and where they go, not only that some are missing.
+      const named = missing.slice(0, 10).join(", ");
+      const more = missing.length > 10 ? `, and ${missing.length - 10} more` : "";
       throw new Error(
-        `Locale "${code}" is missing ${missing.length} framework string translation(s) ` +
-          `(for example: ${missing.slice(0, 3).join(", ")}). ` +
-          "Pass a complete framework catalog; app messages alone do not translate the shell.",
+        `Locale "${code}" is missing ${missing.length} framework string translation(s): ` +
+          `${named}${more}. Add each to the strings of the "${code}" catalog, as LOCALE_NL ` +
+          "does for every TerpStrings key; app messages alone do not translate the shell.",
       );
     }
   }
@@ -197,6 +201,8 @@ export const LOCALE_NL: LocaleCatalog = {
     selectDate: "Kies een datum",
     selectDateRange: "Kies een periode",
     nextMonth: "Volgende maand",
+    previousYear: "Vorig jaar",
+    nextYear: "Volgend jaar",
     loading: "Laden...",
     emptyList: "Nog niets te zien.",
     add: "Toevoegen",
