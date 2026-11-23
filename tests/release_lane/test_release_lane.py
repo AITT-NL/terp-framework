@@ -130,13 +130,14 @@ def _cut(lane_: Lane, label: str, tag: str, path: str) -> Release:
     return release
 
 
-def _sign(lane_: Lane, release: Release, *, build_file: pathlib.Path | None = None, tag: str | None = None,
+def _sign(lane_: Lane, release: Release, *, build_file: pathlib.Path | None = None,
+          gate_file: pathlib.Path | None = None, tag: str | None = None,
           out: pathlib.Path | None = None) -> subprocess.CompletedProcess[str]:
     start = time.monotonic()
     done = rl.sign_in_image(
         lane_.signer, repo=lane_.app, sha=release.sha, tag=tag or release.tag,
         registry=f"{lane_.services.registry}/{release.path}", build=build_file or release.build_file,
-        gate=release.gate_file, key=lane_.private, table=lane_.table, wheels=lane_.wheels,
+        gate=gate_file or release.gate_file, key=lane_.private, table=lane_.table, wheels=lane_.wheels,
         out=out or release.out,
     )
     _timed(lane_, f"sign {release.label if out is None else out.name}", start)
@@ -170,6 +171,9 @@ def lane(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Lane]:
     )
     name = f"{rl.prefix()}app"
     work = tmp_path_factory.mktemp("lane")
+    # The fixture drives build/gate in-process for both synthetic framework versions.
+    # The assurance emitter and its package identity must come from each app's own install.
+    patch.setattr(gate_module, "assurance_document", lambda checks: rl.pinned_assurance(work / "app", checks))
     rl.remove_everything(name)
     try:
         start = time.monotonic()
@@ -186,10 +190,11 @@ def lane(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Lane]:
         environment = {
             key: value for key, value in os.environ.items()
             if key.upper() not in ("DATABASE_URL", "BACKEND_CORS_ORIGINS", "WEB_PORT", "SECRET_KEY",
-                                   "POSTGRES_PASSWORD", "TERP_RELEASE_TAG", "COMPOSE_PROJECT_NAME", "COMPOSE_FILE")
+                                   "POSTGRES_PASSWORD", "TERP_RUNTIME_DB_PASSWORD", "TERP_MIGRATION_DATABASE_URL",
+                                   "TERP_RELEASE_TAG", "COMPOSE_PROJECT_NAME", "COMPOSE_FILE")
         }
         environment |= {"SECRET_KEY": os.urandom(32).hex(), "POSTGRES_PASSWORD": os.urandom(16).hex(),
-                        "WEB_PORT": str(rl.free_port())}
+                        "TERP_RUNTIME_DB_PASSWORD": os.urandom(16).hex(), "WEB_PORT": str(rl.free_port())}
         lane_ = Lane(work, work / "app", name, services, signer, private, public, table,
                      work / "index" / "files", work / "deploy", environment)
         _timed(lane_, "set up (wheels, tarballs, index, registry, signer)", start)
@@ -203,6 +208,7 @@ def lane(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Lane]:
         _cut(lane_, "c", "lane-c", RELEASE_PATH)
         for release in lane_.releases.values():
             release.signed = _sign(lane_, release)
+        _provision_bundled_login(lane_)
         yield lane_
         print(f"\nrelease lane timings (s): {json.dumps(lane_.timings)}")
     finally:
@@ -299,7 +305,12 @@ def test_sign_from_the_signer_image_signs_every_release(lane: Lane) -> None:
 
 def test_sign_refuses_an_image_whose_app_layer_changed_after_the_build(lane: Lane) -> None:
     """An image with one more layer that rewrites the app's entry module, pushed under a tag of
-    its own with the web image beside it: everything about it is real but the app layer."""
+    its own with the web image beside it: everything about it is real but the app layer.
+
+    Signed against the gate of the original build, it is refused because that gate names
+    another image. Signed against a copy of that gate edited to name the changed image, as a
+    gate run over the changed build would, the binding holds and sign's comparison with the
+    tree refuses it."""
     release = lane.releases["a"]
     backend, web = release.image(web=False), release.image(web=True)
     repository = backend["repository"].split("/", 1)[1]
@@ -318,14 +329,48 @@ def test_sign_refuses_an_image_whose_app_layer_changed_after_the_build(lane: Lan
     refused = _sign(lane, release, build_file=tampered, tag="lane-tampered", out=lane.work / "out-tampered")
     said = refused.stdout + refused.stderr
     assert refused.returncode == 1, said
+    gate = json.loads(release.gate_file.read_text())
+    assert gate["image"] == f"{backend['repository']}@{backend['digest']}"
+    assert digest != backend["digest"]
+    assert "the gate must name the verified backend image it inspected" in said, said
+    assert not (lane.work / "out-tampered" / "release.dsse.json").exists()
+
+    # The same build against a gate that names the changed image: the binding holds, so
+    # what refuses it now is sign reading the image and holding its app layer to the tree.
+    gate["image"] = f"{backend['repository']}@{digest}"
+    gated = lane.work / "gate-tampered.json"
+    gated.write_text(json.dumps(gate), encoding="utf-8")
+    refused = _sign(lane, release, build_file=tampered, gate_file=gated, tag="lane-tampered",
+                    out=lane.work / "out-tampered-gated")
+    said = refused.stdout + refused.stderr
+    assert refused.returncode == 1, said
     assert f"{repository}@{digest} is not this commit's build" in said, said
     assert "- /srv/app/main.py is not the tree's app/main.py" in said, said
-    assert not (lane.work / "out-tampered" / "release.dsse.json").exists()
+    assert not (lane.work / "out-tampered-gated" / "release.dsse.json").exists()
 
 
 # --------------------------------------------------------------------------- #
 # promote                                                                      #
 # --------------------------------------------------------------------------- #
+def _provision_bundled_login(lane: Lane) -> None:
+    """The operator's first-deploy step, before promote runs the signed migration step."""
+    env = {**lane.env, "TERP_RELEASE_TAG": "lane-a"}
+    compose = ["docker", "compose", "-p", lane.project, "-f", str(lane.app / "docker-compose.prod.yml")]
+    rl.run([*compose, "up", "-d", "--wait", "db"], env=env)
+    rl.run(
+        [*compose, "exec", "-T", "-e", "TERP_RUNTIME_DB_PASSWORD", "db", "psql", "-X",
+         "-v", "ON_ERROR_STOP=1", "-U", "app", "-d", "app"],
+        env=env, stdin=b"\\getenv runtime_password TERP_RUNTIME_DB_PASSWORD\nCREATE ROLE terp_rt LOGIN PASSWORD :'runtime_password';\n",
+    )
+    image = lane.releases["a"].image(web=False)
+    rl.run(
+        ["docker", "run", "--rm", "--network", f"{lane.project}_default", "-e", "DATABASE_URL",
+         "-e", "SECRET_KEY", f"{image['repository']}@{image['digest']}",
+         "terp", "migrate", "grant-runtime", "terp_rt", "--app-root", "/srv/app"],
+        env={**env, "DATABASE_URL": f"postgresql+psycopg://app:{env['POSTGRES_PASSWORD']}@db:5432/app"},
+    )
+
+
 def _promote(lane: Lane, label: str, *, undo_to: str | None = None) -> list[str]:
     from terp.cli.release.promote import promote
 

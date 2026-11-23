@@ -113,7 +113,7 @@ or `python` will not resolve.
   merge bar CI enforces, `--profile release` before shipping). `--list` shows what a
   profile runs; `--format json` emits the machine envelope with every check's
   Terp Standard check report embedded.
-- **`uv run terp check`** / **`uv run pytest`** — the gate is the source of truth.
+- **`uv run terp check --budget escape-hatch-budget.json`** / **`uv run pytest`** — the gate is the source of truth.
   Green means compliant; red names the fix. `uv run terp check --format json` emits
   structured violations (rule, file, line, message, and the `uv run terp guide` fix
   recipe) for tools and agents; `--format check-report` emits the Terp Standard
@@ -477,8 +477,13 @@ Add a module: `uv run terp new module <name>` → fill the slots → **mount it 
 modules serve no routes) → `uv run terp migrate make <name>` →
 {% if frontend %}`uv run terp openapi && npm --prefix frontend run generate` (the committed API contract
 `openapi.json`, then the typed client) →
-`uv run terp routes` (route types — see below) → `uv run terp check`.{% else %}`uv run terp openapi` (the committed API contract `openapi.json`, which every client types itself from) → `uv run terp check`.{% endif %}
+`uv run terp routes` (route types — see below) → `uv run terp check --budget escape-hatch-budget.json`.{% else %}`uv run terp openapi` (the committed API contract `openapi.json`, which every client types itself from) → `uv run terp check --budget escape-hatch-budget.json`.{% endif %}
 {% if frontend %}
+Set the module's source-language title in `frontend/src/modules/<name>/title.ts`.
+Its navigation entry and page heading share that descriptor. Add a translation for
+`<name>.title` to each non-source locale in `frontend/i18n.json` and run
+`npm --prefix frontend run lint`.
+
 Route paths and params are type-checked from **generated** types (ADR 0092): the router
 is built at runtime from the module manifests, so nothing checks a path or a param name
 until `uv run terp routes` extracts them into the committed

@@ -333,6 +333,18 @@ def test_docs_teach_venv_correct_commands() -> None:
     assert "static/local replacement" in agents
 
 
+def test_every_gate_run_the_readme_teaches_passes_the_budget() -> None:
+    # Every generated app carries a governed escape hatch (app/seed.py) counted in its
+    # escape-hatch-budget.json, and `terp check` without `--budget` reports that marker as
+    # ungoverned. A README step that runs the gate without the budget is red on a fresh
+    # render, the first time anyone follows it.
+    readme = (_PROJECT / "README.md.jinja").read_text(encoding="utf-8")
+    runs = re.findall(r"\bterp check\b[^\n]*", readme)
+    assert len(runs) >= 2, "the README teaches the gate in setup and when a module is added"
+    unbudgeted = [run for run in runs if "--budget escape-hatch-budget.json" not in run]
+    assert not unbudgeted, f"README.md.jinja runs terp check without the app's budget: {unbudgeted}"
+
+
 def test_frontend_skeleton_present() -> None:
     # A runnable full-stack repo ships a Vite React app whose whole wiring is renderTerpApp
     # discovering the module slots — no per-module registration.
@@ -1454,7 +1466,7 @@ def test_an_api_only_app_trusts_no_proxy_hop_because_nothing_in_its_profile_prox
     prod = template_profile(frontend=False)
     assert "\n  web:" not in prod
     api_block = prod.split("\n  api:", 1)[1].split("\nvolumes:", 1)[0]
-    assert '- "${API_PORT:-23200}:8000"' in api_block, "the api is the only way in"
+    assert '- "${TERP_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-23200}:8000"' in api_block, "the api is the only way in"
 
 def test_template_gives_the_credential_family_a_bucket_its_own_suite_can_finish_in() -> None:
     """The shipped conformance helper signs in for real, once per spec.
@@ -1605,6 +1617,95 @@ def test_the_generated_app_s_updater_holds_back_the_typescript_major_the_framewo
     assert ignore in (_PROJECT / ".github" / "dependabot.yml.jinja").read_text(encoding="utf-8"), (
         "a generated app's grouped frontend update would carry a TypeScript major its "
         "boundary linter cannot install, and fail every week with everything in it"
+    )
+
+
+#: The updater's Playwright ignore, line for line as apps that pinned Playwright by hand
+#: already carry it: `copier update` merges a change both sides made alike.
+_PLAYWRIGHT_IGNORE = (
+    "    ignore:\n"
+    '      - dependency-name: "@playwright/test"\n'
+    "      - dependency-name: playwright\n"
+    "      - dependency-name: playwright-core\n"
+)
+
+
+def test_the_conformance_suite_pins_the_playwright_whose_browser_its_runner_carries() -> None:
+    """The suite runs with a browser it did not download, so it asks for one Playwright release.
+
+    Playwright looks for the browser build its own release names, and a test run downloads
+    none. Terp Studio runs the suite with the Chromium of exactly one release, baked into its
+    image, so the range this manifest used to carry resolved to the newest release npm had,
+    whose browser was not there, and every test failed. Studio's image follows this pin;
+    the two move together, this one first.
+
+    Dependabot would lift the pin above the image within a week, so the app's updater leaves
+    Playwright alone, and its comment names the pinned version, held to it here so a bump
+    cannot leave the comment behind.
+    """
+    package = json.loads((_PROJECT / "conformance" / "package.json.jinja").read_text(encoding="utf-8"))
+    pin = package["devDependencies"]["@playwright/test"]
+    assert re.fullmatch(r"\d+\.\d+\.\d+", pin), (
+        f'conformance/package.json asks for "@playwright/test": "{pin}". A range resolves to '
+        "the newest release, whose browser a runner that bakes one release does not have; pin "
+        "the one Terp Studio bakes, exactly"
+    )
+    updater = (_PROJECT / ".github" / "dependabot.yml.jinja").read_text(encoding="utf-8")
+    # The /conformance entry alone: from its directory to the next entry, or to the end.
+    after = updater.split("directory: /conformance\n", 1)[1]
+    conformance = after.split("\n  - package-ecosystem:", 1)[0]
+    assert _PLAYWRIGHT_IGNORE in conformance, (
+        "the generated app's updater would lift Playwright above the browser its runner carries"
+    )
+    comment = " ".join(
+        line.strip().lstrip("#").strip()
+        for line in conformance.splitlines()
+        if line.strip().startswith("#")
+    )
+    assert f"pins that release exactly ({pin})" in comment, (
+        f"the updater's comment names another Playwright than the pin ({pin}); move them together"
+    )
+
+
+#: How every job of the generated CI installs the conformance suite: from its committed
+#: lock, the way Terp Studio does, or, in an app that has none yet, without writing one.
+_CONFORMANCE_INSTALL = (
+    "      - run: |\n"
+    "          if [ -f conformance/package-lock.json ]; then npm --prefix conformance ci\n"
+    "          else npm --prefix conformance install --no-package-lock; fi\n"
+)
+
+
+def test_the_conformance_suite_is_installed_from_its_committed_lock() -> None:
+    """The suite's lock is committed like the frontend's, though no image ships the suite.
+
+    Terp Studio installs the suite with `npm ci` from that lock, and without one installs
+    what conformance/package.json names and writes no lock. The generated CI does the same
+    in every job that installs it, so a run cannot resolve the suite afresh or leave a lock
+    behind, and the workflow's comment and the README say the lock is committed. The
+    README's upgrade block re-locks the suite as well: every release moves its
+    @terpjs/conformance pin, and `npm ci` refuses the lock that pin left behind.
+    """
+    workflow = (_PROJECT / ".github" / "workflows" / "ci.yml.jinja").read_text(encoding="utf-8")
+    # Every npm install of the suite, `ci` or `install`, sits in the step: one of each.
+    commands = re.findall(r"npm --prefix conformance (?:ci|install)\b", workflow)
+    assert commands and len(commands) == 2 * workflow.count(_CONFORMANCE_INSTALL), (
+        "a job of the generated CI installs the conformance suite another way; install it "
+        "with `npm ci` from conformance/package-lock.json, else `npm install --no-package-lock`"
+    )
+    assert "its lock is committed like the frontend's" in workflow, (
+        "the generated CI's comment no longer says the conformance suite's lock is committed"
+    )
+    readme = (_PROJECT / "README.md.jinja").read_text(encoding="utf-8")
+    assert "**Commit `conformance/package-lock.json` too.**" in readme, (
+        "the generated README no longer tells the app to commit the conformance suite's lock"
+    )
+    upgrading = readme.split("## Upgrading Terp", 1)[1].split("\n## ", 1)[0]
+    assert "npm --prefix conformance install" in upgrading, (
+        "the README's upgrade leaves the conformance suite's lock on the old pin"
+    )
+    assert "`conformance/package-lock.json`); commit them" in " ".join(upgrading.split()), (
+        "the README's upgrade no longer says to commit the conformance suite's lock"
     )
 
 

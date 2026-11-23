@@ -21,7 +21,7 @@ import pytest
 _CLI_SRC = pathlib.Path(__file__).resolve().parents[2] / "packages" / "backend" / "cli" / "src"
 sys.path.insert(0, str(_CLI_SRC))
 
-from terp.cli import main  # import after sys.path setup
+from terp.cli import guide_deployment, main  # import after sys.path setup
 from terp.cli import version as version_mod
 
 
@@ -363,6 +363,33 @@ def test_the_recipe_re_renders_before_it_installs_anything(
     # re-render's own output, and doing both is what produced two needless installs.
     assert "Pin every terp-* dependency" not in report
     assert "Pin every @terpjs/* package" not in report
+
+
+@pytest.mark.parametrize("git", [True, False], ids=["re-render", "hand-pin"])
+def test_the_recipe_re_locks_the_conformance_suite_where_the_app_has_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, git: bool
+) -> None:
+    """The suite's lock is committed, and every release moves its @terpjs/conformance pin.
+
+    CI installs the suite with `npm ci`, which refuses a lock the new pin left behind, so
+    a recipe that installed only the frontend left the app's next CI run red. Both recipes
+    install the suite once its manifest is final and say to commit its lock, and so does
+    `terp guide deployment`; an app without the suite is not told to install one.
+    """
+    app = _answers(tmp_path / "app", "v0.5.7", git=git)
+    assert "npm --prefix conformance install" not in _offered(monkeypatch, app)
+
+    (app / "conformance").mkdir()
+    (app / "conformance" / "package.json").write_text("{}", encoding="utf-8")
+    report = _offered(monkeypatch, app)
+
+    install = report.index("npm --prefix conformance install")
+    assert report.index("npm --prefix frontend install") < install
+    assert report.index("copier update" if git else "Pin every @terpjs/* package") < install
+    assert "commit conformance/package-lock.json" in report
+    guide = " ".join(guide_deployment.TOPIC.split())
+    assert "`npm --prefix conformance install` where the app has the suite" in guide
+    assert "conformance/package-lock.json with the other locks" in guide
 
 
 def test_the_re_render_recipe_says_to_clean_the_tree_first(

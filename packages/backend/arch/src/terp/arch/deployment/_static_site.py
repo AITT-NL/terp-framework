@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 
-from terp.arch.deployment._generator_text import _BASE_COMMENT, HEADER
+from terp.arch.deployment._generator_text import _BASE_COMMENT, HEADER, PUBLISH_ADDRESS
 from terp.arch.deployment._site_check import SITE_CHECK
 from terp.arch.deployment.reader import RECIPE_HEALTH_PATHS
 
@@ -49,7 +49,7 @@ def port_variable(unit: str) -> str:
 
 def site_port(unit: str) -> str:
     """The profile's port scalar for site unit *unit*: its variable, then the default."""
-    return f"${{{port_variable(unit)}:-{SITE_PORT_DEFAULT}}}:8080"
+    return PUBLISH_ADDRESS + f"${{{port_variable(unit)}:-{SITE_PORT_DEFAULT}}}:8080"
 
 
 #: The site's server (decision 3): the template SPA's document headers, its content security

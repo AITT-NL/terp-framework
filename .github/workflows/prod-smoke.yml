@@ -28,6 +28,8 @@ env:
   SMOKE_ADMIN_PASSWORD: Terp-Sm0ke-Cred-2026-xyz!
   SECRET_KEY: ci-prod-smoke-secret-key-0123456789abcdef
   POSTGRES_PASSWORD: ci-prod-smoke-db-password
+  TERP_RUNTIME_DB_PASSWORD: ci-prod-smoke-runtime-password
+  COMPOSE_FILE: apps/example/docker-compose.prod.yml:apps/example/compose.runtime-role.yml
 
 jobs:
   prod-smoke:
@@ -37,17 +39,25 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Provision the database runtime login
+        run: |
+          docker compose up -d --wait db
+          docker compose exec -T -e TERP_RUNTIME_DB_PASSWORD db psql -X -v ON_ERROR_STOP=1 -U terp -d terp <<'SQL'
+          \getenv runtime_password TERP_RUNTIME_DB_PASSWORD
+          CREATE ROLE terp_rt LOGIN PASSWORD :'runtime_password';
+          SQL
+
       - name: Build and start the production profile
-        run: docker compose -f apps/example/docker-compose.prod.yml up -d --wait --build api web
+        run: docker compose up -d --wait --build api web
 
       # `--wait` reports only "container X is unhealthy" — never why.
       - name: Why the production profile did not come up
         if: failure()
-        run: docker compose -f apps/example/docker-compose.prod.yml logs --no-color --tail=120
+        run: docker compose logs --no-color --tail=120
 
       - name: Liveness + readiness through the API container
         run: |
-          docker compose -f apps/example/docker-compose.prod.yml exec -T api \
+          docker compose exec -T api \
             python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"
 
       # The image carries the app's record of who can reach what, and the api compared the
@@ -55,15 +65,27 @@ jobs:
       # so a start that skipped the comparison is not a pass.
       - name: The api compared the routes it serves with its record
         run: |
-          docker compose -f apps/example/docker-compose.prod.yml exec -T api \
+          docker compose exec -T api \
             test -f /srv/authz-surface.json
-          docker compose -f apps/example/docker-compose.prod.yml logs --no-color api \
+          docker compose logs --no-color api \
             > "$RUNNER_TEMP/api.log" 2>&1
           grep -F "authz-surface.json matches the routes this app serves" "$RUNNER_TEMP/api.log"
 
+      # The api probed the files capability's storage root before it served (ADR 0218): an
+      # image whose user cannot write it refuses to start, and a root on the container's own
+      # disk is said in the log. Held by what the api logged, as the comparison above is.
+      - name: The api checked that it can write its storage root
+        run: |
+          docker compose logs --no-color api \
+            > "$RUNNER_TEMP/api.log" 2>&1
+          grep -E "boot checks passed: [a-z_, ]*files_storage" "$RUNNER_TEMP/api.log"
+          if grep -F "not on a mounted volume" "$RUNNER_TEMP/api.log"; then
+            echo "the storage root must be the files-data volume" && exit 1
+          fi
+
       - name: Bootstrap the first administrator (terp user create)
         run: |
-          docker compose -f apps/example/docker-compose.prod.yml run --rm \
+          docker compose run --rm \
             -e TERP_USER_PASSWORD="$SMOKE_ADMIN_PASSWORD" api \
             terp user create smoke-admin@example.test --role admin --app-root /srv
 
@@ -83,7 +105,7 @@ jobs:
 
       - name: WebSocket upgrade + typed frame through production nginx
         run: |
-          docker compose -f apps/example/docker-compose.prod.yml exec -T \
+          docker compose exec -T \
             -e SMOKE_ADMIN_PASSWORD="$SMOKE_ADMIN_PASSWORD" api python - <<'PY'
           import asyncio
           import json
@@ -152,14 +174,49 @@ jobs:
 
       - name: Seed refuses production (fail-closed check)
         run: |
-          if docker compose -f apps/example/docker-compose.prod.yml run --rm api terp seed; then
+          if docker compose run --rm api terp seed; then
             echo "terp seed must refuse ENVIRONMENT=production" && exit 1
           fi
 
+      # Stores a real file through the API and reads it back, then again from a new api
+      # container: an image whose user cannot write the storage root, or a profile that keeps
+      # the files in the container, turns this red. Health and login never touch the disk.
+      # The last step against the stack: the api it recreates is not the one nginx reaches,
+      # so no step after it may depend on the api the profile started.
+      - name: Store a file through the API and read it back from a new container
+        run: |
+          payload=$(python3 -c 'import json,os; print(json.dumps({"email": "smoke-admin@example.test", "password": os.environ["SMOKE_ADMIN_PASSWORD"]}))')
+          token=$(curl -fsS -X POST http://localhost:23100/api/v1/auth/login \
+            -H 'Content-Type: application/json' -d "$payload" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          printf 'prod-smoke stored bytes\n' > "$RUNNER_TEMP/upload.txt"
+          file_id=$(curl -fsS -X POST http://localhost:23100/api/v1/files/ \
+            -H "Authorization: Bearer $token" \
+            -F "file=@$RUNNER_TEMP/upload.txt;type=text/plain" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          curl -fsS "http://localhost:23100/api/v1/files/$file_id/content" \
+            -H "Authorization: Bearer $token" -o "$RUNNER_TEMP/download.txt"
+          cmp "$RUNNER_TEMP/upload.txt" "$RUNNER_TEMP/download.txt"
+          # A new api container on the same volume still serves it. It is read from inside
+          # that container, because nginx keeps the address the old one had.
+          docker compose up -d --wait --no-deps --force-recreate api
+          docker compose exec -T \
+            -e TOKEN="$token" -e FILE_ID="$file_id" api python - <<'PY'
+          import os
+          import urllib.request
+
+          request = urllib.request.Request(
+              f"http://localhost:8000/api/v1/files/{os.environ['FILE_ID']}/content",
+              headers={"Authorization": f"Bearer {os.environ['TOKEN']}"},
+          )
+          with urllib.request.urlopen(request) as response:
+              assert response.read() == b"prod-smoke stored bytes\n"
+          PY
+
       - name: Show logs on failure
         if: failure()
-        run: docker compose -f apps/example/docker-compose.prod.yml logs
+        run: docker compose logs
 
       - name: Stop the profile
         if: always()
-        run: docker compose -f apps/example/docker-compose.prod.yml down -v
+        run: docker compose down -v

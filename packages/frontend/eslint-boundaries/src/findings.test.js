@@ -197,6 +197,25 @@ describe("terp-boundaries-lint (the bin)", () => {
     expect(run.stderr).toMatch(/problem/);
   });
 
+  it("holds ignored app source to the shipped rules and keeps additional app diagnostics", () => {
+    const root = appRoot({
+      "package.json": '{ "type": "module" }',
+      "eslint.config.js": 'export default [{ ignores: ["src/private/**"] }, { rules: { "no-debugger": "error" } }];',
+      "escape-hatch-budget.json": "{}",
+      "src/private/View.tsx": "export const View = () => <button>ok</button>;",
+      "extra.js": "debugger;",
+    });
+    const run = runBin(root);
+    expect(run.status).toBe(1);
+    const report = JSON.parse(run.stdout);
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      path: "src/private/View.tsx", rule: "frontend/token-styled-elements",
+    }));
+    expect(report.unattributed).toContainEqual(expect.objectContaining({
+      path: "extra.js", reported_as: "no-debugger",
+    }));
+  });
+
   it("stays green (exit 0) with an empty findings list on a clean app", () => {
     const root = appRoot({
       "package.json": '{ "type": "module" }',

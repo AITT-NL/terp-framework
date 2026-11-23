@@ -36,6 +36,7 @@ import pathlib
 import shutil
 import sys
 import tempfile
+from collections.abc import Callable
 from typing import Any
 
 from terp.cli._output import emit
@@ -50,7 +51,7 @@ from terp.cli.release._common import (
 from terp.cli.release._git import head
 from terp.cli.release._render import version_key
 from terp.cli.release.build import DOCUMENT as BUILD_DOCUMENT
-from terp.cli.verify import assurance_document
+from terp.cli.verify import app_declared_checks, assurance_document, profile_checks
 
 DOCUMENT = "terpReleaseGate"
 
@@ -89,8 +90,36 @@ def _is_verdict(check: object, version: int = VERSION) -> bool:
     passed, and from version 3 whether it had anything to judge."""
     return (
         isinstance(check, dict) and isinstance(check.get("id"), str) and isinstance(check.get("ok"), bool)
-        and (version < VERSION or isinstance(check.get("applicable"), bool))
+        and (isinstance(check.get("applicable"), bool) if version >= VERSION else "applicable" not in check)
     )
+
+
+def workspace_evidence(has_file: Callable[[str], bool]) -> set[str]:
+    """Required evidence for the frontend and conformance workspaces in this checkout."""
+    checks = set()
+    if has_file("frontend/package.json"):
+        checks.update(("frontend-boundaries", "dependency-audit-npm"))
+    if has_file("conformance/package.json"):
+        checks.add("conformance")
+    if has_file("site/package.json"):
+        checks.add("dependency-audit-npm")
+    return checks
+
+
+def _check_inventory(checks: list[dict[str, Any]], required: set[str]) -> None:
+    # A Python release always has these controls, including an app with no SPA.
+    must_run = required | {
+        "architecture", "backend-tests", "dependency-audit-python", "appsec-baseline", "secret-scanning",
+    }
+    expected = {check.id for check in profile_checks("release")} | must_run
+    ids = [check["id"] for check in checks]
+    if len(ids) != len(set(ids)):
+        raise ReleaseError("the release profile has duplicate check ids")
+    if missing := sorted(expected.difference(ids)):
+        raise ReleaseError(f"the release profile is missing required checks: {', '.join(missing)}")
+    for check in checks:
+        if check.get("applicable") is False and (check["id"] in must_run or not check["ok"]):
+            raise ReleaseError(f"the release profile cannot mark {check['id']} as not applicable")
 
 
 def _verify(checkout: pathlib.Path) -> list[dict[str, Any]]:
@@ -115,6 +144,9 @@ def _verify(checkout: pathlib.Path) -> list[dict[str, Any]]:
         or document.get("ok") is not all(check["ok"] for check in checks)
     ):
         raise ReleaseError("terp verify --profile release wrote no verdict of each check it ran")
+    required = workspace_evidence(lambda name: (checkout / name).is_file())
+    required.update(check.id for check, _ in app_declared_checks(checkout))
+    _check_inventory(checks, required)
     for check in checks:
         if not check["ok"]:
             _relay_red(check)
@@ -177,7 +209,8 @@ def _schedules(reference: str, config: pathlib.Path) -> list[dict[str, str]]:
         raise ReleaseError(f"{reference} runs as root, and the gate runs it only as a non-root user")
     shown = require(
         run(
-            ["docker", "run", *_SEALED, "--entrypoint", "terp", reference,
+            # Offline metadata inspection has no deployment secrets or database.
+            ["docker", "run", *_SEALED, "--env", "ENVIRONMENT=local", "--entrypoint", "terp", reference,
              "inspect", "control-plane", "--format", "json"],
             env=env,
         ),
@@ -235,9 +268,9 @@ def red(document: dict[str, Any]) -> list[str]:
     return [check["id"] for check in document["profile"]["checks"] if not check["ok"]]
 
 
-def _green(document: dict[str, Any], *, accepted_dependencies: bool = False) -> None:
+def _profile_failures(document: dict[str, Any], required_ids: tuple[str, ...]) -> list[str]:
     """Refused unless a version 2 or 3 *document* holds a verdict of each check of the release
-    profile, agrees with it, and every check passed."""
+    profile and agrees with it. Return the failed checks."""
     profile = document.get("profile")
     checks = profile.get("checks") if isinstance(profile, dict) else None
     version = document[DOCUMENT]
@@ -250,6 +283,7 @@ def _green(document: dict[str, Any], *, accepted_dependencies: bool = False) -> 
             "the gate document holds no verdict of the release profile's checks: sign reads only "
             "what `terp release gate` writes, so run it again"
         )
+    _check_inventory(checks, set(required_ids))
     failed = red(document)
     if profile["ok"] == bool(failed):  # green over a red check, or red over none
         raise ReleaseError(
@@ -257,19 +291,11 @@ def _green(document: dict[str, Any], *, accepted_dependencies: bool = False) -> 
             + (f"green and {', '.join(failed)} red" if failed else "red and every check of it green")
             + ". sign signs only what one run of `terp release gate` wrote, so run it again"
         )
-    if accepted_dependencies:
-        failed = [name for name in failed if name not in {"dependency-audit-npm", "dependency-audit-python"}]
-    if failed:
-        raise ReleaseError(
-            f"the release profile the gate ran is red ({', '.join(failed)}), and sign signs only a "
-            "release whose every check passed: `terp verify --only <check>` in a checkout of the "
-            "commit says why. Gate the commit again once its profile is green, or cut the release "
-            "from the commit that makes it green"
-        )
+    return failed
 
 
 def require_passed(document: dict[str, Any], terp_cli: str, *, risk_policy: str | None = None,
-                   checkout: str | os.PathLike[str] = ".") -> dict | None:
+                   checkout: str | os.PathLike[str] = ".", required_ids: tuple[str, ...] = ()) -> dict | None:
     """Refused unless *document*, the gate of a commit pinning ``terp-cli`` *terp_cli*, passed.
 
     The gate is the commit's own pinned toolchain, so its document is read in the version that
@@ -301,7 +327,8 @@ def require_passed(document: dict[str, Any], terp_cli: str, *, risk_policy: str 
             "and sign what it writes"
         )
     admission = None
-    if risk_policy is not None and red(document):
+    failed = _profile_failures(document, required_ids) if strict else []
+    if risk_policy is not None and failed:
         if expected != 3:
             raise ReleaseError("dependency risk acceptance requires a version 3 release gate with structured audits")
         from terp.cli.risk_authority import authorize
@@ -312,8 +339,14 @@ def require_passed(document: dict[str, Any], terp_cli: str, *, risk_policy: str 
                                   commit=document["commit"], checkout=checkout)
         except RiskRefused as exc:
             raise ReleaseError("dependency risk authorization refused", cause=str(exc)) from exc
-    if strict:
-        _green(document, accepted_dependencies=admission is not None)
+        failed = [name for name in failed if name not in {"dependency-audit-npm", "dependency-audit-python"}]
+    if failed:
+        raise ReleaseError(
+            f"the release profile the gate ran is red ({', '.join(failed)}), and sign signs only a "
+            "release whose every check passed: `terp verify --only <check>` in a checkout of the "
+            "commit says why. Gate the commit again once its profile is green, or cut the release "
+            "from the commit that makes it green"
+        )
     claim = document.get("assurance")
     if not isinstance(claim, dict) or (claim.get("ok") is not True and admission is None):
         raise ReleaseError(

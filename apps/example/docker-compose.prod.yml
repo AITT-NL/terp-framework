@@ -34,7 +34,7 @@ x-backend: &backend
   environment: &backend-env
     # Unset: the bundled `db` service. Set: any external PostgreSQL — the seam an
     # external-database deployment overrides (nothing else in the profile changes).
-    DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://terp:${POSTGRES_PASSWORD}@db:5432/terp}
+    DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://terp_rt:${TERP_RUNTIME_DB_PASSWORD:?TERP_RUNTIME_DB_PASSWORD is required}@db:5432/terp}
     SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required (>= 32 chars)}
     ENVIRONMENT: production
     BACKEND_CORS_ORIGINS: '${BACKEND_CORS_ORIGINS:-[]}'
@@ -77,6 +77,9 @@ services:
   migrate:
     <<: *backend
     command: ["terp", "migrate", "upgrade", "--app-root", "/srv/app"]
+    environment:
+      <<: *backend-env
+      DATABASE_URL: ${TERP_MIGRATION_DATABASE_URL:-${DATABASE_URL:-postgresql+psycopg://terp:${POSTGRES_PASSWORD}@db:5432/terp}}
     restart: "no"
     depends_on:
       db:
@@ -91,6 +94,10 @@ services:
       context: ../..
       dockerfile: apps/example/Dockerfile.prod
     restart: unless-stopped
+    # The files capability's storage root (/srv/var/files, which the image makes owned by
+    # the user it runs as): on a named volume, so stored files outlive the container.
+    volumes:
+      - files-data:/srv/var/files
     depends_on:
       db:
         condition: service_healthy
@@ -112,7 +119,7 @@ services:
     restart: unless-stopped
     ports:
       # 23100, not 8080: the same argument as the development file, one range up.
-      - "${WEB_PORT:-23100}:8080"
+      - "${TERP_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-23100}:8080"
     depends_on:
       api:
         condition: service_healthy
@@ -126,3 +133,4 @@ services:
 
 volumes:
   db-data:
+  files-data:

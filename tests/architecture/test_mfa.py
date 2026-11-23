@@ -649,19 +649,17 @@ def _router_app(session: Session, principal: Principal | None):
     ("method", "path"),
     [("get", "/mfa/"), ("post", "/mfa/"), ("post", "/mfa/confirm"), ("delete", "/mfa/")],
 )
-def test_no_mfa_route_serves_an_anonymous_caller(
-    session: Session, method: str, path: str
+@pytest.mark.parametrize(
+    ("principal", "status"),
+    [(None, 401), (Principal(id=uuid.uuid4(), role=Roles.ADMIN, kind="service"), 403)],
+)
+def test_mfa_routes_require_a_human_caller(
+    session: Session, method: str, path: str, principal: Principal | None, status: int
 ) -> None:
-    """Every route reads the caller from the principal, so none may run without one.
-
-    A 401 rather than the ``AttributeError`` an unguarded ``principal.id`` would raise:
-    the second one is a 500 that tells an operator the service is broken when what
-    actually happened is that a request arrived unauthenticated.
-    """
-    client = _router_app(session, None)
+    client = _router_app(session, principal)
     body = {"json": {"code": "000000"}} if method == "post" else {}
     response = getattr(client, method)(path, **body)
-    assert response.status_code == 401
+    assert response.status_code == status
 
 
 def test_status_reports_nothing_before_an_enrolment(session: Session) -> None:

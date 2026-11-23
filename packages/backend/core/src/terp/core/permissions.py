@@ -142,6 +142,7 @@ class PermissionModel:
     label_coverage: LabelCoverage = LabelCoverage.OFF
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "label_coverage", LabelCoverage(self.label_coverage))
         roles = tuple(self.roles)
         permissions = tuple(self.permissions)
         role_names = _index_unique(roles, key=lambda role: role.name, label="role")

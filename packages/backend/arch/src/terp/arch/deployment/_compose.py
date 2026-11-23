@@ -26,6 +26,7 @@ from terp.arch.deployment._generator_text import (
     MIGRATION_STEP,
     MOUNT_PATH,
     NO_DATABASE_URL,
+    migration_url,
     RELEASE_TAG_SEAM,
     SITE_DOCKERFILE,
     API_PORT,
@@ -178,12 +179,12 @@ def _backend_block(plan: _Plan) -> list[str]:
 
 
 def _seam(unit: Unit, recipe: KindRecipe) -> list[str]:
-    url = recipe.url.replace("{host}", unit.id)
+    url = recipe.service_url().replace("{host}", unit.id)
     return [
         f"    # Unset: the bundled `{unit.id}` service. Set: any external {recipe.title} -- the "
         "seam an",
         f"    # external-{unit.role} deployment overrides (nothing else in the profile changes).",
-        f"    {recipe.variable}: ${{{recipe.variable}:-{url}}}",
+        f"    {recipe.variable}: {url}",
     ]
 
 
@@ -281,6 +282,18 @@ def _kind_service(plan: _Plan, unit: Unit) -> list[str]:
     return lines
 
 
+def _migration_environment(plan: _Plan) -> list[str]:
+    if plan.database is None:
+        default = EXTERNAL_DATABASE_URL if plan.declaration.external_database else NO_DATABASE_URL
+        return ["    environment:", "      <<: *backend-env", f"      DATABASE_URL: {migration_url(default)}"]
+    recipe = plan.kinds[plan.database.id]
+    if recipe.runtime_url is None:
+        return []
+    owner = recipe.url.replace("{host}", plan.database.id)
+    default = "${" + recipe.variable + ":-" + owner + "}"
+    return ["    environment:", "      <<: *backend-env", f"      {recipe.variable}: {migration_url(default)}"]
+
+
 def _backend_service(plan: _Plan, unit: Unit) -> list[str]:
     kind = plan.kind_of(unit.id)
     lines: list[str] = []
@@ -309,6 +322,8 @@ def _backend_service(plan: _Plan, unit: Unit) -> list[str]:
         ]
     if command is not None:
         lines.append(f"    command: {_flow(command)}")
+    if unit.id == plan.migration_step:
+        lines += _migration_environment(plan)
     lines += _env_files(unit.id, "    ")
     if kind not in ("api", "one-shot"):
         lines.append("    init: true")

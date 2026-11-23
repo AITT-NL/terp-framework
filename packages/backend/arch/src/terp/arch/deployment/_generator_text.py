@@ -193,7 +193,8 @@ RUN uv build --wheel --out-dir /dist .
 # @@PYTHON_TAG@@
 FROM @@PYTHON@@
 
-ENV PYTHONUNBUFFERED=1 \\
+ENV ENVIRONMENT=production \\
+    PYTHONUNBUFFERED=1 \\
     PYTHONDONTWRITEBYTECODE=1 \\
     VIRTUAL_ENV=/srv/.venv \\
     PATH="/srv/.venv/bin:$PATH"
@@ -221,7 +222,7 @@ COPY control_plane control_plane
 # The record of who can reach what, beside them: the app compares the routes it composed
 # with it before it serves, and does not start on a difference (ADR 0212). The brackets
 # make it a pattern, so an app that has not adopted the record copies nothing.
-COPY authz-surface.jso[n] ./
+COPY --chmod=0444 authz-surface.jso[n] ./
 # The two source roots are what the processes import the app from, so they are compiled
 # the same way. A package the wheel installs beside them (a companion's) compiles when it
 # is first imported.
@@ -359,9 +360,17 @@ _HEARTBEAT_TIMING = ("interval: 10s", "timeout: 5s", "retries: 3", "start_period
 #: The database seam when no unit of this deployment runs the database.
 EXTERNAL_DATABASE_URL = "${DATABASE_URL:?DATABASE_URL is required (externalDatabase)}"
 NO_DATABASE_URL = "${DATABASE_URL:?DATABASE_URL is required (no database unit)}"
+
+
+def migration_url(default: str) -> str:
+    """The independently configurable migration connection, with the profile's default."""
+    return "${TERP_MIGRATION_DATABASE_URL:-" + default + "}"
+
+
 KEY_SEAM = "${SECRET_KEY:?SECRET_KEY is required (>= 32 chars)}"
 CORS_ORIGINS = "${BACKEND_CORS_ORIGINS:-[]}"
-WEB_PORT = "${WEB_PORT:-23100}:8080"
+PUBLISH_ADDRESS = "${TERP_BIND_ADDRESS:-127.0.0.1}:"
+WEB_PORT = PUBLISH_ADDRESS + "${WEB_PORT:-23100}:8080"
 #: The api unit's host port when no web tier fronts it (ADR 0202): then it is the
 #: deployment's only way in, one range step past the web tier's.
-API_PORT = "${API_PORT:-23200}:8000"
+API_PORT = PUBLISH_ADDRESS + "${API_PORT:-23200}:8000"

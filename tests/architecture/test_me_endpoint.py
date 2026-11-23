@@ -20,6 +20,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from terp.core import (
     AuthenticationError,
+    PermissionDeniedError,
     Principal,
     Roles,
     get_principal,
@@ -156,6 +157,12 @@ def test_current_user_reports_the_live_stored_identity(session: Session) -> None
         role_rank=int(Roles.ADMIN),
         role_name="admin",
     )
+
+
+def test_current_user_requires_a_human_identity(session: Session) -> None:
+    principal = Principal(id=uuid.uuid4(), role=Roles.ADMIN, kind="service")
+    with pytest.raises(PermissionDeniedError):
+        IdentityService().current_user(session, principal)
 
 
 def test_current_user_rejects_a_vanished_subject(session: Session) -> None:

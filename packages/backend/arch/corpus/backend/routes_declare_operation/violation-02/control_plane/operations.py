@@ -1,3 +1,3 @@
-from terp.core import OperationCatalog, OperationCoverage
+from terp.core import OperationCatalog
 
-operation_catalog = OperationCatalog(coverage=OperationCoverage.STRICT)
+operation_catalog = OperationCatalog(coverage="strict")

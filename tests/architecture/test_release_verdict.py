@@ -73,6 +73,14 @@ def test_a_green_profile_whose_claim_holds_passes() -> None:
     gate.require_passed(CLAIM_ONLY, TOOLCHAIN)
 
 
+@pytest.mark.parametrize("value", [True, False, 0, None])
+def test_version_two_verdicts_do_not_carry_an_applicability_field(value: object) -> None:
+    document = _strict()
+    document["profile"]["checks"][0]["applicable"] = value
+    with pytest.raises(ReleaseError, match="no verdict of the release profile"):
+        gate.require_passed(document, STRICT)
+
+
 def test_acceptance_preserves_failed_audit_and_cannot_replace_another_required_lane(monkeypatch):
     from terp.cli import risk_authority
 
@@ -82,7 +90,11 @@ def test_acceptance_preserves_failed_audit_and_cannot_replace_another_required_l
     document["commit"] = "a" * 40
     assert gate.require_passed(document, APPLICABLE, risk_policy="protected") == admission
     assert document["profile"]["ok"] is False and document["assurance"]["ok"] is False
-    document["profile"]["checks"] = [c for c in document["profile"]["checks"] if c["id"] != "architecture"]
+    # The admission check also holds if a later assurance vocabulary adds a required lane.
+    from terp.cli import verify
+
+    monkeypatch.setattr(verify, "ASSURANCE_LANES", (*verify.ASSURANCE_LANES, ("extra", "required", ())))
+
     document["assurance"] = assurance_document(document["profile"]["checks"])
     with pytest.raises(ReleaseError, match="required assurance lane"):
         gate.require_passed(document, APPLICABLE, risk_policy="protected")
@@ -257,12 +269,29 @@ def _asked_nothing(release: Release, monkeypatch) -> None:  # type: ignore[no-un
 def test_sign_signs_a_release_whose_every_check_passed(tmp_path: pathlib.Path, monkeypatch) -> None:
     release = _strict_release(tmp_path, monkeypatch)
     verdict = _strict()
+    verdict["assurance"]["toolchain"]["version"] = STRICT
     release.write_gate(**verdict)
     release.sign()
     manifest = parse((tmp_path / "out" / sign.MANIFEST).read_bytes().strip())
     assert manifest["inputs"]["toolchain"]["terpCli"] == STRICT
     assert manifest["collected"]["assurance"] == verdict["assurance"], "collected carries the claim, as it did"
     assert "profile" not in manifest["collected"]
+
+
+@pytest.mark.parametrize(("key", "value"), [
+    ("terp_assurance", True), ("profile", "quick"), ("spec_version", "0.0.0"),
+    ("toolchain", {"tool": "terp-verify", "version": "0.0.0"}),
+    ("toolchain", {"tool": "other", "version": STRICT}),
+])
+def test_sign_checks_the_assurance_identity_before_reading_images(tmp_path, monkeypatch, key, value):
+    release = _strict_release(tmp_path, monkeypatch)
+    verdict = _strict()
+    verdict["assurance"]["toolchain"]["version"] = STRICT
+    verdict["assurance"][key] = value
+    release.write_gate(**verdict)
+    with pytest.raises(ReleaseError, match="gate's assurance identity"):
+        release.sign()
+    assert not release.tasks and not (tmp_path / "out").exists()
 
 
 def test_sign_refuses_a_release_whose_contract_check_is_red_although_its_claim_holds(tmp_path: pathlib.Path, monkeypatch) -> None:
@@ -313,7 +342,7 @@ def test_a_claim_that_its_checks_do_not_compose_contradicts_itself() -> None:
     a claim that holds, was not written by one run of the gate."""
     borrowed = _strict()
     borrowed["profile"]["checks"] = [{"id": "architecture", "ok": True}]
-    with pytest.raises(ReleaseError, match="contradicts itself: its release-assurance claim is not the one its checks compose"):
+    with pytest.raises(ReleaseError, match="missing required checks"):
         gate.require_passed(borrowed, STRICT)
     failed_lanes = _strict()
     failed_lanes["assurance"]["lanes"] = [{**lane, "status": "failed"} for lane in failed_lanes["assurance"]["lanes"]]
@@ -356,3 +385,47 @@ def test_a_clean_release_needs_no_exception_or_authority_availability(monkeypatc
     monkeypatch.setattr(risk_authority, "authorize", authority)
     assert gate.require_passed(_judged(), APPLICABLE, risk_policy="protected.json") is None
     authority.assert_not_called()
+
+
+@pytest.mark.parametrize(("make_document", "pin"), [(_strict, STRICT), (_judged, APPLICABLE)])
+def test_strict_signer_requires_one_verdict_for_each_release_check(make_document, pin) -> None:
+    doc = make_document()
+    checks = doc["profile"]["checks"]
+    checks.append(checks[0].copy())
+    with pytest.raises(ReleaseError, match="duplicate check ids"):
+        gate.require_passed(doc, pin)
+    checks.pop()
+    checks.remove(next(check for check in checks if check["id"] == "backend-tests"))
+    with pytest.raises(ReleaseError, match="missing required checks: backend-tests"):
+        gate.require_passed(doc, pin)
+
+
+def test_sign_uses_the_check_declarations_in_the_commit(tmp_path, monkeypatch) -> None:
+    files = _pinning(STRICT)
+    files["pyproject.toml"] += b"""
+[[tool.terp.verify.checks]]
+id = "domain-invariants"
+profile = "release"
+command = "python -V"
+scope = ["app/**"]
+"""
+    release = Release(tmp_path, monkeypatch, files)
+    release.write_gate(**_strict())
+    _asked_nothing(release, monkeypatch)
+    with pytest.raises(ReleaseError, match="missing required checks: domain-invariants"):
+        release.sign()
+
+
+@pytest.mark.parametrize("name", ["architecture", "backend-tests", "dependency-audit-python"])
+def test_required_backend_evidence_must_be_applicable(name) -> None:
+    with pytest.raises(ReleaseError, match=f"cannot mark {name} as not applicable"):
+        gate.require_passed(_judged(inapplicable=(name,)), APPLICABLE)
+
+
+def test_workspace_evidence_follows_the_declared_workspaces() -> None:
+    assert gate.workspace_evidence(set().__contains__) == set()
+    assert gate.workspace_evidence({"frontend/package.json", "conformance/package.json"}.__contains__) == {
+        "frontend-boundaries", "dependency-audit-npm", "conformance",
+    }
+    assert gate.workspace_evidence({"conformance/package.json"}.__contains__) == {"conformance"}
+    assert gate.workspace_evidence({"site/package.json"}.__contains__) == {"dependency-audit-npm"}

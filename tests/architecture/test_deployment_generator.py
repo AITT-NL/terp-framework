@@ -544,6 +544,20 @@ def test_the_truth_rule_deploy_safety_and_the_escape_audit_pass(
     assert tags == [], "the audit refuses any YAML tag, and the generator writes none"
 
 
+def test_promotion_still_accepts_the_fixed_seam_of_a_previously_signed_profile() -> None:
+    from dataclasses import replace
+
+    tables = published_tables()
+    historical = replace(tables, recipes=tuple(replace(recipe, runtime_url=None) for recipe in tables.recipes))
+    files, findings = generate(_seed(), _SLUG, tables=historical, frontend_lock=True)
+    assert findings == []
+    profile = _profile(files)
+    old_url = profile["services"]["api"]["environment"]["DATABASE_URL"]
+    assert "POSTGRES_PASSWORD" in old_url
+    assert profile["services"]["migrate"]["environment"]["DATABASE_URL"] == old_url
+    assert escape_findings(profile, tables) == []
+
+
 @pytest.mark.parametrize("name", _SAMPLES)
 def test_the_production_profile_s_invariants_hold(name: str) -> None:
     """ADR 0062's invariants, held over every render rather than over the seed's alone:
@@ -572,10 +586,21 @@ def test_the_production_profile_s_invariants_hold(name: str) -> None:
         assert env["ENVIRONMENT"] == "production"
         assert env["SECRET_KEY"].startswith("${SECRET_KEY:?")
         if databases:
-            assert env["DATABASE_URL"].startswith("${DATABASE_URL:-")
+            url = env["DATABASE_URL"]
+            if unit.role == "one-shot" and unit.command is None:
+                assert url.startswith("${TERP_MIGRATION_DATABASE_URL:-${DATABASE_URL:-")
+                assert "${POSTGRES_PASSWORD}" in url
+            else:
+                assert url.startswith("${DATABASE_URL:-postgresql+psycopg://terp_rt:")
+                assert "${TERP_RUNTIME_DB_PASSWORD:?" in url
+                assert "POSTGRES_PASSWORD" not in url
             assert f"@{databases[0]}:5432/" in env["DATABASE_URL"]
         else:
-            assert env["DATABASE_URL"].startswith("${DATABASE_URL:?")
+            url = env["DATABASE_URL"]
+            if unit.role == "one-shot" and unit.command is None:
+                assert url.startswith("${TERP_MIGRATION_DATABASE_URL:-${DATABASE_URL:?")
+            else:
+                assert url.startswith("${DATABASE_URL:?")
             assert "POSTGRES_PASSWORD" not in json.dumps(services)
         assert service["env_file"] == [
             {"path": ".app.env", "required": False},
@@ -927,6 +952,7 @@ def test_docker_compose_reads_every_hostile_value_back_literally(tmp_path: pathl
     environment |= {
         "SECRET_KEY": "s" * 40,
         "POSTGRES_PASSWORD": "p",
+        "TERP_RUNTIME_DB_PASSWORD": "r",
         "HOME": "/home/someone",
         generator.RELEASE_TAG_VARIABLE: "r-1.2",
     }

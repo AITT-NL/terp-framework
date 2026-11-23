@@ -74,8 +74,9 @@ from terp.cli.release.build import DOCUMENT as BUILD_DOCUMENT
 from terp.cli.release.build import loopback, registry
 from terp.cli.release.gate import DOCUMENT as GATE_DOCUMENT
 from terp.cli.release.gate import VERSION as GATE_VERSION
-from terp.cli.release.gate import require_passed
+from terp.cli.release.gate import require_passed, workspace_evidence
 from terp.cli.release.manifest import HOSTS, assemble, inputs, purls, sbom
+from terp.cli.verify import declared_checks_from_manifest
 
 ENVELOPE = "release.dsse.json"
 MANIFEST = "release.manifest.json"
@@ -116,6 +117,20 @@ def _project(tree: Tree) -> tuple[str, str]:
     return name, version
 
 
+def _check_assurance_identity(claim: dict[str, Any], cli_pin: str, spec: str) -> None:
+    """Verify the gate emitter's identity from the commit's CLI pin and hash-checked arch wheel."""
+    expected = {
+        "terp_assurance": 1, "profile": "release", "spec_version": spec,
+        "toolchain": {"tool": "terp-verify", "version": cli_pin},
+    }
+    metadata = {key: value for key, value in claim.items() if key not in ("ok", "lanes")}
+    if canonical(metadata) != canonical(expected):
+        raise ReleaseError(
+            f"the gate's assurance identity must be terp_assurance 1, profile release, "
+            f"from terp-verify {cli_pin} against Terp Standard {spec}; gate with the commit's locked toolchain"
+        )
+
+
 def _generated(pinned_arch: Pinned, tree: Tree, root: pathlib.Path, scratch: pathlib.Path, name: str) -> dict[str, Any]:
     files, owned, refused = render(pinned_arch, root, scratch)
     if refused:
@@ -138,6 +153,8 @@ def _generated(pinned_arch: Pinned, tree: Tree, root: pathlib.Path, scratch: pat
 
 def _images(plan: Plan, build: dict[str, Any], prefix: str, tag: str, platform: str, reg: Registry) -> dict[str, dict[str, Any]]:
     pushed = {image["name"]: image for image in build["images"]}
+    if len(pushed) != len(build["images"]):
+        raise ReleaseError("the build records duplicate image names; each pushed image must be unique")
     if sorted(pushed) != sorted(image.name for image in plan.images):
         raise ReleaseError(
             f"the build pushed {', '.join(sorted(pushed)) or 'nothing'}, and this commit builds "
@@ -279,7 +296,14 @@ def sign(
     cli_pin, arch_pin = pinned(lock, "terp-cli"), pinned(lock, "terp-arch")
     if cli_pin is None or arch_pin is None:
         raise ReleaseError(f"{UV_LOCK} pins no single terp-cli and terp-arch, so the commit's toolchain is unknown")
-    admission = require_passed(gate, cli_pin, risk_policy=risk_policy, checkout=repo)
+    required_ids = set()
+    if gate[GATE_DOCUMENT] > 1:
+        project = tomllib.loads(tree.read_text("pyproject.toml"))
+        required_ids = workspace_evidence(tree.has)
+        required_ids.update(check.id for check, _ in declared_checks_from_manifest(project))
+    admission = require_passed(
+        gate, cli_pin, risk_policy=risk_policy, checkout=repo, required_ids=tuple(required_ids)
+    )
     platform = str(build["platform"])
     with tempfile.TemporaryDirectory(prefix="terp-sign-") as scratch_dir:
         scratch = pathlib.Path(scratch_dir)
@@ -291,6 +315,7 @@ def sign(
                 f"the commit's declaration was written against Terp Standard {arch.spec}, newer than "
                 f"{SPEC_RELEASE}, the release this signer reads: update the signer image first"
             )
+        _check_assurance_identity(gate["assurance"], cli_pin, arch.assurance_spec)
         table = read_table(arch.datastores)
         plan = release_plan(tree, root, table)
         wheel_shape(tree)
@@ -298,6 +323,13 @@ def sign(
         generator = _generated(arch, tree, root, scratch, name) if plan.declaration.build == "generated" else None
         reg = Registry(egress_getter(host, http=registry_http), http=registry_http, credentials=credentials)
         images = _images(plan, build, prefix, tag, platform, reg)
+        # Every gate format records the one backend image it inspected for schedules.
+        # Compute that reference from the checked registry digests and the commit's plan.
+        backend_refs = [
+            f"{entry['repository']}@{entry['digest']}" for entry in images.values() if not entry["image"].web
+        ]
+        if backend_refs != [gate.get("image")]:
+            raise ReleaseError("the gate must name the verified backend image it inspected; gate this build again")
         migrating = _migrating(plan)
         resolved = generator is not None and arch.resolves
         deployment = _deployment(arch, plan, table, root, scratch, images) if resolved else None
@@ -386,7 +418,9 @@ def sign(
     if admission is not None:
         # Recheck after image inspection: expiry or revocation while building cannot ride
         # an earlier answer. Check lock digests against the committed bytes independently.
-        admission = require_passed(gate, cli_pin, risk_policy=risk_policy, checkout=repo)
+        admission = require_passed(
+            gate, cli_pin, risk_policy=risk_policy, checkout=repo, required_ids=tuple(required_ids)
+        )
         for check in admission["checks"]:
             for path, expected in check.get("dependency_audit", {}).get("locks", {}).items():
                 if not tree.has(path) or tree.entries[path].link or "sha256:" + sha256(tree.bytes(path)) != expected:

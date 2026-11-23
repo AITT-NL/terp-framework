@@ -3,6 +3,11 @@
 - **Status:** Proposed on 2026-11-12. The owner asked for it on 2026-11-12, as the framework
   half of a design for maintenance signals that depend on no code host, and delegated the
   open questions review raised (item 7's default among them) to its author the same day.
+  Amended 2026-11-20 by
+  [ADR 0218](0218-a-process-that-cannot-write-its-storage-root-does-not-start.md): a sixth
+  kind, `scaffolding-defect`, names a defect in an app's own scaffolding that a template
+  release fixed, with the fixing release as `fixed_in` and no version pair (item 2); every
+  finding keeps the same keys and the format version stays 1 (item 3).
 - **Date:** 2026-11-12.
 - **Relates:** [ADR 0187](0187-in-the-generated-state-the-framework-renders-the-build-files.md)
   (`sign` scans each image's SBOM against OSV; a framework release moves the base digests),
@@ -65,7 +70,8 @@ yesterday for a reason no one in the change introduced (the reasoning of ADR 011
      after its SHA-256 is checked against the one the manifest records, and asked again, of
      the database the manifest says `sign` asked unless `--osv` names another. Each finding
      says whether any of its advisories is new since the release was signed.
-2. **The findings.** Five kinds, in this order:
+2. **The findings.** Six kinds, in this order (five as first decided; ADR 0218 added the
+   third, `scaffolding-defect`):
    - `platform-behind`: the newest `terp-*` from `uv pip list --outdated` (the answer
      `terp upgrade --check` gives) and the newest `@terpjs/*` from `npm view`, run in each
      workspace so its `.npmrc` applies. Neither makes Terp an HTTP client of a package index,
@@ -73,6 +79,17 @@ yesterday for a reason no one in the change introduced (the reasoning of ADR 011
      configuration.
    - `template-behind`: copier's `_commit` against the platform the app runs, the comparison
      `terp upgrade --check` already prints.
+   - `scaffolding-defect` (*added by ADR 0218*): a defect in the app's own scaffolding that a
+     template release fixed, read from the app's files rather than from its ref, so it is no
+     version behind. One so far, with the subject `terp-cap-files`: for an app that installs
+     it and builds its own image, a `Dockerfile.prod` or `docker-compose.prod.yml` in which no
+     line but a comment names `var/files`, or either one missing where the recorded ref is a
+     release older than 0.35.0. Its `location` is the first such file, its `fixed_in` the
+     template release whose production files first carried the fix (0.35.0), and its
+     `installed` and `latest` are `null`: a render from a later template can lack the line
+     too, and a version pair would then read as a downgrade. Its remedy opens with what is
+     wrong and the fix, because the tool that manages the app shows a kind it does not know by
+     its subject and the opening of its remedy.
    - `known-vulnerability`: one finding per package, installed version and lock (or image).
      The locks are `uv.lock` and every npm lock the release plan builds a web image from
      (`terp.cli.release._plan.planned_images`), the set `dependency-audit-npm` reads. Each
@@ -100,7 +117,9 @@ yesterday for a reason no one in the change introduced (the reasoning of ADR 011
    `detail`), `not_checked` and `findings`. Every finding carries every key (`kind`,
    `subject`, `ecosystem`, `location`, `installed`, `latest`, `fixed_in`, `advisories`,
    `new_since_release`, `remedy`). An unknown value is `null` and no advisory is `[]`, so a
-   reader never has to tell a missing key from an unknown value.
+   reader never has to tell a missing key from an unknown value. *Amended by ADR 0218:*
+   `scaffolding-defect` adds a kind and no key, and joined before `terp_maintenance: 1` was
+   first released (both ship in 0.43.0), so the version stays 1.
 4. **Silence is never green.** A source that could not be asked is recorded twice: as an
    unreachable source and as a `source-unavailable` finding. When the database does not
    answer, or answers a batch and then not for one of its advisories, no package is reported

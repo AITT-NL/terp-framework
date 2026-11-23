@@ -17,8 +17,11 @@ fix; ``template-acceptance`` runs the generated job end to end, through
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -142,3 +145,51 @@ def test_acceptance_does_not_restate_the_generated_job() -> None:
         "template-acceptance starts the workbench or runs the suite itself; the generated "
         f"job does both, and acceptance runs that job: {restated}"
     )
+
+
+_BASH = shutil.which("bash")
+
+#: A stand-in npm: it records what it was asked, so a step's branch shows without a registry.
+_FAKE_NPM = '#!/bin/sh\necho "$*" >> "$NPM_LOG"\n'
+
+
+@pytest.mark.parametrize("locked", [True, False], ids=["with-lock", "without-lock"])
+def test_every_install_of_the_suite_takes_its_lock_when_there_is_one(
+    tmp_path: pathlib.Path, locked: bool
+) -> None:
+    """Acceptance stages the suite with a lock, so it runs only the `npm ci` branch. Here
+    each job's own install step runs under bash against a stand-in npm, once with a lock
+    and once without: `npm ci` from the lock, else `npm install --no-package-lock`."""
+    workflow = yaml.safe_load(_rendered_ci(_TEMPLATE_CI))
+    scripts = [
+        str(step["run"])
+        for job in workflow["jobs"].values()
+        for step in job["steps"]
+        if "npm --prefix conformance" in str(step.get("run", ""))
+    ]
+    assert len(scripts) == 2, "the gate job and the conformance job each install the suite"
+    npm = tmp_path / "bin" / "npm"
+    npm.parent.mkdir()
+    npm.write_text(_FAKE_NPM, encoding="utf-8")
+    npm.chmod(0o755)
+    app = tmp_path / "app"
+    (app / "conformance").mkdir(parents=True)
+    if locked:
+        (app / "conformance" / "package-lock.json").write_text("{}", encoding="utf-8")
+    log = tmp_path / "npm.log"
+    log.write_text("", encoding="utf-8")
+    for script in scripts:
+        step = tmp_path / "step.sh"
+        step.write_text(script, encoding="utf-8")
+        subprocess.run(
+            [str(_BASH), "-e", str(step)],
+            cwd=app,
+            env={
+                **os.environ,
+                "PATH": f"{npm.parent}{os.pathsep}{os.environ['PATH']}",
+                "NPM_LOG": str(log),
+            },
+            check=True,
+        )
+    expected = "--prefix conformance " + ("ci" if locked else "install --no-package-lock")
+    assert log.read_text(encoding="utf-8").splitlines() == [expected, expected]

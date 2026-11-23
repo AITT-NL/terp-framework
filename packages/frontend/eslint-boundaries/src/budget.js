@@ -45,7 +45,7 @@ function parsedReviewDate(value) {
 }
 
 /** Every app-authored `src/**` source file under *root*, recursively. */
-function sourceFiles(root) {
+export function sourceFiles(root) {
   const sourceRoot = path.join(root, "src");
   if (!fs.existsSync(sourceRoot)) {
     return [];

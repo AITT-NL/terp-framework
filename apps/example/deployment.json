@@ -47,5 +47,20 @@
         "api"
       ]
     }
+  ],
+  "volumes": [
+    {
+      "id": "files-data",
+      "mount": {
+        "path": "var/files",
+        "units": [
+          "api"
+        ]
+      },
+      "backup": {
+        "every": "P1D",
+        "keep": "P30D"
+      }
+    }
   ]
 }

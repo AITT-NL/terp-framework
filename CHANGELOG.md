@@ -10,9 +10,23 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.43.0 — unreleased
+## 0.43.0 — 2026-11-23
 
 ### Security
+
+- Production backend images enable production settings when launched directly. The
+  runtime refuses published workbench keys in every key slot. Supply a generated
+  key through the deployment secret store. A deployment that used the development
+  key needs credential rotation and review of existing sessions and sealed data.
+- Compose publishes HTTP on loopback by default. A host TLS proxy can reach it
+  there. Set `TERP_BIND_ADDRESS` when the production ingress needs another host
+  interface. Development Compose keeps its local services on loopback.
+- Frontend lint evaluates the shipped boundary rules on the app source tree even
+  when the project customizes its ESLint rules or ignores.
+- Strict release gates require a unique verdict for every built-in release check
+  and every check declared by the committed application. The scaffold requires
+  the pytest plugin that enforces runtime isolation.
+
 
 - **`terp migrate grant-runtime` takes `EXECUTE` from `PUBLIC` on the app's routines (ADR
   0071).** PostgreSQL lets `PUBLIC` execute every function, procedure, aggregate and window
@@ -108,6 +122,8 @@ decision, 0001 onwards.
     view`, against the frontend's registry);
   - `template-behind`: the scaffolding was rendered from an older template than the platform
     the app runs;
+  - `scaffolding-defect`: a defect in the app's own scaffolding that a template release fixed,
+    read from its files, never a version behind (ADR 0218, below);
   - `known-vulnerability`: a package in `uv.lock` or in any npm lock the release plan builds a
     web image from matches a published advisory in OSV. One advisory per flaw, with its
     aliases, the severity its source gives, and the lowest version that clears every
@@ -187,6 +203,54 @@ decision, 0001 onwards.
   `revision_header` reads `down_revision`, from its one plain module-level assignment, and
   returns it as written, `None` where the file assigns none. It imports and runs nothing.
 
+- **A process that cannot write its storage root does not start (ADR 0218).** An app
+  rendered from the 0.34 template answered 500 to every upload in production: its image ran as
+  a user that cannot write `/srv/var/files`, and nothing noticed before a user uploaded.
+  `terp.core.boot_checks.register_boot_check(name, check)` lets a capability register a check when it is
+  imported, and the registry's public surface offers no way to remove one. Its private
+  mapping can still be emptied from app code (`terp.core.boot_checks._checks.clear()`), and no
+  rule refuses that: it changes what the framework reads rather than one of its functions,
+  which ADR 0213 records as outside the subject of `no_framework_patching`. `create_app` runs
+  every registered check beside the ADR 0212 comparison:
+  outside `ENVIRONMENT=local` a check's sentence is a `BootError` (logged as `uncaught
+  BootError: ...`, which Terp Studio shows on a deploy and at release verification), in local
+  a warning. The files capability registers one. `StorageBackend.boot_problem()` (default
+  `None`, so a network store is not called at boot) is asked of every storage profile, and
+  `LocalFilesystemStorage` creates its root and writes and removes a probe file there. A
+  failure names the path, the cause, the user the app runs as, and the remedy. A writable root
+  on the same filesystem as `/` is a warning outside local (`boot_warning()`), never a
+  refusal.
+- **`terp maintenance` names the files defect of a pre-0.35 render, under a new kind,
+  `scaffolding-defect`.** For an app that installs `terp-cap-files` and builds its own image,
+  a `Dockerfile.prod` or `docker-compose.prod.yml` in which no line but a comment names
+  `var/files` (or either file missing, where the recorded ref is a release older than 0.35.0)
+  is a `scaffolding-defect` finding with the subject `terp-cap-files`. It reads the text, not
+  ownership: a line such as `VOLUME /srv/var/files`, which leaves the mount point owned by
+  root, reads as fixed, and the process's own boot check is what proves the root writable. Its
+  remedy opens with what is wrong and the fix, then gives the lines to add to the image and the
+  profile, the re-render that brings them, and the one-time `chown` of a volume an older image
+  created. It is a defect in the render's files, not a version behind, so its `location` is the
+  file, its `fixed_in` is 0.35.0, the template release that fixed it, and its `installed` and
+  `latest` are `null`. In the document this adds one kind and nothing else: ADR 0214's list
+  gains `scaffolding-defect` after `template-behind`, every finding keeps the same keys, and
+  the format version stays `terp_maintenance: 1`, which this release is the first to publish.
+
+- **A `deployment.json` nested deeper than 64 is refused whole, before it is parsed
+  (terp-spec 0.47.0).** What a parser does with a deeply nested file is where its own stack
+  ends: on one interpreter release the reader raised an error nothing caught, and on the
+  next it read the file. A refusal written for the first could not hold on the second, so
+  none was shipped. The depth is now a number of the contract. The reader counts
+  how deep the file's objects and arrays nest, in the text and before anything parses it,
+  the document itself being the first level. More than 64 is one finding at the file:
+  `deployment.json is nested too deeply: its objects and arrays nest 65 deep (allowed: one
+  JSON object, nested at most 64 deep)`, in the words every reader shares. A valid
+  declaration nests a handful deep, so no app that passed before is refused. `terp promote`
+  refuses a carried declaration nested that deep the same way.
+
+  The limit comes from terp-spec 0.47.0 and holds in 0.48.0, the release this version pins
+  (see Changed). The corpus gains the case 0.47.0's fixtures name
+  (`deployment_declaration_is_readable`, violation-56).
+
 ### Changed
 
 - Example and generated backend images use Python 3.15 slim. The production
@@ -213,6 +277,63 @@ decision, 0001 onwards.
   Standard 0.48.0 as the release its declaration was written against.
 
 ### Fixed
+
+- **A generated app's conformance suite pins the Playwright whose browser its runner
+  carries.** `conformance/package.json` asked for `"@playwright/test": "^1.50.0"`, so an
+  install resolved to the newest Playwright on npm. Terp Studio runs the suite with the
+  Chromium of one release (1.62.1), baked into its image, and a test run downloads no
+  browser, so the suite found none there and every deploy failed its verification. The
+  template now pins `1.62.1` exactly, and the app's Dependabot leaves `@playwright/test`,
+  `playwright` and `playwright-core` alone in `/conformance`, with a comment saying why.
+  Studio moves its image to a new pin together with the framework release that carries it.
+  A test holds the pin exact and the comment to it, and another holds `.gitignore` over
+  everything the suite writes while it runs (`node_modules`, `test-results/`,
+  `playwright-report/`), so a gate that runs it leaves the checkout unchanged.
+  `conformance/package-lock.json` is committed like the frontend's lock: the generated CI
+  installs the suite the way Terp Studio does, `npm ci` from that lock and
+  `npm install --no-package-lock` where an app has none yet, and its comment and the
+  README say so. Every release moves the suite's `@terpjs/conformance` pin, and `npm ci`
+  refuses the lock it left behind, so the upgrade re-locks the suite too: both recipes of
+  `terp upgrade --check`, the README's upgrade block and `terp guide deployment` run
+  `npm --prefix conformance install` and say to commit its lock. Tests hold every install
+  of the suite in the workflow to that step, run the step with a lock and without one, and
+  hold the three upgrade texts to the suite's install.
+- **A late storage failure is a typed 502, not a 500.** An `OSError` from the local
+  adapter's `put`, `open` or `delete` is now a `FileStorageError` (`file_storage_failed`),
+  with the operation, root, key and error in `log_context` and never in the response. An
+  unknown key stays a 404. An upload whose cleanup fails too keeps its own error and logs the
+  cleanup's.
+- **The example app can store a file in production.** Its image now makes `/srv/var/files`
+  owned by the user it runs as, its production profile mounts a `files-data` volume there,
+  and its `deployment.json` declares that volume with a backup policy. `prod-smoke` stores a
+  file through the API and reads it back from a new container, and template acceptance stores
+  and reads through the files capability instead of writing the path itself, so this kind of
+  defect turns both lanes red.
+- **Celery beat keeps its schedule in memory unless the app names a file.** Celery's default
+  scheduler opens a schedule file under a relative default name in the working directory,
+  which the production image's user cannot write, so an app that ran the documented `celery -A
+  your.celery_app beat` from the backend image would stop at beat's first start; it also reads
+  that file with `shelve`, which unpickles it. Where the app chose neither `beat_scheduler` nor
+  `beat_schedule_filename`, `CeleryBeatScheduler.install()` now sets Celery's in-memory
+  `celery.beat:Scheduler`: beat writes no file, makes no directory and unpickles nothing. The
+  file was beat's cache; the schedule ledger settles each tick, and `install()` connects
+  `catch_up()` to `beat_init`, so beat settles the time it was down whenever it starts. A
+  scheduler or a file the app's config names is kept. At the command line `-s` alone is now
+  ignored, and beat says so in a warning when it starts; pass `-S
+  celery.beat:PersistentScheduler -s <path>` to keep a file, in a directory only the app's user
+  can write (see the upgrade notes).
+- `terp new module` generates PascalCase model and view names for compound module names.
+  Names whose generated code did not compile, such as `switch`, `false` and `s`, now get
+  valid code.
+  The starter view uses the read schema exported by its backend in the typed-client
+  example and propagates failed requests through the resource hook. Its navigation label
+  and heading share a localizable title. Set its source text in the generated `title.ts`
+  and translate it in each target locale in `frontend/i18n.json`. The follow-up commands
+  use the chosen Python package and the project’s checked-in architecture budget, and the
+  gate command the generated README and AGENTS.md teach passes that budget too. A
+  `--package` that is not a top-level Python import package, such as a path, a dotted or
+  hyphenated name or a keyword, is now refused before any file is written; the modules
+  generated for one did not import.
 
 - **`grant-runtime` refuses a role name that ends in a line break.** Its pattern was matched
   with `re.match`, whose `$` also matches before a trailing newline, so `"terp_rt\n"` reached
@@ -241,6 +362,44 @@ decision, 0001 onwards.
 
 ### Upgrade notes
 
+- `copier update` pins `@playwright/test` to `1.62.1` in `conformance/package.json` and adds
+  the Playwright ignore to the `/conformance` block of `.github/dependabot.yml`. Run
+  `npm --prefix conformance install` and commit `conformance/package-lock.json`; a Terp Studio
+  that installs the suite runs it as part of the update. An app that already pinned `1.62.1`
+  merges the pin cleanly, and an ignore it added by hand with the same three lines merges too;
+  only a comment it wrote above them meets the template's, once: keep the template's. An app
+  rendered before 0.35.0 also
+  gains `/conformance/test-results/` and `/conformance/playwright-report/` in `.gitignore`; a
+  line it added for the same paths can go.
+- **An app rendered before template 0.35 that uses the files capability refuses to start
+  outside `ENVIRONMENT=local` on this release** until its image makes the storage root
+  writable (ADR 0218). Before, it started and failed every upload with a 500. Terp Studio shows
+  the refusal at release verification, before production. Re-render the scaffolding (`copier
+  update`; the volume comes only when the recorded `use_files` answer is true, so where it is
+  false run `copier update --data use_files=true`), or add `&& mkdir -p /srv/var/files &&
+  chown appuser /srv/var/files` to the `RUN useradd` line of `Dockerfile.prod`, and a
+  `files-data:/srv/var/files` volume on `api` in `docker-compose.prod.yml` with `files-data:`
+  under its top-level `volumes`. A volume an older image created is owned by root: chown it once
+  (`docker compose -f docker-compose.prod.yml run --rm --no-deps --user root api chown 10001
+  /srv/var/files`). `uv run --frozen terp maintenance` names the case. A composition root
+  registers its storage profiles before it calls `create_app`: one registered later is not
+  probed. A local profile on a read-only mount refuses the start outside local too; there is
+  no read-only profile to declare yet (ADR 0218 names the route).
+- Every `create_app` in a process that imports the files capability now creates each local
+  storage profile's root if it is missing: for the default profile, `./var/files` relative to
+  the working directory. In a checkout that is an empty directory, which the template's
+  `.gitignore` already ignores (`/var/`).
+- **An app that runs Celery beat with `-s <path>` now gets beat's in-memory scheduler and no
+  schedule file**, where its config names neither `beat_scheduler` nor
+  `beat_schedule_filename` (`CeleryBeatScheduler.install()`, ADR 0218). `-s` alone is ignored:
+  beat reads and writes no file, logs a warning at start that names the file, and its banner
+  shows `. scheduler -> celery.beat.Scheduler` with no `. db ->` line. To keep a file, pass `-S
+  celery.beat:PersistentScheduler -s <path>` or set `beat_schedule_filename`, in a directory
+  only the app's user can write, because beat unpickles that file. A tick beat missed while it
+  was down is settled at start by each schedule's misfire policy: `install()` connects
+  `catch_up()` to `beat_init` itself, so the app needs no Celery import and no escape marker of
+  its own for it. An app that wired `catch_up()` itself can drop that line and its marker;
+  running it twice settles nothing twice.
 - `copier update` adds `terp-cap-egress` to the `dev` group of `pyproject.toml`; run `uv sync`.
   An app that does not re-render can add `"terp-cap-egress==0.43.0"` to that group by hand.
 - `sign` now refuses a release whose migration histories it cannot list, where it signed it
@@ -261,26 +420,6 @@ decision, 0001 onwards.
   A routine in those schemas that `PUBLIC` may execute and the running role may not revoke
   (another role owns it) makes `grant-runtime` refuse until it runs as that owner, or the
   routine is given to the migration owner.
-
-## 0.42.1 — unreleased
-
-### Added
-
-- **A `deployment.json` nested deeper than 64 is refused whole, before it is parsed
-  (terp-spec 0.47.0).** What a parser does with a deeply nested file is where its own stack
-  ends: on one interpreter release the reader raised an error nothing caught, and on the
-  next it read the file. A refusal written for the first could not hold on the second, so
-  none was shipped. The depth is now a number of the contract. The reader counts
-  how deep the file's objects and arrays nest, in the text and before anything parses it,
-  the document itself being the first level. More than 64 is one finding at the file:
-  `deployment.json is nested too deeply: its objects and arrays nest 65 deep (allowed: one
-  JSON object, nested at most 64 deep)`, in the words every reader shares. A valid
-  declaration nests a handful deep, so no app that passed before is refused. `terp promote`
-  refuses a carried declaration nested that deep the same way.
-
-  The framework pins terp-spec 0.47.0 (`terp-spec` on PyPI, `@terpjs/spec` on npm), and its
-  corpus gains the case that release's fixtures name
-  (`deployment_declaration_is_readable`, violation-56).
 
 ## 0.42.0 — 2026-11-11
 

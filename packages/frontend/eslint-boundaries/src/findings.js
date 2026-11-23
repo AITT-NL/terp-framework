@@ -2,8 +2,8 @@
 /**
  * The machine-readable boundary lint — the frontend analog of `terp check --format json`.
  *
- * `terp-boundaries-lint` runs the app's own ESLint config (the flat config in the cwd,
- * exactly what `eslint .` would load) **and** the escape-hatch budget ratchet (the same
+ * `terp-boundaries-lint` runs the shipped boundary config on app source, the app's own
+ * ESLint config on its configured files, and the escape-hatch budget ratchet (the same
  * check `terp-boundaries-budget` runs) in one command, and publishes one **findings
  * envelope** on stdout:
  *
@@ -50,8 +50,8 @@ import { pathToFileURL } from "node:url";
 
 import { ESLint } from "eslint";
 
-import { checkBudget } from "./budget.js";
-import { activeLayoutContract, catalogRuleId, catalogRuleIds } from "./index.js";
+import { checkBudget, sourceFiles } from "./budget.js";
+import { activeLayoutContract, catalogRuleId, catalogRuleIds, terpBoundaries } from "./index.js";
 import { SPEC_VERSION } from "./spec.js";
 
 /** This package's own version — the `checker.version` a check report carries. */
@@ -108,10 +108,15 @@ export function renderEnvelope(results, cwd = process.cwd(), options = {}) {
   const findings = [];
   const unattributed = [];
   const human = [];
+  const seen = new Set();
   for (const result of results) {
     const relative = path.relative(cwd, result.filePath).split(path.sep).join("/");
     const file = relative === "" ? result.filePath.split(path.sep).join("/") : relative;
     for (const message of result.messages) {
+      // The app config normally includes Terp. Publish a shared diagnostic once.
+      const key = JSON.stringify([file, message.line, message.column, message.ruleId, message.message]);
+      if (seen.has(key)) continue;
+      seen.add(key);
       const rule = catalogRuleId(message);
       const line = Number.isInteger(message.line) && message.line > 0 ? message.line : 1;
       if (rule === null) {
@@ -174,6 +179,16 @@ async function main() {
     args.splice(formatIndex, 2);
   }
   const budgetPath = args[0] ?? path.join(cwd, "escape-hatch-budget.json");
+  // Evaluate the published inventory with the package's config before loading app config.
+  // The budget and the lint walk the same app-authored files, including files an app ignores.
+  const sources = sourceFiles(cwd);
+  const boundaries = new ESLint({
+    overrideConfigFile: true,
+    overrideConfig: terpBoundaries(),
+    globInputPaths: false,
+  });
+  const mandatory = sources.length ? await boundaries.lintFiles(sources) : [];
+
   // The app's own config and ignore set. Two rules also read checked-in declarations
   // outside the linted source file, so include those bytes in the cache namespace.
   // Otherwise fixing i18n.json can replay a stale failure, and breaking it after a
@@ -201,7 +216,7 @@ async function main() {
       ".eslintcache",
     ),
   });
-  const results = await eslint.lintFiles(["."]);
+  const results = [...mandatory, ...await eslint.lintFiles(["."])];
   // The ratchet runs regardless of the lint verdict — both halves always report.
   const budgetProblems = checkBudget(cwd, budgetPath);
   const relativeBudget = path.relative(cwd, budgetPath).split(path.sep).join("/");
