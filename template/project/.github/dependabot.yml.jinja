@@ -71,4 +71,12 @@ updates:
     groups:
       conformance-deps:
         patterns: ["*"]
+    # Not Playwright. Terp Studio runs this suite with the browser of one Playwright release,
+    # baked into its image, and a test run downloads no browser: a newer @playwright/test
+    # finds none there and every test fails. conformance/package.json pins that release
+    # exactly (1.62.1); move it only together with Studio's PLAYWRIGHT_VERSION.
+    ignore:
+      - dependency-name: "@playwright/test"
+      - dependency-name: playwright
+      - dependency-name: playwright-core
 {% endif %}
