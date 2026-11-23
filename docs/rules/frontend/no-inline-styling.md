@@ -8,7 +8,7 @@
 
 ## Why this rule exists
 
-Paint follows the palette, and a framework control keeps the styling and focus treatment it ships with, so a control looks and behaves the same in every app. Inline style and a hardcoded colour in app script paint around the palette, and a class on a framework control, or ink and type an element passes down to the framework component it holds, restyle what the framework owns. So a CSS Module's binding is read only in a className on a native element, naming a class the module defines or choosing between two of them, and a class that sets inherited ink or type goes only on an element that holds the app's own text; a framework control is configured through its props. A style attribute, a className attribute that names no module class, any other read of the binding, and a #hex colour literal in app script are refused.
+Paint follows the palette, and a framework control keeps the styling and focus treatment it ships with, so a control looks and behaves the same in every app. Inline style and a hardcoded colour in app script paint around the palette, and a class on a framework control, or ink and type an element passes down to the framework component it holds, restyle what the framework owns. So a CSS Module's binding is read only in a className on a native element, naming a class the module defines or choosing between two of them, and a class that sets inherited ink or type goes only on an element that holds the app's own text; a framework control is configured through its props. A style attribute, a className attribute that names no module class, any other read of the binding, and a #hex colour in a string literal in app script are refused.
 
 ## How Terp realises this
 
@@ -33,11 +33,11 @@ rule's limits are recorded as data (its corpus's `RESIDUALS.json`), so
 where detection ends is a statement rather than a guess:
 
 - a component an element renders through a value or a call written outside it (`const body = <Card />` rendered as `{body}`, a render function's result) is read as the app's own text when the class's inherited ink and type are checked
-- an element maker called under another name (`createElement as h`, `const { createElement: make } = React`) and a binding assigned from `children` after its declaration are read as the app's own text
+- an element maker called under another name (`createElement as h`, `const { createElement: make } = React`) or through a computed member or `.call` (`React["createElement"]`, `createElement.call`), and a binding taken from `children` other than by destructuring or a member-read initialiser (assigned after its declaration, `children ?? fallback`, a chain of bindings), are read as the app's own text
 - an element with a module class inside a framework control's own children (a `Button` label) is not resolved to the surface that control paints, so its ink and any surface it sets are held to the admitted roles only
 - a list marker (`list-style`) is not checked as inherited, so on an element it also reaches a list a framework component renders inside it (a `Markdown` list)
 - a class or style passed as a key of a props object (spread onto an element, or given to `createElement` or `cloneElement`) and the `class` attribute are not refused; only the `className` and `style` attributes are read
-- a colour literal written other than as `#hex` (`"red"`, `"rgb(255, 0, 0)"`) in app script is not recognised
+- a colour written other than as `#hex` in a string literal (`"red"`, `"rgb(255, 0, 0)"`, a `#hex` in a template literal) in app script is not recognised
 
 **These are not exemptions.** The rule governs those forms exactly as it
 governs any other — a checker is simply not required to find them, so

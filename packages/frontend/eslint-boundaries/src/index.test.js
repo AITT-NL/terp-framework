@@ -303,8 +303,14 @@ describe("terpBoundaries", () => {
     // case is a stylesheet import like any other, refused as a path, and its file is never read.
     for (const source of ["./Board.module.css?url", "./Board.module.css?inline", "./Board.module.css?raw",
       "./parts/Board.module.css", "../Board.module.css", "./Board.MODULE.css"]) {
-      expect(await lint(`import layout from "${source}"; export const W = () => <div className={layout.board} />;`), source)
-        .toContain("no-restricted-imports");
+      // The path refusal, and no stylesheet finding: the sheet beside the component holds refused
+      // lines, and a missing file is a finding too, so a read of either would show here.
+      const rules = await lint(`import layout from "${source}"; export const W = () => <div className={layout.board} />;`);
+      expect(rules, source).toContain("no-restricted-imports");
+      expect(rules, source).not.toContain("terp/no-style-imports");
+      // Under a marker the path refusal is waived and nothing reads the file: no stylesheet finding.
+      const marked = `// terp-allow-no-style-imports: legacy path\nimport layout from "${source}"; export const W = () => <div className={layout.board} />;`;
+      expect(await lint(marked), source).not.toContain("terp/no-style-imports");
     }
     fs.writeFileSync(sheet, ".board { display: grid }\n.lane { display: grid }");
     expect(await lintMessages(prefix + 'export const W = () => <div className={layout.card} />;')).toEqual([

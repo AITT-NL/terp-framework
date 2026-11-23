@@ -53,15 +53,17 @@ decision, 0001 onwards.
 ### Upgrade notes
 
 - **A sibling CSS Module imported under a `terp-allow-no-style-imports` marker is read now.** On
-  0.43.0 the marker waived the import and nothing read the file. For a `./Name.module.css` beside
-  its component it now covers the import's form only, so each line outside the vocabulary above
-  is refused by its line,
+  0.43.0 the marker waived the import and nothing read the file. For an import spelled exactly
+  `./Name.module.css` (a name of letters, digits, `_`, `.` and `-`, no query, this letter case) it
+  now covers the import's form only, so each line outside the vocabulary above is refused by its
+  line,
   and a hyphenated class is refused with its identifier spelling (`.task-card` becomes
   `.taskCard`, and `styles.taskCard` in the component). Bring the stylesheet inside the
   vocabulary, or move what it refuses to the react-core component that owns that styling. A
-  module imported from another directory is still refused as a path and still unread under its
-  marker: move it beside its component to have it read. Once the import is a single default
-  binding of a sibling module its marker waives nothing: remove it and lower
+  module imported in any other spelling (another directory, a query, another letter case) is
+  still refused as a path and still unread under its marker: import it as `./Name.module.css`
+  beside its component to have it read. Once the import is a single default binding in that
+  spelling its marker waives nothing: remove it and lower
   `escape-hatch-budget.json` to match. A `terp-allow-no-inline-styling` marker on a
   `className={styles.x}` comes off only where the lint passes without it, since it still waives
   a class the module does not define and ink or type on an element that holds a component.

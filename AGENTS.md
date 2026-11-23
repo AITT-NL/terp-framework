@@ -198,8 +198,9 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   styles.board}` for a state), never passed on through a spread, a call or a variable, and a class
   that sets inherited ink or type goes only on an element that holds the app's own text (words,
   expressions, `Trans` and native elements around them), never on one that holds a component,
-  `children` or a spread. A marker on a sibling module's import never waives a finding inside
-  the file; a module imported from elsewhere is refused as a path, and is not read. A screen with a composition of its own uses the body of a
+  `children` or a spread. Only the exact `./Name.module.css` spelling is read, and a marker on
+  that import never waives a finding inside the file; any other spelling (another directory, a
+  query, another letter case) is refused as a path and is not read. A screen with a composition of its own uses the body of a
   plain `Page`. Every boundary rule covers all of `src/`, not only `src/modules/` (ADR 0175): a
   component beside the modules is held exactly like one inside. The bootstrap (`src/main.tsx`)
   is the one file that imports global stylesheets, and only the token pipeline's three:

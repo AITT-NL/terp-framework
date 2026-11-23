@@ -17,11 +17,11 @@
     ],
     "frontend/no-inline-styling": [
       "a component an element renders through a value or a call written outside it (`const body = <Card />` rendered as `{body}`, a render function's result) is read as the app's own text when the class's inherited ink and type are checked",
-      "an element maker called under another name (`createElement as h`, `const { createElement: make } = React`) and a binding assigned from `children` after its declaration are read as the app's own text",
+      "an element maker called under another name (`createElement as h`, `const { createElement: make } = React`) or through a computed member or `.call` (`React[\"createElement\"]`, `createElement.call`), and a binding taken from `children` other than by destructuring or a member-read initialiser (assigned after its declaration, `children ?? fallback`, a chain of bindings), are read as the app's own text",
       "an element with a module class inside a framework control's own children (a `Button` label) is not resolved to the surface that control paints, so its ink and any surface it sets are held to the admitted roles only",
       "a list marker (`list-style`) is not checked as inherited, so on an element it also reaches a list a framework component renders inside it (a `Markdown` list)",
       "a class or style passed as a key of a props object (spread onto an element, or given to `createElement` or `cloneElement`) and the `class` attribute are not refused; only the `className` and `style` attributes are read",
-      "a colour literal written other than as `#hex` (`\"red\"`, `\"rgb(255, 0, 0)\"`) in app script is not recognised"
+      "a colour written other than as `#hex` in a string literal (`\"red\"`, `\"rgb(255, 0, 0)\"`, a `#hex` in a template literal) in app script is not recognised"
     ],
     "frontend/timestamp-inputs-carry-their-offset": [
       "a type read from a name, a call or a member (`type={kind}`), a props object spread onto the element, `createElement`, and an input whose type is set through the DOM rather than in JSX, are not resolved to the local date-and-time control"
