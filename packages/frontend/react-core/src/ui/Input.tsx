@@ -21,10 +21,11 @@ export type InputProps = InputHTMLAttributes<HTMLInputElement>;
  * tag name already makes." A `PasswordInput` export would be the `LoadingButton` mistake, a second
  * name for one `<input>`.
  *
- * An app cannot build this itself, which is why it belongs here rather than in a recipe. The toggle
- * needs a positioned wrapper, and `BOUNDARY_SPEC` refuses both `style` and `className` in module
- * files — exactly the `Button.fullWidth` case: a shape the framework can produce and its consumers
- * cannot ask for.
+ * An app could not build this itself when it was added, which is why it belongs here rather than in
+ * a recipe. The toggle needs a positioned wrapper, and `BOUNDARY_SPEC` refused both `style` and
+ * `className` in module files — exactly the `Button.fullWidth` case: a shape the framework can
+ * produce and its consumers cannot ask for. A CSS Module class (ADR 0217) now reaches a native
+ * wrapper, but never `Input` itself, so the toggle stays the framework's.
  */
 export function Input({ type, ...rest }: InputProps) {
   const strings = useStrings();

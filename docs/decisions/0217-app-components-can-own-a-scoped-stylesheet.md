@@ -50,7 +50,7 @@ their slot contracts (ADR 0079): a stylesheet does not let a native element into
 shared tokens keep the surfaces, text and spacing themed. Visual review and interaction tests
 establish whether a layout works across themes, input methods and viewport widths;
 `expectControlFitsHorizontally` in `@terpjs/conformance` checks that a control fits its
-viewport and every ancestor that clips it.
+viewport and every ancestor whose overflow clips it.
 
 ## Consequences
 

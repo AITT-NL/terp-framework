@@ -32,19 +32,27 @@ const themeColor = /^var\(\s*--color-[a-z0-9-]+\s*\)$/;
 const border = /^border(?:-(?:top|right|bottom|left|(?:block|inline)(?:-start|-end)?))?$/;
 const borderValue = /^(?:0|none|(?:0|(?:\d*\.)?\d+(?:px|em|rem))\s+(?:solid|dashed|dotted|double)\s+(?:var\(\s*--color-[a-z0-9-]+\s*\)|currentColor|transparent))$/i;
 
-function declarationAllowed(node) {
+/** Why a declaration is refused, as the remedy to apply, or null when it is admitted. */
+function declarationProblem(node) {
   const prop = node.prop.toLowerCase();
   const value = node.value.trim();
-  if (node.important) return false;
-  if (prop === "position") return ["static", "relative", "absolute", "sticky"].includes(value);
-  if (prop === "list-style") return value === "none";
-  if (prop === "color" || prop === "background" || prop === "background-color" || prop === "border-color") {
-    if (themeColor.test(value)) return true;
-    if (prop === "color") return value === "currentColor" || value === "inherit";
-    return value === "transparent" || (prop === "border-color" && value === "currentColor");
+  if (node.important) return `drop !important from ${prop}: the stylesheet orders app and framework rules itself`;
+  if (prop === "position") {
+    return ["static", "relative", "absolute", "sticky"].includes(value)
+      ? null : "position takes static, relative, absolute or sticky";
   }
-  if (border.test(prop)) return borderValue.test(value);
-  return layoutProperties.has(prop);
+  if (prop === "list-style") return value === "none" ? null : "list-style takes none; list-style-type sets a marker";
+  if (prop === "color" || prop === "background" || prop === "background-color" || prop === "border-color") {
+    if (themeColor.test(value)) return null;
+    if (prop === "color" && (value === "currentColor" || value === "inherit")) return null;
+    if (prop !== "color" && (value === "transparent" || (prop === "border-color" && value === "currentColor"))) return null;
+    return `${prop} takes a theme token, var(--color-...), with no fallback`;
+  }
+  if (border.test(prop)) {
+    return borderValue.test(value) ? null : `${prop} takes none, or a width, a style and a var(--color-...) token`;
+  }
+  return layoutProperties.has(prop) ? null
+    : `${prop} is not a layout or typography property; paint comes from var(--color-...) tokens and framework controls own focus styling`;
 }
 
 function inspectStylesheet(file) {
@@ -66,7 +74,8 @@ function inspectStylesheet(file) {
     }
     const location = `${path.basename(file)}:${node.source.start.line}`;
     if (node.type === "decl" && node.parent.type === "rule") {
-      if (!declarationAllowed(node)) problems.push(`${location}: unsupported ${node.prop} declaration. Use layout properties and theme color tokens; framework controls own focus styling.`);
+      const problem = declarationProblem(node);
+      if (problem) problems.push(`${location}: ${problem}.`);
       return;
     }
     problems.push(`${location}: use local class selectors and responsive groups (@media, @container or @supports).`);
@@ -128,11 +137,18 @@ export const moduleClassNames = {
               context.report({ node, message: "Apply local classes to native layout elements. Style framework components through their supported props." });
               return;
             }
-            const sheet = sheetFor(context, def.parent.source.value);
+            const source = def.parent.source.value;
+            const sheet = sheetFor(context, source);
             if (sheet.problems.length || sheet.classes.has(member.property.name)) return;
+            const known = [...sheet.classes].sort().join(", ") || "none yet";
+            context.report({
+              node,
+              message: `${source} defines no .${member.property.name} class: define it there, or use one it has (${known}).`,
+            });
+            return;
           }
         }
-        context.report({ node, message: "The className attribute takes an exported local class, for example styles.board from ./Board.module.css." });
+        context.report({ node, message: "The className attribute takes a class of a sibling CSS Module, for example styles.board from import styles from \"./Board.module.css\"." });
       },
     };
   },

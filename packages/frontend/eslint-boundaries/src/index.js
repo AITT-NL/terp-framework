@@ -1263,9 +1263,14 @@ const localDateTimeMessage =
 const deepImportMessage =
   "Import from the package root (@terpjs/react-core, @terpjs/contract), not its internals.";
 const styleImportMessage =
-  "Use a sibling CSS Module for component layout. Global stylesheet imports belong to the bootstrap token pipeline.";
+  "Use a sibling CSS Module for a component's own layout, default-imported: " +
+  `import styles from "./Board.module.css". Any other stylesheet is refused, a library's ` +
+  "included: only the bootstrap imports global ones, and only the token pipeline's three " +
+  "(@terpjs/contract/tokens.css, ./house-style.css, ./theme.css).";
 const dynamicStyleImportMessage =
-  "A stylesheet loaded through import() or import.meta.glob is a stylesheet import like any other. Use a static default import for a local CSS Module.";
+  "A stylesheet loaded through import() or import.meta.glob is a stylesheet import like any " +
+  "other. A component's own layout is a static default import of its sibling CSS Module: " +
+  `import styles from "./Board.module.css".`;
 
 /**
  * The stylesheet extensions the boundary refuses, read off `BOUNDARY_SPEC.styleImportPatterns`

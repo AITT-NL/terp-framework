@@ -23,8 +23,8 @@ decision, 0001 onwards.
   the bootstrap imports the token pipeline's three global stylesheets. The example app's
   planning board uses the same tasks API as its list and stacks its lanes on a narrow screen.
 - `expectControlFitsHorizontally` in `@terpjs/conformance` checks that a control fits its
-  viewport and every ancestor that clips it, where a page can fit while a container cuts a
-  control off.
+  viewport and every ancestor whose overflow clips it: a page can fit while a container cuts
+  a control off.
 
 ## 0.43.0 — 2026-11-23
 

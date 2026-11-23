@@ -351,8 +351,9 @@ export interface DetailListProps extends Omit<HTMLAttributes<HTMLDListElement>, 
    * internals; a `gap` shorthand from here would reset both.
    *
    * The prop exists because its absence was the reason the value was unreachable: `Stack`,
-   * `Grid` and `Card` all take a `gap` on this scale, and app modules may write neither `style`
-   * nor `className` (ADR 0059), so a detail list needing looser rows had nowhere to say so.
+   * `Grid` and `Card` all take a `gap` on this scale, and app modules may write no `style` and no
+   * class on a framework component (ADR 0059, ADR 0217), so a detail list needing looser rows had
+   * nowhere to say so.
    */
   gap?: SpaceToken;
 }

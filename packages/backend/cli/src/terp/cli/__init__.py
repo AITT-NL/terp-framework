@@ -1950,7 +1950,7 @@ Frontend module screens (@terpjs/react-core)
     raw <form>                                 ->  Stack as="form"   (terp guide forms)
     raw fetch / XMLHttpRequest                 ->  useTerpClient() + unwrap (typed client)
     WebSocket / EventSource / sendBeacon       ->  the generated client (one egress path)
-    inline style / global classes             ->  primitives or a sibling CSS Module
+    inline style / global classes              ->  primitives or a sibling CSS Module
     <a href="/...">                            ->  the router's Link (role-aware, no reload)
     deep imports (@terpjs/*/src, @terpjs/*/dist)   ->  import from the package root only
     data-terp / data-terp-* anywhere in src    ->  compose the component that renders it

@@ -144,6 +144,19 @@ describe("terpBoundaries", () => {
       const marked = "// terp-allow-no-style-imports: approved import edge\n" + prefix;
       expect(await lint(marked), decl).toEqual(["terp/no-style-imports"]);
     }
+    // Each refusal names its cause and the remedy, not only that a line is unsupported.
+    fs.writeFileSync(sheet, [".board { padding: 1px !important; }", ".lane { color: white; }", ".card { outline: none; }"].join("\n"));
+    const lines = (await lintMessages(prefix + 'export const W = () => <div className={layout.board} />;'))
+      .filter((text) => text.includes("Board.module.css:"));
+    expect(lines).toEqual([
+      expect.stringContaining("Board.module.css:1: drop !important from padding"),
+      expect.stringContaining("Board.module.css:2: color takes a theme token, var(--color-...)"),
+      expect.stringContaining("Board.module.css:3: outline is not a layout or typography property"),
+    ]);
+    fs.writeFileSync(sheet, ".board { display: grid }\n.lane { display: grid }");
+    expect(await lintMessages(prefix + 'export const W = () => <div className={layout.card} />;')).toEqual([
+      expect.stringContaining("./Board.module.css defines no .card class: define it there, or use one it has (board, lane)."),
+    ]);
     for (const css of ['@import "./global.css";', ".board, body { display: grid }",
       '.board { composes: external from "./global.css" }', ".board { & ~ * { display: none } }"]) {
       fs.writeFileSync(sheet, css);
@@ -556,9 +569,9 @@ describe("terpBoundaries", () => {
     ]) {
       const messages = await lintMessages(`import "${source}";\nexport {};`, BOOTSTRAP_FILE);
       expect(messages, source).toHaveLength(1);
-      expect(messages[0], source).toContain(
-        "Use a sibling CSS Module",
-      );
+      // The refusal names both routes: the module form for a component, the three for the bootstrap.
+      expect(messages[0], source).toContain('import styles from "./Board.module.css"');
+      expect(messages[0], source).toContain("(@terpjs/contract/tokens.css, ./house-style.css, ./theme.css)");
     }
   });
 

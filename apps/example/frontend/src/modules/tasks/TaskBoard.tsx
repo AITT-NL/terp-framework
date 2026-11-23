@@ -1,4 +1,4 @@
-import { Page, Trans, useUiText } from "@terpjs/react-core";
+import { Page, Text, Trans, useUiText } from "@terpjs/react-core";
 
 import styles from "./TaskBoard.module.css";
 import { useTasks } from "./useTasks";
@@ -33,7 +33,7 @@ export function TaskBoard() {
               <ul className={styles.cards}>
                 {items.map((task) => <li key={task.id} className={styles.card}>{task.title}</li>)}
               </ul>
-            ) : <p><Trans id="tasks.board.empty" message="No tasks" /></p>}
+            ) : <Text tone="muted"><Trans id="tasks.board.empty" message="No tasks" /></Text>}
           </section>
         ))}
       </div>
