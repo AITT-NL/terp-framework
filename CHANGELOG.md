@@ -242,8 +242,8 @@ decision, 0001 onwards.
   declaration nests a handful deep, so no app that passed before is refused. `terp promote`
   refuses a carried declaration nested that deep the same way.
 
-  The framework pins terp-spec 0.47.0 (`terp-spec` on PyPI, `@terpjs/spec` on npm), and its
-  corpus gains the case that release's fixtures name
+  The limit comes from terp-spec 0.47.0 and holds in 0.48.0, the release this version pins
+  (see Changed). The corpus gains the case 0.47.0's fixtures name
   (`deployment_declaration_is_readable`, violation-56).
 
 ### Changed
