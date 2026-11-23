@@ -61,6 +61,29 @@ test("the calendar's cursor keeps DOM focus across a month boundary", async ({ p
   expect((await focusState(page)).cursorHoldsFocus).toBe(true);
 });
 
+test("the calendar's cursor keeps DOM focus across a year step", async ({ page }) => {
+  await page.goto("/?theme=midday&only=date-picker-open");
+  await page.locator('[role="grid"]').waitFor({ state: "visible" });
+  await expect.poll(async () => (await focusState(page)).cursorHoldsFocus).toBe(true);
+
+  // A year step re-keys EVERY week row, not just the one a month boundary crosses, so every cell
+  // the grid held is unmounted at once, the focused one with them. The case above in its widest
+  // form, reached through the year keys this time.
+  await page.keyboard.press("Shift+PageDown");
+  await expect.poll(async () => (await focusState(page)).month).toContain("January 2027");
+  expect((await focusState(page)).cursor).toBe("15");
+  expect((await focusState(page)).cursorHoldsFocus).toBe(true);
+
+  await page.keyboard.press("Shift+PageUp");
+  await page.keyboard.press("Shift+PageUp");
+  await expect.poll(async () => (await focusState(page)).month).toContain("January 2025");
+  expect((await focusState(page)).cursorHoldsFocus).toBe(true);
+
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(async () => (await focusState(page)).cursor).toBe("16");
+  expect((await focusState(page)).cursorHoldsFocus).toBe(true);
+});
+
 test("the month buttons keep the focus the pointer gave them", async ({ page }) => {
   await page.goto("/?theme=midday&only=date-picker-open");
   await page.locator('[role="grid"]').waitFor({ state: "visible" });

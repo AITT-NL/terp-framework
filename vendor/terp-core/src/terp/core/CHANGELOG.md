@@ -25,6 +25,11 @@ decision, 0001 onwards.
   to run `uv run terp deployment render` and commit `conformance/Dockerfile.prod`. Its
   `@playwright/test` must be the base image's release, 1.62.1; the build names the version to
   pin where it is not. An app with more than one web unit of its own is refused a suite.
+- **The calendar of `DatePicker` and `DateRangePicker` steps a year at a time.** Two buttons
+  outside the month arrows, « and », go back and forward a year, and in the grid Shift+PageUp
+  and Shift+PageDown do the same, as in the APG date picker dialog. A date a few years off was
+  twelve clicks per year away. The day of the month is kept where the target month has it, so
+  29 February steps to the 28th.
 - **An app component can own its layout in a sibling CSS Module (ADR 0217).** A component
   default-imports `./Board.module.css` and puts `className={styles.board}` on a native
   element. The boundary lint reads the stylesheet: local classes named as script identifiers
@@ -50,8 +55,23 @@ decision, 0001 onwards.
   of its own; the refusal beside the archetype slot check has not shipped, so the rule page
   says so. `frontend/no-style-imports` stays not-applicable.
 
+### Fixed
+
+- **A calendar step past `min` or `max` lands on the bound's month.** The calendar showed the
+  month it stepped to while clamping the cursor to the bound, so a step past a bound could show
+  a month that held no cell for the cursor: Tab then skipped the grid, and a step from the
+  keyboard dropped focus to `<body>`. The view now follows the clamped cursor, so a step past a
+  bound lands on the bound itself; once the cursor is there, a further step past it changes
+  nothing, as an arrow key there already did. A grid key that leaves the cursor where it is, such
+  as ArrowLeft on `min`, no longer makes the next header click pull focus into the grid.
+
 ### Upgrade notes
 
+- **A non-English framework catalog of an app's own supplies two new keys.** `previousYear`
+  ("Previous year") and `nextYear` ("Next year"), the names of the calendar's year buttons.
+  `LocaleProvider` and `defineAppLocales` refuse a catalog without them at start, naming the
+  missing keys: add both to the `strings` of that locale's catalog. An app on `LOCALE_NL` or
+  `LOCALE_EN`, or whose catalog spreads `LOCALE_NL.strings`, changes nothing.
 - **A sibling CSS Module imported under a `terp-allow-no-style-imports` marker is read now.** On
   0.43.0 the marker waived the import and nothing read the file. For an import spelled exactly
   `./Name.module.css` (a name of letters, digits, `_`, `.` and `-`, no query, this letter case) it

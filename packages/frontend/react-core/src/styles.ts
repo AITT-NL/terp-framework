@@ -4459,7 +4459,14 @@ button[data-terp="input"][data-placeholder="true"] {
   color: var(--color-neutral-700);
   cursor: pointer;
 }
+/* The title takes the space between the two button pairs, so the year and month buttons on
+   each side sit together rather than being spread by space-between. It does not wrap: the
+   four buttons leave the longest month name about its own width at 18rem, and a panel that
+   grows a little reads better than a month name broken over two lines. */
 [data-terp="calendar-title"] {
+  flex: 1;
+  text-align: center;
+  white-space: nowrap;
   font-weight: var(--font-weight-semibold);
   color: var(--color-neutral-900);
 }
