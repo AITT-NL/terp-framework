@@ -19,9 +19,19 @@ Refused, every one named and listed together:
   and a build that says more than its context and its Dockerfile: a build argument, a secret
   or a target is a part of the image nobody signs;
 * a web image with no npm lock beside its Dockerfile or in its build context: its SBOM is read
-  from the lock it installs, and one read from nothing would list no package.
+  from the lock it installs, and one read from nothing would list no package;
+* a conformance suite (ADR 0219) whose lock is not committed, whose project name is no image
+  name, whose image would take another image's name, or that has no one web unit of the app's
+  own to drive.
 
 A service under a compose ``profiles:`` key is not part of the release: nothing starts it.
+
+**The conformance suite** (ADR 0219) is an image no service runs: a commit that holds
+``conformance/Dockerfile.prod`` builds it, from the checkout's root as the frontend is built,
+under ``<project>-conformance-prod``, where ``<project>`` is ``[project].name``. In the generated
+state the generator renders that file where the commit holds the suite's lock; under ``"build":
+"own"`` the app writes it. The unit it drives is the one web unit of the app's own web tier: a
+``web`` unit that names no datastore kind and that no recipe builds.
 """
 
 from __future__ import annotations
@@ -29,6 +39,7 @@ from __future__ import annotations
 import pathlib
 import re
 import shlex
+import tomllib
 from dataclasses import dataclass
 from typing import Any
 
@@ -42,7 +53,12 @@ from terp.arch.deployment import (
     resolve_profile,
     services_of,
 )
-from terp.arch.deployment.generator import RELEASE_TAG_VARIABLE
+from terp.arch.deployment.generator import (
+    RELEASE_TAG_VARIABLE,
+    SUITE_DOCKERFILE,
+    SUITE_LOCK,
+    suite_image,
+)
 from terp.arch.deployment.profile import truth_findings
 from terp.cli.release import _npm_lock
 from terp.cli.release._common import ReleaseError
@@ -57,9 +73,12 @@ from terp.cli.release._locks import (
     read_uv_lock,
 )
 
+#: An image's name, as a release pushes it under its registry.
+_IMAGE_NAME = r"[a-z0-9]+(?:[._/-]+[a-z0-9]+)*"
+
 #: An image a release builds: a name, then exactly the per-release tag.
 _TAGGED = re.compile(
-    r"(?P<name>[a-z0-9]+(?:[._/-]+[a-z0-9]+)*):\$\{"
+    rf"(?P<name>{_IMAGE_NAME}):\$\{{"
     + RELEASE_TAG_VARIABLE
     + r"(?::\?[^}]*)?\}"
 )
@@ -82,8 +101,11 @@ class Image:
     web: bool
     #: The npm lock a web image installs, which its SBOM reads: the one its Dockerfile
     #: copies, else the one beside it or at the root of its context (:func:`npm_lock_of`);
-    #: none for any other image.
+    #: for the conformance suite's image, the suite's lock; none for any other image.
     npm_lock: str | None = None
+    #: The conformance suite's image (ADR 0219): no service runs it, and it is neither the
+    #: backend nor a web image.
+    suite: bool = False
 
 
 @dataclass(frozen=True)
@@ -100,9 +122,16 @@ class Plan:
     api: str | None
     #: Every service on a datastore table digest, by its image.
     datastores: dict[str, str]
+    #: The unit the conformance suite drives, or ``None`` where the commit builds no suite.
+    suite_target: str | None = None
 
     def image_of(self, service: str) -> Image | None:
         return next((image for image in self.images if service in image.services), None)
+
+    @property
+    def suite(self) -> Image | None:
+        """The conformance suite's image, or ``None`` where the commit builds none (ADR 0219)."""
+        return next((image for image in self.images if image.suite), None)
 
     @property
     def npm_locks(self) -> tuple[str, ...]:
@@ -378,6 +407,55 @@ def _health(declared: Declaration, services: dict[str, dict[str, Any]], refused:
             )
 
 
+def _project_name(tree: Tree) -> str | None:
+    project = tomllib.loads(tree.read_text("pyproject.toml")).get("project", {}) if tree.has("pyproject.toml") else {}
+    name = project.get("name") if isinstance(project, dict) else None
+    return name if isinstance(name, str) else None
+
+
+def _suite(
+    tree: Tree, declared: Declaration, images: tuple[Image, ...], refused: list[str]
+) -> tuple[Image | None, str | None]:
+    """The conformance suite's image and the unit it drives, where the commit builds one."""
+    if not tree.has(SUITE_DOCKERFILE):
+        return None, None
+    found: list[str] = []
+    project = _project_name(tree)
+    name = suite_image(project) if project is not None else None
+    if name is None or not re.fullmatch(_IMAGE_NAME, name):
+        found.append(
+            f"{SUITE_DOCKERFILE} builds the conformance suite as <project>-conformance-prod, and "
+            f"pyproject.toml's [project].name {project!r} makes no image name of it (allowed: lower "
+            "case letters and digits, joined by '.', '_', '-' or '/')"
+        )
+    elif any(image.name == name for image in images):
+        found.append(
+            f"the conformance suite's image is {name}, which a service of the profile also builds: "
+            "rename that service's image"
+        )
+    if not tree.has(SUITE_LOCK):
+        found.append(
+            f"{SUITE_DOCKERFILE} is committed and {SUITE_LOCK}, which the suite's image installs, "
+            "is not: run npm --prefix conformance install and commit the lock"
+        )
+    else:
+        found.extend(_npm_path_refusals(tree, SUITE_LOCK))
+    own = [
+        unit.id for unit in declared.units
+        if unit.role == "web" and unit.kind is None and declared.recipe(unit.id) is None
+    ]
+    if len(own) != 1:
+        found.append(
+            f"the conformance suite drives the app's own web tier, and this declaration has "
+            f"{len(own)} web units of its own ({', '.join(own) or 'none'}): it needs exactly one "
+            "(a web unit a recipe builds, such as a static site, is not one)"
+        )
+    refused.extend(found)
+    if found or name is None:
+        return None, None
+    return Image(name, ".", SUITE_DOCKERFILE, (), False, SUITE_LOCK, suite=True), own[0]
+
+
 def release_plan(tree: Tree, root: pathlib.Path, table: DatastoreTable) -> Plan:
     """The plan for the tree written out at *root*, or every refusal at once."""
     refused = _tree_refusals(tree)
@@ -397,9 +475,12 @@ def release_plan(tree: Tree, root: pathlib.Path, table: DatastoreTable) -> Plan:
         refused.extend(_npm_path_refusals(tree, lock))
     step, api = _steps(declared, services, refused)
     _health(declared, services, refused)
+    suite, target = _suite(tree, declared, images, refused)
     if refused:
         raise ReleaseError("terp release refuses this commit:\n" + "\n".join(f"- {r}" for r in refused))
-    return Plan(declared, profile, services, images, step, api, datastores)
+    if suite is not None:
+        images = (*images, suite)
+    return Plan(declared, profile, services, images, step, api, datastores, target)
 
 
 __all__ = ["Image", "Plan", "argv", "npm_lock_of", "planned_images", "release_plan", "web_npm_locks", "web_packages"]

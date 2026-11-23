@@ -10,6 +10,22 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.44.0 — unreleased
+
+### Added
+
+- **A release builds its conformance suite into an image of its own** (ADR 0219), so a runner
+  that verifies a release before production can run the suite the release gate runs, with no
+  checkout. Where the checkout commits `conformance/package-lock.json`, the generator renders
+  `conformance/Dockerfile.prod` on Playwright's own image, pinned by digest; `terp release`
+  builds it as `<project>-conformance-prod`, an image no service runs; and `sign` records it as
+  `outputs.suite`: the image, the command it runs, the web unit it drives and the names of the
+  three variables it reads. Nothing changes for an app without a suite.
+- **Upgrading:** an app that commits its suite's lock is told by `terp verify --only generated`
+  to run `uv run terp deployment render` and commit `conformance/Dockerfile.prod`. Its
+  `@playwright/test` must be the base image's release, 1.62.1; the build names the version to
+  pin where it is not. An app with more than one web unit of its own is refused a suite.
+
 ## 0.43.0 — 2026-11-23
 
 ### Security

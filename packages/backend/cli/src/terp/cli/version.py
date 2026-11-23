@@ -250,7 +250,7 @@ _APP_OWNED_SCAFFOLD_FILES = (
 
 #: The production build files the framework's generator owns where deployment.json says
 #: ``"build": "generated"`` (``terp.arch.deployment.generator.OWNED_PATHS``, ADR 0187).
-_GENERATOR_OWNED_FILES = ("Dockerfile.prod", "frontend/Dockerfile.prod", "site/Dockerfile.prod", "docker-compose.prod.yml")
+_GENERATOR_OWNED_FILES = ("Dockerfile.prod", "frontend/Dockerfile.prod", "site/Dockerfile.prod", "conformance/Dockerfile.prod", "docker-compose.prod.yml")
 
 
 def _is_generated(root: pathlib.Path) -> bool:

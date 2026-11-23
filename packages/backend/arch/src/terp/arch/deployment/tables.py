@@ -24,6 +24,7 @@ from __future__ import annotations
 import functools
 import json
 import pathlib
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -33,8 +34,13 @@ BASE_IMAGES_FILE = "base-images.json"
 SYSTEM_PACKAGES_FILE = "system-packages.json"
 
 #: The bases the generated Dockerfiles name, each once: the backend's interpreter, the uv
-#: binary its build stages mount, the frontend's build toolchain and its web server.
-BASE_IMAGE_NAMES = ("nginx", "node", "python", "uv")
+#: binary its build stages mount, the frontend's build toolchain and its web server, and the
+#: browsers the conformance suite runs in (ADR 0219).
+BASE_IMAGE_NAMES = ("nginx", "node", "playwright", "python", "uv")
+
+#: How the Playwright base's tag names its release, which the suite's own ``@playwright/test``
+#: must be: the image holds the browsers of that release alone (ADR 0219).
+PLAYWRIGHT_TAG = re.compile(r"mcr\.microsoft\.com/playwright:v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)-[a-z]+")
 
 #: Where each base digest came from, so the next release can move it the same way. Not part
 #: of the table's format, which carries the image and the tag it was read from.
@@ -48,6 +54,12 @@ BASE_IMAGE_SOURCES: dict[str, str] = {
         "the registry's OCI image index for node:26-slim, read 2026-11-19 with docker "
         "buildx imagetools inspect --raw; the index digest was recomputed from the registry "
         "response, for linux/amd64, arm64/v8, ppc64le and s390x"
+    ),
+    "playwright": (
+        "docker buildx imagetools inspect --raw mcr.microsoft.com/playwright:v1.62.1-noble, read "
+        "2026-11-23: the OCI image index for Playwright 1.62.1 on Ubuntu 24.04, its browsers "
+        "installed for that release, for linux/amd64 and arm64; the index digest was recomputed "
+        "from the registry response"
     ),
     "python": (
         "the registry's OCI image index for python:3.15-slim, read 2026-11-19 with docker "
@@ -85,6 +97,13 @@ class BaseImageTable:
         """The base called *name*; the table always carries all of them."""
         return next(image for image in self.images if image.name == name)
 
+    @property
+    def playwright_version(self) -> str:
+        """The Playwright release the ``playwright`` base's browsers belong to, from its tag."""
+        found = PLAYWRIGHT_TAG.fullmatch(self.get("playwright").tag)
+        assert found is not None  # the reader refuses a table whose tag names none
+        return found.group("version")
+
 
 def read_base_images(raw: Any) -> BaseImageTable:
     """The base-image table from its parsed JSON, refused outright in any other shape."""
@@ -103,6 +122,11 @@ def read_base_images(raw: Any) -> BaseImageTable:
             raise TableError(f"base {name!r} is not pinned by digest alone")
         if not isinstance(entry["tag"], str) or ":" not in entry["tag"]:
             raise TableError(f"base {name!r} names no tag it was read from")
+        if name == "playwright" and PLAYWRIGHT_TAG.fullmatch(entry["tag"]) is None:
+            raise TableError(
+                "base 'playwright' names no Playwright release in its tag, which the suite's "
+                "@playwright/test is held to (allowed: mcr.microsoft.com/playwright:v<x.y.z>-<os>)"
+            )
         read.append(BaseImage(name, entry["image"], entry["tag"]))
     return BaseImageTable(tuple(read))
 

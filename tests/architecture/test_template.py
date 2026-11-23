@@ -1677,7 +1677,7 @@ _CONFORMANCE_INSTALL = (
 
 
 def test_the_conformance_suite_is_installed_from_its_committed_lock() -> None:
-    """The suite's lock is committed like the frontend's, though no image ships the suite.
+    """The suite's lock is committed like the frontend's, and a release builds its image from it.
 
     Terp Studio installs the suite with `npm ci` from that lock, and without one installs
     what conformance/package.json names and writes no lock. The generated CI does the same
