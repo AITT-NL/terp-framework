@@ -299,6 +299,13 @@ describe("terpBoundaries", () => {
     // A sibling module may carry dots in its name, as Vite allows.
     fs.writeFileSync(path.join(path.dirname(MODULE_FILE), "Board.lanes.module.css"), ".lane { display: grid }");
     expect(await lint('import lanes from "./Board.lanes.module.css"; export const W = () => <div className={lanes.lane} />;')).toEqual([]);
+    // The allowance is the sibling spelling exactly: a query, another directory or another letter
+    // case is a stylesheet import like any other, refused as a path, and its file is never read.
+    for (const source of ["./Board.module.css?url", "./Board.module.css?inline", "./Board.module.css?raw",
+      "./parts/Board.module.css", "../Board.module.css", "./Board.MODULE.css"]) {
+      expect(await lint(`import layout from "${source}"; export const W = () => <div className={layout.board} />;`), source)
+        .toContain("no-restricted-imports");
+    }
     fs.writeFileSync(sheet, ".board { display: grid }\n.lane { display: grid }");
     expect(await lintMessages(prefix + 'export const W = () => <div className={layout.card} />;')).toEqual([
       expect.stringContaining("./Board.module.css defines no .card class: define it there, or use one it has (board, lane)."),

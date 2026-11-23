@@ -33,9 +33,9 @@ decision, 0001 onwards.
   and a border token for a border, every ink-on-surface pairing of which the palette declares
   and holds to AA. The binding is read only in a `className` on a native element, one class or a
   choice of two for a state, and a class that sets inherited ink or type goes only on an
-  element that holds the app's own text. Inline `style`, a class that is not the module's
-  own, a class on a framework component, a global selector, an `@import`, a string list marker
-  and a stylesheet loaded through `import()` stay refused, and only the bootstrap imports the
+  element that holds the app's own text. A `style` attribute, a `className` attribute that names
+  no module class or sits on a framework component, a global selector, an `@import`, a string
+  list marker and a stylesheet loaded through `import()` stay refused, and only the bootstrap imports the
   token pipeline's three global stylesheets. The example app's planning board uses
   the same tasks API as its list and stacks its lanes on a narrow screen.
 - `expectControlFitsHorizontally` in `@terpjs/conformance` checks that a control fits its
@@ -52,13 +52,16 @@ decision, 0001 onwards.
 
 ### Upgrade notes
 
-- **A CSS Module imported under a `terp-allow-no-style-imports` marker is read now.** On 0.43.0
-  the marker waived the import and nothing read the file. It now covers the import's form only,
-  so each line of the sibling `*.module.css` outside the vocabulary above is refused by its line,
+- **A sibling CSS Module imported under a `terp-allow-no-style-imports` marker is read now.** On
+  0.43.0 the marker waived the import and nothing read the file. For a `./Name.module.css` beside
+  its component it now covers the import's form only, so each line outside the vocabulary above
+  is refused by its line,
   and a hyphenated class is refused with its identifier spelling (`.task-card` becomes
   `.taskCard`, and `styles.taskCard` in the component). Bring the stylesheet inside the
-  vocabulary, or move what it refuses to the react-core component that owns that styling. Once
-  the import is a single default binding its marker waives nothing: remove it and lower
+  vocabulary, or move what it refuses to the react-core component that owns that styling. A
+  module imported from another directory is still refused as a path and still unread under its
+  marker: move it beside its component to have it read. Once the import is a single default
+  binding of a sibling module its marker waives nothing: remove it and lower
   `escape-hatch-budget.json` to match. A `terp-allow-no-inline-styling` marker on a
   `className={styles.x}` comes off only where the lint passes without it, since it still waives
   a class the module does not define and ink or type on an element that holds a component.

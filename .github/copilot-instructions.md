@@ -64,8 +64,8 @@ primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>`/`<table>`/`
 `<form>`), the generated client only (no raw `fetch` / `XMLHttpRequest` / `WebSocket` /
 `EventSource` / `sendBeacon`), data collections via `DataView`
 ([dataview README](../packages/frontend/react-core/src/dataview/README.md)),
-design‑token styling (`style`, a `className` that is not a CSS Module's own class, and global
-stylesheets are refused in all app source — layout via `Stack` / `Grid` / the page archetypes,
+design‑token styling (a `style` attribute, a `className` attribute that is not a CSS Module's
+own class, and global stylesheet imports are refused in all app source — layout via `Stack` / `Grid` / the page archetypes,
 or a component's sibling `Name.module.css`, default-imported, read only as `className={styles.x}`
 on a native element, whose local classes, layout and type properties and paint the lint reads:
 ink `--color-fg-default` / `-muted` / `-subtle`, surfaces `--color-bg-canvas` / `-surface` /

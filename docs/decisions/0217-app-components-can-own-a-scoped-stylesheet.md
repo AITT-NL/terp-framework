@@ -55,9 +55,11 @@ its props. Ink and type are inherited, so a class that sets them is admitted onl
 that holds the app's own text: words, expressions, the `Trans` and `Fragment` their packages
 export, and native elements around them. An element is refused the class when it holds any other
 component, reads `children` (by name, as a member or computed member, or through a binding
-destructured or assigned from it), makes an element through `createElement` or `cloneElement`,
-or takes a spread or a `children` attribute. A marker on the import waives the import's form
-only, never a finding inside the stylesheet. A CSS-only change invalidates the boundary CLI's
+destructured from it or initialised from a read of it), calls a function named `createElement`,
+`cloneElement`, `jsx` or `jsxs`, or takes a spread or a `children` attribute. A marker on a
+sibling module's import waives the import's form only, never a finding inside the stylesheet; a
+module imported from anywhere but beside its component is refused as a path, and a marker that
+waives that refusal leaves the file unread. A CSS-only change invalidates the boundary CLI's
 lint cache. Every refusal names its line or element, its cause and what would be admitted.
 
 The vocabulary itself (the selector grammar, the properties and the paint roles) is this stack's
@@ -67,9 +69,9 @@ statement: a stylesheet reaches only what its component owns, and paint follows 
 Another stack realises the same intents in its own adapter, so the design document's
 boundary-lint spec names styling as token paint plus a component's own stylesheet.
 
-Inline `style`, a class that is not a module's own, a stylesheet loaded through `import()` or
-`import.meta.glob`, and every other stylesheet import, the bootstrap's three token layers aside,
-are still refused, under the existing catalog ids `frontend/no-inline-styling` and
+A `style` attribute, a `className` attribute that names no module class, a `#hex` colour literal
+in app script, a stylesheet loaded through `import()` or `import.meta.glob`, and every other
+stylesheet import, the bootstrap's three token layers aside, are still refused, under the existing catalog ids `frontend/no-inline-styling` and
 `frontend/no-style-imports`.
 
 ## Context
@@ -94,15 +96,19 @@ tone or a variant. Inside a layout it owns, an app may place its native elements
 its own and give them a surface, a border and a radius from the roles above; where a framework
 block fits, such as a `Card` for a titled group, it composes that block instead.
 
-Three forms stay outside what the lint resolves, recorded in the corpus's `RESIDUALS.json`: a
-component an element renders through a value or a call written elsewhere (`const body =
-<Card />` rendered as `{body}`, or a render function's result), which the lint reads as text; an
-element with a module class inside a
-framework control's own children, such as a `Button` label, whose ink the lint holds to the
-admitted surfaces rather than the one that control paints; and a list marker, which is not
-checked as inherited, so `list-style` on an element also reaches a list a framework component
-renders inside it, such as a `Markdown` list. The guides ask for contrast to be checked in every
-shipped theme, which is where the first two would show.
+The forms outside what the lint resolves are recorded in the corpus's `RESIDUALS.json`. For the
+text check: a component reached through a value or a call written elsewhere (`const body =
+<Card />` rendered as `{body}`, a render function's result), through a call to an element maker
+under another name (`createElement as h`), or through a binding assigned from `children` after
+it is declared, which the lint reads as text. For paint: an element with a module class inside
+a framework control's own children, such as a `Button` label, whose ink and surface the lint
+holds to the admitted roles rather than to the surface that control paints. For list markers:
+`list-style` is not checked as inherited, so on an element it also reaches a list a framework
+component renders inside it, such as a `Markdown` list. And, as before this decision, the class
+and style checks read the `className` and `style` attributes only: a class or style passed as a
+key of a props object (spread onto an element, or given to `createElement` or `cloneElement`),
+the `class` attribute, and a colour written other than as `#hex` are not refused. The guides ask
+for contrast to be checked in every shipped theme, which is where the paint forms would show.
 
 Only paint is held to tokens. Lengths, spacing and type values on an app's own elements are
 the app's: the guides ask for the spacing and type scale tokens, which a house style or
