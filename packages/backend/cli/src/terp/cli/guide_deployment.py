@@ -125,9 +125,11 @@ declaration's own: {"unmanaged": true, "reason": "..."}, or, for the third, "bui
 
 THE GENERATED STATE (ADR 0187)
 
-Under "build": "generated" the production build files are the framework's: the three, and
+Under "build": "generated" the production build files are the framework's: the three,
 site/Dockerfile.prod as well when a web unit names the static-site recipe (A STATIC SITE,
-below). Change deployment.json (or pyproject.toml's name, or the framework version), then:
+below), and conformance/Dockerfile.prod where the checkout commits
+conformance/package-lock.json: the conformance suite's image (ADR 0219), on Playwright's own
+image pinned by digest, which no service runs and a runner verifies a release with. Change deployment.json (or pyproject.toml's name, or the framework version), then:
 
   uv run terp deployment render          writes the render, every file or none, and
                                          removes a generator-owned file the declaration
@@ -348,7 +350,9 @@ build container holds a credential or writes into what is built. Each takes the 
 (its full object name) and reads it from git's object store, never from a working copy:
 
   uv run terp release build --sha <sha> --tag <tag> --registry registry.example/team
-    builds every image the profile builds from the commit's pristine tree, in a BuildKit
+    builds every image the profile builds from the commit's pristine tree, and the
+    conformance suite's image, <project>-conformance-prod, where the commit holds
+    conformance/Dockerfile.prod (ADR 0219), in a BuildKit
     builder made for the job and removed after it, with --pull and no cache, and pushes
     <registry>/<image>:<tag> with the credential your docker configuration holds for this
     release. It writes terp-release-build.json: BuildKit's own digests.

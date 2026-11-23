@@ -40,7 +40,11 @@
   6); and the fixed list gains the site's port and image (decision 9). Amended 2026-11-08 for
   0.41.0: a web image's SBOM is read from the lock that image installs, and a web image with
   none is refused; and `terp promote` checks the schema hash of its own release and refuses a
-  word an older declaration's release does not have (both decision 6).
+  word an older declaration's release does not have (both decision 6). Amended 2026-11-23 by
+  [ADR 0219](0219-a-release-builds-its-conformance-suite-into-an-image-of-its-own.md), proposed
+  that day: a checkout that commits `conformance/package-lock.json` gets a fifth generated file,
+  `conformance/Dockerfile.prod`, on a fifth base, Playwright's; the plan builds it as an image no
+  service runs; and `sign` records it as `outputs.suite` (decision 6).
 - **Date:** 2026-10-21
 - **Relates:** amends [ADR 0062](0062-production-deployment-profile.md) decisions 1 to 4, on top
   of its 2026-10-21 amendment; amends [ADR 0184](0184-a-deployment-declares-its-units.md)

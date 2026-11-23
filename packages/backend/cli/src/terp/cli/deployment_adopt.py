@@ -48,7 +48,7 @@ from terp.arch.deployment import (
     read,
     readable,
 )
-from terp.arch.deployment.generator import FRONTEND_LOCK, SITE_LOCK
+from terp.arch.deployment.generator import FRONTEND_LOCK, SITE_LOCK, SUITE_LOCK
 from terp.arch.deployment.profile import truth_findings
 from terp.arch.deployment.render_check import (
     ANSWER,
@@ -214,6 +214,7 @@ def plan_generated(root: pathlib.Path) -> Plan:
         tables=published_tables(),
         frontend_lock=(root / FRONTEND_LOCK).is_file(),
         site_lock=(root / SITE_LOCK).is_file(),
+        conformance_lock=(root / SUITE_LOCK).is_file(),
     )
     if refused:
         raise AdoptionRefused(

@@ -164,6 +164,8 @@ if not refused and isinstance(declared, Declaration):
     options = {"frontend_lock": (root / FRONTEND_LOCK).is_file()}
     if "site_lock" in inspect.signature(generate).parameters:  # a generator from 0.40.0 on
         options["site_lock"] = (root / "site" / "package-lock.json").is_file()
+    if "conformance_lock" in inspect.signature(generate).parameters:  # one from ADR 0219 on
+        options["conformance_lock"] = (root / "conformance" / "package-lock.json").is_file()
     files, refusals = generate(declared, name, tables=published_tables(), **options)
     refused = [finding.message for finding in refusals]
 print(json.dumps({"owned": list(OWNED_PATHS), "refused": refused,

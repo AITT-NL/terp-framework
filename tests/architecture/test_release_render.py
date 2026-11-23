@@ -170,6 +170,7 @@ def test_the_pinned_generator_renders_the_tree_in_a_process_of_its_own(tmp_path:
         "Dockerfile.prod",
         "frontend/Dockerfile.prod",
         "site/Dockerfile.prod",
+        "conformance/Dockerfile.prod",
         "docker-compose.prod.yml",
     ]
     expected = app_files()

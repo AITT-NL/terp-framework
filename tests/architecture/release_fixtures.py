@@ -98,13 +98,24 @@ SITE_LOCK = {"lockfileVersion": 3, "packages": {"": {"name": "site"}, "node_modu
                                  "resolved": "https://npm.example.org/@site/theme/-/theme-1.2.0.tgz"}}}
 
 
-def app_files(*, web: bool = False, site: bool = False) -> dict[str, bytes]:
+#: The conformance suite's lock (ADR 0219): the Playwright release the base image holds, and
+#: the framework's helpers, so a test can tell what was read from this lock from the others.
+SUITE_LOCK = {"lockfileVersion": 3, "packages": {"": {"name": "conformance"},
+    "node_modules/@playwright/test": {"version": "1.62.1",
+                                      "resolved": "https://registry.npmjs.org/@playwright/test/-/test-1.62.1.tgz"},
+    "node_modules/@terpjs/conformance": {"version": "0.43.0",
+                                         "resolved": "https://registry.npmjs.org/@terpjs/conformance/-/conformance-0.43.0.tgz"}}}
+
+
+def app_files(*, web: bool = False, site: bool = False, suite: bool = False) -> dict[str, bytes]:
     """The app's files, path to bytes, its build files the generator's render.
 
     With *web*, the template's own seed (a web tier beside the api) and a frontend lock. With
     *site* as well, a second web unit ``site`` that names the ``static-site`` recipe, and the
-    site's own manifest and lock.
+    site's own manifest and lock. With *suite* as well, the conformance suite's manifest and
+    lock, and so its image's Dockerfile (ADR 0219).
     """
+    web = web or suite
     if web or site:
         from tests.architecture.deployment_fixtures import seed
 
@@ -118,7 +129,8 @@ def app_files(*, web: bool = False, site: bool = False) -> dict[str, bytes]:
     declared, findings = reader.read(raw, tables.datastores, tables.system_packages)
     assert findings == [] and declared is not None
     rendered, refused = generate(
-        declared, PROJECT, tables=tables, frontend_lock=web or site, site_lock=site
+        declared, PROJECT, tables=tables, frontend_lock=web or site, site_lock=site,
+        conformance_lock=suite,
     )
     assert refused == []
     files: dict[str, bytes] = {
@@ -139,6 +151,10 @@ def app_files(*, web: bool = False, site: bool = False) -> dict[str, bytes]:
     if site:
         files["site/package.json"] = b'{"name": "site", "private": true}\n'
         files["site/package-lock.json"] = json.dumps(SITE_LOCK, indent=2).encode()
+    if suite:
+        files["conformance/package.json"] = b'{"name": "conformance", "private": true}\n'
+        files["conformance/package-lock.json"] = json.dumps(SUITE_LOCK, indent=2).encode()
+        files["conformance/tests/auth.spec.ts"] = b'import { test } from "@playwright/test";\n'
     files.update(rendered)
     return files
 
@@ -187,4 +203,4 @@ class Runs:
         return [call for call in self.calls if tuple(call[: len(prefix)]) == prefix]
 
 
-__all__ = ["PROJECT", "Runs", "TOOLCHAIN", "app_files", "committed_app", "git"]
+__all__ = ["PROJECT", "SUITE_LOCK", "Runs", "TOOLCHAIN", "app_files", "committed_app", "git"]

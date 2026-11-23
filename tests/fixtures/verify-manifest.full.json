@@ -79,11 +79,13 @@
         "Dockerfile.prod",
         "frontend/Dockerfile.prod",
         "site/Dockerfile.prod",
+        "conformance/Dockerfile.prod",
         "docker-compose.prod.yml",
         "deployment.json",
         "pyproject.toml",
         "frontend/package-lock.json",
         "site/package-lock.json",
+        "conformance/package-lock.json",
         ".gitignore",
         ".dockerignore",
         ".copier-answers.yml"

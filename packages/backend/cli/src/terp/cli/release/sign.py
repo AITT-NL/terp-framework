@@ -26,6 +26,11 @@ git and the images from the registry as data, and it judges what a sandbox compu
    document to its own ``terp-arch``'s schema copy and checks
    (:mod:`terp.arch.deployment.resolved_check`), and to the images and volumes the manifest
    records beside it, before the manifest, then version 2, carries it.
+   Where the commit builds its conformance suite (ADR 0219), the suite's image is checked in the
+   registry as every image is, described from the suite's lock as a web image is from its own,
+   kept out of the backend's comparison and of the deployment, and recorded as
+   ``outputs.suite``: its image, the command it runs, the unit it drives and the names of what
+   it reads.
 7. It signs the manifest as a DSSE envelope, with ``--signer <argv>`` (the production path, whose
    key never enters this process) or ``--sign-key <file>``, which it refuses without
    ``--test-key``.
@@ -49,6 +54,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from terp.arch.deployment.datastores import DatastoreTable, read_table
+from terp.arch.deployment.generator import SUITE_COMMAND, SUITE_READS
 from terp.arch.deployment.reader import SPEC_RELEASE
 from terp.arch.deployment.resolved_check import against_manifest, mountable, refusals_for
 from terp.cli.release import dsse
@@ -216,12 +222,25 @@ def _running(plan: Plan, images: dict[str, dict[str, Any]]) -> dict[str, dict[st
     return {"services": services, "units": units}
 
 
+def _suite(plan: Plan) -> dict[str, Any]:
+    """The conformance suite's record (ADR 0219): what a runner runs, and what it gives it."""
+    assert plan.suite is not None and plan.suite_target is not None
+    return {
+        "image": plan.suite.name,
+        "command": list(SUITE_COMMAND),
+        "target": plan.suite_target,
+        "reads": dict(SUITE_READS),
+    }
+
+
 def _deployment(
     arch: Pinned, plan: Plan, table: DatastoreTable, root: pathlib.Path, scratch: pathlib.Path,
     images: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """The resolved deployment the commit's ``terp-arch`` writes, held to this signer's checks:
     the schema and the checks beyond it, then what the manifest records beside it."""
+    # The suite's image runs no unit (ADR 0219): nothing of the deployment mounts or runs it.
+    images = {name: entry for name, entry in images.items() if not entry["image"].suite}
     for entry in images.values():
         unmountable = [path for path in entry["volumes"] if not mountable(path)]
         if unmountable:
@@ -326,7 +345,8 @@ def sign(
         # Every gate format records the one backend image it inspected for schedules.
         # Compute that reference from the checked registry digests and the commit's plan.
         backend_refs = [
-            f"{entry['repository']}@{entry['digest']}" for entry in images.values() if not entry["image"].web
+            f"{entry['repository']}@{entry['digest']}" for entry in images.values()
+            if not entry["image"].web and not entry["image"].suite
         ]
         if backend_refs != [gate.get("image")]:
             raise ReleaseError("the gate must name the verified backend image it inspected; gate this build again")
@@ -338,7 +358,7 @@ def sign(
         documents: dict[str, bytes] = {}
         all_purls: dict[str, list[str]] = {}
         for image_name, entry in sorted(images.items()):
-            if entry["image"].web:  # the plan says which image is the web tier, never the build
+            if entry["image"].web or entry["image"].suite:  # the plan says which, never the build
                 # From the lock the image installs, or refused: never an SBOM read from nothing.
                 packages = web_packages(tree, entry["image"])
                 bom = sbom(image_name, tag, packages, "npm")
@@ -404,6 +424,7 @@ def sign(
                 "vulnerabilityDatabase": scan["database"],
                 **_running(plan, images),
                 **({"deployment": deployment} if deployment is not None else {}),
+                **({"suite": _suite(plan)} if plan.suite is not None else {}),
             },
             {
                 "schedules": gate["schedules"],

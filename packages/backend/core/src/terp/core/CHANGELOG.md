@@ -14,6 +14,17 @@ decision, 0001 onwards.
 
 ### Added
 
+- **A release builds its conformance suite into an image of its own** (ADR 0219), so a runner
+  that verifies a release before production can run the suite the release gate runs, with no
+  checkout. Where the checkout commits `conformance/package-lock.json`, the generator renders
+  `conformance/Dockerfile.prod` on Playwright's own image, pinned by digest; `terp release`
+  builds it as `<project>-conformance-prod`, an image no service runs; and `sign` records it as
+  `outputs.suite`: the image, the command it runs, the web unit it drives and the names of the
+  three variables it reads. Nothing changes for an app without a suite.
+- **Upgrading:** an app that commits its suite's lock is told by `terp verify --only generated`
+  to run `uv run terp deployment render` and commit `conformance/Dockerfile.prod`. Its
+  `@playwright/test` must be the base image's release, 1.62.1; the build names the version to
+  pin where it is not. An app with more than one web unit of its own is refused a suite.
 - **An app component can own its layout in a sibling CSS Module (ADR 0217).** A component
   default-imports `./Board.module.css` and puts `className={styles.board}` on a native
   element. The boundary lint reads the stylesheet: local classes named as script identifiers
@@ -26,6 +37,14 @@ decision, 0001 onwards.
 - `expectControlFitsHorizontally` in `@terpjs/conformance` checks that a control fits its
   viewport and every ancestor whose overflow clips it: a page can fit while a container cuts
   a control off.
+
+### Changed
+
+- **`frontend/no-inline-styling` records its runtime half as deferred, not as not-applicable**
+  (ADR 0084, ADR 0217). A class on a framework control can be seen in the running page, where
+  every react-core control's root carries a `data-terp` marker and react-core renders no class
+  of its own; the refusal beside the archetype slot check has not shipped, so the rule page
+  says so. `frontend/no-style-imports` stays not-applicable.
 
 ### Upgrade notes
 
