@@ -32,8 +32,8 @@ decision, 0001 onwards.
   properties, and paint from the palette's roles, an ink for `color`, a surface for a background
   and a border token for a border, every ink-on-surface pairing of which the palette declares
   and holds to AA. The binding is read only in a `className` on a native element, one class or a
-  choice of two for a state, and a class that sets inherited ink or type is refused on an
-  element that holds a framework component. Inline `style`, a class that is not the module's
+  choice of two for a state, and a class that sets inherited ink or type goes only on an
+  element that holds the app's own text. Inline `style`, a class that is not the module's
   own, a class on a framework component, a global selector, an `@import`, a string list marker
   and a stylesheet loaded through `import()` stay refused, and only the bootstrap imports the
   token pipeline's three global stylesheets. The example app's planning board uses

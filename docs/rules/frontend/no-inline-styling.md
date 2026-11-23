@@ -8,7 +8,7 @@
 
 ## Why this rule exists
 
-Paint follows the palette, and a framework control keeps the styling and focus treatment it ships with, so a control looks and behaves the same in every app. Inline style and a hardcoded colour in app script paint around the palette, and a class on a framework control, or ink and type an element passes down to the framework component it holds, restyle what the framework owns. So a CSS Module's binding is read only in a className on a native element, naming a class the module defines or choosing between two of them, and a class that sets an inherited property is refused on an element that holds a framework component; a framework control is configured through its props. Inline style, any other class name or read of the binding, and colour literals in app script are refused.
+Paint follows the palette, and a framework control keeps the styling and focus treatment it ships with, so a control looks and behaves the same in every app. Inline style and a hardcoded colour in app script paint around the palette, and a class on a framework control, or ink and type an element passes down to the framework component it holds, restyle what the framework owns. So a CSS Module's binding is read only in a className on a native element, naming a class the module defines or choosing between two of them, and a class that sets inherited ink or type goes only on an element that holds the app's own text; a framework control is configured through its props. Inline style, any other class name or read of the binding, and colour literals in app script are refused.
 
 ## How Terp realises this
 
@@ -32,8 +32,9 @@ A check precise enough to have no false positives has limits. This
 rule's limits are recorded as data (its corpus's `RESIDUALS.json`), so
 where detection ends is a statement rather than a guess:
 
-- a framework component an element renders through a value written outside it (`const body = <Card />` rendered as `{body}`), other than `children`, is not resolved when the class's inherited ink and type are checked
+- a component an element renders through a value written outside it (`const body = <Card />` rendered as `{body}`) is read as the app's own text when the class's inherited ink and type are checked
 - an element with a module class inside a framework control's own children (a `Button` label) is not resolved to the surface that control paints, so its ink is held to the admitted surfaces only
+- a list marker (`list-style`) is not checked as inherited, so on an element it also reaches a list a framework component renders inside it (a `Markdown` list)
 
 **These are not exemptions.** The rule governs those forms exactly as it
 governs any other — a checker is simply not required to find them, so

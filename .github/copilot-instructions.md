@@ -66,9 +66,11 @@ primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>`/`<table>`/`
 ([dataview README](../packages/frontend/react-core/src/dataview/README.md)),
 design‑token styling (`style`, a `className` that is not a CSS Module's own class, and global
 stylesheets are refused in all app source — layout via `Stack` / `Grid` / the page archetypes,
-or a component's sibling `Name.module.css`, default-imported, whose local classes, layout
-properties and `var(--color-*)` paint the lint reads, ADR 0217; `src/main.tsx` alone imports
-the token pipeline's three stylesheets), independent modules (no module imports a sibling, and no code
+or a component's sibling `Name.module.css`, default-imported, read only as `className={styles.x}`
+on a native element, whose local classes, layout and type properties and paint the lint reads:
+ink `--color-fg-default` / `-muted` / `-subtle`, surfaces `--color-bg-canvas` / `-surface` /
+`-subtle`, `--color-border-*` borders, with ink and type only on an element that holds the app's
+own text, ADR 0217; `src/main.tsx` alone imports the token pipeline's three stylesheets), independent modules (no module imports a sibling, and no code
 outside the modules imports into one), in-app links via the router (no raw
 `<a href="/...">`), every routed view framed by a page archetype (refused at runtime
 otherwise), optional slot-typed layout contracts (ADR 0079: a checked-in

@@ -161,7 +161,7 @@ describe("terpBoundaries", () => {
     expect((await lintMessages(prefix + 'export const W = () => <div className={layout.board} />;'))
       .filter((text) => text.includes("Board.module.css:"))).toEqual([
       expect.stringContaining("Board.module.css:1: border-top-color is not among the properties a CSS Module may set (layout, typography, and paint through color, background, background-color, border-color and the border shorthands); what it would style belongs to the react-core component that owns it, or to a token or prop asked of the framework."),
-      expect.stringContaining("Board.module.css:2: background takes a surface token, one of var(--color-bg-canvas), var(--color-bg-surface), var(--color-bg-subtle), var(--color-bg-summary), with no fallback, or transparent."),
+      expect.stringContaining("Board.module.css:2: background takes a surface token, one of var(--color-bg-canvas), var(--color-bg-surface), var(--color-bg-subtle), with no fallback, or transparent."),
       expect.stringContaining("Board.module.css:2: list-style-type takes a counter style keyword, such as disc or decimal; a string or symbols() puts copy on screen that no catalog translates"),
       expect.stringContaining("Board.module.css:3: .task-card cannot be named from script, since className reads a class as styles.<name>; call it .taskCard."),
     ]);
@@ -219,18 +219,63 @@ describe("terpBoundaries", () => {
           "a call or a variable could reach a framework control.",
       );
     }
-    // Ink and type are inherited: set on an element that holds a framework component, they would
-    // restyle its text, so they go on the element that holds the app's own text.
+    // Ink and type are inherited: set on an element that holds anything but the app's own text,
+    // they would restyle text the framework owns, so they go on the element that holds that text.
     fs.writeFileSync(sheet, ".lane { color: var(--color-fg-muted); text-transform: uppercase; }\n.board { display: grid }");
     expect(await lintMessages(prefix + "export const W = ({ t }) => <section className={layout.lane}><Card title={t} /></section>;")).toEqual([
-      ".lane sets color, text-transform, which <Card> inside this element would inherit, restyling text the " +
-        "framework owns: set ink and type on the element that holds the app's own text.",
+      ".lane sets color, text-transform, which <Card> inside this element would inherit: ink and type go on an " +
+        "element that holds only the app's own text (words, expressions, Trans, and native elements around them), " +
+        "so keep the component, children or spread outside it.",
     ]);
-    expect(await lintMessages(prefix + "export const W = ({ items }) => <ul className={layout.lane}>{items.map((i) => <li key={i}><Badge>{i}</Badge></li>)}</ul>;"))
-      .toEqual([expect.stringContaining(".lane sets color, text-transform, which <Badge> inside this element would inherit")]);
-    expect(await lintMessages(prefix + "export const W = ({ children }) => <div className={layout.lane}>{children}</div>;"))
-      .toEqual([expect.stringContaining(".lane sets color, text-transform, which {children} inside this element would inherit")]);
+    for (const [body, holder] of [
+      ["{items.map((i) => <li key={i}><Badge>{i}</Badge></li>)}", "<Badge>"],
+      ["{children}", "{children}"],
+      ["{open && children}", "{children}"],
+      ["{children ?? null}", "{children}"],
+      ["{props?.children}", "{props?.children}"],
+      ["{Children.map(children, (c) => <li>{c}</li>)}", "{children}"],
+    ]) {
+      const code = `export const W = ({ items, children, open, props }) => <ul className={layout.lane}>${body}</ul>;`;
+      expect(await lintMessages(prefix + code), body).toEqual([
+        expect.stringContaining(`.lane sets color, text-transform, which ${holder} inside this element would inherit`),
+      ]);
+    }
+    expect(await lintMessages(prefix + "export const W = (props) => <section className={layout.lane} {...props} />;"))
+      .toEqual([expect.stringContaining(".lane sets color, text-transform, which a spread of props inside this element would inherit")]);
+    expect(await lintMessages(prefix + "export const W = ({ t }) => <section className={layout.lane} children={<Card title={t} />} />;"))
+      .toEqual([expect.stringContaining(".lane sets color, text-transform, which a children attribute inside this element would inherit")]);
+    // The app's own text, in each spelling the lint reads as text, takes ink and type.
+    for (const body of ["{t}", '<Trans id="w.note" message="Nothing yet" />', "<Fragment key={t}><strong>{t}</strong></Fragment>",
+      "{items.map((i) => <li key={i}>{i}</li>)}", "{text(label)}"]) {
+      expect(await lint(prefix + `export const W = ({ t, items, text, label }) => <ul className={layout.lane}>${body}</ul>;`), body).toEqual([]);
+    }
     expect(await lint(prefix + "export const W = ({ t }) => <div className={layout.board}><p className={layout.lane}>{t}</p><Card /></div>;")).toEqual([]);
+    // Each inherited type property is held the same way; a list marker and layout are not inherited text.
+    for (const decl of ["font-size: 1rem", "font-weight: 600", "font-family: serif", "line-height: 1.5",
+      "letter-spacing: 0.02em", "word-spacing: 1px", "white-space: nowrap", "text-align: center", "text-wrap: balance",
+      "overflow-wrap: anywhere", "font-style: italic", "font: inherit"]) {
+      fs.writeFileSync(sheet, `.lane { ${decl}; }`);
+      expect(await lintMessages(prefix + "export const W = () => <div className={layout.lane}><Card /></div>;"), decl)
+        .toEqual([expect.stringContaining(`.lane sets ${decl.split(":")[0]}, which <Card> inside this element would inherit`)]);
+    }
+    fs.writeFileSync(sheet, ".lane { list-style: none; display: grid; position: sticky; }");
+    expect(await lint(prefix + "export const W = ({ t }) => <ul className={layout.lane}><li><Button>{t}</Button></li></ul>;")).toEqual([]);
+    // position takes the values that keep an element in its own layout; fixed is the shell's.
+    fs.writeFileSync(sheet, ".lane { position: fixed; }");
+    expect(await lintMessages(prefix + "export const W = () => <div className={layout.lane} />;")).toEqual([
+      "Board.module.css:1: position takes static, relative, absolute or sticky.",
+    ]);
+    // A declaration outside a rule, an at-rule outside the three groups, and a nested rule each
+    // name what the stylesheet may hold instead.
+    fs.writeFileSync(sheet, ["color: var(--color-fg-default);", "@layer app { .lane { display: grid } }", ".lane { .inner { display: grid } }"].join("\n"));
+    expect(await lintMessages(prefix + "export const W = () => <div className={layout.lane} />;")).toEqual([
+      "Board.module.css:1: a declaration belongs inside a rule for one of this module's classes.",
+      "Board.module.css:2: @layer is refused; group rules only in @media, @container or @supports.",
+      "Board.module.css:3: a rule holds declarations only; nest no rule or at-rule inside it.",
+    ]);
+    // A sibling module may carry dots in its name, as Vite allows.
+    fs.writeFileSync(path.join(path.dirname(MODULE_FILE), "Board.lanes.module.css"), ".lane { display: grid }");
+    expect(await lint('import lanes from "./Board.lanes.module.css"; export const W = () => <div className={lanes.lane} />;')).toEqual([]);
     fs.writeFileSync(sheet, ".board { display: grid }\n.lane { display: grid }");
     expect(await lintMessages(prefix + 'export const W = () => <div className={layout.card} />;')).toEqual([
       expect.stringContaining("./Board.module.css defines no .card class: define it there, or use one it has (board, lane)."),

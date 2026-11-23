@@ -2,7 +2,7 @@
   "id": "frontend/no-inline-styling",
   "surface": "frontend",
   "title": "App classes come from local CSS Modules",
-  "intent": "Paint follows the palette, and a framework control keeps the styling and focus treatment it ships with, so a control looks and behaves the same in every app. Inline style and a hardcoded colour in app script paint around the palette, and a class on a framework control, or ink and type an element passes down to the framework component it holds, restyle what the framework owns. So a CSS Module's binding is read only in a className on a native element, naming a class the module defines or choosing between two of them, and a class that sets an inherited property is refused on an element that holds a framework component; a framework control is configured through its props. Inline style, any other class name or read of the binding, and colour literals in app script are refused.",
+  "intent": "Paint follows the palette, and a framework control keeps the styling and focus treatment it ships with, so a control looks and behaves the same in every app. Inline style and a hardcoded colour in app script paint around the palette, and a class on a framework control, or ink and type an element passes down to the framework component it holds, restyle what the framework owns. So a CSS Module's binding is read only in a className on a native element, naming a class the module defines or choosing between two of them, and a class that sets inherited ink or type goes only on an element that holds the app's own text; a framework control is configured through its props. Inline style, any other class name or read of the binding, and colour literals in app script are refused.",
   "layer": "static-portable",
   "enforcement": [
     {

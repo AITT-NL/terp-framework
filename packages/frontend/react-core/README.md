@@ -250,7 +250,10 @@ marker, counted by the escape-hatch budget.
 Choose the layout for the user’s task. Compose existing controls and use the body of
 a plain `Page` when a screen needs its own layout. A component can import a sibling
 `./Board.module.css` with a static default import and use `className={styles.board}`.
-Use local class selectors and theme tokens for colors, typography and spacing.
+Use local class selectors, a class on a native element only, and the palette's roles for paint:
+`--color-fg-default`, `-muted` or `-subtle` for ink, `--color-bg-canvas`, `-surface` or
+`-subtle` for a surface, a `--color-border-*` token for a border; set ink and type on an element
+that holds only the app's own text. Use the spacing and type scale tokens for lengths and type.
 Responsive rules can use `@media` or `@container`. Keep keyboard focus visible and
 check the layout in narrow viewports and each supported theme. The following primitives implement common layouts.
 

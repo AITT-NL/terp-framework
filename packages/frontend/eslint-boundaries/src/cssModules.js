@@ -3,8 +3,9 @@ import path from "node:path";
 
 import postcss from "postcss";
 
-// A sibling file keeps the stylesheet in the component's module boundary.
-export const localModuleSource = String.raw`\./[A-Za-z0-9_-]+\.module\.css`;
+// A sibling file keeps the stylesheet in the component's module boundary. The name holds no
+// slash, so the file sits beside the component; dots are allowed (`Board.lanes.module.css`).
+export const localModuleSource = String.raw`\./[A-Za-z0-9_][A-Za-z0-9_.-]*\.module\.css`;
 const localModule = new RegExp(`^${localModuleSource}$`);
 
 // CSS Modules scope class names, but also accept global selectors, cross-file composition
@@ -38,12 +39,15 @@ const layoutProperties = new Set(`
  * Paint takes a palette role, not merely a `--color-*` token. Every ink here over every surface
  * here is a text pair the palette declares and holds to AA in every theme (index.test.js checks
  * that against @terpjs/contract's token-pairs.json), so a pairing an app forms from them, on one
- * element or across two, is one the palette already measures. A brand fill, a status ink, the
- * accent and the primitive ramp stay with the framework controls that carry their partners.
+ * element or across two, is one the palette already measures. The surfaces are the three the
+ * framework sets its own components on (the canvas, a surface, a subtle container), so a
+ * framework control an app places on one meets no background it does not meet in the
+ * framework's own pages. A brand fill, a status ink, the accent, the summary band and the
+ * primitive ramp stay with the framework controls that carry their partners.
  */
 export const PAINT_ROLES = {
   ink: ["--color-fg-default", "--color-fg-muted", "--color-fg-subtle"],
-  surface: ["--color-bg-canvas", "--color-bg-surface", "--color-bg-subtle", "--color-bg-summary"],
+  surface: ["--color-bg-canvas", "--color-bg-surface", "--color-bg-subtle"],
   border: ["--color-border-default", "--color-border-strong", "--color-border-subtle"],
 };
 const roleToken = (role) => new RegExp(String.raw`^var\(\s*(?:${PAINT_ROLES[role].join("|")})\s*\)$`);
@@ -60,13 +64,14 @@ const borderValue = new RegExp(
   String.raw`(?:var\(\s*(?:${PAINT_ROLES.border.join("|")})\s*\)|currentColor|transparent))$`, "i");
 
 /**
- * The properties a descendant inherits. On an element that holds a framework component they
- * would reach into it and restyle text the framework owns, so they belong on the element that
- * holds the app's own text.
+ * The ink and type properties a descendant inherits. On an element that holds a component they
+ * would reach into it and restyle text the framework owns, so they belong on an element whose
+ * content is the app's own text. A list marker is left out: it paints only a list item, and a
+ * list of the app's own tiles has to be able to drop its bullets whatever the tiles hold.
  */
 const INHERITED = new Set(`
   color font font-family font-size font-style font-weight line-height letter-spacing word-spacing
-  text-align text-transform white-space text-wrap overflow-wrap list-style list-style-type
+  text-align text-transform white-space text-wrap overflow-wrap
 `.trim().split(/\s+/));
 
 /** Why a declaration is refused, as the remedy to apply, or null when it is admitted. */
@@ -219,24 +224,40 @@ function moduleMember(context, node, expression) {
   return { source: def.parent.source.value, name: expression.property.name };
 }
 
-/** The first framework (or app) component an element renders inside itself, or `{children}`. */
-function componentInside(element, sourceCode) {
+// Read as the app's own text: words, an expression that renders no element and reads no
+// `children`, a Trans, a fragment, and native elements holding the same.
+const TRANSPARENT = new Set(["Trans", "Fragment", "React.Fragment"]);
+
+/**
+ * The first thing inside *element* the lint cannot read as the app's own text: a component, a
+ * `children` read in any spelling, a spread or a `children` attribute. Null when there is none.
+ */
+function notAppText(element, sourceCode) {
+  const attributesHold = (opening) => {
+    for (const attribute of opening.attributes) {
+      if (attribute.type === "JSXSpreadAttribute") return `a spread of ${sourceCode.getText(attribute.argument)}`;
+      if (attribute.name.name === "children") return "a children attribute";
+    }
+    return null;
+  };
+  const own = attributesHold(element.openingElement);
+  if (own) return own;
   const stack = [...element.children];
   while (stack.length) {
     const node = stack.pop();
     if (!node || typeof node.type !== "string") continue;
     if (node.type === "JSXElement") {
-      const name = node.openingElement.name;
-      if (name.type !== "JSXIdentifier" || !/^[a-z]/.test(name.name)) return `<${sourceCode.getText(name)}>`;
+      const tag = node.openingElement.name;
+      const name = sourceCode.getText(tag);
+      if (!(tag.type === "JSXIdentifier" && /^[a-z]/.test(name)) && !TRANSPARENT.has(name)) return `<${name}>`;
+      const held = attributesHold(node.openingElement);
+      if (held) return held;
       stack.push(...node.children);
       continue;
     }
-    if (node.type === "JSXExpressionContainer") {
-      const expression = node.expression;
-      if ((expression.type === "Identifier" && expression.name === "children")
-          || (expression.type === "MemberExpression" && !expression.computed && expression.property.name === "children")) {
-        return "{children}";
-      }
+    if (node.type === "Identifier" && node.name === "children") return "{children}";
+    if (node.type === "MemberExpression" && !node.computed && node.property.name === "children") {
+      return `{${sourceCode.getText(node)}}`;
     }
     for (const key of sourceCode.visitorKeys[node.type] ?? []) {
       const value = node[key];
@@ -303,11 +324,12 @@ export const moduleClassNames = {
             continue;
           }
           const inherited = [...(sheet.inherited.get(name) ?? [])].sort();
-          const holder = inherited.length ? componentInside(node.parent.parent, context.sourceCode) : null;
+          const holder = inherited.length ? notAppText(node.parent.parent, context.sourceCode) : null;
           if (holder) {
             report(node,
-              `.${name} sets ${inherited.join(", ")}, which ${holder} inside this element would inherit, restyling ` +
-              "text the framework owns: set ink and type on the element that holds the app's own text.");
+              `.${name} sets ${inherited.join(", ")}, which ${holder} inside this element would inherit: ink and ` +
+              "type go on an element that holds only the app's own text (words, expressions, Trans, and native " +
+              "elements around them), so keep the component, children or spread outside it.");
           }
         }
       },

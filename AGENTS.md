@@ -190,14 +190,15 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   stylesheet and admits local class selectors named as script identifiers (`.taskCard`, never
   `.task-card`), `@media` / `@container` / `@supports` groups, layout and typography
   properties, and paint from the palette's roles only: ink (`--color-fg-default` / `-muted` /
-  `-subtle`) for `color`, a surface (`--color-bg-canvas` / `-surface` / `-subtle` / `-summary`)
-  for a background, a `--color-border-*` token for a border, so every pairing an app forms is one
-  the palette declares and measures. A global selector, `@import`, `composes` and `!important`
-  are refused. The binding is read only in a `className` on a native element
-  (`className={active ? styles.active : styles.board}` for a state), never passed on through a
-  spread, a call or a variable, and a class that sets inherited ink or type is refused on an
-  element that holds a framework component: put it on the element that holds the app's own
-  text. A marker on the import never waives a finding inside the file. A screen with a composition of its own uses the body of a
+  `-subtle`) for `color`, a surface (`--color-bg-canvas` / `-surface` / `-subtle`, the three the
+  framework sets its own components on) for a background, a `--color-border-*` token for a
+  border; every admitted ink over every admitted surface is a pair the palette declares and
+  measures. A global selector, `@import`, `composes` and `!important` are refused. The binding is
+  read only in a `className` on a native element (`className={active ? styles.active :
+  styles.board}` for a state), never passed on through a spread, a call or a variable, and a class
+  that sets inherited ink or type goes only on an element that holds the app's own text (words,
+  expressions, `Trans` and native elements around them), never on one that holds a component,
+  `children` or a spread. A marker on the import never waives a finding inside the file. A screen with a composition of its own uses the body of a
   plain `Page`. Every boundary rule covers all of `src/`, not only `src/modules/` (ADR 0175): a
   component beside the modules is held exactly like one inside. The bootstrap (`src/main.tsx`)
   is the one file that imports global stylesheets, and only the token pipeline's three:

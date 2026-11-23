@@ -16,8 +16,9 @@
       "a marker written by a route other than an attribute in markup, a properties-object key, an attribute-setting call or a data-attribute-map assignment (`Object.assign(element.dataset, { terp: \"card\" })`, an attribute node built with `document.createAttribute`) is not required to be recognised"
     ],
     "frontend/no-inline-styling": [
-      "a framework component an element renders through a value written outside it (`const body = <Card />` rendered as `{body}`), other than `children`, is not resolved when the class's inherited ink and type are checked",
-      "an element with a module class inside a framework control's own children (a `Button` label) is not resolved to the surface that control paints, so its ink is held to the admitted surfaces only"
+      "a component an element renders through a value written outside it (`const body = <Card />` rendered as `{body}`) is read as the app's own text when the class's inherited ink and type are checked",
+      "an element with a module class inside a framework control's own children (a `Button` label) is not resolved to the surface that control paints, so its ink is held to the admitted surfaces only",
+      "a list marker (`list-style`) is not checked as inherited, so on an element it also reaches a list a framework component renders inside it (a `Markdown` list)"
     ],
     "frontend/timestamp-inputs-carry-their-offset": [
       "a type read from a name, a call or a member (`type={kind}`), a props object spread onto the element, `createElement`, and an input whose type is set through the DOM rather than in JSX, are not resolved to the local date-and-time control"
