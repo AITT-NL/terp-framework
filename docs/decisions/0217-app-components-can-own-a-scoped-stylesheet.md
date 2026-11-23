@@ -2,10 +2,12 @@
 
 - **Status:** Proposed on 2026-11-19; the owner accepted it for 0.44.0 on 2026-11-23. Built in
   0.44.0. Held by `packages/frontend/eslint-boundaries/src/index.test.js` ("checks class
-  bindings and stylesheet scope independently", which also pins each refusal's wording, and the
-  bootstrap and dynamic stylesheet cases), `findings.test.js` (a stylesheet fixed after a
-  refusal is linted again, not replayed from the cache), the `no-inline-styling` and
-  `no-style-imports` corpus cases, and `packages/frontend/conformance/tests/control-fit.spec.ts`.
+  bindings and stylesheet scope independently", which also pins each refusal's wording; "admits
+  only inks and surfaces whose every pairing the palette declares and measures", against
+  `@terpjs/contract`'s `token-pairs.json`; and the bootstrap and dynamic stylesheet cases),
+  `findings.test.js` (a stylesheet fixed after a refusal is linted again, not replayed from the
+  cache), the `no-inline-styling` and `no-style-imports` corpus cases with their recorded
+  residuals, and `packages/frontend/conformance/tests/control-fit.spec.ts`.
 - **Date:** 2026-11-19.
 - **Amends:** [ADR 0059](0059-strict-frontend-boundary-and-escape-hatch-budget.md), which
   refused `className` and every app stylesheet;
@@ -29,13 +31,33 @@ class selectors, including lists and the common interaction states, and responsi
 using `@media`, `@container` and `@supports`. A class is named as a script identifier
 (`.taskCard`, not `.task-card`), because `className` reads it as `styles.taskCard` and Vite
 exports a hyphenated class under a key no member expression can name. Declarations are layout
-and typography properties, and paint comes only from `var(--color-*)` tokens. A list marker
-takes a counter style keyword, never a string or `symbols()`, which would put copy on screen
-that no catalog translates. Global selectors, nested rules, `@import`, cross-file `composes`
-and `!important` are refused. A class on a framework component is refused: the component
-takes its props. A marker on the import waives the import's form only, never a finding inside
-the stylesheet. A CSS-only change invalidates the boundary CLI's lint cache. Every refusal
-names its line, its cause and what would be admitted.
+and typography properties and paint, and paint takes a palette role, not merely a `--color-*`
+token: `color` an ink (`--color-fg-default`, `-muted`, `-subtle`), a background a surface
+(`--color-bg-canvas`, `-surface`, `-subtle`, `-summary`) and a border a border token. Every
+one of those inks over every one of those surfaces is a text pair the palette declares and its
+contrast gate holds to AA in every theme, so a pairing an app forms from them, on one element
+or across two, is one already measured. A brand fill, a status ink, the accent and the
+primitive ramp stay with the framework controls that carry their partners. A list marker takes
+a counter style keyword, never a string or `symbols()`, which would put copy on screen that no
+catalog translates. Global selectors, nested rules, `@import`, cross-file `composes` and
+`!important` are refused.
+
+The module's binding is read in a `className` on a native element and nowhere else:
+`className={styles.board}`, or `className={active ? styles.active : styles.board}` for a style
+that follows a state. A class on a framework component is refused, and so is the binding passed
+on through a spread, a call or a variable, which would carry a class to a framework control past
+that check: the component takes its props. Ink and type are inherited, so a class that sets
+them is refused on an element that holds a framework component (or renders `children`): they go
+on the element that holds the app's own text. A marker on the import waives the import's form
+only, never a finding inside the stylesheet. A CSS-only change invalidates the boundary CLI's
+lint cache. Every refusal names its line or element, its cause and what would be admitted.
+
+The vocabulary itself (the selector grammar, the properties and the paint roles) is this stack's
+adapter, in `packages/frontend/eslint-boundaries/src/cssModules.js`, as the catalog's `reference`
+field records how a stack realises a rule (ADR 0203). The rules and their intents stay the shared
+statement: a stylesheet reaches only what its component owns, and paint follows the palette.
+Another stack realises the same intents in its own adapter, so the design document's
+boundary-lint spec names styling as token paint plus a component's own stylesheet.
 
 Inline `style`, a class that is not a module's own, a stylesheet loaded through `import()` or
 `import.meta.glob`, and every global stylesheet outside the bootstrap's three token layers are
@@ -57,12 +79,20 @@ app. Both survive a stylesheet confined to its own component's native elements.
 
 A screen that needs its own composition uses the body of a plain `Page`. The archetypes keep
 their slot contracts (ADR 0079): a stylesheet does not let a native element into an
-`OverviewPage` body. Framework controls keep their own styling and focus treatment, and no
-class reaches a framework block, so ADR 0169's rationing still holds for every `Card`, figure
-and chart: none gains a tone or a variant. Inside a layout it owns, an app may place its
-native elements on tracks of its own and give them a token surface, a border and a radius;
-where a framework block fits, such as a `Card` for a titled group, it composes that block
-instead.
+`OverviewPage` body. Framework controls keep their own styling and focus treatment: no class
+lands on a framework block and no inherited ink or type reaches one from an element that holds
+it, so ADR 0169's rationing still holds for every `Card`, figure and chart, and none gains a
+tone or a variant. Inside a layout it owns, an app may place its native elements on tracks of
+its own and give them a surface, a border and a radius from the roles above; where a framework
+block fits, such as a `Card` for a titled group, it composes that block instead.
+
+Two forms stay outside what the lint resolves, recorded in the corpus's `RESIDUALS.json`: a
+framework component an element renders through a value written elsewhere (`const body =
+<Card />`, rendered as `{body}`), whose inherited ink and type the lint does not trace; and an
+element with a module class inside a framework control's own children, such as a `Button`
+label, whose ink the lint holds to the admitted surfaces rather than the one that control
+paints. The guides ask for contrast to be checked in every shipped theme, which is where both
+would show.
 
 Only paint is held to tokens. Lengths, spacing and type values on an app's own elements are
 the app's: the guides ask for the spacing and type scale tokens, which a house style or

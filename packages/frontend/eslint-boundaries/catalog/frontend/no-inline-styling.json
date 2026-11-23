@@ -2,7 +2,7 @@
   "id": "frontend/no-inline-styling",
   "surface": "frontend",
   "title": "App classes come from local CSS Modules",
-  "intent": "Paint follows the theme, and a framework control keeps the styling and focus treatment it ships with, so every palette holds its contrast and a control looks and behaves the same in every app. Inline style and a hardcoded colour in app script paint around the palette, and a class on a framework control restyles what the framework owns. So a class reaches only a native element, through a direct property naming a class its sibling CSS Module defines; a framework control is configured through its props. Inline style, any other class name and colour literals in app script are refused.",
+  "intent": "Paint follows the palette, and a framework control keeps the styling and focus treatment it ships with, so a control looks and behaves the same in every app. Inline style and a hardcoded colour in app script paint around the palette, and a class on a framework control, or ink and type an element passes down to the framework component it holds, restyle what the framework owns. So a CSS Module's binding is read only in a className on a native element, naming a class the module defines or choosing between two of them, and a class that sets an inherited property is refused on an element that holds a framework component; a framework control is configured through its props. Inline style, any other class name or read of the binding, and colour literals in app script are refused.",
   "layer": "static-portable",
   "enforcement": [
     {
@@ -18,7 +18,7 @@
       "reported_as": "no-restricted-syntax"
     }
   ],
-  "reference": "Layout via Stack, Grid, DetailList and the page archetypes from @terpjs/react-core. A layout a component owns: import styles from \"./Board.module.css\" and className={styles.board} on a native element, in the body of a plain Page. Paint via the design tokens, var(--color-...).",
+  "reference": "Layout via Stack, Grid, DetailList and the page archetypes from @terpjs/react-core. A layout a component owns: import styles from \"./Board.module.css\" and className={styles.board}, or className={active ? styles.active : styles.board}, on a native element in the body of a plain Page, with ink and type on the element that holds the app's own text. Paint via the design tokens.",
   "opt_out": "// terp-allow-no-inline-styling: <reason>",
   "runtime": {
     "applicability": "deferred",

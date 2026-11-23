@@ -83,7 +83,9 @@ standard composition using the same content before making it the app's default.
    check the layout in narrow viewports and each supported theme. No `style={}`, no
    `className` but the module's own class, on a native element (a framework control takes
    its props), and no other stylesheet in any `src/` file: `src/main.tsx` alone loads the
-   global token pipeline. Prose goes through `Text` and `Code`, which carry the theme's
+   global token pipeline. Paint comes from the palette's ink, surface and border tokens, and
+   ink and type go on the element that holds your own text, never on one that holds a
+   framework component. Prose goes through `Text` and `Code`, which carry the theme's
    typography.
 5. Every routed view renders a page archetype (`Page` / `OverviewPage` / `DetailPage` /
    `FormPage` / `SettingsPage` / `SplitPage` / `DashboardPage` /

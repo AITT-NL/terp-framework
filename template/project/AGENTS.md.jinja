@@ -346,8 +346,12 @@ Use local class selectors and theme tokens for colors, typography and spacing.
 Responsive rules can use `@media` or `@container`. Keep keyboard focus visible and
 check the layout in narrow viewports and each supported theme. The lint reads the module:
 local class selectors named like `.taskCard` (never `.task-card`, which `styles.x` cannot name),
-layout and typography properties, and paint only from `var(--color-*)`;
-a class goes on a native element, never on a framework control, which takes its props.
+layout and typography properties, and paint from the palette's roles: `--color-fg-default`,
+`-muted` or `-subtle` for ink, `--color-bg-canvas`, `-surface`, `-subtle` or `-summary` for a
+surface, a `--color-border-*` token for a border. A class goes on a native element, never on a
+framework control, which takes its props; `styles` is read only in a `className`
+(`className={active ? styles.active : styles.board}` for a state); and ink and type go on the
+element that holds your own text, never on one that holds a framework component.
 
 This app also opts into the **`standard` layout contract** (ADR 0079), declared once in
 `frontend/layout-contract.json` — the lint rule finds the file and `main.tsx` imports it,

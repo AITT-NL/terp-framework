@@ -6,7 +6,8 @@
   contract stands (§6). Amended by
   [ADR 0217](0217-app-components-can-own-a-scoped-stylesheet.md): §1 and §2 bind the framework's
   blocks and the archetype slots; a layout an app owns in a plain `Page` places and paints its own
-  native elements from tokens, and never restyles a framework block.
+  native elements from the palette's roles, puts no class on a framework block and sets no
+  inherited ink or type on an element that holds one.
 - **Date:** 2026-10-03
 - **Relates:** [ADR 0158](0158-a-quantity-is-shown-one-way.md) (the chart contract kept, the
   trigger amended), [ADR 0098](0098-archetypes-measures-and-the-density-island.md) (the

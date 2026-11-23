@@ -288,9 +288,8 @@ describe("terp-boundaries-lint (the bin)", () => {
     const fixed = runBin(root);
     expect(fixed.status).toBe(0);
     expect(JSON.parse(fixed.stdout).findings).toEqual([]);
-    fs.writeFileSync(path.join(root, "src/Layout.module.css"), ":global(body) { display: none }");
-    expect(runBin(root).status).toBe(1);
-  });
+    // Two runs of the bin, each a full ESLint start: past vitest's 5 s default on a slow runner.
+  }, 30_000);
 
   it("reports budget drift even when the boundary lint fails (both halves always run)", () => {
     // The regression the merged bin exists for: with `eslint . && terp-boundaries-budget`

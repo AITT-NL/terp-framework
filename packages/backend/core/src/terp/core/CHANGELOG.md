@@ -29,10 +29,14 @@ decision, 0001 onwards.
   default-imports `./Board.module.css` and puts `className={styles.board}` on a native
   element. The boundary lint reads the stylesheet: local classes named as script identifiers
   (`.taskCard`), `@media`, `@container` and `@supports` groups, layout and typography
-  properties, and paint only from `var(--color-*)` tokens. Inline `style`, a class that is not
-  the module's own, a class on a framework component, a global selector, an `@import`, a string
-  list marker and a stylesheet loaded through `import()` stay refused, and only the bootstrap
-  imports the token pipeline's three global stylesheets. The example app's planning board uses
+  properties, and paint from the palette's roles, an ink for `color`, a surface for a background
+  and a border token for a border, every ink-on-surface pairing of which the palette declares
+  and holds to AA. The binding is read only in a `className` on a native element, one class or a
+  choice of two for a state, and a class that sets inherited ink or type is refused on an
+  element that holds a framework component. Inline `style`, a class that is not the module's
+  own, a class on a framework component, a global selector, an `@import`, a string list marker
+  and a stylesheet loaded through `import()` stay refused, and only the bootstrap imports the
+  token pipeline's three global stylesheets. The example app's planning board uses
   the same tasks API as its list and stacks its lanes on a narrow screen.
 - `expectControlFitsHorizontally` in `@terpjs/conformance` checks that a control fits its
   viewport and every ancestor whose overflow clips it: a page can fit while a container cuts
