@@ -1033,6 +1033,11 @@ frontend design-system track below.
       workbench declaration or the resolved deployment from 0.48.0. The framework pins 0.50.0
       for 0.44.0: it writes the assurance claim and the dependency audit, and reads the audit
       and each risk acceptance, as that release's contracts.
+- [x] Released as 0.44.0 (2026-11-23), on terp-spec 0.50.0: a release builds its conformance
+      suite into an image of its own and records it as `outputs.suite` (ADR 0219, #280); an app
+      component can own its layout in a sibling CSS Module (ADR 0217, #275); the calendar steps
+      a year at a time (#281); and the dependency audit and each risk acceptance are read as
+      terp-spec 0.50.0's contracts (#282).
 
 ## Active execution track
 
