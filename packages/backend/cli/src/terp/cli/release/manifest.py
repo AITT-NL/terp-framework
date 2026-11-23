@@ -31,6 +31,7 @@ signed as a DSSE envelope (:mod:`terp.cli.release.dsse`). Three sections:
 from __future__ import annotations
 
 import json
+import re
 import tomllib
 from typing import Any
 
@@ -271,7 +272,45 @@ def parse(payload: bytes) -> dict[str, Any]:
         for key in ("repository", "digest", "imageId"):
             _need(_need(image, dict, f"outputs.images.{name}").get(key), str, f"outputs.images.{name}.{key}")
     _need(out.get("services"), dict, "outputs.services")
+    if "suite" in out:
+        _suite(out)
     return manifest
+
+
+#: A variable's name, as the suite's record gives one (ADR 0219).
+_VARIABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _suite(out: dict[str, Any]) -> None:
+    """``outputs.suite`` held to its form (ADR 0219): a release that records a suite records it
+    whole, an image no service runs, a command, the unit it drives and the names it reads."""
+    suite = _need(out["suite"], dict, "outputs.suite")
+    if set(suite) != {"image", "command", "target", "reads"}:
+        raise ReleaseError(
+            "the manifest's outputs.suite holds other fields than image, command, target and reads"
+        )
+    image = _need(suite["image"], str, "outputs.suite.image")
+    built = out["images"].get(image)  # each entry was held to its form above
+    if built is None or f"{built['repository']}@{built['digest']}" in out["services"].values():
+        raise ReleaseError(
+            f"the manifest's outputs.suite.image {image!r} is not an image the release built that "
+            "no service runs"
+        )
+    command = _need(suite["command"], list, "outputs.suite.command")
+    if not command or not all(isinstance(part, str) and part for part in command):
+        raise ReleaseError("the manifest's outputs.suite.command is not a non-empty list of strings")
+    _need(suite["target"], str, "outputs.suite.target")
+    reads = _need(suite["reads"], dict, "outputs.suite.reads")
+    names = [reads.get(key) for key in ("address", "email", "password")]
+    if (
+        set(reads) != {"address", "email", "password"}
+        or not all(isinstance(name, str) and _VARIABLE.fullmatch(name) for name in names)
+        or len(set(names)) != len(names)
+    ):
+        raise ReleaseError(
+            "the manifest's outputs.suite.reads is not three distinct variable names under "
+            "address, email and password"
+        )
 
 
 __all__ = ["DEPLOYMENT_VERSION", "HOSTS", "PROJECT_ROOT", "SCHEMA_VERSION", "assemble", "carried_contract", "development_profile", "inputs", "parse", "purls", "sbom"]

@@ -69,12 +69,20 @@ from terp.arch.deployment._generator_text import (
     RELEASE_TAG_VARIABLE,
     SITE_DOCKERFILE,
     SITE_LOCK,
+    SUITE_DOCKERFILE,
+    SUITE_LOCK,
     API_PORT,
     PUBLISH_ADDRESS,
     WEB_PORT,
     heartbeat_role,
 )
 from terp.arch.deployment._refusals import refusals
+from terp.arch.deployment._conformance_suite import (
+    SUITE_COMMAND,
+    SUITE_READS,
+    suite_dockerfile,
+    suite_image,
+)
 from terp.arch.deployment._static_site import (
     _SITE_DOCKERFILE,
     SITE_PORT_PATTERN,
@@ -103,12 +111,15 @@ def generate(
     tables: Tables,
     frontend_lock: bool,
     site_lock: bool = False,
+    conformance_lock: bool = False,
 ) -> tuple[dict[str, bytes], list[Finding]]:
     """The generator-owned files *declaration* renders to, or every reason it cannot.
 
-    *project* is ``[project].name`` from ``pyproject.toml``, used verbatim; *frontend_lock*
-    and *site_lock* say whether the checkout holds ``frontend/package-lock.json`` and
-    ``site/package-lock.json`` (a caller that does not say is answered as for one without);
+    *project* is ``[project].name`` from ``pyproject.toml``, used verbatim; *frontend_lock*,
+    *site_lock* and *conformance_lock* say whether the checkout holds
+    ``frontend/package-lock.json``, ``site/package-lock.json`` and
+    ``conformance/package-lock.json`` (a caller that does not say is answered as for one
+    without). The last renders the conformance suite's image (ADR 0219);
     *tables* are the framework release's
     (:func:`terp.arch.deployment.tables.published_tables`). Returns ``(files, [])`` - a path
     the declaration renders nothing for is absent from *files* - or ``({}, findings)``. Two
@@ -127,6 +138,10 @@ def generate(
         files[FRONTEND_DOCKERFILE] = _dockerfile(_FRONTEND_DOCKERFILE, tables, ("node", "nginx"))
     if any(plan.kind_of(unit.id) == "site" for unit in declaration.units):
         files[SITE_DOCKERFILE] = _dockerfile(_SITE_DOCKERFILE, tables, ("node", "nginx"))
+    if conformance_lock:
+        base = tables.base_images.get("playwright")
+        version = tables.base_images.playwright_version
+        files[SUITE_DOCKERFILE] = suite_dockerfile(base.image, base.tag, version)
     return {path: files[path].encode("ascii") for path in OWNED_PATHS if path in files}, []
 
 
@@ -270,6 +285,10 @@ __all__ = [
     "SITE_DOCKERFILE",
     "SITE_LOCK",
     "STATIC_SITE",
+    "SUITE_COMMAND",
+    "SUITE_DOCKERFILE",
+    "SUITE_LOCK",
+    "SUITE_READS",
     "WEB_PORT",
     "escape_findings",
     "fixed",
@@ -279,5 +298,6 @@ __all__ = [
     "plain_safe",
     "refusals",
     "scalar",
+    "suite_image",
     "value",
 ]

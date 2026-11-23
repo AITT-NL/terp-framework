@@ -56,6 +56,7 @@ from terp.arch.deployment.generator import (
     MOUNT_PATH,
     OWNED_PATHS,
     SITE_DOCKERFILE,
+    SUITE_DOCKERFILE,
     PROFILE,
     escape_findings,
     fixed_interpolations,
@@ -210,7 +211,8 @@ def test_the_seed_renders_the_template_s_own_files_byte_for_byte(
         frontend_lock=frontend,
     )
     assert found == []
-    rendered = set(OWNED_PATHS) - {SITE_DOCKERFILE}  # the seed declares no recipe
+    # The seed declares no recipe, and the template commits no suite lock (ADR 0219).
+    rendered = set(OWNED_PATHS) - {SITE_DOCKERFILE, SUITE_DOCKERFILE}
     assert set(files) == (rendered if frontend else rendered - {FRONTEND_DOCKERFILE})
     for path, template in _TEMPLATE_FILES.items():
         if path not in files:
@@ -817,7 +819,7 @@ def test_the_escape_audit_finds_every_interpolation_outside_its_place() -> None:
 #: its fixed text, the static-site recipe's, and the recipe's check at build, in its two halves.
 _GENERATOR_MODULES = (
     "generator", "_refusals", "_compose", "_yaml", "_generator_text", "_static_site", "_site_check",
-    "_site_markup",
+    "_site_markup", "_conformance_suite",
 )
 _ALLOWED_IMPORTS = {
     "__future__",

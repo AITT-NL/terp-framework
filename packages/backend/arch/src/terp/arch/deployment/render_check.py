@@ -46,6 +46,8 @@ from terp.arch.deployment.generator import (
     OWNED_PATHS,
     SITE_DOCKERFILE,
     SITE_LOCK,
+    SUITE_DOCKERFILE,
+    SUITE_LOCK,
     generate,
 )
 from terp.arch.deployment.reader import DEPLOYMENT_FILE, Declaration, Finding
@@ -66,6 +68,10 @@ _WHY_RENDERED = {
     BACKEND_DOCKERFILE: "no unit runs the backend image",
     FRONTEND_DOCKERFILE: "no web unit is declared without a recipe",
     SITE_DOCKERFILE: "no web unit names the static-site recipe in generator.recipes",
+    SUITE_DOCKERFILE: (
+        "the checkout commits no conformance/package-lock.json, so it builds no conformance "
+        "suite (ADR 0219)"
+    ),
 }
 
 
@@ -322,6 +328,7 @@ def check(project_root: pathlib.Path, declaration: Declaration, tables: Tables) 
             tables=tables,
             frontend_lock=(project_root / FRONTEND_LOCK).is_file(),
             site_lock=(project_root / SITE_LOCK).is_file(),
+            conformance_lock=(project_root / SUITE_LOCK).is_file(),
         )
         drift.files = files
         drift.findings.extend(refused if refused else _drift(project_root, files, declaration))

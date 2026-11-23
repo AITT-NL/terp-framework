@@ -103,10 +103,11 @@ jobs:
       # Both manifests that pin @terpjs/*. The profile's platform-install check reads the
       # INSTALLED copy under each node_modules, not just the declared range, so they have
       # to be here for its verdict to mean anything — and a name left under the
-      # pre-rename @terp/ scope fails at this step, loudly, instead of much later. No
-      # image ships the conformance suite, but its lock is committed like the frontend's,
-      # and CI installs it the way Terp Studio does: `npm ci` from that lock, or, in an
-      # app that has none yet, what conformance/package.json names, writing no lock.
+      # pre-rename @terp/ scope fails at this step, loudly, instead of much later. A
+      # release builds the conformance suite's image from its lock, and so
+      # its lock is committed like the frontend's; CI installs it the way Terp Studio
+      # does: `npm ci` from that lock, or, in an app that has none yet, what
+      # conformance/package.json names, writing no lock.
       - run: npm --prefix frontend ci
       - run: |
           if [ -f conformance/package-lock.json ]; then npm --prefix conformance ci

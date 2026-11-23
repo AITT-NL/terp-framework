@@ -34,10 +34,12 @@ ran. After changing a dependency, `uv lock` (or `uv add`) and `npm --prefix fron
 install` bring the locks along; a lock left behind fails the build, and `uv run terp
 verify --only locks` names the file and the command before it gets that far.
 
-**Commit `conformance/package-lock.json` too.** No image ships the conformance suite, but
-CI and Terp Studio install it from that lock with `npm ci`; without one, they install what
-`conformance/package.json` names and write no lock. `npm --prefix conformance install`
-writes it.
+**Commit `conformance/package-lock.json` too.** CI and Terp Studio install the conformance
+suite from that lock with `npm ci`; without one, they install what `conformance/package.json`
+names and write no lock. `npm --prefix conformance install` writes it. With the lock committed,
+a release builds the suite into an image of its own, from `conformance/Dockerfile.prod`, which
+`uv run terp deployment render` writes, for a runner to verify the release with before
+production.
 
 No starter module ships — sign-in, admin and audit are wired, and a fresh checkout is
 gate-green as-is. `uv run terp new module <name>` (named after your actual domain) adds

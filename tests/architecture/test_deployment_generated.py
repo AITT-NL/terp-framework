@@ -32,7 +32,7 @@ from terp.arch.deployment import (
     untrue,
 )
 from terp.arch.deployment import render_check
-from terp.arch.deployment.generator import OWNED_PATHS, SITE_DOCKERFILE, generate
+from terp.arch.deployment.generator import OWNED_PATHS, SITE_DOCKERFILE, SUITE_DOCKERFILE, generate
 from terp.arch.deployment.tables import load_system_packages, published_tables
 from terp.cli import main
 from terp.cli import deployment_render
@@ -199,7 +199,7 @@ def test_a_restated_mount_is_the_profile_s(tmp_path) -> None:
 def test_the_template_s_own_render_is_silent_but_for_its_notes(tmp_path) -> None:
     result = generated(_project(tmp_path))
     assert result.applies and result.drift.findings == []
-    assert set(result.drift.files) == set(OWNED_PATHS) - {SITE_DOCKERFILE}  # no recipe declared
+    assert set(result.drift.files) == set(OWNED_PATHS) - {SITE_DOCKERFILE, SUITE_DOCKERFILE}  # no recipe, no suite lock
     assert result.drift.notes == [
         "the git half of the environment-file check is not judged: the project lies in no git "
         "work tree"
