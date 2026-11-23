@@ -28,7 +28,7 @@ SCHEMA_FILE = "resolved-deployment.schema.json"
 
 #: The terp-spec release whose ``resolved-deployment.schema.json`` this copy must equal byte
 #: for byte once that release is pinned.
-SPEC_RELEASE = "0.48.0"
+SPEC_RELEASE = "0.50.0"
 
 
 def _load() -> dict[str, Any]:

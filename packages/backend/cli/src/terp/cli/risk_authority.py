@@ -51,7 +51,8 @@ def authorize(checks: list[dict], *, policy_file: str, commit: str, checkout: st
         if not isinstance(response, dict) or any(response.get(k) != v for k, v in request.items()):
             raise RiskRefused("risk authority answered for another request")
         now = datetime.now(UTC)
-        issued, expires = time_value(response.get("issued_at")), time_value(response.get("expires_at"))
+        issued = time_value(response.get("issued_at"), "the risk authority's issued_at")
+        expires = time_value(response.get("expires_at"), "the risk authority's expires_at")
         if not issued <= now < expires or expires - issued > timedelta(minutes=5):
             raise RiskRefused("risk authority response is expired or has an excessive lifetime")
         records = response.get("acceptances")
@@ -64,6 +65,8 @@ def authorize(checks: list[dict], *, policy_file: str, commit: str, checkout: st
         return {"decision": decision, "project_id": policy["project_id"], "environment": policy["environment"],
                 "commit": commit, "issuer": issuer, "authorization": json.loads(completed.stdout),
                 "checks": checks, "acceptances": records}
+    except RiskRefused:
+        raise  # the reader's own sentence, which names what the authority or the audit must change
     except (OSError, subprocess.SubprocessError, ValueError, ReleaseError) as exc:
         raise RiskRefused("dependency risk authorization could not be verified") from exc
 

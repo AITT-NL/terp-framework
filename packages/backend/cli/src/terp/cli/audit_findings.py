@@ -11,6 +11,11 @@ import json
 import re
 from typing import Any
 
+#: The longest string and the longest list terp-spec's ``dependency-audit`` contract holds. A
+#: finding past either is never written, so every document a scan writes is the contract's.
+MAX_TEXT = 4096
+MAX_ITEMS = 10_000
+
 
 class AuditUnreadable(ValueError):
     """The scanner or lock did not provide complete evidence."""
@@ -44,8 +49,17 @@ def finding(*, advisory: str, aliases: list[str], ecosystem: str, package: str,
     }
     if not all(isinstance(v, str) and v for v in (advisory, package, version, lockfile)):
         raise AuditUnreadable("a dependency finding has no identity")
+    fixed_versions = sorted(set(fixed))
+    lists = (identity["advisories"], identity["dependency_paths"], fixed_versions)
+    if any(len(values) > MAX_ITEMS for values in lists) or any(
+        len(text) > MAX_TEXT for text in (package, version, lockfile, *(text for values in lists for text in values))
+    ):
+        raise AuditUnreadable(
+            f"a dependency finding is longer than the dependency-audit contract holds: {MAX_TEXT} "
+            f"characters to a string and {MAX_ITEMS} entries to a list"
+        )
     return {**identity, "fingerprint": digest(identity), "severity": severity,
-            "fixed_versions": sorted(set(fixed)), "dependency_scope": scope}
+            "fixed_versions": fixed_versions, "dependency_scope": scope}
 
 
 def npm_findings(report: object, lock: object, lockfile: str) -> list[dict]:

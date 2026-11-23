@@ -54,6 +54,31 @@ decision, 0001 onwards.
   every react-core control's root carries a `data-terp` marker and react-core renders no class
   of its own; the refusal beside the archetype slot check has not shipped, so the rule page
   says so. `frontend/no-style-imports` stays not-applicable.
+- **On terp-spec 0.50.0.** Both pins move: `terp-spec` in `pyproject.toml` and `@terpjs/spec`
+  in `@terpjs/eslint-boundaries`, with `terp.arch.SPEC_VERSION`, the JS `SPEC_VERSION` and the
+  `SPEC_RELEASE` of the declaration's, the workbench's and the resolved deployment's copies,
+  whose files 0.49.0 and 0.50.0 leave as 0.48.0 had them. 0.49.0 adds two contracts, the
+  dependency audit and the dependency risk acceptance: the documents a release audit has
+  written and a risk authority has returned since 0.43.0. 0.50.0 puts into the assurance
+  profile's schema what its descriptions already said: each of the seven lanes once, the checks
+  behind a verdict and none behind `not-run`, and `ok` true exactly when every required lane
+  passed. The claims `terp verify --format assurance` and `terp release gate` write already met
+  it, and every claim they can compose is now validated against the pinned schema. A check
+  report names `spec_version` 0.50.0, and a release signed on this terp-arch records Terp
+  Standard 0.50.0 as the release its declaration was written against.
+- **Dependency risk is read as terp-spec's two contracts.** `terp release gate`, `terp release
+  sign` and `terp promote` with `--risk-policy`, and the protected verifier, read an audit's
+  evidence and every acceptance the authority returns closed, as their schemas are, a
+  superseded acceptance included. Each of these was admitted before and is refused now, with
+  the release it would have let through: a field the contract does not define, in an
+  acceptance, an audit or a finding; an approver, reason, evidence, environment, id or project
+  that holds only a byte order mark, a NUL or another character the contract counts as blank;
+  and a time written other than `YYYY-MM-DDThh:mm:ss`, with up to six decimals and `Z` or
+  `+00:00`. A string longer than 4096 characters or a list longer than 10000 entries is refused
+  on both sides: an audit that finds more than the contract holds reports itself incomplete
+  instead of writing a document every reader refuses. The patterns, fields and limits are the
+  pinned release's, and its fixtures run through the reader. The three commands now print what
+  the record or the audit broke, where they said only that authorization could not be verified.
 
 ### Fixed
 
@@ -87,6 +112,16 @@ decision, 0001 onwards.
   `escape-hatch-budget.json` to match. A `terp-allow-no-inline-styling` marker on a
   `className={styles.x}` comes off only where the lint passes without it, since it still waives
   a class the module does not define and ink or type on an element that holds a component.
+- **A release made with 0.44.0 names terp-spec 0.50.0.** The signer refuses a commit whose
+  pinned `terp-arch` reads a newer standard than its own, and `terp promote` refuses a release
+  declared against one, so update the signer image and `terp promote` to 0.44.0 before you sign
+  or promote the first app that upgrades. A deploy tool that reads a declaration by the Terp
+  Standard release it was written against must carry 0.50.0 before it reads such a release. The
+  declaration's schema in 0.50.0 is 0.48.0's, byte for byte.
+- **A risk authority answers with terp-spec 0.50.0's acceptances.** Each record it returns, a
+  superseded one too, holds the fields `dependency-risk-acceptance` defines and no other,
+  content in each field above, at least one lock, and its times in the form above; a record
+  that does not is refused, and so is the release it covers. An app changes nothing.
 
 ## 0.43.0 — 2026-11-23
 

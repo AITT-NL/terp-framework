@@ -1028,6 +1028,11 @@ frontend design-system track below.
 - [ ] Open, for the owner: whether app code may write the framework's own environment
       variables or change the working directory, each of which turns the startup comparison
       off (ADR 0213, *What it does not do*).
+- [x] With terp-spec 0.50.0, the runner carries 0.49.0 and 0.50.0 (terp-runner#86), before a
+      framework release that reads 0.50.0 ships. Neither changes the declaration, the
+      workbench declaration or the resolved deployment from 0.48.0. The framework pins 0.50.0
+      for 0.44.0: it writes the assurance claim and the dependency audit, and reads the audit
+      and each risk acceptance, as that release's contracts.
 
 ## Active execution track
 

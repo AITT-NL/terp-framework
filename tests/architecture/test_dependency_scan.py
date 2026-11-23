@@ -12,6 +12,16 @@ from terp.cli.dependency_scan import scan_dependencies
 LOCK = 'version = 1\n[[package]]\nname = "example-package"\nversion = "1.0.0"\nsource = {registry = "https://pypi.org/simple"}\n'
 
 
+def _audit_problems(audit):
+    """What the pinned terp-spec's ``dependency-audit`` schema refuses in *audit*, by a full
+    Draft 2020-12 validator: every document a scan writes, complete or not, is the contract's."""
+    from jsonschema import Draft202012Validator
+    from terp_spec import spec_dir
+
+    schema = json.loads((spec_dir() / "dependency-audit.schema.json").read_text(encoding="utf-8"))
+    return [error.message for error in Draft202012Validator(schema).iter_errors(audit)]
+
+
 @pytest.mark.parametrize("mode", ["clean", "finding", "crash", "malformed", "contradiction", "changed-lock", "missing-lock"])
 def test_python_scanner_evidence(tmp_path, monkeypatch, mode):
     lock = tmp_path / "uv.lock"
@@ -33,6 +43,7 @@ def test_python_scanner_evidence(tmp_path, monkeypatch, mode):
     monkeypatch.setattr(verify, "_run_argv", scanner)
     code, _output, extra = scan_dependencies(tmp_path, "pypi")
     audit = extra["dependency_audit"]
+    assert _audit_problems(audit) == []
     if mode in {"clean", "finding"}:
         assert audit["complete"] and code == (mode == "finding")
         assert "uv.lock" in audit["locks"]
@@ -65,6 +76,7 @@ def test_scan_scope_and_installation_errors(tmp_path, monkeypatch, mode):
                 report["dependencies"][0]["skip_reason"] = "not found"
             monkeypatch.setattr(verify, "_run_argv", lambda *args: subprocess.CompletedProcess(args[0], 0, json.dumps(report), "No known vulnerabilities found"))
     code, output, extra = scan_dependencies(tmp_path, ecosystem)
+    assert _audit_problems(extra["dependency_audit"]) == []
     assert extra["dependency_audit"]["complete"] == (mode in {"none", "root-project"})
     assert code == (0 if mode in {"none", "root-project"} else 2)
     if mode == "none":
@@ -147,3 +159,64 @@ def test_npm_scan_explicitly_includes_every_dependency_type(tmp_path, monkeypatc
     code, _, extra = scan_dependencies(tmp_path, "npm")
     assert code == (2 if contradiction else 0)
     assert extra["dependency_audit"]["complete"] is not contradiction
+    assert _audit_problems(extra["dependency_audit"]) == []
+
+
+def test_the_evidence_a_scan_writes_is_the_contract_s_and_the_reader_reads_it(tmp_path, monkeypatch):
+    """One npm finding end to end: the scan writes the contract's document, and the release
+    reader takes from it the locks and the finding it wrote."""
+    from datetime import UTC, datetime
+
+    from terp.cli.dependency_risk import audit_evidence
+
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "package.json").write_text('{}')
+    (frontend / "package-lock.json").write_text(json.dumps(
+        {"packages": {"node_modules/example-package": {"version": "1.0.0", "dev": True}}}))
+    monkeypatch.setattr(verify, "_node_modules_problem", lambda *_: None)
+    report = {"auditReportVersion": 2, "metadata": {"vulnerabilities": {"total": 1}}, "vulnerabilities": {
+        "example-package": {"via": [{"url": "https://github.com/advisories/GHSA-aaaa-bbbb-cccc", "severity": "high"}],
+                            "nodes": ["node_modules/example-package"]}}}
+    monkeypatch.setattr(verify, "_run_argv", lambda argv, root: subprocess.CompletedProcess(argv, 1, json.dumps(report), ""))
+    code, _, extra = scan_dependencies(tmp_path, "npm")
+    audit = extra["dependency_audit"]
+    assert code == 1 and audit["complete"] and len(audit["findings"]) == 1
+    assert _audit_problems(audit) == []
+    locks, findings = audit_evidence(audit, now=datetime.now(UTC))
+    assert locks == audit["locks"] and list(findings.values()) == audit["findings"]
+
+
+def test_a_scan_with_more_findings_than_the_contract_holds_is_incomplete(tmp_path, monkeypatch):
+    from terp.cli.audit_findings import MAX_ITEMS
+
+    (tmp_path / "uv.lock").write_text(LOCK)
+    vulns = [{"id": f"PYSEC-2026-{index}", "aliases": [], "fix_versions": []} for index in range(MAX_ITEMS + 1)]
+    report = {"dependencies": [{"name": "example-package", "version": "1.0.0", "vulns": vulns}]}
+    monkeypatch.setattr(verify, "_run_argv", lambda *args: subprocess.CompletedProcess(args[0], 1, json.dumps(report), ""))
+    code, output, extra = scan_dependencies(tmp_path, "pypi")
+    assert code == 2 and extra["dependency_audit"]["complete"] is False
+    assert f"more than {MAX_ITEMS}" in output
+    assert _audit_problems(extra["dependency_audit"]) == []
+
+
+_FINDING = {"advisory": "GHSA-aaaa-bbbb-cccc", "aliases": [], "ecosystem": "npm", "package": "example-package",
+            "version": "1.0.0", "lockfile": "frontend/package-lock.json", "paths": ["node_modules/example-package"],
+            "severity": "high", "fixed": [], "scope": "development"}
+
+
+@pytest.mark.parametrize("field", ["advisory", "aliases", "package", "version", "lockfile", "paths", "fixed"])
+def test_a_finding_longer_than_the_contract_allows_is_never_written(field):
+    from terp.cli.audit_findings import MAX_ITEMS, MAX_TEXT, AuditUnreadable, finding
+
+    long = "x" * (MAX_TEXT + 1)
+    with pytest.raises(AuditUnreadable, match="dependency-audit contract"):
+        finding(**{**_FINDING, field: [long] if isinstance(_FINDING[field], list) else long})
+    if isinstance(_FINDING[field], list):
+        with pytest.raises(AuditUnreadable, match="dependency-audit contract"):
+            finding(**{**_FINDING, field: [f"entry-{index:05d}" for index in range(MAX_ITEMS + 1)]})
+    exact = [f"entry-{index:05d}" for index in range(MAX_ITEMS)] if isinstance(_FINDING[field], list) else "x" * MAX_TEXT
+    if field == "aliases":
+        exact = exact[:-1]  # the advisory itself is the list's other entry
+    assert _audit_problems({"version": 1, "complete": True, "scanned_at": "2026-11-18T12:00:00Z", "locks": {},
+                            "findings": [finding(**{**_FINDING, field: exact})]}) == []

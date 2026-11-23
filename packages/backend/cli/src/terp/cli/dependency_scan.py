@@ -7,7 +7,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from terp.cli.audit_findings import AuditUnreadable, blocking, npm_findings, python_findings
+from terp.cli.audit_findings import MAX_ITEMS, AuditUnreadable, blocking, npm_findings, python_findings
 
 
 def dependency_checks(check_type):
@@ -99,6 +99,11 @@ def scan_dependencies(root: Path, ecosystem: str) -> tuple[int, str, dict]:
                 findings = python_findings(report, lock)
             if (code == 1) != any(blocking(item) for item in findings):
                 raise AuditUnreadable("the scanner exit code contradicts its dependency findings")
+            if len(evidence["findings"]) + len(findings) > MAX_ITEMS:
+                raise AuditUnreadable(
+                    f"the audits found more than {MAX_ITEMS} findings, more than the dependency-audit "
+                    "contract holds: update the dependencies that carry the most of them, and audit again"
+                )
             evidence["locks"][lock] = "sha256:" + hashlib.sha256(before).hexdigest()
             evidence["findings"].extend(findings)
     except (OSError, ValueError) as exc:
