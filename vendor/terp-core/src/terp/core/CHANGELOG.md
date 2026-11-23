@@ -91,8 +91,14 @@ decision, 0001 onwards.
 - **A generated app that commits `conformance/package-lock.json` takes
   `conformance/Dockerfile.prod` with `uv run terp deployment render`,** and
   `terp verify --only generated` is red until it does. Its `@playwright/test` must be the base
-  image's release, 1.62.1; the build names the version to pin where it is not. An app with
-  more than one web unit of its own is refused a suite.
+  image's release, 1.62.1; the build names the version to pin where it is not. An app is
+  refused a suite unless it has exactly one web unit of its own.
+- **A release that builds the conformance suite pulls from `mcr.microsoft.com`.** The suite's
+  image builds on `mcr.microsoft.com/playwright`, by digest, so a builder behind an allowlist
+  or a registry mirror needs that host.
+- **`terp release build` pushes one more image, `<project>-conformance-prod`, under
+  `--registry`, and `sign` reads it.** A registry that needs a repository, or a per-repository
+  credential, created before the first push needs one for that image too.
 - **A non-English framework catalog of an app's own supplies two new keys.** `previousYear`
   ("Previous year") and `nextYear` ("Next year"), the names of the calendar's year buttons.
   `LocaleProvider` and `defineAppLocales` refuse a catalog without them at start, naming the
