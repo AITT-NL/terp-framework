@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.43.0 — unreleased
+## 0.43.0 — 2026-11-23
 
 ### Security
 
@@ -230,6 +230,22 @@ decision, 0001 onwards.
   gains `scaffolding-defect` after `template-behind`, every finding keeps the same keys, and
   the format version stays `terp_maintenance: 1`, which this release is the first to publish.
 
+- **A `deployment.json` nested deeper than 64 is refused whole, before it is parsed
+  (terp-spec 0.47.0).** What a parser does with a deeply nested file is where its own stack
+  ends: on one interpreter release the reader raised an error nothing caught, and on the
+  next it read the file. A refusal written for the first could not hold on the second, so
+  none was shipped. The depth is now a number of the contract. The reader counts
+  how deep the file's objects and arrays nest, in the text and before anything parses it,
+  the document itself being the first level. More than 64 is one finding at the file:
+  `deployment.json is nested too deeply: its objects and arrays nest 65 deep (allowed: one
+  JSON object, nested at most 64 deep)`, in the words every reader shares. A valid
+  declaration nests a handful deep, so no app that passed before is refused. `terp promote`
+  refuses a carried declaration nested that deep the same way.
+
+  The limit comes from terp-spec 0.47.0 and holds in 0.48.0, the release this version pins
+  (see Changed). The corpus gains the case 0.47.0's fixtures name
+  (`deployment_declaration_is_readable`, violation-56).
+
 ### Changed
 
 - Example and generated backend images use Python 3.15 slim. The production
@@ -399,26 +415,6 @@ decision, 0001 onwards.
   A routine in those schemas that `PUBLIC` may execute and the running role may not revoke
   (another role owns it) makes `grant-runtime` refuse until it runs as that owner, or the
   routine is given to the migration owner.
-
-## 0.42.1 — unreleased
-
-### Added
-
-- **A `deployment.json` nested deeper than 64 is refused whole, before it is parsed
-  (terp-spec 0.47.0).** What a parser does with a deeply nested file is where its own stack
-  ends: on one interpreter release the reader raised an error nothing caught, and on the
-  next it read the file. A refusal written for the first could not hold on the second, so
-  none was shipped. The depth is now a number of the contract. The reader counts
-  how deep the file's objects and arrays nest, in the text and before anything parses it,
-  the document itself being the first level. More than 64 is one finding at the file:
-  `deployment.json is nested too deeply: its objects and arrays nest 65 deep (allowed: one
-  JSON object, nested at most 64 deep)`, in the words every reader shares. A valid
-  declaration nests a handful deep, so no app that passed before is refused. `terp promote`
-  refuses a carried declaration nested that deep the same way.
-
-  The framework pins terp-spec 0.47.0 (`terp-spec` on PyPI, `@terpjs/spec` on npm), and its
-  corpus gains the case that release's fixtures name
-  (`deployment_declaration_is_readable`, violation-56).
 
 ## 0.42.0 — 2026-11-11
 
