@@ -36,10 +36,10 @@ decision, 0001 onwards.
 - **A calendar step past `min` or `max` lands on the bound's month.** The calendar showed the
   month it stepped to while clamping the cursor to the bound, so a step past a bound could show
   a month that held no cell for the cursor: Tab then skipped the grid, and a step from the
-  keyboard dropped focus to `<body>`. The view now follows the clamped cursor; once it is on the
-  bound's month, a further step past the bound changes nothing, as an arrow key on the bound's
-  day already did. A grid key that leaves the cursor where it is, such as ArrowLeft on `min`, no
-  longer makes the next header click pull focus into the grid.
+  keyboard dropped focus to `<body>`. The view now follows the clamped cursor, so a step past a
+  bound lands on the bound itself; once the cursor is there, a further step past it changes
+  nothing, as an arrow key there already did. A grid key that leaves the cursor where it is, such
+  as ArrowLeft on `min`, no longer makes the next header click pull focus into the grid.
 
 ### Upgrade notes
 

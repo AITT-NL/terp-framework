@@ -308,8 +308,8 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
    *
    * The flag is raised only when the cursor really moves. A key at a bound leaves it where it
    * is, so no commit re-runs the effect that lowers the flag, and a flag left raised would pull
-   * focus off a header button the next time one moved the cursor. Shift+PageUp on the bound's
-   * month is now one such key, ArrowLeft on `min` always was.
+   * focus off a header button the next time one moved the cursor. Shift+PageUp with the cursor
+   * on `min` is now one such key, ArrowLeft there always was.
    */
   function moveCursor(daysDelta: number) {
     follow.current = toKey(move(daysDelta)) !== activeKey;
@@ -342,9 +342,9 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
    * month wholly outside the bounds while the cursor stayed in the other one. Then no cell in
    * the grid carried `tabIndex={0}`, so Tab skipped the calendar, and a step from the keyboard
    * unmounted the focused cell and dropped focus to <body> with nothing left to take it back.
-   * At a bound the step now lands on the bound's own month, and once the view is there a step
-   * past the bound changes nothing, as an arrow key on the bound's day already did: the grid's
-   * disabled days beyond the bound are what show where it lies.
+   * A step past a bound now lands on the bound itself, in the bound's own month, and once the
+   * cursor is on the bound a further step past it changes nothing, as an arrow key there already
+   * did: the grid's disabled days beyond the bound are what show where it lies.
    */
   function changeMonth(delta: number) {
     const target = addMonths(month, delta);

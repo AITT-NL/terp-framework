@@ -178,27 +178,30 @@ describe("DatePicker", () => {
   });
 
   it("leaves a header button's focus alone after a grid key that could not move the cursor", async () => {
-    render(
-      <LocaleProvider locales={{ en: LOCALE_EN }}>
-        <DatePicker aria-label="Due date" defaultValue={new Date(2026, 2, 25)} min={new Date(2026, 2, 25)} />
-      </LocaleProvider>,
-    );
-    fireEvent.click(screen.getByRole("button", { name: /^Due date / }));
-    const grid = screen.getByRole("grid");
-    const cursor = () => grid.querySelector<HTMLElement>('[tabindex="0"]');
-    await waitFor(() => expect(document.activeElement).toBe(cursor()));
+    // With the cursor on `min`, neither key moves it, so neither may leave raised the flag that
+    // makes the next cursor move take focus. Each key on its own: the second would overwrite
+    // whatever the first left behind.
+    for (const key of [{ key: "PageUp", shiftKey: true }, { key: "ArrowLeft" }]) {
+      render(
+        <LocaleProvider locales={{ en: LOCALE_EN }}>
+          <DatePicker aria-label="Due date" defaultValue={new Date(2026, 2, 25)} min={new Date(2026, 2, 25)} />
+        </LocaleProvider>,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /^Due date / }));
+      const grid = screen.getByRole("grid");
+      const cursor = () => grid.querySelector<HTMLElement>('[tabindex="0"]');
+      await waitFor(() => expect(document.activeElement).toBe(cursor()));
 
-    // On the bound's day and month neither key moves the cursor, so neither may leave the flag
-    // raised that makes the next cursor move take focus.
-    fireEvent.keyDown(grid, { key: "PageUp", shiftKey: true });
-    fireEvent.keyDown(grid, { key: "ArrowLeft" });
-    expect(cursor()).toHaveAccessibleName("Wednesday, March 25, 2026");
+      fireEvent.keyDown(grid, key);
+      expect(cursor(), key.key).toHaveAccessibleName("Wednesday, March 25, 2026");
 
-    const next = screen.getByRole("button", { name: "Next year" });
-    next.focus();
-    fireEvent.click(next);
-    expect(screen.getByRole("grid", { name: "March 2027" })).toBeInTheDocument();
-    expect(document.activeElement).toBe(next);
+      const next = screen.getByRole("button", { name: "Next year" });
+      next.focus();
+      fireEvent.click(next);
+      expect(screen.getByRole("grid", { name: "March 2027" })).toBeInTheDocument();
+      expect(document.activeElement, key.key).toBe(next);
+      cleanup();
+    }
   });
 
   it("opens the calendar on mount when asked", () => {
