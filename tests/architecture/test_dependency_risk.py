@@ -1,12 +1,15 @@
 """Risk acceptance cannot hide scan errors or unrelated release failures."""
 
+import json
 from copy import deepcopy
 from datetime import UTC, datetime
 
 import pytest
+from terp_spec import spec_dir
 
-from terp.cli.audit_findings import AuditUnreadable, finding, npm_findings, python_findings
-from terp.cli.dependency_risk import RiskRefused, evaluate
+from terp.cli import dependency_risk
+from terp.cli.audit_findings import MAX_ITEMS, MAX_TEXT, AuditUnreadable, finding, npm_findings, python_findings
+from terp.cli.dependency_risk import RiskRefused, audit_evidence, evaluate, valid_acceptance
 
 NOW = datetime(2026, 11, 18, 12, tzinfo=UTC)
 COMMIT = "a" * 40
@@ -372,3 +375,220 @@ def test_verifier_module_entry_refuses_invalid_input(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         runpy.run_module("terp.cli.risk_authority", run_name="__main__")
     assert exc.value.code == 1
+
+
+# --------------------------------------------------------------------------- #
+# the two contracts, as the pinned terp-spec states them
+# --------------------------------------------------------------------------- #
+def _contract(name):
+    root = spec_dir()
+    return (json.loads((root / f"{name}.schema.json").read_text(encoding="utf-8")),
+            json.loads((root / f"{name}.fixtures.json").read_text(encoding="utf-8")))
+
+
+AUDIT_SCHEMA, AUDIT_CASES = _contract("dependency-audit")
+ACCEPTANCE_SCHEMA, ACCEPTANCE_CASES = _contract("dependency-risk-acceptance")
+VALID_AUDIT = next(case["document"] for case in AUDIT_CASES if case["valid"])
+VALID_ACCEPTANCE = next(case["document"] for case in ACCEPTANCE_CASES if case["valid"])
+SCANNED = datetime.fromisoformat(VALID_AUDIT["scanned_at"])
+APPROVED = datetime.fromisoformat(VALID_ACCEPTANCE["approved_at"])
+
+
+def _read_alone(record):
+    """``valid_acceptance`` over *record* in the context the record names itself: its project,
+    commit, first environment and locks, at the valid fixture's approval time. Nothing in that
+    context can refuse the record, so a refusal is the contract's."""
+    environments = record.get("environments")
+    environment = environments[0] if isinstance(environments, list) and environments else "production"
+    return valid_acceptance(record, project=record.get("project_id"), commit=record.get("commit"),
+                            environment=environment, locks=record.get("locks"), now=APPROVED)
+
+
+def _release_with(acceptance):
+    """The release whose audit found the finding the valid fixture accepts, decided with *acceptance*."""
+    def scan(locks, findings):
+        return {"version": 1, "complete": True, "scanned_at": VALID_ACCEPTANCE["approved_at"],
+                "locks": locks, "findings": findings}
+    checks = [
+        {"id": "dependency-audit-npm", "ok": False, "applicable": True,
+         "dependency_audit": scan(dict(VALID_ACCEPTANCE["locks"]), [deepcopy(VALID_ACCEPTANCE["finding"])])},
+        {"id": "dependency-audit-python", "ok": True, "applicable": False, "dependency_audit": scan({}, [])},
+    ]
+    return evaluate(checks, [acceptance], project=VALID_ACCEPTANCE["project_id"], commit=VALID_ACCEPTANCE["commit"],
+                    environment=VALID_ACCEPTANCE["environments"][0], now=APPROVED)
+
+
+@pytest.mark.parametrize("case", ACCEPTANCE_CASES, ids=[case["name"] for case in ACCEPTANCE_CASES])
+def test_every_acceptance_the_contract_refuses_is_refused_on_its_own(case):
+    record = deepcopy(case["document"])
+    if case["valid"]:
+        assert _read_alone(record) == record["finding"]["fingerprint"]
+    else:
+        with pytest.raises(RiskRefused):
+            _read_alone(record)
+
+
+@pytest.mark.parametrize("case", ACCEPTANCE_CASES, ids=[case["name"] for case in ACCEPTANCE_CASES])
+def test_only_the_contract_s_valid_acceptance_admits_the_release_it_names(case):
+    if case["valid"]:
+        decision = _release_with(deepcopy(case["document"]))
+        assert decision["status"] == "accepted" and decision["acceptance_ids"] == [case["document"]["id"]]
+    else:
+        with pytest.raises(RiskRefused):
+            _release_with(deepcopy(case["document"]))
+
+
+@pytest.mark.parametrize("case", AUDIT_CASES, ids=[case["name"] for case in AUDIT_CASES])
+def test_every_audit_the_contract_refuses_is_refused(case):
+    document = deepcopy(case["document"])
+    if case["valid"]:
+        locks, findings = audit_evidence(document, now=SCANNED)
+        assert locks == document["locks"]
+        assert findings == {item["fingerprint"]: item for item in document["findings"]}
+    else:
+        with pytest.raises(RiskRefused):
+            audit_evidence(document, now=SCANNED)
+
+
+@pytest.mark.parametrize("field", ["id", "project_id", "reason", "approved_by", "environments", "evidence"])
+@pytest.mark.parametrize("blank", [" ", "\t", "\x00", "\x7f", "\u00a0", "\u2007", "\u3000", "\ufeff", " \ufeff\u00a0"])
+def test_an_authority_field_the_contract_calls_blank_is_refused(field, blank):
+    """terp-spec 0.50.0 asks for one character outside its blank class in every field that
+    says who decided, for what, why and on what evidence. A byte order mark or a NUL is no
+    whitespace to ``str.strip``, and no more an approver for that."""
+    record = deepcopy(VALID_ACCEPTANCE)
+    record[field] = [blank] if isinstance(record[field], list) else blank
+    with pytest.raises(RiskRefused):
+        _read_alone(record)
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("approved_by", "o"), ("reason", " Reviewed. "), ("evidence", ["\ufeffreview-1"]),
+])
+def test_a_field_with_one_character_of_content_is_not_blank(field, value):
+    record = deepcopy(VALID_ACCEPTANCE)
+    record[field] = value
+    assert _read_alone(record) == record["finding"]["fingerprint"]
+
+
+_ODD_INSTANTS = ["2026-11-18T12:00Z", "2026-11-18 12:00:00Z", "2026-11-18T12:00:00.1234567Z", "2026-11-18T12:00:00-00:00",
+                 "20261118T120000Z", "2026-11-18T12Z", "2026-11-18T12:00:00Z\n", "2026-11-18T12:00:00+0000",
+                 "\u0662\u0660\u0662\u0666-11-18T12:00:00Z"]
+
+
+@pytest.mark.parametrize("damage", ["lock-newline", "commit-newline", "no-lock", "lock-not-a-digest", "unknown-field",
+                                    "finding-field", "no-revocation-state", *_ODD_INSTANTS])
+def test_an_acceptance_is_read_only_in_the_contract_s_own_form(damage):
+    record = deepcopy(VALID_ACCEPTANCE)
+    lock = next(iter(record["locks"]))
+    if damage == "lock-newline":
+        record["locks"][lock] += "\n"
+    elif damage == "commit-newline":
+        record["commit"] += "\n"
+    elif damage == "no-lock":
+        record["locks"] = {}
+    elif damage == "lock-not-a-digest":
+        record["locks"][lock] = record["locks"][lock].upper()
+    elif damage == "unknown-field":
+        record["scope"] = "all"
+    elif damage == "finding-field":
+        record["finding"]["note"] = "ignore"
+    elif damage == "no-revocation-state":
+        del record["revoked_at"]
+    else:
+        record["approved_at"] = damage
+    with pytest.raises(RiskRefused):
+        _read_alone(record)
+
+
+@pytest.mark.parametrize("damage", ["lock-newline", "unknown-field", "finding-field", "no-scan-time", *_ODD_INSTANTS])
+def test_an_audit_is_read_only_in_the_contract_s_own_form(damage):
+    document = deepcopy(VALID_AUDIT)
+    if damage == "lock-newline":
+        document["locks"][next(iter(document["locks"]))] += "\n"
+    elif damage == "unknown-field":
+        document["tool"] = "npm"
+    elif damage == "finding-field":
+        document["findings"][0]["exploitable"] = False
+    elif damage == "no-scan-time":
+        del document["scanned_at"]
+    else:
+        document["scanned_at"] = damage
+    with pytest.raises(RiskRefused):
+        audit_evidence(document, now=SCANNED)
+
+
+@pytest.mark.parametrize(("field", "size", "read"), [
+    ("reason", MAX_TEXT, True), ("reason", MAX_TEXT + 1, False), ("approved_by", MAX_TEXT + 1, False),
+    ("project_id", MAX_TEXT + 1, False), ("evidence", MAX_ITEMS, True), ("evidence", MAX_ITEMS + 1, False),
+    ("environments", MAX_ITEMS + 1, False),
+])
+def test_an_acceptance_is_read_within_the_contract_s_limits(field, size, read):
+    record = deepcopy(VALID_ACCEPTANCE)
+    if isinstance(record[field], list):
+        record[field] = [*record[field], *(f"item-{index}" for index in range(size - len(record[field])))]
+    else:
+        record[field] = "r" * size
+    if read:
+        assert _read_alone(record) == record["finding"]["fingerprint"]
+    else:
+        with pytest.raises(RiskRefused):
+            _read_alone(record)
+
+
+@pytest.mark.parametrize(("field", "value", "read"), [
+    ("package", "p" * MAX_TEXT, True), ("package", "p" * (MAX_TEXT + 1), False),
+    ("version", "v" * (MAX_TEXT + 1), False), ("lockfile", "l" * (MAX_TEXT + 1), False),
+    ("advisories", ["a" * (MAX_TEXT + 1)], False), ("fixed_versions", ["f" * (MAX_TEXT + 1)], False),
+    ("dependency_paths", [f"node_modules/p{index:05d}" for index in range(MAX_ITEMS)], True),
+    ("dependency_paths", [f"node_modules/p{index:05d}" for index in range(MAX_ITEMS + 1)], False),
+])
+def test_a_finding_is_read_within_the_contract_s_limits(field, value, read):
+    """The fingerprint is recomputed over the changed identity, so the limit is all that can refuse."""
+    from terp.cli.audit_findings import digest
+
+    document = deepcopy(VALID_AUDIT)
+    item = document["findings"][0]
+    item[field] = value
+    if field == "lockfile":
+        document["locks"] = {value: next(iter(document["locks"].values()))}
+    item["fingerprint"] = digest({key: item[key] for key in dependency_risk.IDENTITY})
+    if read:
+        assert audit_evidence(document, now=SCANNED)[1] == {item["fingerprint"]: item}
+    else:
+        with pytest.raises(RiskRefused):
+            audit_evidence(document, now=SCANNED)
+
+
+def _keyword(schema, keyword):
+    """Every value *keyword* takes anywhere in *schema*."""
+    if isinstance(schema, dict):
+        for key, value in schema.items():
+            if key == keyword:
+                yield value
+            else:
+                yield from _keyword(value, keyword)
+    elif isinstance(schema, list):
+        for value in schema:
+            yield from _keyword(value, keyword)
+
+
+def test_the_reader_applies_the_contracts_own_patterns_fields_and_limits():
+    """The reader cannot import terp-spec, a development dependency, so it carries the
+    patterns as the schemas write them, the fields they close and their limits. Here each is
+    held to the pinned release: one that adds or changes any of them fails until the reader
+    applies it."""
+    schemas = (AUDIT_SCHEMA, ACCEPTANCE_SCHEMA)
+    applied = (dependency_risk.CONTENT, dependency_risk.DIGEST, dependency_risk.COMMIT, dependency_risk.INSTANT)
+    assert {pattern for schema in schemas for pattern in _keyword(schema, "pattern")} == {
+        expression.pattern for expression in applied}
+    # `revoked_at` is the one string with a smaller limit, and the reader reads only "" there.
+    revocation = ACCEPTANCE_SCHEMA["properties"]["revoked_at"]["maxLength"]
+    assert {limit for schema in schemas for limit in _keyword(schema, "maxLength")} - {revocation} == {MAX_TEXT}
+    assert {limit for schema in schemas for limit in _keyword(schema, "maxItems")} == {MAX_ITEMS}
+    item = AUDIT_SCHEMA["properties"]["findings"]["items"]
+    assert ACCEPTANCE_SCHEMA["properties"]["finding"] == item
+    for fields, closed in ((dependency_risk.AUDIT_FIELDS, AUDIT_SCHEMA), (dependency_risk.FINDING_FIELDS, item),
+                           (dependency_risk.ACCEPTANCE_FIELDS, ACCEPTANCE_SCHEMA)):
+        assert closed["additionalProperties"] is False
+        assert fields == set(closed["required"]) == set(closed["properties"])

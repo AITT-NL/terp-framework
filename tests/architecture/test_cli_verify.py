@@ -9,6 +9,7 @@ the in-process architecture check so the suite spawns no npm/uv toolchains.
 
 from __future__ import annotations
 
+import itertools
 import json
 import pathlib
 import re
@@ -1571,6 +1572,24 @@ def _assurance_schema() -> dict:
 _AWAITING_SPEC_RELEASE: frozenset[str] = frozenset()
 
 
+def _assurance_problems(document: dict) -> list[str]:
+    """What the pinned ``assurance-profile.schema.json`` refuses in *document*, by a full
+    Draft 2020-12 validator, over the lanes the pinned release declares.
+
+    Since terp-spec 0.50.0 the schema states what its descriptions only said before: each of
+    the seven lanes once, the checks a verdict names and none for ``not-run``, and ``ok`` true
+    exactly when every required lane passed. A claim this toolchain composes is held to all of
+    it, less any lane in ``_AWAITING_SPEC_RELEASE``, which the pinned release cannot know.
+    """
+    from jsonschema import Draft202012Validator
+
+    declared = [lane for lane in document["lanes"] if lane["id"] not in _AWAITING_SPEC_RELEASE]
+    return [
+        error.message
+        for error in Draft202012Validator(_assurance_schema()).iter_errors({**document, "lanes": declared})
+    ]
+
+
 def test_assurance_lanes_mirror_the_pinned_spec_vocabulary() -> None:
     """The lane constants are the spec's normative vocabulary, in order —
     mirrored here (with the requirement mapping from the spec README's
@@ -1645,6 +1664,7 @@ def test_assurance_emission_claims_on_required_lanes_only(
     assert excinfo.value.code == 0
     document = json.loads(capsys.readouterr().out)
     schema = _assurance_schema()
+    assert _assurance_problems(document) == []
     assert set(schema["required"]) <= set(document)
     assert set(document) <= set(schema["properties"])
     assert document["terp_assurance"] == 1
@@ -1685,10 +1705,53 @@ def test_assurance_emission_fails_the_claim_on_a_red_required_lane(
         main(["verify", "--profile", "release", "--root", str(tmp_path), "--format", "assurance"])
     assert excinfo.value.code == 1
     document = json.loads(capsys.readouterr().out)
+    assert _assurance_problems(document) == []
     assert document["ok"] is False
     lanes = {lane["id"]: lane for lane in document["lanes"]}
     # One red composing check fails the whole lane — never a partial pass.
     assert lanes["dependency-audit"]["status"] == "failed"
+
+
+def _each_lane_in_every_state() -> Iterator[list[dict[str, object]]]:
+    """Release results that put one lane's composing checks through every state a check can
+    be in (green, red, not applicable, absent from the run), with every other check green."""
+    from terp.cli.verify import ASSURANCE_LANES
+
+    states: dict[str, dict[str, object]] = {
+        "green": {"ok": True},
+        "red": {"ok": False},
+        "not applicable": {"ok": True, "applicable": False},
+    }
+    composing = [check for _lane, _requirement, checks in ASSURANCE_LANES for check in checks]
+    for _lane, _requirement, checks in ASSURANCE_LANES:
+        for combination in itertools.product([*states, "absent"], repeat=len(checks)):
+            chosen = dict(zip(checks, combination, strict=True))
+            yield [
+                {"id": check, **states[chosen.get(check, "green")]}
+                for check in composing
+                if chosen.get(check) != "absent"
+            ]
+
+
+def test_every_claim_the_toolchain_composes_is_one_the_pinned_schema_accepts() -> None:
+    """``terp verify --format assurance`` and ``terp release gate`` compose the claim with
+    ``assurance_document``, so every result it can be handed is held to the pinned schema:
+    each lane's checks in every state beside the others green, an empty run, an all-red one."""
+    from terp.cli.verify import assurance_document
+
+    all_red = [{"id": check.id, "ok": False} for check in PROFILES["release"]]
+    for results in [*_each_lane_in_every_state(), [], all_red]:
+        assert _assurance_problems(assurance_document(results)) == [], results
+    # The schema those assertions read is one that refuses a claim at odds with its lanes:
+    # `ok` over a red required lane, a lane left out, and `not-run` that names a check.
+    document = assurance_document([])
+    not_run = [
+        {**lane, "checks": ["architecture"]} if lane["status"] == "not-run" else lane
+        for lane in document["lanes"]
+    ]
+    assert _assurance_problems({**document, "ok": True})
+    assert _assurance_problems({**document, "lanes": document["lanes"][1:]})
+    assert _assurance_problems({**document, "lanes": not_run})
 
 
 def test_assurance_refuses_partial_runs() -> None:
@@ -3334,6 +3397,7 @@ def test_the_release_claim_holds_for_an_api_only_app_and_says_which_lanes_did_no
     assert excinfo.value.code == 0
     captured = capsys.readouterr()
     document = json.loads(captured.out)
+    assert _assurance_problems(document) == []
     assert document["ok"] is True
     lanes = {lane["id"]: lane for lane in document["lanes"]}
     assert lanes["terp-standard"]["checks"] == ["architecture"]
