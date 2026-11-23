@@ -3179,8 +3179,8 @@ export const SPECIMEN_GROUPS: SpecimenGroup[] = [
       {
         // The use the primitive exists for, rather than a demonstration of it. The diagnosis's
         // sharpest piece of evidence was a fifteen-field form shipped as one long vertical run
-        // because two columns could not be expressed at all — app modules may not write `style`
-        // or `className`, so this was unbuildable rather than awkward. This is that form.
+        // because two columns could not be expressed at all — app modules could write neither
+        // `style` nor `className` then, so this was unbuildable rather than awkward. This is that form.
         id: "grid-two-column-form",
         title: "Grid — a two-column form, which was previously unbuildable",
         node: (

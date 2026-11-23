@@ -8,6 +8,9 @@
   ("holds app source outside modules/ to the same boundary", "holds every script extension
   under src", the cross-module and bootstrap cases, the dynamic stylesheet cases, and "lints the
   template's own bootstrap clean"), and by `budget.test.js` for the widened extensions.
+- **Amended by:** [ADR 0217](0217-app-components-can-own-a-scoped-stylesheet.md): an app
+  component may also import its sibling CSS Module; the bootstrap stays the one file that
+  imports a global stylesheet.
 - **Date:** 2026-10-06
 - **Relates:** [ADR 0136](0136-a-security-rule-does-not-stop-at-the-module-tree.md) (the same
   defect in the backend gate, closed there first), [ADR 0059](0059-strict-frontend-boundary-and-escape-hatch-budget.md)

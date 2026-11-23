@@ -1,6 +1,6 @@
 # `frontend/no-inline-styling`
 
-**style and className attributes are refused in app modules**
+**App classes come from local CSS Modules**
 
 > Generated from the catalog by `tools/generate_rule_docs.py` — do not
 > edit by hand; the parity test holds this page to
@@ -8,11 +8,11 @@
 
 ## Why this rule exists
 
-A style or className attribute is a side channel into hand-authored CSS that drifts per screen; styling flows from the app's design tokens and sanctioned layout primitives only. The refused attributes are declared in restricted-surface.json (restrictedAttributes).
+Paint follows the palette, and a framework control keeps the styling and focus treatment it ships with, so a control looks and behaves the same in every app. Inline style and a hardcoded colour in app script paint around the palette, and a class on a framework control, or ink and type an element passes down to the framework component it holds, restyle what the framework owns. So a CSS Module's binding is read only in a className on a native element, naming a class the module defines or choosing between two of them, and a class that sets inherited ink or type goes only on an element that holds the app's own text; a framework control is configured through its props. A style attribute, a className attribute that names no module class, any other read of the binding, and a #hex colour in a string literal in app script are refused.
 
 ## How Terp realises this
 
-Layout via Stack, DetailList and the page archetypes from @terpjs/react-core; theming via the app's token source.
+Layout via Stack, Grid, DetailList and the page archetypes from @terpjs/react-core. A layout a component owns: import styles from "./Board.module.css" and className={styles.board}, or className={active ? styles.active : styles.board}, on a native element in the body of a plain Page, with ink and type on the element that holds the app's own text. Paint via the design tokens.
 
 ## If you really need an exception
 
@@ -26,7 +26,26 @@ in your app's escape-hatch budget:
 An unjustified marker is itself a violation, and marker counts must
 exactly match the checked-in budget (which can only shrink).
 
+## What the check is not required to catch
+
+A check precise enough to have no false positives has limits. This
+rule's limits are recorded as data (its corpus's `RESIDUALS.json`), so
+where detection ends is a statement rather than a guess:
+
+- a component an element renders through a value or a call written outside it (`const body = <Card />` rendered as `{body}`, a render function's result) is read as the app's own text when the class's inherited ink and type are checked
+- an element maker called under another name (`createElement as h`, `const { createElement: make } = React`) or through a computed member or `.call` (`React["createElement"]`, `createElement.call`), and a binding taken from `children` other than by destructuring or a member-read initialiser (assigned after its declaration, `children ?? fallback`, a chain of bindings), are read as the app's own text
+- an element with a module class inside a framework control's own children (a `Button` label) is not resolved to the surface that control paints, so its ink and any surface it sets are held to the admitted roles only
+- a list marker (`list-style`) is not checked as inherited, so on an element it also reaches a list a framework component renders inside it (a `Markdown` list)
+- a class or style passed as a key of a props object (spread onto an element, or given to `createElement` or `cloneElement`) and the `class` attribute are not refused; only the `className` and `style` attributes are read
+- a colour written other than as `#hex` in a string literal (`"red"`, `"rgb(255, 0, 0)"`, a `#hex` in a template literal) in app script is not recognised
+
+**These are not exemptions.** The rule governs those forms exactly as it
+governs any other — a checker is simply not required to find them, so
+review is the control there. The list only shrinks: closing one means
+adding the corpus case that contracts it.
+
 ## Enforcement
 
-- Checked while the app runs? No — this is a property of the written source only; the build-time check is the control, by recorded decision.
+- Checked while the app runs? Not yet — a runtime control is planned; the gap is explicit and tracked.
+- `build-time`: `@terpjs/eslint-boundaries` — `terp/no-inline-styling`
 - `build-time`: `@terpjs/eslint-boundaries` — `BOUNDARY_SPEC.restrictedAttributes`

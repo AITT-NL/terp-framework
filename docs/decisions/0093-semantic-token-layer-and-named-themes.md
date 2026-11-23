@@ -1,6 +1,8 @@
 # 0093 — A semantic token layer, named themes, and an accent that is two tokens
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by
+  [ADR 0217](0217-app-components-can-own-a-scoped-stylesheet.md): an app component's own CSS
+  Module may set lengths and type values of its own, while its paint stays in the token vocabulary.
 - **Date:** 2026-08-18
 - **Relates:** Studio ADR 0015 — *Project styling themes* (the Studio writes a
   project's `theme.css`; this ADR is what that file can usefully say — it lives in

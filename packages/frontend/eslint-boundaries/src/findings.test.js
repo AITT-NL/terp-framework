@@ -266,7 +266,31 @@ describe("terp-boundaries-lint (the bin)", () => {
     const complete = runBin(root);
     expect(complete.status).toBe(0);
     expect(JSON.parse(complete.stdout).findings).toEqual([]);
-  });
+    // Two runs of the bin, as in the stylesheet case below: past vitest's 5 s default on a slow runner.
+  }, 30_000);
+
+  it("rechecks an imported CSS Module when only the stylesheet changes", () => {
+    const root = appRoot({
+      "package.json": '{ "type": "module" }',
+      "eslint.config.js": config,
+      "escape-hatch-budget.json": "{}",
+      "src/Layout.tsx": 'import layout from "./Layout.module.css"; export const View = () => <div className={layout.board} />;',
+      "src/Layout.module.css": ":global(body) { display: none }",
+    });
+    // Refused first, so the cached pass stores the refusal. Fixing only the stylesheet leaves the
+    // component's bytes as they were: without the stylesheet in the cache key, ESLint would replay
+    // that stored refusal over a stylesheet that is now fine, and the run would stay red.
+    const refused = runBin(root);
+    expect(refused.status).toBe(1);
+    expect(new Set(JSON.parse(refused.stdout).findings.map(({ rule }) => rule))).toEqual(
+      new Set(["frontend/no-style-imports"]),
+    );
+    fs.writeFileSync(path.join(root, "src/Layout.module.css"), "@media (width < 40rem) { .board { display: grid } }");
+    const fixed = runBin(root);
+    expect(fixed.status).toBe(0);
+    expect(JSON.parse(fixed.stdout).findings).toEqual([]);
+    // Two runs of the bin, each a full ESLint start: past vitest's 5 s default on a slow runner.
+  }, 30_000);
 
   it("reports budget drift even when the boundary lint fails (both halves always run)", () => {
     // The regression the merged bin exists for: with `eslint . && terp-boundaries-budget`

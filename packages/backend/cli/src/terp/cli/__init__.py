@@ -1950,14 +1950,14 @@ Frontend module screens (@terpjs/react-core)
     raw <form>                                 ->  Stack as="form"   (terp guide forms)
     raw fetch / XMLHttpRequest                 ->  useTerpClient() + unwrap (typed client)
     WebSocket / EventSource / sendBeacon       ->  the generated client (one egress path)
-    style={} / className / any stylesheet      ->  layout via Stack/DetailList; design tokens
+    inline style / global classes              ->  primitives or a sibling CSS Module
     <a href="/...">                            ->  the router's Link (role-aware, no reload)
     deep imports (@terpjs/*/src, @terpjs/*/dist)   ->  import from the package root only
     data-terp / data-terp-* anywhere in src    ->  compose the component that renders it
   The data-terp markers are react-core's own: its stylesheet and the runtime layout check
   trust them. A framework screen you replace (renderTerpApp({ login })) is yours, so its
   tests find it by role and accessible name, not by the framework screen's markers.
-  The bootstrap (src/main.tsx) is the one file that imports stylesheets, and only the token
+  The bootstrap (src/main.tsx) is the one file that imports global stylesheets, and only the token
   pipeline's three: @terpjs/contract/tokens.css, ./house-style.css and ./theme.css. A
   library's stylesheet is refused there too: it would paint outside the palettes. A
   stylesheet loaded through import() or import.meta.glob is refused the same way.
@@ -2045,7 +2045,7 @@ Forms (react-core primitives)
         <Button type="submit" variant="primary">Save</Button>
       </Stack>
 - Field wraps label + control + hint/error for one field; Stack (vertical by default)
-  is the layout — never style={} / className / a stylesheet.
+  lays out fields. A custom layout can use a sibling CSS Module.
 - Submit through the typed client: const client = useTerpClient();
   await unwrap(client.POST("/api/v1/invoices/", { body })); a failure throws ApiError
   ({code, status, requestId, fields}) — map codes to copy with useErrorMessage, show
@@ -2108,10 +2108,9 @@ Forms (react-core primitives)
     "theming": """\
 Theming and branding (design tokens, palettes, the brand mark)
 
-- EVERY style is a design token. The react-core primitives paint from CSS custom
-  properties shipped by @terpjs/contract (tokens.css), which is why the boundary lint
-  refuses `style={}`, `className` and stylesheets in every src/ file: code that painted
-  itself would not follow the palette. Modules never need theme-specific code.
+- Use the shared tokens for palette, typography and spacing. For a custom screen, use a
+  plain Page and import styles from "./Board.module.css". Apply className={styles.board}
+  and define .board in that file. Global stylesheets belong to the bootstrap token pipeline.
 - THE SHIPPED PALETTES, plus "system":
       midday  twilight  evening  night  contrast
   Named for the time of day they suit: midday is the light set, twilight a dimmed dark,

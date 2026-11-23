@@ -9,7 +9,8 @@ injectTerpStyles();
  * The prose primitives, and the gap they close is narrower than "we had no typography".
  *
  * A module could always render a `<p>` or a `<code>`. What it could not do is give either any
- * treatment: app modules may not write `style` or `className` (ADR 0059), and a bare element
+ * treatment: app modules could write neither `style` nor `className` (ADR 0059, before ADR 0217
+ * let a sibling CSS Module class onto a native element), and a bare element
  * carries no `data-terp`, so no rule in the sheet can reach it. The framework's own generated
  * home page shipped a bare `<p>` and a bare `<code>` for exactly that reason. So these are the
  * marker, and the marker is what makes the ink themeable.

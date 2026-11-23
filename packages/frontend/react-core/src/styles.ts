@@ -3,9 +3,11 @@
  * interaction states, keyed by the `data-terp` / `data-variant` attributes the
  * components stamp on their roots (ADR 0094).
  *
- * Rules are attribute selectors, never class names, so the boundary lint's
- * `style`/`className` prohibition on app modules is untouched — react-core
- * itself is allowed to inject a stylesheet; the rule targets *app modules*.
+ * Rules are attribute selectors, never class names, so they meet no class an app
+ * writes: the boundary lint refuses `style` in app modules and lets a class from a
+ * sibling CSS Module onto a native element only, never onto a framework control
+ * (ADR 0217). react-core itself is allowed to inject a stylesheet; the rule
+ * targets *app modules*.
  *
  * THIS SHEET CARRIES NO `!important`. It carried 35 at 0.7.0, and the count going
  * to zero is what the migration was for: every rule here is now beatable by an

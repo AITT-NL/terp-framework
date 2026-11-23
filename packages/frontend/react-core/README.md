@@ -218,7 +218,7 @@ marker, counted by the escape-hatch budget.
 | Export | Use |
 |---|---|
 | `Button` | Token-styled command: `variant` (primary / secondary / danger / ghost), `size` (sm / md / lg, composing with density), `loading` (spinner in the icon slot, `aria-busy`, and disabled so a second click cannot start the request twice), `fullWidth` to fill the container instead of the label, and an optional leading `icon`. Content-sized by default. |
-| `Input`, `Select`, `Textarea` | Token-styled controls with stable framework typography, independent of surrounding display text (raw elements are lint-refused). Numeric inputs suppress unthemeable browser steppers. `Input type="password"` grows a reveal toggle — the type decides, so there is no second export and no prop; an app could not add one itself, because the toggle needs a positioned wrapper and app source may use neither `style` nor `className`. |
+| `Input`, `Select`, `Textarea` | Token-styled controls with stable framework typography, independent of surrounding display text (raw elements are lint-refused). Numeric inputs suppress unthemeable browser steppers. `Input type="password"` grows a reveal toggle — the type decides, so there is no second export and no prop, and no app builds its own: a class from a CSS Module goes on a native element only (ADR 0217), never on `Input`. |
 | `Select` options (`SelectOption<T>`) | Two forms. Pass `options={[{ value, label, disabled? }]}` with `onValueChange` when the choices are data — `T` is inferred from the list, so a closed enum is checked at both ends and the `event.target.value as Status` cast goes away; `placeholder` renders the disabled empty-valued leading row. Or pass `<option>` children as before. The two are mutually exclusive at the type level, so neither can silently ignore the other. |
 | `Combobox` | Accessible autocomplete/typeahead single-select: filterable options, controlled or uncontrolled value, loading state, disabled state, and ARIA combobox/listbox keyboard navigation. |
 | `DatePicker`, `DateRangePicker` | Locale-aware calendar popover controls with keyboard-navigable month grids, month and year steps (Shift+PageUp/PageDown for a year), min/max bounds, and range selection for ERP date filters. |
@@ -247,9 +247,15 @@ marker, counted by the escape-hatch budget.
 
 ## Layout
 
-App code never writes `style={}` or CSS — the boundary lint refuses the `style`
-attribute anywhere in `src/**` (ADR 0175). Layout comes from these primitives (gaps index the
-token spacing scale, so spacing is themed centrally):
+Choose the layout for the user’s task. Compose existing controls and use the body of
+a plain `Page` when a screen needs its own layout. A component can import a sibling
+`./Board.module.css` with a static default import and use `className={styles.board}`.
+Use local class selectors, a class on a native element only, and the palette's roles for paint:
+`--color-fg-default`, `-muted` or `-subtle` for ink, `--color-bg-canvas`, `-surface` or
+`-subtle` for a surface, a `--color-border-*` token for a border; set ink and type on an element
+that holds only the app's own text. Use the spacing and type scale tokens for lengths and type.
+Responsive rules can use `@media` or `@container`. Keep keyboard focus visible and
+check the layout in narrow viewports and each supported theme. The following primitives implement common layouts.
 
 | Export | Use |
 |---|---|

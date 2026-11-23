@@ -173,8 +173,9 @@ export type GridProps = GridBaseProps & GridTracks;
 /**
  * The two-dimensional layout primitive, and the one that lifts a real ceiling: with `Stack`
  * as the entire vocabulary, a two-column form could not be expressed at all, so a fifteen-field
- * form shipped as one long vertical run. App modules may not write `style` or `className`
- * (ADR 0059), so that was not awkwardness — it was unbuildable.
+ * form shipped as one long vertical run. App modules could write neither `style` nor `className`
+ * then (ADR 0059; ADR 0217 later let a CSS Module class onto a native element), so that was not
+ * awkwardness — it was unbuildable.
  *
  * Every prop is a closed set and becomes a `data-*` attribute with a rule each, so `Grid`
  * renders **no inline style** and stays out of the inline-style ledger (ADR 0097). Three
@@ -351,8 +352,9 @@ export interface DetailListProps extends Omit<HTMLAttributes<HTMLDListElement>, 
    * internals; a `gap` shorthand from here would reset both.
    *
    * The prop exists because its absence was the reason the value was unreachable: `Stack`,
-   * `Grid` and `Card` all take a `gap` on this scale, and app modules may write neither `style`
-   * nor `className` (ADR 0059), so a detail list needing looser rows had nowhere to say so.
+   * `Grid` and `Card` all take a `gap` on this scale, and app modules may write no `style` and no
+   * class on a framework component (ADR 0059, ADR 0217), so a detail list needing looser rows had
+   * nowhere to say so.
    */
   gap?: SpaceToken;
 }

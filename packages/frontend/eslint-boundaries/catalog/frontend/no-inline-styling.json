@@ -1,10 +1,16 @@
 {
   "id": "frontend/no-inline-styling",
   "surface": "frontend",
-  "title": "style and className attributes are refused in app modules",
-  "intent": "A style or className attribute is a side channel into hand-authored CSS that drifts per screen; styling flows from the app's design tokens and sanctioned layout primitives only. The refused attributes are declared in restricted-surface.json (restrictedAttributes).",
+  "title": "App classes come from local CSS Modules",
+  "intent": "Paint follows the palette, and a framework control keeps the styling and focus treatment it ships with, so a control looks and behaves the same in every app. Inline style and a hardcoded colour in app script paint around the palette, and a class on a framework control, or ink and type an element passes down to the framework component it holds, restyle what the framework owns. So a CSS Module's binding is read only in a className on a native element, naming a class the module defines or choosing between two of them, and a class that sets inherited ink or type goes only on an element that holds the app's own text; a framework control is configured through its props. A style attribute, a className attribute that names no module class, any other read of the binding, and a #hex colour in a string literal in app script are refused.",
   "layer": "static-portable",
   "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "@terpjs/eslint-boundaries",
+      "ref": "terp/no-inline-styling",
+      "reported_as": "terp/no-inline-styling"
+    },
     {
       "kind": "build-time",
       "tool": "@terpjs/eslint-boundaries",
@@ -12,11 +18,12 @@
       "reported_as": "no-restricted-syntax"
     }
   ],
-  "reference": "Layout via Stack, DetailList and the page archetypes from @terpjs/react-core; theming via the app's token source.",
+  "reference": "Layout via Stack, Grid, DetailList and the page archetypes from @terpjs/react-core. A layout a component owns: import styles from \"./Board.module.css\" and className={styles.board}, or className={active ? styles.active : styles.board}, on a native element in the body of a plain Page, with ink and type on the element that holds the app's own text. Paint via the design tokens.",
   "opt_out": "// terp-allow-no-inline-styling: <reason>",
   "runtime": {
-    "applicability": "not-applicable",
-    "rationale": "style/className are authoring-surface attributes: the token pipeline itself emits inline styles and class names into the built DOM, so their presence at runtime is legitimate and unattributable to app authorship."
+    "applicability": "deferred",
+    "rationale": "Most of the rule is erased before the app serves: react-core sets inline styles of its own, and a CSS Module's class is a hashed name like any other in the built DOM, so neither a style nor a class on a native element can be attributed to app authorship there. One part can be. Every react-core control's root carries a data-terp marker and react-core renders no class on it, save the router's active link, so a class on a framework control is observable in the running page, on the seam the archetype slot check (verifySlotChildren) already walks by those markers. A refusal there has not shipped.",
+    "tracking": "docs/decisions/0217-app-components-can-own-a-scoped-stylesheet.md in the reference implementation, the Consequences section: a runtime refusal of a class on a data-terp element, beside verifySlotChildren, flips this entry to required."
   },
   "restricted_surface": [
     "restrictedAttributes"
