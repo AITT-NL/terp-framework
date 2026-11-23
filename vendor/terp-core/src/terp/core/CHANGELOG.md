@@ -42,15 +42,17 @@ decision, 0001 onwards.
   Standard 0.50.0 as the release its declaration was written against.
 - **Dependency risk is read as terp-spec's two contracts.** `terp release gate`, `terp release
   sign` and `terp promote` with `--risk-policy`, and the protected verifier, read an audit's
-  evidence and each acceptance closed, as their schemas are. Each of these was admitted before
-  and is refused now, with the release it would have let through: a field the contract does
-  not define, in an acceptance, an audit or a finding; an approver, reason, evidence,
-  environment, id or project that holds only a byte order mark, a NUL or another character the
-  contract counts as blank; and a time written other than `YYYY-MM-DDThh:mm:ss`, with up to six
-  decimals and `Z` or `+00:00`. A string longer than 4096 characters or a list longer than
-  10000 entries is refused on both sides: an audit that finds more than the contract holds
-  reports itself incomplete instead of writing a document every reader refuses. The patterns,
-  fields and limits are the pinned release's, and its fixtures run through the reader.
+  evidence and every acceptance the authority returns closed, as their schemas are, a
+  superseded acceptance included. Each of these was admitted before and is refused now, with
+  the release it would have let through: a field the contract does not define, in an
+  acceptance, an audit or a finding; an approver, reason, evidence, environment, id or project
+  that holds only a byte order mark, a NUL or another character the contract counts as blank;
+  and a time written other than `YYYY-MM-DDThh:mm:ss`, with up to six decimals and `Z` or
+  `+00:00`. A string longer than 4096 characters or a list longer than 10000 entries is refused
+  on both sides: an audit that finds more than the contract holds reports itself incomplete
+  instead of writing a document every reader refuses. The patterns, fields and limits are the
+  pinned release's, and its fixtures run through the reader. The three commands now print what
+  the record or the audit broke, where they said only that authorization could not be verified.
 
 ### Upgrade notes
 
@@ -60,10 +62,10 @@ decision, 0001 onwards.
   or promote the first app that upgrades. A deploy tool that reads a declaration by the Terp
   Standard release it was written against must carry 0.50.0 before it reads such a release. The
   declaration's schema in 0.50.0 is 0.48.0's, byte for byte.
-- **A risk authority answers with terp-spec 0.50.0's acceptances.** Each record holds the
-  fields `dependency-risk-acceptance` defines and no other, content in each field above, at
-  least one lock, and its times in the form above; a record that does not is refused, and so is
-  the release it covers. An app changes nothing.
+- **A risk authority answers with terp-spec 0.50.0's acceptances.** Each record it returns, a
+  superseded one too, holds the fields `dependency-risk-acceptance` defines and no other,
+  content in each field above, at least one lock, and its times in the form above; a record
+  that does not is refused, and so is the release it covers. An app changes nothing.
 
 ## 0.43.0 — 2026-11-23
 

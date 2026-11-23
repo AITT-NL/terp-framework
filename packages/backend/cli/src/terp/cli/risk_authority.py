@@ -64,6 +64,8 @@ def authorize(checks: list[dict], *, policy_file: str, commit: str, checkout: st
         return {"decision": decision, "project_id": policy["project_id"], "environment": policy["environment"],
                 "commit": commit, "issuer": issuer, "authorization": json.loads(completed.stdout),
                 "checks": checks, "acceptances": records}
+    except RiskRefused:
+        raise  # the reader's own sentence, which names what the authority or the audit must change
     except (OSError, subprocess.SubprocessError, ValueError, ReleaseError) as exc:
         raise RiskRefused("dependency risk authorization could not be verified") from exc
 

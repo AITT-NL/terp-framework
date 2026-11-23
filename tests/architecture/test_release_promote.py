@@ -64,9 +64,12 @@ def test_risk_release_requires_current_permission_before_compose(tmp_path, keys,
         assert deploy()[-1] == "promoted r1"
         assert calls == [False, True]
     else:
-        with pytest.raises(ReleaseError, match="dependency risk authorization"):
+        with pytest.raises(ReleaseError, match="dependency risk authorization") as refused:
             deploy()
         assert not runs.ran("docker", "compose")
+        # The reader's own sentence travels with the refusal, where the operator reads it.
+        assert refused.value.cause == {"revoked-after-pull": "revoked", "wrong-project": "the risk policy belongs to "
+                                       "another release"}.get(mode, "")
 
 
 def _file(path: str, data: bytes) -> dict:

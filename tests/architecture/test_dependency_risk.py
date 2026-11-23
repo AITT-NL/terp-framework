@@ -80,7 +80,8 @@ def test_malformed_acceptance_records_fail_closed():
 
 @pytest.mark.parametrize(("field", "value"), [
     ("project_id", "other-project"), ("commit", "d" * 40), ("environments", ["test"]),
-    ("locks", {}), ("approved_by", ""), ("reason", " "), ("evidence", []),
+    ("locks", {}), ("locks", {"frontend/package-lock.json": "sha256:" + "d" * 64, "uv.lock": "sha256:" + "c" * 64}),
+    ("approved_by", ""), ("reason", " "), ("evidence", []),
     ("revoked_at", "2026-11-18T11:00:00Z"), ("expires_at", NOW.isoformat()),
     ("approved_at", "2026-11-19T12:00:00Z"), ("expires_at", "2027-01-01T12:00:00Z"),
     ("approved_at", "2026-11-18T12:00:00"), ("approved_at", None), ("approved_at", "invalid"), ("version", True),
@@ -228,12 +229,13 @@ def test_incomplete_or_ambiguous_evidence_never_grants_permission(damage):
         decide(checks, acceptances)
 
 
-@pytest.mark.parametrize("damage", [None, "signature", "nonce", "expired", "revoked", "wrong-purpose", "unavailable", "no-records", "no-acceptance"])
+@pytest.mark.parametrize("damage", [None, "signature", "nonce", "expired", "revoked", "wrong-purpose", "unavailable", "no-records",
+                                    "no-acceptance", "no-issue-time", "local-time", "undefined-field"])
 def test_authority_verifies_fresh_signed_evidence(tmp_path, monkeypatch, damage):
     import json
     import subprocess
     import sys
-    from datetime import timedelta
+    from datetime import timedelta, timezone
 
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -260,6 +262,8 @@ def test_authority_verifies_fresh_signed_evidence(tmp_path, monkeypatch, damage)
         record = deepcopy(approval)
         if damage == "revoked":
             record["revoked_at"] = NOW.isoformat()
+        if damage == "undefined-field":
+            record["scope"] = "every environment"
         response = {**request, "issued_at": NOW.isoformat(), "expires_at": (NOW + timedelta(minutes=5)).isoformat(),
                     "acceptances": [record]}
         if damage == "nonce":
@@ -270,6 +274,10 @@ def test_authority_verifies_fresh_signed_evidence(tmp_path, monkeypatch, damage)
             response.pop("acceptances")
         if damage == "no-acceptance":
             response["acceptances"] = []
+        if damage == "no-issue-time":
+            response.pop("issued_at")
+        if damage == "local-time":
+            response["issued_at"] = NOW.astimezone(timezone(timedelta(hours=1))).isoformat()
         purpose = dsse.PAYLOAD_TYPE if damage == "wrong-purpose" else risk_authority.PAYLOAD_TYPE
         payload = json.dumps(response).encode()
         signer = Ed25519PrivateKey.generate() if damage == "signature" else key
@@ -277,8 +285,11 @@ def test_authority_verifies_fresh_signed_evidence(tmp_path, monkeypatch, damage)
         return subprocess.CompletedProcess(argv, 1 if damage == "unavailable" else 0, json.dumps(envelope).encode(), b"")
 
     monkeypatch.setattr(risk_authority.subprocess, "run", provider)
+    # A refusal of the reader reaches the caller in the reader's own words, which name the fix.
+    said = {"revoked": "was revoked", "no-issue-time": "is missing", "local-time": "must be UTC",
+            "undefined-field": '"scope", which the dependency-risk-acceptance contract does not define'}
     if damage:
-        with pytest.raises(RiskRefused):
+        with pytest.raises(RiskRefused, match=said.get(damage)):
             risk_authority.authorize(checks, policy_file=str(policy), commit=COMMIT, checkout=tmp_path / "app")
     else:
         result = risk_authority.authorize(checks, policy_file=str(policy), commit=COMMIT, checkout=tmp_path / "app")
@@ -398,10 +409,11 @@ def _read_alone(record):
     """``valid_acceptance`` over *record* in the context the record names itself: its project,
     commit, first environment and locks, at the valid fixture's approval time. Nothing in that
     context can refuse the record, so a refusal is the contract's."""
-    environments = record.get("environments")
+    named = record if isinstance(record, dict) else {}
+    environments = named.get("environments")
     environment = environments[0] if isinstance(environments, list) and environments else "production"
-    return valid_acceptance(record, project=record.get("project_id"), commit=record.get("commit"),
-                            environment=environment, locks=record.get("locks"), now=APPROVED)
+    return valid_acceptance(record, project=named.get("project_id"), commit=named.get("commit"),
+                            environment=environment, locks=named.get("locks"), now=APPROVED)
 
 
 def _release_with(acceptance):
@@ -471,13 +483,15 @@ def test_a_field_with_one_character_of_content_is_not_blank(field, value):
     assert _read_alone(record) == record["finding"]["fingerprint"]
 
 
-_ODD_INSTANTS = ["2026-11-18T12:00Z", "2026-11-18 12:00:00Z", "2026-11-18T12:00:00.1234567Z", "2026-11-18T12:00:00-00:00",
+_ODD_INSTANTS = ["2026-11-18T24:00:00Z", "2026-11-17T24:00:00Z", "2026-02-30T12:00:00Z", "2026-11-18T12:61:00Z",
+                 "2026-11-18T12:00Z", "2026-11-18 12:00:00Z", "2026-11-18T12:00:00.1234567Z", "2026-11-18T12:00:00-00:00",
                  "20261118T120000Z", "2026-11-18T12Z", "2026-11-18T12:00:00Z\n", "2026-11-18T12:00:00+0000",
                  "\u0662\u0660\u0662\u0666-11-18T12:00:00Z"]
 
 
 @pytest.mark.parametrize("damage", ["lock-newline", "commit-newline", "no-lock", "lock-not-a-digest", "unknown-field",
-                                    "finding-field", "no-revocation-state", *_ODD_INSTANTS])
+                                    "finding-field", "no-revocation-state", "revocation-too-long", "revocation-not-text",
+                                    *_ODD_INSTANTS])
 def test_an_acceptance_is_read_only_in_the_contract_s_own_form(damage):
     record = deepcopy(VALID_ACCEPTANCE)
     lock = next(iter(record["locks"]))
@@ -495,13 +509,18 @@ def test_an_acceptance_is_read_only_in_the_contract_s_own_form(damage):
         record["finding"]["note"] = "ignore"
     elif damage == "no-revocation-state":
         del record["revoked_at"]
+    elif damage == "revocation-too-long":
+        record["revoked_at"] = "r" * (dependency_risk.MAX_REVOCATION + 1)
+    elif damage == "revocation-not-text":
+        record["revoked_at"] = None
     else:
         record["approved_at"] = damage
     with pytest.raises(RiskRefused):
         _read_alone(record)
 
 
-@pytest.mark.parametrize("damage", ["lock-newline", "unknown-field", "finding-field", "no-scan-time", *_ODD_INSTANTS])
+@pytest.mark.parametrize("damage", ["lock-newline", "unknown-field", "finding-field", "no-scan-time", "locks-not-a-map",
+                                    "findings-not-a-list", "too-many-findings", *_ODD_INSTANTS])
 def test_an_audit_is_read_only_in_the_contract_s_own_form(damage):
     document = deepcopy(VALID_AUDIT)
     if damage == "lock-newline":
@@ -512,10 +531,46 @@ def test_an_audit_is_read_only_in_the_contract_s_own_form(damage):
         document["findings"][0]["exploitable"] = False
     elif damage == "no-scan-time":
         del document["scanned_at"]
+    elif damage == "locks-not-a-map":
+        document["locks"] = list(document["locks"].items())
+    elif damage == "findings-not-a-list":
+        document["findings"] = {"0": document["findings"][0]}
+    elif damage == "too-many-findings":
+        # Counted before any is read: a list past the contract's count is refused whole.
+        document["findings"] = [None] * (MAX_ITEMS + 1)
     else:
         document["scanned_at"] = damage
     with pytest.raises(RiskRefused):
         audit_evidence(document, now=SCANNED)
+
+
+@pytest.mark.parametrize("damage", ["undefined-field", "blank-approver", "version-2", "no-lock", "odd-time",
+                                    "revocation-too-long", "revocation-not-text"])
+def test_a_superseded_acceptance_is_held_to_the_contract_too(damage):
+    """The release reads the latest decision for each finding, and the authority returns the
+    ones before it as well: each of those is a document of the contract too, or the answer is
+    refused whole. Only its lifetime, its revocation and the release it names are left to the
+    decision that replaces it."""
+    checks, renewal = evidence()
+    older = deepcopy(renewal)
+    older.update(id="older-approval", approved_at="2026-11-16T12:00:00Z", expires_at="2026-11-17T12:00:00Z")
+    assert decide(checks, [older, renewal])["acceptance_ids"] == [renewal["id"]]
+    if damage == "undefined-field":
+        older["scope"] = "all"
+    elif damage == "blank-approver":
+        older["approved_by"] = chr(0xFEFF)
+    elif damage == "version-2":
+        older["version"] = 2
+    elif damage == "no-lock":
+        older["locks"] = {}
+    elif damage == "revocation-too-long":
+        older["revoked_at"] = "r" * (dependency_risk.MAX_REVOCATION + 1)
+    elif damage == "revocation-not-text":
+        older["revoked_at"] = None
+    else:
+        older["expires_at"] = "2026-11-17T12:00Z"
+    with pytest.raises(RiskRefused):
+        decide(checks, [older, renewal])
 
 
 @pytest.mark.parametrize(("field", "size", "read"), [
@@ -573,18 +628,18 @@ def _keyword(schema, keyword):
             yield from _keyword(value, keyword)
 
 
-def test_the_reader_applies_the_contracts_own_patterns_fields_and_limits():
+def test_the_reader_carries_the_contracts_own_patterns_fields_and_limits():
     """The reader cannot import terp-spec, a development dependency, so it carries the
-    patterns as the schemas write them, the fields they close and their limits. Here each is
-    held to the pinned release: one that adds or changes any of them fails until the reader
-    applies it."""
+    schemas' patterns and limits as constants, and their closed field sets. Here those are the
+    pinned release's own: a pattern or a limit the release uses and the reader does not carry,
+    or the other way round, fails. Where the reader applies each is held by the test below."""
     schemas = (AUDIT_SCHEMA, ACCEPTANCE_SCHEMA)
-    applied = (dependency_risk.CONTENT, dependency_risk.DIGEST, dependency_risk.COMMIT, dependency_risk.INSTANT)
+    carried = (dependency_risk.CONTENT, dependency_risk.DIGEST, dependency_risk.COMMIT, dependency_risk.INSTANT)
     assert {pattern for schema in schemas for pattern in _keyword(schema, "pattern")} == {
-        expression.pattern for expression in applied}
-    # `revoked_at` is the one string with a smaller limit, and the reader reads only "" there.
-    revocation = ACCEPTANCE_SCHEMA["properties"]["revoked_at"]["maxLength"]
-    assert {limit for schema in schemas for limit in _keyword(schema, "maxLength")} - {revocation} == {MAX_TEXT}
+        expression.pattern for expression in carried}
+    assert {limit for schema in schemas for limit in _keyword(schema, "maxLength")} == {
+        MAX_TEXT, dependency_risk.MAX_REVOCATION}
+    assert ACCEPTANCE_SCHEMA["properties"]["revoked_at"]["maxLength"] == dependency_risk.MAX_REVOCATION
     assert {limit for schema in schemas for limit in _keyword(schema, "maxItems")} == {MAX_ITEMS}
     item = AUDIT_SCHEMA["properties"]["findings"]["items"]
     assert ACCEPTANCE_SCHEMA["properties"]["finding"] == item
@@ -592,3 +647,111 @@ def test_the_reader_applies_the_contracts_own_patterns_fields_and_limits():
                            (dependency_risk.ACCEPTANCE_FIELDS, ACCEPTANCE_SCHEMA)):
         assert closed["additionalProperties"] is False
         assert fields == set(closed["required"]) == set(closed["properties"])
+
+
+# --------------------------------------------------------------------------- #
+# every rule of the pinned schemas, at every field
+# --------------------------------------------------------------------------- #
+def _candidates(value, limits):
+    """Values to put where *value* stands: one of each other JSON type, the strings that break a
+    pattern this reader knows of, and the lengths and counts just past each *limits* the schema
+    sets. Which of them a field may not hold is for the pinned schema to say."""
+    texts = ["", " ", "\t", chr(0xA0), chr(0x3000), chr(0xFEFF), "\x00", "x", "X", "-", "0"]
+    if isinstance(value, str):
+        texts += [value + "\n", value + " ", value.upper(), value[:-1]]
+    texts += ["x" * (length + 1) for length in limits["maxLength"]]
+    texts += ["x" * (length - 1) for length in limits["minLength"] if length > 1]
+    lists = [[], [None], [""], [" "], [chr(0xFEFF)]]
+    if isinstance(value, list) and value:
+        lists.append([*value, value[0]])
+    lists += [[f"entry-{index:05d}" for index in range(count + 1)] for count in limits["maxItems"]]
+    return [None, True, 2, 1.5, {}, *texts, *lists]
+
+
+def _changes(node, limits, path=()):
+    """``(path, how, value)`` for one change at each place of *node*: each value replaced by each
+    candidate, each field left out, and a field added to each object. A list is entered at its
+    first entry."""
+    if isinstance(node, dict):
+        for key in list(node):
+            yield (*path, key), "without", None
+            yield from _changes(node[key], limits, (*path, key))
+        yield (*path, "undefined-field"), "as", "x"
+    elif isinstance(node, list) and node:
+        yield from _changes(node[0], limits, (*path, 0))
+    for value in _candidates(node, limits):
+        yield path, "as", value
+
+
+def _changed(document, path, how, value):
+    """A copy of *document* with one change, and the finding it touches made whole again: its
+    fingerprint recomputed, and an audit's lock keyed by its lockfile, so that what the change
+    broke is all that can refuse it."""
+    if not path:
+        return value
+    copy = deepcopy(document)
+    holder = copy
+    for step in path[:-1]:
+        holder = holder[step]
+    if how == "without":
+        del holder[path[-1]]
+    else:
+        holder[path[-1]] = value
+    inside = copy.get("finding") if path[0] == "finding" else copy["findings"][0] if path[:2] == ("findings", 0) else None
+    if isinstance(inside, dict) and path[-1] != "fingerprint" and all(key in inside for key in dependency_risk.IDENTITY):
+        from terp.cli.audit_findings import digest
+
+        inside["fingerprint"] = digest({key: inside[key] for key in dependency_risk.IDENTITY})
+        if path[0] == "findings" and isinstance(inside["lockfile"], str) and inside["lockfile"]:
+            copy["locks"] = {inside["lockfile"]: next(iter(VALID_AUDIT["locks"].values()))}
+    return copy
+
+
+def _places(node, path=()):
+    """Every place in *node*, as ``_changes`` names them."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield (*path, key)
+            yield from _places(value, (*path, key))
+    elif isinstance(node, list) and node:
+        yield (*path, 0)
+        yield from _places(node[0], (*path, 0))
+
+
+@pytest.mark.parametrize("contract", ["dependency-audit", "dependency-risk-acceptance"])
+def test_every_rule_of_the_pinned_schema_is_held_at_every_field(contract):
+    """A document the pinned schema refuses is one this reader refuses, at whatever field.
+
+    The valid fixture is changed one place at a time, and the pinned schema, by a full Draft
+    2020-12 validator, says which changes break it: a pattern, a length or a count, an enum or
+    a const, a type, a required field left out or a field it does not define. Each of those the
+    reader must refuse, read alone so that no context can do it instead. A later release that
+    puts a rule on another field fails here until the reader applies it there, as long as one of
+    the values tried breaks it (``_candidates``)."""
+    from jsonschema import Draft202012Validator
+
+    if contract == "dependency-audit":
+        schema, valid = AUDIT_SCHEMA, VALID_AUDIT
+
+        def read(document):
+            return audit_evidence(document, now=SCANNED)
+    else:
+        schema, valid, read = ACCEPTANCE_SCHEMA, VALID_ACCEPTANCE, _read_alone
+    validator = Draft202012Validator(schema)
+    limits = {keyword: set(_keyword(schema, keyword)) for keyword in ("maxLength", "minLength", "maxItems")}
+    broken = []
+    for path, how, value in _changes(valid, limits):
+        document = _changed(valid, path, how, value)
+        if any(True for _ in validator.iter_errors(document)):
+            broken.append((".".join(map(str, path)) or "$", how, ascii(value)[:48], document))
+    # Every place of the valid document was broken at least once, so the walk reached each.
+    assert {place for place, _how, _value, _document in broken} >= {
+        ".".join(map(str, path)) for path in _places(valid)}
+    admitted = []
+    for place, how, value, document in broken:
+        try:
+            read(document)
+        except RiskRefused:
+            continue
+        admitted.append(f"{place} {how} {value}")
+    assert admitted == []

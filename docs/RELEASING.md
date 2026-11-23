@@ -103,12 +103,14 @@ tests fail the build if any of them skew.
 
 The assurance profile and the two dependency contracts have no copy here. `terp-cli` cannot
 import a development dependency, so `terp.cli.dependency_risk` reads a dependency audit and a
-risk acceptance with the schemas' patterns, fields and limits restated: `test_dependency_risk.py`
-holds those to the pinned release and runs its fixtures through the reader, and
-`test_dependency_scan.py` validates what a scan writes. `test_cli_verify.py` validates every
-assurance claim the toolchain composes. So a release that changes one of those patterns, fields
-or limits fails there until the reader follows, each fixture it adds runs through the reader,
-and what the toolchain writes is validated against the whole new schema.
+risk acceptance with the schemas' patterns, fields and limits restated. `test_dependency_risk.py`
+holds those constants to the pinned release and runs its fixtures through the reader. It also
+breaks the pinned schemas one change at a time at every field of a valid document, and requires
+the reader to refuse each document the schema refuses. `test_dependency_scan.py` validates what
+a scan writes, and `test_cli_verify.py` every assurance claim the toolchain composes. So a
+release that adds or moves a rule fails there until the reader or the writer applies it,
+wherever one of the values those tests try breaks that rule. Read the schema diff between the
+two pins as well: a rule no tried value breaks is one only a reader notices.
 
 **An assurance lane may be realised here ahead of the release that declares it.** The lane
 vocabulary is pinned in two places — the schema's enum and `ASSURANCE_LANES` here — and

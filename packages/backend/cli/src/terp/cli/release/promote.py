@@ -134,7 +134,8 @@ def _authorize_risk(manifest: dict, risk_policy: str | None) -> None:
             if any(current[key] != risk[key] for key in ("project_id", "commit")):
                 raise RiskRefused("the risk policy belongs to another release")
         except (KeyError, TypeError, RiskRefused) as exc:
-            raise ReleaseError("current dependency risk authorization refused") from exc
+            raise ReleaseError("current dependency risk authorization refused",
+                               cause=str(exc) if isinstance(exc, RiskRefused) else "") from exc
 
 
 def load(envelope: bytes, public_keys: Sequence[bytes], *, require_generated: bool = False,
