@@ -10,6 +10,22 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.44.0 — unreleased
+
+### Added
+
+- **An app component can own its layout in a sibling CSS Module (ADR 0217).** A component
+  default-imports `./Board.module.css` and puts `className={styles.board}` on a native
+  element. The boundary lint reads the stylesheet: local class selectors, `@media`,
+  `@container` and `@supports` groups, layout and typography properties, and paint only from
+  `var(--color-*)` tokens. Inline `style`, a class that is not the module's own, a global
+  selector, an `@import` and a stylesheet loaded through `import()` stay refused, and only
+  the bootstrap imports the token pipeline's three global stylesheets. The example app's
+  planning board uses the same tasks API as its list and stacks its lanes on a narrow screen.
+- `expectControlFitsHorizontally` in `@terpjs/conformance` checks that a control fits its
+  viewport and every ancestor that clips it, where a page can fit while a container cuts a
+  control off.
+
 ## 0.43.0 — 2026-11-23
 
 ### Security
@@ -56,11 +72,6 @@ decision, 0001 onwards.
   check and assurance stay red. Accepted releases use manifest version 3, which
   needs updated deployment readers and operator-configured issuer trust. See
   `terp guide maintenance` for the owner and agent workflow.
-
-- App components can own their layout in a sibling CSS Module (ADR 0217). Use
-  `import styles from "./Board.module.css"` and `className={styles.board}`.
-  The example app's planning board uses the same tasks API as its list and
-  reflows its lanes on smaller screens.
 
 - **A generated release carries the deployment it runs (ADR 0215).** `terp release sign` writes
   terp-spec 0.48.0's `resolved-deployment` document into the signed manifest, at

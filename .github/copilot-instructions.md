@@ -64,9 +64,11 @@ primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>`/`<table>`/`
 `<form>`), the generated client only (no raw `fetch` / `XMLHttpRequest` / `WebSocket` /
 `EventSource` / `sendBeacon`), data collections via `DataView`
 ([dataview README](../packages/frontend/react-core/src/dataview/README.md)),
-design‑token styling (`style`, `className` and stylesheets are refused in all app source —
-layout via `Stack` / `Grid` / the page archetypes; `src/main.tsx` alone imports the token
-pipeline's three stylesheets), independent modules (no module imports a sibling, and no code
+design‑token styling (`style`, a `className` that is not a CSS Module's own class, and global
+stylesheets are refused in all app source — layout via `Stack` / `Grid` / the page archetypes,
+or a component's sibling `Name.module.css`, default-imported, whose local classes, layout
+properties and `var(--color-*)` paint the lint reads, ADR 0217; `src/main.tsx` alone imports
+the token pipeline's three stylesheets), independent modules (no module imports a sibling, and no code
 outside the modules imports into one), in-app links via the router (no raw
 `<a href="/...">`), every routed view framed by a page archetype (refused at runtime
 otherwise), optional slot-typed layout contracts (ADR 0079: a checked-in

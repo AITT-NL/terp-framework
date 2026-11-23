@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted.
+Accepted; amended by
+[ADR 0217](0217-app-components-can-own-a-scoped-stylesheet.md): an app component may own
+a sibling CSS Module, and `className` names one of its classes.
 
 ## Context
 

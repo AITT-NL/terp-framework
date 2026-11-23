@@ -326,7 +326,10 @@ The boundary lint enforces, in every source file under `frontend/src/` and not o
 token-styled primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>`/
 `<table>`/`<dialog>`/`<form>`), the generated typed client only (no raw `fetch` /
 `XMLHttpRequest` / `WebSocket` / `EventSource` / `sendBeacon`),
-global token stylesheets imported by the bootstrap,
+no `style={}`, no `className` but a sibling CSS Module's own class, and no stylesheet but that
+module, imported statically (`src/main.tsx` alone imports the global token pipeline's three:
+`@terpjs/contract/tokens.css`, `./house-style.css` and `./theme.css`; a stylesheet loaded
+through `import()` is refused),
 modules that stay independent (no module imports a sibling, and no code outside the modules
 imports into one), in-app links via the router (no raw `<a href="/...">`),
 no deep `@terpjs/*` imports, and no `data-terp` attribute anywhere in `src/` — those are
@@ -341,7 +344,9 @@ a plain `Page` when a screen needs its own layout. A component can import a sibl
 `./Board.module.css` with a static default import and use `className={styles.board}`.
 Use local class selectors and theme tokens for colors, typography and spacing.
 Responsive rules can use `@media` or `@container`. Keep keyboard focus visible and
-check the layout in narrow viewports and each supported theme.
+check the layout in narrow viewports and each supported theme. The lint reads the module:
+local class selectors, layout and typography properties, and paint only from `var(--color-*)`;
+a class goes on a native element, never on a framework control, which takes its props.
 
 This app also opts into the **`standard` layout contract** (ADR 0079), declared once in
 `frontend/layout-contract.json` — the lint rule finds the file and `main.tsx` imports it,

@@ -1,0 +1,2 @@
+.board { display: grid; }
+:global(body) { display: none; }
