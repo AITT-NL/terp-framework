@@ -229,6 +229,20 @@ describe("LocaleProvider + LanguageSwitcher", () => {
         </LocaleProvider>,
       ),
     ).toThrow(/missing .* framework string translation/);
+    // A catalog with no framework strings at all: the refusal names the first ten keys and
+    // counts the rest, so it stays one line however many keys a release adds.
+    const keys = Object.keys(DEFAULT_STRINGS);
+    expect(() =>
+      render(
+        <LocaleProvider locales={{ en: LOCALE_EN, de: { messages: { greeting: "Hallo" } } }}>
+          <span />
+        </LocaleProvider>,
+      ),
+    ).toThrow(
+      `Locale "de" is missing ${keys.length} framework string translation(s): ` +
+        `${keys.slice(0, 10).join(", ")}, and ${keys.length - 10} more. ` +
+        'Add each to the strings of the "de" catalog',
+    );
   });
 
   it("refuses malformed labels and supplied framework strings", () => {

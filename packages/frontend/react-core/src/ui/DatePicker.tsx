@@ -303,10 +303,16 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
     activeRef.current?.focus();
   }, [activeKey]);
 
-  /** Move the cursor from a key the grid handled, and take focus with it. */
+  /**
+   * Move the cursor from a key the grid handled, and take focus with it.
+   *
+   * The flag is raised only when the cursor really moves. A key at a bound leaves it where it
+   * is, so no commit re-runs the effect that lowers the flag, and a flag left raised would pull
+   * focus off a header button the next time one moved the cursor. Shift+PageUp on the bound's
+   * month is now one such key, ArrowLeft on `min` always was.
+   */
   function moveCursor(daysDelta: number) {
-    follow.current = true;
-    move(daysDelta);
+    follow.current = toKey(move(daysDelta)) !== activeKey;
   }
 
   /**
@@ -314,8 +320,7 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
    * deliberately do not.
    */
   function pageMonth(delta: number) {
-    follow.current = true;
-    changeMonth(delta);
+    follow.current = toKey(changeMonth(delta)) !== activeKey;
   }
 
   function move(daysDelta: number) {
@@ -324,6 +329,7 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
     if (next.getMonth() !== month.getMonth() || next.getFullYear() !== month.getFullYear()) {
       setMonth(startOfMonth(next));
     }
+    return next;
   }
 
   /**
@@ -336,7 +342,9 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
    * month wholly outside the bounds while the cursor stayed in the other one. Then no cell in
    * the grid carried `tabIndex={0}`, so Tab skipped the calendar, and a step from the keyboard
    * unmounted the focused cell and dropped focus to <body> with nothing left to take it back.
-   * At a bound the step now lands on the bound's own month.
+   * At a bound the step now lands on the bound's own month, and once the view is there a step
+   * past the bound changes nothing, as an arrow key on the bound's day already did: the grid's
+   * disabled days beyond the bound are what show where it lies.
    */
   function changeMonth(delta: number) {
     const target = addMonths(month, delta);
@@ -347,6 +355,7 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
     );
     setMonth(startOfMonth(next));
     setActiveDate(next);
+    return next;
   }
 
   function selectDate(day: Date) {
