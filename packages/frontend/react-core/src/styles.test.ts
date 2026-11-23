@@ -1916,10 +1916,10 @@ describe("cascade structure", () => {
       // first — and the card's tone rules now lose to it on layer instead.
       '[data-terp="dataview-card"][data-clickable="true"]:focus-within',
       // Re-derived rather than assumed, because the condition is not "has something
-      // migrated" but "can any element this selector matches still beat it". Of the SEVENTEEN
+      // migrated" but "can any element this selector matches still beat it". Of the NINETEEN
       // sites wearing the iconbutton marker, only six can carry the disabled attribute at all:
       // the four pagination arrows and the two reorder arrows. The shell's toggles, the toast
-      // dismisser, the combobox's clear button, the calendar's month arrows, the expand toggle,
+      // dismisser, the combobox's clear button, the calendar's month and year arrows, the expand toggle,
       // the toolbar's clear-search button and two layout toggles and the password reveal have no
       // disabled state —
       // and each of the six set cursor inline until it migrated. The day a calendar arrow gains

@@ -436,6 +436,10 @@ export interface TerpStrings {
   previousMonth: string;
   /** DatePicker: steps the calendar forward one month. */
   nextMonth: string;
+  /** DatePicker: steps the calendar back one year. */
+  previousYear: string;
+  /** DatePicker: steps the calendar forward one year. */
+  nextYear: string;
   /** DatePicker: trigger text before a date is chosen. */
   selectDate: string;
   /** DateRangePicker: trigger text before a range is chosen. */
@@ -549,6 +553,8 @@ export const DEFAULT_STRINGS: TerpStrings = {
   selectDate: "Select date",
   selectDateRange: "Select date range",
   nextMonth: "Next month",
+  previousYear: "Previous year",
+  nextYear: "Next year",
   loading: "Loading...",
   emptyList: "Nothing here yet.",
   add: "Add",
