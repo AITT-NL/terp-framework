@@ -9,6 +9,7 @@ the in-process architecture check so the suite spawns no npm/uv toolchains.
 
 from __future__ import annotations
 
+import functools
 import itertools
 import json
 import pathlib
@@ -1581,13 +1582,15 @@ def _assurance_problems(document: dict) -> list[str]:
     exactly when every required lane passed. A claim this toolchain composes is held to all of
     it, less any lane in ``_AWAITING_SPEC_RELEASE``, which the pinned release cannot know.
     """
+    declared = [lane for lane in document["lanes"] if lane["id"] not in _AWAITING_SPEC_RELEASE]
+    return [error.message for error in _assurance_validator().iter_errors({**document, "lanes": declared})]
+
+
+@functools.cache
+def _assurance_validator():  # noqa: ANN202 - the validator's type is the library's own
     from jsonschema import Draft202012Validator
 
-    declared = [lane for lane in document["lanes"] if lane["id"] not in _AWAITING_SPEC_RELEASE]
-    return [
-        error.message
-        for error in Draft202012Validator(_assurance_schema()).iter_errors({**document, "lanes": declared})
-    ]
+    return Draft202012Validator(_assurance_schema())
 
 
 def test_assurance_lanes_mirror_the_pinned_spec_vocabulary() -> None:
@@ -1712,36 +1715,37 @@ def test_assurance_emission_fails_the_claim_on_a_red_required_lane(
     assert lanes["dependency-audit"]["status"] == "failed"
 
 
-def _each_lane_in_every_state() -> Iterator[list[dict[str, object]]]:
-    """Release results that put one lane's composing checks through every state a check can
-    be in (green, red, not applicable, absent from the run), with every other check green."""
-    from terp.cli.verify import ASSURANCE_LANES
-
-    states: dict[str, dict[str, object]] = {
-        "green": {"ok": True},
-        "red": {"ok": False},
-        "not applicable": {"ok": True, "applicable": False},
-    }
-    composing = [check for _lane, _requirement, checks in ASSURANCE_LANES for check in checks]
-    for _lane, _requirement, checks in ASSURANCE_LANES:
-        for combination in itertools.product([*states, "absent"], repeat=len(checks)):
-            chosen = dict(zip(checks, combination, strict=True))
-            yield [
-                {"id": check, **states[chosen.get(check, "green")]}
-                for check in composing
-                if chosen.get(check) != "absent"
-            ]
-
-
-def test_every_claim_the_toolchain_composes_is_one_the_pinned_schema_accepts() -> None:
+def test_every_claim_the_toolchain_composes_is_one_the_pinned_schema_accepts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """``terp verify --format assurance`` and ``terp release gate`` compose the claim with
     ``assurance_document``, so every result it can be handed is held to the pinned schema:
-    each lane's checks in every state beside the others green, an empty run, an all-red one."""
-    from terp.cli.verify import assurance_document
+    each composing check green, red, not applicable or absent from the run, in every
+    combination. Many runs compose the same claim, and each claim is validated once."""
+    import importlib.metadata
 
-    all_red = [{"id": check.id, "ok": False} for check in PROFILES["release"]]
-    for results in [*_each_lane_in_every_state(), [], all_red]:
-        assert _assurance_problems(assurance_document(results)) == [], results
+    from terp.cli.verify import ASSURANCE_LANES, assurance_document
+
+    # Every claim names the same toolchain version: no need to read it once per run.
+    monkeypatch.setattr(importlib.metadata, "version", lambda _name: "0")
+    states: list[dict[str, object] | None] = [
+        {"ok": True},
+        {"ok": False},
+        {"ok": True, "applicable": False},
+        None,
+    ]
+    composing = [check for _lane, _requirement, checks in ASSURANCE_LANES for check in checks]
+    claims: dict[str, dict] = {}
+    for combination in itertools.product(states, repeat=len(composing)):
+        results = [
+            {"id": check, **state}
+            for check, state in zip(composing, combination, strict=True)
+            if state is not None
+        ]
+        document = assurance_document(results)
+        claims[json.dumps(document, sort_keys=True)] = document
+    for document in claims.values():
+        assert _assurance_problems(document) == [], document
     # The schema those assertions read is one that refuses a claim at odds with its lanes:
     # `ok` over a red required lane, a lane left out, and `not-run` that names a check.
     document = assurance_document([])

@@ -59,25 +59,28 @@ class RiskRefused(ValueError):
     """Incomplete evidence or invalid acceptance; permission stays closed."""
 
 
-def time_value(value: object) -> datetime:
-    """A UTC time in any ISO 8601 form Python reads, as a risk authority's own answer may write one."""
+def time_value(value: object, what: str = "a dependency risk time") -> datetime:
+    """A UTC time in any ISO 8601 form Python reads, as a risk authority's own answer may write one.
+
+    *what* names the time in a refusal: the field, and the record it is in.
+    """
     if not isinstance(value, str):
-        raise RiskRefused("a dependency risk time is missing")
+        raise RiskRefused(f"{what} is missing")
     try:
         result = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
-        raise RiskRefused("a dependency risk time is not a date and time") from exc
+        raise RiskRefused(f"{what} is not a date and time") from exc
     if result.utcoffset() != timedelta(0):
-        raise RiskRefused("dependency risk times must be UTC")
+        raise RiskRefused(f"{what} must be UTC")
     return result
 
 
-def instant(value: object) -> datetime:
-    """A time as both contracts write one, ``2026-11-18T12:00:00Z``, or a refusal."""
+def instant(value: object, what: str = "a dependency risk time") -> datetime:
+    """A time as both contracts write one, ``2026-11-18T12:00:00Z``, or a refusal naming *what*."""
     if not isinstance(value, str) or not INSTANT.search(value) or not _UTC_TIME.fullmatch(value):
-        raise RiskRefused("a dependency risk time must be UTC, written YYYY-MM-DDThh:mm:ss with at most "
-                          "six decimals, then Z or +00:00")
-    return time_value(value)
+        raise RiskRefused(f"{what} must be UTC, written YYYY-MM-DDThh:mm:ss with at most six decimals, "
+                          "then Z or +00:00")
+    return time_value(value, what)
 
 
 def _names(fields: list[str]) -> str:
@@ -95,21 +98,43 @@ def _closed(document: dict, fields: frozenset[str], what: str, contract: str) ->
         raise RiskRefused(f"{what} {' and '.join(said)}: whatever writes it must write the contract's fields")
 
 
-def _said(value: object) -> bool:
-    """Whether *value* is a string of 1 to MAX_TEXT characters, one outside the blank class."""
-    return isinstance(value, str) and 0 < len(value) <= MAX_TEXT and CONTENT.search(value) is not None
+def _text_problem(value: object, *, said: bool = False) -> str | None:
+    """What keeps *value* from being a string of the contracts, or None.
 
-
-def _texts(value: object, *, said: bool = False, ordered: bool = False, required: bool = True) -> bool:
-    """Whether *value* is a list of at most MAX_ITEMS distinct strings of 1 to MAX_TEXT characters.
-
-    Each holds content where *said*; the list is sorted where *ordered* and not empty where *required*.
+    One of 1 to MAX_TEXT characters, and where *said*, one character outside the blank class.
     """
-    if not isinstance(value, list) or len(value) > MAX_ITEMS or (required and not value):
-        return False
-    if not all(isinstance(item, str) and 0 < len(item) <= MAX_TEXT and (not said or _said(item)) for item in value):
-        return False
-    return value == sorted(set(value)) if ordered else len(set(value)) == len(value)
+    if not isinstance(value, str):
+        return "is not a string"
+    if not value:
+        return "is empty"
+    if len(value) > MAX_TEXT:
+        return f"is longer than {MAX_TEXT} characters"
+    if said and CONTENT.search(value) is None:
+        return "holds only characters the contract counts as blank"
+    return None
+
+
+def _list_problem(value: object, *, said: bool = False, ordered: bool = False, required: bool = True) -> str | None:
+    """What keeps *value* from being a list of the contracts, or None.
+
+    At most MAX_ITEMS distinct strings, each as :func:`_text_problem` reads one: sorted where
+    *ordered*, and not empty where *required*.
+    """
+    if not isinstance(value, list):
+        return "is not a list"
+    if required and not value:
+        return "is empty"
+    if len(value) > MAX_ITEMS:
+        return f"lists more than {MAX_ITEMS} entries"
+    for item in value:
+        problem = _text_problem(item, said=said)
+        if problem is not None:
+            return f"has an entry that {problem}"
+    if len(set(value)) != len(value):
+        return "lists an entry more than once"
+    if ordered and value != sorted(value):
+        return "is not sorted"
+    return None
 
 
 def _lock_map(value: object) -> bool:
@@ -129,20 +154,21 @@ def fingerprint(item: object) -> str:
     if not isinstance(item, dict) or not all(key in item for key in IDENTITY):
         raise RiskRefused("a finding has no complete identity")
     _closed(item, FINDING_FIELDS, "a finding", "dependency-audit")
-    if not all(_texts(item[key], ordered=True) for key in ("advisories", "dependency_paths")):
-        raise RiskRefused("finding identities must be nonempty, sorted and unique")
-    for key in ("package", "version", "lockfile"):
-        if not isinstance(item[key], str) or not 0 < len(item[key]) <= MAX_TEXT:
-            raise RiskRefused("a finding has an empty or overlong identity")
+    for key, problem in (
+        *((key, _list_problem(item[key], ordered=True)) for key in ("advisories", "dependency_paths")),
+        *((key, _text_problem(item[key])) for key in ("package", "version", "lockfile")),
+        ("fixed_versions", _list_problem(item["fixed_versions"], ordered=True, required=False)),
+    ):
+        if problem is not None:
+            raise RiskRefused(f"a finding's {key} {problem}")
     if not _one_of(item["ecosystem"], "npm", "pypi"):
-        raise RiskRefused("unknown dependency ecosystem")
+        raise RiskRefused("a finding's ecosystem is not npm or pypi")
     if not _one_of(item["severity"], "info", "low", "moderate", "high", "critical", "unknown"):
-        raise RiskRefused("unknown dependency severity")
+        raise RiskRefused("a finding's severity is not info, low, moderate, high, critical or unknown")
     if item["ecosystem"] == "npm" and item["severity"] == "unknown":
         raise RiskRefused("npm did not classify the advisory")
-    if (not _texts(item["fixed_versions"], ordered=True, required=False)
-            or not _one_of(item["dependency_scope"], "runtime", "development", "unknown")):
-        raise RiskRefused("finding metadata is incomplete or invalid")
+    if not _one_of(item["dependency_scope"], "runtime", "development", "unknown"):
+        raise RiskRefused("a finding's dependency_scope is not runtime, development or unknown")
     result = digest({key: item[key] for key in IDENTITY})
     if result != item["fingerprint"]:
         raise RiskRefused("a finding fingerprint does not match its content")
@@ -161,7 +187,7 @@ def audit_evidence(audit: object, *, now: datetime) -> tuple[dict[str, str], dic
     if audit.get("complete") is not True:
         raise RiskRefused("dependency scan is incomplete")
     _closed(audit, AUDIT_FIELDS, "a dependency scan", "dependency-audit")
-    scanned = instant(audit["scanned_at"])
+    scanned = instant(audit["scanned_at"], "a dependency scan's scanned_at")
     if not now - MAX_SCAN_AGE <= scanned <= now:
         raise RiskRefused("dependency scan is stale or in the future")
     locks, items = audit["locks"], audit["findings"]
@@ -196,38 +222,48 @@ def acceptance_form(record: object) -> tuple[dict, str, datetime]:
     if type(record.get("version")) is not int or record["version"] != 1:
         raise RiskRefused("an acceptance is not version 1 of the dependency-risk-acceptance contract")
     _closed(record, ACCEPTANCE_FIELDS, "an acceptance", "dependency-risk-acceptance")
-    if not all(_said(record[key]) for key in ("id", "project_id", "reason", "approved_by")):
-        raise RiskRefused("acceptance has no identity, human approver or justification")
-    if not _texts(record["environments"], said=True):
-        raise RiskRefused("acceptance names no environment it covers")
-    if not _texts(record["evidence"], said=True):
-        raise RiskRefused("acceptance has no supporting evidence")
+    problem = _text_problem(record["id"], said=True)
+    if problem is not None:
+        raise RiskRefused(f"an acceptance's id {problem}")
+    label = _label(record)
+    for key, problem in (
+        *((key, _text_problem(record[key], said=True)) for key in ("project_id", "reason", "approved_by")),
+        *((key, _list_problem(record[key], said=True)) for key in ("environments", "evidence")),
+    ):
+        if problem is not None:
+            raise RiskRefused(f"{label}: {key} {problem}")
     if not isinstance(record["commit"], str) or not COMMIT.search(record["commit"]):
-        raise RiskRefused("acceptance names no exact commit")
+        raise RiskRefused(f"{label}: commit is not a whole commit id, 40 or 64 lowercase hex characters")
     if not record["locks"] or not _lock_map(record["locks"]):
-        raise RiskRefused("acceptance names no dependency lock with its whole sha256 digest")
+        raise RiskRefused(f"{label}: locks names no dependency lock, or one without its whole sha256 digest")
     if not isinstance(record["revoked_at"], str) or len(record["revoked_at"]) > MAX_REVOCATION:
-        raise RiskRefused("acceptance has no revocation state the contract can hold")
-    approved = instant(record["approved_at"])
-    instant(record["expires_at"])
+        raise RiskRefused(f"{label}: revoked_at is not a string of at most {MAX_REVOCATION} characters")
+    approved = instant(record["approved_at"], f"{label}: approved_at")
+    instant(record["expires_at"], f"{label}: expires_at")
     return record, fingerprint(record["finding"]), approved
+
+
+def _label(record: dict) -> str:
+    """An acceptance as a refusal names it: by its id."""
+    return f"acceptance {_names([record['id']])}"
 
 
 def valid_acceptance(record: object, *, project: str, commit: str, environment: str,
                      locks: dict, now: datetime) -> str:
     """The fingerprint *record* accepts, if it is the contract's and covers this release *now*."""
     document, key, start = acceptance_form(record)
+    label = _label(document)
     if document["project_id"] != project or document["commit"] != commit:
-        raise RiskRefused("acceptance belongs to another project or commit")
+        raise RiskRefused(f"{label} belongs to another project or commit")
     if environment not in document["environments"]:
-        raise RiskRefused("acceptance does not cover this environment")
+        raise RiskRefused(f"{label} does not cover this environment")
     if document["locks"] != locks:
-        raise RiskRefused("acceptance covers another dependency lock set")
+        raise RiskRefused(f"{label} covers another dependency lock set")
     if document["revoked_at"] != "":
-        raise RiskRefused("acceptance was revoked or has no revocation state")
+        raise RiskRefused(f"{label} was revoked")
     end = instant(document["expires_at"])
     if not start <= now < end or end - start > MAX_LIFETIME:
-        raise RiskRefused("acceptance is expired, not yet valid, or longer than 30 days")
+        raise RiskRefused(f"{label} is expired, not yet valid, or longer than 30 days")
     return key
 
 
@@ -289,7 +325,7 @@ def evaluate(checks: list[dict], acceptances: list[dict], *, project: str,
     for record, _approved in latest.values():
         key = valid_acceptance(record, project=project, commit=commit, environment=environment, locks=locks, now=now)
         if key not in findings or record["finding"] != findings[key]:
-            raise RiskRefused("acceptance is stale or describes another finding")
+            raise RiskRefused(f"{_label(record)} is stale or describes another finding")
         covered[key] = record["id"]
     unaccepted = sorted(key for key, item in findings.items() if blocking(item) and key not in covered)
     used = sorted(covered[key] for key, item in findings.items() if blocking(item) and key in covered)

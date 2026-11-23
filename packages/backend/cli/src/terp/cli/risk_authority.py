@@ -51,7 +51,8 @@ def authorize(checks: list[dict], *, policy_file: str, commit: str, checkout: st
         if not isinstance(response, dict) or any(response.get(k) != v for k, v in request.items()):
             raise RiskRefused("risk authority answered for another request")
         now = datetime.now(UTC)
-        issued, expires = time_value(response.get("issued_at")), time_value(response.get("expires_at"))
+        issued = time_value(response.get("issued_at"), "the risk authority's issued_at")
+        expires = time_value(response.get("expires_at"), "the risk authority's expires_at")
         if not issued <= now < expires or expires - issued > timedelta(minutes=5):
             raise RiskRefused("risk authority response is expired or has an excessive lifetime")
         records = response.get("acceptances")

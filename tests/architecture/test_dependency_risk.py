@@ -187,6 +187,7 @@ def test_python_conflicting_advisories_or_missing_identity_are_errors():
 
 @pytest.mark.parametrize(("target", "value"), [
     ("advisories", []), ("advisories", ["same", "same"]), ("dependency_paths", [42]),
+    ("dependency_paths", ["node_modules/z", "node_modules/a"]),
     ("package", ""), ("version", None), ("ecosystem", "unknown"), ("severity", "unknown"), ("severity", "invalid"),
     ("fingerprint", "sha256:" + "f" * 64),
     ("fixed_versions", None), ("dependency_scope", "unreachable"),
@@ -536,7 +537,6 @@ def test_an_audit_is_read_only_in_the_contract_s_own_form(damage):
     elif damage == "findings-not-a-list":
         document["findings"] = {"0": document["findings"][0]}
     elif damage == "too-many-findings":
-        # Counted before any is read: a list past the contract's count is refused whole.
         document["findings"] = [None] * (MAX_ITEMS + 1)
     else:
         document["scanned_at"] = damage
@@ -755,3 +755,82 @@ def test_every_rule_of_the_pinned_schema_is_held_at_every_field(contract):
             continue
         admitted.append(f"{place} {how} {value}")
     assert admitted == []
+
+
+def _findings(count):
+    """*count* distinct findings of the valid audit's lock, each whole and the contract's."""
+    from terp.cli.audit_findings import digest
+
+    template = VALID_AUDIT["findings"][0]
+    found = []
+    for index in range(count):
+        item = {**template, "package": f"example-package-{index:05d}",
+                "dependency_paths": [f"node_modules/example-package-{index:05d}"]}
+        item["fingerprint"] = digest({key: item[key] for key in dependency_risk.IDENTITY})
+        found.append(item)
+    return found
+
+
+def test_an_audit_lists_at_most_the_findings_its_contract_holds():
+    """Every one of these findings is whole, distinct and of the audit's own lock: only the
+    count can refuse the audit, and the pinned schema refuses it too."""
+    from jsonschema import Draft202012Validator
+
+    document = {**deepcopy(VALID_AUDIT), "findings": _findings(MAX_ITEMS)}
+    assert len(audit_evidence(document, now=SCANNED)[1]) == MAX_ITEMS
+    document["findings"] = _findings(MAX_ITEMS + 1)
+    assert any(True for _ in Draft202012Validator(AUDIT_SCHEMA).iter_errors(document))
+    with pytest.raises(RiskRefused, match=f"more than {MAX_ITEMS} findings"):
+        audit_evidence(document, now=SCANNED)
+
+
+def test_a_finding_belongs_to_a_lock_its_audit_lists():
+    document = deepcopy(VALID_AUDIT)
+    document["locks"] = {"site/package-lock.json": next(iter(document["locks"].values()))}
+    with pytest.raises(RiskRefused, match="does not belong to this scan"):
+        audit_evidence(document, now=SCANNED)
+
+
+@pytest.mark.parametrize(("field", "value", "said"), [
+    ("reason", "r" * (MAX_TEXT + 1), f'acceptance "acceptance-1": reason is longer than {MAX_TEXT} characters'),
+    ("approved_by", " ", 'approved_by holds only characters the contract counts as blank'),
+    ("id", chr(0xFEFF), "an acceptance's id holds only characters the contract counts as blank"),
+    ("evidence", [f"review-{index}" for index in range(MAX_ITEMS + 1)], f"evidence lists more than {MAX_ITEMS} entries"),
+    ("evidence", ["review-1", "review-1"], "evidence lists an entry more than once"),
+    ("environments", ["production", "production"], "environments lists an entry more than once"),
+    ("environments", [], "environments is empty"),
+    ("approved_at", "2026-11-18T12:00Z", 'acceptance "acceptance-1": approved_at must be UTC'),
+    ("expires_at", "2026-02-30T12:00:00Z", "expires_at is not a date and time"),
+    ("revoked_at", None, "revoked_at is not a string of at most"),
+    ("commit", "c" * 39, "commit is not a whole commit id"),
+])
+def test_a_refusal_names_the_field_and_the_rule_it_broke(field, value, said):
+    """The refusal reaches the operator, so it says which field broke which rule, of which
+    acceptance where the acceptance has an id to name it by."""
+    record = deepcopy(VALID_ACCEPTANCE)
+    record[field] = value
+    with pytest.raises(RiskRefused) as refused:
+        _read_alone(record)
+    assert said in str(refused.value)
+
+
+@pytest.mark.parametrize(("field", "value", "said"), [
+    ("advisories", ["a" * (MAX_TEXT + 1)], f"a finding's advisories has an entry that is longer than {MAX_TEXT} characters"),
+    ("package", "", "a finding's package is empty"),
+    ("fixed_versions", ["2.0.0", "1.0.0"], "a finding's fixed_versions is not sorted"),
+    ("ecosystem", "maven", "a finding's ecosystem is not npm or pypi"),
+])
+def test_a_finding_s_refusal_names_the_field_and_the_rule_it_broke(field, value, said):
+    from terp.cli.audit_findings import digest
+
+    document = deepcopy(VALID_AUDIT)
+    item = document["findings"][0]
+    item[field] = value
+    item["fingerprint"] = digest({key: item[key] for key in dependency_risk.IDENTITY})
+    with pytest.raises(RiskRefused) as refused:
+        audit_evidence(document, now=SCANNED)
+    assert said in str(refused.value)
+    document = deepcopy(VALID_AUDIT)
+    document["scanned_at"] = "2026-11-18 12:00:00Z"
+    with pytest.raises(RiskRefused, match="a dependency scan's scanned_at must be UTC"):
+        audit_evidence(document, now=SCANNED)
