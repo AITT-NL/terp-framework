@@ -48,13 +48,15 @@ catalog translates. Global selectors, nested rules, `@import`, cross-file `compo
 
 The module's binding is read in a `className` on a native element and nowhere else:
 `className={styles.board}`, or `className={active ? styles.active : styles.board}` for a style
-that follows a state. A class on a framework component is refused, and so is the binding passed
-on through a spread, a call or a variable, which would carry a class to a framework control past
-that check: the component takes its props. Ink and type are inherited, so a class that sets
-them is admitted only on an element that holds the app's own text: words, expressions that render
-no element, `Trans`, fragments and native elements around them. An element that holds a
-component, reads `children` in any spelling, takes a spread or a `children` attribute is refused
-the class. A marker on the import waives the import's form
+that follows a state, whose test chooses the class and does not read the binding. A class on a
+framework component is refused, and so is the binding passed on through a spread, a call or a
+variable, which would carry a class to a framework control past that check: the component takes
+its props. Ink and type are inherited, so a class that sets them is admitted only on an element
+that holds the app's own text: words, expressions, the `Trans` and `Fragment` their packages
+export, and native elements around them. An element is refused the class when it holds any other
+component, reads `children` (by name, as a member or computed member, or through a binding
+destructured or assigned from it), makes an element through `createElement` or `cloneElement`,
+or takes a spread or a `children` attribute. A marker on the import waives the import's form
 only, never a finding inside the stylesheet. A CSS-only change invalidates the boundary CLI's
 lint cache. Every refusal names its line or element, its cause and what would be admitted.
 
@@ -66,8 +68,8 @@ Another stack realises the same intents in its own adapter, so the design docume
 boundary-lint spec names styling as token paint plus a component's own stylesheet.
 
 Inline `style`, a class that is not a module's own, a stylesheet loaded through `import()` or
-`import.meta.glob`, and every global stylesheet outside the bootstrap's three token layers are
-still refused, under the existing catalog ids `frontend/no-inline-styling` and
+`import.meta.glob`, and every other stylesheet import, the bootstrap's three token layers aside,
+are still refused, under the existing catalog ids `frontend/no-inline-styling` and
 `frontend/no-style-imports`.
 
 ## Context
@@ -93,8 +95,9 @@ its own and give them a surface, a border and a radius from the roles above; whe
 block fits, such as a `Card` for a titled group, it composes that block instead.
 
 Three forms stay outside what the lint resolves, recorded in the corpus's `RESIDUALS.json`: a
-component an element renders through a value written elsewhere (`const body = <Card />`,
-rendered as `{body}`), which the lint reads as text; an element with a module class inside a
+component an element renders through a value or a call written elsewhere (`const body =
+<Card />` rendered as `{body}`, or a render function's result), which the lint reads as text; an
+element with a module class inside a
 framework control's own children, such as a `Button` label, whose ink the lint holds to the
 admitted surfaces rather than the one that control paints; and a list marker, which is not
 checked as inherited, so `list-style` on an element also reaches a list a framework component

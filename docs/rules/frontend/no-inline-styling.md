@@ -32,7 +32,7 @@ A check precise enough to have no false positives has limits. This
 rule's limits are recorded as data (its corpus's `RESIDUALS.json`), so
 where detection ends is a statement rather than a guess:
 
-- a component an element renders through a value written outside it (`const body = <Card />` rendered as `{body}`) is read as the app's own text when the class's inherited ink and type are checked
+- a component an element renders through a value or a call written outside it (`const body = <Card />` rendered as `{body}`, a render function's result) is read as the app's own text when the class's inherited ink and type are checked
 - an element with a module class inside a framework control's own children (a `Button` label) is not resolved to the surface that control paints, so its ink is held to the admitted surfaces only
 - a list marker (`list-style`) is not checked as inherited, so on an element it also reaches a list a framework component renders inside it (a `Markdown` list)
 

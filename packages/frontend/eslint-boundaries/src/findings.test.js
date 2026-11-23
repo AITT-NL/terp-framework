@@ -266,7 +266,8 @@ describe("terp-boundaries-lint (the bin)", () => {
     const complete = runBin(root);
     expect(complete.status).toBe(0);
     expect(JSON.parse(complete.stdout).findings).toEqual([]);
-  });
+    // Two runs of the bin, as in the stylesheet case below: past vitest's 5 s default on a slow runner.
+  }, 30_000);
 
   it("rechecks an imported CSS Module when only the stylesheet changes", () => {
     const root = appRoot({

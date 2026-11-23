@@ -212,6 +212,10 @@ describe("terpBoundaries", () => {
       "export const W = () => <Button {...{ className: layout.board }} />;",
       "const props = { className: layout.board }; export const W = () => <Input {...props} />;",
       'import { createElement } from "react"; export const W = () => createElement(Button, { className: layout.board });',
+      // The conditional's test chooses a class; it must not read the binding, or it could store it
+      // or pass it on while the branches stay valid.
+      "let stash; export const W = ({ on }) => <><div className={(stash = layout, on) ? layout.active : layout.board} /><Button {...{ className: stash.board }} /></>;",
+      'import { createElement } from "react"; export const W = ({ on }) => <div className={createElement(Button, { className: layout.board }) && on ? layout.active : layout.board} />;',
     ]) {
       expect(await lintMessages(prefix + code), code).toContain(
         "layout is read only in a className on a native element: className={layout.board}, or " +
@@ -233,21 +237,40 @@ describe("terpBoundaries", () => {
       ["{open && children}", "{children}"],
       ["{children ?? null}", "{children}"],
       ["{props?.children}", "{props?.children}"],
+      ['{props["children"]}', '{props["children"]}'],
       ["{Children.map(children, (c) => <li>{c}</li>)}", "{children}"],
+      ["{createElement(Card)}", "createElement(...)"],
+      ["{React.cloneElement(item)}", "React.cloneElement(...)"],
     ]) {
-      const code = `export const W = ({ items, children, open, props }) => <ul className={layout.lane}>${body}</ul>;`;
+      const code = `export const W = ({ items, children, open, props, item }) => <ul className={layout.lane}>${body}</ul>;`;
       expect(await lintMessages(prefix + code), body).toEqual([
         expect.stringContaining(`.lane sets color, text-transform, which ${holder} inside this element would inherit`),
       ]);
+    }
+    // A binding taken from children is children, and a component imported as Fragment or Trans
+    // is still a component: only the real Trans and Fragment are read as text.
+    for (const [code, holder] of [
+      ["export const W = ({ children: body }) => <ul className={layout.lane}>{body}</ul>;", "{body}"],
+      ["export const W = ({ children: body = null }) => <ul className={layout.lane}>{body}</ul>;", "{body}"],
+      ["export const W = (props) => { const body = props.children; return <ul className={layout.lane}>{body}</ul>; };", "{body}"],
+      ['import { Card as Fragment } from "@terpjs/react-core"; export const W = () => <ul className={layout.lane}><Fragment /></ul>;', "<Fragment>"],
+      ['import { Card as Trans } from "@terpjs/react-core"; export const W = () => <ul className={layout.lane}><Trans /></ul>;', "<Trans>"],
+    ]) {
+      // A stand-in Trans also meets the localisation rule, which reads the name; only this one matters here.
+      expect(await lintMessages(prefix + code), code).toContainEqual(
+        expect.stringContaining(`.lane sets color, text-transform, which ${holder} inside this element would inherit`),
+      );
     }
     expect(await lintMessages(prefix + "export const W = (props) => <section className={layout.lane} {...props} />;"))
       .toEqual([expect.stringContaining(".lane sets color, text-transform, which a spread of props inside this element would inherit")]);
     expect(await lintMessages(prefix + "export const W = ({ t }) => <section className={layout.lane} children={<Card title={t} />} />;"))
       .toEqual([expect.stringContaining(".lane sets color, text-transform, which a children attribute inside this element would inherit")]);
     // The app's own text, in each spelling the lint reads as text, takes ink and type.
+    const imports = 'import { Fragment } from "react"; import * as React from "react"; import { Trans } from "@terpjs/react-core"; ';
     for (const body of ["{t}", '<Trans id="w.note" message="Nothing yet" />', "<Fragment key={t}><strong>{t}</strong></Fragment>",
-      "{items.map((i) => <li key={i}>{i}</li>)}", "{text(label)}"]) {
-      expect(await lint(prefix + `export const W = ({ t, items, text, label }) => <ul className={layout.lane}>${body}</ul>;`), body).toEqual([]);
+      "<React.Fragment key={t}>{t}</React.Fragment>", "{items.map((i) => <li key={i}>{i}</li>)}", "{text(label)}"]) {
+      expect(await lint(imports + prefix + `export const W = ({ t, items, text, label }) => <ul className={layout.lane}>${body}</ul>;`), body)
+        .toEqual([]);
     }
     expect(await lint(prefix + "export const W = ({ t }) => <div className={layout.board}><p className={layout.lane}>{t}</p><Card /></div>;")).toEqual([]);
     // Each inherited type property is held the same way; a list marker and layout are not inherited text.

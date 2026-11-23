@@ -225,12 +225,68 @@ function moduleMember(context, node, expression) {
 }
 
 // Read as the app's own text: words, an expression that renders no element and reads no
-// `children`, a Trans, a fragment, and native elements holding the same.
-const TRANSPARENT = new Set(["Trans", "Fragment", "React.Fragment"]);
+// `children`, a Trans, a fragment, and native elements holding the same. Trans and Fragment count
+// only as the imports they are, so a component imported under either name is still a component.
+const TRANSPARENT = { Trans: "@terpjs/react-core", Fragment: "react" };
+const ELEMENT_CALLS = new Set(["createElement", "cloneElement", "jsx", "jsxs"]);
+
+function variableOf(sourceCode, identifier) {
+  let scope = sourceCode.getScope(identifier);
+  while (scope && !scope.set.has(identifier.name)) scope = scope.upper;
+  return scope?.set.get(identifier.name) ?? null;
+}
+
+/** Whether a JSX tag is Trans or Fragment as imported from their own packages. */
+function transparentTag(tag, sourceCode) {
+  if (tag.type === "JSXMemberExpression") {
+    if (tag.property.name !== "Fragment" || tag.object.type !== "JSXIdentifier") return false;
+    const def = variableOf(sourceCode, tag.object)?.defs[0];
+    return def?.type === "ImportBinding" && def.parent.source.value === "react";
+  }
+  if (tag.type !== "JSXIdentifier") return false;
+  const def = variableOf(sourceCode, tag)?.defs[0];
+  if (def?.type !== "ImportBinding" || def.node.type !== "ImportSpecifier") return false;
+  const imported = def.node.imported.name ?? def.node.imported.value;
+  return Object.hasOwn(TRANSPARENT, imported) && TRANSPARENT[imported] === def.parent.source.value;
+}
+
+/** `x.children`, `x?.children` or `x["children"]`. */
+function childrenMember(node) {
+  const member = node?.type === "ChainExpression" ? node.expression : node;
+  if (member?.type !== "MemberExpression") return false;
+  return member.computed
+    ? member.property.type === "Literal" && member.property.value === "children"
+    : member.property.name === "children";
+}
+
+/** Whether a referenced name is `children`, or a binding taken from it: `{ children: body }`, `body = x.children`. */
+function childrenBinding(identifier, sourceCode) {
+  if (identifier.name === "children") return true;
+  const def = variableOf(sourceCode, identifier)?.defs[0];
+  if (!def) return false;
+  let value = def.name;
+  let parent = value?.parent;
+  if (parent?.type === "AssignmentPattern" && parent.left === value) {
+    value = parent;
+    parent = parent.parent;
+  }
+  if (parent?.type === "Property" && parent.value === value && !parent.computed
+      && (parent.key.name ?? parent.key.value) === "children") return true;
+  return def.type === "Variable" && childrenMember(def.node.init);
+}
+
+/** An identifier that names a value here, not a property key or the member read off an object. */
+function isReference(identifier) {
+  const parent = identifier.parent;
+  if (parent?.type === "MemberExpression" && parent.property === identifier && !parent.computed) return false;
+  if (parent?.type === "Property" && parent.key === identifier && !parent.computed && !parent.shorthand) return false;
+  return true;
+}
 
 /**
  * The first thing inside *element* the lint cannot read as the app's own text: a component, a
- * `children` read in any spelling, a spread or a `children` attribute. Null when there is none.
+ * `children` read (by name, member, computed member or a binding taken from it), a call that
+ * makes an element, a spread or a `children` attribute. Null when there is none.
  */
 function notAppText(element, sourceCode) {
   const attributesHold = (opening) => {
@@ -249,15 +305,19 @@ function notAppText(element, sourceCode) {
     if (node.type === "JSXElement") {
       const tag = node.openingElement.name;
       const name = sourceCode.getText(tag);
-      if (!(tag.type === "JSXIdentifier" && /^[a-z]/.test(name)) && !TRANSPARENT.has(name)) return `<${name}>`;
+      if (!(tag.type === "JSXIdentifier" && /^[a-z]/.test(name)) && !transparentTag(tag, sourceCode)) return `<${name}>`;
       const held = attributesHold(node.openingElement);
       if (held) return held;
       stack.push(...node.children);
       continue;
     }
-    if (node.type === "Identifier" && node.name === "children") return "{children}";
-    if (node.type === "MemberExpression" && !node.computed && node.property.name === "children") {
-      return `{${sourceCode.getText(node)}}`;
+    if (childrenMember(node)) return `{${sourceCode.getText(node)}}`;
+    if (node.type === "Identifier" && isReference(node) && childrenBinding(node, sourceCode)) {
+      return `{${node.name}}`;
+    }
+    if (node.type === "CallExpression") {
+      const callee = node.callee.type === "MemberExpression" ? node.callee.property : node.callee;
+      if (callee.type === "Identifier" && ELEMENT_CALLS.has(callee.name)) return `${sourceCode.getText(node.callee)}(...)`;
     }
     for (const key of sourceCode.visitorKeys[node.type] ?? []) {
       const value = node[key];
@@ -268,9 +328,14 @@ function notAppText(element, sourceCode) {
   return null;
 }
 
-/** Whether *identifier* sits inside a `className` attribute, whatever the expression's shape. */
+/**
+ * Whether *identifier* is read where the className check reads it: inside a `className`
+ * attribute, and not in the test of its conditional, which chooses a class and must not read
+ * (or pass on) the binding itself.
+ */
 function insideClassName(identifier) {
-  for (let node = identifier.parent; node; node = node.parent) {
+  for (let child = identifier, node = identifier.parent; node; child = node, node = node.parent) {
+    if (node.type === "ConditionalExpression" && node.test === child) return false;
     if (node.type === "JSXAttribute") return node.name.name === "className";
     if (node.type === "JSXElement" || node.type === "JSXFragment" || node.type === "Program") return false;
   }

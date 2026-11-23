@@ -57,9 +57,11 @@ decision, 0001 onwards.
   so each line of the sibling `*.module.css` outside the vocabulary above is refused by its line,
   and a hyphenated class is refused with its identifier spelling (`.task-card` becomes
   `.taskCard`, and `styles.taskCard` in the component). Bring the stylesheet inside the
-  vocabulary, or move what it refuses to the react-core component that owns that styling. The
-  import's marker, and a `terp-allow-no-inline-styling` marker on a `className={styles.x}` of a
-  native element, then waive nothing: remove them and lower `escape-hatch-budget.json` to match.
+  vocabulary, or move what it refuses to the react-core component that owns that styling. Once
+  the import is a single default binding its marker waives nothing: remove it and lower
+  `escape-hatch-budget.json` to match. A `terp-allow-no-inline-styling` marker on a
+  `className={styles.x}` comes off only where the lint passes without it, since it still waives
+  a class the module does not define and ink or type on an element that holds a component.
 
 ## 0.43.0 — 2026-11-23
 
