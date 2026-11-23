@@ -309,3 +309,23 @@ export async function logout(page: Page): Promise<void> {
     await expectNamed(heading, "heading", notTheFrameworkSignIn("signed-out", page));
   });
 }
+
+/** Assert that one visible control fits horizontally in the viewport and its clipping ancestors.
+ * Vertical scrolling is normal on small screens. This checks horizontal geometry only.
+ */
+export async function expectControlFitsHorizontally(control: Locator): Promise<void> {
+  await expect(control).toBeVisible();
+  await expect.poll(async () => control.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    let left = 0;
+    let right = document.documentElement.clientWidth;
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      if (getComputedStyle(parent).overflowX === "visible") continue;
+      const bounds = parent.getBoundingClientRect();
+      const innerLeft = bounds.left + parent.clientLeft;
+      left = Math.max(left, innerLeft);
+      right = Math.min(right, innerLeft + parent.clientWidth);
+    }
+    return Math.max(0, left - box.left, box.right - right);
+  }), { message: `Horizontal clipping in pixels for ${control}` }).toBeLessThanOrEqual(1);
+}

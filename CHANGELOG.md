@@ -30,9 +30,30 @@ decision, 0001 onwards.
   and Shift+PageDown do the same, as in the APG date picker dialog. A date a few years off was
   twelve clicks per year away. The day of the month is kept where the target month has it, so
   29 February steps to the 28th.
+- **An app component can own its layout in a sibling CSS Module (ADR 0217).** A component
+  default-imports `./Board.module.css` and puts `className={styles.board}` on a native
+  element. The boundary lint reads the stylesheet: local classes named as script identifiers
+  (`.taskCard`), `@media`, `@container` and `@supports` groups, layout and typography
+  properties, and paint from the palette's roles, an ink for `color`, a surface for a background
+  and a border token for a border, every ink-on-surface pairing of which the palette declares
+  and holds to AA. The binding is read only in a `className` on a native element, one class or a
+  choice of two for a state, and a class that sets inherited ink or type goes only on an
+  element that holds the app's own text. A `style` attribute, a `className` attribute that names
+  no module class or sits on a framework component, a global selector, an `@import`, a string
+  list marker and a stylesheet loaded through `import()` stay refused, and only the bootstrap imports the
+  token pipeline's three global stylesheets. The example app's planning board uses
+  the same tasks API as its list and stacks its lanes on a narrow screen.
+- `expectControlFitsHorizontally` in `@terpjs/conformance` checks that a control fits its
+  viewport and every ancestor whose overflow clips it: a page can fit while a container cuts
+  a control off.
 
 ### Changed
 
+- **`frontend/no-inline-styling` records its runtime half as deferred, not as not-applicable**
+  (ADR 0084, ADR 0217). A class on a framework control can be seen in the running page, where
+  every react-core control's root carries a `data-terp` marker and react-core renders no class
+  of its own; the refusal beside the archetype slot check has not shipped, so the rule page
+  says so. `frontend/no-style-imports` stays not-applicable.
 - **On terp-spec 0.50.0.** Both pins move: `terp-spec` in `pyproject.toml` and `@terpjs/spec`
   in `@terpjs/eslint-boundaries`, with `terp.arch.SPEC_VERSION`, the JS `SPEC_VERSION` and the
   `SPEC_RELEASE` of the declaration's, the workbench's and the resolved deployment's copies,
@@ -76,6 +97,21 @@ decision, 0001 onwards.
   `LocaleProvider` and `defineAppLocales` refuse a catalog without them at start, naming the
   missing keys: add both to the `strings` of that locale's catalog. An app on `LOCALE_NL` or
   `LOCALE_EN`, or whose catalog spreads `LOCALE_NL.strings`, changes nothing.
+- **A sibling CSS Module imported under a `terp-allow-no-style-imports` marker is read now.** On
+  0.43.0 the marker waived the import and nothing read the file. For an import spelled exactly
+  `./Name.module.css` (a name of letters, digits, `_`, `.` and `-`, no query, this letter case) it
+  now covers the import's form only, so each line outside the vocabulary above is refused by its
+  line,
+  and a hyphenated class is refused with its identifier spelling (`.task-card` becomes
+  `.taskCard`, and `styles.taskCard` in the component). Bring the stylesheet inside the
+  vocabulary, or move what it refuses to the react-core component that owns that styling. A
+  module imported in any other spelling (another directory, a query, another letter case) is
+  still refused as a path and still unread under its marker: import it as `./Name.module.css`
+  beside its component to have it read. Once the import is a single default binding in that
+  spelling its marker waives nothing: remove it and lower
+  `escape-hatch-budget.json` to match. A `terp-allow-no-inline-styling` marker on a
+  `className={styles.x}` comes off only where the lint passes without it, since it still waives
+  a class the module does not define and ink or type on an element that holds a component.
 - **A release made with 0.44.0 names terp-spec 0.50.0.** The signer refuses a commit whose
   pinned `terp-arch` reads a newer standard than its own, and `terp promote` refuses a release
   declared against one, so update the signer image and `terp promote` to 0.44.0 before you sign

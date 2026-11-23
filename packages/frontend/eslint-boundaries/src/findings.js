@@ -197,12 +197,15 @@ async function main() {
     const file = path.join(cwd, name);
     return fs.existsSync(file) ? fs.readFileSync(file) : Buffer.from("<missing>");
   });
-  const declarationHash = createHash("sha256")
-    .update(externalInputs[0])
-    .update("\0")
-    .update(externalInputs[1])
-    .digest("hex")
-    .slice(0, 16);
+  const hash = createHash("sha256").update(externalInputs[0]).update("\0").update(externalInputs[1]);
+  // CSS Modules are linted from the importing component. Editing or deleting just its
+  // stylesheet must invalidate the same cached result as changing the JSX.
+  // A repacked adapter can change the CSS policy without changing app sources.
+  hash.update("\0").update(fs.readFileSync(new URL("./cssModules.js", import.meta.url)));
+  for (const file of fs.globSync("src/**/*.module.css", { cwd }).sort()) {
+    hash.update("\0").update(file).update("\0").update(fs.readFileSync(path.join(cwd, file)));
+  }
+  const declarationHash = hash.digest("hex").slice(0, 16);
   const eslint = new ESLint({
     cache: true,
     cacheLocation: path.join(

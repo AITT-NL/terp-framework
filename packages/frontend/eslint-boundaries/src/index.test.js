@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { ESLint } from "eslint";
 import { afterAll, describe, expect, it } from "vitest";
 
+import { PAINT_ROLES } from "./cssModules.js";
 import terpBoundaries, { catalogRuleId } from "./index.js";
 
 // The frontend analog of the arch harness's meta-tests: prove each boundary rule actually fires on
@@ -108,9 +109,9 @@ describe("terpBoundaries", () => {
     expect(await lint('export const W = ({ label }) => <a href="https://example.com">{label}</a>;')).toEqual([]);
   });
 
-  it("flags className (no side channel into hand-authored CSS)", async () => {
+  it("flags an arbitrary class name", async () => {
     expect(await lint('export const W = () => <div className="x">y</div>;')).toContain(
-      "no-restricted-syntax",
+      "terp/no-inline-styling",
     );
   });
 
@@ -123,6 +124,218 @@ describe("terpBoundaries", () => {
     expect(await lint('import "./widget.less";\nexport const W = () => null;')).toContain(
       "no-restricted-imports",
     );
+  });
+
+  it("checks class bindings and stylesheet scope independently", async () => {
+    fs.mkdirSync(path.dirname(MODULE_FILE), { recursive: true });
+    const sheet = path.join(path.dirname(MODULE_FILE), "Board.module.css");
+    const prefix = 'import layout from "./Board.module.css"; ';
+    fs.writeFileSync(sheet, ".board { display: grid }");
+    expect(await lint(prefix + 'export const W = () => <div className={layout.board} />;')).toEqual([]);
+    expect(await lint(prefix + 'export const W = (layout) => <div className={layout.board} />;')).toContain("terp/no-inline-styling");
+    expect(await lint('import "./Board.module.css";')).toContain("terp/no-style-imports");
+    expect(await lint('export * from "./Board.module.css";')).toContain("terp/no-style-imports");
+    expect(await lint(prefix + 'export const W = () => <div className={layout.boarrd} />;')).toContain("terp/no-inline-styling");
+    expect(await lint(prefix + 'export const W = () => <Button className={layout.board} />;')).toContain("terp/no-inline-styling");
+    fs.writeFileSync(sheet, "@media (width < 40rem) { .board:hover, .lane { color: var(--color-fg-default); } }");
+    expect(await lint(prefix + 'export const W = () => <div className={layout.lane} />;')).toEqual([]);
+    for (const decl of ["color: white", "background: #fff", "background: currentColor", "border: 1px solid red", "color: var(--color-fg-default, white)",
+      "--color-fg-default: white", "outline: none", "background-image: linear-gradient(red, red)", "padding: 1px !important"]) {
+      fs.writeFileSync(sheet, `.board { ${decl} }`);
+      const marked = "// terp-allow-no-style-imports: approved import edge\n" + prefix;
+      expect(await lint(marked), decl).toEqual(["terp/no-style-imports"]);
+    }
+    // Each refusal names its cause and the remedy, not only that a line is unsupported.
+    fs.writeFileSync(sheet, [".board { padding: 1px !important; }", ".lane { color: white; }", ".card { outline: none; }"].join("\n"));
+    const lines = (await lintMessages(prefix + 'export const W = () => <div className={layout.board} />;'))
+      .filter((text) => text.includes("Board.module.css:"));
+    expect(lines).toEqual([
+      expect.stringContaining("Board.module.css:1: drop !important from padding"),
+      expect.stringContaining("Board.module.css:2: color takes an ink token, one of var(--color-fg-default), var(--color-fg-muted), var(--color-fg-subtle), with no fallback, or currentColor or inherit."),
+      expect.stringContaining("Board.module.css:3: outline is not among the properties a CSS Module may set"),
+    ]);
+    // A border longhand, a keyword the property does not take, a string marker (copy no catalog
+    // translates) and a class script cannot name: each refusal says what would be admitted.
+    fs.writeFileSync(sheet, [".board { border-top-color: var(--color-border-default); }",
+      ".lane { background: none; list-style-type: 'Pay now '; }", ".task-card { display: grid }"].join("\n"));
+    expect((await lintMessages(prefix + 'export const W = () => <div className={layout.board} />;'))
+      .filter((text) => text.includes("Board.module.css:"))).toEqual([
+      expect.stringContaining("Board.module.css:1: border-top-color is not among the properties a CSS Module may set (layout, typography, and paint through color, background, background-color, border-color and the border shorthands); what it would style belongs to the react-core component that owns it, or to a token or prop asked of the framework."),
+      expect.stringContaining("Board.module.css:2: background takes a surface token, one of var(--color-bg-canvas), var(--color-bg-surface), var(--color-bg-subtle), with no fallback, or transparent."),
+      expect.stringContaining("Board.module.css:2: list-style-type takes a counter style keyword, such as disc or decimal; a string or symbols() puts copy on screen that no catalog translates"),
+      expect.stringContaining("Board.module.css:3: .task-card cannot be named from script, since className reads a class as styles.<name>; call it .taskCard."),
+    ]);
+    // Paint takes its role: an ink as a surface, a surface or a brand fill as ink, and a border
+    // shorthand outside the border tokens are each refused with the tokens the role takes.
+    fs.writeFileSync(sheet, [".board { color: var(--color-brand-primary); }", ".lane { background: var(--color-fg-default); }",
+      ".card { border: 1px solid var(--color-fg-accent); }", ".tag { color: var(--color-bg-canvas); }"].join("\n"));
+    expect((await lintMessages(prefix + 'export const W = () => <div className={layout.board} />;'))
+      .filter((text) => text.includes("Board.module.css:"))).toEqual([
+      expect.stringContaining("Board.module.css:1: color takes an ink token"),
+      expect.stringContaining("Board.module.css:2: background takes a surface token"),
+      expect.stringContaining("Board.module.css:3: border takes none, or a width, a style and a border token, such as 1px solid var(--color-border-default)."),
+      expect.stringContaining("Board.module.css:4: color takes an ink token"),
+    ]);
+    // A selector outside the grammar names the one it may use and the route for a state.
+    fs.writeFileSync(sheet, ".board[aria-current] { display: grid }");
+    expect(await lintMessages(prefix + 'export const W = () => <div className={layout.board} />;')).toEqual([
+      expect.stringContaining("Board.module.css:1: .board[aria-current] is not a selector a CSS Module may use: select one of its own classes, optionally with :hover, :focus, :focus-visible, :focus-within, :active or :disabled. For a state the component knows, give the element another class: className={active ? styles.active : styles.lane}."),
+    ]);
+    // A missing sheet and one that does not parse are told apart, the second by its line and reason.
+    fs.writeFileSync(sheet, ".board { display: grid");
+    expect(await lintMessages(prefix + 'export const W = () => <div className={layout.board} />;')).toEqual([
+      expect.stringContaining("Board.module.css:1: Unclosed block; fix the CSS on that line."),
+    ]);
+    expect(await lintMessages('import layout from "./Missing.module.css"; export const W = () => <div className={layout.board} />;')).toEqual([
+      expect.stringContaining("Missing.module.css is not beside this component: create it there, or import the sibling module that is."),
+    ]);
+    fs.writeFileSync(sheet, ".board { display: grid }\n.active { display: grid }");
+    expect(await lintMessages('import { board } from "./Board.module.css"; export const W = () => <div className={board} />;')).toContain(
+      'Import the sibling CSS Module with one static default binding: import styles from "./Board.module.css".',
+    );
+    // A state chooses between two of the module's classes; any other expression is refused by name.
+    expect(await lint(prefix + 'export const W = ({ on }) => <div className={on ? layout.active : layout.board} />;')).toEqual([]);
+    for (const expression of ['on ? layout.active : "x"', "`${layout.board}`", "layout?.board"]) {
+      expect(await lintMessages(prefix + `export const W = ({ on }) => <div className={${expression}} />;`), expression).toEqual([
+        "className takes one class of a sibling CSS Module: className={styles.board}, after " +
+          'import styles from "./Board.module.css". For a style that follows a state, choose between ' +
+          "two of its classes: className={active ? styles.active : styles.board}.",
+      ]);
+    }
+    expect(await lintMessages(prefix + 'export const W = () => <Button className={layout.board} />;')).toEqual([
+      "A module class goes on a native element, never on <Button>: a framework component takes its props, " +
+        "and keeps the styling and focus treatment it ships with.",
+    ]);
+    // The binding is read in a className and nowhere else: a spread, a call or a variable would
+    // carry the class to a framework control past every check above.
+    for (const code of [
+      "export const W = () => <Button {...{ className: layout.board }} />;",
+      "const props = { className: layout.board }; export const W = () => <Input {...props} />;",
+      'import { createElement } from "react"; export const W = () => createElement(Button, { className: layout.board });',
+      // The conditional's test chooses a class; it must not read the binding, or it could store it
+      // or pass it on while the branches stay valid.
+      "let stash; export const W = ({ on }) => <><div className={(stash = layout, on) ? layout.active : layout.board} /><Button {...{ className: stash.board }} /></>;",
+      'import { createElement } from "react"; export const W = ({ on }) => <div className={createElement(Button, { className: layout.board }) && on ? layout.active : layout.board} />;',
+    ]) {
+      expect(await lintMessages(prefix + code), code).toContain(
+        "layout is read only in a className on a native element: className={layout.board}, or " +
+          "className={active ? layout.active : layout.board}. A module class passed on through a spread, " +
+          "a call or a variable could reach a framework control.",
+      );
+    }
+    // Ink and type are inherited: set on an element that holds anything but the app's own text,
+    // they would restyle text the framework owns, so they go on the element that holds that text.
+    fs.writeFileSync(sheet, ".lane { color: var(--color-fg-muted); text-transform: uppercase; }\n.board { display: grid }");
+    expect(await lintMessages(prefix + "export const W = ({ t }) => <section className={layout.lane}><Card title={t} /></section>;")).toEqual([
+      ".lane sets color, text-transform, which <Card> inside this element would inherit: ink and type go on an " +
+        "element that holds only the app's own text (words, expressions, Trans, and native elements around them), " +
+        "so keep the component, children or spread outside it.",
+    ]);
+    for (const [body, holder] of [
+      ["{items.map((i) => <li key={i}><Badge>{i}</Badge></li>)}", "<Badge>"],
+      ["{children}", "{children}"],
+      ["{open && children}", "{children}"],
+      ["{children ?? null}", "{children}"],
+      ["{props?.children}", "{props?.children}"],
+      ['{props["children"]}', '{props["children"]}'],
+      ["{Children.map(children, (c) => <li>{c}</li>)}", "{children}"],
+      ["{createElement(Card)}", "createElement(...)"],
+      ["{React.cloneElement(item)}", "React.cloneElement(...)"],
+    ]) {
+      const code = `export const W = ({ items, children, open, props, item }) => <ul className={layout.lane}>${body}</ul>;`;
+      expect(await lintMessages(prefix + code), body).toEqual([
+        expect.stringContaining(`.lane sets color, text-transform, which ${holder} inside this element would inherit`),
+      ]);
+    }
+    // A binding taken from children is children, and a component imported as Fragment or Trans
+    // is still a component: only the real Trans and Fragment are read as text.
+    for (const [code, holder] of [
+      ["export const W = ({ children: body }) => <ul className={layout.lane}>{body}</ul>;", "{body}"],
+      ["export const W = ({ children: body = null }) => <ul className={layout.lane}>{body}</ul>;", "{body}"],
+      ["export const W = (props) => { const body = props.children; return <ul className={layout.lane}>{body}</ul>; };", "{body}"],
+      ['import { Card as Fragment } from "@terpjs/react-core"; export const W = () => <ul className={layout.lane}><Fragment /></ul>;', "<Fragment>"],
+      ['import { Card as Trans } from "@terpjs/react-core"; export const W = () => <ul className={layout.lane}><Trans /></ul>;', "<Trans>"],
+    ]) {
+      // A stand-in Trans also meets the localisation rule, which reads the name; only this one matters here.
+      expect(await lintMessages(prefix + code), code).toContainEqual(
+        expect.stringContaining(`.lane sets color, text-transform, which ${holder} inside this element would inherit`),
+      );
+    }
+    expect(await lintMessages(prefix + "export const W = (props) => <section className={layout.lane} {...props} />;"))
+      .toEqual([expect.stringContaining(".lane sets color, text-transform, which a spread of props inside this element would inherit")]);
+    expect(await lintMessages(prefix + "export const W = ({ t }) => <section className={layout.lane} children={<Card title={t} />} />;"))
+      .toEqual([expect.stringContaining(".lane sets color, text-transform, which a children attribute inside this element would inherit")]);
+    // The app's own text, in each spelling the lint reads as text, takes ink and type.
+    const imports = 'import { Fragment } from "react"; import * as React from "react"; import { Trans } from "@terpjs/react-core"; ';
+    for (const body of ["{t}", '<Trans id="w.note" message="Nothing yet" />', "<Fragment key={t}><strong>{t}</strong></Fragment>",
+      "<React.Fragment key={t}>{t}</React.Fragment>", "{items.map((i) => <li key={i}>{i}</li>)}", "{text(label)}"]) {
+      expect(await lint(imports + prefix + `export const W = ({ t, items, text, label }) => <ul className={layout.lane}>${body}</ul>;`), body)
+        .toEqual([]);
+    }
+    expect(await lint(prefix + "export const W = ({ t }) => <div className={layout.board}><p className={layout.lane}>{t}</p><Card /></div>;")).toEqual([]);
+    // Each inherited type property is held the same way; a list marker and layout are not inherited text.
+    for (const decl of ["font-size: 1rem", "font-weight: 600", "font-family: serif", "line-height: 1.5",
+      "letter-spacing: 0.02em", "word-spacing: 1px", "white-space: nowrap", "text-align: center", "text-wrap: balance",
+      "overflow-wrap: anywhere", "font-style: italic", "font: inherit"]) {
+      fs.writeFileSync(sheet, `.lane { ${decl}; }`);
+      expect(await lintMessages(prefix + "export const W = () => <div className={layout.lane}><Card /></div>;"), decl)
+        .toEqual([expect.stringContaining(`.lane sets ${decl.split(":")[0]}, which <Card> inside this element would inherit`)]);
+    }
+    fs.writeFileSync(sheet, ".lane { list-style: none; display: grid; position: sticky; }");
+    expect(await lint(prefix + "export const W = ({ t }) => <ul className={layout.lane}><li><Button>{t}</Button></li></ul>;")).toEqual([]);
+    // position takes the values that keep an element in its own layout; fixed is the shell's.
+    fs.writeFileSync(sheet, ".lane { position: fixed; }");
+    expect(await lintMessages(prefix + "export const W = () => <div className={layout.lane} />;")).toEqual([
+      "Board.module.css:1: position takes static, relative, absolute or sticky.",
+    ]);
+    // A declaration outside a rule, an at-rule outside the three groups, and a nested rule each
+    // name what the stylesheet may hold instead.
+    fs.writeFileSync(sheet, ["color: var(--color-fg-default);", "@layer app { .lane { display: grid } }", ".lane { .inner { display: grid } }"].join("\n"));
+    expect(await lintMessages(prefix + "export const W = () => <div className={layout.lane} />;")).toEqual([
+      "Board.module.css:1: a declaration belongs inside a rule for one of this module's classes.",
+      "Board.module.css:2: @layer is refused; group rules only in @media, @container or @supports.",
+      "Board.module.css:3: a rule holds declarations only; nest no rule or at-rule inside it.",
+    ]);
+    // A sibling module may carry dots in its name, as Vite allows.
+    fs.writeFileSync(path.join(path.dirname(MODULE_FILE), "Board.lanes.module.css"), ".lane { display: grid }");
+    expect(await lint('import lanes from "./Board.lanes.module.css"; export const W = () => <div className={lanes.lane} />;')).toEqual([]);
+    // The allowance is the sibling spelling exactly: a query, another directory or another letter
+    // case is a stylesheet import like any other, refused as a path, and its file is never read.
+    for (const source of ["./Board.module.css?url", "./Board.module.css?inline", "./Board.module.css?raw",
+      "./parts/Board.module.css", "../Board.module.css", "./Board.MODULE.css"]) {
+      // The path refusal, and no stylesheet finding: the sheet beside the component holds refused
+      // lines, and a missing file is a finding too, so a read of either would show here.
+      const rules = await lint(`import layout from "${source}"; export const W = () => <div className={layout.board} />;`);
+      expect(rules, source).toContain("no-restricted-imports");
+      expect(rules, source).not.toContain("terp/no-style-imports");
+      // Under a marker the path refusal is waived and nothing reads the file: no stylesheet finding.
+      const marked = `// terp-allow-no-style-imports: legacy path\nimport layout from "${source}"; export const W = () => <div className={layout.board} />;`;
+      expect(await lint(marked), source).not.toContain("terp/no-style-imports");
+    }
+    fs.writeFileSync(sheet, ".board { display: grid }\n.lane { display: grid }");
+    expect(await lintMessages(prefix + 'export const W = () => <div className={layout.card} />;')).toEqual([
+      expect.stringContaining("./Board.module.css defines no .card class: define it there, or use one it has (board, lane)."),
+    ]);
+    for (const css of ['@import "./global.css";', ".board, body { display: grid }",
+      '.board { composes: external from "./global.css" }', ".board { & ~ * { display: none } }"]) {
+      fs.writeFileSync(sheet, css);
+      expect(await lint(prefix + 'export const W = () => <div className={layout.board} />;'), css)
+        .toEqual(["terp/no-style-imports"]);
+    }
+  });
+
+  it("admits only inks and surfaces whose every pairing the palette declares and measures", () => {
+    // The claim the paint roles rest on: an app that sets any admitted ink over any admitted surface,
+    // on one element or across two, forms a text pair the contract's contrast gate already holds to
+    // AA in every theme. A token added to a role without its pairs fails here, not in a screen.
+    const pairs = JSON.parse(
+      fs.readFileSync(new URL("../../contract/token-pairs.json", import.meta.url), "utf8"),
+    ).textPairs.map(({ fg, bg }) => `${fg} on ${bg}`);
+    for (const ink of PAINT_ROLES.ink) {
+      for (const surface of PAINT_ROLES.surface) {
+        expect(pairs, `${ink} on ${surface}`).toContain(`${ink} on ${surface}`);
+      }
+    }
   });
 
   it("flags a hardcoded colour (design tokens only)", async () => {
@@ -401,9 +614,11 @@ describe("terpBoundaries", () => {
     expect(messages.some((message) => message.startsWith("dangerouslySetInnerHTML"))).toBe(true);
     expect(messages).toContain(
       "The style attribute is forbidden in app source; layout comes from the react-core " +
-        "components (Stack, Page, ...) and styling from the design tokens.",
+        "components (Stack, Page, ...) and styling from the design tokens. A layout a component " +
+        'owns goes in its sibling CSS Module: import styles from "./Board.module.css" and ' +
+        "className={styles.board} on a native element.",
     );
-    expect(messages.some((message) => message.startsWith("The className attribute"))).toBe(true);
+    expect(messages.some((message) => message.startsWith("className takes one class of a sibling CSS Module"))).toBe(true);
     expect(messages.some((message) => message.includes("Button"))).toBe(true);
   });
 
@@ -529,9 +744,9 @@ describe("terpBoundaries", () => {
     ]) {
       const messages = await lintMessages(`import "${source}";\nexport {};`, BOOTSTRAP_FILE);
       expect(messages, source).toHaveLength(1);
-      expect(messages[0], source).toContain(
-        "App-authored stylesheets are forbidden, a library's included",
-      );
+      // The refusal names both routes: the module form for a component, the three for the bootstrap.
+      expect(messages[0], source).toContain('import styles from "./Board.module.css"');
+      expect(messages[0], source).toContain("(@terpjs/contract/tokens.css, ./house-style.css, ./theme.css)");
     }
   });
 

@@ -7,7 +7,7 @@
  * about, and none of them is about a directory. The one rule that *is* about a module's shape,
  * `no-cross-module-imports`, reads the module tree for itself: a module never imports a
  * sibling, and code outside every module never imports into one. The bootstrap is the one file
- * that may import stylesheets, and only the token pipeline's own. Framework packages
+ * that may import global stylesheets. App components can import sibling CSS Modules. Framework packages
  * legitimately define the primitives these rules point back to and are outside an app's
  * boundary config.
  */
@@ -46,10 +46,9 @@ export const BOUNDARY_SPEC = {
    */
   bootstrapFiles: ["**/src/main.{ts,tsx}"],
   /**
-   * The stylesheets the bootstrap may import, and the only ones any app file may: the framework's
-   * tokens, the house style a tool manages and the app's own token overlay. Each is a layer of
-   * the token pipeline, so a stylesheet outside this list is a side channel around it, a
-   * library's included.
+   * The global stylesheets the bootstrap may import: the framework's
+   * tokens, the house style a tool manages and the app's own token overlay. These are the three layers of
+   * the global token pipeline.
    */
   bootstrapStylesheets: ["@terpjs/contract/tokens.css", "./house-style.css", "./theme.css"],
   /**
@@ -66,11 +65,6 @@ export const BOUNDARY_SPEC = {
     form: 'Stack as="form"',
     meter: "Meter",
   },
-  /**
-   * JSX attributes app source must not author — styling lives in the design tokens and the
-   * react-core components (`Stack` for layout), never ad-hoc per screen. `className` would be
-   * a side channel into hand-authored CSS, so it is refused alongside `style`.
-   */
   /**
    * Extra guidance for an element whose named replacement does not fit every case, so the
    * refusal states what to do instead of implying something is missing.
@@ -107,6 +101,7 @@ export const BOUNDARY_SPEC = {
       "sorting, column resizing and settings, the mobile card reflow and the row-level " +
       "activation the rest of the app has.",
   },
+  /** Inline styles and arbitrary classes are refused. A CSS Module binding supplies a scoped class. */
   restrictedAttributes: ["style", "className"],
   /**
    * Raw in-app anchors (`<a href="/...">`) bypass the router (full reload, no role-aware
@@ -115,7 +110,7 @@ export const BOUNDARY_SPEC = {
   restrictInAppAnchors: true,
   /** Package internals app source must not deep-import (import from the package root). */
   internalImportPatterns: ["@terpjs/*/src/*", "@terpjs/*/dist/*"],
-  /** App-authored stylesheets are refused — theming flows from the app's token source. */
+  /** Extensions restricted by default. A sibling CSS Module has a separate import contract. */
   styleImportPatterns: [
     "*.css",
     "**/*.css",

@@ -465,7 +465,8 @@ parity. The backend is unaware of which stack is mounted.
    semantics (token/cookie handling, route guards). UI gating (`canEdit`,
    `canAdmin`) honours the backend roles identically.
 5. **Boundary‑lint spec** — the module‑boundary rules (no cross‑module imports, no
-   reaching into core internals, **design‑token‑only styling**, no raw
+   reaching into core internals, **design‑token paint, with a component's own stylesheet only in
+   the vocabulary its stack's adapter enforces (ADR 0217)**, no raw
    `<button>`/`<input>`, routed pages not modals for forms) are declared **as data**
   in `@terpjs/eslint-boundaries`; each stack provides a parser adapter. The
    *rules* are shared; only the *enforcement adapter* is per‑stack.

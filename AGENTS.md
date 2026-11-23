@@ -182,14 +182,37 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   it. An app ships on one with `defaultTheme` — never by restyling to imitate it. Every theme
   is a complete colour set held to WCAG AA on every declared text pairing (`contrast` to AAA);
   geometry is declared once in `:root` and inherited.
-- **No `style={}`, no `className`, no stylesheets anywhere in app source** — layout
-  comes from the react-core primitives (`Stack`, `Grid`, `DetailList`, the page archetypes);
-  theming from the token source. Every boundary rule covers all of `src/`, not only
-  `src/modules/` (ADR 0175): a component beside the modules is held exactly like one inside.
-  The bootstrap (`src/main.tsx`) is the one file that imports stylesheets, and only the token
-  pipeline's three: `@terpjs/contract/tokens.css`, `./house-style.css` and `./theme.css`. A
-  stylesheet loaded through `import()` or `import.meta.glob` is refused like an imported one,
-  and code outside the modules never imports from one (shared code is what modules depend on).
+- **No `style={}`, no class that is not a CSS Module's own, no global stylesheet in app
+  source** — layout comes from the react-core primitives (`Stack`, `Grid`, `DetailList`, the
+  page archetypes), or, for a layout a component owns, from a sibling CSS Module (ADR 0217): the
+  component default-imports `./Board.module.css` and puts `className={styles.board}` on a native
+  element. A framework control takes its props, never a class. The boundary lint reads the
+  stylesheet and admits local class selectors named as script identifiers (`.taskCard`, never
+  `.task-card`), `@media` / `@container` / `@supports` groups, layout and typography
+  properties, and paint from the palette's roles only: ink (`--color-fg-default` / `-muted` /
+  `-subtle`) for `color`, a surface (`--color-bg-canvas` / `-surface` / `-subtle`, the three the
+  framework sets its own components on) for a background, a `--color-border-*` token for a
+  border; every admitted ink over every admitted surface is a pair the palette declares and
+  measures. A global selector, `@import`, `composes` and `!important` are refused. The binding is
+  read only in a `className` on a native element (`className={active ? styles.active :
+  styles.board}` for a state), never passed on through a spread, a call or a variable, and a class
+  that sets inherited ink or type goes only on an element that holds the app's own text (words,
+  expressions, `Trans` and native elements around them), never on one that holds a component,
+  `children` or a spread. Only the exact `./Name.module.css` spelling is read, and a marker on
+  that import never waives a finding inside the file; any other spelling (another directory, a
+  query, another letter case) is refused as a path and is not read. A screen with a composition of its own uses the body of a
+  plain `Page`. Every boundary rule covers all of `src/`, not only `src/modules/` (ADR 0175): a
+  component beside the modules is held exactly like one inside. The bootstrap (`src/main.tsx`)
+  is the one file that imports global stylesheets, and only the token pipeline's three:
+  `@terpjs/contract/tokens.css`, `./house-style.css` and `./theme.css`. A stylesheet loaded
+  through `import()` or `import.meta.glob` is refused like an imported one, and code outside the
+  modules never imports from one (shared code is what modules depend on).
+- **A layout of your own is checked where it breaks** — start from the user's main task and the
+  standard component that serves it, and give an app-owned layout a specific job. Check the
+  rendered screen at desktop and mobile widths and in every shipped theme, with the main action
+  reachable by keyboard, and hold the task's inputs and buttons to
+  `expectControlFitsHorizontally` from `@terpjs/conformance` at narrow widths: a page can fit
+  while a container clips a control.
 - **Nav and route visibility is declarative data, not a predicate** — `NavItem` and
   `ModuleRoute` take `role` and `permission`, ANDed and fail-closed, resolved by the adapter
   against what `/me` returns. A function on the manifest would not survive the boundary: it is

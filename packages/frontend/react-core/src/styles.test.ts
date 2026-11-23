@@ -1865,8 +1865,8 @@ describe("cascade structure", () => {
     for (const token of [0, 1, 2, 3, 4, 6, 8]) {
       // `detail-list` joined the three late, and its absence is why the value it now takes was
       // unreachable: every other layout primitive published a gap on this scale, so a detail
-      // list wanting looser rows had nowhere to say so — and app modules may write neither
-      // `style` nor `className`. Its rules set `row-gap` rather than the shorthand, for the
+      // list wanting looser rows had nowhere to say so — and app modules may write no `style`
+      // and no class on a framework component. Its rules set `row-gap` rather than the shorthand, for the
       // reason the sheet gives there: the column gap is the layout's, not the caller's.
       for (const marker of ["stack", "card", "grid", "detail-list"]) {
         expect(
