@@ -1587,7 +1587,7 @@ def _assurance_problems(document: dict) -> list[str]:
 
 
 @functools.cache
-def _assurance_validator():  # noqa: ANN202 - the validator's type is the library's own
+def _assurance_validator():
     from jsonschema import Draft202012Validator
 
     return Draft202012Validator(_assurance_schema())

@@ -231,7 +231,8 @@ def test_incomplete_or_ambiguous_evidence_never_grants_permission(damage):
 
 
 @pytest.mark.parametrize("damage", [None, "signature", "nonce", "expired", "revoked", "wrong-purpose", "unavailable", "no-records",
-                                    "no-acceptance", "no-issue-time", "local-time", "undefined-field"])
+                                    "no-acceptance", "no-issue-time", "numeric-issue-time", "local-time",
+                                    "undefined-field"])
 def test_authority_verifies_fresh_signed_evidence(tmp_path, monkeypatch, damage):
     import json
     import subprocess
@@ -277,6 +278,8 @@ def test_authority_verifies_fresh_signed_evidence(tmp_path, monkeypatch, damage)
             response["acceptances"] = []
         if damage == "no-issue-time":
             response.pop("issued_at")
+        if damage == "numeric-issue-time":
+            response["issued_at"] = 0
         if damage == "local-time":
             response["issued_at"] = NOW.astimezone(timezone(timedelta(hours=1))).isoformat()
         purpose = dsse.PAYLOAD_TYPE if damage == "wrong-purpose" else risk_authority.PAYLOAD_TYPE
@@ -287,7 +290,8 @@ def test_authority_verifies_fresh_signed_evidence(tmp_path, monkeypatch, damage)
 
     monkeypatch.setattr(risk_authority.subprocess, "run", provider)
     # A refusal of the reader reaches the caller in the reader's own words, which name the fix.
-    said = {"revoked": "was revoked", "no-issue-time": "is missing", "local-time": "must be UTC",
+    said = {"revoked": "was revoked", "no-issue-time": "issued_at is missing",
+            "numeric-issue-time": "issued_at is not a string", "local-time": "must be UTC",
             "undefined-field": '"scope", which the dependency-risk-acceptance contract does not define'}
     if damage:
         with pytest.raises(RiskRefused, match=said.get(damage)):
@@ -521,7 +525,7 @@ def test_an_acceptance_is_read_only_in_the_contract_s_own_form(damage):
 
 
 @pytest.mark.parametrize("damage", ["lock-newline", "unknown-field", "finding-field", "no-scan-time", "locks-not-a-map",
-                                    "findings-not-a-list", "too-many-findings", *_ODD_INSTANTS])
+                                    "findings-not-a-list", "findings-that-are-not-findings", *_ODD_INSTANTS])
 def test_an_audit_is_read_only_in_the_contract_s_own_form(damage):
     document = deepcopy(VALID_AUDIT)
     if damage == "lock-newline":
@@ -536,8 +540,8 @@ def test_an_audit_is_read_only_in_the_contract_s_own_form(damage):
         document["locks"] = list(document["locks"].items())
     elif damage == "findings-not-a-list":
         document["findings"] = {"0": document["findings"][0]}
-    elif damage == "too-many-findings":
-        document["findings"] = [None] * (MAX_ITEMS + 1)
+    elif damage == "findings-that-are-not-findings":
+        document["findings"] = [None]
     else:
         document["scanned_at"] = damage
     with pytest.raises(RiskRefused):
@@ -779,7 +783,8 @@ def test_an_audit_lists_at_most_the_findings_its_contract_holds():
     document = {**deepcopy(VALID_AUDIT), "findings": _findings(MAX_ITEMS)}
     assert len(audit_evidence(document, now=SCANNED)[1]) == MAX_ITEMS
     document["findings"] = _findings(MAX_ITEMS + 1)
-    assert any(True for _ in Draft202012Validator(AUDIT_SCHEMA).iter_errors(document))
+    assert [(error.validator, list(error.path)) for error in Draft202012Validator(AUDIT_SCHEMA).iter_errors(document)] == [
+        ("maxItems", ["findings"])]
     with pytest.raises(RiskRefused, match=f"more than {MAX_ITEMS} findings"):
         audit_evidence(document, now=SCANNED)
 
@@ -787,7 +792,7 @@ def test_an_audit_lists_at_most_the_findings_its_contract_holds():
 def test_a_finding_belongs_to_a_lock_its_audit_lists():
     document = deepcopy(VALID_AUDIT)
     document["locks"] = {"site/package-lock.json": next(iter(document["locks"].values()))}
-    with pytest.raises(RiskRefused, match="does not belong to this scan"):
+    with pytest.raises(RiskRefused, match="lockfile \"frontend/package-lock.json\" is not one of the scan's locks"):
         audit_evidence(document, now=SCANNED)
 
 
@@ -803,6 +808,11 @@ def test_a_finding_belongs_to_a_lock_its_audit_lists():
     ("expires_at", "2026-02-30T12:00:00Z", "expires_at is not a date and time"),
     ("revoked_at", None, "revoked_at is not a string of at most"),
     ("commit", "c" * 39, "commit is not a whole commit id"),
+    ("version", 2, 'acceptance "acceptance-1" is not version 1'),
+    ("locks", {"": "sha256:" + "b" * 64}, 'acceptance "acceptance-1": locks names a lock with an empty path'),
+    ("locks", {}, 'acceptance "acceptance-1": locks names no lock'),
+    ("finding", {**VALID_ACCEPTANCE["finding"], "note": "ignore"},
+     'the finding of acceptance "acceptance-1" holds "note", which the dependency-risk-acceptance contract does not define'),
 ])
 def test_a_refusal_names_the_field_and_the_rule_it_broke(field, value, said):
     """The refusal reaches the operator, so it says which field broke which rule, of which
@@ -815,10 +825,12 @@ def test_a_refusal_names_the_field_and_the_rule_it_broke(field, value, said):
 
 
 @pytest.mark.parametrize(("field", "value", "said"), [
-    ("advisories", ["a" * (MAX_TEXT + 1)], f"a finding's advisories has an entry that is longer than {MAX_TEXT} characters"),
-    ("package", "", "a finding's package is empty"),
-    ("fixed_versions", ["2.0.0", "1.0.0"], "a finding's fixed_versions is not sorted"),
-    ("ecosystem", "maven", "a finding's ecosystem is not npm or pypi"),
+    ("advisories", ["a" * (MAX_TEXT + 1)],
+     f"finding 0 of the dependency scan: advisories has an entry that is longer than {MAX_TEXT} characters"),
+    ("package", "", "finding 0 of the dependency scan: package is empty"),
+    ("dependency_paths", ["node_modules/z", "node_modules/a"], "finding 0 of the dependency scan: dependency_paths is not sorted"),
+    ("fixed_versions", ["2.0.0", "1.0.0"], "finding 0 of the dependency scan: fixed_versions is not sorted"),
+    ("ecosystem", "maven", "finding 0 of the dependency scan: ecosystem is not npm or pypi"),
 ])
 def test_a_finding_s_refusal_names_the_field_and_the_rule_it_broke(field, value, said):
     from terp.cli.audit_findings import digest
@@ -830,7 +842,14 @@ def test_a_finding_s_refusal_names_the_field_and_the_rule_it_broke(field, value,
     with pytest.raises(RiskRefused) as refused:
         audit_evidence(document, now=SCANNED)
     assert said in str(refused.value)
-    document = deepcopy(VALID_AUDIT)
-    document["scanned_at"] = "2026-11-18 12:00:00Z"
-    with pytest.raises(RiskRefused, match="a dependency scan's scanned_at must be UTC"):
-        audit_evidence(document, now=SCANNED)
+
+
+@pytest.mark.parametrize(("change", "said"), [
+    ({"scanned_at": "2026-11-18 12:00:00Z"}, "the npm scan: scanned_at must be UTC"),
+    ({"locks": {"": "sha256:" + "b" * 64}}, "the npm scan: locks names a lock with an empty path"),
+    ({"version": 2}, "the npm scan is not version 1 of the dependency-audit contract"),
+])
+def test_an_audit_s_refusal_names_the_scan_and_the_rule_it_broke(change, said):
+    with pytest.raises(RiskRefused) as refused:
+        audit_evidence({**deepcopy(VALID_AUDIT), **change}, now=SCANNED, name="the npm scan")
+    assert said in str(refused.value)
