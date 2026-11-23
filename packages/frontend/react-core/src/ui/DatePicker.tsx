@@ -309,7 +309,10 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
     move(daysDelta);
   }
 
-  /** Page the month from a key the grid handled. The header buttons deliberately do not. */
+  /**
+   * Page the month (or, by twelve, the year) from a key the grid handled. The header buttons
+   * deliberately do not.
+   */
   function pageMonth(delta: number) {
     follow.current = true;
     changeMonth(delta);
@@ -323,10 +326,27 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
     }
   }
 
+  /**
+   * Step the view by `delta` months, keeping the day of the month where the target month has it
+   * (31 March back one month is 28 or 29 February, 29 February on a year is the 28th).
+   *
+   * The view follows the cursor AFTER it is clamped to `min` / `max`, not the unclamped target.
+   * Showing the target used to be harmless enough for one month, since the clamped cursor
+   * usually still sat in the six weeks on screen; a year step made it the common case to show a
+   * month wholly outside the bounds while the cursor stayed in the other one. Then no cell in
+   * the grid carried `tabIndex={0}`, so Tab skipped the calendar, and a step from the keyboard
+   * unmounted the focused cell and dropped focus to <body> with nothing left to take it back.
+   * At a bound the step now lands on the bound's own month.
+   */
   function changeMonth(delta: number) {
-    const nextMonth = addMonths(month, delta);
-    setMonth(nextMonth);
-    setActiveDate(clampDate(new Date(nextMonth.getFullYear(), nextMonth.getMonth(), Math.min(activeDate.getDate(), daysInMonth(nextMonth))), minDate, maxDate));
+    const target = addMonths(month, delta);
+    const next = clampDate(
+      new Date(target.getFullYear(), target.getMonth(), Math.min(activeDate.getDate(), daysInMonth(target))),
+      minDate,
+      maxDate,
+    );
+    setMonth(startOfMonth(next));
+    setActiveDate(next);
   }
 
   function selectDate(day: Date) {
@@ -375,13 +395,15 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
         event.preventDefault();
         moveCursor(6 - activeDate.getDay());
         break;
+      // Shift pages a year, as the APG date picker dialog does, so the keyboard reaches what
+      // the two year buttons in the header reach.
       case "PageUp":
         event.preventDefault();
-        pageMonth(-1);
+        pageMonth(event.shiftKey ? -12 : -1);
         break;
       case "PageDown":
         event.preventDefault();
-        pageMonth(1);
+        pageMonth(event.shiftKey ? 12 : 1);
         break;
       case "Enter":
       case " ":
@@ -399,10 +421,15 @@ function Calendar({ mode, locale, visibleSeed, selected = null, range, min, max,
     // dialog boundary had already been crossed unnamed. axe does not report this at the
     // wcag2a/aa tags the lane runs, so opening the calendar in stage 4 did not surface it.
     <div role="dialog" aria-modal="false" aria-labelledby={titleId} data-terp="calendar">
+      {/* The year buttons sit outside the month buttons, the order of the APG date picker
+          dialog. Without them a date a few years off (a start date, an end of contract) was
+          twelve clicks per year away, and the keyboard's own year step had no pointer twin. */}
       <div data-terp="calendar-header">
+        <button type="button" data-terp="iconbutton" aria-label={strings.previousYear} onClick={() => changeMonth(-12)}>«</button>
         <button type="button" data-terp="iconbutton" aria-label={strings.previousMonth} onClick={() => changeMonth(-1)}>‹</button>
         <div id={titleId} data-terp="calendar-title">{formatMonth(month, locale)}</div>
         <button type="button" data-terp="iconbutton" aria-label={strings.nextMonth} onClick={() => changeMonth(1)}>›</button>
+        <button type="button" data-terp="iconbutton" aria-label={strings.nextYear} onClick={() => changeMonth(12)}>»</button>
       </div>
       <div data-terp="calendar-week" aria-hidden="true">
         {weekdays.map((day) => <div key={day} data-terp="calendar-weekday">{day}</div>)}

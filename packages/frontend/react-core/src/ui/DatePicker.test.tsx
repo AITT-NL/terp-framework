@@ -98,6 +98,84 @@ describe("DatePicker", () => {
     expect(document.activeElement).toBe(next);
   });
 
+  it("steps a year at a time from the header, keeping the button's focus", () => {
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN }}>
+        <DatePicker aria-label="Due date" value={new Date(2026, 6, 7)} defaultOpen />
+      </LocaleProvider>,
+    );
+    const next = screen.getByRole("button", { name: "Next year" });
+    next.focus();
+    fireEvent.click(next);
+    expect(screen.getByRole("grid", { name: "July 2027" })).toBeInTheDocument();
+    // The cursor keeps its day, so the keyboard picks up where the pointer left it.
+    expect(screen.getByRole("grid").querySelector('[tabindex="0"]')?.textContent).toBe("7");
+    expect(document.activeElement).toBe(next);
+
+    const previous = screen.getByRole("button", { name: "Previous year" });
+    fireEvent.click(previous);
+    fireEvent.click(previous);
+    expect(screen.getByRole("grid", { name: "July 2025" })).toBeInTheDocument();
+  });
+
+  it("pages a year with Shift+PageUp and Shift+PageDown, and a month without Shift", async () => {
+    const onChange = vi.fn();
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN }}>
+        <DatePicker aria-label="Due date" defaultValue={new Date(2028, 1, 29)} onChange={onChange} />
+      </LocaleProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Due date / }));
+    const grid = screen.getByRole("grid");
+    const cursor = () => grid.querySelector<HTMLElement>('[tabindex="0"]');
+    await waitFor(() => expect(document.activeElement).toBe(cursor()));
+
+    // 29 February has no twin a year on, so the day is the last the target month has.
+    fireEvent.keyDown(grid, { key: "PageDown", shiftKey: true });
+    expect(screen.getByRole("grid", { name: "February 2029" })).toBeInTheDocument();
+    expect(cursor()?.textContent).toBe("28");
+    expect(document.activeElement).toBe(cursor());
+
+    fireEvent.keyDown(grid, { key: "PageUp", shiftKey: true });
+    fireEvent.keyDown(grid, { key: "PageUp", shiftKey: true });
+    expect(screen.getByRole("grid", { name: "February 2027" })).toBeInTheDocument();
+
+    // Mutation: Shift ignored, which would land on January 2027.
+    fireEvent.keyDown(grid, { key: "PageUp" });
+    expect(screen.getByRole("grid", { name: "January 2027" })).toBeInTheDocument();
+
+    fireEvent.keyDown(grid, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith(new Date(2027, 0, 28));
+  });
+
+  it("stops a year step at a bound on the bound's month, with the cursor in the grid", () => {
+    render(
+      <LocaleProvider locales={{ en: LOCALE_EN }}>
+        <DatePicker
+          aria-label="Due date"
+          value={new Date(2026, 6, 7)}
+          min={new Date(2026, 2, 25)}
+          max={new Date(2027, 1, 10)}
+          defaultOpen
+        />
+      </LocaleProvider>,
+    );
+    // A year back from July 2026 is before `min`. Showing July 2025 would leave the cursor,
+    // clamped to 25 March 2026, outside every cell on screen, so nothing in the grid could take
+    // Tab and a keyboard step would drop focus to <body>.
+    fireEvent.click(screen.getByRole("button", { name: "Previous year" }));
+    expect(screen.getByRole("grid", { name: "March 2026" })).toBeInTheDocument();
+    expect(screen.getByRole("grid").querySelector('[tabindex="0"]')).toHaveAccessibleName(
+      "Wednesday, March 25, 2026",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Next year" }));
+    expect(screen.getByRole("grid", { name: "February 2027" })).toBeInTheDocument();
+    expect(screen.getByRole("grid").querySelector('[tabindex="0"]')).toHaveAccessibleName(
+      "Wednesday, February 10, 2027",
+    );
+  });
+
   it("opens the calendar on mount when asked", () => {
     // Sixteen calendar rules have been in the sheet since stage 2c with no way to render the
     // subtree, so neither visual lane had ever painted one. This is the way in.
