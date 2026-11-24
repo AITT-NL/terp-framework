@@ -19,7 +19,10 @@ daemon and run in CI.
 Three translations make a container command runnable on the host, and all are read from the
 compose file rather than guessed:
 
-* **paths** -- a bind mount (``./app:/app/app``) says what ``/app/app`` means here;
+* **paths** -- a bind mount (``./app:/app/app``) says what ``/app/app`` means here. Its
+  host half is written against the checkout as the Docker daemon sees it
+  (``TERP_DEV_HOST_ROOT``), and this command runs no daemon, so that root is read as the
+  checkout this command runs in;
 * **addresses** -- ``http://api:8000`` is a compose-network name that does not resolve on
   the host, so a value naming a service is rewritten to ``127.0.0.1`` and the port the
   API was actually started on. (This is the same host/container distinction the manifest
@@ -51,12 +54,29 @@ import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
+from terp.cli import workbench
+from terp.cli.compose_paths import _host_path, _interpolate
+
 #: How long to wait for the API to answer its health probe before giving up.
 _HEALTH_TIMEOUT_SECONDS = 60.0
 _HEALTH_POLL_SECONDS = 0.5
 
 #: The liveness path the template's healthcheck uses.
 _HEALTH_PATH = "/health/live"
+
+#: The checkout as the Docker DAEMON sees it, which the template's bind mounts are written
+#: against (``${TERP_DEV_HOST_ROOT:-.}/app:/app/app``). A tool that runs Compose from inside
+#: a container -- Terp Studio does -- sets it in ``.env`` to the daemon host's path. The name
+#: is the app's to choose: ``workbench.json`` declares it as ``env.sourceRoot`` (ADR 0110).
+_DAEMON_ROOT = "TERP_DEV_HOST_ROOT"
+
+
+def _daemon_root_name(project_root: pathlib.Path) -> str:
+    """The variable the app's mounts name the daemon's checkout by: its declared one, or the default."""
+    declared, _findings = workbench.load(project_root)
+    if declared is None or declared.unmanaged:
+        return _DAEMON_ROOT
+    return declared.env.get("sourceRoot") or _DAEMON_ROOT
 
 #: Runs argv with an environment and working directory; returns (status, output).
 Runner = Callable[[Sequence[str], Mapping[str, str], pathlib.Path], tuple[int, str]]
@@ -153,64 +173,6 @@ def _ordered(services: Mapping[str, dict], selected: Sequence[str]) -> list[str]
     return chosen
 
 
-def _mounts(service: Mapping, environment: Mapping[str, str]) -> list[tuple[str, str]]:
-    """``(host, container)`` pairs from a service's short-form bind mounts.
-
-    Interpolated BEFORE splitting: the template's mounts are written
-    ``${TERP_DEV_HOST_ROOT:-.}/app:/app/app``, and that default value contains the very
-    colon the split is looking for — so resolving first is what keeps the host half from
-    being torn in two.
-    """
-    pairs: list[tuple[str, str]] = []
-    for volume in service.get("volumes") or []:
-        if not isinstance(volume, str):
-            continue
-        parts = _interpolate(volume, environment).split(":")
-        # A Windows host path carries its own drive colon (`C:\src\app:/app/app`), so the
-        # container half is the LAST absolute-looking part, not simply parts[1].
-        if len(parts) < 2 or not parts[-1].startswith("/"):
-            continue
-        pairs.append((":".join(parts[:-1]), parts[-1]))
-    return pairs
-
-
-def _host_path(
-    service: Mapping,
-    container_path: str,
-    root: pathlib.Path,
-    environment: Mapping[str, str],
-) -> str:
-    """Translate a container path through the service's bind mounts."""
-    for host, container in _mounts(service, environment):
-        if container_path == container or container_path.startswith(f"{container}/"):
-            local = pathlib.PurePath(host)
-            suffix = container_path[len(container) :].strip("/")
-            base = local if local.is_absolute() else root / host
-            return str(base / suffix if suffix else base)
-    return container_path
-
-
-def _interpolate(value: str, environment: Mapping[str, str]) -> str:
-    """Resolve ``${VAR}`` / ``${VAR:-default}`` the way compose would, from *environment*."""
-    out, index = [], 0
-    while index < len(value):
-        start = value.find("${", index)
-        if start == -1:
-            out.append(value[index:])
-            break
-        out.append(value[index:start])
-        end = value.find("}", start)
-        if end == -1:
-            out.append(value[start:])
-            break
-        body = value[start + 2 : end]
-        name, _, default = body.partition(":-")
-        name = name.split(":?")[0].split("?")[0]
-        out.append(environment.get(name) or default)
-        index = end + 1
-    return "".join(out)
-
-
 def _rewrite_addresses(value: str, service_names: Sequence[str], api_port: int) -> str:
     """Point a compose-network address at the host copy of the same service.
 
@@ -305,6 +267,19 @@ def smoke_plan(
 
     steps: list[SmokeStep] = []
     translations: set[str] = set()
+    # A bind mount's host half names the checkout as the Docker daemon sees it, and this
+    # command runs no daemon: it runs here, where the checkout is `project_root`. Read
+    # through the daemon's root, `/app/app` became a path on another machine whenever the
+    # two differ -- Compose run from inside a container, a remote daemon -- and the
+    # one-shot died on a missing directory that says nothing about the app.
+    daemon_name = _daemon_root_name(project_root)
+    mount_env = {**dot_env, daemon_name: str(project_root)}
+    daemon_root = dot_env.get(daemon_name)
+    if daemon_root and (project_root / daemon_root).resolve() != project_root:
+        translations.add(
+            f"{daemon_name} {daemon_root} -> {project_root} (the checkout as the Docker "
+            "daemon sees it; this run has no daemon and reads the checkout here)"
+        )
     for name in backend:
         service = services[name]
         command = service.get("command")
@@ -346,7 +321,7 @@ def smoke_plan(
             f"{project_root}{os.pathsep}{existing}" if existing else str(project_root)
         )
         argv = tuple(
-            _host_path(service, str(part), project_root, dot_env)
+            _host_path(service, str(part), project_root, mount_env)
             if str(part).startswith("/")
             else str(part)
             for part in command

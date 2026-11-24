@@ -52,6 +52,16 @@ _PRODUCTION_REFUSALS: dict[str, tuple[tuple[str, str], ...]] = {
         ),
         ("unattributable background writes", _REACHED),
     ),
+    "terp/capabilities/auth/hashing.py::hash_password": (
+        (
+            "the development seed's demo password set in production",
+            "NOT A BOOT REFUSAL: it refuses one password at the moment it is set (a seed, "
+            "`terp user create`, a sign-up, an administrator's reset), never the start, so "
+            "there is no refused boot for the lane to precede. The one thing that carries "
+            "the password, the template's seed, runs under `terp seed`, which refuses "
+            "production before it gets here; the refusal names `terp user create`.",
+        ),
+    ),
     "terp/capabilities/identity/federated.py::FederatedIdentityService.__init__": (
         (
             "JIT provisioning with no identity allowlist",

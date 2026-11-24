@@ -24,6 +24,15 @@ import subprocess
 from dataclasses import dataclass
 from importlib import metadata
 
+from terp.cli.rerender import (
+    _copier_update_blocker,
+    _rerender_offer,
+    _version_key,
+    TEMPLATE_VERSION_VARIABLE,
+    git_dir_read_only,
+    scaffold_ref,
+    template_ceiling,
+)
 from terp.cli.upgrade_recipes import hand_pin_recipe, rerender_recipe
 
 #: Distribution-name prefix every platform package shares (``terp-core``,
@@ -182,44 +191,6 @@ def _terp_upgrades(packages: list[dict[str, str]]) -> dict[str, str]:
     return upgrades
 
 
-def _version_key(version: str) -> tuple[int, ...]:
-    """Sort key for a release string — numeric, because ``0.10.0`` sorts *below*
-    ``0.9.0`` as text and picking the wrong target would recommend a downgrade."""
-    return tuple(int(part) if part.isdigit() else 0 for part in re.split(r"[._-]", version))
-
-
-#: Copier writes the template ref it rendered from into this file at scaffold time.
-_ANSWERS_FILES = (".copier-answers.yml", ".copier-answers.yaml")
-
-
-def _answers_scalar(root: pathlib.Path, key: str) -> str | None:
-    """One top-level scalar from the copier answers file, or ``None``.
-
-    Read with a line scan rather than a YAML parser to keep this module dependency-free
-    (the file is generated, and the keys read through here are plain scalars). The split
-    takes the FIRST colon, so a Windows ``_src_path`` keeps its drive letter.
-    """
-    prefix = f"{key}:"
-    for name in _ANSWERS_FILES:
-        answers = root / name
-        try:
-            text = answers.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        for line in text.splitlines():
-            if line.startswith(prefix):
-                return line.split(":", 1)[1].strip().strip("'\"") or None
-    return None
-
-
-def scaffold_ref(root: pathlib.Path) -> str | None:
-    """The template ref this app's scaffolding was rendered from, if it records one.
-
-    ``None`` for an app that was never scaffolded from the template.
-    """
-    return _answers_scalar(root, "_commit")
-
-
 #: The scaffolding files copier seeds once and never overwrites — ``_skip_if_exists`` in
 #: ``template/copier.yml``. Everything else the template owns *is* rewritten by a
 #: re-render, and that is the half a reader actually needs: the report used to name three
@@ -272,6 +243,8 @@ def _scaffold_lines(
     *,
     include_command: bool = True,
     blocked_because: str | None = None,
+    elsewhere: str | None = None,
+    ceiling: str | None = None,
 ) -> list[str]:
     """Report how far the app's *scaffolding* is behind its *packages*.
 
@@ -326,129 +299,14 @@ def _scaffold_lines(
             if _is_generated(root)
             else []
         ),
-        *_rerender_offer(include_command=include_command, blocked_because=blocked_because),
+        *_rerender_offer(
+            include_command=include_command,
+            blocked_because=blocked_because,
+            elsewhere=elsewhere,
+            ceiling=ceiling,
+            platform=platform,
+        ),
     ]
-
-
-def _rerender_offer(*, include_command: bool, blocked_because: str | None) -> list[str]:
-    """How the scaffolding report closes: the command, why it is unavailable, or nothing.
-
-    Suppressed when a recipe above already numbered the re-render as a step — the same
-    command printed twice in one report reads as two different things to do, and the
-    recipe's copy is the one with the tree-cleaning step before it.
-
-    Replaced outright when something local already rules the re-render out. Offering a
-    command that cannot run is worse than offering none, because a reader takes it for
-    the way forward and finds out three steps in.
-    """
-    if blocked_because is not None:
-        return ["", f"  A re-render is unavailable here: this app {blocked_because}."]
-    if not include_command:
-        return []
-    return [
-        "",
-        "  Re-render:  copier update  (or the Studio's upgrade flow, which records the",
-        "              answers file it needs).",
-    ]
-
-
-#: Reading one ref out of a checkout already on disk, so this guards against a
-#: pathological repository rather than budgeting for a network round trip the way
-#: ``_UV_TIMEOUT_SECONDS`` does.
-_GIT_TIMEOUT_SECONDS = 10
-
-
-def _git_rc(cwd: pathlib.Path, *args: str) -> int | None:
-    """Exit code of a local ``git`` call, or ``None`` when git itself could not run.
-
-    ``None`` means "no answer", never "no". Both callers below are only allowed to rule a
-    re-render out on certain evidence, so a git that is missing, refused or slow has to
-    leave the recommendation exactly as it found it.
-    """
-    # The answers-file values ride as argv elements and never as a command line, so a
-    # hostile _src_path or ref is an argument git rejects rather than anything it runs.
-    argv = ["git", "-C", str(cwd), *args]
-    try:
-        completed = subprocess.run(  # noqa: S603 — fixed argv, no shell
-            argv,
-            capture_output=True,
-            timeout=_GIT_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return completed.returncode
-
-
-def _is_git_checkout(root: pathlib.Path) -> bool:
-    """Whether *root* sits inside a git work tree, which ``copier update`` needs.
-
-    A ``.git`` entry is proof on its own and costs nothing to look for — it covers the
-    ordinary app, which lives at its repository root. Its ABSENCE proves nothing, so that
-    case is put to git instead: an app vendored into a subdirectory of a larger repository
-    has no ``.git`` of its own and updates perfectly well. Answering from the presence
-    check alone would reproduce this command's own bug one level down — a confident wrong
-    answer that withholds the recipe the reader needs.
-    """
-    if (root / ".git").exists():
-        return True
-    # 128 is git refusing outright: not inside a work tree. Anything else — including no
-    # answer at all — leaves the re-render on the table.
-    return _git_rc(root, "rev-parse", "--is-inside-work-tree") != 128
-
-
-def _ref_resolves(source: str, ref: str) -> bool:
-    """Whether *ref* is still present in a template checkout at *source*.
-
-    Only ever used to RULE OUT a re-render, so everything it cannot check locally answers
-    ``True``: a URL ``_src_path``, a directory that is not there, a git that fails for any
-    reason. Reading "could not check" as "missing" would route every network-hosted
-    template — the common case, and the one that works — to hand-pinning on no evidence.
-    """
-    path = pathlib.Path(source)
-    if not path.is_dir():
-        return True
-    # Only a clean "no such ref" (1) proves absence. 128 is git declining the question
-    # because `source` is not a repository at all, and a question nobody answered must not
-    # be reported as a pruned tag — that would name the wrong obstacle with full
-    # confidence, which is the failure this whole check exists to stop making.
-    return _git_rc(path, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}") != 1
-
-
-def _copier_update_blocker(root: pathlib.Path) -> str | None:
-    """Why ``copier update`` cannot run here, phrased for the report — or ``None``.
-
-    A recorded ``_commit`` used to be the whole test, and it is only the first of three
-    things copier needs. It also needs a git checkout to apply the update to, and a ref
-    that still resolves in the template it was rendered from — tags do get pruned, and a
-    template pinned to a local path can simply not carry the one recorded here. Both of
-    those fail at the recipe's own third step, after it has been followed that far.
-
-    The cost of getting this wrong is asymmetric, which is what makes it worth more than
-    a line scan. The two recipes are deliberately mutually exclusive, so a false positive
-    does not merely print an unrunnable step: it WITHHOLDS the hand-pin recipe, whose
-    step 3 is the one that says to pin every npm manifest rather than only the frontend's.
-    A stale ``conformance/package.json`` is precisely what that step exists to prevent.
-
-    Local, certain checks only, and every uncertain answer leaves the re-render on the
-    table: a remote ``_src_path`` needs the network, a template directory that is no
-    repository cannot be asked, an app below its repository root has no ``.git`` of its
-    own, and a git that will not run answers nothing at all. Each of those keeps the
-    re-render recipe. Trading this command's false positive for a false negative would
-    only move the damage to the other set of apps.
-    """
-    ref = scaffold_ref(root)
-    if ref is None:
-        return (
-            "records no template answers file, so `copier update` has nothing to "
-            "re-render from"
-        )
-    if not _is_git_checkout(root):
-        return "is not a git checkout, which `copier update` needs to apply an update"
-    source = _answers_scalar(root, "_src_path")
-    if source is not None and not _ref_resolves(source, ref):
-        return f"records template ref {ref}, which {source} no longer carries"
-    return None
 
 
 @dataclass(frozen=True)
@@ -464,6 +322,11 @@ class UpgradeStatus:
     ``covers_whole_set`` is the distinction a version number cannot carry on its own:
     "internally consistent at X" and "X, and the release does not cover every package"
     are different answers, and only the second is a reason to wait.
+
+    ``target`` is what the package index publishes, and two facts about THIS environment
+    qualify it without changing it: ``template_ceiling``, the release of the template it
+    re-renders from when it says (``TERP_TEMPLATE_VERSION``), and ``rerender_elsewhere``,
+    why ``copier update`` cannot run in this process although the app can be re-rendered.
     """
 
     installed: dict[str, str]
@@ -474,6 +337,8 @@ class UpgradeStatus:
     rerender_blocker: str | None
     scaffold_ref: str | None
     error: str | None
+    template_ceiling: str | None = None
+    rerender_elsewhere: str | None = None
 
     def as_dict(self) -> dict[str, object]:
         """A JSON-safe rendering (``terp upgrade --check --format json``)."""
@@ -486,6 +351,8 @@ class UpgradeStatus:
             "rerender_blocker": self.rerender_blocker,
             "scaffold_ref": self.scaffold_ref,
             "error": self.error,
+            "template_ceiling": self.template_ceiling,
+            "rerender_elsewhere": self.rerender_elsewhere,
         }
 
 
@@ -535,6 +402,8 @@ def upgrade_status(root: pathlib.Path | None = None) -> UpgradeStatus:
             rerender_blocker=_copier_update_blocker(project_root),
             scaffold_ref=scaffold_ref(project_root),
             error=None,
+            template_ceiling=template_ceiling(),
+            rerender_elsewhere=_rerender_elsewhere(project_root),
         )
 
     # The lockstep question: after this upgrade, does every package land on the
@@ -552,6 +421,22 @@ def upgrade_status(root: pathlib.Path | None = None) -> UpgradeStatus:
         rerender_blocker=_copier_update_blocker(project_root),
         scaffold_ref=scaffold_ref(project_root),
         error=None,
+        template_ceiling=template_ceiling(),
+        rerender_elsewhere=_rerender_elsewhere(project_root),
+    )
+
+
+def _rerender_elsewhere(root: pathlib.Path) -> str | None:
+    """Why the re-render has to run outside this process, or ``None`` (see ``git_dir_read_only``)."""
+    git_dir = git_dir_read_only(root)
+    if git_dir is None:
+        return None
+    return (
+        f"this checkout's git directory ({git_dir}) is read-only to this process, and "
+        "`copier update` writes through it, so it cannot run here. Have it run where "
+        "the git directory is writable: in Terp Studio, ask the person to start Studio's "
+        "upgrade, which runs it outside this copy. Do not pin the packages by hand instead: "
+        "that moves the packages and leaves the scaffolding behind."
     )
 
 
@@ -586,6 +471,8 @@ def render_upgrade_check(root: pathlib.Path | None = None, *, fmt: str = "text")
                 project_root,
                 current,
                 blocked_because=status.rerender_blocker,
+                elsewhere=status.rerender_elsewhere,
+                ceiling=status.template_ceiling,
             )
         )
 
@@ -594,6 +481,25 @@ def render_upgrade_check(root: pathlib.Path | None = None, *, fmt: str = "text")
     stragglers = status.stragglers
 
     lines = [f"Terp {target} is available (this app is on {current})."]
+    # Only where the re-render recipe is the one printed: an app that cannot re-render pins by
+    # hand, and the template it never renders from bounds nothing it does.
+    ceiling = status.template_ceiling if status.rerender_blocker is None else None
+    if ceiling is not None and _version_key(target) > _version_key(ceiling):
+        # The index is ahead of the template this environment re-renders from. Recommending
+        # the index's release moved the packages to it while the re-render could deliver
+        # only the template's, and that pair is a version skew nothing then reports.
+        lines += [
+            "",
+            f"The template this environment re-renders from is {ceiling} "
+            f"({TEMPLATE_VERSION_VARIABLE}), so upgrading",
+            f"to {target} would put the packages on {target} and the scaffolding on "
+            f"{ceiling}. Update the environment's",
+            "template first (in Terp Studio, that is an update of Studio itself).",
+        ]
+        if _version_key(ceiling) <= _version_key(current):
+            return "\n".join(lines)
+        lines.append(f"Until then, the recipe below goes as far as {ceiling}.")
+        target, stragglers = ceiling, {}
     if stragglers:
         lines += [
             "",
@@ -622,6 +528,8 @@ def render_upgrade_check(root: pathlib.Path | None = None, *, fmt: str = "text")
     blocker = status.rerender_blocker
     generated = _is_generated(project_root)
     conformance = (project_root / "conformance" / "package.json").is_file()
+    if blocker is None and status.rerender_elsewhere is not None:
+        lines += ["", f"NOTE: {status.rerender_elsewhere}"]
     if blocker is None:
         lines += rerender_recipe(
             target, current, len(landing), generated=generated, conformance=conformance
