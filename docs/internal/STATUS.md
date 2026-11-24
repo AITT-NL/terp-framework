@@ -1038,6 +1038,10 @@ frontend design-system track below.
       component can own its layout in a sibling CSS Module (ADR 0217, #275); the calendar steps
       a year at a time (#281); and the dependency audit and each risk acceptance are read as
       terp-spec 0.50.0's contracts (#282).
+- [x] Released as 0.45.0 (2026-11-24), on terp-spec 0.50.0: a deploy tool's edge adds its own
+      hop to the trusted proxy count through `TERP_EDGE_HOPS`, and a release records the
+      `terp-core` it runs as `inputs.framework` (ADR 0220, #288). The runner's edge proxy names
+      0.45.0 as the first framework a routed release may be built with.
 
 ## Active execution track
 

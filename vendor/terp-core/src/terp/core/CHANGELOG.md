@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.45.0 — unreleased
+## 0.45.0 — 2026-11-24
 
 ### Added
 
@@ -27,11 +27,14 @@ decision, 0001 onwards.
   `{"terpCore": "<version>"}`, from the `terp-core` the commit's `uv.lock` pins, so a deploy
   tool can tell whether the app reads `TERP_EDGE_HOPS`. No new `schemaVersion`. A lock that pins
   no single `terp-core` is refused.
-- **Upgrading:** keep counting only the proxies your own code puts in front of the api. Never
-  count a deploy tool's edge in `trusted_proxy_hops`: one hop too many reads past the edge's
-  entry, where there is either none, so every caller shares one bucket again, or one the
-  caller wrote. An `environment.schema.json` that declares `TERP_EDGE_HOPS` is now refused;
-  remove the declaration.
+
+### Upgrade notes
+
+- **Count only the proxies your own code puts in front of the api.** Never count a deploy
+  tool's edge in `trusted_proxy_hops`: one hop too many reads past the edge's entry, where there
+  is either none, so every caller shares one bucket again, or one the caller wrote.
+- **An `environment.schema.json` that declares `TERP_EDGE_HOPS` is now refused.** The name is
+  the deploy tool's; remove the declaration.
 
 ## 0.44.0 — 2026-11-23
 
