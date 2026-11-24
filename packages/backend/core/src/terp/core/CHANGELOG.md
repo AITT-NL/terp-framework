@@ -10,6 +10,32 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.46.0 — unreleased
+
+### Added
+
+- **Readiness says when the schema is behind the code** (ADR 0221). `create_app` takes
+  `migration_readiness=`, the boot guard's own check (`terp.migrations.assert_migrations_current`),
+  and `/health/ready` then answers 503 with `"migrations": "error"` while the database is behind
+  the code, asking until the check passes once. A database ahead of the code inside its schema
+  window (ADR 0185) is ready, as it is at boot. Given the very object passed as
+  `migration_check`, readiness takes the boot's pass as its answer, so a production instance
+  runs no new check and its body gains only `"migrations": "ok"`. The template and the reference
+  app wire it in every environment.
+
+### Fixed
+
+- **Two readiness probes arriving together no longer run one store's probe twice.** A store's
+  probe was marked running only once its thread started, against the "never twice at once"
+  ADR 0191 states; an ask now claims the store before it waits for a thread.
+
+### Upgrade notes
+
+- **A development stack whose code gains a migration reads as not ready until it is migrated.**
+  The template's `app/main.py` brings `migration_readiness` with the next re-render. The API's
+  log names the packages behind and `terp migrate upgrade`; bringing the stack up again runs its
+  `migrate` step too. No healthcheck waits on readiness, so nothing else waits with it.
+
 ## 0.45.0 — 2026-11-24
 
 ### Added
