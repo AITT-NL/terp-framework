@@ -92,6 +92,19 @@ def test_a_timestamp_alone_is_refused_in_the_words_of_the_check_after_mounting()
     assert "GET /api/v1/events/" in str(caught.value)
 
 
+def test_the_check_after_mounting_still_refuses_what_the_early_one_did_not_see(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The early check reads the modules' routers; the one after mounting reads every route
+    # the app serves, the framework's own included (ADR 0208). It stays the backstop: a route
+    # the early reading missed is still refused before the app is returned.
+    monkeypatch.setattr("terp.core.app.module_timestamps_refusal", lambda specs: None)
+    spec = _plain_timestamp()
+    with pytest.raises(BootError) as caught:
+        create_app([spec])
+    assert str(caught.value) == request_timestamps_refusal(_served(spec).routes)
+
+
 def test_a_router_not_yet_mounted_is_read_as_it_will_be_served() -> None:
     # A module router that includes routers of its own: each route under every prefix.
     inner = APIRouter()
