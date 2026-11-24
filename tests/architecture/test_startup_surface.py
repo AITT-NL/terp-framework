@@ -125,6 +125,9 @@ def test_an_app_that_hides_a_route_from_the_check_passes_it_and_then_refuses_to_
     # It names both ways out, and neither is "regenerate until it is quiet".
     assert ADOPT_HINT in message
     assert "a route or a module added under a condition" in message
+    # The record is written again only after a person approved the change, and the
+    # message says so before it offers the command.
+    assert message.index("a person's to approve") < message.index(ADOPT_HINT)
 
 
 def test_the_same_app_is_served_where_nothing_compares_it(

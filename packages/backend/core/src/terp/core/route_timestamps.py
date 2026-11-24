@@ -23,7 +23,7 @@ app's own early validator, which the build-time rule counts (ADR 0207).
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from typing import Annotated, Any
 
 from fastapi.dependencies.models import Dependant
@@ -58,10 +58,10 @@ _REMEDY = (
 )
 
 
-def _route_name(route: RouteContext) -> str:
+def _route_name(route: RouteContext, prefix: str = "") -> str:
     if isinstance(route.original_route, APIWebSocketRoute):
-        return f"WebSocket {route.path}"
-    return f"{','.join(sorted(route.methods or ()))} {route.path}"
+        return f"WebSocket {prefix}{route.path}"
+    return f"{','.join(sorted(route.methods or ()))} {prefix}{route.path}"
 
 
 def _parameters(dependant: Dependant) -> Iterator[tuple[str, Any]]:
@@ -147,11 +147,12 @@ def _unjudged(schema: CoreSchema) -> list[str]:
     return found
 
 
-def _findings(routes: Sequence[BaseRoute]) -> Iterator[str]:
+def _findings(routes: Sequence[BaseRoute], prefix: str = "") -> Iterator[str]:
     """One line for each timestamp a route reads that nothing holds to its offset.
 
     Each route as it is served: its path with every prefix it is mounted under, and every
-    dependency the routers that include it add, as FastAPI's own contract reads it.
+    dependency the routers that include it add, as FastAPI's own contract reads it. *prefix*
+    is the one a router not yet mounted will be served under.
     """
     for route in iter_route_contexts(routes):
         if not isinstance(route.original_route, APIRoute | APIWebSocketRoute):
@@ -159,7 +160,7 @@ def _findings(routes: Sequence[BaseRoute]) -> Iterator[str]:
         for place, field in _parameters(route.dependant):
             for where in _unjudged(_schema_of(field)):
                 held = f", in {where}" if where else ""
-                yield f"{_route_name(route)} reads a timestamp in the {place} {field.alias!r}{held}"
+                yield f"{_route_name(route, prefix)} reads a timestamp in the {place} {field.alias!r}{held}"
 
 
 def request_timestamps_refusal(routes: Sequence[BaseRoute]) -> str | None:
@@ -169,7 +170,26 @@ def request_timestamps_refusal(routes: Sequence[BaseRoute]) -> str | None:
     of the ``request_timestamps_carry_their_offset`` rule for what a ``BaseSchema`` does not
     read itself (ADR 0208).
     """
-    findings = list(dict.fromkeys(_findings(routes)))
+    return _refused(_findings(routes))
+
+
+def module_timestamps_refusal(specs: Iterable[Any]) -> str | None:
+    """:func:`request_timestamps_refusal` for module routers not mounted yet (ADR 0222).
+
+    Each router is read as it will be served, under ``/api/v1/<name>``, so ``create_app`` can
+    judge the modules' timestamps with its other declaration checks, before it mounts or
+    configures anything, in the words the check after mounting uses.
+    """
+    return _refused(
+        finding
+        for spec in specs
+        if spec.router is not None
+        for finding in _findings(spec.router.routes, f"/api/v1/{spec.name}")
+    )
+
+
+def _refused(found: Iterable[str]) -> str | None:
+    findings = list(dict.fromkeys(found))
     if not findings:
         return None
     return (
@@ -179,4 +199,4 @@ def request_timestamps_refusal(routes: Sequence[BaseRoute]) -> str | None:
     )
 
 
-__all__ = ["request_timestamps_refusal"]
+__all__ = ["module_timestamps_refusal", "request_timestamps_refusal"]

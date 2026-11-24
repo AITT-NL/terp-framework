@@ -1,6 +1,8 @@
 # 0208 — A route holds every timestamp it reads to its offset, checked when the app starts
 
-- **Status:** Accepted on 2026-11-07. The owner decided it on 2026-11-06, as two of the open
+- **Status:** Accepted on 2026-11-07. Amended on 2026-11-24 by
+  [ADR 0222](0222-a-refused-start-names-every-refusal-at-once.md): the modules' routes are
+  judged with the other declaration checks too, before anything is mounted. The owner decided it on 2026-11-06, as two of the open
   questions of [ADR 0206](0206-a-timestamp-a-client-sends-carries-its-offset.md): a model that
   is not a `BaseSchema`, as a request body or nested in one, and a timestamp route parameter
   that is not a declared filter. It follows the recommendation that record keeps under *Open*.

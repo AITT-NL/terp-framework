@@ -65,6 +65,7 @@ from terp.arch import (
     check_no_exception_text_in_responses,
     check_no_oversized_python_files,
     check_no_blocking_sleep,
+    check_schedules_declare_misfire,
     check_no_empty_tests,
     check_no_eval_or_exec,
     check_no_framework_patching,
@@ -2725,6 +2726,37 @@ def test_no_blocking_sleep(tmp_path: pathlib.Path) -> None:
     # A ``sleep`` attribute on some other object is not ``time.sleep``.
     _write(app, "modules/notes/service.py", "def run(worker):\n    worker.sleep(1)\n")
     assert check_no_blocking_sleep(app) == []
+
+
+def test_schedules_declare_misfire(tmp_path: pathlib.Path) -> None:
+    # A definition without misfire= is a TypeError as the control plane is imported,
+    # before create_app collects anything (ADR 0222): the gate names every one at once.
+    app = tmp_path / "app"
+    _write(
+        app,
+        "schedules.py",
+        "from terp.core import ScheduleDefinition\n"
+        "from terp.core.scheduling import ScheduleDefinition as Schedule\n"
+        "import terp.core as core\n\n"
+        "A = ScheduleDefinition('a.hourly', JOB, '0 * * * *')\n"
+        "B = Schedule(name='b.daily', job=JOB, cron='0 8 * * *')\n"
+        "C = core.ScheduleDefinition('c.nightly', JOB, '0 3 * * *')\n",
+    )
+    found = check_schedules_declare_misfire(app)
+    assert _rule_names(found) == {"schedules_declare_misfire"}
+    assert len(found) == 3, "each definition is its own finding, all in one run"
+    assert "misfire=Misfire.RUN_ONCE" in found[0].message
+
+    # Declared, or possibly carried by ** keywords: nothing to report.
+    _write(
+        app,
+        "schedules.py",
+        "from terp.core import Misfire, ScheduleDefinition\n\n"
+        "A = ScheduleDefinition('a.hourly', JOB, '0 * * * *', misfire=Misfire.SKIP)\n"
+        "B = ScheduleDefinition(**SPEC)\n"
+        "C = OtherScheduleDefinitionFactory('c', JOB, '0 3 * * *')\n",
+    )
+    assert check_schedules_declare_misfire(app) == []
 
 
 def test_no_print(tmp_path: pathlib.Path) -> None:

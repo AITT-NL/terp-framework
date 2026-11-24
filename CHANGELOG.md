@@ -14,6 +14,39 @@ decision, 0001 onwards.
 
 ### Added
 
+- **A refused start names every refusal at once** (ADR 0222). `create_app` asks its checks of
+  an app's declarations together and raises what they found as one `BootError`: a public
+  route's own policy, guarded module routes, declared operations, permissions, the shared
+  stores a deployment requires, a module's policy and its routes' response models, the
+  production-only refusals, and the modules' request timestamps, now judged before anything is
+  mounted in the words of the check after mounting. One refusal reads exactly as it did;
+  several are counted and numbered, and every `BootError` carries them on `refusals`. Nothing
+  is configured or stamped while anything is refused. The migration guard, the checks over the
+  finished app and the comparison with `authz-surface.json` keep their place after them.
+- **`schedules_declare_misfire`**, a rule: every `ScheduleDefinition(...)` says what a missed
+  tick becomes (`misfire=Misfire.RUN_ONCE` or `Misfire.SKIP`). A definition without it is a
+  `TypeError` as the control plane is imported, before `create_app` asks anything, so `terp
+  check` now names every one with every other finding. An app meets its refusals in two runs:
+  `terp check`, then one start.
+- **`terp upgrade --check` stops at the environment's template.** The release it recommends is
+  the newest on the package index, while a tool that scaffolds and updates apps from a
+  template of its own can be a release behind it, and following the advice put the packages on
+  one release and the scaffolding on an older one. An environment now names its template's
+  release in `TERP_TEMPLATE_VERSION`: when the index is ahead of it, the report says so, and
+  the recipe goes as far as the template's release, or, for an app already there, says to
+  update the environment's template first. The JSON keeps the index's answer as `target` and
+  gains `template_ceiling`. `terp maintenance`'s platform and template remedies say the same.
+  Only a whole `X.Y.Z` is read; anything else is ignored, since the variable only ever lowers
+  the advice.
+- **A checkout whose git directory cannot be written is sent to re-render elsewhere.**
+  `copier update` writes through git, so in a checkout whose git directory is mounted
+  read-only it fails partway. `terp upgrade --check` now prints the re-render recipe with a
+  note that it has to run where git is writable (in Terp Studio, the person starts Studio's
+  upgrade), and that pinning the packages by hand instead leaves the scaffolding behind. The
+  JSON gains `rerender_elsewhere`. Anything less than certain (no `.git`, an unreadable
+  pointer, a writable directory) claims nothing.
+- **`UsersService.ensure_demo_user(session, email=..., role=...)`** provisions a development
+  sign-in with the framework's demo password, the one the dev sign-in screen fills in.
 - **Readiness says when the schema is behind the code** (ADR 0221). `create_app` takes
   `migration_readiness=`, the boot guard's own check (`terp.migrations.assert_migrations_current`),
   and `/health/ready` then answers 503 with `"migrations": "error"` while the database is behind
@@ -23,14 +56,45 @@ decision, 0001 onwards.
   runs no new check and its body gains only `"migrations": "ok"`. The template and the reference
   app wire it in every environment.
 
+### Changed
+
+- **The access-record check says whose decision a widening is before it says how to record
+  it.** `terp verify`'s `authz-surface` failure, and the refusal of an app that does not serve
+  what `authz-surface.json` records (ADR 0212), now say that who can reach what is a person's to
+  approve (in Terp Studio, the app's owner's) and that the record is never written again only
+  to turn the check green; the command that writes it follows. The refusal's first sentence,
+  which a deploy tool recognises it by, is unchanged.
+- **The template's development seed holds no credential.** It calls `ensure_demo_user`
+  instead of carrying the demo password under a `no_hardcoded_credentials` marker, so an app's
+  seed needs no exception on the framework's behalf, and the template's
+  `escape-hatch-budget.json` is `{}` again. The password itself is unchanged and private to
+  `terp-cap-auth`, which counts it in its own budget (3 to 4).
+
 ### Fixed
 
+- **`terp smoke` translates a mount against the checkout it runs in.** A tool that runs
+  Compose from inside a container writes the Docker daemon's host path into `.env` under the
+  root `workbench.json` declares as `env.sourceRoot` (`TERP_DEV_HOST_ROOT` by default), and
+  smoke read that path to translate a container path, so `terp migrate upgrade --app-root
+  /app/app` resolved to a directory on another machine. smoke now reads the declared root as
+  its own checkout and says so when the two differ; on the daemon's own host they are one.
 - **Two readiness probes arriving together no longer run one store's probe twice.** A store's
   probe was marked running only once its thread started, against the "never twice at once"
   ADR 0191 states; an ask now claims the store before it waits for a thread.
 
+### Security
+
+- **Production refuses the demo password.** `hash_password` raises `WeakPasswordError`, naming
+  `terp user create`, when the development seed's published password is set in production,
+  wherever a password or secret is hashed and however the caller came by the value.
+
 ### Upgrade notes
 
+- **Lower the seed's exception count to 0.** An app whose `escape-hatch-budget.json` records
+  `"arch-allow-no-hardcoded-credentials": 1` for the template's seed gets a seed without the
+  marker on its next re-render, and its budget check then asks for the count to be lowered.
+  Lower it (or remove the line) in the same change; an app that counts markers of its own keeps
+  those.
 - **A development stack whose code gains a migration reads as not ready until it is migrated.**
   The template's `app/main.py` brings `migration_readiness` with the next re-render. The API's
   log names the packages behind and `terp migrate upgrade`; bringing the stack up again runs its

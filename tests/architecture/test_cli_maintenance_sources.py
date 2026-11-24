@@ -545,3 +545,49 @@ def test_a_registry_that_does_not_answer_is_a_finding(tmp_path: pathlib.Path, mo
     plain = Report("app", str(root))
     _images.base_image_findings(root, plain)
     assert plain.sources[0].detail == "the registry could not be read at registry-1.docker.io: refused"
+
+
+def test_the_environment_s_template_qualifies_both_halves(monkeypatch, tmp_path: pathlib.Path) -> None:
+    # The index is ahead of the template this environment re-renders from: upgrading the
+    # packages to the index's release would leave the scaffolding behind them, so the answer
+    # names the template's release instead (TERP_TEMPLATE_VERSION).
+    monkeypatch.setattr(
+        _platform, "upgrade_status", lambda root: _status(target="0.43.0", template_ceiling="0.42.5")
+    )
+    report = Report("app", str(tmp_path))
+    _platform.python_platform(tmp_path, report)
+    assert report.findings[0].remedy.startswith("Terp 0.43.0 is published, and the template")
+    assert "upgrade to 0.42.5" in report.findings[0].remedy
+    # Where the app cannot re-render at all, the template bounds nothing it does.
+    monkeypatch.setattr(
+        _platform,
+        "upgrade_status",
+        lambda root: _status(target="0.43.0", template_ceiling="0.42.5", rerender_blocker="has no answers"),
+    )
+    blocked = Report("app", str(tmp_path))
+    _platform.python_platform(tmp_path, blocked)
+    assert blocked.findings[0].remedy.startswith("Upgrade every terp-* and @terpjs/* package to 0.43.0")
+
+    monkeypatch.setenv("TERP_TEMPLATE_VERSION", "0.41.0")
+    behind = Report("app", str(tmp_path))
+    (tmp_path / ".git").mkdir(exist_ok=True)
+    _platform.template(_answers(tmp_path, "v0.40.0"), behind, "0.42.0")
+    assert behind.findings[0].remedy.startswith("The template this environment re-renders from is 0.41.0")
+
+
+def test_a_read_only_git_directory_sends_the_maintenance_re_render_elsewhere(monkeypatch, tmp_path: pathlib.Path) -> None:
+    from terp.cli import rerender
+
+    monkeypatch.delenv("TERP_TEMPLATE_VERSION", raising=False)
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+    real = rerender.os.access
+    monkeypatch.setattr(
+        rerender.os, "access",
+        lambda path, mode, *a, **k: False if pathlib.Path(path) == git_dir and mode == rerender.os.W_OK else real(path, mode, *a, **k),
+    )
+    report = Report("app", str(tmp_path))
+    _platform.template(_answers(tmp_path, "v0.40.0"), report, "0.42.0")
+    remedy = report.findings[0].remedy
+    assert remedy.startswith("Re-render the scaffolding")
+    assert "read-only to this process" in remedy and "Studio's upgrade" in remedy

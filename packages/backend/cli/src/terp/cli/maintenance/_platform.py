@@ -26,7 +26,14 @@ NPM_MANIFESTS = ("frontend/package.json", "conformance/package.json")
 _NPM_TIMEOUT_SECONDS = 120.0
 
 
-def _upgrade_remedy(target: str, *, whole: bool) -> str:
+def _upgrade_remedy(target: str, *, whole: bool, ceiling: str | None = None) -> str:
+    if ceiling is not None and _version_key(target) > _version_key(ceiling):
+        return (
+            f"Terp {target} is published, and the template this environment re-renders from is "
+            f"{ceiling} (TERP_TEMPLATE_VERSION): upgrade to {ceiling}, or update the environment's "
+            "template first, so the packages and the scaffolding stay on one release. `uv run terp "
+            "upgrade --check` prints the recipe."
+        )
     if not whole:
         return (
             f"Terp {target} does not yet cover every package (the release is still publishing, or "
@@ -61,7 +68,11 @@ def python_platform(root: pathlib.Path, report: Report) -> str | None:
             Finding(
                 "platform-behind",
                 "terp-*",
-                _upgrade_remedy(status.target, whole=status.covers_whole_set),
+                _upgrade_remedy(
+                    status.target,
+                    whole=status.covers_whole_set,
+                    ceiling=status.template_ceiling if status.rerender_blocker is None else None,
+                ),
                 ecosystem="PyPI",
                 location="pyproject.toml",
                 installed=status.current,
@@ -89,9 +100,12 @@ def template(root: pathlib.Path, report: Report, platform: str) -> None:
         return
     if _version_key(match.group(1)) >= _version_key(platform):
         return
-    from terp.cli.version import _copier_update_blocker
+    from terp.cli.rerender import template_ceiling
+    from terp.cli.version import _copier_update_blocker, _rerender_elsewhere
 
     blocker = _copier_update_blocker(root)
+    ceiling = template_ceiling()
+    elsewhere = _rerender_elsewhere(root)
     remedy = (
         "Re-render the scaffolding from the template of the installed release: `copier update`, "
         "or the upgrade flow of the tool that scaffolded it. It rewrites every file the template "
@@ -99,6 +113,14 @@ def template(root: pathlib.Path, report: Report, platform: str) -> None:
     )
     if blocker is not None:
         remedy = f"A re-render is unavailable here: this app {blocker}."
+    elif ceiling is not None and _version_key(ceiling) < _version_key(platform):
+        remedy = (
+            f"The template this environment re-renders from is {ceiling} (TERP_TEMPLATE_VERSION), "
+            f"behind the installed {platform}: a re-render here would write its pins. Update the "
+            "environment's template first."
+        )
+    elif elsewhere is not None:
+        remedy = f"{remedy} {elsewhere[0].upper()}{elsewhere[1:]}"
     report.findings.append(
         Finding(
             "template-behind",

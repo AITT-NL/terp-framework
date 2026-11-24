@@ -10,6 +10,7 @@ These tests pin both halves: the flag answers, and a disagreeing set is named.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -1012,3 +1013,196 @@ def test_the_recipe_hands_the_reader_a_command_that_is_already_narrowed(
     )
     text = version_mod.render_upgrade_check()
     assert "terp guide changelog --since 0.5.4" in text
+
+
+# --- where the re-render can run, and from which template -------------------
+
+
+def _git_dir_unwritable(monkeypatch: pytest.MonkeyPatch, git_dir: pathlib.Path) -> None:
+    """Answer "not writable" for *git_dir* alone: the suite may run as root, where a mode
+    bit does not stop a write and only a read-only mount would."""
+    from terp.cli import rerender
+
+    real = rerender.os.access
+    monkeypatch.setattr(
+        rerender.os,
+        "access",
+        lambda path, mode, *a, **k: False
+        if pathlib.Path(path) == git_dir and mode == os.W_OK
+        else real(path, mode, *a, **k),
+    )
+
+
+def test_a_read_only_git_directory_sends_the_re_render_elsewhere_not_to_hand_pins(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """An agent's copy of a checkout can carry its git directory read-only, on purpose.
+
+    `copier update` writes through it (it stashes, and commits the old render), so it
+    cannot run there, and `git stash` fails without saying so. The app can still be
+    re-rendered, only not by this process: the hand-pin recipe would move the packages and
+    leave the scaffolding behind, which is the drift the re-render exists to close.
+    """
+    monkeypatch.delenv("TERP_TEMPLATE_VERSION", raising=False)
+    app = _answers(tmp_path / "app", "v0.5.4")
+    _git_dir_unwritable(monkeypatch, app / ".git")
+
+    report = _offered(monkeypatch, app)
+
+    assert "NOTE: this checkout's git directory" in report
+    assert "read-only to this process" in report
+    assert "in Terp Studio, ask the person to start Studio's upgrade" in report
+    assert "Do not pin the packages by hand" in report
+    # The re-render recipe, and not the hand-pin one.
+    assert "copier update" in report
+    assert "Pin every terp-* dependency" not in report
+    # The note comes before the steps it qualifies.
+    assert report.index("NOTE:") < report.index("copier update")
+
+
+def test_a_git_pointer_file_is_followed_to_the_directory_it_names(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    # A worktree or a submodule has a `.git` FILE naming its git directory, and that
+    # directory is the one copier writes through.
+    from terp.cli.rerender import git_dir_read_only
+
+    app = _answers(tmp_path / "app", "v0.5.4", git=False)
+    real_git_dir = tmp_path / "elsewhere" / "worktrees" / "app"
+    real_git_dir.mkdir(parents=True)
+    (app / ".git").write_text(f"gitdir: {real_git_dir}\n", encoding="utf-8")
+    assert git_dir_read_only(app) is None
+
+    _git_dir_unwritable(monkeypatch, real_git_dir)
+    assert git_dir_read_only(app) == real_git_dir
+
+    # A relative pointer is read from the checkout.
+    (app / ".git").write_text("gitdir: ../elsewhere/worktrees/app\n", encoding="utf-8")
+    _git_dir_unwritable(monkeypatch, app / "../elsewhere/worktrees/app")
+    assert git_dir_read_only(app) == app / "../elsewhere/worktrees/app"
+
+
+def test_what_is_not_certainly_a_read_only_git_directory_claims_nothing(
+    tmp_path: pathlib.Path,
+) -> None:
+    from terp.cli.rerender import git_dir_read_only
+
+    app = tmp_path / "app"
+    app.mkdir()
+    assert git_dir_read_only(app) is None  # no .git at all
+    (app / ".git").write_text("not a pointer\n", encoding="utf-8")
+    assert git_dir_read_only(app) is None
+    (app / ".git").write_bytes(b"\xff\xfe")
+    assert git_dir_read_only(app) is None
+    (app / ".git").write_text("gitdir: /nowhere/at/all\n", encoding="utf-8")
+    assert git_dir_read_only(app) is None
+    (app / ".git").unlink()
+    (app / ".git").mkdir()
+    assert git_dir_read_only(app) is None  # writable
+
+
+def test_the_recipe_stops_at_the_template_the_environment_re_renders_from(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The index publishes 0.6.0, and the environment's template is 0.5.9.
+
+    Recommending the index's release moved the packages to 0.6.0 while the re-render could
+    deliver only 0.5.9's scaffolding, and nothing reported the pair afterwards. An
+    environment that re-renders from a template of its own says which release it is at.
+    """
+    monkeypatch.setenv("TERP_TEMPLATE_VERSION", "v0.5.9")
+    app = _answers(tmp_path / "app", "v0.5.4")
+
+    report = _offered(monkeypatch, app)
+
+    assert "Terp 0.6.0 is available" in report
+    assert "re-renders from is 0.5.9 (TERP_TEMPLATE_VERSION)" in report
+    assert "packages on 0.6.0 and the scaffolding on 0.5.9" in report
+    assert "the recipe below goes as far as 0.5.9" in report
+    assert "can move to 0.5.9 together" in report
+    assert "terp-cli==0.5.9 terp guide changelog" in report
+    assert "can move to 0.6.0" not in report
+
+    status = version_mod.upgrade_status(app)
+    # The index's answer is kept, and the environment's qualifies it.
+    assert status.target == "0.6.0"
+    assert status.as_dict()["template_ceiling"] == "0.5.9"
+    assert status.as_dict()["rerender_elsewhere"] is None
+
+
+def test_an_app_already_on_the_environment_s_template_gets_no_recipe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    monkeypatch.setenv("TERP_TEMPLATE_VERSION", "0.5.4")
+    report = _offered(monkeypatch, _answers(tmp_path / "app", "v0.5.4"))
+
+    assert "re-renders from is 0.5.4" in report
+    assert "Update the environment's\ntemplate first" in report
+    assert "copier update" not in report
+    assert "Pin every terp-* dependency" not in report
+
+
+def test_a_ceiling_at_or_above_the_release_or_unreadable_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    app = _answers(tmp_path / "app", "v0.5.4")
+    for ceiling in ("0.6.0", "0.7.1", "latest", ""):
+        monkeypatch.setenv("TERP_TEMPLATE_VERSION", ceiling)
+        report = _offered(monkeypatch, app)
+        assert "can move to 0.6.0 together" in report, ceiling
+        assert "TERP_TEMPLATE_VERSION" not in report, ceiling
+    from terp.cli.rerender import template_ceiling
+
+    assert template_ceiling({"TERP_TEMPLATE_VERSION": " v0.44.0 "}) == "0.44.0"
+    assert template_ceiling({"TERP_TEMPLATE_VERSION": "0.44.0-rc1"}) is None
+    assert template_ceiling({"TERP_TEMPLATE_VERSION": "0.6"}) is None  # compares below 0.6.0
+    assert template_ceiling({}) is None
+
+
+def test_an_app_that_cannot_re_render_gets_its_hand_pin_recipe_whatever_the_template(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    # The ceiling bounds a re-render; an app with no answers file pins by hand, and the
+    # template it never renders from bounds nothing it does.
+    monkeypatch.setenv("TERP_TEMPLATE_VERSION", "0.5.4")
+    app = tmp_path / "app"
+    app.mkdir()
+    report = _offered(monkeypatch, app)
+    assert "Pin every terp-* dependency to ==0.6.0" in report
+    assert "TERP_TEMPLATE_VERSION" not in report
+
+
+def test_an_up_to_date_app_is_told_where_its_re_render_can_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    # The packages are current and the scaffolding is behind: the closing offer is where an
+    # app lands after pinning by hand, so it carries the read-only note too.
+    monkeypatch.delenv("TERP_TEMPLATE_VERSION", raising=False)
+    app = _answers(tmp_path / "app", "v0.5.4")
+    _git_dir_unwritable(monkeypatch, app / ".git")
+    _fake_versions(monkeypatch, {"terp-core": "0.6.0", "terp-cap-auth": "0.6.0"})
+    _uv_says(monkeypatch, [])
+
+    report = version_mod.render_upgrade_check(app)
+
+    assert "Up to date" in report
+    assert "copier update" in report
+    assert report.index("copier update") < report.index("NOTE: this checkout's git directory")
+
+
+def test_an_up_to_date_app_ahead_of_the_environment_s_template_is_not_offered_its_pins(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    # Packages on 0.6.0, the environment's template at 0.5.9: a re-render from it would write
+    # 0.5.9's pins, so the offer says to update the environment's template first.
+    monkeypatch.setenv("TERP_TEMPLATE_VERSION", "0.5.9")
+    app = _answers(tmp_path / "app", "v0.5.4")
+    _fake_versions(monkeypatch, {"terp-core": "0.6.0", "terp-cap-auth": "0.6.0"})
+    _uv_says(monkeypatch, [])
+
+    report = version_mod.render_upgrade_check(app)
+
+    assert "would write the pins of template 0.5.9" in report
+    assert "update the environment's template first" in report
+    assert "Re-render:  copier update" not in report
+

@@ -436,6 +436,47 @@ def test_one_mailbox_is_one_account_in_any_spelling(engine: Engine) -> None:
         assert respelled.email == "member@example.test"
 
 
+def test_the_demo_login_is_provisioned_once_and_signs_in(engine: Engine) -> None:
+    # The template's seed holds no credential: it asks for the framework's demo login.
+    from terp.capabilities.auth import verify_password
+    from terp.capabilities.auth._demo import DEMO_PASSWORD
+
+    service = UsersService()
+    with Session(engine) as session:
+        admin = service.ensure_demo_user(session, email="admin@example.test", role=int(Roles.ADMIN))
+        again = service.ensure_demo_user(session, email="admin@example.test", role=int(Roles.ADMIN))
+        assert again.id == admin.id
+        assert verify_password(DEMO_PASSWORD, admin.hashed_password)
+
+
+def test_production_refuses_the_demo_password_wherever_it_is_set(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The value is the framework's own and published, so a deployment must never hold it.
+
+    Refused where every password and secret is hashed, so neither the seed's helper nor a
+    create, a reset or an app's own code that came by the value can set it in production.
+    """
+    from terp.core import WeakPasswordError
+    from terp.core.config import settings
+
+    from terp.capabilities.auth import hash_password
+    from terp.capabilities.auth._demo import DEMO_PASSWORD
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    service = UsersService()
+    with Session(engine) as session:
+        with pytest.raises(WeakPasswordError) as refused:
+            service.ensure_demo_user(session, email="admin@example.test", role=int(Roles.ADMIN))
+        assert "terp user create" in refused.value.message
+        with pytest.raises(WeakPasswordError):
+            service.create(session, UserProvision(email="b@example.test", password=DEMO_PASSWORD, role=Roles.VIEWER))
+    assert hash_password(_PASSWORD)  # any other password is hashed as before
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "local")
+    assert hash_password(DEMO_PASSWORD)  # development is where it belongs
+
+
 def test_users_update_guards_and_session_writes(engine: Engine) -> None:
     from terp.core import StaleDataError
 

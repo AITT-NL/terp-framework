@@ -24,6 +24,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from terp.capabilities.auth import hash_password
+from terp.capabilities.auth._demo import DEMO_PASSWORD
 from terp.core import AppError, AuditAction, BaseService, ConflictError, FilterField, Roles, validate_password
 
 from terp.capabilities.identity import User
@@ -151,6 +152,19 @@ class UsersService(BaseService[User, UserProvision, UserAdminUpdate]):
         if existing is not None:
             return existing
         return self.create(session, data)
+
+    def ensure_demo_user(self, session: Session, *, email: str, role: int) -> User:
+        """The development seed's demo login for *email*, provisioned once (idempotent).
+
+        Its password is the one the template's dev sign-in fills in, and it is the
+        framework's, not the app's: a seed that calls this holds no credential of its own,
+        so it needs no escape from ``no_hardcoded_credentials``. Production refuses it
+        wherever a password is set (``hash_password``), and ``terp seed`` refuses to run
+        there at all; a real deployment bootstraps its first admin with ``terp user create``.
+        """
+        return self.ensure_user(
+            session, UserProvision(email=email, password=DEMO_PASSWORD, role=role)
+        )
 
     def _refuse_taken_address(self, session: Session, email: str, *, but: uuid.UUID | None = None) -> None:
         """Refuse *email* when an account other than *but* holds it, in any spelling."""

@@ -3,7 +3,9 @@
 - **Status:** Accepted and implemented. `route_policy(Policy)` declares one route's
   posture; the guard and the access projection both resolve it through
   `terp.core.routing.effective_policy`, and boot refuses an undeclared route in a public
-  module. Held by `tests/architecture/test_route_policy.py`.
+  module. Held by `tests/architecture/test_route_policy.py`. Amended on 2026-11-24 by
+  [ADR 0222](0222-a-refused-start-names-every-refusal-at-once.md): the refusal is reported
+  with every other declaration refusal of the same start.
 - **Date:** 2026-09-18
 - **Relates:** [ADR 0016](0016-permission-in-policy-enforced-as-grant.md) (the module `Policy` this refines),
   [ADR 0102](0102-route-operations-are-declared.md) (the declaration this sits beside),

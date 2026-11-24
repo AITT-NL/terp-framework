@@ -287,7 +287,9 @@ def _problem(
         )
         + "\nThe record is what the check before release compared this app with, so an app "
         "that composes differently here is not the app that was checked. If the code is "
-        "right, write the record again in a change a reviewer sees, and release that:\n"
+        "right, the change is a person's to approve (in Terp Studio, the app's owner's): "
+        "once approved, write the record again in a change a reviewer sees, and release "
+        "that:\n"
         f"  {ADOPT_HINT}\n"
         "If the record is right, find what composes the app differently here: a route or a "
         "module added under a condition."
