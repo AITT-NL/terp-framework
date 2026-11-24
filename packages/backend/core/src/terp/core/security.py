@@ -295,13 +295,14 @@ class SecurityConfig:
     that cannot be defaulted safely — *which* cross-origins to trust — must be
     declared before production (see :meth:`production_problems`).
 
-    ``trusted_proxy_hops`` declares how many reverse-proxy hops in front of the app
-    are trusted to append ``X-Forwarded-For`` entries. It defaults to ``0`` (the
-    direct TCP peer identifies the caller — forwarding headers are attacker-supplied
-    and ignored). A deployment behind one trusted proxy (e.g. the shipped nginx
-    same-origin profile) sets ``1`` so per-caller controls — the rate limit, the
-    OIDC callback throttle — key on the *real* client address instead of collapsing
-    every caller onto the proxy's IP.
+    ``trusted_proxy_hops`` declares how many reverse-proxy hops the app's own code puts
+    in front of it, each trusted to append an ``X-Forwarded-For`` entry. It defaults to
+    ``0`` (the direct TCP peer identifies the caller — forwarding headers are
+    attacker-supplied and ignored). A deployment behind one trusted proxy (e.g. the
+    shipped nginx same-origin profile) sets ``1`` so per-caller controls — the rate
+    limit, the OIDC callback throttle — key on the *real* client address instead of
+    collapsing every caller onto the proxy's IP. A deploy tool's own edge is not counted
+    here: that tool sets ``TERP_EDGE_HOPS``, and ``create_app`` adds it (ADR 0220).
     """
 
     headers: SecurityHeaders = field(default_factory=SecurityHeaders)

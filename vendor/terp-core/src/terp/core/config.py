@@ -31,6 +31,9 @@ _MIN_SECRET_LEN = 32
 #: settings source's JSON decoder, which would refuse the comma-separated form.
 _KeyList = Annotated[list[str], NoDecode]
 
+#: The values ``TERP_EDGE_HOPS`` takes, as the environment spells them (ADR 0220).
+_EDGE_HOPS = ("0", "1")
+
 
 def _weak_key(key: str) -> bool:
     value = key.strip()
@@ -170,6 +173,15 @@ class Settings(BaseSettings):
     # None → derive from environment: secure everywhere except local dev (which is http).
     REFRESH_COOKIE_SECURE: bool | None = None
 
+    # The proxy hop a deploy tool's own edge puts in front of the app (ADR 0220): a fact of
+    # the environment the app is served in, never of its source, so it is the deploy tool's
+    # to set and never the app's. `create_app` adds it to the hops
+    # `SecurityConfig.trusted_proxy_hops` declares, whatever the source says. 0 or 1, unset
+    # meaning 0; any other value refuses the settings, so the process does not start. Set
+    # only on a unit reached through the edge alone: on one a caller reaches directly, the
+    # hop would be trusted for an X-Forwarded-For entry that caller wrote.
+    TERP_EDGE_HOPS: int = 0
+
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"
@@ -200,6 +212,26 @@ class Settings(BaseSettings):
         if text.startswith("["):
             return json.loads(text)
         return [part.strip() for part in text.split(",") if part.strip()]
+
+    @field_validator("TERP_EDGE_HOPS", mode="before")
+    @classmethod
+    def _edge_hops(cls, value: object) -> object:
+        """``0`` or ``1``, surrounding whitespace aside, so a value no edge has refuses the
+        boot rather than serving on a count the process guessed.
+
+        An edge counts one hop: it sets ``X-Forwarded-For`` to the address it was called
+        from, discarding what the caller sent. A larger count reads past the edge's entry,
+        where there is either none, so every caller falls back to the direct peer and shares
+        one bucket again, or, where something appends instead, an entry the caller wrote.
+        """
+        text = str(value).strip()  # a bool reads True, which is no count
+        if text not in _EDGE_HOPS:
+            raise ValueError(
+                "TERP_EDGE_HOPS is the proxy hop a deploy tool's edge puts in front of this "
+                "app, set by that tool: 0 or 1, or unset for none. Count the app's own "
+                "proxies in SecurityConfig.trusted_proxy_hops instead (see: terp guide security)"
+            )
+        return int(text)
 
     @model_validator(mode="after")
     def _enforce_production_guardrails(self) -> Settings:

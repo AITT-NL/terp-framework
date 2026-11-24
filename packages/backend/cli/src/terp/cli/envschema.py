@@ -45,6 +45,8 @@ RESOLVED_BY_VALUES = frozenset({"host", "container", "browser"})
 #: is the per-release tag the production profile's image names read (ADR 0185), spelled once
 #: in ``terp.arch.deployment.generator.RELEASE_TAG_VARIABLE`` and held equal to this entry by
 #: ``tests/architecture/test_prod_profile.py``: this module stays off terp-arch's import path.
+#: ``TERP_EDGE_HOPS`` is the hop a deploy tool's edge puts in front of the app, which
+#: ``create_app`` adds to the declared count (ADR 0220): the tool that runs the edge sets it.
 PLATFORM_OWNED_NAMES = frozenset(
     {
         "SECRET_KEY",
@@ -56,6 +58,7 @@ PLATFORM_OWNED_NAMES = frozenset(
         "WEB_PORT",
         "BACKEND_CORS_ORIGINS",
         "TERP_RELEASE_TAG",
+        "TERP_EDGE_HOPS",
     }
 )
 

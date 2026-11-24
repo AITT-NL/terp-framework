@@ -10,6 +10,29 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.45.0 — unreleased
+
+### Added
+
+- **A deploy tool's edge adds its own hop to the trusted proxy count** (ADR 0220). A runner that
+  serves an app through a TLS edge of its own sets `TERP_EDGE_HOPS=1` on the units reached
+  through that edge alone, and `create_app` adds
+  that hop to the `SecurityConfig.trusted_proxy_hops` the app declares, whatever the source
+  says. Behind the edge, the rate limit, the login lockout and the OIDC callback throttle then
+  key on the caller instead of on the edge's address. Unset is `0`; any value other than `0` or
+  `1` stops the process at import with a message saying what the variable is for. The boot
+  says once when it added the hop. The name is platform-owned, so `environment.schema.json` may
+  not declare it.
+- **A release records the framework it runs.** `sign` writes `inputs.framework`,
+  `{"terpCore": "<version>"}`, from the `terp-core` the commit's `uv.lock` pins, so a deploy
+  tool can tell whether the app reads `TERP_EDGE_HOPS`. No new `schemaVersion`. A lock that pins
+  no single `terp-core` is refused.
+- **Upgrading:** keep counting only the proxies your own code puts in front of the api. Never
+  count a deploy tool's edge in `trusted_proxy_hops`: one hop too many reads past the edge's
+  entry, where there is either none, so every caller shares one bucket again, or one the
+  caller wrote. An `environment.schema.json` that declares `TERP_EDGE_HOPS` is now refused;
+  remove the declaration.
+
 ## 0.44.0 — 2026-11-23
 
 ### Added

@@ -315,6 +315,9 @@ def sign(
     cli_pin, arch_pin = pinned(lock, "terp-cli"), pinned(lock, "terp-arch")
     if cli_pin is None or arch_pin is None:
         raise ReleaseError(f"{UV_LOCK} pins no single terp-cli and terp-arch, so the commit's toolchain is unknown")
+    core_pin = pinned(lock, "terp-core")
+    if core_pin is None:
+        raise ReleaseError(f"{UV_LOCK} pins no single terp-core, so the framework the release runs is unknown")
     required_ids = set()
     if gate[GATE_DOCUMENT] > 1:
         project = tomllib.loads(tree.read_text("pyproject.toml"))
@@ -414,6 +417,7 @@ def sign(
             inputs(
                 tree, plan, tag=tag,
                 toolchain={"signer": _signer_version(), "terpCli": cli_pin, "terpArch": arch_pin},
+                framework={"terpCore": core_pin},
                 spec={"release": arch.spec, "schemaSha256": arch.schema_sha256},
                 generator=generator, datastore_table=arch.datastores, platform=platform,
             ),

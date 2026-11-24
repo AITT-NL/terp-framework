@@ -15,7 +15,7 @@ import pytest
 
 from terp.cli.release import _common, _git, _locks
 from terp.cli.release._common import ReleaseError
-from tests.architecture.release_fixtures import PROJECT, TOOLCHAIN, app_files, committed_app, git
+from tests.architecture.release_fixtures import CORE, PROJECT, TOOLCHAIN, app_files, committed_app, git
 
 
 # --------------------------------------------------------------------------- the tag, the commit
@@ -255,12 +255,15 @@ def test_head_says_which_commit_is_out_and_whether_it_is_clean(tmp_path: pathlib
 def test_the_uv_lock_says_what_the_commit_pins_and_installs() -> None:
     lock = _locks.read_uv_lock(app_files()["uv.lock"].decode())
     assert _locks.pinned(lock, "terp-cli") == _locks.pinned(lock, "terp-arch") == TOOLCHAIN
+    assert _locks.pinned(lock, "terp-core") == CORE
     assert _locks.pinned(lock, "missing") is None
     assert _locks.path_sources(lock) == []
     assert _locks.python_sources(lock) == ["https://pypi.org/simple"]
     linux = _locks.marker_environment("3.14.8", "x86_64")
     assert linux["python_version"] == "3.14" and linux["sys_platform"] == "linux"
-    assert _locks.runtime_set(lock, PROJECT, linux) == [("terp-arch", TOOLCHAIN), ("terp-cli", TOOLCHAIN)]
+    assert _locks.runtime_set(lock, PROJECT, linux) == [
+        ("terp-arch", TOOLCHAIN), ("terp-cli", TOOLCHAIN), ("terp-core", CORE)
+    ]
     windows = {**linux, "sys_platform": "win32"}
     assert ("colorama", "0.4.6") in _locks.runtime_set(lock, PROJECT, windows)
 

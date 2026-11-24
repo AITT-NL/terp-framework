@@ -24,7 +24,7 @@ from terp.cli.release import _render, dsse, promote, sign
 from terp.cli.release._common import ReleaseError, canonical, write_document
 from terp.cli.release._git import Tree
 from terp.cli.release.manifest import parse
-from tests.architecture.release_fixtures import SITE_LOCK, PROJECT, TOOLCHAIN, app_files, committed_app
+from tests.architecture.release_fixtures import CORE, SITE_LOCK, PROJECT, TOOLCHAIN, app_files, committed_app
 from tests.architecture.test_release_compare import faithful
 from tests.architecture.test_release_dsse import pem_private, pem_public
 from tests.architecture.test_release_image import FakeRegistry, layer
@@ -121,6 +121,7 @@ def test_sign_signs_a_release_whose_app_fails_on_import_and_runs_none_of_it(tmp_
     assert given["projectRoot"] == "." and given["developmentProfile"] == "docker-compose.yml"
     assert given["releaseTag"] == "r1" and given["build"] == "generated" and given["platform"] == "linux/amd64"
     assert given["toolchain"] == {"signer": given["toolchain"]["signer"], "terpCli": TOOLCHAIN, "terpArch": TOOLCHAIN}
+    assert given["framework"] == {"terpCore": CORE}, "the framework the release runs, from its lock (ADR 0220)"
     assert given["spec"]["release"] == SPEC_VERSION
     assert given["spec"]["schemaSha256"] == standard.schema_sha256(), "the schema terp promote holds"
     loaded = promote.load(envelope, [pem_public(release.key)])
@@ -148,7 +149,7 @@ def test_sign_signs_a_release_whose_app_fails_on_import_and_runs_none_of_it(tmp_
                          "build": {"builder": {"buildkit": "v0.34.1"}, "images": [
                              {"name": NAME, "digest": release.digest, "configDigest": release.config_digest}]}}
     packages = json.loads((tmp_path / "out" / f"packages-{NAME}.json").read_text())
-    assert packages == [[PROJECT, "0.1.0"], ["terp-arch", TOOLCHAIN], ["terp-cli", TOOLCHAIN]]
+    assert packages == [[PROJECT, "0.1.0"], ["terp-arch", TOOLCHAIN], ["terp-cli", TOOLCHAIN], ["terp-core", CORE]]
     sbom = json.loads((tmp_path / "out" / f"sbom-{NAME}.cdx.json").read_text())
     assert sbom["bomFormat"] == "CycloneDX" and {c["purl"] for c in sbom["components"]} >= {f"pkg:pypi/terp-cli@{TOOLCHAIN}"}
     [image_task] = [payload for task, payload in release.tasks if task == "image"]
@@ -406,6 +407,8 @@ def _change_files(change) -> dict[str, bytes]:  # type: ignore[no-untyped-def]
          "the committed frontend/Dockerfile.prod is not the render"),
         (lambda f: f.update({"uv.lock": f["uv.lock"].replace(b'name = "terp-arch"', b'name = "terp-arch-x"')}),
          "pins no single terp-cli and terp-arch"),
+        (lambda f: f.update({"uv.lock": f["uv.lock"].replace(b'name = "terp-core"', b'name = "terp-core-x"')}),
+         "pins no single terp-core, so the framework the release runs is unknown"),
         (lambda f: f.update({".terp-dist/x": b"x"}), ".terp-dist/ is committed"),
         (lambda f: f.update({"pyproject.toml": f["pyproject.toml"].replace(b'packages = ["app", "control_plane"]', b'sources = ["src"]')}),
          "a shape sign cannot compare"),

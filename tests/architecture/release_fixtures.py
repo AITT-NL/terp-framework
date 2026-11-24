@@ -26,6 +26,9 @@ TEMPLATE = REPO_ROOT / "template" / "project"
 GOLDEN = pathlib.Path(__file__).with_name("generator_goldens") / "no-frontend" / "deployment.json"
 PROJECT = "relapp"
 TOOLCHAIN = "0.34.0"
+#: The ``terp-core`` the lock pins: the framework the release runs (ADR 0220). A version of its
+#: own, so a test tells what is read from its pin from what is read from the toolchain's.
+CORE = "0.34.1"
 
 PYPROJECT = f"""\
 [project]
@@ -61,12 +64,18 @@ version = "{TOOLCHAIN}"
 source = {{ registry = "https://pypi.org/simple" }}
 dependencies = [
     {{ name = "terp-arch" }},
+    {{ name = "terp-core" }},
     {{ name = "colorama", marker = "sys_platform == 'win32'" }},
 ]
 
 [[package]]
 name = "terp-arch"
 version = "{TOOLCHAIN}"
+source = {{ registry = "https://pypi.org/simple" }}
+
+[[package]]
+name = "terp-core"
+version = "{CORE}"
 source = {{ registry = "https://pypi.org/simple" }}
 
 [[package]]
@@ -203,4 +212,4 @@ class Runs:
         return [call for call in self.calls if tuple(call[: len(prefix)]) == prefix]
 
 
-__all__ = ["PROJECT", "SUITE_LOCK", "Runs", "TOOLCHAIN", "app_files", "committed_app", "git"]
+__all__ = ["CORE", "PROJECT", "SUITE_LOCK", "Runs", "TOOLCHAIN", "app_files", "committed_app", "git"]
