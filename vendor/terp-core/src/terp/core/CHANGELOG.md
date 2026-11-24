@@ -47,6 +47,14 @@ decision, 0001 onwards.
   pointer, a writable directory) claims nothing.
 - **`UsersService.ensure_demo_user(session, email=..., role=...)`** provisions a development
   sign-in with the framework's demo password, the one the dev sign-in screen fills in.
+- **Readiness says when the schema is behind the code** (ADR 0221). `create_app` takes
+  `migration_readiness=`, the boot guard's own check (`terp.migrations.assert_migrations_current`),
+  and `/health/ready` then answers 503 with `"migrations": "error"` while the database is behind
+  the code, asking until the check passes once. A database ahead of the code inside its schema
+  window (ADR 0185) is ready, as it is at boot. Given the very object passed as
+  `migration_check`, readiness takes the boot's pass as its answer, so a production instance
+  runs no new check and its body gains only `"migrations": "ok"`. The template and the reference
+  app wire it in every environment.
 
 ### Changed
 
@@ -70,6 +78,9 @@ decision, 0001 onwards.
   smoke read that path to translate a container path, so `terp migrate upgrade --app-root
   /app/app` resolved to a directory on another machine. smoke now reads the declared root as
   its own checkout and says so when the two differ; on the daemon's own host they are one.
+- **Two readiness probes arriving together no longer run one store's probe twice.** A store's
+  probe was marked running only once its thread started, against the "never twice at once"
+  ADR 0191 states; an ask now claims the store before it waits for a thread.
 
 ### Security
 
@@ -84,6 +95,10 @@ decision, 0001 onwards.
   marker on its next re-render, and its budget check then asks for the count to be lowered.
   Lower it (or remove the line) in the same change; an app that counts markers of its own keeps
   those.
+- **A development stack whose code gains a migration reads as not ready until it is migrated.**
+  The template's `app/main.py` brings `migration_readiness` with the next re-render. The API's
+  log names the packages behind and `terp migrate upgrade`; bringing the stack up again runs its
+  `migrate` step too. No healthcheck waits on readiness, so nothing else waits with it.
 
 ## 0.45.0 — 2026-11-24
 

@@ -23,8 +23,9 @@ from __future__ import annotations
 import socket
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 
+import anyio
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -43,6 +44,7 @@ from terp.core import (
 from terp.core.db import get_session
 from terp.core.health import (
     READINESS_PROBE_TIMEOUT_SECONDS,
+    _BoundedProbe,
     build_health_router,
     mandatory_stores,
     reset_mandatory_stores,
@@ -375,6 +377,68 @@ def test_a_store_that_never_answers_is_not_ready_within_the_bound_and_asked_once
 
 def test_the_default_bound_is_two_seconds() -> None:
     assert READINESS_PROBE_TIMEOUT_SECONDS == 2.0
+
+
+def _with_one_thread(scenario: Callable[[anyio.CapacityLimiter], Awaitable[object]]) -> object:
+    """Run *scenario* on an event loop whose threads are one, handed to it held."""
+
+    async def _run() -> object:
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        limiter.total_tokens = 1
+        await limiter.acquire()
+        return await scenario(limiter)
+
+    return anyio.run(_run)
+
+
+def test_two_asks_arriving_together_run_one_probe() -> None:
+    """An ask claims the store before it waits for a thread, so the second finds it held.
+
+    Both asks arrive while no thread is free, so each is past its check before any probe
+    runs: a claim taken only once the thread ran would let both through, one after the other.
+    """
+    calls: list[int] = []
+    bounded = _BoundedProbe("cache_store", 5.0)
+
+    async def scenario(limiter: anyio.CapacityLimiter) -> list[bool]:
+        answers: list[bool] = []
+
+        async def ask() -> None:
+            answers.append(await bounded.passes(lambda: calls.append(1)))
+
+        async with anyio.create_task_group() as group:
+            group.start_soon(ask)
+            group.start_soon(ask)
+            await anyio.sleep(0.1)
+            limiter.release()
+        return answers
+
+    assert _with_one_thread(scenario) == [False, True], "the second is refused at once"
+    assert calls == [1]
+
+
+def test_an_ask_that_gave_up_before_a_thread_took_its_probe_gives_the_store_back() -> None:
+    """No thread ever ran the probe, so nothing will release the claim but the ask itself."""
+    calls: list[int] = []
+    bounded = _BoundedProbe("cache_store", 0.1)
+
+    async def scenario(limiter: anyio.CapacityLimiter) -> tuple[bool, bool]:
+        first = await bounded.passes(lambda: calls.append(1))
+        limiter.release()
+        return first, await bounded.passes(lambda: calls.append(2))
+
+    assert _with_one_thread(scenario) == (False, True)
+    assert calls == [2], "the abandoned ask's probe never ran, and the next one did"
+
+
+def test_a_thread_that_takes_up_an_abandoned_ask_runs_nothing() -> None:
+    """A thread that reaches the probe after its ask gave the store back runs nothing."""
+    calls: list[int] = []
+    bounded = _BoundedProbe("cache_store", 1.0)
+
+    bounded._call(lambda: calls.append(1), object())
+
+    assert calls == []
 
 
 # --------------------------------------------------------------------------- #

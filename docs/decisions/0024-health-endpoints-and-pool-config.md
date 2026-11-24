@@ -3,7 +3,9 @@
 - **Status:** Accepted; amended 2026-10-22 by
   [ADR 0191](0191-readiness-asks-the-stores-a-deployment-requires-and-a-worker-reports-a-heartbeat.md)
   (readiness also asks every shared store a `require_shared_*` made mandatory; workers and
-  schedulers report a heartbeat of their own, outside readiness)
+  schedulers report a heartbeat of their own, outside readiness), and on 2026-11-24 by
+  [ADR 0221](0221-readiness-says-when-the-schema-is-behind-the-code.md) (where the app asks,
+  readiness also says when the schema is behind the code)
 - **Date:** 2026-06-25
 - **Context phase:** Phase 2 (base profile) — production-readiness
 - **Relates:** [ADR 0015](0015-runtime-write-guarded-session.md) (the write-guarded

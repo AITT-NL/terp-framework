@@ -11,7 +11,9 @@ limiting, and capability middleware), but do not require authentication.
   reachable (a cheap ``SELECT 1`` through the same ``SessionDep`` seam the app uses, so
   tests and overrides apply), and so is **every shared store this deployment made
   mandatory** (ADR 0191): a store a ``require_shared_*`` guard requires is one without
-  which this instance cannot do what it promised, so it is part of the answer. Returns
+  which this instance cannot do what it promised, so it is part of the answer. Where the
+  app asks (``create_app(migration_readiness=...)``, ADR 0221), the schema is not behind
+  the code either: ``migrations`` is checked until it passes once. Returns
   200 when every check passes, 503 otherwise, so a load balancer withholds traffic until
   the dependency recovers. Workers and schedulers are deliberately **not** part of it:
   an undrained queue does not make this instance unable to serve, and failing readiness on
@@ -145,40 +147,88 @@ def reset_mandatory_stores() -> None:
     _mandatory_stores.clear()
 
 
+#: The readiness name of the schema check (ADR 0221).
+SCHEMA_CHECK: Final[str] = "migrations"
+
+
+def schema_probe(check: Callable[[], object], *, passed: bool = False) -> ReadinessProbe:
+    """Readiness's question about the schema: *check* raises while the database is behind.
+
+    A database behind the code answers ``SELECT 1`` like any other, so readiness said
+    "ready" over a schema the code's first query then failed on: a bare 500 at sign-in,
+    and nothing anywhere naming the migration nobody ran. *check* is the same check the
+    boot guard runs (``terp.migrations.assert_migrations_current``), so a database ahead of
+    the code inside its schema window (ADR 0185) is as ready here as it is at boot.
+
+    Asked until it passes once, then never again in this process: the code's migrations
+    are fixed for a process's life, and a schema does not fall behind by itself. *passed*
+    says the boot guard already ran this very check, so a production instance, which
+    cannot start on a behind schema, never pays for it at all.
+    """
+    answered = passed
+
+    def probe() -> None:
+        nonlocal answered
+        if not answered:
+            check()
+            answered = True
+
+    return probe
+
+
 class _BoundedProbe:
     """One store readiness asks about: on a worker thread, within a bound, one ask at a time.
 
     A store that never answers must not hold the readiness answer, and must not cost a thread
     per probe while it hangs: the thread of a probe that ran past the bound is abandoned, and
     until it returns every later ask is answered "not ready" at once, without a new thread.
+
+    An ask claims the store before it waits for a thread, not once the thread runs, so two
+    probes arriving together cannot both find it free. The claim is given back by the thread
+    when the probe returns, or by the ask itself when it gave up before any thread took the
+    probe up; a thread that takes it up after that runs nothing.
     """
 
     def __init__(self, name: str, timeout: float) -> None:
         self.name = name
         self._timeout = timeout
         self._lock = Lock()
-        self._running = False
+        #: The ask holding this store, from its claim until its probe returns.
+        self._claim: object | None = None
+        #: The ask whose probe a thread has taken up.
+        self._started: object | None = None
 
-    def _call(self, probe: ReadinessProbe) -> None:
+    def _call(self, probe: ReadinessProbe, ask: object) -> None:
         with self._lock:
-            self._running = True
+            if self._claim is not ask:
+                return  # the ask gave up before this thread took its probe up
+            self._started = ask
         try:
             probe()
         finally:
             with self._lock:
-                self._running = False
+                self._claim = self._started = None
+
+    def _give_back(self, ask: object) -> None:
+        """Release *ask*'s claim if no thread took its probe up; a running probe keeps it."""
+        with self._lock:
+            if self._claim is ask and self._started is not ask:
+                self._claim = None
 
     async def passes(self, probe: ReadinessProbe) -> bool:
+        ask = object()
         with self._lock:
-            running = self._running
-        if running:
+            held = self._claim is not None
+            if not held:
+                self._claim = ask
+        if held:
             _logger.error(
                 "readiness check %r failed: its previous probe has not answered yet", self.name
             )
             return False
         try:
             with anyio.fail_after(self._timeout):
-                await anyio.to_thread.run_sync(self._call, probe, abandon_on_cancel=True)
+                await anyio.to_thread.run_sync(self._call, probe, ask, abandon_on_cancel=True)
         except TimeoutError:
             _logger.error(
                 "readiness check %r failed: no answer within %.1fs", self.name, self._timeout
@@ -187,6 +237,8 @@ class _BoundedProbe:
         except Exception as exc:
             _logger.error("readiness check %r failed", self.name, exc_info=exc)
             return False
+        finally:
+            self._give_back(ask)
         return True
 
 
@@ -308,6 +360,7 @@ def build_health_router(
 
 __all__ = [
     "READINESS_PROBE_TIMEOUT_SECONDS",
+    "SCHEMA_CHECK",
     "HealthDetail",
     "ReadinessProbe",
     "build_health_router",
@@ -317,4 +370,5 @@ __all__ = [
     "register_mandatory_store",
     "reset_health_details",
     "reset_mandatory_stores",
+    "schema_probe",
 ]

@@ -333,10 +333,13 @@ last probe's output for the age (docker inspect, .State.Health.Log), or the prob
 the container. Dependants of such a unit wait for service_healthy. Do not set TMPDIR
 differently for the process and its healthcheck: both find the file through it.
 
-READINESS (ADR 0191)
+READINESS (ADR 0191, ADR 0221)
 
 /health/ready answers 200 when the database answers SELECT 1 and every shared store a
-require_shared_* made mandatory answers its ping(); 503 otherwise, naming each check. A
+require_shared_* made mandatory answers its ping(); 503 otherwise, naming each check. Where
+create_app(migration_readiness=...) asks, as the template does, `migrations` is a check too:
+503 while the schema is behind the code, asked until it passes once. A database ahead of the
+code inside its schema window (ADR 0185) is ready, as at boot. A
 store is asked on a thread of its own within 2 seconds, never twice at once, so one that
 stops answering turns readiness 503 instead of holding the probe. Workers, schedulers and
 the outbox backlog are never part of it. Bound the Redis client's own commands too, or a

@@ -1,0 +1,253 @@
+"""Readiness says when the schema is behind the code (ADR 0221).
+
+A database behind the code answers ``SELECT 1`` like any other, so readiness reported "ready"
+over a schema the code's first query then failed on: a bare 500 at sign-in, and nothing
+anywhere naming the migration nobody ran. The boot guard refuses that schema, but the template
+wires it in production only, and a development stack applies its migrations when it comes up,
+not when a running stack's code gains one.
+
+``create_app(migration_readiness=...)`` puts the guard's own question in readiness:
+
+* **what it answers**: 503 with ``migrations: error`` while the check raises, 200 once it
+  passes. The check is the boot guard's, so what readiness admits is what the boot admits,
+  including a database ahead of the code inside its schema window (ADR 0185);
+* **how often it asks**: until it passes once, then never again in the process. Given the
+  very object the boot guard ran, it never asks at all, so a production instance pays nothing;
+* **what stays as it was**: an app that does not ask has the body it always had.
+"""
+
+from __future__ import annotations
+
+import functools
+import importlib.util
+import pathlib
+import re
+import sys
+import types
+from collections.abc import Iterator
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import Engine
+
+from terp.core import create_app
+from terp.core.health import SCHEMA_CHECK, schema_probe
+
+_REPO = pathlib.Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture(autouse=True)
+def file_database(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:  # type: ignore[no-untyped-def]
+    """A file database, as a deployment has, and as the migration guard reads it."""
+    from terp.core._internal.engine import reset_engine
+    from terp.core.config import settings
+
+    url = f"sqlite:///{tmp_path / 'schema.db'}"
+    monkeypatch.setattr(settings, "DATABASE_URL", url)
+    reset_engine()
+    yield url
+    reset_engine()
+
+
+class _Schema:
+    """A migration check standing in for the guard: behind until told it caught up."""
+
+    def __init__(self, *, behind: bool) -> None:
+        self.behind = behind
+        self.asked = 0
+        self.engines: list[Engine] = []
+
+    def __call__(self, engine: Engine) -> None:
+        self.asked += 1
+        self.engines.append(engine)
+        if self.behind:
+            raise RuntimeError("1 package(s) are behind their migration head: audit")
+
+
+def test_a_schema_behind_the_code_is_not_ready_and_says_which_check() -> None:
+    schema = _Schema(behind=True)
+    client = TestClient(create_app([], migration_readiness=schema))
+
+    behind = client.get("/health/ready")
+
+    assert behind.status_code == 503
+    assert behind.json() == {
+        "status": "not_ready",
+        "checks": {"database": "ok", SCHEMA_CHECK: "error"},
+    }
+    # Asked with the process engine, the one the app's own sessions use.
+    from terp.core.db import get_engine
+
+    assert schema.engines[-1] is get_engine()
+
+
+def test_readiness_follows_the_schema_once_it_catches_up_and_then_stops_asking() -> None:
+    schema = _Schema(behind=True)
+    client = TestClient(create_app([], migration_readiness=schema))
+    assert client.get("/health/ready").status_code == 503
+
+    schema.behind = False  # the migrate step ran
+    caught_up = client.get("/health/ready")
+    assert caught_up.status_code == 200
+    assert caught_up.json() == {
+        "status": "ready",
+        "checks": {"database": "ok", SCHEMA_CHECK: "ok"},
+    }
+    asked = schema.asked
+
+    # A process's code is fixed for its life and a schema does not fall behind by itself,
+    # so a passed check is not asked again: a probe every few seconds costs nothing more
+    # than it did before this check existed.
+    for _ in range(3):
+        assert client.get("/health/ready").status_code == 200
+    assert schema.asked == asked
+
+
+def test_the_boot_guard_s_own_pass_counts_and_readiness_never_asks() -> None:
+    # The template hands the same object to both seams. A production instance, where the
+    # boot guard runs, cannot have started on a behind schema, so readiness has nothing to
+    # ask and asks nothing.
+    schema = _Schema(behind=False)
+    client = TestClient(create_app([], migration_check=schema, migration_readiness=schema))
+
+    ready = client.get("/health/ready")
+
+    assert ready.status_code == 200
+    assert ready.json()["checks"][SCHEMA_CHECK] == "ok"
+    assert schema.asked == 1, "the boot asked once, and readiness took its answer"
+
+
+def test_a_different_boot_guard_does_not_answer_for_readiness() -> None:
+    # Only the very object counts: a boot guard that asked something else proved nothing
+    # about the question readiness was given.
+    boot = _Schema(behind=False)
+    schema = _Schema(behind=True)
+    client = TestClient(create_app([], migration_check=boot, migration_readiness=schema))
+
+    assert client.get("/health/ready").status_code == 503
+    assert schema.asked >= 1
+
+
+def test_an_app_that_does_not_ask_keeps_the_body_it_had() -> None:
+    client = TestClient(create_app([]))
+    ready = client.get("/health/ready")
+    assert ready.status_code == 200
+    assert ready.json() == {"status": "ready", "checks": {"database": "ok"}}
+
+
+def test_the_probe_latches_on_its_first_pass_and_starts_passed_when_told() -> None:
+    calls: list[int] = []
+
+    def check() -> None:
+        calls.append(1)
+        if len(calls) < 2:
+            raise RuntimeError("behind")
+
+    probe = schema_probe(check)
+    with pytest.raises(RuntimeError):
+        probe()
+    probe()
+    probe()
+    assert len(calls) == 2
+
+    untouched: list[int] = []
+    schema_probe(lambda: untouched.append(1), passed=True)()
+    assert untouched == []
+
+
+def test_the_migration_guard_itself_turns_readiness_red_then_green(file_database: str) -> None:
+    """End to end, with the guard the template wires: a fresh database is behind every
+    installed capability's history until it is upgraded, and readiness says so until then."""
+    from terp.migrations import assert_migrations_current, orchestrate
+
+    client = TestClient(
+        create_app([], migration_readiness=functools.partial(assert_migrations_current))
+    )
+
+    behind = client.get("/health/ready")
+    assert behind.status_code == 503
+    assert behind.json()["checks"] == {"database": "ok", SCHEMA_CHECK: "error"}
+
+    orchestrate.upgrade(file_database, schema_layout="flat")
+
+    assert client.get("/health/ready").status_code == 200
+
+
+# --------------------------------------------------------------------------- #
+# the composition roots that ship it                                          #
+# --------------------------------------------------------------------------- #
+#: Every toggle block in the template's ``app/main.py``, resolved as copier resolves it for an
+#: app that answers no to each: the file then reads as the Python it renders to.
+_TOGGLE = re.compile(r"\{%-? if [a-z_]+ %\}.*?\{%-? endif %\}", re.DOTALL)
+
+
+def _template_root() -> str:
+    text = (_REPO / "template" / "project" / "app" / "main.py.jinja").read_text(encoding="utf-8")
+    rendered = _TOGGLE.sub("", text).replace("{{ project_name }}", "Example App")
+    assert "{%" not in rendered and "{{" not in rendered, "a Jinja construct this does not resolve"
+    return rendered
+
+
+def _reference_root() -> str:
+    return (_REPO / "apps" / "reference" / "overlay" / "app" / "main.py").read_text(encoding="utf-8")
+
+
+def _composed(
+    source: str, root: pathlib.Path, monkeypatch: pytest.MonkeyPatch, *, production: bool
+) -> dict[str, Any]:
+    """Run a composition root as its process would, and return what it gives ``create_app``.
+
+    The root's own code runs; its sibling modules (the app's auth and modules, its control
+    plane) are stand-ins, and ``create_app`` records its keywords instead of composing.
+    """
+    import terp.core
+    from terp.core.config import settings
+
+    import terp.capabilities.mail
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production" if production else "development")
+    given: dict[str, Any] = {}
+    monkeypatch.setattr(terp.core, "create_app", lambda modules, **keywords: given.update(keywords))
+    monkeypatch.setattr(terp.capabilities.mail, "configure_mail", lambda mail_settings: None)
+    stand_in = types.SimpleNamespace(
+        login_module=object(), me_module=object(), principal_provider=object(),
+        module=object(), control_plane=object(),
+    )
+    for name in ("app", "app.auth", "app.modules", "app.modules.notices",
+                 "app.modules.notices.module", "control_plane"):
+        module = types.ModuleType(name)
+        module.__dict__.update(vars(stand_in))
+        monkeypatch.setitem(sys.modules, name, module)
+    path = root / "app" / "main.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("app.main", path)
+    assert spec is not None and spec.loader is not None
+    spec.loader.exec_module(importlib.util.module_from_spec(spec))
+    return given
+
+
+@pytest.mark.parametrize("source", [_template_root, _reference_root], ids=["template", "reference"])
+@pytest.mark.parametrize("production", [False, True], ids=["development", "production"])
+def test_the_shipped_composition_roots_ask_readiness_the_boot_guard_s_question(
+    source, production: bool, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The template, and the reference app that renders it, pass the guard to readiness always.
+
+    In every environment readiness gets the boot guard over the app's own migrations; in
+    production the boot guard gets that very object too, which is what tells readiness the
+    boot already asked (the test above), and outside it the boot guard is off.
+    """
+    from terp.migrations import assert_migrations_current
+
+    given = _composed(source(), tmp_path, monkeypatch, production=production)
+
+    readiness = given["migration_readiness"]
+    assert isinstance(readiness, functools.partial)
+    assert readiness.func is assert_migrations_current
+    assert readiness.keywords == {"app_root": (tmp_path / "app").resolve(), "package": "app"}
+    if production:
+        assert given["migration_check"] is readiness
+    else:
+        assert given["migration_check"] is None
