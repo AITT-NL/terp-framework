@@ -696,7 +696,7 @@ def test_project_ships_a_seed() -> None:
     seed = (_PROJECT / "app" / "seed.py.jinja").read_text()
     assert "def seed(session" in seed
     assert "UsersService" in seed
-    assert "UserProvision" in seed
+    assert "ensure_demo_user" in seed
     assert "Roles.ADMIN" in seed
 
 
@@ -705,14 +705,15 @@ def test_the_seed_holds_no_credential_and_the_budget_counts_nothing() -> None:
     # app's and never does (`_skip_if_exists`). A marker in the seed therefore reached
     # every app rendered before it existed without the count that pays for it, and each
     # upgraded app needed a person to approve an exception for a line the framework wrote.
-    # The password is the framework's DEMO_PASSWORD, counted once in terp-cap-auth's own
-    # budget, so a fresh render has no exception to count at all.
-    from terp.capabilities.auth import DEMO_PASSWORD
+    # The seed asks for the framework's demo login (UsersService.ensure_demo_user), whose
+    # password is counted once in terp-cap-auth's own budget and is not public API, so a
+    # fresh render has no exception to count and no credential to import.
+    from terp.capabilities.auth._demo import DEMO_PASSWORD
     from terp.core import PasswordPolicy
 
     seed = (_PROJECT / "app" / "seed.py.jinja").read_text(encoding="utf-8")
-    assert "from terp.capabilities.auth import DEMO_PASSWORD" in seed
-    assert "password=DEMO_PASSWORD" in seed
+    assert "users.ensure_demo_user(session, email=_ADMIN_EMAIL" in seed
+    assert "password=" not in seed
     assert "arch-allow-" not in seed
     assert DEMO_PASSWORD not in seed
     budget = json.loads((_PROJECT / "escape-hatch-budget.json").read_text(encoding="utf-8"))
@@ -732,7 +733,7 @@ def test_frontend_offers_the_seeded_dev_sign_in() -> None:
     assert 'admin@example.test' in main
     assert 'admin@example.test' in seed
     # ...and the password the screen fills in is the one the seed provisions.
-    from terp.capabilities.auth import DEMO_PASSWORD
+    from terp.capabilities.auth._demo import DEMO_PASSWORD
 
     assert f'password: "{DEMO_PASSWORD}"' in main
 

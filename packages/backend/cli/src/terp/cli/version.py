@@ -26,6 +26,8 @@ from importlib import metadata
 
 from terp.cli.rerender import (
     _copier_update_blocker,
+    _rerender_offer,
+    _version_key,
     TEMPLATE_VERSION_VARIABLE,
     git_dir_read_only,
     scaffold_ref,
@@ -189,12 +191,6 @@ def _terp_upgrades(packages: list[dict[str, str]]) -> dict[str, str]:
     return upgrades
 
 
-def _version_key(version: str) -> tuple[int, ...]:
-    """Sort key for a release string — numeric, because ``0.10.0`` sorts *below*
-    ``0.9.0`` as text and picking the wrong target would recommend a downgrade."""
-    return tuple(int(part) if part.isdigit() else 0 for part in re.split(r"[._-]", version))
-
-
 #: The scaffolding files copier seeds once and never overwrites — ``_skip_if_exists`` in
 #: ``template/copier.yml``. Everything else the template owns *is* rewritten by a
 #: re-render, and that is the half a reader actually needs: the report used to name three
@@ -247,6 +243,8 @@ def _scaffold_lines(
     *,
     include_command: bool = True,
     blocked_because: str | None = None,
+    elsewhere: str | None = None,
+    ceiling: str | None = None,
 ) -> list[str]:
     """Report how far the app's *scaffolding* is behind its *packages*.
 
@@ -301,29 +299,13 @@ def _scaffold_lines(
             if _is_generated(root)
             else []
         ),
-        *_rerender_offer(include_command=include_command, blocked_because=blocked_because),
-    ]
-
-
-def _rerender_offer(*, include_command: bool, blocked_because: str | None) -> list[str]:
-    """How the scaffolding report closes: the command, why it is unavailable, or nothing.
-
-    Suppressed when a recipe above already numbered the re-render as a step — the same
-    command printed twice in one report reads as two different things to do, and the
-    recipe's copy is the one with the tree-cleaning step before it.
-
-    Replaced outright when something local already rules the re-render out. Offering a
-    command that cannot run is worse than offering none, because a reader takes it for
-    the way forward and finds out three steps in.
-    """
-    if blocked_because is not None:
-        return ["", f"  A re-render is unavailable here: this app {blocked_because}."]
-    if not include_command:
-        return []
-    return [
-        "",
-        "  Re-render:  copier update  (or the Studio's upgrade flow, which records the",
-        "              answers file it needs).",
+        *_rerender_offer(
+            include_command=include_command,
+            blocked_because=blocked_because,
+            elsewhere=elsewhere,
+            ceiling=ceiling,
+            platform=platform,
+        ),
     ]
 
 
@@ -489,6 +471,8 @@ def render_upgrade_check(root: pathlib.Path | None = None, *, fmt: str = "text")
                 project_root,
                 current,
                 blocked_because=status.rerender_blocker,
+                elsewhere=status.rerender_elsewhere,
+                ceiling=status.template_ceiling,
             )
         )
 
@@ -497,7 +481,9 @@ def render_upgrade_check(root: pathlib.Path | None = None, *, fmt: str = "text")
     stragglers = status.stragglers
 
     lines = [f"Terp {target} is available (this app is on {current})."]
-    ceiling = status.template_ceiling
+    # Only where the re-render recipe is the one printed: an app that cannot re-render pins by
+    # hand, and the template it never renders from bounds nothing it does.
+    ceiling = status.template_ceiling if status.rerender_blocker is None else None
     if ceiling is not None and _version_key(target) > _version_key(ceiling):
         # The index is ahead of the template this environment re-renders from. Recommending
         # the index's release moved the packages to it while the re-render could deliver

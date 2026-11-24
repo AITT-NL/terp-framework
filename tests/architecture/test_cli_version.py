@@ -1155,4 +1155,54 @@ def test_a_ceiling_at_or_above_the_release_or_unreadable_changes_nothing(
 
     assert template_ceiling({"TERP_TEMPLATE_VERSION": " v0.44.0 "}) == "0.44.0"
     assert template_ceiling({"TERP_TEMPLATE_VERSION": "0.44.0-rc1"}) is None
+    assert template_ceiling({"TERP_TEMPLATE_VERSION": "0.6"}) is None  # compares below 0.6.0
     assert template_ceiling({}) is None
+
+
+def test_an_app_that_cannot_re_render_gets_its_hand_pin_recipe_whatever_the_template(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    # The ceiling bounds a re-render; an app with no answers file pins by hand, and the
+    # template it never renders from bounds nothing it does.
+    monkeypatch.setenv("TERP_TEMPLATE_VERSION", "0.5.4")
+    app = tmp_path / "app"
+    app.mkdir()
+    report = _offered(monkeypatch, app)
+    assert "Pin every terp-* dependency to ==0.6.0" in report
+    assert "TERP_TEMPLATE_VERSION" not in report
+
+
+def test_an_up_to_date_app_is_told_where_its_re_render_can_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    # The packages are current and the scaffolding is behind: the closing offer is where an
+    # app lands after pinning by hand, so it carries the read-only note too.
+    monkeypatch.delenv("TERP_TEMPLATE_VERSION", raising=False)
+    app = _answers(tmp_path / "app", "v0.5.4")
+    _git_dir_unwritable(monkeypatch, app / ".git")
+    _fake_versions(monkeypatch, {"terp-core": "0.6.0", "terp-cap-auth": "0.6.0"})
+    _uv_says(monkeypatch, [])
+
+    report = version_mod.render_upgrade_check(app)
+
+    assert "Up to date" in report
+    assert "copier update" in report
+    assert report.index("copier update") < report.index("NOTE: this checkout's git directory")
+
+
+def test_an_up_to_date_app_ahead_of_the_environment_s_template_is_not_offered_its_pins(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    # Packages on 0.6.0, the environment's template at 0.5.9: a re-render from it would write
+    # 0.5.9's pins, so the offer says to update the environment's template first.
+    monkeypatch.setenv("TERP_TEMPLATE_VERSION", "0.5.9")
+    app = _answers(tmp_path / "app", "v0.5.4")
+    _fake_versions(monkeypatch, {"terp-core": "0.6.0", "terp-cap-auth": "0.6.0"})
+    _uv_says(monkeypatch, [])
+
+    report = version_mod.render_upgrade_check(app)
+
+    assert "would write the pins of template 0.5.9" in report
+    assert "update the environment's template first" in report
+    assert "Re-render:  copier update" not in report
+

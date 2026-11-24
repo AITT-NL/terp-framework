@@ -184,9 +184,59 @@ TEMPLATE_VERSION_VARIABLE = "TERP_TEMPLATE_VERSION"
 def template_ceiling(environment: dict[str, str] | None = None) -> str | None:
     """The release the environment's template is at (``0.44.0``), or ``None`` if unsaid.
 
-    A value that is not a release number is ignored rather than trusted: this only ever
-    LOWERS the recommendation, and a ceiling read wrongly would hold an app back silently.
+    A value that is not a whole release number (``X.Y.Z``) is ignored rather than trusted:
+    this only ever LOWERS the recommendation, a ceiling read wrongly would hold an app back
+    silently, and ``0.6`` would compare below ``0.6.0``.
     """
     raw = (os.environ if environment is None else environment).get(TEMPLATE_VERSION_VARIABLE)
-    match = re.fullmatch(r"v?(\d+(?:\.\d+)*)", (raw or "").strip())
+    match = re.fullmatch(r"v?(\d+\.\d+\.\d+)", (raw or "").strip())
     return match.group(1) if match else None
+
+
+def _version_key(version: str) -> tuple[int, ...]:
+    """Sort key for a release string — numeric, because ``0.10.0`` sorts *below*
+    ``0.9.0`` as text and picking the wrong target would recommend a downgrade."""
+    return tuple(int(part) if part.isdigit() else 0 for part in re.split(r"[._-]", version))
+
+
+def _rerender_offer(
+    *,
+    include_command: bool,
+    blocked_because: str | None,
+    elsewhere: str | None = None,
+    ceiling: str | None = None,
+    platform: str | None = None,
+) -> list[str]:
+    """How the scaffolding report closes: the command, why it is unavailable, or nothing.
+
+    Suppressed when a recipe above already numbered the re-render as a step — the same
+    command printed twice in one report reads as two different things to do, and the
+    recipe's copy is the one with the tree-cleaning step before it.
+
+    Replaced outright when something local already rules the re-render out. Offering a
+    command that cannot run is worse than offering none, because a reader takes it for
+    the way forward and finds out three steps in.
+
+    Qualified where this environment says something about it: a template it re-renders
+    from that is behind the packages (*ceiling* below *platform*) would write that
+    template's pins, so the offer becomes "update the environment's template first"; and
+    a git directory this process cannot write (*elsewhere*) puts the re-render somewhere
+    else, which the offer says after the command.
+    """
+    if blocked_because is not None:
+        return ["", f"  A re-render is unavailable here: this app {blocked_because}."]
+    if ceiling is not None and platform is not None and _version_key(ceiling) < _version_key(platform):
+        return [
+            "",
+            f"  A re-render here would write the pins of template {ceiling}, the release this "
+            f"environment re-renders from ({TEMPLATE_VERSION_VARIABLE}), behind the packages' "
+            f"{platform}: update the environment's template first.",
+        ]
+    if not include_command:
+        return []
+    offer = [
+        "",
+        "  Re-render:  copier update  (or the Studio's upgrade flow, which records the",
+        "              answers file it needs).",
+    ]
+    return [*offer, "", f"  NOTE: {elsewhere}"] if elsewhere is not None else offer

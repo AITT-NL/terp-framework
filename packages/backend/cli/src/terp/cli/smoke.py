@@ -54,6 +54,7 @@ import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
+from terp.cli import workbench
 from terp.cli.compose_paths import _host_path, _interpolate
 
 #: How long to wait for the API to answer its health probe before giving up.
@@ -65,8 +66,17 @@ _HEALTH_PATH = "/health/live"
 
 #: The checkout as the Docker DAEMON sees it, which the template's bind mounts are written
 #: against (``${TERP_DEV_HOST_ROOT:-.}/app:/app/app``). A tool that runs Compose from inside
-#: a container -- Terp Studio does -- sets it in ``.env`` to the daemon host's path.
+#: a container -- Terp Studio does -- sets it in ``.env`` to the daemon host's path. The name
+#: is the app's to choose: ``workbench.json`` declares it as ``env.sourceRoot`` (ADR 0110).
 _DAEMON_ROOT = "TERP_DEV_HOST_ROOT"
+
+
+def _daemon_root_name(project_root: pathlib.Path) -> str:
+    """The variable the app's mounts name the daemon's checkout by: its declared one, or the default."""
+    declared, _findings = workbench.load(project_root)
+    if declared is None or declared.unmanaged:
+        return _DAEMON_ROOT
+    return declared.env.get("sourceRoot") or _DAEMON_ROOT
 
 #: Runs argv with an environment and working directory; returns (status, output).
 Runner = Callable[[Sequence[str], Mapping[str, str], pathlib.Path], tuple[int, str]]
@@ -262,11 +272,12 @@ def smoke_plan(
     # through the daemon's root, `/app/app` became a path on another machine whenever the
     # two differ -- Compose run from inside a container, a remote daemon -- and the
     # one-shot died on a missing directory that says nothing about the app.
-    mount_env = {**dot_env, _DAEMON_ROOT: str(project_root)}
-    daemon_root = dot_env.get(_DAEMON_ROOT)
+    daemon_name = _daemon_root_name(project_root)
+    mount_env = {**dot_env, daemon_name: str(project_root)}
+    daemon_root = dot_env.get(daemon_name)
     if daemon_root and (project_root / daemon_root).resolve() != project_root:
         translations.add(
-            f"{_DAEMON_ROOT} {daemon_root} -> {project_root} (the checkout as the Docker "
+            f"{daemon_name} {daemon_root} -> {project_root} (the checkout as the Docker "
             "daemon sees it; this run has no daemon and reads the checkout here)"
         )
     for name in backend:

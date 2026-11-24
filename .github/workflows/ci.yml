@@ -631,11 +631,11 @@ jobs:
           uv run pytest
           # With the budget, which is the form the generated app itself uses. The bare
           # `terp check` fails closed the moment the app holds any `# arch-allow-*`
-          # marker -- and since 0.23.0 widened the security rules past `app/modules/`
-          # (ADR 0136), the scaffolded seed's demo password carries one. So the bare
-          # form was asserting that a generated app has no governed opt-outs, which is
-          # not a property the template has or wants. Naming the budget also makes this
-          # step run the ratchet it was silently skipping.
+          # marker, so it asserts that a generated app may never take a governed
+          # opt-out, which is not a property the template has or wants. A fresh render
+          # holds none (its seed asks for the framework's demo login and carries no
+          # credential), and naming the budget makes this step run the ratchet that
+          # holds it to zero.
           uv run terp check --budget escape-hatch-budget.json
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

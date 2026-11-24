@@ -643,3 +643,41 @@ def test_a_daemon_root_that_is_this_checkout_is_not_announced(
 
     assert str(project / "app") in _step(plan, "migrate").argv
     assert not any("TERP_DEV_HOST_ROOT" in note for note in plan.translations)
+
+
+def test_the_daemon_root_is_the_variable_the_app_declares(
+    project: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR 0110 lets an app rename the source-root variable, so long as workbench.json says so.
+
+    The mounts then read `${SOURCE_ROOT:-.}`, and a tool writes the daemon's path under that
+    name: reading only `TERP_DEV_HOST_ROOT` left the renamed case exactly as broken as before.
+    """
+    compose = (project / "docker-compose.yml").read_text(encoding="utf-8")
+    (project / "docker-compose.yml").write_text(
+        compose.replace("${TERP_DEV_HOST_ROOT:-.}", "${SOURCE_ROOT:-.}"), encoding="utf-8"
+    )
+    (project / "workbench.json").write_text(
+        '{"schemaVersion": 1, "services": [], "env": {"sourceRoot": "SOURCE_ROOT"}}', encoding="utf-8"
+    )
+    monkeypatch.delenv("SOURCE_ROOT", raising=False)
+    (project / ".env").write_text("SOURCE_ROOT=/srv/elsewhere/checkout\n", encoding="utf-8")
+
+    plan = smoke_plan(project, api_port=9999)
+
+    assert str(project / "app") in _step(plan, "migrate").argv
+    assert any("SOURCE_ROOT /srv/elsewhere/checkout" in note for note in plan.translations)
+
+
+def test_an_unreadable_or_unmanaged_declaration_falls_back_to_the_default_name(
+    project: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from terp.cli.smoke import _daemon_root_name
+
+    assert _daemon_root_name(project) == "TERP_DEV_HOST_ROOT"  # no declaration
+    (project / "workbench.json").write_text("{not json", encoding="utf-8")
+    assert _daemon_root_name(project) == "TERP_DEV_HOST_ROOT"
+    (project / "workbench.json").write_text(
+        '{"schemaVersion": 1, "services": [], "unmanaged": true, "reason": "not ours to drive", "env": {"sourceRoot": "SOURCE_ROOT"}}', encoding="utf-8"
+    )
+    assert _daemon_root_name(project) == "TERP_DEV_HOST_ROOT"

@@ -19,22 +19,17 @@ from sqlmodel import Session
 
 from terp.core import Roles
 
-from terp.capabilities.auth import DEMO_PASSWORD
-from terp.capabilities.users import UserProvision, UsersService
+from terp.capabilities.users import UsersService
 
 _ADMIN_EMAIL = "admin@example.test"
-# The password is the framework's DEMO_PASSWORD, the one every development seed signs in
-# with: it satisfies the default PasswordPolicy, and `terp seed` refuses to run in
-# production. Keep the literal out of this file. `no_hardcoded_credentials` reads every
-# file of the app root (ADR 0136), so a literal here needs a governed marker and a count
-# in the app's own escape-hatch budget.
 
 
 def seed(session: Session) -> str:
     """Populate a fresh database with a usable admin (idempotent)."""
     users = UsersService()
-    users.ensure_user(
-        session,
-        UserProvision(email=_ADMIN_EMAIL, password=DEMO_PASSWORD, role=int(Roles.ADMIN)),
-    )
+    # The framework's demo login, the one the dev sign-in fills in: this file holds no
+    # credential, and production refuses that password wherever one is set. Seed further
+    # users with ensure_demo_user too, or through the module services with passwords of
+    # their own, which `no_hardcoded_credentials` holds to the app's budget (ADR 0136).
+    users.ensure_demo_user(session, email=_ADMIN_EMAIL, role=int(Roles.ADMIN))
     return f"seeded admin ({_ADMIN_EMAIL})"

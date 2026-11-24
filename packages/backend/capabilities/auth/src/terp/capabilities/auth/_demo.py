@@ -15,6 +15,12 @@ update; the budget is the app's and never does. So an app rendered before the ma
 existed received the marker without the count, and every upgraded app needed a person
 to approve an exception for a line the framework wrote. Held here, the exception is
 counted once, in this capability's own budget, and an app's seed holds no literal.
+
+It is not public API. A public constant would let any file of an app provision the
+published password where the credential rule cannot see it, since an import is no
+literal. Its readers are the framework's: ``UsersService.ensure_demo_user``, which the
+template's seed calls, and :func:`terp.capabilities.auth.hash_password`, which refuses it
+in production wherever a password or secret is set, however the caller came by it.
 """
 
 from __future__ import annotations
