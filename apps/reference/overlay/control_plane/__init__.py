@@ -68,6 +68,9 @@ control_plane = ControlPlane(
         #
         # Change the production side if you put another proxy (a load balancer, an
         # ingress, a CDN) in front of `web`; that is a count of hops, not a boolean.
+        # Never count a deploy tool's own edge: the Terp runner sets TERP_EDGE_HOPS on
+        # the units it serves through its edge, and create_app adds that hop to this
+        # count (ADR 0220).
         trusted_proxy_hops=1 if get_settings().is_production else 0,
         # Production declares no override, so the auth mount keeps whatever the platform
         # decides `RateLimit.credentials()` should be. Outside it, the credential family

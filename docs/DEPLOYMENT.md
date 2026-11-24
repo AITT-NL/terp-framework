@@ -135,6 +135,7 @@ weak `SECRET_KEY`, `DEBUG=true`, SQLite, CORS `*`, or an insecure refresh cookie
 | `TERP_MIGRATION_DATABASE_URL` | managed database | Owning connection for the migration step |
 | `DATABASE_URL` | derived | Defaults to the bundled `db` service. Set it to run on a managed/external PostgreSQL — then also drop the `db` service (and the `depends_on` waiting on it) with a compose override |
 | `BACKEND_CORS_ORIGINS` | no | The browser origins that may call the API, as a JSON list, for a control plane that declares `CorsPolicy.from_environment()` (ADR 0210); empty serves none. An entry that is not an origin refuses the boot, and so does `*`. A control plane that declares its CORS in source does not read it |
+| `TERP_EDGE_HOPS` | no | The proxy hop a deploy tool's own edge puts in front of the app, set by that tool: `1` on a unit reached through the edge alone, unset (or `0`) otherwise. On a unit a caller can reach directly it would trust an `X-Forwarded-For` entry that caller wrote. `create_app` adds it to the count `SecurityConfig.trusted_proxy_hops` declares, which counts only the app's own proxies (ADR 0220). Any other value refuses the boot. Platform-owned: `environment.schema.json` may not declare it |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_TIMEOUT` / `DB_POOL_RECYCLE` | no | Pool tuning (ADR 0024) |
 | `REFRESH_TOKEN_TTL_SECONDS` / `REFRESH_FAMILY_TTL_SECONDS` | no | Session windows (ADR 0054) |
 | `REFRESH_COOKIE_SECURE` | no | Derived on in production; do not disable |

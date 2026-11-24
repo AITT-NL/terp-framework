@@ -22,7 +22,7 @@ from terp.cli.release._common import ReleaseError
 from terp.cli.release._git import Tree
 from terp.cli.release._image import Kept, Node, migration_inputs
 from terp.cli.release._locks import read_uv_lock
-from tests.architecture.release_fixtures import PROJECT, TOOLCHAIN, app_files, committed_app, git
+from tests.architecture.release_fixtures import CORE, PROJECT, TOOLCHAIN, app_files, committed_app, git
 
 SITE = "srv/.venv/lib/python3.14/site-packages"
 TAG = "cpython-314"
@@ -101,7 +101,8 @@ def faithful(tree: Tree) -> dict:
                                              "../../../bin/terp": SCRIPT})
     record = install(answer, "terp_arch", TOOLCHAIN, {"terp/arch/__init__.py": b"", "terp_arch.pth": b"/srv/.venv/x\n"})
     answer["texts"][record] += f"terp/arch/__pycache__/__init__.{TAG}.pyc,,\n"  # an installer that compiled lists it so
-    for source in ("terp/cli/__init__", "terp/cli/v1.compat", "terp/arch/__init__"):
+    install(answer, "terp-core", CORE, {"terp/core/__init__.py": b""})
+    for source in ("terp/cli/__init__", "terp/cli/v1.compat", "terp/arch/__init__", "terp/core/__init__"):
         directory, name = source.rsplit("/", 1)
         answer["nodes"][f"{SITE}/{directory}/__pycache__/{name}.{TAG}.pyc"] = Node("file", "dep", 1).as_data()
     for name in ("pyvenv.cfg", ".gitignore", ".lock", "CACHEDIR.TAG"):
@@ -139,7 +140,7 @@ def test_a_faithful_image_has_nothing_to_find_and_installs_the_lock(tree: Tree) 
     lock = read_uv_lock(tree.read_text("uv.lock"))
     findings, installed = _compare.compare_backend(tree, answer, PROJECT, "0.1.0", lock, dockerfile="Dockerfile.prod")
     assert findings == []
-    assert installed == [(PROJECT, "0.1.0"), ("terp-arch", TOOLCHAIN), ("terp-cli", TOOLCHAIN)]
+    assert installed == [(PROJECT, "0.1.0"), ("terp-arch", TOOLCHAIN), ("terp-cli", TOOLCHAIN), ("terp-core", CORE)]
 
 
 def _change(tree: Tree, change) -> list[str]:  # type: ignore[no-untyped-def]

@@ -44,7 +44,10 @@
   [ADR 0219](0219-a-release-builds-its-conformance-suite-into-an-image-of-its-own.md), proposed
   that day: a checkout that commits `conformance/package-lock.json` gets a fifth generated file,
   `conformance/Dockerfile.prod`, on a fifth base, Playwright's; the plan builds it as an image no
-  service runs; and `sign` records it as `outputs.suite` (decision 6).
+  service runs; and `sign` records it as `outputs.suite` (decision 6). Amended 2026-11-24 by
+  [ADR 0220](0220-a-deploy-tools-edge-adds-its-hop-and-a-release-records-the-framework-it-runs.md),
+  proposed that day: `sign` records the `terp-core` the lock pins as `inputs.framework`, and
+  refuses a lock that pins no single one (decision 6).
 - **Date:** 2026-10-21
 - **Relates:** amends [ADR 0062](0062-production-deployment-profile.md) decisions 1 to 4, on top
   of its 2026-10-21 amendment; amends [ADR 0184](0184-a-deployment-declares-its-units.md)

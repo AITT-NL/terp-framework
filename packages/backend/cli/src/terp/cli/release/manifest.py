@@ -4,7 +4,9 @@ ADR 0187 decision 6. Serialised canonically (sorted keys, no whitespace, UTF-8, 
 signed as a DSSE envelope (:mod:`terp.cli.release.dsse`). Three sections:
 
 * ``inputs``, recomputed by ``sign`` from the commit's tree, so two cold builds of one commit
-  with one tag give the same bytes: the commit, the tag, the toolchain, the Terp Standard
+  with one tag give the same bytes: the commit, the tag, the toolchain, the framework the
+  release runs (the ``terp-core`` its lock pins, which a deploy tool reads to know what the
+  app's runtime does, ADR 0220), the Terp Standard
   release the declaration was written against and its schema's SHA-256, the build state, the
   generator's files, the project root's place in the checkout, the development profile a deploy
   tool keeps apart, the declaration and every profile file with its content, the base images, the datastore table
@@ -144,6 +146,7 @@ def inputs(
     *,
     tag: str,
     toolchain: dict[str, str],
+    framework: dict[str, str],
     spec: dict[str, str],
     generator: dict[str, Any] | None,
     datastore_table: dict[str, Any],
@@ -167,6 +170,7 @@ def inputs(
         "commit": {"sha": tree.commit, "tree": tree.tree},
         "releaseTag": tag,
         "toolchain": toolchain,
+        "framework": framework,
         "spec": spec,
         "build": plan.declaration.build,
         "projectRoot": PROJECT_ROOT,

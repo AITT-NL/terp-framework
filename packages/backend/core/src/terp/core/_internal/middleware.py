@@ -209,14 +209,14 @@ class ClientIpMiddleware(BaseHTTPMiddleware):
             return
         self._warned_about_forwarding = True
         _logger.warning(
-            "a request arrived carrying X-Forwarded-For but SecurityConfig declares "
-            "trusted_proxy_hops=0, so the header is ignored and every caller is keyed "
-            "on the direct peer — behind a reverse proxy that is the PROXY's address, "
-            "collapsing the rate limit and every other per-caller control into one "
-            "shared bucket for the whole deployment. Declare the number of proxy hops "
-            "you actually run behind (SecurityConfig(trusted_proxy_hops=1) for a single "
-            "front proxy). If this app is directly exposed, the header was "
-            "client-supplied and ignoring it is correct — this line will not repeat."
+            "X-Forwarded-For arrived, but trusted_proxy_hops=0 and no TERP_EDGE_HOPS adds a "
+            "hop, so the header is ignored and every caller is keyed on the direct peer: behind "
+            "a proxy, the PROXY's address, making every per-caller control one shared bucket. "
+            "Declare your own code's proxies, SecurityConfig(trusted_proxy_hops=1) for one "
+            "such as a web unit's nginx. A deploy tool's own edge is never declared there: "
+            "that tool sets TERP_EDGE_HOPS on the units behind it. If this app is directly "
+            "exposed, the header was client-supplied and ignoring it is correct; this line "
+            "will not repeat."
         )
 
     async def dispatch(self, request: Request, call_next: _CallNext) -> Response:

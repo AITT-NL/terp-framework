@@ -1,11 +1,12 @@
 """What the settings object contributes to a control plane, resolved before any boot check.
 
-A control plane is source, built once and run in several environments. Two of its values
+A control plane is source, built once and run in several environments. Three of its values
 are facts of an environment and not of the source: the service principal a declared job's
-writes are stamped with (ADR 0129), and the browser origins that may call the API (ADR
-0210). The app declares that it takes each from its environment, and ``create_app``
-resolves them here, before it reads a single production refusal: resolving afterwards
-would refuse a boot over a value the process already had.
+writes are stamped with (ADR 0129), the browser origins that may call the API (ADR 0210),
+and the proxy hop a deploy tool's edge puts in front of it (ADR 0220). The app declares
+that it takes the first two from its environment; the third is the deploy tool's alone.
+``create_app`` resolves them here, before it reads a single production refusal: resolving
+afterwards would refuse a boot over a value the process already had.
 """
 
 from __future__ import annotations
@@ -76,7 +77,37 @@ def _with_environment_cors(plane: ControlPlane) -> tuple[ControlPlane, str | Non
     ), None
 
 
+def _with_edge_hops(plane: ControlPlane) -> ControlPlane:
+    """Add ``TERP_EDGE_HOPS``, the hop a deploy tool's edge puts in front, to the app's count.
+
+    ``SecurityConfig.trusted_proxy_hops`` counts the proxies the app puts in front of its
+    api itself, in its own code: one where a web unit's nginx appends the caller to
+    ``X-Forwarded-For``, none for an api-only app (ADR 0202). A deploy tool that serves the
+    app through an edge of its own adds a hop the source cannot know of, because one image
+    runs behind that edge in one environment and without it in another. Counted by neither,
+    every caller resolves to the address the last hop sees, and the rate limit, the login
+    lockout and the OIDC callback throttle become one shared bucket.
+
+    So the tool that runs the edge says so, and the count is the sum, whatever the source
+    declares (ADR 0220): the app never counts the edge's hop, and cannot refuse it. Said
+    once at boot, because a count that is not the one in the source is otherwise invisible.
+    """
+    edge = get_settings().TERP_EDGE_HOPS
+    if edge == 0:
+        return plane
+    declared = plane.security.trusted_proxy_hops
+    _logger.info(
+        "TERP_EDGE_HOPS adds the edge's %d proxy hop to the %d the control plane declares: "
+        "the caller is entry %d from the right of X-Forwarded-For",
+        edge,
+        declared,
+        declared + edge,
+    )
+    security = dataclasses.replace(plane.security, trusted_proxy_hops=declared + edge)
+    return dataclasses.replace(plane, security=security)
+
+
 def plane_from_settings(plane: ControlPlane) -> tuple[ControlPlane, str | None]:
     """*plane* with every value it takes from the environment filled in, and the reason a
     setting cannot be taken, when one cannot: the composition root refuses the boot with it."""
-    return _with_environment_cors(_with_job_actor(plane))
+    return _with_environment_cors(_with_edge_hops(_with_job_actor(plane)))
