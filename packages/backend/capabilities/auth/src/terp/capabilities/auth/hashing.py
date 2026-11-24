@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from pwdlib import PasswordHash
 
+from terp.core import WeakPasswordError, get_settings
+
+from terp.capabilities.auth._demo import DEMO_PASSWORD
+
 _password_hash = PasswordHash.recommended()
 
 # Lazily-built fixed hash that `verify_password_dummy` burns a verification
@@ -12,7 +16,18 @@ _dummy_hash: str | None = None
 
 
 def hash_password(password: str) -> str:
-    """Hash *password* with Argon2 (per-password salt, recommended parameters)."""
+    """Hash *password* with Argon2 (per-password salt, recommended parameters).
+
+    In production the development seed's published demo password is refused, as a
+    ``WeakPasswordError`` naming it: every password and secret the platform stores is
+    hashed here, so no path (a seed, an admin, a sign-up, an app's own code) can set it on
+    a deployment, however the caller came by the value.
+    """
+    if password == DEMO_PASSWORD and get_settings().is_production:
+        raise WeakPasswordError(
+            "This is the development seed's published demo password, which production "
+            "refuses: bootstrap a real administrator with `terp user create`."
+        )
     return _password_hash.hash(password)
 
 

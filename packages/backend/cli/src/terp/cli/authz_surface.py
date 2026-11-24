@@ -215,12 +215,20 @@ def verdict(project_root: pathlib.Path, app_ref: str, note_prefix: str) -> Verdi
         f"  - {'widens' if entry['widens'] else 'narrows'}: {entry['change']}"
         for entry in ordered
     )
+    # Who decides comes before how to write the file. The remedy used to be the command
+    # alone, and the reader most likely to act on it is an agent whose job is a green
+    # check: it wrote the record and passed, which the app's own AGENTS.md forbids in so
+    # many words, and which made a widening nobody approved look like one somebody had.
     return Verdict(
         1,
         f"the authorization surface changed in {len(changes)} way(s) that "
         f"{SURFACE_ARTIFACT} does not record:\n{listing}\n\n"
-        "If every line above is intended, re-generate the baseline IN THE SAME CHANGE "
-        f"so a reviewer sees the diff:\n  {ADOPT_HINT}",
+        "Who can reach what is a person's decision, and the record is what they approved: "
+        "never write it again only to turn this check green. If a line is not intended, "
+        "change the code. If every line is intended, the person who approves access "
+        "changes accepts them (in Terp Studio, the app's owner approves it and Studio "
+        "writes the record), and the baseline is re-generated IN THE SAME CHANGE so a "
+        f"reviewer sees the diff:\n  {ADOPT_HINT}",
         _fields("changed", changes=changes),
     )
 
