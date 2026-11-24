@@ -1,4 +1,5 @@
-"""Jobs rule: enqueued / declared jobs are typed catalog constants, never bare strings.
+"""Jobs rules: enqueued / declared jobs are typed catalog constants, never bare strings; and a
+schedule says what a missed tick becomes.
 
 Background work carries the same no-drift guarantee as the event bus (ADR 0043 /
 ADR 0008): every job named anywhere — the ``job=`` of an ``enqueue(...)`` call and the
@@ -83,4 +84,59 @@ def check_jobs_reference_catalog(
                 violation = _job_ref_violation(value, rel, where)
                 if violation is not None:
                     violations.append(violation)
+    return violations
+
+
+#: The modules a schedule's definition is imported from, under any name the file gives it.
+_SCHEDULE_MODULES = frozenset({"terp.core", "terp.core.scheduling"})
+
+
+def _schedule_names(tree: ast.AST) -> set[str]:
+    """The names this file calls ``ScheduleDefinition`` by: its own, and any alias of it."""
+    names = {"ScheduleDefinition"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in _SCHEDULE_MODULES:
+            names.update(
+                alias.asname for alias in node.names if alias.name == "ScheduleDefinition" and alias.asname
+            )
+    return names
+
+
+def check_schedules_declare_misfire(
+    app_root: str | pathlib.Path, *, package: str = "app"
+) -> list[ArchViolation]:
+    """Every ``ScheduleDefinition(...)`` says what a missed tick becomes (ADR 0191, ADR 0222).
+
+    ``misfire`` is a required keyword-only field: a definition without it is a
+    ``TypeError`` where it is built, which is where the control plane is imported, before
+    ``create_app`` asks anything else. A start therefore named it alone, and only once
+    every refusal before it was fixed; the gate names every one with every other finding.
+    A call that passes ``**`` keywords may carry it, so it is not read as missing it.
+    """
+    root = pathlib.Path(app_root)
+    violations: list[ArchViolation] = []
+    for path in iter_python_files(root):
+        tree = parse(path)
+        rel = _rel(path, root)
+        names = _schedule_names(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            callee = node.func
+            named = (isinstance(callee, ast.Name) and callee.id in names) or (
+                isinstance(callee, ast.Attribute) and callee.attr == "ScheduleDefinition"
+            )
+            if not named or any(keyword.arg in ("misfire", None) for keyword in node.keywords):
+                continue
+            violations.append(
+                ArchViolation(
+                    "schedules_declare_misfire",
+                    rel,
+                    node.lineno,
+                    "ScheduleDefinition(...) declares no misfire=: say what a tick that fell "
+                    "due while no scheduler ran becomes, misfire=Misfire.RUN_ONCE or "
+                    "misfire=Misfire.SKIP (ADR 0191); without it the control plane does not "
+                    "import and the app does not start",
+                )
+            )
     return violations

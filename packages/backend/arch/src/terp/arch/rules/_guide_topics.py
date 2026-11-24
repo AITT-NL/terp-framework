@@ -62,6 +62,7 @@ GUIDE_TOPIC_BY_RULE: dict[str, str] = {
     "events_reference_catalog": "events",
     "emitted_events_are_declared": "events",
     "jobs_reference_catalog": "jobs",
+    "schedules_declare_misfire": "jobs",
     "operations_reference_catalog": "operations",
     "routes_declare_operation": "operations",
     "no_adhoc_config_decrypt": "capability",

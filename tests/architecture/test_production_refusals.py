@@ -125,14 +125,34 @@ def _scope_of(path: pathlib.Path, names: list[str]) -> str:
     return f"{module}::{'.'.join(names)}"
 
 
+def _is_kept_refusal(node: ast.AST) -> bool:
+    """``refusals.add(...)``: a refusal ``create_app`` keeps and raises with the others (ADR 0222).
+
+    It refuses the boot exactly as a ``raise`` there did, only later and together, so it is
+    one entry of the record like a ``raise``. Read as anything less, the record would lose
+    every refusal it moved, and the test would say so only as "no longer refused".
+    """
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "add"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "refusals"
+    )
+
+
 def _production_conditional_raises() -> dict[str, list[int]]:
-    """Scope -> line numbers of each ``raise`` under a ``settings.is_production`` test."""
+    """Scope -> line numbers of each refusal under a ``settings.is_production`` test.
+
+    A refusal is a ``raise``, or a refusal ``create_app`` keeps to raise with the others
+    (:func:`_is_kept_refusal`).
+    """
     found: dict[str, list[int]] = {}
 
     def walk(node: ast.AST, gated: bool, names: list[str], path: pathlib.Path) -> None:
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             names = [*names, node.name]
-        if gated and isinstance(node, ast.Raise):
+        if gated and (isinstance(node, ast.Raise) or _is_kept_refusal(node)):
             found.setdefault(_scope_of(path, names), []).append(node.lineno)
         for child in ast.iter_child_nodes(node):
             child_gated = gated
