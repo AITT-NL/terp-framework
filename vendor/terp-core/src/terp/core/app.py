@@ -90,7 +90,9 @@ from terp.core.request_authorization import (
 )
 from terp.core.passwords import configure_password_policy
 from terp.core.operations import OperationCatalog, OperationCoverage
-from terp.core.route_timestamps import request_timestamps_refusal
+from terp.core.route_timestamps import module_timestamps_refusal, request_timestamps_refusal
+from terp.core._boot_refusals import Refusals
+from terp.core._requires_graph import _find_requires_cycle
 from terp.core.authz_surface import startup_refusal
 from terp.core.boot_checks import boot_check_refusal
 from terp.core.composition_freeze import freeze_app_route_registration
@@ -467,34 +469,6 @@ def validate_requires(specs: Sequence[ModuleSpec]) -> None:
             "be one-way — extract the shared concept, or invert the weaker direction "
             "into an event subscription (fix recipe: terp guide dependencies)"
         )
-
-
-def _find_requires_cycle(graph: Mapping[str, frozenset[str]]) -> list[str] | None:
-    """One cycle in *graph* as a node path (first node repeated last), or ``None``."""
-    WHITE, GREY, BLACK = 0, 1, 2
-    colour = dict.fromkeys(graph, WHITE)
-    stack: list[str] = []
-
-    def visit(node: str) -> list[str] | None:
-        colour[node] = GREY
-        stack.append(node)
-        for target in sorted(graph.get(node, frozenset())):
-            if colour.get(target, BLACK) == GREY:
-                return [*stack[stack.index(target):], target]
-            if colour.get(target, BLACK) == WHITE:
-                found = visit(target)
-                if found is not None:
-                    return found
-        colour[node] = BLACK
-        stack.pop()
-        return None
-
-    for name in sorted(graph):
-        if colour[name] == WHITE:
-            found = visit(name)
-            if found is not None:
-                return found
-    return None
 
 
 def _validate_unique_spec_names(specs: Sequence[ModuleSpec]) -> None:
@@ -2080,81 +2054,88 @@ def create_app(
         except Exception as exc:
             raise BootError(f"capability discovery failed: {exc}") from exc
 
-    _validate_unique_spec_names(collected)
-    validate_requires(collected)
-    resolved_plane, unusable = plane_from_settings(control_plane or ControlPlane.default())
-    if unusable is not None:
-        raise BootError(f"{unusable} — see: terp guide security")
-    plane_errors = resolved_plane.validation_errors(collected)
-    if plane_errors:
-        raise BootError("; ".join(plane_errors))
-    _validate_permission_enforcement(collected, permission_enforcer)
-    _validate_subscriptions_have_handlers(collected)
-    _validate_no_inert_declarations(collected)
-    _validate_token_revocation(principal_provider, require_token_revocation)
-    validate_policy_write_tiers(collected)
-    # Private, unlike its neighbours: ADR 0148's control is not cited by the Terp
-    # Standard's catalog as a runtime enforcement ref, so it carries no promise of a
-    # stable spelling and takes the underscore the others had to give up.
-    _validate_public_routes_are_declared(collected)
-    _validate_module_routes_are_guarded(collected)
-    validate_public_modules_read_only(collected)
-    _validate_read_only_modules(collected)
-    validate_declared_operations(collected, resolved_plane.operations)
-    _apply_declared_operations(collected)
-    _validate_route_permissions_are_declared(collected, resolved_plane)
-    _validate_module_rank_resolution(collected, module_rank_resolver)
-    _validate_permission_labels(resolved_plane)
-    validate_background_jobs_preserve_ownership(collected)
-    _validate_shared_throttle_store(throttle_store, require_shared_throttle_store)
-    _validate_durable_jobs(job_queue, require_durable_jobs)
-    _validate_shared_cache_store(cache_store, require_shared_cache_store)
-    _validate_shared_idempotency_store(idempotency_store, require_shared_idempotency_store)
-    _validate_durable_leases(lease_store, require_durable_leases)
-    _validate_durable_schedules(schedule_ledger, require_durable_schedules)
-    readiness = _mandatory_store_probes(
-        {
-            "throttle_store": (throttle_store, require_shared_throttle_store),
-            "cache_store": (cache_store, require_shared_cache_store),
-            "idempotency_store": (idempotency_store, require_shared_idempotency_store),
-        }
-    )
-
-    settings = get_settings()
-    if settings.is_production:
-        _warn_unshared_idempotency_in_production(
-            idempotency_store, require_shared_idempotency_store
+    # Every check below is a question about the declarations alone, asked before anything is
+    # configured, and every refusal is kept and raised together at the end (ADR 0222).
+    refusals = Refusals(BootError)
+    with refusals:
+        check = refusals.check
+        check(_validate_unique_spec_names, collected)
+        check(validate_requires, collected)
+        resolved_plane, unusable = plane_from_settings(control_plane or ControlPlane.default())
+        if unusable is not None:
+            raise BootError(f"{unusable} — see: terp guide security")
+        plane_errors = resolved_plane.validation_errors(collected)
+        refusals.add("; ".join(plane_errors) if plane_errors else None)
+        check(_validate_permission_enforcement, collected, permission_enforcer)
+        check(_validate_subscriptions_have_handlers, collected)
+        check(_validate_no_inert_declarations, collected)
+        check(_validate_token_revocation, principal_provider, require_token_revocation)
+        check(validate_policy_write_tiers, collected)
+        # Private, unlike its neighbours: ADR 0148's control is not cited by the Terp
+        # Standard's catalog as a runtime enforcement ref, so it carries no promise of a
+        # stable spelling and takes the underscore the others had to give up.
+        check(_validate_public_routes_are_declared, collected)
+        check(_validate_module_routes_are_guarded, collected)
+        check(validate_public_modules_read_only, collected)
+        check(_validate_read_only_modules, collected)
+        check(validate_declared_operations, collected, resolved_plane.operations)
+        _apply_declared_operations(collected)
+        check(_validate_route_permissions_are_declared, collected, resolved_plane)
+        check(_validate_module_rank_resolution, collected, module_rank_resolver)
+        check(_validate_permission_labels, resolved_plane)
+        check(validate_background_jobs_preserve_ownership, collected)
+        check(_validate_shared_throttle_store, throttle_store, require_shared_throttle_store)
+        check(_validate_durable_jobs, job_queue, require_durable_jobs)
+        check(_validate_shared_cache_store, cache_store, require_shared_cache_store)
+        check(_validate_shared_idempotency_store, idempotency_store, require_shared_idempotency_store)
+        check(_validate_durable_leases, lease_store, require_durable_leases)
+        check(_validate_durable_schedules, schedule_ledger, require_durable_schedules)
+        readiness = _mandatory_store_probes(
+            {
+                "throttle_store": (throttle_store, require_shared_throttle_store),
+                "cache_store": (cache_store, require_shared_cache_store),
+                "idempotency_store": (idempotency_store, require_shared_idempotency_store),
+            }
         )
-        _warn_unshared_throttle_in_production(throttle_store, require_shared_throttle_store)
-        _warn_loosened_capability_limit_in_production(collected, resolved_plane.security)
-        security_problems = resolved_plane.security.production_problems()
-        if security_problems:
-            raise BootError(
-                "insecure production security config: "
-                + "; ".join(security_problems)
-                + " — see: terp guide security"
+
+        settings = get_settings()
+        if settings.is_production:
+            _warn_unshared_idempotency_in_production(
+                idempotency_store, require_shared_idempotency_store
             )
-        password_problems = resolved_plane.passwords.production_problems()
-        if password_problems:
-            raise BootError(
-                "insecure production password policy: "
-                + "; ".join(password_problems)
-                + " — see: terp guide passwords"
-            )
-        if resolved_plane.audit.enabled and not is_durable_audit_sink(audit_sink):
-            raise BootError(
-                "audit is enabled but no marked durable audit sink is installed; "
-                "production must persist its audit trail — pass audit_sink=... from "
-                "the durable audit capability (e.g. terp.capabilities.audit.persist_audit) "
-                "or turn audit off explicitly with AuditPolicy.disabled(reason=...)"
-            )
-        plane_problems = resolved_plane.production_problems()
-        if plane_problems:
-            raise BootError(
-                "unattributable background writes: " + "; ".join(plane_problems)
-            )
-    else:
-        _warn_unstamped_background_writes(resolved_plane)
+            _warn_unshared_throttle_in_production(throttle_store, require_shared_throttle_store)
+            _warn_loosened_capability_limit_in_production(collected, resolved_plane.security)
+            security_problems = resolved_plane.security.production_problems()
+            if security_problems:
+                refusals.add(
+                    "insecure production security config: "
+                    + "; ".join(security_problems)
+                    + " — see: terp guide security"
+                )
+            password_problems = resolved_plane.passwords.production_problems()
+            if password_problems:
+                refusals.add(
+                    "insecure production password policy: "
+                    + "; ".join(password_problems)
+                    + " — see: terp guide passwords"
+                )
+            if resolved_plane.audit.enabled and not is_durable_audit_sink(audit_sink):
+                refusals.add(
+                    "audit is enabled but no marked durable audit sink is installed; "
+                    "production must persist its audit trail — pass audit_sink=... from "
+                    "the durable audit capability (e.g. terp.capabilities.audit.persist_audit) "
+                    "or turn audit off explicitly with AuditPolicy.disabled(reason=...)"
+                )
+            plane_problems = resolved_plane.production_problems()
+            if plane_problems:
+                refusals.add(
+                    "unattributable background writes: " + "; ".join(plane_problems)
+                )
+        else:
+            _warn_unstamped_background_writes(resolved_plane)
+        # The modules' own routes, as they will be served, before anything is mounted: the
+        # same check runs again once every router is, the framework's own included.
+        refusals.add(module_timestamps_refusal(collected))
 
     if migration_check is not None:
         migration_check(get_engine())
