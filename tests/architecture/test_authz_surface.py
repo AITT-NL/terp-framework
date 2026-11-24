@@ -299,6 +299,13 @@ def test_a_baseline_that_does_not_match_fails_with_a_readable_report(
     # reviewer sees the diff.
     assert "--format surface" in output
     assert "SAME CHANGE" in output
+    # ...and, before the command, whose decision it is: the app's AGENTS.md forbids writing
+    # the record only to turn the check green, and a remedy that offered the command alone
+    # told the reader most likely to act on it (an agent) to do exactly that.
+    decision = output.index("person's decision")
+    assert decision < output.index("--format surface")
+    assert "never write it again only to turn this check green" in output
+    assert "the app's owner approves it" in output
 
 
 def _probe_app():
