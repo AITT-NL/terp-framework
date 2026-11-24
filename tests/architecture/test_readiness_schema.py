@@ -19,7 +19,13 @@ not when a running stack's code gains one.
 from __future__ import annotations
 
 import functools
+import importlib.util
+import pathlib
+import re
+import sys
+import types
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,6 +33,8 @@ from sqlalchemy import Engine
 
 from terp.core import create_app
 from terp.core.health import SCHEMA_CHECK, schema_probe
+
+_REPO = pathlib.Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(autouse=True)
@@ -164,3 +172,82 @@ def test_the_migration_guard_itself_turns_readiness_red_then_green(file_database
     orchestrate.upgrade(file_database, schema_layout="flat")
 
     assert client.get("/health/ready").status_code == 200
+
+
+# --------------------------------------------------------------------------- #
+# the composition roots that ship it                                          #
+# --------------------------------------------------------------------------- #
+#: Every toggle block in the template's ``app/main.py``, resolved as copier resolves it for an
+#: app that answers no to each: the file then reads as the Python it renders to.
+_TOGGLE = re.compile(r"\{%-? if [a-z_]+ %\}.*?\{%-? endif %\}", re.DOTALL)
+
+
+def _template_root() -> str:
+    text = (_REPO / "template" / "project" / "app" / "main.py.jinja").read_text(encoding="utf-8")
+    rendered = _TOGGLE.sub("", text).replace("{{ project_name }}", "Example App")
+    assert "{%" not in rendered and "{{" not in rendered, "a Jinja construct this does not resolve"
+    return rendered
+
+
+def _reference_root() -> str:
+    return (_REPO / "apps" / "reference" / "overlay" / "app" / "main.py").read_text(encoding="utf-8")
+
+
+def _composed(
+    source: str, root: pathlib.Path, monkeypatch: pytest.MonkeyPatch, *, production: bool
+) -> dict[str, Any]:
+    """Run a composition root as its process would, and return what it gives ``create_app``.
+
+    The root's own code runs; its sibling modules (the app's auth and modules, its control
+    plane) are stand-ins, and ``create_app`` records its keywords instead of composing.
+    """
+    import terp.core
+    from terp.core.config import settings
+
+    import terp.capabilities.mail
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production" if production else "development")
+    given: dict[str, Any] = {}
+    monkeypatch.setattr(terp.core, "create_app", lambda modules, **keywords: given.update(keywords))
+    monkeypatch.setattr(terp.capabilities.mail, "configure_mail", lambda mail_settings: None)
+    stand_in = types.SimpleNamespace(
+        login_module=object(), me_module=object(), principal_provider=object(),
+        module=object(), control_plane=object(),
+    )
+    for name in ("app", "app.auth", "app.modules", "app.modules.notices",
+                 "app.modules.notices.module", "control_plane"):
+        module = types.ModuleType(name)
+        module.__dict__.update(vars(stand_in))
+        monkeypatch.setitem(sys.modules, name, module)
+    path = root / "app" / "main.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("app.main", path)
+    assert spec is not None and spec.loader is not None
+    spec.loader.exec_module(importlib.util.module_from_spec(spec))
+    return given
+
+
+@pytest.mark.parametrize("source", [_template_root, _reference_root], ids=["template", "reference"])
+@pytest.mark.parametrize("production", [False, True], ids=["development", "production"])
+def test_the_shipped_composition_roots_ask_readiness_the_boot_guard_s_question(
+    source, production: bool, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The template, and the reference app that renders it, pass the guard to readiness always.
+
+    In every environment readiness gets the boot guard over the app's own migrations; in
+    production the boot guard gets that very object too, which is what tells readiness the
+    boot already asked (the test above), and outside it the boot guard is off.
+    """
+    from terp.migrations import assert_migrations_current
+
+    given = _composed(source(), tmp_path, monkeypatch, production=production)
+
+    readiness = given["migration_readiness"]
+    assert isinstance(readiness, functools.partial)
+    assert readiness.func is assert_migrations_current
+    assert readiness.keywords == {"app_root": (tmp_path / "app").resolve(), "package": "app"}
+    if production:
+        assert given["migration_check"] is readiness
+    else:
+        assert given["migration_check"] is None

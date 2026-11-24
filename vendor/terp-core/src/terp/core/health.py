@@ -182,34 +182,53 @@ class _BoundedProbe:
     A store that never answers must not hold the readiness answer, and must not cost a thread
     per probe while it hangs: the thread of a probe that ran past the bound is abandoned, and
     until it returns every later ask is answered "not ready" at once, without a new thread.
+
+    An ask claims the store before it waits for a thread, not once the thread runs, so two
+    probes arriving together cannot both find it free. The claim is given back by the thread
+    when the probe returns, or by the ask itself when it gave up before any thread took the
+    probe up; a thread that takes it up after that runs nothing.
     """
 
     def __init__(self, name: str, timeout: float) -> None:
         self.name = name
         self._timeout = timeout
         self._lock = Lock()
-        self._running = False
+        #: The ask holding this store, from its claim until its probe returns.
+        self._claim: object | None = None
+        #: The ask whose probe a thread has taken up.
+        self._started: object | None = None
 
-    def _call(self, probe: ReadinessProbe) -> None:
+    def _call(self, probe: ReadinessProbe, ask: object) -> None:
         with self._lock:
-            self._running = True
+            if self._claim is not ask:
+                return  # the ask gave up before this thread took its probe up
+            self._started = ask
         try:
             probe()
         finally:
             with self._lock:
-                self._running = False
+                self._claim = self._started = None
+
+    def _give_back(self, ask: object) -> None:
+        """Release *ask*'s claim if no thread took its probe up; a running probe keeps it."""
+        with self._lock:
+            if self._claim is ask and self._started is not ask:
+                self._claim = None
 
     async def passes(self, probe: ReadinessProbe) -> bool:
+        ask = object()
         with self._lock:
-            running = self._running
-        if running:
+            held = self._claim is not None
+            if not held:
+                self._claim = ask
+        if held:
             _logger.error(
                 "readiness check %r failed: its previous probe has not answered yet", self.name
             )
             return False
         try:
             with anyio.fail_after(self._timeout):
-                await anyio.to_thread.run_sync(self._call, probe, abandon_on_cancel=True)
+                await anyio.to_thread.run_sync(self._call, probe, ask, abandon_on_cancel=True)
         except TimeoutError:
             _logger.error(
                 "readiness check %r failed: no answer within %.1fs", self.name, self._timeout
@@ -218,6 +237,8 @@ class _BoundedProbe:
         except Exception as exc:
             _logger.error("readiness check %r failed", self.name, exc_info=exc)
             return False
+        finally:
+            self._give_back(ask)
         return True
 
 
