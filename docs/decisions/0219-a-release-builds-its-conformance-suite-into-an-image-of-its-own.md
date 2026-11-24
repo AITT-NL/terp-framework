@@ -1,6 +1,6 @@
 # 0219 — A release builds its conformance suite into an image of its own
 
-- **Status:** Proposed on 2026-11-23. Built in 0.44.0, unreleased. Held by
+- **Status:** Proposed on 2026-11-23. Built in 0.44.0. Held by
   `tests/architecture/test_release_suite.py` (the render, the base, the plan, `sign` and the
   manifest's reader), `test_deployment_generator.py` and `test_deployment_generated.py` (the
   generator's owned paths and modules), and `test_cli_verify.py`'s manifest fixture (the

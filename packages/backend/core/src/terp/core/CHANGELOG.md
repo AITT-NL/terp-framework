@@ -10,7 +10,7 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
-## 0.44.0 — unreleased
+## 0.44.0 — 2026-11-23
 
 ### Added
 
@@ -21,10 +21,6 @@ decision, 0001 onwards.
   builds it as `<project>-conformance-prod`, an image no service runs; and `sign` records it as
   `outputs.suite`: the image, the command it runs, the web unit it drives and the names of the
   three variables it reads. Nothing changes for an app without a suite.
-- **Upgrading:** an app that commits its suite's lock is told by `terp verify --only generated`
-  to run `uv run terp deployment render` and commit `conformance/Dockerfile.prod`. Its
-  `@playwright/test` must be the base image's release, 1.62.1; the build names the version to
-  pin where it is not. An app with more than one web unit of its own is refused a suite.
 - **The calendar of `DatePicker` and `DateRangePicker` steps a year at a time.** Two buttons
   outside the month arrows, « and », go back and forward a year, and in the grid Shift+PageUp
   and Shift+PageDown do the same, as in the APG date picker dialog. A date a few years off was
@@ -92,6 +88,17 @@ decision, 0001 onwards.
 
 ### Upgrade notes
 
+- **A generated app that commits `conformance/package-lock.json` takes
+  `conformance/Dockerfile.prod` with `uv run terp deployment render`,** and
+  `terp verify --only generated` is red until it does. Its `@playwright/test` must be the base
+  image's release, 1.62.1; the build names the version to pin where it is not. An app is
+  refused a suite unless it has exactly one web unit of its own.
+- **A release that builds the conformance suite pulls from `mcr.microsoft.com`.** The suite's
+  image builds on `mcr.microsoft.com/playwright`, by digest, so a builder behind an allowlist
+  or a registry mirror needs that host.
+- **`terp release build` pushes one more image, `<project>-conformance-prod`, under
+  `--registry`, and `sign` reads it.** A registry that needs a repository, or a per-repository
+  credential, created before the first push needs one for that image too.
 - **A non-English framework catalog of an app's own supplies two new keys.** `previousYear`
   ("Previous year") and `nextYear` ("Next year"), the names of the calendar's year buttons.
   `LocaleProvider` and `defineAppLocales` refuse a catalog without them at start, naming the
