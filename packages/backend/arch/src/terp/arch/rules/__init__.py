@@ -116,7 +116,12 @@ from terp.arch.rules.migrations import (
     check_table_ownership_is_not_split,
 )
 from terp.arch.rules.expand import check_expand_revisions_only_expand
-from terp.arch.rules.jobs import check_jobs_reference_catalog
+from terp.arch.rules.jobs import check_jobs_reference_catalog, check_schedules_declare_misfire
+from terp.arch.rules._rule_kinds import (  # re-exported: the registry's importers ask here
+    PROJECT_ROOT_RULES,
+    RULES_ESCAPED_BY_THEIR_DECLARATION,
+    RULES_WITHOUT_AN_OPT_OUT,
+)
 from terp.arch.rules.patching import check_no_framework_patching
 from terp.arch.rules.operations import (
     check_operations_reference_catalog,
@@ -201,6 +206,7 @@ RULE_ROOT_KINDS: dict[str, frozenset[RootKind]] = {
     "no_framework_patching": EVERY_ROOT,
     "no_star_imports": EVERY_ROOT,
     "no_blocking_sleep": EVERY_ROOT,
+    "schedules_declare_misfire": EVERY_ROOT,
     "no_print": EVERY_ROOT,
     "no_todo_fixme": EVERY_ROOT,
     "no_mutable_default_args": EVERY_ROOT,
@@ -366,6 +372,7 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_events_reference_catalog,
     check_emitted_events_are_declared,
     check_jobs_reference_catalog,
+    check_schedules_declare_misfire,
     check_operations_reference_catalog,
     check_routes_declare_operation,
     check_no_adhoc_config_decrypt,
@@ -409,31 +416,6 @@ _ALL_RULES: tuple[Callable[..., list[ArchViolation]], ...] = (
     check_deployment_declaration_tells_the_truth,
     check_deployment_generated_files_match_their_render,
 )
-
-#: Rules that read the PROJECT root -- the directory holding the app root, where
-#: ``deployment.json`` and its profile live -- rather than the app package itself.
-#: :func:`check_app` hands each of them the parent of the root it scans.
-PROJECT_ROOT_RULES: frozenset[str] = frozenset(
-    {
-        "deployment_declaration_is_readable",
-        "deployment_declaration_tells_the_truth",
-        "deployment_generated_files_match_their_render",
-    }
-)
-
-#: Rules whose subject is a checked-in declaration that cannot carry an inline marker
-#: (a JSON file has no comments). Their one way out is a state of the declaration
-#: itself, so no ``# arch-allow-*`` token names them and none may be budgeted. Mirrors
-#: the Terp Standard's own list (its catalog field ``escape`` replaces ``opt_out``).
-RULES_ESCAPED_BY_THEIR_DECLARATION: frozenset[str] = PROJECT_ROOT_RULES
-
-#: Rules with no way out at all, because the way out is the rule's own subject. A revision
-#: marked ``expand_only = True`` that needs an operation off the expand list is a contract
-#: revision, and saying so (``expand_only = False``) costs only restore-free rollback for
-#: its release (ADR 0185). So no ``# arch-allow-*`` marker suppresses one of these, and
-#: the budget refuses a token naming one. Mirrors the Terp Standard's own list (the
-#: catalog entry declares neither ``opt_out`` nor ``escape``).
-RULES_WITHOUT_AN_OPT_OUT: frozenset[str] = frozenset({"expand_revisions_only_expand"})
 
 
 def check_app(
@@ -582,6 +564,7 @@ __all__ = [
     "check_list_routes_paginate",
     "check_input_str_fields_have_max_length",
     "check_jobs_reference_catalog",
+    "check_schedules_declare_misfire",
     "check_modules_declare_policy",
     "check_mutations_emit_audit",
     "check_mutations_require_write_role",

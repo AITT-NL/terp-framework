@@ -1,0 +1,27 @@
+{
+  "id": "backend/schedules_declare_misfire",
+  "surface": "backend",
+  "title": "A schedule says what a missed tick becomes",
+  "intent": "A tick that fell due while no scheduler ran either runs once, late, or is skipped, and which is right is a property of the work that only its author knows: an hourly snapshot taken late is still worth having, a reminder sent for an hour that has passed is not. So a schedule's definition declares it, and one that does not is refused where it is written. Without it the definition fails as the control plane is imported, before the app asks any other question at its start, so the gate names every such definition together with every other finding instead of a start naming them one at a time.",
+  "layer": "static-portable",
+  "enforcement": [
+    {
+      "kind": "build-time",
+      "tool": "terp.arch",
+      "ref": "check_schedules_declare_misfire"
+    },
+    {
+      "kind": "runtime",
+      "tool": "terp.core",
+      "ref": "ScheduleDefinition"
+    }
+  ],
+  "reference": "A call to ScheduleDefinition(...) without misfire= is refused: by that name, by a name the file imports it under from terp.core or terp.core.scheduling, and as an attribute (core.ScheduleDefinition(...)). Pass misfire=Misfire.RUN_ONCE or misfire=Misfire.SKIP (ADR 0191). A call that passes keywords with ** may carry it, so it is not read as missing it.",
+  "opt_out": "# arch-allow-schedules-declare-misfire: <reason>",
+  "runtime": {
+    "applicability": "required",
+    "rationale": "The definition holds the invariant itself: misfire is a required keyword-only field of ScheduleDefinition, so a definition without it is a TypeError where it is built, and one with any other value is refused in its __post_init__, naming the two it takes. That is where the control plane is imported, before create_app collects its refusals (ADR 0222), so the start names it alone. The build-time half exists so the gate names every such definition at once, beside every other finding (ADR 0222)."
+  },
+  "guide_topic": "jobs",
+  "corpus": true
+}

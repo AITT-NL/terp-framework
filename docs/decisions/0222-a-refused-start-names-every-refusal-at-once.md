@@ -2,8 +2,9 @@
 
 - **Status:** Proposed on 2026-11-24. Held by `tests/architecture/test_boot_refusals.py`
   (several refusals together, one refusal unchanged, the production refusals together, where
-  the checks stop, nothing configured while refused, and the routes read as served) and by
-  every existing test of a single refusal, whose words are unchanged.
+  the checks stop, nothing configured while refused, and the routes read as served), by
+  every existing test of a single refusal, whose words are unchanged, and by the
+  `schedules_declare_misfire` rule's corpus and `test_arch_harness.py`.
 - **Date:** 2026-11-24.
 - **Relates:** changes how [ADR 0148](0148-a-route-declares-its-own-posture-not-its-neighbours.md),
   [ADR 0208](0208-a-route-holds-every-timestamp-it-reads-to-its-offset.md) and every
@@ -60,29 +61,37 @@ them arrive one by one.
    declarations passed. The comparison in particular is never combined with another refusal:
    a deploy tool tells it apart from the rest, and an app refused for something else is not
    the app the record describes.
+6. **What fails before `create_app` is read at build time instead.** A schedule declared
+   without its missed-tick setting is a `TypeError` where the control plane is imported
+   (`ScheduleDefinition.misfire` is a required keyword, ADR 0191), so the app never reaches
+   the checks this collects. A rule, `schedules_declare_misfire`, refuses every
+   `ScheduleDefinition(...)` without `misfire=` (by its name, a name it is imported under, or
+   as an attribute), so `terp check` names every one with every other finding. The definition
+   itself stays the runtime half. A call that passes `**` keywords may carry it and is not
+   read as missing it.
 
 ## Consequences
 
-- **An app upgraded across many releases meets its declaration refusals in one start.** The
-  two the report met in sequence after the first, a public route's policy and a timestamp
-  without its offset, now arrive together.
+- **An app upgraded across many releases meets its refusals in two runs, not one per
+  requirement.** `terp check` names every schedule without its missed-tick setting with every
+  other finding; one start then names every declaration refusal, a public route's policy and
+  a timestamp without its offset among them.
 - **A deploy tool reading a refused start's log gets every refusal.** Studio reads the
   sentence after `BootError:` (up to 4000 characters) and recognises the access-record
   refusal by its own words, which this never combines with another; the runner's planned
   boot-preflight reports the app's own message, which now lists all of them.
 - **Each module route's parameters are read twice at boot**, before and after mounting: a walk
   of each route's dependencies, once per process.
-- **`create_app`'s module made room.** The cycle finder of `validate_requires` moves,
-  unchanged, into `terp.core._requires_graph`, so `app.py` shrinks (2281 to 2262 lines in
-  `OVERSIZED.json`).
+- **Two modules on their size record made room.** The cycle finder of `validate_requires`
+  moves, unchanged, into `terp.core._requires_graph`, so `app.py` shrinks (2281 to 2262 lines
+  in `OVERSIZED.json`); the rule registry's three classifications of rules by their way out
+  move, unchanged, into `terp.arch.rules._rule_kinds`, so it shrinks too (659 to 642).
 
 ## Not done
 
-- **A requirement that fails before `create_app` is not among them.** A schedule declared
-  without its missed-tick setting is a `TypeError` where the control plane is imported
-  (`ScheduleDefinition.misfire` is a required keyword, ADR 0191), so the app never reaches
-  the checks this collects. A build-time rule that reads every `ScheduleDefinition` for it
-  would let `terp check` list it with every other finding; it is not part of this decision.
+- **Other failures before `create_app` stay one per start.** An import error in an app's own
+  code, or a module-level refusal other than a schedule's, stops the import where it happens;
+  only the schedule's has a rule of its own.
 - **The checks after mounting are still asked after the declarations passed**, and the tuple
   schemas only once the app is built: they need the finished app.
 
