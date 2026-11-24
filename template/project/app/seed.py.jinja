@@ -19,15 +19,15 @@ from sqlmodel import Session
 
 from terp.core import Roles
 
+from terp.capabilities.auth import DEMO_PASSWORD
 from terp.capabilities.users import UserProvision, UsersService
 
 _ADMIN_EMAIL = "admin@example.test"
-# Dev-only demo credentials — meaningless outside a throwaway development database
-# (`terp seed` refuses to run in production). The password satisfies the default
-# PasswordPolicy. `no_hardcoded_credentials` reads every file of the app root rather
-# than only `modules/` (ADR 0136), so this line needs the marker: the seed login is the
-# one credential whose whole purpose is to be printed, shared and known.
-_DEMO_PASSWORD = "correct horse battery staple"  # noqa: S105 - dev seed, not a real secret  # arch-allow-no-hardcoded-credentials: the demo login for a seed `terp seed` refuses to run in production; the whole point is that it is printed, shared and known
+# The password is the framework's DEMO_PASSWORD, the one every development seed signs in
+# with: it satisfies the default PasswordPolicy, and `terp seed` refuses to run in
+# production. Keep the literal out of this file. `no_hardcoded_credentials` reads every
+# file of the app root (ADR 0136), so a literal here needs a governed marker and a count
+# in the app's own escape-hatch budget.
 
 
 def seed(session: Session) -> str:
@@ -35,6 +35,6 @@ def seed(session: Session) -> str:
     users = UsersService()
     users.ensure_user(
         session,
-        UserProvision(email=_ADMIN_EMAIL, password=_DEMO_PASSWORD, role=int(Roles.ADMIN)),
+        UserProvision(email=_ADMIN_EMAIL, password=DEMO_PASSWORD, role=int(Roles.ADMIN)),
     )
     return f"seeded admin ({_ADMIN_EMAIL})"

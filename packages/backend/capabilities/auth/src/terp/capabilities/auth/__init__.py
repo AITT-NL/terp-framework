@@ -16,6 +16,7 @@ from terp.capabilities.auth.deps import (
     get_principal,
     tenant_from_bearer,
 )
+from terp.capabilities.auth.demo import DEMO_PASSWORD
 from terp.capabilities.auth.hashing import (
     hash_password,
     verify_password,
@@ -107,6 +108,7 @@ __all__ = [
     "ClientCredentialsRequest",
     "CurrentUser",
     "CurrentUserResolver",
+    "DEMO_PASSWORD",
     "FALLBACK_VERIFY_WINDOW",
     "LoginRequest",
     "LoginTenantResolver",

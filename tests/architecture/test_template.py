@@ -334,10 +334,10 @@ def test_docs_teach_venv_correct_commands() -> None:
 
 
 def test_every_gate_run_the_readme_teaches_passes_the_budget() -> None:
-    # Every generated app carries a governed escape hatch (app/seed.py) counted in its
-    # escape-hatch-budget.json, and `terp check` without `--budget` reports that marker as
-    # ungoverned. A README step that runs the gate without the budget is red on a fresh
-    # render, the first time anyone follows it.
+    # An app's governed escape hatches are counted in its escape-hatch-budget.json, and
+    # `terp check` without `--budget` reports every marker as ungoverned. A README step
+    # that runs the gate without the budget goes red the first time the app holds a
+    # marker, with nothing in the step to say why.
     readme = (_PROJECT / "README.md.jinja").read_text(encoding="utf-8")
     runs = re.findall(r"\bterp check\b[^\n]*", readme)
     assert len(runs) >= 2, "the README teaches the gate in setup and when a module is added"
@@ -700,6 +700,27 @@ def test_project_ships_a_seed() -> None:
     assert "Roles.ADMIN" in seed
 
 
+def test_the_seed_holds_no_credential_and_the_budget_counts_nothing() -> None:
+    # The seed is the template's and reaches an app on every update; the budget is the
+    # app's and never does (`_skip_if_exists`). A marker in the seed therefore reached
+    # every app rendered before it existed without the count that pays for it, and each
+    # upgraded app needed a person to approve an exception for a line the framework wrote.
+    # The password is the framework's DEMO_PASSWORD, counted once in terp-cap-auth's own
+    # budget, so a fresh render has no exception to count at all.
+    from terp.capabilities.auth import DEMO_PASSWORD
+    from terp.core import PasswordPolicy
+
+    seed = (_PROJECT / "app" / "seed.py.jinja").read_text(encoding="utf-8")
+    assert "from terp.capabilities.auth import DEMO_PASSWORD" in seed
+    assert "password=DEMO_PASSWORD" in seed
+    assert "arch-allow-" not in seed
+    assert DEMO_PASSWORD not in seed
+    budget = json.loads((_PROJECT / "escape-hatch-budget.json").read_text(encoding="utf-8"))
+    assert budget == {}
+    # The seed's user is provisioned through the same policy a real sign-up meets.
+    assert PasswordPolicy.default().violations(DEMO_PASSWORD) == []
+
+
 def test_frontend_offers_the_seeded_dev_sign_in() -> None:
     # The login screen can one-click-fill the seeded dev credentials, but only in dev
     # builds: import.meta.env.DEV is statically false in production bundles, so the
@@ -710,6 +731,10 @@ def test_frontend_offers_the_seeded_dev_sign_in() -> None:
     seed = (_PROJECT / "app" / "seed.py.jinja").read_text()
     assert 'admin@example.test' in main
     assert 'admin@example.test' in seed
+    # ...and the password the screen fills in is the one the seed provisions.
+    from terp.capabilities.auth import DEMO_PASSWORD
+
+    assert f'password: "{DEMO_PASSWORD}"' in main
 
 
 def test_project_ships_a_migration_drift_gate() -> None:
