@@ -6,7 +6,8 @@
   every existing test of a single refusal, whose words are unchanged, and by the
   `schedules_declare_misfire` rule's corpus and `test_arch_harness.py`.
 - **Date:** 2026-11-24.
-- **Relates:** changes how [ADR 0148](0148-a-route-declares-its-own-posture-not-its-neighbours.md),
+- **Relates:** amends ADR 0148, ADR 0208 and ADR 0191, whose status lines record it: it changes
+  how [ADR 0148](0148-a-route-declares-its-own-posture-not-its-neighbours.md),
   [ADR 0208](0208-a-route-holds-every-timestamp-it-reads-to-its-offset.md) and every
   other check in `create_app`'s declaration phase report what they find, not what they refuse.
   [ADR 0212](0212-an-app-compares-the-routes-it-serves-with-its-record-before-it-serves.md)'s
@@ -45,23 +46,32 @@ them arrive one by one.
    sentence the check after mounting would give. That check still runs after mounting, over
    every route, the framework's own included.
 3. **A check that cannot run says so, and the answer stops there.** A refusal raised directly
-   (the control plane's settings unusable, a store readiness cannot ask) is kept and ends the
-   checks. An error that is no refusal, raised after one was kept, is most likely its
+   (the control plane's settings unusable) is kept and ends the checks. An error that is no refusal, raised after one was kept, is most likely its
    consequence (a validator reading a declaration an earlier check refused): the refusals are
    raised, chained to it, with a line naming where the checks stopped. Raised before any
    refusal, it propagates untouched.
-4. **Nothing is configured while anything is refused.** The checks end before the first
-   `configure_*` call that follows them (audit, events, jobs, schedules and the rest), as the
-   first refusal did before, so a refused composition leaves no more process-wide state behind
-   than it did. Logging, set up before any check so a refusal can be logged, is the one step
-   before them, as it always was.
-5. **The later checks keep their place and their meaning.** The migration guard, the checks
+4. **Nothing is configured, and nothing is changed, while anything is refused.** The checks
+   end before the first `configure_*` call that follows them (audit, events, jobs, schedules
+   and the rest), as the first refusal did before. What reads or changes the declarations once
+   they are known to hold runs after them, only when nothing was refused: the readiness probes
+   of the mandatory stores (they read stores the shared-store checks found shared, so a store
+   readiness cannot ask is refused there, alone), and the stamping of each declared operation's
+   summary and id onto its route, whose objects outlive a refused composition. The refusal of a
+   hand-written summary beside a declared operation is a check of its own, asked with the rest.
+   So a refused composition leaves no more process-wide state behind than it did. Logging, set
+   up before any check so a refusal can be logged, is the one step before them, as it always
+   was.
+5. **A module's own declarations are checked with the rest.** A module with no `Policy`, and a
+   route whose response model a composition refuses (`validate_router_response_models`), read
+   only the spec, so they are asked with the declaration checks instead of in the loop that
+   mounts the routers.
+6. **The later checks keep their place and their meaning.** The migration guard, the checks
    after mounting (timestamps over every route, tuple schemas), the comparison with
    `authz-surface.json` (ADR 0212) and the image's boot checks (ADR 0218) run only once the
    declarations passed. The comparison in particular is never combined with another refusal:
    a deploy tool tells it apart from the rest, and an app refused for something else is not
    the app the record describes.
-6. **What fails before `create_app` is read at build time instead.** A schedule declared
+7. **What fails before `create_app` is read at build time instead.** A schedule declared
    without its missed-tick setting is a `TypeError` where the control plane is imported
    (`ScheduleDefinition.misfire` is a required keyword, ADR 0191), so the app never reaches
    the checks this collects. A rule, `schedules_declare_misfire`, refuses every

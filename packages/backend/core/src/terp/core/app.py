@@ -17,7 +17,7 @@ import collections.abc
 import logging
 import re
 import uuid
-from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import get_args, get_origin, get_type_hints
 
@@ -91,7 +91,8 @@ from terp.core.request_authorization import (
 from terp.core.passwords import configure_password_policy
 from terp.core.operations import OperationCatalog, OperationCoverage
 from terp.core.route_timestamps import module_timestamps_refusal, request_timestamps_refusal
-from terp.core._boot_refusals import Refusals
+from terp.core._boot_refusals import BootError, Refusals
+from terp.core._declared_operations import _apply_declared_operations, _iter_api_routes, _validate_hand_written_summaries
 from terp.core._requires_graph import _find_requires_cycle
 from terp.core.authz_surface import startup_refusal
 from terp.core.boot_checks import boot_check_refusal
@@ -124,10 +125,6 @@ PermissionEnforcer = Callable[[Session, uuid.UUID, str], bool]
 # subject holds in that module, over the expanded subject set, or 0 for none. Shaped like
 # ``PermissionEnforcer`` and wired the same way, so the kernel never imports the capability.
 ModuleRankResolver = Callable[[Session, uuid.UUID, str], int]
-
-
-class BootError(RuntimeError):
-    """Raised when a module is misconfigured at composition time (fail closed)."""
 
 
 @dataclass(frozen=True)
@@ -953,62 +950,6 @@ def _validate_permission_labels(plane: ControlPlane) -> None:
         )
 
 
-def _apply_declared_operations(specs: Sequence[ModuleSpec]) -> None:
-    """Populate a declaring route's OpenAPI ``summary`` / ``operation_id`` (ADR 0102 §4),
-    and refuse a hand-written ``summary=`` beside a declared operation.
-
-    Must run after :func:`validate_declared_operations`, so every operation reaching
-    here is already confirmed to be the catalog's own entry -- this function only
-    applies it, it does not re-check membership. Only ``APIRoute`` carries
-    ``summary`` / ``operation_id`` in OpenAPI; a declared operation on a WebSocket
-    route is validated the same way but has nothing here to populate.
-
-    A hand-written ``summary=`` on a route that also declares an operation is two
-    answers to the same promise -- the same failure
-    ``declared_read_only_routes_do_not_write`` names for ``@read_only`` and a write in
-    the same handler. Refused at boot rather than left to whichever one FastAPI's
-    OpenAPI generator happens to prefer.
-
-    Both fields are read **live** by FastAPI's OpenAPI generator
-    (``fastapi.openapi.utils.generate_operation_summary`` /
-    ``get_openapi_operation_metadata`` read ``route.summary`` / ``route.operation_id``
-    at schema-generation time, not a value cached at route construction), and
-    ``include_router`` keeps a mounted router's original ``APIRoute`` objects rather
-    than cloning them -- so mutating them here, before ``create_app`` ever mounts the
-    spec's router, reaches the exported document unchanged.
-
-    Idempotent by necessity, not merely by convenience: a module's router is a
-    process-wide singleton built once at import time (``router = APIRouter()`` at
-    module scope), and ``create_app`` is routinely called more than once over the
-    same router objects in one process -- the example app alone does this for its
-    full profile and its base profile, and so does any test suite that boots the
-    same capability's app more than once. The second call sees the summary THIS
-    function itself set on the first one; comparing to ``declared.label`` (always
-    the same value, since ``declared_operation`` reads a stamp fixed at decoration
-    time) tells that apart from an author's hand-written ``summary=``, which is
-    fixed at route construction and can never equal the label by this route's own
-    doing on a first call.
-    """
-    for spec in specs:
-        if spec.router is None:
-            continue
-        for route in _iter_api_routes(spec.router.routes):
-            declared = declared_operation(route.endpoint)
-            if declared is None:
-                continue
-            if route.summary and route.summary != declared.label:
-                raise BootError(
-                    f"module {spec.name!r} route {route.path!r} declares operation "
-                    f"{declared.id!r} and also sets summary={route.summary!r} by hand; "
-                    "that is two answers to the same promise -- drop the hand-written "
-                    "summary= and let the declared operation's label supply it, or "
-                    "drop the operation() declaration if this route genuinely needs a "
-                    "different summary"
-                )
-            route.summary = declared.label
-            route.operation_id = declared.id
-
-
 def _validate_public_routes_are_declared(specs: Sequence[ModuleSpec]) -> None:
     """Every route in a public module must declare its own policy (ADR 0148).
 
@@ -1593,20 +1534,6 @@ def _is_orm_table_model(tp: type) -> bool:
     return issubclass(tp, SQLModel) and getattr(tp, "__table__", None) is not None
 
 
-def _iter_api_routes(routes: Sequence[object]) -> Iterator[APIRoute]:
-    """Every HTTP ``APIRoute`` reachable from *routes*, descending into included sub-routers.
-
-    ``APIRouter.include_router`` keeps the sub-router as a nested ``_IncludedRouter``
-    (its routes live on ``.original_router``), not flattened into ``.routes`` -- so a
-    plain ``for route in router.routes`` would miss a route declared on a nested
-    router. It is :func:`~terp.core.routing.iter_declaring_routes` narrowed to HTTP, so the
-    two cannot come to disagree about what counts as nested.
-    """
-    for route in iter_declaring_routes(routes):
-        if isinstance(route, APIRoute):
-            yield route
-
-
 # HTTP status codes whose responses carry no body (RFC 9110); a route returning one of
 # these legitimately has no ``response_model`` to declare. Mirrors the ``terp.arch``
 # ``_NO_BODY_STATUS_CODES`` constant (rules/http.py) -- ``terp.core`` is layer 0 and
@@ -2056,10 +1983,15 @@ def create_app(
 
     # Every check below is a question about the declarations alone, asked before anything is
     # configured, and every refusal is kept and raised together at the end (ADR 0222).
-    refusals = Refusals(BootError)
+    refusals = Refusals()
     with refusals:
         check = refusals.check
         check(_validate_unique_spec_names, collected)
+        for spec in collected:
+            if spec.policy is None:
+                refusals.add(f"module {spec.name!r} declares no Policy (deny-by-default)")
+            if spec.router is not None:
+                check(validate_router_response_models, spec.router)
         check(validate_requires, collected)
         resolved_plane, unusable = plane_from_settings(control_plane or ControlPlane.default())
         if unusable is not None:
@@ -2079,7 +2011,7 @@ def create_app(
         check(validate_public_modules_read_only, collected)
         check(_validate_read_only_modules, collected)
         check(validate_declared_operations, collected, resolved_plane.operations)
-        _apply_declared_operations(collected)
+        check(_validate_hand_written_summaries, collected)
         check(_validate_route_permissions_are_declared, collected, resolved_plane)
         check(_validate_module_rank_resolution, collected, module_rank_resolver)
         check(_validate_permission_labels, resolved_plane)
@@ -2090,13 +2022,6 @@ def create_app(
         check(_validate_shared_idempotency_store, idempotency_store, require_shared_idempotency_store)
         check(_validate_durable_leases, lease_store, require_durable_leases)
         check(_validate_durable_schedules, schedule_ledger, require_durable_schedules)
-        readiness = _mandatory_store_probes(
-            {
-                "throttle_store": (throttle_store, require_shared_throttle_store),
-                "cache_store": (cache_store, require_shared_cache_store),
-                "idempotency_store": (idempotency_store, require_shared_idempotency_store),
-            }
-        )
 
         settings = get_settings()
         if settings.is_production:
@@ -2136,6 +2061,16 @@ def create_app(
         # The modules' own routes, as they will be served, before anything is mounted: the
         # same check runs again once every router is, the framework's own included.
         refusals.add(module_timestamps_refusal(collected))
+    # Once nothing was refused: the probes read stores the checks above found shared, and the
+    # stamping changes route objects that outlive a refused composition.
+    readiness = _mandatory_store_probes(
+        {
+            "throttle_store": (throttle_store, require_shared_throttle_store),
+            "cache_store": (cache_store, require_shared_cache_store),
+            "idempotency_store": (idempotency_store, require_shared_idempotency_store),
+        }
+    )
+    _apply_declared_operations(collected)
 
     if migration_check is not None:
         migration_check(get_engine())
@@ -2181,10 +2116,7 @@ def create_app(
     audit_actor_binder = Depends(build_audit_actor_binder(principal_provider))
     read_only_binder = Depends(build_read_only_request_binder())
     for spec in collected:
-        if spec.policy is None:
-            raise BootError(f"module {spec.name!r} declares no Policy (deny-by-default)")
         if spec.router is not None:
-            validate_router_response_models(spec.router)
             for route in _iter_api_routes(spec.router.routes):
                 prepare_idempotency_route(route)
             app.include_router(

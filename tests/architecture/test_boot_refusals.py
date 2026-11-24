@@ -57,21 +57,112 @@ def test_the_refusals_an_upgrade_met_one_start_at_a_time_arrive_together() -> No
     assert "declares no policy of its own" in message
     # Named as it would be served, which is how the check after mounting names it too.
     assert "GET /api/v1/events/ reads a timestamp in the query parameter 'after'" in message
-    refusals = caught.value.refusals  # type: ignore[attr-defined]
+    refusals = caught.value.refusals
     assert len(refusals) == 2
     assert any("declares no policy of its own" in refusal for refusal in refusals)
 
 
-def test_one_refusal_reads_exactly_as_it_always_did() -> None:
-    # The sentence a deploy tool reads out of a refused start's log is unchanged, and the
-    # error is the check's own, with its own cause.
-    with pytest.raises(BootError) as caught:
-        create_app([_undeclared_public()])
+def _alone(check, *args) -> BootError:  # type: ignore[no-untyped-def]  # any check's signature
+    """The refusal *check* raises by itself: the words a lone refusal must keep."""
+    with pytest.raises(BootError) as raised:
+        check(*args)
+    return raised.value
 
+
+def test_one_refusal_reads_exactly_as_it_always_did() -> None:
+    # The sentence a deploy tool reads out of a refused start's log is unchanged: the check's
+    # own words, its own type and no cause, as when it raised at the first finding.
+    from terp.core.app import _validate_public_routes_are_declared
+
+    spec = _undeclared_public()
+    expected = _alone(_validate_public_routes_are_declared, [spec])
+    with pytest.raises(BootError) as caught:
+        create_app([spec])
+
+    assert str(caught.value) == str(expected)
+    assert type(caught.value) is BootError and caught.value.__cause__ is None
+    assert caught.value.refusals == (str(expected),)
+
+
+@pytest.mark.parametrize("wired", ["nothing", "an in-process store"])
+def test_a_lone_shared_store_refusal_reads_as_it_always_did(wired: str) -> None:
+    # The readiness probes read stores the checks found shared, so they run only once nothing
+    # was refused: before, a store the shared check had refused reached them and added a
+    # second refusal (or a crash) the reader could not act on.
+    from terp.core import InMemoryThrottleStore
+    from terp.core.app import _validate_shared_throttle_store
+
+    store = None if wired == "nothing" else InMemoryThrottleStore()
+    expected = _alone(_validate_shared_throttle_store, store, True)
+    with pytest.raises(BootError) as caught:
+        create_app([], throttle_store=store, require_shared_throttle_store=True)
+
+    assert str(caught.value) == str(expected)
+    assert caught.value.__cause__ is None
+    assert caught.value.refusals == (str(expected),)
+
+
+def _operation_route(summary: str | None = None, *, with_timestamp: bool = False) -> ModuleSpec:
+    """A public_write module whose one route declares an operation."""
+    from terp.core import OperationDefinition, operation
+
+    listing = OperationDefinition("notes.list", "List the notes")
+    router = APIRouter()
+
+    if with_timestamp:
+
+        @router.post("/", summary=summary)
+        @operation(listing)
+        @route_policy(Policy.public_write(reason="a fixture"))
+        def act(after: datetime | None = None) -> dict[str, str]:
+            return {}
+
+    else:
+
+        @router.post("/", summary=summary)
+        @operation(listing)
+        def act() -> dict[str, str]:  # declares no policy: refused in a public module
+            return {}
+
+    return ModuleSpec(name="notes", router=router, policy=Policy.public_write(reason="a fixture"))
+
+
+def test_a_refused_composition_leaves_the_routes_it_was_handed_as_it_found_them() -> None:
+    # Stamping a declared operation onto a route changes an object that outlives the call;
+    # it now happens only once every check passed.
+    spec = _operation_route()
+    route = spec.router.routes[0]  # type: ignore[union-attr]  # the fixture's own router
+    with pytest.raises(BootError):
+        create_app([spec])
+    assert (route.summary, route.operation_id) == (None, None)
+
+
+def test_a_hand_written_summary_is_reported_with_the_other_refusals() -> None:
+    # Its refusal is a check like the others, so it no longer ends the checks.
+    with pytest.raises(BootError) as caught:
+        create_app([_operation_route("hand written", with_timestamp=True)])
     message = str(caught.value)
-    assert not message.startswith("1 things")
-    assert "declares no policy of its own" in message
-    assert caught.value.refusals == (message,)  # type: ignore[attr-defined]
+    assert "things stop this app from starting" in message
+    assert "sets summary='hand written' by hand" in message
+    assert "reads a timestamp in the query parameter 'after'" in message
+
+
+def test_a_module_s_own_declarations_are_checked_with_the_rest() -> None:
+    # A module with no policy and a route with no response model read only the spec, so
+    # they are reported in the same start as every other refusal, not in the mount loop.
+    no_policy = ModuleSpec(name="loose", router=None, policy=None)  # type: ignore[arg-type]  # the refusal under test
+    unshaped = APIRouter()
+
+    @unshaped.get("/", response_model=None)
+    def raw() -> dict[str, str]:
+        return {}
+
+    with pytest.raises(BootError) as caught:
+        create_app([no_policy, ModuleSpec(name="raw", router=unshaped, policy=Policy.default()), _plain_timestamp()])
+    message = str(caught.value)
+    assert "module 'loose' declares no Policy (deny-by-default)" in message
+    assert "reads a timestamp in the query parameter 'after'" in message
+    assert len(caught.value.refusals) >= 3
 
 
 def _served(*specs: ModuleSpec) -> FastAPI:
@@ -144,7 +235,7 @@ def test_the_production_refusals_arrive_together(monkeypatch: pytest.MonkeyPatch
 
 
 def test_a_check_that_cannot_run_after_a_refusal_says_where_the_checks_stopped() -> None:
-    refusals = Refusals(BootError)
+    refusals = Refusals()
     with pytest.raises(BootError) as caught:
         with refusals:
             refusals.add("the first thing")
@@ -158,17 +249,17 @@ def test_a_check_that_cannot_run_after_a_refusal_says_where_the_checks_stopped()
 
 def test_an_error_before_any_refusal_is_left_as_it_is() -> None:
     with pytest.raises(KeyError):
-        with Refusals(BootError):
+        with Refusals():
             raise KeyError("no refusal was kept, so this is not about one")
 
 
 def test_a_refusal_raised_inside_the_checks_joins_the_ones_kept_and_ends_them() -> None:
-    refusals = Refusals(BootError)
+    refusals = Refusals()
     with pytest.raises(BootError) as caught:
         with refusals:
             refusals.add("kept")
             raise BootError("raised")
-    assert caught.value.refusals == ("kept", "raised")  # type: ignore[attr-defined]
+    assert caught.value.refusals == ("kept", "raised")
 
 
 def test_nothing_is_configured_while_anything_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:

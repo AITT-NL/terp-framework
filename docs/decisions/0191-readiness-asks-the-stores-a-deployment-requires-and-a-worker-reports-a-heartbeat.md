@@ -1,6 +1,8 @@
 # 0191 — Readiness asks the stores a deployment requires, a worker and a scheduler report a heartbeat, and a schedule says what a missed tick becomes
 
-- **Status:** Accepted. Built in 0.35.0. Held by `tests/architecture/test_readiness.py`,
+- **Status:** Accepted. Built in 0.35.0. Amended on 2026-11-24 by
+  [ADR 0222](0222-a-refused-start-names-every-refusal-at-once.md) (the build-time half of a
+  schedule's missed-tick setting, `schedules_declare_misfire`). Held by `tests/architecture/test_readiness.py`,
   `test_readiness_postgres.py` (the PostgreSQL lane), `test_realtime.py`,
   `test_schedule_misfire.py`, `test_scheduler_adapters.py`, `test_worker_lifecycle.py`,
   `test_worker_heartbeat.py`, `test_cli_jobs.py`, `test_jobs_celery.py`,

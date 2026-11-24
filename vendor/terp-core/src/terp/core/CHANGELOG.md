@@ -10,6 +10,25 @@ publishes from the same tag
 The full rationale trail lives in [docs/decisions/](https://github.com/AITT-NL/terp-framework/tree/main/docs/decisions) — one ADR per
 decision, 0001 onwards.
 
+## 0.46.0 — unreleased
+
+### Added
+
+- **A refused start names every refusal at once** (ADR 0222). `create_app` asks its checks of
+  an app's declarations together and raises what they found as one `BootError`: a public
+  route's own policy, guarded module routes, declared operations, permissions, the shared
+  stores a deployment requires, a module's policy and its routes' response models, the
+  production-only refusals, and the modules' request timestamps, now judged before anything is
+  mounted in the words of the check after mounting. One refusal reads exactly as it did;
+  several are counted and numbered, and every `BootError` carries them on `refusals`. Nothing
+  is configured or stamped while anything is refused. The migration guard, the checks over the
+  finished app and the comparison with `authz-surface.json` keep their place after them.
+- **`schedules_declare_misfire`**, a rule: every `ScheduleDefinition(...)` says what a missed
+  tick becomes (`misfire=Misfire.RUN_ONCE` or `Misfire.SKIP`). A definition without it is a
+  `TypeError` as the control plane is imported, before `create_app` asks anything, so `terp
+  check` now names every one with every other finding. An app meets its refusals in two runs:
+  `terp check`, then one start.
+
 ## 0.45.0 — 2026-11-24
 
 ### Added
