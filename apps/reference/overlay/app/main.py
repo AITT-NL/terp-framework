@@ -43,6 +43,11 @@ from control_plane import control_plane
 def build():
     configure_mail(mail_settings_from_environment(os.environ))
     modules = [login_module, me_module, notices_module]
+    migrations_current = functools.partial(
+        assert_migrations_current,
+        app_root=pathlib.Path(__file__).resolve().parent,
+        package="app",
+    )
     return create_app(
         modules,
         title="Terp Reference",
@@ -60,16 +65,11 @@ def build():
         # not define outside its schema window - a wrong schema fails loudly at boot
         # instead of at the first request. A database one expand-only migration run
         # ahead is the window: the previous release starts again on it (ADR 0185).
-        # Development keeps auto-applying migrations for you.
-        migration_check=(
-            functools.partial(
-                assert_migrations_current,
-                app_root=pathlib.Path(__file__).resolve().parent,
-                package="app",
-            )
-            if get_settings().is_production
-            else None
-        ),
+        migration_check=migrations_current if get_settings().is_production else None,
+        # Everywhere else the app starts, and readiness answers 503 (`migrations`)
+        # until the schema has caught up: the dev stack applies migrations when it
+        # comes up, not when a running stack's code gains one (ADR 0221).
+        migration_readiness=migrations_current,
     )
 
 

@@ -54,7 +54,7 @@ from terp.core.events import (
     configure_events,
     subscribed_event_names,
 )
-from terp.core.health import build_health_router
+from terp.core.health import SCHEMA_CHECK, build_health_router, schema_probe
 from terp.core.idempotency import (
     IdempotencyStore,
     InMemoryIdempotencyStore,
@@ -109,6 +109,10 @@ from terp.core.routing import (
 from terp.core.security import RateLimit, SecurityConfig
 from terp.core._settings_plane import plane_from_settings
 from terp.core.throttling import InMemoryThrottleStore, ThrottleStore, is_shared_throttle_store
+from terp.core._store_warnings import (
+    _warn_unshared_idempotency_in_production,
+    _warn_unshared_throttle_in_production,
+)
 from terp.core.permissions import LabelCoverage, PermissionModel, Role, as_role
 
 _logger = logging.getLogger("terp.core")
@@ -1329,36 +1333,6 @@ def _validate_shared_idempotency_store(
         )
 
 
-def _warn_unshared_idempotency_in_production(
-    idempotency_store: IdempotencyStore | None, require_shared_idempotency_store: bool
-) -> None:
-    """Say out loud, once, that idempotency is per-worker in this production deployment.
-
-    The boot guard above is opt-in for a good reason: a per-instance store is *correct*
-    for a single-instance production app, so refusing it outright would break a
-    deployment that is not wrong. But the failure mode when that stops being true is
-    the worst kind — scaling to a second replica silently converts "this mutation runs
-    once" into "this mutation runs once per worker a retry happens to land on", with no
-    error, no failed request and nothing in the logs to connect the duplicate rows back
-    to the `--scale` that caused them. The promise breaks; nothing announces it.
-
-    So production states the property it is actually running with, and names the flag
-    that turns it into a boot-time refusal. An author who reads this line before scaling
-    has the whole problem; one who reads it afterwards has the explanation.
-    """
-    if require_shared_idempotency_store or is_shared_idempotency_store(idempotency_store):
-        return
-    _logger.warning(
-        "idempotency keys are deduplicated PER WORKER in this deployment: the "
-        "configured idempotency_store is not a shared, multi-instance backend. This is "
-        "correct for a single instance; run more than one and a client's retry landing "
-        "on another worker re-executes the mutation, silently. Wire a shared store "
-        "marked via terp.core.mark_shared_idempotency_store(...) and pass "
-        "create_app(require_shared_idempotency_store=True) to make that a boot-time "
-        "guarantee instead of a warning."
-    )
-
-
 def _warn_loosened_capability_limit_in_production(
     specs: Sequence[ModuleSpec], config: SecurityConfig
 ) -> None:
@@ -1419,40 +1393,6 @@ def _warn_loosened_capability_limit_in_production(
                 limit.window_seconds,
                 ", ".join(loosened),
             )
-
-
-def _warn_unshared_throttle_in_production(
-    throttle_store: ThrottleStore | None, require_shared_throttle_store: bool
-) -> None:
-    """Say out loud, once, that the rate limit and login lockout are per-worker here.
-
-    The sibling of :func:`_warn_unshared_idempotency_in_production`, and it should
-    always have been one. That function exists because a promise ("this mutation runs
-    once") quietly becomes false on the second replica with nothing to announce it. The
-    throttle store carries two promises of exactly that shape and had no such line: the
-    request rate limit, and the per-account failed-login lockout. Both are counters in
-    this store, so N workers enforce N times the configured allowance — a 5-attempt
-    lockout becomes 5 × N attempts against one account, which is the control least able
-    to afford a silent multiplier.
-
-    It is a warning rather than a refusal for the same reason the idempotency one is: a
-    per-instance store is *correct* for a single-instance deployment, and refusing it
-    would break something that is not wrong. What was missing was the sentence that
-    makes the property visible before someone scales, and names the flag that turns it
-    into a boot-time guarantee.
-    """
-    if require_shared_throttle_store or is_shared_throttle_store(throttle_store):
-        return
-    _logger.warning(
-        "the rate limit and the login lockout are counted PER WORKER in this "
-        "deployment: the configured throttle_store is not a shared, multi-instance "
-        "backend. This is correct for a single instance; run more than one and each "
-        "worker enforces its own allowance, so the effective request cap and the "
-        "per-account failed-login threshold are both multiplied by the worker count. "
-        "Wire a shared store marked via terp.core.mark_shared_throttle_store(...) and "
-        "pass create_app(require_shared_throttle_store=True) to make that a boot-time "
-        "guarantee instead of a warning."
-    )
 
 
 def _warn_unstamped_background_writes(plane: ControlPlane) -> None:
@@ -1885,6 +1825,7 @@ def create_app(
     module_rank_resolver: ModuleRankResolver | None = None,
     middleware: Sequence[Middleware] | None = None,
     migration_check: Callable[[Engine], None] | None = None,
+    migration_readiness: Callable[[Engine], None] | None = None,
     require_token_revocation: bool = False,
     throttle_store: ThrottleStore | None = None,
     require_shared_throttle_store: bool = False,
@@ -1963,6 +1904,13 @@ def create_app(
     the app refuses to serve against an un-migrated schema — the runtime half of the
     migration two-layer control. It is opt-in (the kernel never imports the migration
     subsystem); a consumer typically wires it only outside local development.
+
+    *migration_readiness* puts the same question in readiness (ADR 0221): given the
+    process engine, it raises while the schema is behind the code, and ``/health/ready``
+    answers 503 with ``migrations: error`` until it passes once. It is for where the boot
+    guard is not wired, so a stack whose migrate step did not run says so instead of
+    serving a 500 under "ready". Passing the very object given as *migration_check* counts
+    the boot's pass, so an instance that booted on a current schema never asks it again.
 
     *require_token_revocation* makes the session-revocation guarantee a boot
     requirement (ADR 0031): when ``True``, boot fails closed unless *principal_provider*
@@ -2158,6 +2106,11 @@ def create_app(
 
     if migration_check is not None:
         migration_check(get_engine())
+    if migration_readiness is not None:
+        readiness[SCHEMA_CHECK] = schema_probe(
+            lambda: migration_readiness(get_engine()),
+            passed=migration_readiness is migration_check,
+        )
 
     configure_audit(resolved_plane.audit, sink=audit_sink)
     configure_events(resolved_plane.events, dispatcher=event_dispatcher)

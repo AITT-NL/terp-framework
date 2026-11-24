@@ -229,7 +229,8 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
 ## Operational notes
 
 - **Health:** `GET /health/live` (process up) and `GET /health/ready` (the database, and
-  every shared store a `require_shared_*` made mandatory, reachable; ADR 0024, ADR 0191) on
+  every shared store a `require_shared_*` made mandatory, reachable; ADR 0024, ADR 0191;
+  and the schema not behind the code where `migration_readiness` asks, ADR 0221) on
   the API. The profile probes the API on its liveness path and the web tier on its root, and
   a worker or a scheduler on the heartbeat its own loop writes, with `--wait`-able checks
   and `restart: unless-stopped`. Workers stay out of readiness: a queue nobody drains is a

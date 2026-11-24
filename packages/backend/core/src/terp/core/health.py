@@ -11,7 +11,9 @@ limiting, and capability middleware), but do not require authentication.
   reachable (a cheap ``SELECT 1`` through the same ``SessionDep`` seam the app uses, so
   tests and overrides apply), and so is **every shared store this deployment made
   mandatory** (ADR 0191): a store a ``require_shared_*`` guard requires is one without
-  which this instance cannot do what it promised, so it is part of the answer. Returns
+  which this instance cannot do what it promised, so it is part of the answer. Where the
+  app asks (``create_app(migration_readiness=...)``, ADR 0221), the schema is not behind
+  the code either: ``migrations`` is checked until it passes once. Returns
   200 when every check passes, 503 otherwise, so a load balancer withholds traffic until
   the dependency recovers. Workers and schedulers are deliberately **not** part of it:
   an undrained queue does not make this instance unable to serve, and failing readiness on
@@ -143,6 +145,35 @@ def mandatory_stores() -> dict[str, Callable[[], ReadinessProbe | None]]:
 def reset_mandatory_stores() -> None:
     """Clear the capability-store registry (a test seam, like :func:`reset_health_details`)."""
     _mandatory_stores.clear()
+
+
+#: The readiness name of the schema check (ADR 0221).
+SCHEMA_CHECK: Final[str] = "migrations"
+
+
+def schema_probe(check: Callable[[], object], *, passed: bool = False) -> ReadinessProbe:
+    """Readiness's question about the schema: *check* raises while the database is behind.
+
+    A database behind the code answers ``SELECT 1`` like any other, so readiness said
+    "ready" over a schema the code's first query then failed on: a bare 500 at sign-in,
+    and nothing anywhere naming the migration nobody ran. *check* is the same check the
+    boot guard runs (``terp.migrations.assert_migrations_current``), so a database ahead of
+    the code inside its schema window (ADR 0185) is as ready here as it is at boot.
+
+    Asked until it passes once, then never again in this process: the code's migrations
+    are fixed for a process's life, and a schema does not fall behind by itself. *passed*
+    says the boot guard already ran this very check, so a production instance, which
+    cannot start on a behind schema, never pays for it at all.
+    """
+    answered = passed
+
+    def probe() -> None:
+        nonlocal answered
+        if not answered:
+            check()
+            answered = True
+
+    return probe
 
 
 class _BoundedProbe:
@@ -308,6 +339,7 @@ def build_health_router(
 
 __all__ = [
     "READINESS_PROBE_TIMEOUT_SECONDS",
+    "SCHEMA_CHECK",
     "HealthDetail",
     "ReadinessProbe",
     "build_health_router",
@@ -317,4 +349,5 @@ __all__ = [
     "register_mandatory_store",
     "reset_health_details",
     "reset_mandatory_stores",
+    "schema_probe",
 ]

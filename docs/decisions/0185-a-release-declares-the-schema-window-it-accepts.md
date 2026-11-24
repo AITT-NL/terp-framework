@@ -1,7 +1,9 @@
 # 0185 — A release declares the schema window it accepts
 
 - **Status:** Accepted, built for 0.35.0 (see *How it was built*). Revised after four rounds of
-  adversarial review (see *Review*).
+  adversarial review (see *Review*). Its consequence that the window adds no readiness signal is
+  amended on 2026-11-24 by [ADR 0221](0221-readiness-says-when-the-schema-is-behind-the-code.md):
+  where the app asks, readiness asks the boot guard, window included.
 - **Date:** 2026-10-13 (drafted); brought into this repository on 2026-10-21; revised on
   2026-10-22. 0182 and 0183 are reserved for other records.
 - **Relates:** [ADR 0027](0027-packaged-migrations-per-package-histories.md) (amended: each
