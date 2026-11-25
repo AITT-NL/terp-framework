@@ -47,7 +47,7 @@ RUN --network=none npm run build --ignore-scripts
 
 # --- Stage 2: non-root nginx runtime -------------------------------------------------
 # nginxinc/nginx-unprivileged:alpine
-FROM nginxinc/nginx-unprivileged@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
+FROM nginxinc/nginx-unprivileged@sha256:09b0d3eda2aa592d2487f284519419015cab010d7df16cd0fe224b585fc60eb6
 
 # The config is a TEMPLATE: the nginx entrypoint runs envsubst over /etc/nginx/templates
 # at start-up. NGINX_ENVSUBST_FILTER limits substitution to API_UPSTREAM so nginx's own
