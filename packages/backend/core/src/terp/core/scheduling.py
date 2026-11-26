@@ -6,13 +6,14 @@ cron", without naming a scheduler engine. It sits beside the jobs seam (ADR 0043
 that sits beside the event bus: a :class:`ScheduleDefinition` references a typed
 :class:`~terp.core.JobDefinition` (never a bare string), a :class:`ScheduleCatalog` indexes
 them and rejects duplicates, and a :class:`Scheduler` ABC is the one method an engine adapter
-(APScheduler in-process, Celery beat, a k8s CronJob calling ``terp jobs schedule``) fills.
+(APScheduler in-process under ``terp jobs scheduler``, or Celery beat) fills.
 
 ``terp.core`` is layer 0, so this module imports **no** scheduler engine (no ``apscheduler``
-/ ``celery`` / ``croniter``): the cron string is opaque here and parsed by the adapter. The
-safe default is the design's **external trigger** (§8) — ``terp jobs schedule <name>`` (or
-``terp jobs run``) invoked by any cron / k8s CronJob / systemd timer / Azure timer — so a
-scheduled job works today with zero scheduler infra. A schedule fires by *enqueuing* its job
+/ ``celery`` / ``croniter``): the cron string is opaque here and parsed by the adapter. A
+declared schedule is fired by a scheduler process, which the template's production profile
+runs (ADR 0223). An external cron / k8s CronJob / timer calls ``terp jobs run <job>`` instead
+and declares no schedule: declared too, each tick fires twice once a scheduler runs beside
+it. A schedule fires by *enqueuing* its job
 through the typed :func:`~terp.core.enqueue` chokepoint (:func:`trigger_schedule`), so it
 flows through the active :class:`~terp.core.JobQueue` (in-process / outbox / broker) and the
 context-binding runner: a scheduled job has no originating user, so it runs as the configured

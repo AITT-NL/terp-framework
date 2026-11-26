@@ -23,10 +23,14 @@ decision, 0001 onwards.
   files answer, the storage volume. `apps/example` runs the same two, and `prod-smoke` now
   proves that a scheduled job and an enqueued durable job both run in its production stack.
 - **`terp verify --only production-readiness` names a missing worker or scheduler** (ADR 0223).
-  When the project carries `docker-compose.prod.yml` and its control plane declares a job, a
-  service must run `terp jobs worker`; when it declares a schedule, one must run `terp jobs
-  scheduler` (a Celery worker or beat counts). A project that declares work and has no compose
-  profile is told that half was not judged.
+  When the project carries `docker-compose.prod.yml` and its control plane declares work, the
+  profile must run the process the installed engine needs: `terp jobs worker` with
+  `terp-cap-outbox`, a Celery worker with the Celery jobs capability, nothing when jobs run
+  inline; `terp jobs scheduler` or beat for a schedule, and the APScheduler engine installed
+  beside `terp jobs scheduler`. A service behind `profiles` or scaled to zero does not count.
+  The failure names the work and the service to add. It also fails when
+  `compose.runtime-role.yml` names a service the profile does not define, which Compose refuses.
+  A project that declares work and has no compose profile is told that half was not judged.
 
 - **A refused start names every refusal at once** (ADR 0222). `create_app` asks its checks of
   an app's declarations together and raises what they found as one `BootError`: a public
@@ -78,7 +82,8 @@ decision, 0001 onwards.
   and wait for the stop signal, where they used to exit: under `restart: unless-stopped` that was
   a restart loop, and `docker compose up --wait` read it as a failed deploy. Where there is work
   they stay loud: a declared schedule with no engine, and a single drain with no outbox, still
-  stop with the message that names the package.
+  stop with the message that names the package. An app whose jobs run on Celery keeps the
+  template's worker idle; production-readiness is what asks for its Celery worker.
 
 - **Every app served the template's way runs on asyncio's event loop, not uvloop** (#182).
   On Linux the images used to run on the uvloop `uvicorn[standard]` installs, whether or not
@@ -140,7 +145,10 @@ decision, 0001 onwards.
   terp deployment render`: the updated `compose.runtime-role.yml` names both services, and
   Compose refuses an overlay service the base profile does not define (`service "worker" has
   neither an image nor a build context specified`) until the profile has them.
-  An app that declares a schedule installs `terp-cap-scheduler-apscheduler`.
+  An app that declares a schedule installs `terp-cap-scheduler-apscheduler`. **An app that fires
+  its schedules from an external cron** calls `terp jobs run <job>` from it and declares no
+  schedule, or drops the cron: with both, each tick fires twice. `terp deployment adopt` reads
+  the worker back as `"instances": "one"`, the default; write `"many"` by hand.
 - **The template's uvicorn commands name their event loop.** The next re-render (`copier
   update`) adds `--loop asyncio` to the `CMD` of `Dockerfile` and `Dockerfile.prod` and to the
   `api` command of `docker-compose.yml`. An app on `"build": "generated"` takes the new

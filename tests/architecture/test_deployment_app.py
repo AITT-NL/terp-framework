@@ -177,7 +177,7 @@ def test_an_undeclared_database_and_a_capability_s_store_are_noted(tmp_path, mon
     unit(raw, "migrate")["dependsOn"] = []
     for name in ("api", "worker", "scheduler"):
         unit(raw, name)["dependsOn"] = ["migrate"]
-    pyproject ='[project]\ndependencies = ["terp-cap-redis==1"]\n'
+    pyproject = '[project]\ndependencies = ["terp-cap-redis==1"]\n'
     code, output = _run(project(tmp_path, raw, files={"pyproject.toml": pyproject}))
     assert code == 0
     assert "the app uses postgres (the app's own database), and no declared unit is kind postgres and there is no externalDatabase" in output

@@ -16,6 +16,7 @@ import signal
 import sys
 import threading
 import tomllib
+import types
 from collections.abc import Iterator
 
 import pytest
@@ -424,27 +425,36 @@ def build():
 """
 
 
+@pytest.mark.parametrize(
+    ("source", "declared"),
+    [(_NO_JOBS_APP_MODULE, None), (_APP_MODULE, "its 1 declared job(s) run where its job queue")],
+    ids=["no-jobs", "inline-jobs"],
+)
 def test_run_worker_command_forever_without_the_outbox_idles_until_stopped(
     tmp_path: pathlib.Path,
     worker_db: None,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
+    source: str,
+    declared: str | None,
 ) -> None:
     """ADR 0223: the production profile runs a worker in every app, so one with nothing to
     drain must not exit. An exit under `restart: unless-stopped` is a restart loop, and
     `docker compose up --wait` reads it as a failed deploy. It says why once, beats every
-    poll so its healthcheck stays green, and stops on the signal like the drain loop."""
+    poll so its healthcheck stays green, and stops on the signal like the drain loop. An
+    app that declares jobs is told they run where its queue runs them."""
     from terp.cli.heartbeat import worker_stale_after
 
-    (tmp_path / "jobs_worker_idle.py").write_text(_NO_JOBS_APP_MODULE, encoding="utf-8")
-    sys.modules.pop("jobs_worker_idle", None)
+    module = f"jobs_worker_idle_{declared is not None}"
+    (tmp_path / f"{module}.py").write_text(source, encoding="utf-8")
+    sys.modules.pop(module, None)
     monkeypatch.setitem(sys.modules, "terp.capabilities.outbox", None)
     before = (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT))
     heartbeat = tmp_path / "terp-worker.heartbeat"
     stop = _WatchHeartbeat(signal.SIGTERM, at=2, heartbeat=heartbeat)
     with caplog.at_level(logging.INFO, logger="terp.cli.jobs"):
         message = run_worker_command(
-            app_ref="jobs_worker_idle:build",
+            app_ref=f"{module}:build",
             app_root=tmp_path,
             forever=True,
             poll_seconds=2.5,
@@ -463,8 +473,51 @@ def test_run_worker_command_forever_without_the_outbox_idles_until_stopped(
     assert not heartbeat.exists(), "the heartbeat goes with the process (ADR 0191)"
     said = [record.getMessage() for record in caplog.records if record.name == "terp.cli.jobs"]
     assert len(said) == 1, f"one line, not one per beat: {said!r}"
+    # The words template acceptance greps the container log for (test_production_boot).
+    assert said[0].startswith("terp jobs worker idles: "), said[0]
     assert "terp-cap-outbox is not installed" in said[0], "why it idles"
     assert "OutboxJobQueue" in said[0], "and what gives it work"
+    if declared is None:
+        assert "declared job" not in said[0]
+    else:
+        assert declared in said[0] and "inline on the default queue" in said[0]
+
+
+class _BrokenCapability(types.ModuleType):
+    """An installed capability that fails to import: a dependency of its own is missing."""
+
+    def __init__(self, name: str, attribute: str) -> None:
+        super().__init__(name)
+        self.broken = attribute
+
+    def __getattr__(self, name: str) -> object:
+        if name == self.__dict__.get("broken"):
+            raise ModuleNotFoundError("No module named 'some_driver'", name="some_driver")
+        raise AttributeError(name)
+
+
+@pytest.mark.parametrize("forever", [True, False], ids=["forever", "single-drain"])
+def test_run_worker_command_raises_a_broken_outbox_as_it_is(
+    tmp_path: pathlib.Path, worker_db: None, monkeypatch: pytest.MonkeyPatch, forever: bool
+) -> None:
+    """Only the capability's own absence idles or refuses as "not installed": an installed
+    outbox whose own dependency is missing is an error the operator has to read."""
+    (tmp_path / "jobs_worker_broken.py").write_text(_NO_JOBS_APP_MODULE, encoding="utf-8")
+    sys.modules.pop("jobs_worker_broken", None)
+    monkeypatch.setitem(
+        sys.modules, "terp.capabilities.outbox", _BrokenCapability("terp.capabilities.outbox", "OutboxWorker")
+    )
+    stop = threading.Event()
+    stop.set()
+    with pytest.raises(ModuleNotFoundError, match="some_driver"):
+        run_worker_command(
+            app_ref="jobs_worker_broken:build",
+            app_root=tmp_path,
+            forever=forever,
+            max_cycles=1,
+            stop=stop,
+            heartbeat_path=tmp_path / "terp-worker.heartbeat",
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -568,8 +621,23 @@ def test_run_scheduler_command_with_no_schedule_and_no_engine_idles_until_stoppe
     assert not heartbeat.exists()
     said = [record.getMessage() for record in caplog.records if record.name == "terp.cli.jobs"]
     assert len(said) == 1, said
+    # The words template acceptance greps the container log for (test_production_boot).
+    assert said[0].startswith("terp jobs scheduler idles: "), said[0]
     assert "declares no schedule" in said[0]
     assert "install terp-cap-scheduler-apscheduler" in said[0]
+
+
+def test_a_broken_scheduler_engine_is_raised_as_it_is(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An installed adapter that fails to import is neither "not installed" (no idle) nor
+    the directive refusal: the error itself reaches the operator."""
+    from terp.cli.jobs import _default_scheduler, _scheduler_engine_installed
+
+    name = "terp.capabilities.scheduler_apscheduler"
+    monkeypatch.setitem(sys.modules, name, _BrokenCapability(name, "ApschedulerScheduler"))
+    with pytest.raises(ModuleNotFoundError, match="some_driver"):
+        _scheduler_engine_installed()
+    with pytest.raises(ModuleNotFoundError, match="some_driver"):
+        _default_scheduler()
 
 
 def test_run_scheduler_command_with_a_schedule_and_no_engine_still_refuses(

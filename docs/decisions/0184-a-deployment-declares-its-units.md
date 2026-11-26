@@ -220,8 +220,11 @@ Facts with another owner stay there. Where the declaration restates one (a unit'
   reaches the template's services only that second way, so a name the manifest
   does not declare, or scopes to other services, is a name the profile does not pass.
 - **Jobs and schedules** stay in the control-plane catalogs. A schedule with
-  no `scheduler` unit is never red: the default trigger is an external cron, and
-  an absent service is never red (ADR 0110 decision 3). Making sure every schedule has a trigger
+  no `scheduler` unit is never red here: an absent service is never red (ADR 0110
+  decision 3). (Amended by ADR 0223: a declared schedule is fired by `terp jobs scheduler` or
+  Celery beat, which the template's profile runs; an external cron calls `terp jobs run` and
+  declares no schedule; production-readiness asks whether `docker-compose.prod.yml` runs the
+  process.) Making sure every schedule has a trigger
   is the deploy tool's job, and the list it needs travels in the release manifest (decision 9),
   because the catalog is code and a tool that never imports the app cannot read it.
 - **Egress hosts** stay in `EgressPolicy`, with a per-environment value arriving through a variable the manifest declares.

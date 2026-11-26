@@ -80,6 +80,18 @@ def _idle(heartbeat: Heartbeat, stopping: Event, *, every: float) -> None:
         heartbeat.clear()
 
 
+def _absent(exc: ImportError, *modules: str) -> bool:
+    """Whether *exc* says one of *modules* is not installed, rather than broken.
+
+    Only a missing module that is one of them, or a parent of one, counts. A capability
+    that is installed and fails to import (a dependency of its own missing, a name it no
+    longer exports) is raised as it is: idling over it, or calling it not installed, would
+    hide the error an operator has to read.
+    """
+    name = exc.name if isinstance(exc, ModuleNotFoundError) else None
+    return name is not None and any(m == name or m.startswith(f"{name}.") for m in modules)
+
+
 def _load_control_plane(dotted: str) -> ControlPlane:
     """Resolve a ``module:attribute`` reference to a :class:`~terp.core.ControlPlane`."""
     module_name, _, attr = dotted.partition(":")
@@ -255,11 +267,16 @@ def run_worker_command(
     try:
         from terp.capabilities.outbox import OutboxWorker
     except ImportError as exc:
+        if not _absent(exc, "terp.capabilities.outbox"):
+            raise
         if heartbeat is not None:
+            declared = len(active_job_catalog().jobs)
             _logger.info(
                 "terp jobs worker idles: terp-cap-outbox is not installed, so this app keeps "
-                "no outbox and there is nothing to drain. Install terp-cap-outbox and wire "
-                "create_app(job_queue=OutboxJobQueue()) to give it work (ADR 0223)."
+                "no outbox and there is nothing to drain%s. Install terp-cap-outbox and wire "
+                "create_app(job_queue=OutboxJobQueue()) to give it work (ADR 0223).",
+                f"; its {declared} declared job(s) run where its job queue runs them, inline "
+                "on the default queue" if declared else "",
             )
             _idle(heartbeat, stop if stop is not None else Event(), every=poll_seconds)
             return (
@@ -308,6 +325,10 @@ def _tally(results: list[object]) -> str:
     )
 
 
+#: The modules the default scheduler engine is made of.
+_SCHEDULER_ENGINE = ("apscheduler.schedulers.blocking", "terp.capabilities.scheduler_apscheduler")
+
+
 def _scheduler_engine() -> tuple[type, type]:
     """The default engine's two parts: APScheduler's blocking scheduler and Terp's adapter.
 
@@ -324,7 +345,9 @@ def _scheduler_engine_installed() -> bool:
     """Whether the default engine (``terp-cap-scheduler-apscheduler``) is installed."""
     try:
         _scheduler_engine()
-    except ImportError:
+    except ImportError as exc:
+        if not _absent(exc, *_SCHEDULER_ENGINE):
+            raise
         return False
     return True
 
@@ -340,6 +363,8 @@ def _default_scheduler() -> object:
     try:
         blocking, adapter = _scheduler_engine()
     except ImportError as exc:
+        if not _absent(exc, *_SCHEDULER_ENGINE):
+            raise
         raise SystemExit(
             "terp jobs scheduler requires the terp-cap-scheduler-apscheduler "
             "capability, which is not installed. Add terp-cap-scheduler-apscheduler "

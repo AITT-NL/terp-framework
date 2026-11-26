@@ -6,7 +6,7 @@
   verdicts and the profile membership. Since
   [ADR 0223](0223-the-production-profile-runs-a-worker-and-a-scheduler-idle-until-there-is-work.md)
   it also fails when `docker-compose.prod.yml` runs no process for declared jobs or schedules,
-  which no boot refuses.
+  or when `compose.runtime-role.yml` names a service the profile lacks; no boot refuses either.
 - **Date:** 2026-09-09
 - **Relates:** [ADR 0125](0125-a-declared-job-names-the-actor-its-writes-are-stamped-with.md)
   (the refusal that exposed the gap, and why a sentinel actor was refused),

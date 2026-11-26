@@ -314,14 +314,17 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
 - **Background work runs in the profile's `worker` and `scheduler`** (ADR 0223): `terp
   jobs worker --forever` drains the durable outbox and `terp jobs scheduler` fires the
   declared schedules, both on the backend image. The template's profile always runs the
-  two. In an app with nothing for them to do (no `terp-cap-outbox` installed, no schedule
-  declared) each logs why once, keeps its heartbeat fresh and waits, so an app without jobs
-  notices nothing but two quiet containers. Wire `OutboxJobQueue` and the worker drains it;
+  two. With nothing to do (the worker: no `terp-cap-outbox` installed; the scheduler: no
+  schedule declared and no engine installed) each logs why once, keeps its heartbeat fresh and
+  waits, so an app without jobs notices nothing but two quiet containers. Wire `OutboxJobQueue` and the worker drains it;
   declare a schedule and install `terp-cap-scheduler-apscheduler` (and keep the schedule
   ledger in the database) and the scheduler fires it. The worker scales
-  (`docker compose up --scale worker=3`); the scheduler stays one. `terp verify --only
-  production-readiness` fails when the control plane declares a job or a schedule and the
-  profile runs no service for it. The reference app (`apps/reference`) runs both, and a
+  (`docker compose up --scale worker=3`); the scheduler stays one. An external cron calls
+  `terp jobs run <job>` and declares no schedule, or each tick fires twice. `terp verify --only
+  production-readiness` fails when the control plane declares work and the profile runs no
+  process for the engine installed (`terp jobs worker`, a Celery worker, `terp jobs scheduler` or
+  beat), and when `compose.runtime-role.yml` names a service the profile does not define, which
+  Compose refuses: an app on `"build": "generated"` declares the two units and renders. The reference app (`apps/reference`) runs both, and a
   companion service, in both of its compose profiles.
 - **Observability:** every line the API writes is one JSON record in the versioned
   `terp-log/1` schema (ADR 0005, ADR 0188; the schema ships in terp-core,

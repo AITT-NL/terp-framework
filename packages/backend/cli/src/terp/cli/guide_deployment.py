@@ -88,7 +88,8 @@ unit's health paths are routes the app serves. Where app.main:build cannot be im
 that part is skipped with a named note.
 
 NEVER RED: no frontend, three APIs, a stateful unit with no backup, a schedule with no
-scheduler unit, "instances": "many", an installed history no unit claims, a profile of
+scheduler unit (production-readiness asks that of docker-compose.prod.yml instead, ADR
+0223), "instances": "many", an installed history no unit claims, a profile of
 any file name other than the development one. A missing backup is a safety property for
 the deploy boundary, not for this check.
 

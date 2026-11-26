@@ -12,8 +12,9 @@
   which names the worker and the scheduler as processes of the shape Terp supplies, and on
   [ADR 0187](0187-in-the-generated-state-the-framework-renders-the-build-files.md) and
   [ADR 0191](0191-readiness-asks-the-stores-a-deployment-requires-and-a-worker-reports-a-heartbeat.md), whose generator and heartbeats
-  render and probe them. Amends [ADR 0184](0184-a-deployment-declares-its-units.md), whose status
-  line records it: `terp verify --only deployment` still never fails on a schedule with no
+  render and probe them. Amends [ADR 0128](0128-the-gate-asks-whether-the-app-would-boot-in-production.md),
+  whose production-readiness check gains a question no boot asks, and
+  [ADR 0184](0184-a-deployment-declares-its-units.md); both status lines record it. For 0184: `terp verify --only deployment` still never fails on a schedule with no
   scheduler, and production-readiness now does when the project's own compose profile is the
   deployment.
 
@@ -53,7 +54,10 @@ not that anything drains it, and no check looked for the processes.
 3. **Where there is work, they stay loud.** A declared schedule with no engine installed still
    stops the scheduler with the message that names the package. A single drain (`terp jobs
    worker` without `--forever`) without the outbox still stops with its message: an operator who
-   runs it by hand wants to know.
+   runs it by hand wants to know. "Not installed" means the capability's own module is missing;
+   any other import error inside it is raised, not read as a reason to idle. An app whose jobs run
+   on Celery keeps the template's worker idle beside its own Celery worker: decision 7 is what
+   asks for the Celery worker.
 4. **The template adds no dependency.** An app that wires the durable queue already imports
    `terp-cap-outbox`; one that declares a schedule installs `terp-cap-scheduler-apscheduler`.
    Installing both in every app would put the outbox's tables and a scheduler engine into apps
@@ -67,16 +71,35 @@ not that anything drains it, and no check looked for the processes.
    ledger's compare-and-set and enqueues nothing (ADR 0191); with any other trigger it would
    fire twice. Do not scale it.
 7. **`terp verify --only production-readiness` names the missing service.** When the project
-   carries `docker-compose.prod.yml` and its control plane declares a job, a service of that
-   profile must run `terp jobs worker`; when it declares a schedule, one must run `terp jobs
-   scheduler`. Otherwise the check fails, naming the service, the declared work that would not
-   run, and the remedy: re-render the template, or, under `"build": "generated"`, declare the
-   unit and render. A command counts wherever it is written in the service: a list, `uv run`,
-   a shell loop around a single drain. A Celery worker or beat counts too, since those
-   capabilities ship. The profile is read only when the control plane declares work; a project
-   with no compose profile is then deployed some other way, and the check says it did not judge
-   that half: which process triggers a schedule is the deploy tool's business, as ADR 0184 has
-   it. A profile that cannot be parsed fails, as `deploy-safety` fails on one.
+   carries `docker-compose.prod.yml` and its control plane declares work, the profile must run
+   the process the installed engine needs: with `terp-cap-outbox`, a service running `terp jobs
+   worker`; with the Celery jobs capability, a Celery worker (either, with both); with neither,
+   jobs run inline in the process that enqueued them and no worker is asked for. A declared
+   schedule needs `terp jobs scheduler` or a Celery beat, and a profile that runs `terp jobs
+   scheduler` while `terp-cap-scheduler-apscheduler` is not installed fails too, since that
+   scheduler stops at start. A service counts only when a plain `docker compose up` runs it: not
+   behind `profiles`, not scaled to zero, and a list-form single drain with no restart is not a
+   worker. A command counts wherever the profile writes it (a list, `uv run`, a shell loop); an
+   image's `CMD` is not read, and a shell string that only mentions the words cannot be told
+   apart (a residual). The failure names the service, the declared work by name, and three
+   remedies: write the service with its command into the profile, re-render the template, or,
+   under `"build": "generated"`, declare the unit and render. Only `docker-compose.prod.yml` is
+   read, as `deploy-safety` reads it, not the overrides `deployment.json` may list. A project with
+   no compose profile is deployed some other way, and the check says it did not judge that half:
+   which process triggers the work is then the deploy tool's business, as ADR 0184 has it. A
+   profile that cannot be parsed fails, as `deploy-safety` fails on one.
+8. **A declared schedule is fired by a scheduler, an external cron declares none.** The
+   template's profile runs `terp jobs scheduler`; an app on Celery runs beat. A cron, a k8s
+   CronJob or a timer outside the app calls `terp jobs run <job>` and declares no schedule:
+   declared as well, each tick would fire twice once a scheduler runs beside it. This replaces
+   the older reading, in ADR 0184 and the scheduling module, that an external cron is the default
+   trigger of a declared schedule.
+9. **The runtime-role overlay may not name a service the profile lacks.** The overlay gives the
+   worker and the scheduler the runtime role, so it names both. Compose refuses an overlay service
+   the base profile does not define, and an app under `"build": "generated"` that takes the
+   updated overlay before it has declared and rendered the two units would deploy nothing.
+   Production-readiness fails on that mismatch whether or not the app declares work, and names
+   the remedy: declare the units and render, or, under `"own"`, re-render or add the services.
 
 ## Consequences
 
@@ -84,7 +107,10 @@ not that anything drains it, and no check looked for the processes.
   `deployment.json` is the app's and is not rewritten, which is fine: under `"own"` the
   declaration is partial, and a service it does not name is not its business.
 - An app under `"build": "generated"` renders its profile from its own declaration, so it gets
-  the services when it declares the units. Production-readiness tells it when it needs them.
+  the services when it declares the units, and must do so in the same change as the update that
+  brings the new overlay (decision 9; the upgrade note gives the two units). `terp deployment
+  adopt` reads a profile back into a declaration and cannot see `instances`, so an adopted worker
+  is declared `"one"`, the default, until someone writes `"many"`.
 - Every app runs two more containers. Idle, each is one Python process that has built the app
   and wakes on its poll interval to write a heartbeat; an app without jobs notices nothing else.
 - A deploy tool that discovers the profile's services by the image they share with the API

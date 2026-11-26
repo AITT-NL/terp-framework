@@ -443,7 +443,7 @@ _PRODUCTION_READINESS = VerifyCheck(
     id="production-readiness",
     category="architecture",
     command="terp verify --only production-readiness",
-    scope=("control_plane/**/*.py", "docker-compose.prod.yml"),
+    scope=("control_plane/**/*.py", "docker-compose.prod.yml", "compose.runtime-role.yml"),
     runner="production-readiness",
 )
 
@@ -1517,8 +1517,8 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
     fail.
 
     Reads the *declared* plane and never builds the app, so it costs one module import
-    and one file read and can sit in every profile. The audit refusal is deliberately not
-    among the three: it turns on `create_app(audit_sink=...)`, a runtime argument this
+    and a file read or two and can sit in every profile. The audit refusal is deliberately
+    not among the three: it turns on `create_app(audit_sink=...)`, a runtime argument this
     check cannot see, and a check that pretended to cover it would be worse than the gap.
 
     That carve-out is no longer the only one, and the set is no longer folklore. Two
