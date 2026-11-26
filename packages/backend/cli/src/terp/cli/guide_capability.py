@@ -73,8 +73,8 @@ Using capabilities
   (502); under an async client it can arrive inside an ExceptionGroup. It cannot see
   uvloop, so it refuses to install beside it and refuses `import uvloop` after it. The
   template already serves with --loop asyncio (both images, the workbench compose and
-  terp dev), and terp jobs worker / scheduler run no uvloop, so adding the guard needs
-  no other edit. A uvicorn command you write yourself carries --loop asyncio too
+  terp dev), and terp jobs worker / scheduler run no uvloop, so on Linux and macOS
+  adding the guard needs no other edit (on Windows, see loopback below). A uvicorn command you write yourself carries --loop asyncio too
   (uvicorn[standard] picks uvloop otherwise), and a worker or scheduler of your own runs
   on asyncio.run. Native drivers that open their own sockets (libpq,
   gRPC's C core) are invisible to it and a public IP literal passes; the deployment's

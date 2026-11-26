@@ -2,11 +2,12 @@
 
 The egress guard holds Python's socket module through audit events. uvloop resolves names and
 connects inside libuv, which raises none, so the guard refuses to install beside it and refuses
-an ``import uvloop`` after it. uvicorn's default loop, ``auto``, makes exactly that import once it
-has imported the app, and ``uvicorn[standard]`` brings uvloop wherever it builds. The guard
-refuses the attempt itself, before Python looks for the module, so an app that installs the guard
-and is served under ``auto`` starts on no OS at all: not on Linux, where uvloop is installed, and
-not on Windows, where it does not exist.
+an ``import uvloop`` after it. uvicorn's default loop, ``auto``, makes exactly that import: after
+it has imported the app in a single process, and before it under ``--reload``, where the guard
+then refuses to install beside it. ``uvicorn[standard]`` brings uvloop wherever it builds, and the
+guard refuses the import attempt itself, before Python looks for the module, so an app that
+installs the guard and is served under ``auto`` starts on no OS at all: not on Linux, where
+uvloop is installed, and not on Windows, where it does not exist.
 
 So every uvicorn command the template and the example ship names ``--loop asyncio``, and so does
 ``terp dev``. The control has two halves, as the shutdown bound has (``test_serving_shutdown.py``):
@@ -34,10 +35,10 @@ from tests.architecture.test_serving_shutdown import (
     _INVOCATION,
     _RELOAD_COMPOSE,
     _SEARCH_ROOTS,
-    _SEARCH_SUFFIXES,
     _SERVED_IMAGES,
     _api_command,
     _cmd_argv,
+    _searched,
 )
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -97,7 +98,7 @@ def test_no_uvicorn_invocation_anywhere_leaves_the_loop_to_uvicorn() -> None:
     unnamed: list[str] = []
     for search_root in _GREP_ROOTS:
         for path in search_root.rglob("*"):
-            if not path.is_file() or path.suffix not in _SEARCH_SUFFIXES:
+            if not path.is_file() or not _searched(path):
                 continue
             if "node_modules" in path.parts or "__pycache__" in path.parts:
                 continue
@@ -188,6 +189,8 @@ def test_the_same_command_without_the_flag_is_refused_by_the_guard(tmp_path: pat
     process, stderr = _start(argv, tmp_path)
     try:
         returncode = process.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        pytest.fail("the guard did not refuse uvicorn's auto loop: the app is still running")
     finally:
         if process.poll() is None:
             _stop(process)
