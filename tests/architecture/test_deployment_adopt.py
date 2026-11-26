@@ -324,9 +324,12 @@ def test_an_undeclared_app_is_declared_from_its_profile(tmp_path, capsys) -> Non
     written = json.loads((root / "deployment.json").read_text(encoding="utf-8"))
     expected = seed()
     del expected["units"][0]["backup"]
+    for entry in expected["units"]:
+        if entry["id"] in ("worker", "scheduler"):
+            del entry["instances"]
     assert written == {**expected, "$comment": COMMENT}, (
         "the template's own profile reads back as the template's seed, but for the backup "
-        "policy a profile cannot state"
+        "policy and the job units' instance counts, which a profile cannot state"
     )
     assert _build_files(root) == before
     assert "note: db is stateful and declares no backup policy; add one" in out

@@ -213,7 +213,9 @@ reddens for a reason no test failure will explain:
   decided by what the control plane declares (an unsafe security config, a password
   policy with no strength floor, background work naming no actor), and outside
   production they only log. A green gate over one of them agrees with a deployment
-  that will not start.
+  that will not start. It also asks whether `docker-compose.prod.yml` runs a `worker`
+  for declared jobs and a `scheduler` for declared schedules: nothing refuses that at
+  boot, so the API comes up healthy and the work never runs.
 - `deploy-safety` — would this deployment ship something that cannot be taken back?
   Properties of `docker-compose.prod.yml`, never its shape.
 - `workbench` — can a tool still navigate this app? `workbench.json` declares which

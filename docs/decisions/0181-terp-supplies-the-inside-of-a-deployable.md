@@ -4,6 +4,8 @@
   and need only ratification; decision 4 is a ranked roadmap whose first socket has shipped
   (ADR 0117, 0144, 0177) apart from four named parts, and whose other four are unbuilt;
   decision 5 is a documentation obligation, due now that the first socket exists.
+  [ADR 0223](0223-the-production-profile-runs-a-worker-and-a-scheduler-idle-until-there-is-work.md)
+  puts decision 1's worker and scheduler into the template's production profile.
 - **Date:** 2026-10-12. First drafted 2026-09-04 against 0.17.0 under the number 0114, which
   ADR 0114 took before the draft was reviewed; brought up to date and renumbered here.
 - **Relates:** [ADR 0111](0111-flexibility-is-bounded-by-legibility-not-by-capability.md)

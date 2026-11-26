@@ -104,7 +104,8 @@
       "category": "architecture",
       "command": "terp verify --only production-readiness",
       "scope": [
-        "control_plane/**/*.py"
+        "control_plane/**/*.py",
+        "docker-compose.prod.yml"
       ]
     },
     {

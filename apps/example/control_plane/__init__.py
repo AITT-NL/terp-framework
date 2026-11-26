@@ -2,8 +2,8 @@
 
 Every cross-cutting decision this app makes is declared here rather than scattered
 through its modules: the role ladder and named permissions, the security posture, the
-audit policy, and the event, job and operation catalogs. Later slices add the realtime
-and database registries in the same place.
+audit policy, and the event, job, schedule and operation catalogs. Later slices add the
+realtime and database registries in the same place.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from control_plane.events import event_catalog
 from control_plane.jobs import SYSTEM_ACTOR_ID, job_catalog
 from control_plane.operations import operation_catalog
 from control_plane.permissions import permission_model
+from control_plane.schedules import schedule_catalog
 from control_plane.security import security
 
 control_plane = ControlPlane(
@@ -24,6 +25,7 @@ control_plane = ControlPlane(
     events=event_catalog,
     jobs=job_catalog,
     job_system_actor_id=SYSTEM_ACTOR_ID,
+    schedules=schedule_catalog,
     operations=operation_catalog,
 )
 

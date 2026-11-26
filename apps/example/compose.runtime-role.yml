@@ -13,3 +13,11 @@ services:
     environment:
       DB_SCHEMA_LAYOUT: per-module
       DATABASE_URL: postgresql+psycopg://terp_rt:${TERP_RUNTIME_DB_PASSWORD:?supply the separately provisioned runtime password}@db:5432/terp
+  worker:
+    environment:
+      DB_SCHEMA_LAYOUT: per-module
+      DATABASE_URL: postgresql+psycopg://terp_rt:${TERP_RUNTIME_DB_PASSWORD:?supply the separately provisioned runtime password}@db:5432/terp
+  scheduler:
+    environment:
+      DB_SCHEMA_LAYOUT: per-module
+      DATABASE_URL: postgresql+psycopg://terp_rt:${TERP_RUNTIME_DB_PASSWORD:?supply the separately provisioned runtime password}@db:5432/terp

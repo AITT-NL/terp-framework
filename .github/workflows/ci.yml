@@ -1028,8 +1028,12 @@ jobs:
       # empty named volume the owner of the directory it is mounted over, and a file stored
       # through the files capability, at the root the app composes, is read back through it
       # from a second container. The api said it probed that root before it served, and the
-      # same image does not start as a user that cannot write it (ADR 0218). Last in the
-      # job, because it locks the app against the wheels where its build context holds them.
+      # same image does not start as a user that cannot write it (ADR 0218). The worker and
+      # the scheduler every profile runs come up healthy beside it and idle, each saying why:
+      # this render declares no job and no schedule and installs neither terp-cap-outbox nor
+      # terp-cap-scheduler-apscheduler, so an app without jobs is unaffected (ADR 0223). Last
+      # in the job, because it locks the app against the wheels where its build context
+      # holds them.
       - name: The production profile on Docker - SSO and the files volume (hub-all-capabilities)
         if: matrix.variant == 'hub-all-capabilities'
         working-directory: /tmp/acceptance-app
@@ -1056,7 +1060,8 @@ jobs:
           } > .app.api.env
           profile="docker compose -f docker-compose.prod.yml"
           # Built once, by the one service that declares the build; up starts db and migrate
-          # first, and --wait holds out for the api's healthcheck in production.
+          # first, and --wait holds out for the api's healthcheck in production, and for the
+          # heartbeat the worker and the scheduler keep while they idle.
           $profile build api
           $profile up -d --wait db
           $profile exec -T -e TERP_RUNTIME_DB_PASSWORD db psql -X -v ON_ERROR_STOP=1 -U app -d app <<'SQL'
@@ -1064,7 +1069,12 @@ jobs:
           CREATE ROLE terp_rt LOGIN PASSWORD :'runtime_password';
           SQL
           $profile run --rm migrate terp migrate grant-runtime terp_rt --app-root /srv/app
-          $profile up -d --wait api
+          $profile up -d --wait api worker scheduler
+          # Healthy because idle, not because they found work: each logged why it idles.
+          $profile logs --no-color worker > "$RUNNER_TEMP/worker.log" 2>&1
+          grep -F "terp jobs worker idles" "$RUNNER_TEMP/worker.log"
+          $profile logs --no-color scheduler > "$RUNNER_TEMP/scheduler.log" 2>&1
+          grep -F "terp jobs scheduler idles" "$RUNNER_TEMP/scheduler.log"
           # Stored through the capability, after the app composed itself, so the root it
           # writes is the one the app resolves, not a path this step assumes.
           $profile exec -T api python -c '

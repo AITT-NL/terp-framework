@@ -4,7 +4,9 @@
 # Multi-stage: stage 1 builds wheels for every framework package with uv; stage 2 is a
 # clean python:3.13-slim runtime that installs ONLY the wheels + the app — no editable
 # installs, no source tree, no build tooling. The same image backs the one-shot
-# `migrate` job and the `api` server; production bootstraps its first admin with
+# `migrate` job, the `api` server, the `worker` (terp-cap-outbox) and the `scheduler`
+# (terp-cap-scheduler-apscheduler, the engine `terp jobs scheduler` fires the app's
+# declared schedules on); production bootstraps its first admin with
 # `terp user create` (never `terp seed`, which refuses ENVIRONMENT=production).
 #
 # The dev workbench keeps its own Dockerfile (editable installs + --reload live sync).
@@ -34,6 +36,7 @@ RUN set -eux; \
         packages/backend/capabilities/users \
         packages/backend/capabilities/mail \
         packages/backend/capabilities/outbox \
+        packages/backend/capabilities/scheduler_apscheduler \
         packages/backend/capabilities/realtime \
         packages/backend/capabilities/oidc \
         packages/backend/capabilities/egress \
@@ -60,7 +63,8 @@ RUN uv pip install --system --no-cache --find-links /wheels \
         terp-core terp-arch terp-migrations terp-cli \
         terp-cap-auth terp-cap-identity terp-cap-tenancy terp-cap-access \
         terp-cap-audit terp-cap-eventbus terp-cap-files terp-cap-groups terp-cap-users \
-        terp-cap-outbox terp-cap-realtime terp-cap-oidc terp-cap-webhooks \
+        terp-cap-outbox terp-cap-scheduler-apscheduler \
+        terp-cap-realtime terp-cap-oidc terp-cap-webhooks \
         "uvicorn[standard]" "psycopg[binary]" \
     && rm -rf /wheels
 

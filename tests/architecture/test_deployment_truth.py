@@ -75,7 +75,7 @@ def test_the_seed_s_files_volume_is_one_the_profile_mounts(tmp_path) -> None:
 def test_a_unit_that_is_not_a_service_is_a_lie(tmp_path) -> None:
     message = _untrue(project(tmp_path, seed(), profile(web=None)))
     assert (
-        'units[3].id "web" is not a service of docker-compose.prod.yml (allowed: a service of the profile: api, db, migrate)'
+        'units[3].id "web" is not a service of docker-compose.prod.yml (allowed: a service of the profile: api, db, migrate, scheduler, worker)'
         in message
     )
 
@@ -293,6 +293,14 @@ services:
     depends_on: !override
       migrate:
         condition: service_completed_successfully
+  worker:
+    depends_on: !override
+      migrate:
+        condition: service_completed_successfully
+  scheduler:
+    depends_on: !override
+      migrate:
+        condition: service_completed_successfully
 """
 
 
@@ -300,7 +308,8 @@ def _external(raw: dict) -> dict:
     raw["units"] = [entry for entry in raw["units"] if entry["id"] != "db"]
     raw["externalDatabase"] = {"backup": "client"}
     unit(raw, "migrate")["dependsOn"] = []
-    unit(raw, "api")["dependsOn"] = ["migrate"]
+    for name in ("api", "worker", "scheduler"):
+        unit(raw, name)["dependsOn"] = ["migrate"]
     return raw
 
 
@@ -354,7 +363,7 @@ def test_a_field_read_by_role_under_an_unknown_role_has_no_reader(tmp_path) -> N
 
 def test_a_service_nobody_declared_is_nobody_s_business(tmp_path) -> None:
     compose = profile(
-        worker={"image": "app-backend-prod", "command": ["terp", "jobs", "worker"]},
+        importer={"image": "app-backend-prod", "command": ["terp", "jobs", "worker"]},
         scanner={"image": "vendor.example.invalid/scanner:latest"},
         cache={"image": "redis:7-alpine"},
     )

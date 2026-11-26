@@ -5,8 +5,10 @@ example app. It registers the webhooks capability's :data:`WEBHOOK_DELIVER` job 
 note-created webhook fan-out (see :mod:`app.webhooks`) can enqueue it through the typed
 chokepoint; the durable ``OutboxJobQueue`` (wired in :mod:`app.main`) records each enqueued
 job atomically with the business write, and ``terp jobs worker`` drains and delivers them
-off-request. Every ``ModuleSpec.jobs`` reference is validated against this catalog at boot,
-so a job name can never drift in as a bare string.
+off-request. :data:`~app.probe.PROBE_RUN` is the background probe the schedule catalog
+fires every minute, so the production profile can be shown to run its worker and its
+scheduler (:mod:`app.probe`). Every ``ModuleSpec.jobs`` reference is validated against this
+catalog at boot, so a job name can never drift in as a bare string.
 """
 
 from __future__ import annotations
@@ -16,6 +18,8 @@ import uuid
 from terp.core import JobCatalog
 
 from terp.capabilities.webhooks import WEBHOOK_DELIVER
+
+from app.probe import PROBE_RUN
 
 #: The principal a job's writes are stamped with when no user originated the work.
 #: Declaring it is not optional for an app with a job catalog: production refuses the
@@ -31,6 +35,6 @@ from terp.capabilities.webhooks import WEBHOOK_DELIVER
 #: service principal it can name in an audit review.
 SYSTEM_ACTOR_ID = uuid.UUID("00000000-0000-0000-0000-0000000e5a01")
 
-job_catalog = JobCatalog([WEBHOOK_DELIVER])
+job_catalog = JobCatalog([WEBHOOK_DELIVER, PROBE_RUN])
 
 __all__ = ["SYSTEM_ACTOR_ID", "job_catalog"]

@@ -3,7 +3,10 @@
 - **Status:** Accepted and implemented. `production-readiness` runs in all three verify
   profiles, reads the declared control plane's three environment-independent boot
   refusals, and fails on any of them; `tests/architecture/test_cli_verify.py` holds the
-  verdicts and the profile membership.
+  verdicts and the profile membership. Since
+  [ADR 0223](0223-the-production-profile-runs-a-worker-and-a-scheduler-idle-until-there-is-work.md)
+  it also fails when `docker-compose.prod.yml` runs no process for declared jobs or schedules,
+  which no boot refuses.
 - **Date:** 2026-09-09
 - **Relates:** [ADR 0125](0125-a-declared-job-names-the-actor-its-writes-are-stamped-with.md)
   (the refusal that exposed the gap, and why a sentinel actor was refused),

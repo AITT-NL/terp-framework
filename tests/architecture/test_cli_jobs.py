@@ -9,6 +9,8 @@ catalog — generated, so the listing cannot drift from what the app actually ru
 from __future__ import annotations
 
 import importlib
+import json
+import logging
 import pathlib
 import signal
 import sys
@@ -401,6 +403,70 @@ def test_run_worker_command_without_the_outbox_capability_is_directive(
         run_worker_command(app_ref="jobs_worker_noext:build", app_root=tmp_path, max_cycles=1)
 
 
+class _WatchHeartbeat(_StopOnPause):
+    """The stop of :class:`_StopOnPause`, reading the heartbeat at each pause as a probe would."""
+
+    def __init__(self, signum: int, at: int, heartbeat: pathlib.Path) -> None:
+        super().__init__(signum, at)
+        self.heartbeat, self.seen = heartbeat, []
+
+    def wait(self, timeout: float | None = None) -> bool:
+        self.seen.append(json.loads(self.heartbeat.read_text(encoding="utf-8")))
+        return super().wait(timeout)
+
+
+_NO_JOBS_APP_MODULE = """\
+from terp.core import create_app
+
+
+def build():
+    return create_app([])
+"""
+
+
+def test_run_worker_command_forever_without_the_outbox_idles_until_stopped(
+    tmp_path: pathlib.Path,
+    worker_db: None,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """ADR 0223: the production profile runs a worker in every app, so one with nothing to
+    drain must not exit. An exit under `restart: unless-stopped` is a restart loop, and
+    `docker compose up --wait` reads it as a failed deploy. It says why once, beats every
+    poll so its healthcheck stays green, and stops on the signal like the drain loop."""
+    from terp.cli.heartbeat import worker_stale_after
+
+    (tmp_path / "jobs_worker_idle.py").write_text(_NO_JOBS_APP_MODULE, encoding="utf-8")
+    sys.modules.pop("jobs_worker_idle", None)
+    monkeypatch.setitem(sys.modules, "terp.capabilities.outbox", None)
+    before = (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT))
+    heartbeat = tmp_path / "terp-worker.heartbeat"
+    stop = _WatchHeartbeat(signal.SIGTERM, at=2, heartbeat=heartbeat)
+    with caplog.at_level(logging.INFO, logger="terp.cli.jobs"):
+        message = run_worker_command(
+            app_ref="jobs_worker_idle:build",
+            app_root=tmp_path,
+            forever=True,
+            poll_seconds=2.5,
+            stop=stop,
+            heartbeat_path=heartbeat,
+        )
+    assert message == (
+        "outbox worker idled until stopped: terp-cap-outbox is not installed, "
+        "so there was no outbox to drain"
+    )
+    assert stop.pauses == [2.5, 2.5], "it waits a poll between beats, for as long as asked"
+    assert [beat["beats"] for beat in stop.seen] == [1, 2], "and beats before every wait"
+    assert {beat["role"] for beat in stop.seen} == {"worker"}
+    assert stop.seen[0]["stale_after"] == worker_stale_after(lease_seconds=30.0, poll_seconds=2.5)
+    assert (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT)) == before
+    assert not heartbeat.exists(), "the heartbeat goes with the process (ADR 0191)"
+    said = [record.getMessage() for record in caplog.records if record.name == "terp.cli.jobs"]
+    assert len(said) == 1, f"one line, not one per beat: {said!r}"
+    assert "terp-cap-outbox is not installed" in said[0], "why it idles"
+    assert "OutboxJobQueue" in said[0], "and what gives it work"
+
+
 # --------------------------------------------------------------------------- #
 # terp jobs scheduler — run the in-process scheduler (ADR 0047/0048 CLI)
 # --------------------------------------------------------------------------- #
@@ -468,6 +534,74 @@ def test_run_scheduler_command_registers_and_starts(tmp_path: pathlib.Path) -> N
     assert fake.started
     assert fake.registered.names() == ("sync.customers.nightly",)  # type: ignore[attr-defined]
     assert "1 schedule(s) registered: sync.customers.nightly" in message
+
+
+def test_run_scheduler_command_with_no_schedule_and_no_engine_idles_until_stopped(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """ADR 0223: nothing declared and nothing to fire with is provably nothing to do, so the
+    scheduler the production profile always runs idles on its own beat and bound instead
+    of exiting into a restart loop."""
+    from terp.cli.heartbeat import SCHEDULER_BEAT_SECONDS, SCHEDULER_STALE_AFTER
+
+    (tmp_path / "jobs_sched_idle.py").write_text(_NO_JOBS_APP_MODULE, encoding="utf-8")
+    sys.modules.pop("jobs_sched_idle", None)
+    monkeypatch.setitem(sys.modules, "terp.capabilities.scheduler_apscheduler", None)
+    before = (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT))
+    heartbeat = tmp_path / "terp-scheduler.heartbeat"
+    stop = _WatchHeartbeat(signal.SIGINT, at=1, heartbeat=heartbeat)
+    with caplog.at_level(logging.INFO, logger="terp.cli.jobs"):
+        message = run_scheduler_command(
+            app_ref="jobs_sched_idle:build",
+            app_root=tmp_path,
+            heartbeat_path=heartbeat,
+            stop=stop,
+        )
+    assert message == (
+        "scheduler idled until stopped: no schedule declared and "
+        "terp-cap-scheduler-apscheduler is not installed"
+    )
+    assert stop.pauses == [SCHEDULER_BEAT_SECONDS]
+    assert stop.seen[0]["role"] == "scheduler"
+    assert stop.seen[0]["stale_after"] == SCHEDULER_STALE_AFTER
+    assert (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT)) == before
+    assert not heartbeat.exists()
+    said = [record.getMessage() for record in caplog.records if record.name == "terp.cli.jobs"]
+    assert len(said) == 1, said
+    assert "declares no schedule" in said[0]
+    assert "install terp-cap-scheduler-apscheduler" in said[0]
+
+
+def test_run_scheduler_command_with_a_schedule_and_no_engine_still_refuses(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Declared work and no engine to run it is the state that must stay loud (ADR 0223)."""
+    (tmp_path / "jobs_sched_noext.py").write_text(_SCHEDULER_APP_MODULE, encoding="utf-8")
+    sys.modules.pop("jobs_sched_noext", None)
+    monkeypatch.setitem(sys.modules, "terp.capabilities.scheduler_apscheduler", None)
+    heartbeat = tmp_path / "terp-scheduler.heartbeat"
+    with pytest.raises(SystemExit, match=r"terp-cli\[scheduler\]"):
+        run_scheduler_command(
+            app_ref="jobs_sched_noext:build", app_root=tmp_path, heartbeat_path=heartbeat
+        )
+    assert not heartbeat.exists(), "nothing vouches for a scheduler that did not start"
+
+
+def test_run_scheduler_command_with_no_schedule_and_the_engine_runs_the_engine(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The idle is only for an app with no engine: an installed one runs as before."""
+    (tmp_path / "jobs_sched_engine.py").write_text(_NO_JOBS_APP_MODULE, encoding="utf-8")
+    sys.modules.pop("jobs_sched_engine", None)
+    fake = _FakeScheduler()
+    monkeypatch.setattr("terp.cli.jobs._default_scheduler", lambda: fake)
+    message = run_scheduler_command(
+        app_ref="jobs_sched_engine:build",
+        app_root=tmp_path,
+        heartbeat_path=tmp_path / "terp-scheduler.heartbeat",
+    )
+    assert fake.started
+    assert message == "scheduler stopped; 0 schedule(s) registered: <none>"
 
 
 def test_default_scheduler_builds_an_apscheduler_scheduler() -> None:

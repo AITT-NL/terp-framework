@@ -388,7 +388,11 @@ def test_template_acceptance_runs_the_production_profile_with_files_and_sso_on_d
     for fragment in (
         "UV_FIND_LINKS=.terp-dist/wheels uv lock",
         "OIDC_ALLOWED_EMAIL_DOMAINS=example.test",
-        "$profile up -d --wait api",
+        # The worker and the scheduler every profile runs come up healthy beside the api in
+        # an app with no job, no schedule and neither engine, and say they idle (ADR 0223).
+        "$profile up -d --wait api worker scheduler",
+        'grep -F "terp jobs worker idles"',
+        'grep -F "terp jobs scheduler idles"',
         'assert os.path.ismount(root)',
         "assert root.stat().st_uid == os.getuid()",
         '$profile run --rm --no-deps api python -c',
@@ -417,6 +421,11 @@ def test_template_acceptance_runs_the_production_profile_with_files_and_sso_on_d
     assert '(root / "probe").write_text' not in run, (
         "the volume is proved by storing through the capability, not by a pathlib write"
     )
+    # The lane greps for what `terp jobs` logs when it idles, so a reworded line fails here
+    # rather than only on Docker.
+    jobs = (_REPO_ROOT / "packages/backend/cli/src/terp/cli/jobs.py").read_text(encoding="utf-8")
+    for said in ("terp jobs worker idles", "terp jobs scheduler idles"):
+        assert said in jobs, f"the lane greps for {said!r}, which terp jobs no longer logs"
     # The image is built after a module was grown, so the record was written again with it.
     (grow,) = [s for s in _acceptance()["steps"] if "Grow the app the real way" in s.get("name", "")]
     written = "uv run terp inspect access --app app.main:build --format surface > authz-surface.json"

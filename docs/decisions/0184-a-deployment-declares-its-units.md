@@ -10,6 +10,10 @@
   `test_deployment_truth.py`, `test_deployment_app.py`, `test_deployment_schema_mirror.py`
   and `test_deployment_fixtures.py`. Decision 7's deploy-boundary check and decision 9's
   commands are not built.
+  [ADR 0223](0223-the-production-profile-runs-a-worker-and-a-scheduler-idle-until-there-is-work.md)
+  narrows "a schedule with no scheduler" on the never-red list: `terp verify --only
+  deployment` still never fails on it, and production-readiness does when the project's own
+  compose profile is the deployment.
 - **Date:** 2026-10-13 (drafted); brought into this repository with its implementation on
   2026-10-21. 0182 and 0183 are reserved for other records.
 - **Relates:** amends [ADR 0110](0110-an-app-declares-which-parts-of-its-dev-topology-are-load-bearing.md)

@@ -310,11 +310,19 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
 - **Scaling caveats (single-instance defaults):** the rate limiter / login lockout /
   idempotency-key replay use in-memory stores by default — multi-instance deployments
   must plug the shared stores (ADR 0036); `terp-cap-redis` ships Redis-backed
-  `ThrottleStore` / `IdempotencyStore` / `CacheStore` adapters (ADR 0078). Background
-  delivery (outbox / webhooks / scheduler) runs via
-  `terp jobs worker` / `terp jobs scheduler` — add those as extra services when you
-  enable the corresponding capabilities. The reference app (`apps/reference`) runs both,
-  and a companion service, on the backend image in both of its compose profiles.
+  `ThrottleStore` / `IdempotencyStore` / `CacheStore` adapters (ADR 0078).
+- **Background work runs in the profile's `worker` and `scheduler`** (ADR 0223): `terp
+  jobs worker --forever` drains the durable outbox and `terp jobs scheduler` fires the
+  declared schedules, both on the backend image. The template's profile always runs the
+  two. In an app with nothing for them to do (no `terp-cap-outbox` installed, no schedule
+  declared) each logs why once, keeps its heartbeat fresh and waits, so an app without jobs
+  notices nothing but two quiet containers. Wire `OutboxJobQueue` and the worker drains it;
+  declare a schedule and install `terp-cap-scheduler-apscheduler` (and keep the schedule
+  ledger in the database) and the scheduler fires it. The worker scales
+  (`docker compose up --scale worker=3`); the scheduler stays one. `terp verify --only
+  production-readiness` fails when the control plane declares a job or a schedule and the
+  profile runs no service for it. The reference app (`apps/reference`) runs both, and a
+  companion service, in both of its compose profiles.
 - **Observability:** every line the API writes is one JSON record in the versioned
   `terp-log/1` schema (ADR 0005, ADR 0188; the schema ships in terp-core,
   `terp.core.log_record_schema()`): uvicorn's own startup and shutdown lines, one access

@@ -45,6 +45,7 @@ def _create(
     capability_names: tuple[str, ...],
     plane=control_plane,
     job_queue=None,
+    schedule_ledger=None,
 ) -> FastAPI:
     """Build the app with the example's full production-grade wiring, mounting *module_specs*.
 
@@ -79,6 +80,7 @@ def _create(
         audit_sink=persist_audit,
         event_dispatcher=dispatch_in_process,
         job_queue=job_queue,
+        schedule_ledger=schedule_ledger,
         permission_enforcer=enforce_permission,
         # `notes` declares itself per-module assignable (ADR 0121), so the boot refuses this
         # app without a resolver: a declaration the runtime cannot act on would let an
@@ -100,9 +102,13 @@ def _create(
 
 
 def build() -> FastAPI:
-    """The full example app: login + /me, this app's domain modules, and the discovered capabilities."""
+    """The full example app: login + /me, this app's domain modules, and the discovered capabilities.
+
+    The API, ``terp jobs worker`` and ``terp jobs scheduler`` all import ``app.main:app``, so
+    each process composes the same durable job queue and the same schedule ledger.
+    """
     import app.webhooks  # noqa: F401  (registers the NOTE_CREATED -> webhook fan-out subscriber)
-    from terp.capabilities.outbox import OutboxJobQueue
+    from terp.capabilities.outbox import DatabaseScheduleLedger, OutboxJobQueue
 
     # The SSO module is mounted in every environment and has no provider in production (see
     # app/auth.py). The full app's sign-in also serves native clients (ADR 0195); the base
@@ -125,6 +131,10 @@ def build() -> FastAPI:
         capability_names=(*_REALTIME_CAPABILITIES, "files", "webhooks"),
         plane=control_plane,
         job_queue=OutboxJobQueue(),
+        # The scheduler records each slot it settles in the same transaction as the job
+        # it enqueued, so a restarted scheduler applies the misfire policy to the minute
+        # it missed (ADR 0191) rather than forgetting it with the process.
+        schedule_ledger=DatabaseScheduleLedger(),
     )
 
 

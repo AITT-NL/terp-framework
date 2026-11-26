@@ -3,9 +3,10 @@ name: prod-smoke
 # Deployability gate (ADR 0062): build the PRODUCTION profile (multi-stage wheel images,
 # ENVIRONMENT=production, no seed, nginx-served SPA) and prove it end-to-end — health,
 # first-admin bootstrap via `terp user create` (the sanctioned production path), login
-# through the same-origin nginx /api proxy, and an authenticated round-trip. This is the
-# production analogue of conformance.yml's dev-workbench e2e: the prod profile cannot
-# silently rot into "works only in dev".
+# through the same-origin nginx /api proxy, an authenticated round-trip, and background
+# work: the scheduler fires a schedule and the worker runs both that job and one enqueued
+# by hand (ADR 0223). This is the production analogue of conformance.yml's dev-workbench
+# e2e: the prod profile cannot silently rot into "works only in dev".
 
 # Path-filtered: this lane builds the production Docker images from scratch, so
 # docs-only changes skip it.
@@ -48,7 +49,7 @@ jobs:
           SQL
 
       - name: Build and start the production profile
-        run: docker compose up -d --wait --build api web
+        run: docker compose up -d --wait --build api web worker scheduler
 
       # `--wait` reports only "container X is unhealthy" — never why.
       - name: Why the production profile did not come up
@@ -177,6 +178,60 @@ jobs:
           if docker compose run --rm api terp seed; then
             echo "terp seed must refuse ENVIRONMENT=production" && exit 1
           fi
+
+      # `--wait` held the worker and the scheduler to a fresh heartbeat, which an idle
+      # process has too; these two steps hold them to work done. Each reads the outbox
+      # tables the app writes, by the names the database's own search_path resolves (the
+      # per-module layout sets it on the database, ADR 0070), and polls for two minutes.
+      # Nothing but the probe schedule enqueues the example's probe job before the second
+      # step, so every probe row the first one sees came from the scheduler. A scheduler that
+      # has just started fires an every-minute schedule at once, so this waits on the
+      # worker, never on a cron time.
+      - name: The scheduler fired the probe schedule and the worker ran the job it enqueued
+        run: |
+          query() {
+            docker compose exec -T db psql -X -qtA -v ON_ERROR_STOP=1 -U terp -d terp -c "$1"
+          }
+          for _ in $(seq 1 60); do
+            fired=$(query "SELECT count(*) FROM outbox_schedule_fire WHERE name = 'ops.probe.minutely' AND outcome IN ('fired', 'late')")
+            ran=$(query "SELECT count(*) FROM outbox_message WHERE kind = 'job' AND name = 'ops.probe.run' AND status = 'dispatched'")
+            if [ "$fired" = 1 ] && [ "$ran" -ge 1 ]; then
+              echo "the probe schedule fired; the worker dispatched $ran probe job(s)"
+              exit 0
+            fi
+            sleep 2
+          done
+          query "SELECT name, slot, outcome, fires FROM outbox_schedule_fire"
+          query "SELECT status, attempts, last_error FROM outbox_message WHERE name = 'ops.probe.run'"
+          docker compose logs --no-color scheduler worker
+          echo "no probe the scheduler enqueued was dispatched within two minutes" >&2
+          exit 1
+
+      - name: A job enqueued by hand runs on the worker
+        run: |
+          query() {
+            docker compose exec -T db psql -X -qtA -v ON_ERROR_STOP=1 -U terp -d terp -c "$1"
+          }
+          # The trigger an external scheduler uses: it builds the app, so the row goes
+          # through the durable queue the app wires, and it prints the outbox row's id.
+          enqueued=$(docker compose exec -T api terp jobs run ops.probe.run --app-root /srv)
+          echo "$enqueued"
+          job_id=$(printf '%s\n' "$enqueued" | sed -n 's/.*(job id \([0-9a-f-]*\)).*/\1/p' | tail -n 1)
+          test -n "$job_id"
+          for _ in $(seq 1 60); do
+            status=$(query "SELECT status FROM outbox_message WHERE id = '$job_id'")
+            if [ "$status" = dispatched ]; then
+              exit 0
+            fi
+            if [ "$status" = dead_lettered ]; then
+              break
+            fi
+            sleep 2
+          done
+          query "SELECT status, attempts, last_error FROM outbox_message WHERE id = '$job_id'"
+          docker compose logs --no-color worker
+          echo "the probe enqueued by hand ($job_id) was not dispatched within two minutes" >&2
+          exit 1
 
       # Stores a real file through the API and reads it back, then again from a new api
       # container: an image whose user cannot write the storage root, or a profile that keeps

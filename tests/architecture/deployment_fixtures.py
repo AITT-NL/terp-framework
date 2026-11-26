@@ -27,6 +27,12 @@ POSTGRES = published_table().find("postgres", "17")
 assert POSTGRES is not None, "the datastore table must carry the template's PostgreSQL"
 
 _BACKEND_ENV_FILE = [{"path": ".app.env", "required": False}]
+#: The two job units the template's profile always runs (ADR 0223), with the command the
+#: generator renders for each role.
+_JOB_COMMANDS = {
+    "worker": ("terp", "jobs", "worker", "--forever"),
+    "scheduler": ("terp", "jobs", "scheduler"),
+}
 
 
 def probe_app() -> FastAPI:
@@ -117,6 +123,18 @@ def profile(**services: dict | None) -> dict[str, Any]:
             "image": "app-frontend-prod",
             "build": {"context": ".", "dockerfile": "frontend/Dockerfile.prod"},
             "depends_on": {"api": {"condition": "service_healthy"}},
+        },
+        **{
+            name: {
+                "image": "app-backend-prod",
+                "command": list(command),
+                "env_file": copy.deepcopy(_BACKEND_ENV_FILE),
+                "depends_on": {
+                    "db": {"condition": "service_healthy"},
+                    "migrate": {"condition": "service_completed_successfully"},
+                },
+            }
+            for name, command in _JOB_COMMANDS.items()
         },
     }
     for name, service in services.items():

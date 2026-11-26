@@ -71,6 +71,8 @@ FRONTEND_BLOCK = re.compile(r"\{%- if frontend %\}(.*?)\s*\{%- endif %\}", re.DO
 
 #: Where the files capability's volume lands in the production profile.
 FILES_MOUNT = '"files-data:/srv/var/files"'
+#: The units the seed mounts it on: the api and both job units (ADR 0223).
+FILES_UNITS = ("api", "worker", "scheduler")
 #: How the api unit is published when no web tier fronts it (ADR 0202).
 API_PUBLISHED = '"${TERP_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-23200}:8000"'
 
@@ -406,9 +408,9 @@ def with_files(trip: Trip, rendered: dict[str, bytes | None]) -> list[str]:
     with_volume = snapshot(app)
     profile = (with_volume["docker-compose.prod.yml"] or b"").decode("utf-8")
     require(
-        profile.count(FILES_MOUNT) == 1,
+        profile.count(FILES_MOUNT) == len(FILES_UNITS),
         "copy v1 with use_files: the production profile does not mount the files volume "
-        "on the api",
+        f"once on each of {', '.join(FILES_UNITS)}",
     )
     require(
         with_volume["Dockerfile.prod"] == rendered["Dockerfile.prod"]

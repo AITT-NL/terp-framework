@@ -15,7 +15,9 @@ The jobs seam (ADR 0043) is driven from the CLI two ways:
   processes. Each writes a heartbeat its container's healthcheck reads
   (:mod:`terp.cli.heartbeat`, ADR 0191), and each stops cleanly on SIGTERM or SIGINT: the
   worker finishes the job it is running and releases the rest of its batch, the
-  scheduler lets the ticks in flight finish.
+  scheduler lets the ticks in flight finish. Where there is provably nothing to do (no
+  outbox installed for the worker; no schedule declared and no engine installed for the
+  scheduler) each idles instead of exiting, beating until it is stopped (ADR 0223).
 """
 
 from __future__ import annotations
@@ -59,6 +61,23 @@ def _on_stop(handler: Callable[[], None]) -> Iterator[None]:
     finally:
         for number, restored in previous.items():
             signal.signal(number, restored)
+
+
+def _idle(heartbeat: Heartbeat, stopping: Event, *, every: float) -> None:
+    """Beat every *every* seconds until SIGTERM or SIGINT sets *stopping* (ADR 0223).
+
+    The process has provably nothing to do. Exiting instead would be a restart loop under
+    ``restart: unless-stopped``, which ``docker compose up --wait`` reads as a failed deploy,
+    so it waits as a healthy idle process waits: its heartbeat fresh, its healthcheck green.
+    The heartbeat goes with the process.
+    """
+    try:
+        with _on_stop(stopping.set):
+            while not stopping.is_set():
+                heartbeat.beat()
+                stopping.wait(every)
+    finally:
+        heartbeat.clear()
 
 
 def _load_control_plane(dotted: str) -> ControlPlane:
@@ -209,6 +228,13 @@ def run_worker_command(
     ``max(lease_seconds, poll_seconds)`` plus a grace before its healthcheck calls it
     stuck. *heartbeat_path* moves the file, for tests; the container's healthcheck reads the
     default.
+
+    Under *forever* in an app that does not install ``terp-cap-outbox``, the worker idles
+    instead of exiting (ADR 0223): the app keeps no outbox, so nothing could ever reach it.
+    It says so in one log line, beats every *poll_seconds* and waits for the stop signal,
+    because the production profile runs a worker in every app and an exit there is a restart
+    loop. The single drain keeps refusing without the capability: whoever runs it by hand
+    wants to know.
     """
     heartbeat = (
         Heartbeat(
@@ -226,10 +252,20 @@ def run_worker_command(
         sys.path.insert(0, root)
     _load_app(app_ref)
 
-
     try:
         from terp.capabilities.outbox import OutboxWorker
     except ImportError as exc:
+        if heartbeat is not None:
+            _logger.info(
+                "terp jobs worker idles: terp-cap-outbox is not installed, so this app keeps "
+                "no outbox and there is nothing to drain. Install terp-cap-outbox and wire "
+                "create_app(job_queue=OutboxJobQueue()) to give it work (ADR 0223)."
+            )
+            _idle(heartbeat, stop if stop is not None else Event(), every=poll_seconds)
+            return (
+                "outbox worker idled until stopped: terp-cap-outbox is not installed, "
+                "so there was no outbox to drain"
+            )
         raise SystemExit(
             "terp jobs worker requires the terp-cap-outbox capability, which is not "
             "installed. Add terp-cap-outbox to the app's dependencies (wiring the "
@@ -272,6 +308,27 @@ def _tally(results: list[object]) -> str:
     )
 
 
+def _scheduler_engine() -> tuple[type, type]:
+    """The default engine's two parts: APScheduler's blocking scheduler and Terp's adapter.
+
+    Raises ``ImportError`` when ``terp-cap-scheduler-apscheduler`` is not installed.
+    """
+    from apscheduler.schedulers.blocking import BlockingScheduler
+
+    from terp.capabilities.scheduler_apscheduler import ApschedulerScheduler
+
+    return BlockingScheduler, ApschedulerScheduler
+
+
+def _scheduler_engine_installed() -> bool:
+    """Whether the default engine (``terp-cap-scheduler-apscheduler``) is installed."""
+    try:
+        _scheduler_engine()
+    except ImportError:
+        return False
+    return True
+
+
 def _default_scheduler() -> object:
     """Build the default scheduler process: a blocking APScheduler wrapped by the adapter.
 
@@ -281,9 +338,7 @@ def _default_scheduler() -> object:
     """
 
     try:
-        from apscheduler.schedulers.blocking import BlockingScheduler
-
-        from terp.capabilities.scheduler_apscheduler import ApschedulerScheduler
+        blocking, adapter = _scheduler_engine()
     except ImportError as exc:
         raise SystemExit(
             "terp jobs scheduler requires the terp-cap-scheduler-apscheduler "
@@ -294,9 +349,7 @@ def _default_scheduler() -> object:
     from terp.cli._engine import cli_engine, cli_session_factory
 
     engine = cli_engine()
-    return ApschedulerScheduler(
-        cli_session_factory(engine), scheduler=BlockingScheduler()
-    )
+    return adapter(cli_session_factory(engine), scheduler=blocking())
 
 
 def run_scheduler_command(
@@ -305,6 +358,7 @@ def run_scheduler_command(
     app_root: str | pathlib.Path = ".",
     scheduler: object | None = None,
     heartbeat_path: pathlib.Path | None = None,
+    stop: Event | None = None,
 ) -> str:
     """Build *app_ref*, then run the in-process scheduler until stopped (the scheduler entrypoint).
 
@@ -324,7 +378,15 @@ def run_scheduler_command(
     not durable is named in the log, because then the gap is never seen. The scheduler
     beats every few seconds from its own engine (:mod:`terp.cli.heartbeat`;
     *heartbeat_path* moves the file, for tests), and SIGTERM or SIGINT shut the engine down
-    once the ticks in flight have finished.
+    once the ticks in flight have finished. *stop* is the event the signals set, injectable
+    for tests.
+
+    An app that declares no schedule and installs no engine has provably nothing to fire, so
+    the scheduler idles instead of exiting (ADR 0223): one log line, a heartbeat every
+    ``SCHEDULER_BEAT_SECONDS`` against the same bound, and a wait for the stop signal, because
+    the production profile runs a scheduler in every app and an exit there is a restart loop.
+    A declared schedule with no engine still refuses, naming the package: there is work, and
+    nothing would do it.
     """
     heartbeat = Heartbeat("scheduler", stale_after=SCHEDULER_STALE_AFTER, path=heartbeat_path)
     heartbeat.clear()
@@ -336,6 +398,19 @@ def run_scheduler_command(
     from terp.core.scheduling import active_schedule_catalog, active_schedule_ledger
 
     catalog = active_schedule_catalog()
+    stopping = stop if stop is not None else Event()
+    if scheduler is None and not catalog.schedules and not _scheduler_engine_installed():
+        _logger.info(
+            "terp jobs scheduler idles: this app declares no schedule and "
+            "terp-cap-scheduler-apscheduler is not installed, so there is nothing to fire. "
+            "Declare a schedule on the control plane and install "
+            "terp-cap-scheduler-apscheduler to give it work (ADR 0223)."
+        )
+        _idle(heartbeat, stopping, every=SCHEDULER_BEAT_SECONDS)
+        return (
+            "scheduler idled until stopped: no schedule declared and "
+            "terp-cap-scheduler-apscheduler is not installed"
+        )
     if catalog.schedules and not is_durable_schedule_ledger(active_schedule_ledger()):
         _logger.warning(
             "the schedule ledger is per process: a cron time that passes while no scheduler "
@@ -349,7 +424,6 @@ def run_scheduler_command(
     if callable(every):
         every(SCHEDULER_BEAT_SECONDS, heartbeat.beat)
     names = ", ".join(catalog.names()) or "<none>"
-    stopping = Event()
 
     def _stop() -> None:
         # Once: a second signal while the engine shuts down must not ask it again.

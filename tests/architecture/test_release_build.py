@@ -97,7 +97,9 @@ def test_a_static_site_image_is_planned_from_the_site_s_own_lock(tmp_path: pathl
     plan = _plan_of(tmp_path, app_files(site=True))
     assert [(image.name, image.context, image.dockerfile, image.services, image.web, image.npm_lock)
             for image in plan.images] == [
-        (f"{PROJECT}-backend-prod", ".", "Dockerfile.prod", ("api", "migrate"), False, None),
+        # The template's seed: its worker and scheduler run the backend image too (ADR 0223).
+        (f"{PROJECT}-backend-prod", ".", "Dockerfile.prod", ("api", "migrate", "scheduler", "worker"),
+         False, None),
         (f"{PROJECT}-frontend-prod", ".", "frontend/Dockerfile.prod", ("web",), True, "frontend/package-lock.json"),
         (f"{PROJECT}-site-prod", ".", "site/Dockerfile.prod", ("site",), True, "site/package-lock.json"),
     ]

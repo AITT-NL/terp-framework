@@ -14,6 +14,20 @@ decision, 0001 onwards.
 
 ### Added
 
+- **The template's production profile runs a `worker` and a `scheduler`** (#181, ADR 0223).
+  Before, it ran the database, the migration step, the API and the web tier, and nothing ran
+  `terp jobs worker` or `terp jobs scheduler`: a declared schedule never fired and a durable job
+  was never drained, behind a healthy API and a green gate. The seed `deployment.json` now
+  declares both units (the worker may scale, the scheduler is one), and the profile renders them
+  on the backend image with the heartbeat check of ADR 0191, the runtime role and, under the
+  files answer, the storage volume. `apps/example` runs the same two, and `prod-smoke` now
+  proves that a scheduled job and an enqueued durable job both run in its production stack.
+- **`terp verify --only production-readiness` names a missing worker or scheduler** (ADR 0223).
+  When the project carries `docker-compose.prod.yml` and its control plane declares a job, a
+  service must run `terp jobs worker`; when it declares a schedule, one must run `terp jobs
+  scheduler` (a Celery worker or beat counts). A project that declares work and has no compose
+  profile is told that half was not judged.
+
 - **A refused start names every refusal at once** (ADR 0222). `create_app` asks its checks of
   an app's declarations together and raises what they found as one `BootError`: a public
   route's own policy, guarded module routes, declared operations, permissions, the shared
@@ -57,6 +71,14 @@ decision, 0001 onwards.
   app wire it in every environment.
 
 ### Changed
+
+- **`terp jobs worker --forever` and `terp jobs scheduler` idle where there is nothing to do**
+  (ADR 0223). A worker in an app that does not install `terp-cap-outbox`, and a scheduler in an
+  app that declares no schedule and installs no engine, log why once, keep their heartbeat fresh
+  and wait for the stop signal, where they used to exit: under `restart: unless-stopped` that was
+  a restart loop, and `docker compose up --wait` read it as a failed deploy. Where there is work
+  they stay loud: a declared schedule with no engine, and a single drain with no outbox, still
+  stop with the message that names the package.
 
 - **Every app served the template's way runs on asyncio's event loop, not uvloop** (#182).
   On Linux the images used to run on the uvloop `uvicorn[standard]` installs, whether or not
@@ -106,6 +128,19 @@ decision, 0001 onwards.
 
 ### Upgrade notes
 
+- **`copier update` adds a `worker` and a `scheduler` to `docker-compose.prod.yml`** (and to
+  `compose.runtime-role.yml`). Nothing else is needed for an app without jobs: both idle. An app
+  that already added services of its own that run `terp jobs worker` or `terp jobs scheduler`
+  keeps one of each, so it either drops its own (the template's run the same commands) or keeps
+  its own and resolves the update by removing the template's; two schedulers fire twice unless
+  the schedule ledger is in the database. `deployment.json` is the app's and is not rewritten:
+  under `"build": "own"` that is fine. **Under `"build": "generated"` declare the two units in
+  the same change** (`{"id": "worker", "role": "worker", "instances": "many", "dependsOn":
+  ["db", "migrate"]}`, and the same for `scheduler` with `"instances": "one"`) and run `uv run
+  terp deployment render`: the updated `compose.runtime-role.yml` names both services, and
+  Compose refuses an overlay service the base profile does not define (`service "worker" has
+  neither an image nor a build context specified`) until the profile has them.
+  An app that declares a schedule installs `terp-cap-scheduler-apscheduler`.
 - **The template's uvicorn commands name their event loop.** The next re-render (`copier
   update`) adds `--loop asyncio` to the `CMD` of `Dockerfile` and `Dockerfile.prod` and to the
   `api` command of `docker-compose.yml`. An app on `"build": "generated"` takes the new

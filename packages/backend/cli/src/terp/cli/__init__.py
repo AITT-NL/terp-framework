@@ -1570,10 +1570,10 @@ Background jobs (terp.core.enqueue + JobCatalog)
   (another worker takes it at once), and `terp jobs scheduler` lets its ticks in flight
   finish. A worker killed before that (the stop grace ran out) loses nothing: its job is
   redelivered once its lease lapses, so a handler must tolerate running twice. Each
-  process writes a heartbeat from its own loop, <tmp>/terp-worker.heartbeat or
-  terp-scheduler.heartbeat in its container, with the bound it may not outgrow
-  (worker: max(--lease-seconds, --poll-seconds) + 30s; scheduler: 60s). The generated
-  production profile checks it with a probe that reads the file; `terp guide deployment`.
+  process writes a heartbeat from its own loop, <tmp>/terp-<worker|scheduler>.heartbeat, with
+  the bound it may not outgrow (worker: max(--lease-seconds, --poll-seconds) + 30s; scheduler:
+  60s); the production profile probes it (`terp guide deployment`). With nothing to do (no
+  terp-cap-outbox; no schedule and no engine) each logs why once and idles, beating (ADR 0223).
 - On Celery, the Terp task acknowledges a message only after the job ran (acks_late,
   reject_on_worker_lost), so a killed worker's job is redelivered. Set
   worker_prefetch_multiplier=1, and on Redis a visibility_timeout above your longest job.
@@ -1609,11 +1609,11 @@ Durable post-commit delivery (outbox capability)
 - In production, refuse to boot on the in-process default:
       create_app(..., job_queue=OutboxJobQueue(),
                  require_durable_jobs=get_settings().is_production)
-- WATCH THAT SOMETHING IS ACTUALLY DRAINING IT. This is the failure mode worth wiring
-  an alert for, because every other surface is silent about it: if nobody runs the
-  worker, rows sit `pending` forever and the app looks healthy. The lease reaper cannot
-  help either -- it scans LAPSED claims, and work nobody claimed has no claim to lapse
-  -- so a queue with zero consumers and a queue with idle consumers are the same table.
+- WATCH THAT SOMETHING IS ACTUALLY DRAINING IT, and wire an alert for it. production-readiness
+  refuses a docker-compose.prod.yml with no worker (ADR 0223), but a worker that is down, or a
+  deploy no such file drives, is silent: rows sit `pending` and the app looks healthy. The
+  lease reaper cannot help -- it scans LAPSED claims, and work nobody claimed has none -- so
+  a queue with zero consumers and a queue with idle consumers are the same table.
       terp outbox backlog             # or --format json
   ...and, if you opt in, an endpoint a monitor can poll:
       create_app(..., expose_health_detail=True)

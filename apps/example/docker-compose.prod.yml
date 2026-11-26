@@ -2,9 +2,11 @@
 #
 #   SECRET_KEY=… POSTGRES_PASSWORD=… docker compose -f docker-compose.prod.yml up -d --wait
 #
-# Topology (same shape as the dev workbench, hardened): Postgres -> one-shot `migrate` ->
-# the API (uvicorn, ENVIRONMENT=production, fail-fast config guardrails) + `web` (nginx
-# serving the built SPA and proxying /api same-origin). Differences from the workbench:
+# Topology (the dev workbench's, hardened, plus the two job units it does not run):
+# Postgres -> one-shot `migrate` -> the API (uvicorn, ENVIRONMENT=production, fail-fast
+# config guardrails) + `web` (nginx serving the built SPA and proxying /api same-origin)
+# + `worker` (drains the outbox) + `scheduler` (fires the declared schedules).
+# Differences from the workbench:
 #
 #   - ENVIRONMENT=production: the app REFUSES to boot on a weak SECRET_KEY, DEBUG,
 #     SQLite, permissive CORS, or an insecure refresh cookie (terp.core.config).
@@ -89,7 +91,8 @@ services:
   api:
     <<: *backend
     # Only the api declares the build: one builder produces the shared tag
-    # (concurrent builds of one tag race in the exporter), migrate reuses it.
+    # (concurrent builds of one tag race in the exporter), every other backend unit
+    # reuses it.
     build:
       context: ../..
       dockerfile: apps/example/Dockerfile.prod
@@ -126,6 +129,55 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/"]
       interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
+
+  # Drains the durable outbox until it is stopped (`terp jobs worker --forever`). It may
+  # run as several replicas, so it takes no container_name.
+  worker:
+    <<: *backend
+    command: ["terp", "jobs", "worker", "--forever"]
+    init: true
+    restart: unless-stopped
+    # A job that writes a file writes it to the shared storage root, as the api does.
+    volumes:
+      - files-data:/srv/var/files
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # The image's own HEALTHCHECK probes the api's HTTP port, which this unit does not
+    # serve, so the probe is set here: healthy while the heartbeat its loop writes is
+    # fresh (ADR 0191). It reads a file in the container: no HTTP, no database, no app.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json, os, sys, tempfile, time; beat = json.load(open(os.path.join(tempfile.gettempdir(), 'terp-' + sys.argv[1] + '.heartbeat'))); age = time.time() - beat['at']; print(json.dumps({'heartbeat': sys.argv[1], 'age_seconds': round(age, 1), 'stale_after_seconds': beat['stale_after']})); sys.exit(age > beat['stale_after'])", "worker"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
+
+  # Fires the declared schedules until it is stopped (`terp jobs scheduler`). Exactly one:
+  # a second scheduler fires every schedule twice, so it is never scaled.
+  scheduler:
+    <<: *backend
+    command: ["terp", "jobs", "scheduler"]
+    init: true
+    restart: unless-stopped
+    volumes:
+      - files-data:/srv/var/files
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # The heartbeat probe, for the reason the worker's says.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json, os, sys, tempfile, time; beat = json.load(open(os.path.join(tempfile.gettempdir(), 'terp-' + sys.argv[1] + '.heartbeat'))); age = time.time() - beat['at']; print(json.dumps({'heartbeat': sys.argv[1], 'age_seconds': round(age, 1), 'stale_after_seconds': beat['stale_after']})); sys.exit(age > beat['stale_after'])", "scheduler"]
+      interval: 10s
       timeout: 5s
       retries: 3
       start_period: 30s

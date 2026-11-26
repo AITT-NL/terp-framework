@@ -869,6 +869,171 @@ def test_an_uninmportable_control_plane_is_a_red(
     assert "the capability is not installed" in output
 
 
+# --------------------------------------------------------------------------- #
+# production-readiness: a process for the declared work (ADR 0223)
+# --------------------------------------------------------------------------- #
+#: The baseline plus one declared schedule, on the baseline's job.
+_SCHEDULED_PLANE = _READY_PLANE.replace(
+    "    JobDefinition,\n",
+    "    JobDefinition,\n    Misfire,\n    ScheduleCatalog,\n    ScheduleDefinition,\n",
+).replace(
+    "    jobs=JobCatalog([WORK]),\n",
+    "    jobs=JobCatalog([WORK]),\n"
+    "    schedules=ScheduleCatalog([ScheduleDefinition(\n"
+    '        name="nightly.run", job=WORK, cron="0 2 * * *", misfire=Misfire.SKIP\n'
+    "    )]),\n",
+)
+
+#: The baseline with nothing for a worker or a scheduler to do.
+_IDLE_PLANE = _READY_PLANE.replace("    jobs=JobCatalog([WORK]),\n", "")
+
+#: A profile with the services every app has and none that runs declared work.
+_PROFILE_WITHOUT_WORK = """\
+services:
+  db:
+    image: postgres:17
+  api:
+    image: app-backend
+"""
+
+_WORKER_ONLY = _PROFILE_WITHOUT_WORK + """\
+  worker:
+    image: app-backend
+    command: ["terp", "jobs", "worker", "--forever"]
+"""
+
+
+def _write_prod_profile(root: pathlib.Path, text: str) -> None:
+    (root / "docker-compose.prod.yml").write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "profile", [_PROFILE_WITHOUT_WORK, ""], ids=["no-worker-service", "no-services-at-all"]
+)
+def test_a_declared_job_with_no_worker_in_the_profile_fails_the_gate(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None, profile: str
+) -> None:
+    """The state #181 found: a healthy API, a green gate, and a job nothing drains.
+
+    Nothing refuses it at boot, so the failure must not borrow the boot refusals' closing
+    sentence: it says so, and names the service, the count and both ways to add it.
+    """
+    _write_control_plane(tmp_path, _READY_PLANE)
+    _write_prod_profile(tmp_path, profile)
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "jobs: the control plane declares 1 job(s)" in output, output
+    assert "runs `terp jobs worker`" in output
+    assert "Add the `worker` service" in output
+    assert "copier update" in output and "uv run terp deployment render" in output
+    assert '"role": "worker"' in output
+    assert "Nothing refuses this at boot" in output
+    assert "BootError" not in output, "a missing service raises nothing at any boot"
+    assert "schedules: " not in output, "no schedule is declared, so no scheduler is asked for"
+
+
+def test_a_declared_schedule_with_no_scheduler_in_the_profile_fails_the_gate(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    _write_control_plane(tmp_path, _SCHEDULED_PLANE)
+    _write_prod_profile(tmp_path, _WORKER_ONLY)
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "schedules: the control plane declares 1 schedule(s)" in output, output
+    assert "runs `terp jobs scheduler`" in output
+    assert "Add the `scheduler` service" in output and '"role": "scheduler"' in output
+    assert "jobs: " not in output, "the worker is there"
+
+
+@pytest.mark.parametrize(
+    ("worker", "scheduler"),
+    [
+        ('["terp", "jobs", "worker", "--forever"]', '["terp", "jobs", "scheduler"]'),
+        ('["uv", "run", "terp", "jobs", "worker", "--forever"]', "terp jobs scheduler"),
+        ('sh -c "while true; do terp jobs worker; sleep 5; done"', "terp jobs scheduler"),
+        ('["celery", "-A", "app.celery_app", "worker", "-B"]', '["sleep", "infinity"]'),
+        ('["celery", "-A", "app.celery_app", "worker"]', '["celery", "-A", "app.celery_app", "beat"]'),
+    ],
+    ids=["argument-list", "uv-run", "shell-loop", "celery-worker-with-beat", "celery-beat"],
+)
+def test_a_profile_that_runs_the_declared_work_passes(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None, worker: str, scheduler: str
+) -> None:
+    """Every form that runs the work counts: the generated argument list, `uv run`, the shell
+    loop older profiles wrapped around a single drain, and the Celery engines the jobs seam
+    ships. A green over any of them says what it judged."""
+    _write_control_plane(tmp_path, _SCHEDULED_PLANE)
+    _write_prod_profile(
+        tmp_path,
+        _PROFILE_WITHOUT_WORK
+        + f"  worker:\n    image: app-backend\n    command: {worker}\n"
+        + f"  scheduler:\n    image: app-backend\n    command: {scheduler}\n",
+    )
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 0, output
+    assert output.endswith("docker-compose.prod.yml runs the worker and the scheduler"), output
+
+
+def test_no_profile_leaves_the_process_half_to_the_deploy_tool_as_a_note(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """A project with no compose profile is deployed some other way (ADR 0184): not a red,
+    and not silence either, and still a verdict on the half that was judged."""
+    from terp.cli.verify import _applicable
+
+    _write_control_plane(tmp_path, _SCHEDULED_PLANE)
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 0, output
+    assert output.startswith("note: no docker-compose.prod.yml"), "shown in text mode"
+    assert "not judged" in output and "ADR 0184" in output
+    assert "boots in production" in output
+    assert _applicable(True, output), "the control-plane half was judged, so not 'not applicable'"
+
+
+@pytest.mark.parametrize("profile", [_PROFILE_WITHOUT_WORK, None], ids=["profile", "no-profile"])
+def test_an_app_without_jobs_or_schedules_is_not_asked_for_a_process(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None, profile: str | None
+) -> None:
+    _write_control_plane(tmp_path, _IDLE_PLANE)
+    if profile is not None:
+        _write_prod_profile(tmp_path, profile)
+    assert _run_production_readiness(tmp_path) == (
+        0,
+        "the declared control plane boots in production (security, passwords, jobs)",
+    )
+
+
+def test_a_profile_that_does_not_parse_is_a_red(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """As in deploy-safety: nothing in it can be shown to run anything."""
+    _write_control_plane(tmp_path, _READY_PLANE)
+    _write_prod_profile(tmp_path, "services:\n  api: [unclosed\n")
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "profile: docker-compose.prod.yml could not be read" in output, output
+
+
+def test_a_boot_refusal_and_a_missing_service_each_keep_their_own_closing(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None
+) -> None:
+    """Both kinds in one run: the BootError sentence covers only the boot refusals."""
+    _write_control_plane(
+        tmp_path,
+        _READY_PLANE.replace(
+            '    job_system_actor_id=uuid.UUID("00000000-0000-0000-0000-00000000d0e5"),\n', ""
+        ),
+    )
+    _write_prod_profile(tmp_path, _PROFILE_WITHOUT_WORK)
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    boot, _, profile = output.partition("the work this app declares has no process")
+    assert "refuses a production boot" in boot and "BootError" in boot
+    assert "job_system_actor_id" in boot
+    assert "runs `terp jobs worker`" in profile and "BootError" not in profile
+    assert "Nothing refuses this at boot" in profile
+
+
 def _write_pyproject(path: pathlib.Path, body: str) -> None:
     path.write_text(body, encoding="utf-8")
 

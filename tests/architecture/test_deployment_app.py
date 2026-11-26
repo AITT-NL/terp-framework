@@ -175,8 +175,9 @@ def test_an_undeclared_database_and_a_capability_s_store_are_noted(tmp_path, mon
     raw = seed()
     raw["units"] = [entry for entry in raw["units"] if entry["id"] != "db"]
     unit(raw, "migrate")["dependsOn"] = []
-    unit(raw, "api")["dependsOn"] = ["migrate"]
-    pyproject = '[project]\ndependencies = ["terp-cap-redis==1"]\n'
+    for name in ("api", "worker", "scheduler"):
+        unit(raw, name)["dependsOn"] = ["migrate"]
+    pyproject ='[project]\ndependencies = ["terp-cap-redis==1"]\n'
     code, output = _run(project(tmp_path, raw, files={"pyproject.toml": pyproject}))
     assert code == 0
     assert "the app uses postgres (the app's own database), and no declared unit is kind postgres and there is no externalDatabase" in output
@@ -195,7 +196,8 @@ def test_an_external_database_needs_no_database_unit(tmp_path) -> None:
     raw["units"] = [entry for entry in raw["units"] if entry["id"] != "db"]
     raw["externalDatabase"] = {"backup": "client"}
     unit(raw, "migrate")["dependsOn"] = []
-    unit(raw, "api")["dependsOn"] = ["migrate"]
+    for name in ("api", "worker", "scheduler"):
+        unit(raw, name)["dependsOn"] = ["migrate"]
     compose = profile(db={"image": published_table().entries[0].image, "profiles": ["bundled"]})
     code, output = _run(project(tmp_path, raw, compose))
     assert code == 0 and "postgres" not in output, output
@@ -203,7 +205,7 @@ def test_an_external_database_needs_no_database_unit(tmp_path) -> None:
 
 def test_an_unreadable_pyproject_reads_as_one_that_declares_nothing(tmp_path) -> None:
     code, output = _run(project(tmp_path, seed(), files={"pyproject.toml": "[project\n"}))
-    assert (code, output) == (0, "deployment.json: 4 declared unit(s) match docker-compose.prod.yml (build: own)")
+    assert (code, output) == (0, "deployment.json: 6 declared unit(s) match docker-compose.prod.yml (build: own)")
 
 
 # --- the runner's output ---------------------------------------------------
