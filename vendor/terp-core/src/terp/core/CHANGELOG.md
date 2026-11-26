@@ -69,6 +69,13 @@ decision, 0001 onwards.
   seed needs no exception on the framework's behalf, and the template's
   `escape-hatch-budget.json` is `{}` again. The password itself is unchanged and private to
   `terp-cap-auth`, which counts it in its own budget (3 to 4).
+- **A generated app's production images build on newer bases.** terp-arch's base-image table
+  moves uv from 0.13.7 to 0.13.10, which refuses a wheel whose ZIP members state two
+  different compressed sizes (GHSA-vjvj-3m3f-fgmm), and moves `python:3.15-slim` and
+  `node:26-slim` to their 24 November rebuilds of Python 3.15.2 and Node.js 26.13.1, each by
+  digest. The digest the nginx base's tag names has not moved. The template's two production
+  Dockerfiles are written from the table again, and the signer image moves with the Python
+  base. An app on `"build": "generated"` takes the new digests with `terp deployment render`.
 
 ### Fixed
 
