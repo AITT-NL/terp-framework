@@ -12,7 +12,9 @@
   which names the worker and the scheduler as processes of the shape Terp supplies, and on
   [ADR 0187](0187-in-the-generated-state-the-framework-renders-the-build-files.md) and
   [ADR 0191](0191-readiness-asks-the-stores-a-deployment-requires-and-a-worker-reports-a-heartbeat.md), whose generator and heartbeats
-  render and probe them. Amends [ADR 0128](0128-the-gate-asks-whether-the-app-would-boot-in-production.md),
+  render and probe them. Amends [ADR 0047](0047-scheduler-seam-and-schedule-catalog.md) and
+  [ADR 0049](0049-scheduler-cli-entrypoint.md) (decision 8), and
+  [ADR 0128](0128-the-gate-asks-whether-the-app-would-boot-in-production.md),
   whose production-readiness check gains a question no boot asks, and
   [ADR 0184](0184-a-deployment-declares-its-units.md); both status lines record it. For 0184: `terp verify --only deployment` still never fails on a schedule with no
   scheduler, and production-readiness now does when the project's own compose profile is the
@@ -48,16 +50,17 @@ not that anything drains it, and no check looked for the processes.
 2. **Each idles where there is provably nothing to do.** `terp jobs worker --forever` in an app
    that does not install `terp-cap-outbox` keeps no outbox, so nothing could ever reach it: it
    says so in one log line, names what would give it work, keeps its heartbeat fresh and waits
-   for the stop signal. `terp jobs scheduler` in an app that declares no schedule and installs no
-   scheduler engine does the same. Before, both exited, which under `restart: unless-stopped`
+   for the stop signal. `terp jobs scheduler` does the same in an app that declares no schedule
+   and installs no scheduler engine, and in one whose schedules fire on Celery beat (the beat
+   capability installed, APScheduler not): beat is that app's scheduler. Before, both exited, which under `restart: unless-stopped`
    is a restart loop, and which `docker compose up --wait` reads as a failed deploy.
 3. **Where there is work, they stay loud.** A declared schedule with no engine installed still
    stops the scheduler with the message that names the package. A single drain (`terp jobs
    worker` without `--forever`) without the outbox still stops with its message: an operator who
    runs it by hand wants to know. "Not installed" means the capability's own module is missing;
-   any other import error inside it is raised, not read as a reason to idle. An app whose jobs run
-   on Celery keeps the template's worker idle beside its own Celery worker: decision 7 is what
-   asks for the Celery worker.
+   any other import error inside it, a missing dependency of an installed adapter included, is
+   raised, not read as a reason to idle. An app on Celery keeps the template's worker and
+   scheduler idle beside its own Celery worker and beat: decision 7 is what asks for those.
 4. **The template adds no dependency.** An app that wires the durable queue already imports
    `terp-cap-outbox`; one that declares a schedule installs `terp-cap-scheduler-apscheduler`.
    Installing both in every app would put the outbox's tables and a scheduler engine into apps
@@ -75,15 +78,18 @@ not that anything drains it, and no check looked for the processes.
    the process the installed engine needs: with `terp-cap-outbox`, a service running `terp jobs
    worker`; with the Celery jobs capability, a Celery worker (either, with both); with neither,
    jobs run inline in the process that enqueued them and no worker is asked for. A declared
-   schedule needs `terp jobs scheduler` or a Celery beat, and a profile that runs `terp jobs
-   scheduler` while `terp-cap-scheduler-apscheduler` is not installed fails too, since that
-   scheduler stops at start. A service counts only when a plain `docker compose up` runs it: not
-   behind `profiles`, not scaled to zero, and a list-form single drain with no restart is not a
-   worker. A command counts wherever the profile writes it (a list, `uv run`, a shell loop); an
+   schedule needs `terp jobs scheduler` with APScheduler installed, or beat with the Celery beat
+   capability installed; `terp jobs scheduler` with neither engine fails, since it stops at start.
+   A service counts only when a plain `docker compose up` runs it: not behind `profiles`, not
+   scaled to zero, and a single drain that no restart policy (`restart:` or
+   `deploy.restart_policy`) brings back is not a worker. A command counts wherever the profile writes it (a list, `uv run`, a shell loop); an
    image's `CMD` is not read, and a shell string that only mentions the words cannot be told
-   apart (a residual). The failure names the service, the declared work by name, and three
-   remedies: write the service with its command into the profile, re-render the template, or,
-   under `"build": "generated"`, declare the unit and render. Only `docker-compose.prod.yml` is
+   apart (a residual), while a string Compose could not split counts as nothing. The failure
+   names the service and the declared work, and leads with the remedy that turns it green for the
+   engine installed: write the service with its command into the profile (installing the engine
+   it needs first), re-render the template, or, under `"build": "generated"`, declare the unit
+   and render. A worker is asked for only where a job is declared: an app that uses the outbox
+   for events alone is not judged (a residual). Only `docker-compose.prod.yml` is
    read, as `deploy-safety` reads it, not the overrides `deployment.json` may list. A project with
    no compose profile is deployed some other way, and the check says it did not judge that half:
    which process triggers the work is then the deploy tool's business, as ADR 0184 has it. A
@@ -92,8 +98,8 @@ not that anything drains it, and no check looked for the processes.
    template's profile runs `terp jobs scheduler`; an app on Celery runs beat. A cron, a k8s
    CronJob or a timer outside the app calls `terp jobs run <job>` and declares no schedule:
    declared as well, each tick would fire twice once a scheduler runs beside it. This replaces
-   the older reading, in ADR 0184 and the scheduling module, that an external cron is the default
-   trigger of a declared schedule.
+   the older reading, in ADR 0047, ADR 0049, ADR 0184 and the scheduling module, that an external
+   cron is the default trigger of a declared schedule; their status lines record it.
 9. **The runtime-role overlay may not name a service the profile lacks.** The overlay gives the
    worker and the scheduler the runtime role, so it names both. Compose refuses an overlay service
    the base profile does not define, and an app under `"build": "generated"` that takes the

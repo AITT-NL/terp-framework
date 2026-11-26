@@ -1,6 +1,9 @@
 # ADR 0049 — The `terp jobs scheduler` CLI: the in-process scheduler-process entrypoint
 
-- Status: Accepted
+- Status: Accepted. Amended by [ADR 0223](0223-the-production-profile-runs-a-worker-and-a-scheduler-idle-until-there-is-work.md): the template's production profile runs this
+  command as its `scheduler`, which idles where the app declares no schedule and installs no
+  engine (or fires on Celery beat); enforcement item 1's external-trigger default now means
+  `terp jobs run` from a cron for work that declares no schedule.
 - Date: 2026-07-01
 - Phase: async/jobs design Phase 4 (the working design doc's §11, §13)
 - Relates to: ADR 0048 (the scheduler engine adapters — this is the deferred CLI wrapper they

@@ -16,8 +16,9 @@ The jobs seam (ADR 0043) is driven from the CLI two ways:
   (:mod:`terp.cli.heartbeat`, ADR 0191), and each stops cleanly on SIGTERM or SIGINT: the
   worker finishes the job it is running and releases the rest of its batch, the
   scheduler lets the ticks in flight finish. Where there is provably nothing to do (no
-  outbox installed for the worker; no schedule declared and no engine installed for the
-  scheduler) each idles instead of exiting, beating until it is stopped (ADR 0223).
+  outbox installed for the worker; for the scheduler, no APScheduler engine installed and
+  no schedule declared, or the schedules firing on Celery beat) each idles instead of
+  exiting, beating until it is stopped (ADR 0223).
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ from terp.core import ControlPlane, enqueue, is_durable_schedule_ledger
 from terp.core.db import get_session
 from terp.core.jobs import active_job_catalog
 
+from terp.cli.background_services import APSCHEDULER, CELERY_BEAT, CELERY_JOBS, OUTBOX, installed
 from terp.cli.heartbeat import (
     SCHEDULER_BEAT_SECONDS,
     SCHEDULER_STALE_AFTER,
@@ -267,16 +269,18 @@ def run_worker_command(
     try:
         from terp.capabilities.outbox import OutboxWorker
     except ImportError as exc:
-        if not _absent(exc, "terp.capabilities.outbox"):
+        if not _absent(exc, OUTBOX):
             raise
         if heartbeat is not None:
             declared = len(active_job_catalog().jobs)
+            where = "on Celery" if installed(CELERY_JOBS) else "inline, on the default queue"
             _logger.info(
                 "terp jobs worker idles: terp-cap-outbox is not installed, so this app keeps "
                 "no outbox and there is nothing to drain%s. Install terp-cap-outbox and wire "
                 "create_app(job_queue=OutboxJobQueue()) to give it work (ADR 0223).",
-                f"; its {declared} declared job(s) run where its job queue runs them, inline "
-                "on the default queue" if declared else "",
+                f"; its {declared} declared job(s) run where its job queue runs them, {where}"
+                if declared
+                else "",
             )
             _idle(heartbeat, stop if stop is not None else Event(), every=poll_seconds)
             return (
@@ -325,18 +329,16 @@ def _tally(results: list[object]) -> str:
     )
 
 
-#: The modules the default scheduler engine is made of.
-_SCHEDULER_ENGINE = ("apscheduler.schedulers.blocking", "terp.capabilities.scheduler_apscheduler")
-
-
 def _scheduler_engine() -> tuple[type, type]:
     """The default engine's two parts: APScheduler's blocking scheduler and Terp's adapter.
 
-    Raises ``ImportError`` when ``terp-cap-scheduler-apscheduler`` is not installed.
+    Raises ``ImportError`` when ``terp-cap-scheduler-apscheduler`` is not installed. The
+    adapter is imported first: only its own absence is "not installed", and APScheduler
+    missing under an installed adapter is a broken install, raised as it is.
     """
-    from apscheduler.schedulers.blocking import BlockingScheduler
-
     from terp.capabilities.scheduler_apscheduler import ApschedulerScheduler
+
+    from apscheduler.schedulers.blocking import BlockingScheduler
 
     return BlockingScheduler, ApschedulerScheduler
 
@@ -346,7 +348,7 @@ def _scheduler_engine_installed() -> bool:
     try:
         _scheduler_engine()
     except ImportError as exc:
-        if not _absent(exc, *_SCHEDULER_ENGINE):
+        if not _absent(exc, APSCHEDULER):
             raise
         return False
     return True
@@ -363,7 +365,7 @@ def _default_scheduler() -> object:
     try:
         blocking, adapter = _scheduler_engine()
     except ImportError as exc:
-        if not _absent(exc, *_SCHEDULER_ENGINE):
+        if not _absent(exc, APSCHEDULER):
             raise
         raise SystemExit(
             "terp jobs scheduler requires the terp-cap-scheduler-apscheduler "
@@ -406,12 +408,13 @@ def run_scheduler_command(
     once the ticks in flight have finished. *stop* is the event the signals set, injectable
     for tests.
 
-    An app that declares no schedule and installs no engine has provably nothing to fire, so
-    the scheduler idles instead of exiting (ADR 0223): one log line, a heartbeat every
+    Without the APScheduler engine, an app that declares no schedule has provably nothing to
+    fire here, and one that installs the Celery beat capability fires its schedules on beat,
+    so the scheduler idles instead of exiting (ADR 0223): one log line, a heartbeat every
     ``SCHEDULER_BEAT_SECONDS`` against the same bound, and a wait for the stop signal, because
     the production profile runs a scheduler in every app and an exit there is a restart loop.
-    A declared schedule with no engine still refuses, naming the package: there is work, and
-    nothing would do it.
+    A declared schedule with neither engine still refuses, naming the package: there is
+    work, and nothing would do it.
     """
     heartbeat = Heartbeat("scheduler", stale_after=SCHEDULER_STALE_AFTER, path=heartbeat_path)
     heartbeat.clear()
@@ -424,17 +427,24 @@ def run_scheduler_command(
 
     catalog = active_schedule_catalog()
     stopping = stop if stop is not None else Event()
-    if scheduler is None and not catalog.schedules and not _scheduler_engine_installed():
+    no_engine = scheduler is None and not _scheduler_engine_installed()
+    beat = no_engine and installed(CELERY_BEAT)
+    if beat or (no_engine and not catalog.schedules):
         _logger.info(
-            "terp jobs scheduler idles: this app declares no schedule and "
-            "terp-cap-scheduler-apscheduler is not installed, so there is nothing to fire. "
-            "Declare a schedule on the control plane and install "
-            "terp-cap-scheduler-apscheduler to give it work (ADR 0223)."
+            "terp jobs scheduler idles: %s (ADR 0223).",
+            "terp-cap-scheduler-apscheduler is not installed and "
+            "terp-cap-scheduler-celery-beat is, so this app's schedules fire on Celery beat, "
+            "not here: run `celery -A <your celery app> beat` as a service"
+            if beat
+            else "this app declares no schedule and terp-cap-scheduler-apscheduler is not "
+            "installed, so there is nothing to fire. Declare a schedule on the control plane "
+            "and install terp-cap-scheduler-apscheduler to give it work",
         )
         _idle(heartbeat, stopping, every=SCHEDULER_BEAT_SECONDS)
-        return (
-            "scheduler idled until stopped: no schedule declared and "
-            "terp-cap-scheduler-apscheduler is not installed"
+        return "scheduler idled until stopped: " + (
+            "terp-cap-scheduler-apscheduler is not installed, and schedules fire on Celery beat"
+            if beat
+            else "no schedule declared and terp-cap-scheduler-apscheduler is not installed"
         )
     if catalog.schedules and not is_durable_schedule_ledger(active_schedule_ledger()):
         _logger.warning(

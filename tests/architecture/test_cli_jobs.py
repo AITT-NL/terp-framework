@@ -427,8 +427,12 @@ def build():
 
 @pytest.mark.parametrize(
     ("source", "declared"),
-    [(_NO_JOBS_APP_MODULE, None), (_APP_MODULE, "its 1 declared job(s) run where its job queue")],
-    ids=["no-jobs", "inline-jobs"],
+    [
+        (_NO_JOBS_APP_MODULE, None),
+        (_APP_MODULE, "its 1 declared job(s) run where its job queue runs them, inline"),
+        (_APP_MODULE, "its 1 declared job(s) run where its job queue runs them, on Celery"),
+    ],
+    ids=["no-jobs", "inline-jobs", "celery-jobs"],
 )
 def test_run_worker_command_forever_without_the_outbox_idles_until_stopped(
     tmp_path: pathlib.Path,
@@ -445,10 +449,12 @@ def test_run_worker_command_forever_without_the_outbox_idles_until_stopped(
     app that declares jobs is told they run where its queue runs them."""
     from terp.cli.heartbeat import worker_stale_after
 
-    module = f"jobs_worker_idle_{declared is not None}"
+    module = f"jobs_worker_idle_{abs(hash(declared))}"
     (tmp_path / f"{module}.py").write_text(source, encoding="utf-8")
     sys.modules.pop(module, None)
     monkeypatch.setitem(sys.modules, "terp.capabilities.outbox", None)
+    if declared is not None and "Celery" not in declared:  # the suite installs Celery
+        monkeypatch.setitem(sys.modules, "terp.capabilities.jobs_celery", None)
     before = (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT))
     heartbeat = tmp_path / "terp-worker.heartbeat"
     stop = _WatchHeartbeat(signal.SIGTERM, at=2, heartbeat=heartbeat)
@@ -480,7 +486,7 @@ def test_run_worker_command_forever_without_the_outbox_idles_until_stopped(
     if declared is None:
         assert "declared job" not in said[0]
     else:
-        assert declared in said[0] and "inline on the default queue" in said[0]
+        assert declared in said[0], said[0]
 
 
 class _BrokenCapability(types.ModuleType):
@@ -600,6 +606,7 @@ def test_run_scheduler_command_with_no_schedule_and_no_engine_idles_until_stoppe
     (tmp_path / "jobs_sched_idle.py").write_text(_NO_JOBS_APP_MODULE, encoding="utf-8")
     sys.modules.pop("jobs_sched_idle", None)
     monkeypatch.setitem(sys.modules, "terp.capabilities.scheduler_apscheduler", None)
+    monkeypatch.setitem(sys.modules, "terp.capabilities.scheduler_celery_beat", None)
     before = (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT))
     heartbeat = tmp_path / "terp-scheduler.heartbeat"
     stop = _WatchHeartbeat(signal.SIGINT, at=1, heartbeat=heartbeat)
@@ -627,17 +634,58 @@ def test_run_scheduler_command_with_no_schedule_and_no_engine_idles_until_stoppe
     assert "install terp-cap-scheduler-apscheduler" in said[0]
 
 
-def test_a_broken_scheduler_engine_is_raised_as_it_is(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An installed adapter that fails to import is neither "not installed" (no idle) nor
-    the directive refusal: the error itself reaches the operator."""
+@pytest.mark.parametrize(
+    ("name", "broken", "missing"),
+    [
+        (
+            "terp.capabilities.scheduler_apscheduler",
+            _BrokenCapability("terp.capabilities.scheduler_apscheduler", "ApschedulerScheduler"),
+            "some_driver",
+        ),
+        ("apscheduler.schedulers.blocking", None, "apscheduler.schedulers.blocking"),
+    ],
+    ids=["adapter-fails-to-import", "apscheduler-missing-under-the-adapter"],
+)
+def test_a_broken_scheduler_engine_is_raised_as_it_is(
+    monkeypatch: pytest.MonkeyPatch, name: str, broken: object, missing: str
+) -> None:
+    """An installed adapter that fails to import, or whose own APScheduler is missing, is
+    neither "not installed" (no idle) nor the directive refusal: only the adapter's own
+    absence is. The error itself reaches the operator."""
     from terp.cli.jobs import _default_scheduler, _scheduler_engine_installed
 
-    name = "terp.capabilities.scheduler_apscheduler"
-    monkeypatch.setitem(sys.modules, name, _BrokenCapability(name, "ApschedulerScheduler"))
-    with pytest.raises(ModuleNotFoundError, match="some_driver"):
+    monkeypatch.setitem(sys.modules, name, broken)
+    with pytest.raises(ModuleNotFoundError, match=missing):
         _scheduler_engine_installed()
-    with pytest.raises(ModuleNotFoundError, match="some_driver"):
+    with pytest.raises(ModuleNotFoundError, match=missing):
         _default_scheduler()
+
+
+def test_run_scheduler_command_with_celery_beat_and_no_apscheduler_idles(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """With the Celery beat capability as the app's engine, the declared schedules fire on
+    beat: the `scheduler` the template's profile runs idles instead of refusing into a
+    restart loop, and says where they fire."""
+    (tmp_path / "jobs_sched_beat.py").write_text(_SCHEDULER_APP_MODULE, encoding="utf-8")
+    sys.modules.pop("jobs_sched_beat", None)
+    monkeypatch.setitem(sys.modules, "terp.capabilities.scheduler_apscheduler", None)
+    heartbeat = tmp_path / "terp-scheduler.heartbeat"
+    stop = _WatchHeartbeat(signal.SIGTERM, at=1, heartbeat=heartbeat)
+    with caplog.at_level(logging.INFO, logger="terp.cli.jobs"):
+        message = run_scheduler_command(
+            app_ref="jobs_sched_beat:build", app_root=tmp_path, heartbeat_path=heartbeat, stop=stop
+        )
+    assert message == (
+        "scheduler idled until stopped: terp-cap-scheduler-apscheduler is not installed, and "
+        "schedules fire on Celery beat"
+    )
+    assert stop.seen[0]["role"] == "scheduler" and not heartbeat.exists()
+    said = [record.getMessage() for record in caplog.records if record.name == "terp.cli.jobs"]
+    assert len(said) == 1, said
+    assert said[0].startswith("terp jobs scheduler idles: "), said[0]
+    assert "this app's schedules fire on Celery beat, not here" in said[0]
+    assert "`celery -A <your celery app> beat`" in said[0]
 
 
 def test_run_scheduler_command_with_a_schedule_and_no_engine_still_refuses(
@@ -647,6 +695,7 @@ def test_run_scheduler_command_with_a_schedule_and_no_engine_still_refuses(
     (tmp_path / "jobs_sched_noext.py").write_text(_SCHEDULER_APP_MODULE, encoding="utf-8")
     sys.modules.pop("jobs_sched_noext", None)
     monkeypatch.setitem(sys.modules, "terp.capabilities.scheduler_apscheduler", None)
+    monkeypatch.setitem(sys.modules, "terp.capabilities.scheduler_celery_beat", None)
     heartbeat = tmp_path / "terp-scheduler.heartbeat"
     with pytest.raises(SystemExit, match=r"terp-cli\[scheduler\]"):
         run_scheduler_command(

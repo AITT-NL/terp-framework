@@ -217,8 +217,8 @@ class Scheduler(ABC):
     The one method an adapter implements (APScheduler in-process, Celery beat, …). The kernel
     never runs a scheduler — a scheduler is a separate process (like the outbox worker), so a
     deployment builds the app to configure the live :class:`ScheduleCatalog`, then a chosen
-    adapter :meth:`register_all` + starts it. The safe default needs no adapter at all: an
-    external cron invokes ``terp jobs schedule <name>``, which calls :func:`trigger_schedule`.
+    adapter :meth:`register_all` + starts it. A cron outside the app declares no schedule: it
+    calls ``terp jobs run <job>`` (ADR 0223). :func:`trigger_schedule` fires one by name.
     Both shipped adapters settle each tick through :func:`settle_schedule`, so a schedule's
     misfire policy holds whichever engine fires it.
     """

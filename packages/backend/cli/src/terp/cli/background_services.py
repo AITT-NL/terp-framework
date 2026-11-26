@@ -11,27 +11,31 @@ app's (``uv run terp verify``), so it is what the image installs:
 * a declared job needs ``terp jobs worker --forever`` where ``terp-cap-outbox`` is
   installed, a Celery worker where ``terp-cap-jobs-celery`` is, either where both are, and
   nothing where neither is: the default queue then runs a job inline, where it is enqueued;
-* a declared schedule needs ``terp jobs scheduler`` or Celery beat, and a profile that runs
-  ``terp jobs scheduler`` for one needs ``terp-cap-scheduler-apscheduler`` as well, since
-  without it that process stops at start and restarts in a loop.
+* a declared schedule needs ``terp jobs scheduler`` where ``terp-cap-scheduler-apscheduler``
+  is installed, Celery beat where ``terp-cap-scheduler-celery-beat`` is, either where both
+  are. Where only beat is, ``terp jobs scheduler`` idles, so it neither counts nor harms;
+  where neither is, it stops at start, and the remedy starts with installing the engine.
 
 A service counts only when a plain ``docker compose up`` starts it and keeps it running: not
-one under ``profiles``, scaled to 0 (``scale`` or ``deploy.replicas``), nor ``terp jobs
-worker`` as an argument list without ``--forever`` under no restart that repeats a clean
-exit, which is a single drain. A shell string is read only for the words: one that names
-``terp jobs worker`` counts, as older profiles wrapped a single drain in a shell loop, and
-what that shell really runs is a residual this check cannot read.
+one under ``profiles``, scaled to 0 (``scale`` or ``deploy.replicas``), with a string command
+Compose cannot split, nor ``terp jobs worker`` as an argument list without ``--forever``
+that nothing restarts after a clean exit (``deploy.restart_policy`` before ``restart``, as
+Compose reads them), which is a single drain. A shell string is read only for the words: one
+that names ``terp jobs worker`` counts, as older profiles wrapped a single drain in a shell
+loop, and what that shell really runs is a residual this check cannot read.
 
 Independent of declared work, ``compose.runtime-role.yml`` must not name a service the
 profile does not define: Compose refuses that stack. It is how a generated build meets a
 template update whose overlay names a ``worker`` its own profile has not rendered yet.
 
-Only ``docker-compose.prod.yml`` and that overlay are read, as ``deploy-safety`` reads the
-one file: not the ``compose.file`` or ``compose.overrides`` a ``deployment.json`` may name,
-so a worker added in an override reads as missing. A project with no
+Only ``docker-compose.prod.yml`` and that overlay are read, with the Compose-aware loader of
+``terp.arch.deployment.profile`` (its ``!reset`` and ``!override`` tags), as ``deploy-safety``
+reads the one file: not the ``compose.file`` or ``compose.overrides`` a ``deployment.json``
+may name, so a worker added in an override reads as missing. A project with no
 ``docker-compose.prod.yml`` is deployed some other way, and which process runs its work is
 the deploy tool's business (ADR 0184): a note, never a red. A file that does not parse is a
-red, as in ``deploy-safety``; one that parses to no services runs none, and is judged so.
+red, as in ``deploy-safety``, and so is one that holds no mapping, which the loader refuses
+as Compose would; one with no services runs none.
 """
 
 from __future__ import annotations
@@ -69,14 +73,24 @@ _COMMANDS = {
     "worker": ('["terp", "jobs", "worker", "--forever"]', "worker"),
     "scheduler": ('["terp", "jobs", "scheduler"]', "beat"),
 }
+_APSCHEDULER_DIST = "terp-cap-scheduler-apscheduler"
 
 
-def _installed(module: str) -> bool:
-    """Whether *module* imports in the gate's environment."""
+def installed(module: str) -> bool:
+    """Whether *module* is installed in this environment, found without importing it."""
     try:
         return importlib.util.find_spec(module) is not None
     except (ImportError, ValueError):
         return False
+
+
+def _restarts(service: dict[str, Any]) -> bool:
+    """Whether Compose starts *service* again after a clean exit."""
+    deploy = service.get("deploy")
+    policy = deploy.get("restart_policy") if isinstance(deploy, dict) else None
+    if isinstance(policy, dict):  # set, it is read instead of `restart`
+        return policy.get("condition", "any") == "any"
+    return service.get("restart") in _LOOPING_RESTARTS
 
 
 def _runs(service: dict[str, Any]) -> set[str]:
@@ -93,32 +107,35 @@ def _runs(service: dict[str, Any]) -> set[str]:
         elif isinstance(value, str):
             try:
                 argv.extend(shlex.split(value))  # how Compose splits a string command
-            except ValueError:  # unbalanced quotes: read it as text
-                argv.append(value)
-    line = " ".join(argv)
-    found = {name for name, words in _SHELL_WORDS.items() if words.search(line)}
-    at = next((i for i in range(len(argv)) if argv[i : i + 3] == ["terp", "jobs", "worker"]), None)
-    if at is not None and not (
-        "--forever" in argv[at + 3 :] or service.get("restart") in _LOOPING_RESTARTS
-    ):
+            except ValueError:  # unbalanced quotes: Compose refuses the service, too
+                return set()
+    found = {name for name, words in _SHELL_WORDS.items() if words.search(" ".join(argv))}
+    at = next(
+        (
+            index
+            for index, word in enumerate(argv)
+            if pathlib.PurePosixPath(word).name == "terp"
+            and argv[index + 1 : index + 3] == ["jobs", "worker"]
+        ),
+        None,
+    )
+    if at is not None and "--forever" not in argv[at + 3 :] and not _restarts(service):
         found.discard("terp-worker")  # a single drain that exits, and stays exited
     return found
 
 
-def _load(path: pathlib.Path) -> tuple[Any, str | None]:
-    import yaml
+def _load(path: pathlib.Path) -> tuple[dict[str, Any], str | None]:
+    from terp.arch.deployment.profile import profile_from_text
 
-    try:
-        return yaml.safe_load(path.read_text(encoding="utf-8")), None
-    except (OSError, yaml.YAMLError) as exc:
-        return None, (
-            f"profile: {path.name} could not be read, so what it deploys cannot be "
-            f"established: {' '.join(str(exc).split())}"
-        )
+    compose, findings = profile_from_text(path.read_text(encoding="utf-8"), path.name)
+    if not findings:
+        return compose, None
+    said = " ".join(findings[0].message.removeprefix("compose.file ").split())
+    return {}, f"profile: what {path.name} deploys cannot be established: {said}"
 
 
-def _services(compose: Any) -> dict[str, Any]:
-    services = compose.get("services") if isinstance(compose, dict) else None
+def _services(compose: dict[str, Any]) -> dict[str, Any]:
+    services = compose.get("services")
     return services if isinstance(services, dict) else {}
 
 
@@ -127,17 +144,22 @@ def _named(names: Sequence[str]) -> str:
     return f"{shown} and {len(names) - _SHOWN} more" if len(names) > _SHOWN else shown
 
 
-def _remedy(role: str, *, terp: bool, celery: str | None) -> str:
-    """How to add the *role* service: Terp's own command first, then the Celery engine's."""
+def _remedy(role: str, *, terp: bool, celery: str | None, install: bool = False) -> str:
+    """How to add the *role* service, led by the engine that is installed."""
     argv, celery_command = _COMMANDS[role]
     said = []
     if terp:
+        lead = (
+            f"Install {_APSCHEDULER_DIST} (`uv add {_APSCHEDULER_DIST}`), then add"
+            if install
+            else "Add"
+        )
         said.append(
-            f"Add a service on the backend image with `command: {argv}` (an image's CMD is "
-            "not read: the command must be written in the profile), re-render the template "
-            "(`copier update`), whose profile runs both the worker and the scheduler, or, "
-            f'under "build": "generated", declare a unit with "role": "{role}" in '
-            "deployment.json and run `uv run terp deployment render`."
+            f"{lead} a service on the backend image with `command: {argv}` (an image's CMD "
+            "is not read: the command must be written in the profile), re-render the "
+            "template (`copier update`), whose profile runs both the worker and the "
+            f'scheduler, or, under "build": "generated", declare a unit with "role": "{role}" '
+            "in deployment.json and run `uv run terp deployment render`."
         )
     if celery:
         said.append(
@@ -162,20 +184,39 @@ def _overlay_problem(project_root: pathlib.Path, services: dict[str, Any]) -> st
         f'define, so Compose refuses the stack (service "{missing[0]}" has neither an image '
         'nor a build context specified). Under "build": "generated", declare the missing '
         'units in deployment.json and run `uv run terp deployment render`; under "build": '
-        f'"own", re-render the template (`copier update`) or add the services to {PROD_PROFILE}.'
+        f'"own", re-render the template (`copier update`), add the services to {PROD_PROFILE}, '
+        "or point the overlay at your own service names and remove its entries for services "
+        "you do not run."
     )
 
 
+def _runners(*named: tuple[str, bool]) -> str:
+    return " or ".join(name for name, present in named if present)
+
+
 def _worker_problem(jobs: Sequence[str], *, outbox: bool, celery: bool) -> str:
-    runners = [
-        *(["`terp jobs worker --forever`"] if outbox else []),
-        *(["a Celery worker"] if celery else []),
-    ]
+    runners = _runners(("`terp jobs worker --forever`", outbox), ("a Celery worker", celery))
     return (
         f"jobs: the control plane declares {len(jobs)} job(s) ({_named(jobs)}) and no service "
-        f"in {PROD_PROFILE} runs {' or '.join(runners)}, so a job enqueued on the app's "
-        "durable queue is never run, and nothing at boot says so. "
+        f"in {PROD_PROFILE} runs {runners}, so a job enqueued on the app's durable queue is "
+        "never run, and nothing at boot says so. "
         + _remedy("worker", terp=outbox, celery="a Celery worker" if celery else None)
+    )
+
+
+def _scheduler_problem(schedules: Sequence[str], *, apscheduler: bool, beat: bool) -> str:
+    terp = apscheduler or not beat
+    runners = _runners(("`terp jobs scheduler`", terp), ("Celery beat", beat))
+    return (
+        f"schedules: the control plane declares {len(schedules)} schedule(s) "
+        f"({_named(schedules)}) and no service in {PROD_PROFILE} runs {runners}, so no "
+        "declared schedule ever fires, and nothing at boot says so. "
+        + _remedy(
+            "scheduler",
+            terp=terp,
+            celery="Celery beat" if beat else None,
+            install=not apscheduler and not beat,
+        )
     )
 
 
@@ -188,7 +229,8 @@ def profile_problems(
 
     jobs = [job.name for job in plane.jobs.jobs]
     schedules = [schedule.name for schedule in plane.schedules.schedules]
-    outbox, celery = _installed(OUTBOX), _installed(CELERY_JOBS)
+    outbox, celery = installed(OUTBOX), installed(CELERY_JOBS)
+    apscheduler, beat = installed(APSCHEDULER), installed(CELERY_BEAT)
     need_worker = bool(jobs) and (outbox or celery)
     needed = [
         role
@@ -211,30 +253,25 @@ def profile_problems(
     services = _services(compose)
     problems = [problem for problem in (_overlay_problem(project_root, services),) if problem]
     running = set().union(*(_runs(s) for s in services.values() if isinstance(s, dict)))
-    accepted = {*(["terp-worker"] if outbox else []), *(["celery-worker"] if celery else [])}
+    drains = {*(["terp-worker"] if outbox else []), *(["celery-worker"] if celery else [])}
+    fires = {*(["terp-scheduler"] if apscheduler else []), *(["celery-beat"] if beat else [])}
     runs: list[str] = []
-    if need_worker and running & accepted:
+    if need_worker and running & drains:
         runs.append("worker")
     elif need_worker:
         problems.append(_worker_problem(jobs, outbox=outbox, celery=celery))
-    if schedules and running & {"terp-scheduler", "celery-beat"}:
+    if schedules and running & fires:
         runs.append("scheduler")
-        if "terp-scheduler" in running and not _installed(APSCHEDULER):
-            problems.append(
-                f"schedules: {PROD_PROFILE} runs `terp jobs scheduler` for "
-                f"{len(schedules)} declared schedule(s) ({_named(schedules)}) and "
-                "terp-cap-scheduler-apscheduler is not installed, so that scheduler stops at "
-                "start and restarts in a loop, and no schedule fires. Install it (`uv add "
-                "terp-cap-scheduler-apscheduler`), or run the schedules on Celery beat."
-            )
-    elif schedules:
-        beat = "Celery beat" if _installed(CELERY_BEAT) else None
+    elif schedules and "terp-scheduler" in running and not beat:
         problems.append(
-            f"schedules: the control plane declares {len(schedules)} schedule(s) "
-            f"({_named(schedules)}) and no service in {PROD_PROFILE} runs `terp jobs "
-            "scheduler` or Celery beat, so no declared schedule ever fires, and nothing at "
-            "boot says so. " + _remedy("scheduler", terp=True, celery=beat)
+            f"schedules: {PROD_PROFILE} runs `terp jobs scheduler` for {len(schedules)} "
+            f"declared schedule(s) ({_named(schedules)}) and {_APSCHEDULER_DIST} is not "
+            "installed, so that scheduler stops at start (and, under a restart policy, "
+            "restarts in a loop) and no schedule fires. Install it (`uv add "
+            f"{_APSCHEDULER_DIST}`)."
         )
+    elif schedules:
+        problems.append(_scheduler_problem(schedules, apscheduler=apscheduler, beat=beat))
     return problems, None, runs
 
 
@@ -271,8 +308,13 @@ def declared_work_verdict(
 
 
 __all__ = [
+    "APSCHEDULER",
+    "CELERY_BEAT",
+    "CELERY_JOBS",
+    "OUTBOX",
     "PROD_PROFILE",
     "RUNTIME_ROLE_OVERLAY",
     "declared_work_verdict",
+    "installed",
     "profile_problems",
 ]

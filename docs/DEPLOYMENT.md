@@ -315,8 +315,9 @@ Two opt-in tiers on PostgreSQL, applied in order (ADR 0070 / ADR 0071):
   jobs worker --forever` drains the durable outbox and `terp jobs scheduler` fires the
   declared schedules, both on the backend image. The template's profile always runs the
   two. With nothing to do (the worker: no `terp-cap-outbox` installed; the scheduler: no
-  schedule declared and no engine installed) each logs why once, keeps its heartbeat fresh and
-  waits, so an app without jobs notices nothing but two quiet containers. Wire `OutboxJobQueue` and the worker drains it;
+  schedule declared and no engine installed, or schedules that fire on Celery beat) each logs
+  why once, keeps its heartbeat fresh and waits, so an app without jobs notices nothing but two
+  quiet containers. Wire `OutboxJobQueue` and the worker drains it;
   declare a schedule and install `terp-cap-scheduler-apscheduler` (and keep the schedule
   ledger in the database) and the scheduler fires it. The worker scales
   (`docker compose up --scale worker=3`); the scheduler stays one. An external cron calls
