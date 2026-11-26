@@ -1756,7 +1756,6 @@ Realtime push (realtime capability)
   to - so one subscribed browser tab means a reloader that never restarts and a container
   that stops only when the orchestrator kills it. Every invocation carries a bound:
       uvicorn app.main:app --host 0.0.0.0 --port 8000 --loop asyncio --timeout-graceful-shutdown 8
-  (--loop asyncio keeps uvloop out, which the egress guard refuses.)
   The template and the example ship it (3s where --reload is on, since the reload loop
   pays it per edit; 8s in the images, under Compose's 10s default stop grace). terp dev
   carries 3s and takes --shutdown-timeout. Yours must be under whatever stops your
