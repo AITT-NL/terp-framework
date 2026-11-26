@@ -13,8 +13,10 @@ app's (``uv run terp verify``), so it is what the image installs:
   nothing where neither is: the default queue then runs a job inline, where it is enqueued;
 * a declared schedule needs ``terp jobs scheduler`` where ``terp-cap-scheduler-apscheduler``
   is installed, Celery beat where ``terp-cap-scheduler-celery-beat`` is, either where both
-  are. Where only beat is, ``terp jobs scheduler`` idles, so it neither counts nor harms;
-  where neither is, it stops at start, and the remedy starts with installing the engine.
+  are. Beat only publishes a tick for each cron time and a Celery worker runs it, so where
+  beat is the one that counts, a Celery worker must run as well (``worker -B`` is both).
+  Where only beat is installed, ``terp jobs scheduler`` idles, so it neither counts nor
+  harms; where neither is, it stops at start, and the remedy starts with installing one.
 
 A service counts only when a plain ``docker compose up`` starts it and keeps it running: not
 one under ``profiles``, scaled to 0 (``scale`` or ``deploy.replicas``), with a string command
@@ -69,9 +71,15 @@ _SHELL_WORDS = {
 }
 _LOOPING_RESTARTS = ("always", "unless-stopped")
 _SHOWN = 5
+_CELERY = "`celery -A <your celery app> {}`"
+#: Each role's Terp command, and the Celery processes that do its work instead.
 _COMMANDS = {
-    "worker": ('["terp", "jobs", "worker", "--forever"]', "worker"),
-    "scheduler": ('["terp", "jobs", "scheduler"]', "beat"),
+    "worker": ('["terp", "jobs", "worker", "--forever"]', _CELERY.format("worker")),
+    "scheduler": (
+        '["terp", "jobs", "scheduler"]',
+        f"{_CELERY.format('beat')}, with a Celery worker to run its ticks, "
+        f"{_CELERY.format('worker')} (or both in one service, {_CELERY.format('worker -B')})",
+    ),
 }
 _APSCHEDULER_DIST = "terp-cap-scheduler-apscheduler"
 
@@ -146,7 +154,7 @@ def _named(names: Sequence[str]) -> str:
 
 def _remedy(role: str, *, terp: bool, celery: str | None, install: bool = False) -> str:
     """How to add the *role* service, led by the engine that is installed."""
-    argv, celery_command = _COMMANDS[role]
+    argv, celery_runs = _COMMANDS[role]
     said = []
     if terp:
         lead = (
@@ -162,10 +170,7 @@ def _remedy(role: str, *, terp: bool, celery: str | None, install: bool = False)
             "in deployment.json and run `uv run terp deployment render`."
         )
     if celery:
-        said.append(
-            f"{'Or run' if terp else 'Run'} {celery} as a service: "
-            f"`celery -A <your celery app> {celery_command}`."
-        )
+        said.append(f"{'Or run' if terp else 'Run'} {celery} as a service: {celery_runs}.")
     return " ".join(said)
 
 
@@ -260,7 +265,15 @@ def profile_problems(
         runs.append("worker")
     elif need_worker:
         problems.append(_worker_problem(jobs, outbox=outbox, celery=celery))
-    if schedules and running & fires:
+    if schedules and (running & fires) == {"celery-beat"} and "celery-worker" not in running:
+        problems.append(
+            f"schedules: {PROD_PROFILE} runs Celery beat for {len(schedules)} declared "
+            f"schedule(s) ({_named(schedules)}) and no Celery worker, so beat publishes each "
+            "tick and nothing runs it: no schedule fires, and nothing at boot says so. Run a "
+            f"Celery worker as a service as well, {_CELERY.format('worker')}, or run beat "
+            f"inside it, {_CELERY.format('worker -B')}."
+        )
+    elif schedules and running & fires:
         runs.append("scheduler")
     elif schedules and "terp-scheduler" in running and not beat:
         problems.append(

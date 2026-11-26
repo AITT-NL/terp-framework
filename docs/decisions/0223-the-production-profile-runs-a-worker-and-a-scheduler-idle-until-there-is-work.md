@@ -59,8 +59,11 @@ not that anything drains it, and no check looked for the processes.
    worker` without `--forever`) without the outbox still stops with its message: an operator who
    runs it by hand wants to know. "Not installed" means the capability's own module is missing;
    any other import error inside it, a missing dependency of an installed adapter included, is
-   raised, not read as a reason to idle. An app on Celery keeps the template's worker and
-   scheduler idle beside its own Celery worker and beat: decision 7 is what asks for those.
+   raised, not read as a reason to idle. An app on Celery that installs neither the outbox nor
+   APScheduler keeps the template's worker and scheduler idle beside its own Celery worker and
+   beat: decision 7 is what asks for those, and beat's ticks need a Celery worker to run them.
+   With APScheduler installed as well, the template's scheduler fires beside beat, and every tick
+   fires twice unless the schedule ledger is in the database.
 4. **The template adds no dependency.** An app that wires the durable queue already imports
    `terp-cap-outbox`; one that declares a schedule installs `terp-cap-scheduler-apscheduler`.
    Installing both in every app would put the outbox's tables and a scheduler engine into apps
@@ -79,7 +82,7 @@ not that anything drains it, and no check looked for the processes.
    worker`; with the Celery jobs capability, a Celery worker (either, with both); with neither,
    jobs run inline in the process that enqueued them and no worker is asked for. A declared
    schedule needs `terp jobs scheduler` with APScheduler installed, or beat with the Celery beat
-   capability installed; `terp jobs scheduler` with neither engine fails, since it stops at start.
+   capability installed and a Celery worker to run its ticks; `terp jobs scheduler` with neither engine fails, since it stops at start.
    A service counts only when a plain `docker compose up` runs it: not behind `profiles`, not
    scaled to zero, and a single drain that no restart policy (`restart:` or
    `deploy.restart_policy`) brings back is not a worker. A command counts wherever the profile writes it (a list, `uv run`, a shell loop); an

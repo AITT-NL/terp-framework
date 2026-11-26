@@ -661,20 +661,27 @@ def test_a_broken_scheduler_engine_is_raised_as_it_is(
         _default_scheduler()
 
 
+@pytest.mark.parametrize(
+    "source", [_SCHEDULER_APP_MODULE, _NO_JOBS_APP_MODULE], ids=["schedules", "no-schedule"]
+)
 def test_run_scheduler_command_with_celery_beat_and_no_apscheduler_idles(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    source: str,
 ) -> None:
-    """With the Celery beat capability as the app's engine, the declared schedules fire on
-    beat: the `scheduler` the template's profile runs idles instead of refusing into a
-    restart loop, and says where they fire."""
-    (tmp_path / "jobs_sched_beat.py").write_text(_SCHEDULER_APP_MODULE, encoding="utf-8")
-    sys.modules.pop("jobs_sched_beat", None)
+    """With the Celery beat capability as the app's engine, its schedules fire on beat, and
+    a Celery worker runs the ticks beat publishes: the `scheduler` the template's profile
+    runs idles instead of refusing into a restart loop, and names both processes."""
+    module = f"jobs_sched_beat_{source is _NO_JOBS_APP_MODULE}"
+    (tmp_path / f"{module}.py").write_text(source, encoding="utf-8")
+    sys.modules.pop(module, None)
     monkeypatch.setitem(sys.modules, "terp.capabilities.scheduler_apscheduler", None)
     heartbeat = tmp_path / "terp-scheduler.heartbeat"
     stop = _WatchHeartbeat(signal.SIGTERM, at=1, heartbeat=heartbeat)
     with caplog.at_level(logging.INFO, logger="terp.cli.jobs"):
         message = run_scheduler_command(
-            app_ref="jobs_sched_beat:build", app_root=tmp_path, heartbeat_path=heartbeat, stop=stop
+            app_ref=f"{module}:build", app_root=tmp_path, heartbeat_path=heartbeat, stop=stop
         )
     assert message == (
         "scheduler idled until stopped: terp-cap-scheduler-apscheduler is not installed, and "
@@ -684,8 +691,10 @@ def test_run_scheduler_command_with_celery_beat_and_no_apscheduler_idles(
     said = [record.getMessage() for record in caplog.records if record.name == "terp.cli.jobs"]
     assert len(said) == 1, said
     assert said[0].startswith("terp jobs scheduler idles: "), said[0]
-    assert "this app's schedules fire on Celery beat, not here" in said[0]
+    assert "the schedules this app declares fire on Celery beat, not here" in said[0]
     assert "`celery -A <your celery app> beat`" in said[0]
+    assert "a Celery worker for its ticks, `celery -A <your celery app> worker`" in said[0]
+    assert "`celery -A <your celery app> worker -B`" in said[0]
 
 
 def test_run_scheduler_command_with_a_schedule_and_no_engine_still_refuses(

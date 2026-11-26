@@ -106,7 +106,9 @@
       "scope": [
         "control_plane/**/*.py",
         "docker-compose.prod.yml",
-        "compose.runtime-role.yml"
+        "compose.runtime-role.yml",
+        "pyproject.toml",
+        "uv.lock"
       ]
     },
     {

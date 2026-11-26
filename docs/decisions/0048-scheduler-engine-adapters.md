@@ -1,6 +1,9 @@
 # ADR 0048 — Scheduler engine adapters: `terp-cap-scheduler-apscheduler` + `terp-cap-scheduler-celery-beat`
 
-- Status: Accepted
+- Status: Accepted. Amended by [ADR 0223](0223-the-production-profile-runs-a-worker-and-a-scheduler-idle-until-there-is-work.md): these adapters, not an external cron, fire a declared
+  schedule (enforcement item 1's "external-trigger default" now means `terp jobs run` from a
+  cron for work that declares no schedule), and the template's production profile runs
+  `terp jobs scheduler`, which idles where Celery beat is the engine.
 - Date: 2026-07-01
 - Phase: async/jobs design Phase 4 (the working design doc's §11, §15 build step 5)
 - Relates to: ADR 0047 (the scheduler seam — the port these fill), ADR 0046 (the first engine

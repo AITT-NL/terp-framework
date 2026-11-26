@@ -989,7 +989,11 @@ def test_a_declared_schedule_with_no_scheduler_in_the_profile_fails_the_gate(
     assert "schedules: the control plane declares 1 schedule(s) (nightly.run)" in output, output
     assert "runs `terp jobs scheduler` or Celery beat, so no declared schedule ever fires" in output
     assert 'command: ["terp", "jobs", "scheduler"]' in output and '"role": "scheduler"' in output
-    assert "Or run Celery beat as a service: `celery -A <your celery app> beat`." in output
+    assert (
+        "Or run Celery beat as a service: `celery -A <your celery app> beat`, with a Celery "
+        "worker to run its ticks, `celery -A <your celery app> worker` (or both in one "
+        "service, `celery -A <your celery app> worker -B`)." in output
+    ), output
     assert "jobs: " not in output, "the worker is there"
 
 
@@ -1183,6 +1187,12 @@ _BEAT = """\
     command: ["celery", "-A", "app.celery_app", "beat"]
 """
 
+_CELERY_WORKER = """\
+  celery-worker:
+    image: app-backend
+    command: ["celery", "-A", "app.celery_app", "worker"]
+"""
+
 
 @pytest.mark.parametrize(
     ("installed", "services", "said", "unsaid"),
@@ -1192,11 +1202,24 @@ _BEAT = """\
             _WORKER + _SCHEDULER,
             [
                 "no service in docker-compose.prod.yml runs Celery beat, so no declared",
-                "Run Celery beat as a service: `celery -A <your celery app> beat`.",
+                "Run Celery beat as a service: `celery -A <your celery app> beat`, with a "
+                "Celery worker to run its ticks, `celery -A <your celery app> worker`",
             ],
             ["stops at start", 'command: ["terp", "jobs", "scheduler"]', "uv add"],
         ),
-        ((_OUTBOX, _CELERY_BEAT), _WORKER + _SCHEDULER + _BEAT, None, []),
+        (
+            (_OUTBOX, _CELERY_BEAT),
+            _WORKER + _SCHEDULER + _BEAT,
+            [
+                "schedules: docker-compose.prod.yml runs Celery beat for 1 declared schedule(s) "
+                "(nightly.run) and no Celery worker, so beat publishes each tick and nothing "
+                "runs it: no schedule fires, and nothing at boot says so",
+                "`celery -A <your celery app> worker`, or run beat inside it, "
+                "`celery -A <your celery app> worker -B`.",
+            ],
+            ["runs the worker and the scheduler"],
+        ),
+        ((_OUTBOX, _CELERY_BEAT), _WORKER + _SCHEDULER + _BEAT + _CELERY_WORKER, None, []),
         (
             (_OUTBOX,),
             _WORKER,
@@ -1217,7 +1240,8 @@ _BEAT = """\
     ],
     ids=[
         "beat-installed-and-only-the-idle-scheduler",
-        "beat-installed-and-beat-runs",
+        "beat-runs-with-no-celery-worker-for-its-ticks",
+        "beat-and-a-celery-worker-run",
         "neither-engine-and-no-scheduler",
         "beat-runs-but-its-capability-is-not-installed",
     ],
@@ -1232,9 +1256,10 @@ def test_the_scheduler_asked_for_follows_the_installed_engine(
     unsaid: list[str],
 ) -> None:
     """With only the Celery beat capability, the schedules fire on beat and the template's
-    `terp jobs scheduler` idles: beat is asked for, and that scheduler neither counts nor
-    reds. With neither engine, the remedy starts with installing one, so following it ends
-    green; a beat service counts only where its capability is installed."""
+    `terp jobs scheduler` idles: beat is asked for, with a Celery worker to run the ticks it
+    publishes, and that scheduler neither counts nor reds. With neither engine, the remedy
+    starts with installing one, so following it ends green; a beat service counts only
+    where its capability is installed."""
     engines(*installed)
     _write_control_plane(tmp_path, _SCHEDULED_PLANE)
     _write_prod_profile(tmp_path, _PROFILE_WITHOUT_WORK + services)

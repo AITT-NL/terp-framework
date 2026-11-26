@@ -218,7 +218,7 @@ class Scheduler(ABC):
     never runs a scheduler — a scheduler is a separate process (like the outbox worker), so a
     deployment builds the app to configure the live :class:`ScheduleCatalog`, then a chosen
     adapter :meth:`register_all` + starts it. A cron outside the app declares no schedule: it
-    calls ``terp jobs run <job>`` (ADR 0223). :func:`trigger_schedule` fires one by name.
+    calls ``terp jobs run <job>`` (ADR 0223). :func:`trigger_schedule` fires one schedule once.
     Both shipped adapters settle each tick through :func:`settle_schedule`, so a schedule's
     misfire policy holds whichever engine fires it.
     """
@@ -261,8 +261,8 @@ def configure_schedules(
 ) -> None:
     """Install the active schedule *catalog* and *ledger* (called by ``create_app``).
 
-    Mirrors :func:`~terp.core.configure_jobs`: a scheduler process / the ``terp jobs
-    schedule`` CLI reads the active catalog after building the app, so what it triggers
+    Mirrors :func:`~terp.core.configure_jobs`: a scheduler process (``terp jobs
+    scheduler``) reads the active catalog after building the app, so what it triggers
     always matches what the app declares. ``ledger=None`` installs a fresh
     :class:`InMemoryScheduleLedger`.
     """
@@ -300,7 +300,7 @@ register_runtime_seam(
 def trigger_schedule(session: Session, schedule: ScheduleDefinition) -> str:
     """Fire *schedule* once: build its payload and enqueue its job; return the job id.
 
-    The producer-side helper the external-trigger CLI calls, and the half of
+    The producer-side helper that fires a schedule once by hand, and the half of
     :func:`settle_schedule` that enqueues. It goes through the typed :func:`~terp.core.enqueue`
     chokepoint, so the job flows through the active :class:`~terp.core.JobQueue` (in-process
     / outbox / broker) and the context-binding runner — with no originating user, the

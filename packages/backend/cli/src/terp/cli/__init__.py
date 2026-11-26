@@ -1541,7 +1541,7 @@ Background jobs (terp.core.enqueue + JobCatalog)
   an override. Cross-owner maintenance requires a reviewed maintenance-authority
   capability. If none is installed, stop and report the missing capability — never
   remove OwnedMixin or author a destructive owner-column migration.
-- Trigger a scheduled job from any cron / k8s CronJob / systemd or cloud timer:
+- Trigger a job from a cron outside the app, declaring no schedule (it would fire twice):
       terp jobs run sync.customers.pull --payload '{"source": "crm"}'
   Inspect the declared jobs:  terp jobs list   /   terp inspect jobs.
 - Declare a schedule (ScheduleDefinition: a cron + a catalog JobDefinition + a misfire

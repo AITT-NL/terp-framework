@@ -433,8 +433,10 @@ def run_scheduler_command(
         _logger.info(
             "terp jobs scheduler idles: %s (ADR 0223).",
             "terp-cap-scheduler-apscheduler is not installed and "
-            "terp-cap-scheduler-celery-beat is, so this app's schedules fire on Celery beat, "
-            "not here: run `celery -A <your celery app> beat` as a service"
+            "terp-cap-scheduler-celery-beat is, so the schedules this app declares fire on "
+            "Celery beat, not here: run `celery -A <your celery app> beat` and a Celery "
+            "worker for its ticks, `celery -A <your celery app> worker`, as services (or "
+            "both in one, `celery -A <your celery app> worker -B`)"
             if beat
             else "this app declares no schedule and terp-cap-scheduler-apscheduler is not "
             "installed, so there is nothing to fire. Declare a schedule on the control plane "

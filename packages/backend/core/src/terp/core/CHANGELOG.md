@@ -27,7 +27,7 @@ decision, 0001 onwards.
   profile must run the process the installed engine needs: `terp jobs worker` with
   `terp-cap-outbox`, a Celery worker with the Celery jobs capability, nothing when jobs run
   inline; for a schedule, `terp jobs scheduler` with the APScheduler engine installed, or beat
-  with the Celery beat capability installed. A service behind `profiles`, scaled to zero, or a
+  with the Celery beat capability installed and a Celery worker to run its ticks. A service behind `profiles`, scaled to zero, or a
   single drain nothing restarts does not count. The failure names the work and leads with the
   remedy that turns it green. It also fails when `compose.runtime-role.yml` names a service the
   profile does not define, which Compose refuses. A project that declares work and has no
@@ -85,8 +85,9 @@ decision, 0001 onwards.
   exit: under `restart: unless-stopped` that was a restart loop, and `docker compose up --wait`
   read it as a failed deploy. Where there is work they stay loud: a declared schedule with no
   engine, and a single drain with no outbox, still stop with the message that names the
-  package. An app whose jobs run on Celery keeps the template's worker idle; production-readiness
-  is what asks for its Celery worker and beat.
+  package. An app on Celery that installs neither the outbox nor APScheduler keeps the
+  template's worker and scheduler idle; production-readiness is what asks for its Celery worker
+  and beat.
 
 - **Every app served the template's way runs on asyncio's event loop, not uvloop** (#182).
   On Linux the images used to run on the uvloop `uvicorn[standard]` installs, whether or not
@@ -137,8 +138,8 @@ decision, 0001 onwards.
 ### Upgrade notes
 
 - **`copier update` adds a `worker` and a `scheduler` to `docker-compose.prod.yml`** (and to
-  `compose.runtime-role.yml`). Nothing else is needed for an app without jobs, or one on Celery:
-  the two idle. An app that already runs services of its own for `terp jobs worker` or `terp jobs
+  `compose.runtime-role.yml`). Nothing else is needed for an app without jobs, or one on Celery
+  that installs neither the outbox nor APScheduler: the two idle. An app that already runs services of its own for `terp jobs worker` or `terp jobs
   scheduler` keeps one of each: it drops its own (the template's run the same commands), or
   keeps its own, removes the template's from the profile **and** renames or removes their entries
   in `compose.runtime-role.yml` (Compose refuses an overlay service the profile does not define).
