@@ -71,7 +71,7 @@ dev = [
     "httpx>=0.28.1",
     # FastAPI's TestClient: starlette imports httpx2 first, and on plain httpx it warns
     # on every run and will stop importing once that fallback is removed.
-    "httpx2>=2.16.0",
+    "httpx2>=2.16.2",
     "pytest-cov>=7.1.0",
     # `terp dev` launches uvicorn; the standard extra supplies WebSocket + reload support.
     "uvicorn[standard]>=0.54.0",
@@ -86,7 +86,7 @@ dev = [
     # SDKs' own offline surface: botocore's stubber and the real presigner for S3, the
     # real SAS signer and exception types for Azure Blob. An app installs either through
     # the capability's extra; the suite needs both.
-    "boto3>=1.44.3",
+    "boto3>=1.44.8",
     "azure-storage-blob>=12.31.1",
     # Validates every log line a production app writes against the terp-log/1 schema
     # (terp.core's log-record.schema.json, ADR 0188) with a full draft 2020-12 validator.
@@ -101,10 +101,10 @@ dev = [
 # CI-only generic backstops (NOT part of the `pytest --cov=terp` gate; they
 # complement terp-arch, never replace it). Installed in CI; optional locally.
 lint = [
-    "ruff>=0.17.5",
+    "ruff>=0.17.6",
     "pip-audit>=2.10.1",
     "deptry>=0.25.1",
-    "import-linter>=2.16",
+    "import-linter>=2.17",
     # Pinned exactly, unlike the others: this one blocks, so a new audit must
     # arrive by a deliberate bump (Dependabot opens it) rather than by surprise
     # on an unrelated pull request.
