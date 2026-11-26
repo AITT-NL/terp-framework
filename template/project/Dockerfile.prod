@@ -125,4 +125,7 @@ EXPOSE 8000
 # --timeout-graceful-shutdown bounds the wait for in-flight tasks; unset, uvicorn waits
 # forever, and a realtime stream never ends on its own. Eight seconds sits under Compose's
 # ten-second default stop grace, so the process exits on its own terms instead of being killed.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "8"]
+# --loop asyncio: uvicorn[standard] brings uvloop on Linux, and uvicorn runs on it whenever it
+# is installed. The egress guard holds Python's socket module and cannot see uvloop's, so it
+# refuses to install beside it (ADR 0177); asyncio's own loop is one it can hold.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--loop", "asyncio", "--timeout-graceful-shutdown", "8"]

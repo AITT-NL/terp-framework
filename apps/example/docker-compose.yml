@@ -105,7 +105,9 @@ services:
     # --timeout-graceful-shutdown: a realtime stream ends when its client goes away and not
     # otherwise, and uvicorn waits for in-flight tasks forever by default, so one open tab
     # would hold every reload. Three seconds, because the reload loop pays it per edit.
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--timeout-graceful-shutdown", "3"]
+    # --loop asyncio: uvicorn[standard] brings uvloop on Linux and uvicorn would run on it,
+    # and the egress guard, which cannot see uvloop's sockets, refuses that (ADR 0177).
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--loop", "asyncio", "--reload", "--timeout-graceful-shutdown", "3"]
     environment:
       <<: *backend-env
       # Bind-mounted source can live on a filesystem without inotify (Docker

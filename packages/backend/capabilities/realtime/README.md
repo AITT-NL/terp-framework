@@ -61,8 +61,12 @@ production it is a container that stops only when the orchestrator kills it.
 So bound it, explicitly, in every invocation:
 
 ```
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 8
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --loop asyncio --timeout-graceful-shutdown 8
 ```
+
+(`--loop asyncio` is there for the egress guard: uvicorn's default loop tries to
+import uvloop, which `uvicorn[standard]` installs, and the guard refuses that import on
+every OS.)
 
 The template and the example app ship this bound already (ADR 0108): **3**
 seconds wherever `--reload` is on, because the reload loop pays the wait on

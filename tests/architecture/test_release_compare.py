@@ -41,7 +41,8 @@ IMAGE_CONFIG = {
     "Env": ["PATH=/srv/.venv/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "LANG=C.UTF-8", "PYTHON_VERSION=3.14.8", "ENVIRONMENT=production", "PYTHONUNBUFFERED=1", "PYTHONDONTWRITEBYTECODE=1",
             "VIRTUAL_ENV=/srv/.venv"],
-    "Cmd": ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "8"],  # noqa: S104 - the image's command, as data
+    "Cmd": ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--loop", "asyncio",  # noqa: S104 - the image's command, as data
+            "--timeout-graceful-shutdown", "8"],
     "WorkingDir": "/srv", "User": "appuser", "ExposedPorts": {"8000/tcp": {}}, "ArgsEscaped": True,
 }
 

@@ -206,6 +206,11 @@ def test_prod_backend_images_are_multistage_wheel_builds() -> None:
         ]
         assert not any("--reload" in line for line in code_lines)
         assert 'CMD ["uvicorn", "app.main:app"' in text
+        # uvicorn[standard] brings uvloop on Linux, uvicorn's default loop tries it, and the
+        # egress guard refuses that import (ADR 0177). test_serving_event_loop.py runs the
+        # template's command with the guard installed.
+        (cmd,) = [line for line in code_lines if line.startswith("CMD ")]
+        assert '"--loop", "asyncio"' in cmd, f"{path.name} must serve on asyncio, not uvloop"
     # The example's image serves only its api. The template's backs every backend unit, and
     # changed on purpose (ADR 0187): no HEALTHCHECK of its own, because a worker or a
     # scheduler that inherits an HTTP probe turns unhealthy and `docker compose up --wait`
