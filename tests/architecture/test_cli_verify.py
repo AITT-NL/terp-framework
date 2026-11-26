@@ -1116,19 +1116,30 @@ def test_jobs_with_no_queue_engine_run_inline_and_need_no_worker(
     )
 
 
+_ONLY_CELERY_WORKER = [
+    "runs a Celery worker, so a job",
+    "Run a Celery worker as a service: `celery -A <your celery app> worker`.",
+]
+
+
 @pytest.mark.parametrize(
-    ("installed", "said", "unsaid"),
+    ("installed", "services", "said", "unsaid"),
     [
         (
             (_CELERY_JOBS,),
-            [
-                "runs a Celery worker, so a job",
-                "Run a Celery worker as a service: `celery -A <your celery app> worker`.",
-            ],
+            _WORKER,
+            _ONLY_CELERY_WORKER,
             ['command: ["terp"', "copier update", "`terp jobs worker --forever`"],
         ),
         (
+            (_CELERY_JOBS,),
+            '  beat:\n    image: app-backend\n    command: ["celery", "-A", "worker.celery", "beat"]\n',
+            _ONLY_CELERY_WORKER,
+            [],
+        ),
+        (
             (_OUTBOX, _CELERY_JOBS),
+            "",
             [
                 "runs `terp jobs worker --forever` or a Celery worker, so a job",
                 'command: ["terp", "jobs", "worker", "--forever"]',
@@ -1137,23 +1148,23 @@ def test_jobs_with_no_queue_engine_run_inline_and_need_no_worker(
             [],
         ),
     ],
-    ids=["celery-only", "outbox-and-celery"],
+    ids=["celery-only", "an-app-named-worker-runs-beat", "outbox-and-celery"],
 )
 def test_the_worker_asked_for_follows_the_installed_engine(
     tmp_path: pathlib.Path,
     fresh_control_plane_import: None,
     engines: Callable[..., None],
     installed: tuple[str, ...],
+    services: str,
     said: list[str],
     unsaid: list[str],
 ) -> None:
     """With only Celery installed, a Terp worker drains nothing: a Celery worker is asked
-    for, and the Terp service does not count."""
+    for, and the Terp service does not count. Nor does `celery -A worker.celery beat`: the
+    subcommand is read as a whole word, past the option's value."""
     engines(*installed)
     _write_control_plane(tmp_path, _READY_PLANE)
-    _write_prod_profile(
-        tmp_path, _PROFILE_WITHOUT_WORK + (_WORKER if installed == (_CELERY_JOBS,) else "")
-    )
+    _write_prod_profile(tmp_path, _PROFILE_WITHOUT_WORK + services)
     exit_code, output = _run_production_readiness(tmp_path)
     assert exit_code == 1, output
     for fragment in said:
@@ -1207,19 +1218,48 @@ _CELERY_WORKER = """\
             ],
             ["stops at start", 'command: ["terp", "jobs", "scheduler"]', "uv add"],
         ),
+        *(
+            (
+                (_OUTBOX, _CELERY_BEAT),
+                _WORKER + _SCHEDULER + beat,
+                [
+                    "schedules: docker-compose.prod.yml runs Celery beat for 1 declared "
+                    "schedule(s) (nightly.run) and no Celery worker, so nothing runs the ticks "
+                    "beat publishes, and nothing at boot says so",
+                    "`celery -A <your celery app> worker`, or run beat inside it, "
+                    "`celery -A <your celery app> worker -B`.",
+                ],
+                ["runs the worker and the scheduler"],
+            )
+            for beat in (
+                _BEAT,
+                _BEAT.replace('"app.celery_app"', '"worker.celery"'),
+                _BEAT.replace('"-A", "app.celery_app"', '"--app=worker.celery"'),
+            )
+        ),
         (
             (_OUTBOX, _CELERY_BEAT),
-            _WORKER + _SCHEDULER + _BEAT,
-            [
-                "schedules: docker-compose.prod.yml runs Celery beat for 1 declared schedule(s) "
-                "(nightly.run) and no Celery worker, so beat publishes each tick and nothing "
-                "runs it: no schedule fires, and nothing at boot says so",
-                "`celery -A <your celery app> worker`, or run beat inside it, "
-                "`celery -A <your celery app> worker -B`.",
-            ],
-            ["runs the worker and the scheduler"],
+            _WORKER + _SCHEDULER + _CELERY_WORKER.replace('"app.celery_app"', '"beat.app"'),
+            ["no service in docker-compose.prod.yml runs Celery beat, so no declared"],
+            [],
         ),
         ((_OUTBOX, _CELERY_BEAT), _WORKER + _SCHEDULER + _BEAT + _CELERY_WORKER, None, []),
+        (
+            (_OUTBOX, _CELERY_BEAT),
+            _WORKER
+            + _SCHEDULER
+            + '  celery:\n    image: app-backend\n    command: ["celery", "-A", "x", "worker", "-B"]\n',
+            None,
+            [],
+        ),
+        (
+            (_OUTBOX, _CELERY_BEAT),
+            _WORKER
+            + _SCHEDULER
+            + '  celery:\n    image: app-backend\n    command: sh -c "celery -A x worker --beat"\n',
+            None,
+            [],
+        ),
         (
             (_OUTBOX,),
             _WORKER,
@@ -1241,7 +1281,12 @@ _CELERY_WORKER = """\
     ids=[
         "beat-installed-and-only-the-idle-scheduler",
         "beat-runs-with-no-celery-worker-for-its-ticks",
+        "an-app-named-worker-runs-beat-alone",
+        "an-app-option-named-worker-runs-beat-alone",
+        "an-app-named-beat-runs-a-worker-alone",
         "beat-and-a-celery-worker-run",
+        "a-worker-with-beat-inside-runs-both",
+        "a-shell-string-worker-with-beat-runs-both",
         "neither-engine-and-no-scheduler",
         "beat-runs-but-its-capability-is-not-installed",
     ],

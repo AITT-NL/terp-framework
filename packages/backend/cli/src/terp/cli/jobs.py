@@ -429,6 +429,7 @@ def run_scheduler_command(
     stopping = stop if stop is not None else Event()
     no_engine = scheduler is None and not _scheduler_engine_installed()
     beat = no_engine and installed(CELERY_BEAT)
+    on_beat = beat and bool(catalog.schedules)
     if beat or (no_engine and not catalog.schedules):
         _logger.info(
             "terp jobs scheduler idles: %s (ADR 0223).",
@@ -437,15 +438,21 @@ def run_scheduler_command(
             "Celery beat, not here: run `celery -A <your celery app> beat` and a Celery "
             "worker for its ticks, `celery -A <your celery app> worker`, as services (or "
             "both in one, `celery -A <your celery app> worker -B`)"
-            if beat
+            if on_beat
             else "this app declares no schedule and terp-cap-scheduler-apscheduler is not "
-            "installed, so there is nothing to fire. Declare a schedule on the control plane "
-            "and install terp-cap-scheduler-apscheduler to give it work",
+            "installed, so there is nothing to fire here. "
+            + (
+                "Celery beat would fire any it declares (terp-cap-scheduler-celery-beat is "
+                "installed)"
+                if beat
+                else "Declare a schedule on the control plane and install "
+                "terp-cap-scheduler-apscheduler to give it work"
+            ),
         )
         _idle(heartbeat, stopping, every=SCHEDULER_BEAT_SECONDS)
         return "scheduler idled until stopped: " + (
             "terp-cap-scheduler-apscheduler is not installed, and schedules fire on Celery beat"
-            if beat
+            if on_beat
             else "no schedule declared and terp-cap-scheduler-apscheduler is not installed"
         )
     if catalog.schedules and not is_durable_schedule_ledger(active_schedule_ledger()):

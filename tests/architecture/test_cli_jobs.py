@@ -672,7 +672,8 @@ def test_run_scheduler_command_with_celery_beat_and_no_apscheduler_idles(
 ) -> None:
     """With the Celery beat capability as the app's engine, its schedules fire on beat, and
     a Celery worker runs the ticks beat publishes: the `scheduler` the template's profile
-    runs idles instead of refusing into a restart loop, and names both processes."""
+    runs idles instead of refusing into a restart loop, and names both processes. With no
+    schedule declared it asks for neither: there is nothing to fire."""
     module = f"jobs_sched_beat_{source is _NO_JOBS_APP_MODULE}"
     (tmp_path / f"{module}.py").write_text(source, encoding="utf-8")
     sys.modules.pop(module, None)
@@ -683,14 +684,23 @@ def test_run_scheduler_command_with_celery_beat_and_no_apscheduler_idles(
         message = run_scheduler_command(
             app_ref=f"{module}:build", app_root=tmp_path, heartbeat_path=heartbeat, stop=stop
         )
-    assert message == (
-        "scheduler idled until stopped: terp-cap-scheduler-apscheduler is not installed, and "
-        "schedules fire on Celery beat"
-    )
     assert stop.seen[0]["role"] == "scheduler" and not heartbeat.exists()
     said = [record.getMessage() for record in caplog.records if record.name == "terp.cli.jobs"]
     assert len(said) == 1, said
     assert said[0].startswith("terp jobs scheduler idles: "), said[0]
+    if source is _NO_JOBS_APP_MODULE:
+        assert message == (
+            "scheduler idled until stopped: no schedule declared and "
+            "terp-cap-scheduler-apscheduler is not installed"
+        )
+        assert "declares no schedule" in said[0] and "nothing to fire here" in said[0]
+        assert "Celery beat would fire any it declares" in said[0]
+        assert "celery -A" not in said[0], "nothing to run beat or a worker for"
+        return
+    assert message == (
+        "scheduler idled until stopped: terp-cap-scheduler-apscheduler is not installed, and "
+        "schedules fire on Celery beat"
+    )
     assert "the schedules this app declares fire on Celery beat, not here" in said[0]
     assert "`celery -A <your celery app> beat`" in said[0]
     assert "a Celery worker for its ticks, `celery -A <your celery app> worker`" in said[0]

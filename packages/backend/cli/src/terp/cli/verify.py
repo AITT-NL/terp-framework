@@ -434,16 +434,16 @@ _DEPLOY_SAFETY = VerifyCheck(
     runner="deploy-safety",
 )
 
-# Beside deploy-safety, one layer in: that check reads the deployment artifact for what a
-# declaration cannot excuse; this one the declaration for what the boot refuses, and the
-# profile and the installed engines for a process to run the declared work (ADR 0223). Both
-# cost an import or a file read, so they run in every profile including the cheapest.
+# Beside deploy-safety, one layer in: what the boot refuses, and a process for the declared
+# work in the profile and the installed engines (ADR 0223). Cheap, so in every profile.
 _PRODUCTION_READINESS = VerifyCheck(
     id="production-readiness",
     category="architecture",
     command="terp verify --only production-readiness",
-    scope=("control_plane/**/*.py", "docker-compose.prod.yml", "compose.runtime-role.yml",
-           "pyproject.toml", "uv.lock"),
+    scope=(
+        "control_plane/**/*.py", "docker-compose.prod.yml", "compose.runtime-role.yml",
+        "pyproject.toml", "uv.lock",
+    ),
     runner="production-readiness",
 )
 

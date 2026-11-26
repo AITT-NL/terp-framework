@@ -24,7 +24,9 @@ Compose cannot split, nor ``terp jobs worker`` as an argument list without ``--f
 that nothing restarts after a clean exit (``deploy.restart_policy`` before ``restart``, as
 Compose reads them), which is a single drain. A shell string is read only for the words: one
 that names ``terp jobs worker`` counts, as older profiles wrapped a single drain in a shell
-loop, and what that shell really runs is a residual this check cannot read.
+loop, and what that shell really runs is a residual this check cannot read. A ``celery``
+command is read by its subcommand, past its options and their values (``-A worker.app beat``
+runs beat alone).
 
 Independent of declared work, ``compose.runtime-role.yml`` must not name a service the
 profile does not define: Compose refuses that stack. It is how a generated build meets a
@@ -66,9 +68,11 @@ APSCHEDULER = "terp.capabilities.scheduler_apscheduler"
 _SHELL_WORDS = {
     "terp-worker": re.compile(r"\bterp\s+jobs\s+worker\b"),
     "terp-scheduler": re.compile(r"\bterp\s+jobs\s+scheduler\b"),
-    "celery-worker": re.compile(r"\bcelery\b.*\sworker\b"),
-    "celery-beat": re.compile(r"\bcelery\b.*(\sbeat\b|\s-B\b|\s--beat\b)"),
 }
+#: Celery's options before its subcommand that take the next word as their value.
+_CELERY_VALUED = frozenset(
+    {"-A", "--app", "-b", "--broker", "--result-backend", "--loader", "--config", "--workdir"}
+)
 _LOOPING_RESTARTS = ("always", "unless-stopped")
 _SHOWN = 5
 _CELERY = "`celery -A <your celery app> {}`"
@@ -101,6 +105,28 @@ def _restarts(service: dict[str, Any]) -> bool:
     return service.get("restart") in _LOOPING_RESTARTS
 
 
+def _celery(words: Sequence[str]) -> set[str]:
+    """What a ``celery`` command in *words* runs, read from its subcommand as a whole word.
+
+    After the ``celery`` executable come its options, then the subcommand: ``worker`` runs a
+    worker, and beat as well with ``-B``/``--beat``; ``beat`` runs beat. An option's value
+    (``-A worker.celery``) is skipped, so a name that merely contains the word is not read
+    as the subcommand.
+    """
+    for start, word in enumerate(words):
+        if pathlib.PurePosixPath(word).name != "celery":
+            continue
+        at = start + 1
+        while at < len(words) and words[at].startswith("-"):
+            at += 2 if words[at] in _CELERY_VALUED else 1
+        subcommand, options = words[at] if at < len(words) else None, set(words[at + 1 :])
+        if subcommand == "beat":
+            return {"celery-beat"}
+        if subcommand == "worker":
+            return {"celery-worker", *(["celery-beat"] if options & {"-B", "--beat"} else [])}
+    return set()
+
+
 def _runs(service: dict[str, Any]) -> set[str]:
     """The processes *service* keeps running under a plain ``docker compose up``."""
     deploy = service.get("deploy")
@@ -118,6 +144,8 @@ def _runs(service: dict[str, Any]) -> set[str]:
             except ValueError:  # unbalanced quotes: Compose refuses the service, too
                 return set()
     found = {name for name, words in _SHELL_WORDS.items() if words.search(" ".join(argv))}
+    # The argument list first; failing that, a shell string inside it (`sh -c "celery …"`).
+    found |= _celery(argv) or set().union(*(_celery(word.split()) for word in argv if " " in word))
     at = next(
         (
             index
@@ -268,10 +296,10 @@ def profile_problems(
     if schedules and (running & fires) == {"celery-beat"} and "celery-worker" not in running:
         problems.append(
             f"schedules: {PROD_PROFILE} runs Celery beat for {len(schedules)} declared "
-            f"schedule(s) ({_named(schedules)}) and no Celery worker, so beat publishes each "
-            "tick and nothing runs it: no schedule fires, and nothing at boot says so. Run a "
-            f"Celery worker as a service as well, {_CELERY.format('worker')}, or run beat "
-            f"inside it, {_CELERY.format('worker -B')}."
+            f"schedule(s) ({_named(schedules)}) and no Celery worker, so nothing runs the "
+            "ticks beat publishes, and nothing at boot says so. Run a Celery worker as a "
+            f"service as well, {_CELERY.format('worker')}, or run beat inside it, "
+            f"{_CELERY.format('worker -B')}."
         )
     elif schedules and running & fires:
         runs.append("scheduler")

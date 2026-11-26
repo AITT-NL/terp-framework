@@ -62,8 +62,9 @@ not that anything drains it, and no check looked for the processes.
    raised, not read as a reason to idle. An app on Celery that installs neither the outbox nor
    APScheduler keeps the template's worker and scheduler idle beside its own Celery worker and
    beat: decision 7 is what asks for those, and beat's ticks need a Celery worker to run them.
-   With APScheduler installed as well, the template's scheduler fires beside beat, and every tick
-   fires twice unless the schedule ledger is in the database.
+   With APScheduler installed as well, the template's scheduler fires beside beat and every tick
+   fires twice: the database schedule ledger dedupes that only on the outbox queue, since a broker
+   queue publishes before the ledger's compare-and-set. Run one scheduler.
 4. **The template adds no dependency.** An app that wires the durable queue already imports
    `terp-cap-outbox`; one that declares a schedule installs `terp-cap-scheduler-apscheduler`.
    Installing both in every app would put the outbox's tables and a scheduler engine into apps

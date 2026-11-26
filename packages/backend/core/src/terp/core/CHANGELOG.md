@@ -27,12 +27,12 @@ decision, 0001 onwards.
   profile must run the process the installed engine needs: `terp jobs worker` with
   `terp-cap-outbox`, a Celery worker with the Celery jobs capability, nothing when jobs run
   inline; for a schedule, `terp jobs scheduler` with the APScheduler engine installed, or beat
-  with the Celery beat capability installed and a Celery worker to run its ticks. A service behind `profiles`, scaled to zero, or a
-  single drain nothing restarts does not count. The failure names the work and leads with the
-  remedy that turns it green. It also fails when `compose.runtime-role.yml` names a service the
-  profile does not define, which Compose refuses. A project that declares work and has no
-  compose profile is told that half was not judged. An app that uses the outbox only for events
-  and declares no job is not asked for a worker.
+  with the Celery beat capability installed and a Celery worker to run its ticks. A service
+  behind `profiles`, scaled to zero, or a single drain nothing restarts does not count. The
+  failure names the work and leads with the remedy that turns it green. It also fails when
+  `compose.runtime-role.yml` names a service the profile does not define, which Compose refuses.
+  A project that declares work and has no compose profile is told that half was not judged. An
+  app that uses the outbox only for events and declares no job is not asked for a worker.
 
 - **A refused start names every refusal at once** (ADR 0222). `create_app` asks its checks of
   an app's declarations together and raises what they found as one `BootError`: a public
@@ -110,15 +110,15 @@ decision, 0001 onwards.
 
 ### Fixed
 
-- **An app that installs the egress guard starts on the template's own commands** (#182,
-  ADR 0177). uvicorn's default loop tries `import uvloop`, and the guard refuses that import,
-  before Python even looks for the module. Every uvicorn command the template ships (both
-  images, the workbench compose) and `terp dev` now pass `--loop asyncio`, so on Linux and macOS
-  adding `install_egress_guard(...)` to `app/main.py` needs no other edit. Before, such an app
-  was refused at start on every OS. On Windows the guard still needs loopback declared as
-  infrastructure before asyncio can make a loop, as `terp guide capability` says. `test_serving_event_loop.py` runs the template's production
-  command with the guard installed, and the same command without the flag, which the guard
-  refuses.
+- **An app that installs the egress guard starts on the template's own commands** (#182, ADR
+  0177). uvicorn's default loop tries `import uvloop`, and the guard refuses that import, before
+  Python even looks for the module. Every uvicorn command the template ships (both images, the
+  workbench compose) and `terp dev` now pass `--loop asyncio`, so on Linux and macOS adding
+  `install_egress_guard(...)` to `app/main.py` needs no other edit. Before, such an app was
+  refused at start on every OS. On Windows the guard still needs loopback declared as
+  infrastructure before asyncio can make a loop, as `terp guide capability` says.
+  `test_serving_event_loop.py` runs the template's production command with the guard installed,
+  and the same command without the flag, which the guard refuses.
 - **`terp smoke` translates a mount against the checkout it runs in.** A tool that runs
   Compose from inside a container writes the Docker daemon's host path into `.env` under the
   root `workbench.json` declares as `env.sourceRoot` (`TERP_DEV_HOST_ROOT` by default), and
@@ -139,23 +139,26 @@ decision, 0001 onwards.
 
 - **`copier update` adds a `worker` and a `scheduler` to `docker-compose.prod.yml`** (and to
   `compose.runtime-role.yml`). Nothing else is needed for an app without jobs, or one on Celery
-  that installs neither the outbox nor APScheduler: the two idle. An app that already runs services of its own for `terp jobs worker` or `terp jobs
-  scheduler` keeps one of each: it drops its own (the template's run the same commands), or
-  keeps its own, removes the template's from the profile **and** renames or removes their entries
-  in `compose.runtime-role.yml` (Compose refuses an overlay service the profile does not define).
-  Two schedulers fire twice unless the schedule ledger is in the database. `deployment.json` is
-  the app's and is not rewritten: under `"build": "own"` that is fine. **Under `"build":
+  that installs neither the outbox nor APScheduler: the two idle. An app that already runs
+  services of its own for `terp jobs worker` or `terp jobs scheduler` keeps one of each: it
+  drops its own (the template's run the same commands), or keeps its own, removes the template's
+  from the profile **and** renames or removes their entries in `compose.runtime-role.yml`
+  (Compose refuses an overlay service the profile does not define). Two schedulers fire every
+  tick twice, unless jobs go through the outbox and the schedule ledger is in the database. **An
+  app with both APScheduler and the Celery beat capability installed** runs one scheduler: it
+  drops the template's `scheduler` or its own beat, or uninstalls one engine. `deployment.json`
+  is the app's and is not rewritten: under `"build": "own"` that is fine. **Under `"build":
   "generated"` declare the two units in the same change** (`{"id": "worker", "role": "worker",
   "instances": "many", "dependsOn": ["db", "migrate"]}`, and the same for `scheduler` with
   `"instances": "one"`; under the files answer add both to the volume's `mount.units` too, or a
   job writes its files into the container) and run `uv run terp deployment render`: the updated
-  overlay names both services, and Compose refuses it (`service "worker" has neither an image nor
-  a build context specified`) until the profile has them; production-readiness says so first. An
-  app that declares a schedule installs `terp-cap-scheduler-apscheduler`, unless it fires on
-  Celery beat. **An app that fires its schedules from an external cron** calls `terp jobs run
-  <job>` from it and declares no schedule, or drops the cron: with both, each tick fires twice.
-  `terp deployment adopt` reads the worker back as `"instances": "one"`, the default; write
-  `"many"` by hand.
+  overlay names both services, and Compose refuses it (`service "worker" has neither an image
+  nor a build context specified`) until the profile has them; production-readiness says so
+  first. An app that declares a schedule installs `terp-cap-scheduler-apscheduler`, unless it
+  fires on Celery beat. **An app that fires its schedules from an external cron** calls `terp
+  jobs run <job>` from it and declares no schedule, or drops the cron: with both, each tick
+  fires twice. `terp deployment adopt` reads the worker back as `"instances": "one"`, the
+  default; write `"many"` by hand.
 - **The template's uvicorn commands name their event loop.** The next re-render (`copier
   update`) adds `--loop asyncio` to the `CMD` of `Dockerfile` and `Dockerfile.prod` and to the
   `api` command of `docker-compose.yml`. An app on `"build": "generated"` takes the new
