@@ -192,7 +192,7 @@ def _serve(
     with stdout.open("wb") as out, stderr.open("wb") as err:
         process = subprocess.Popen(  # the template's own production command
             [sys.executable, "-m", "uvicorn", f"{module}:app", "--host", "127.0.0.1",
-             "--port", str(port), "--timeout-graceful-shutdown", "8"],
+             "--port", str(port), "--loop", "asyncio", "--timeout-graceful-shutdown", "8"],
             cwd=tmp_path,
             env=_environment(PYTHONPATH=str(tmp_path)),
             stdout=out,

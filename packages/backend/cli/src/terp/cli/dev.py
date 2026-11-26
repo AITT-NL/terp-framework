@@ -114,6 +114,13 @@ def dev_plan(
     through: uvicorn reads ``0`` as "cancel in-flight work immediately", which is a different
     decision from the one this argument names, and a negative one is meaningless.
 
+    The backend argv also names its event loop: ``--loop asyncio``. uvicorn's ``auto`` tries
+    ``import uvloop`` after it has imported the app, and ``uvicorn[standard]`` brings uvloop
+    wherever it builds. The egress guard cannot see uvloop's sockets, so it refuses that
+    import (ADR 0177), and it refuses the attempt itself, before Python looks for the module:
+    an app that installs the guard is refused under ``auto`` on every OS, Windows included,
+    where uvloop does not exist. ``asyncio`` never tries the import.
+
     Both host ports are explicit, and the frontend is TOLD where the backend is rather than
     left to assume. ``vite.config.ts`` falls back to a literal API address when
     ``TERP_API_PROXY`` is unset, so a moved backend port and a stale proxy target would be one
@@ -137,6 +144,8 @@ def dev_plan(
             host,
             "--port",
             str(port),
+            "--loop",
+            "asyncio",
             "--timeout-graceful-shutdown",
             str(shutdown_timeout),
         ),

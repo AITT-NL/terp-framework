@@ -71,9 +71,12 @@ Using capabilities
   metadata range is refused unless it is declared infrastructure; a peer given by name
   (localhost too) is resolved and every address held. The refusal is EgressRefusedError
   (502); under an async client it can arrive inside an ExceptionGroup. It cannot see
-  uvloop, so it refuses to install beside it and refuses `import uvloop` after it: run
-  uvicorn with --loop asyncio (uvicorn[standard] picks uvloop otherwise), and a worker
-  or scheduler with asyncio.run. Native drivers that open their own sockets (libpq,
+  uvloop, so it refuses to install beside it and refuses `import uvloop` after it. The
+  template already serves with --loop asyncio (both images, the workbench compose and
+  terp dev), and terp jobs worker / scheduler run no uvloop, so adding the guard needs
+  no other edit. A uvicorn command you write yourself carries --loop asyncio too
+  (uvicorn[standard] picks uvloop otherwise), and a worker or scheduler of your own runs
+  on asyncio.run. Native drivers that open their own sockets (libpq,
   gRPC's C core) are invisible to it and a public IP literal passes; the deployment's
   network policy holds those. Built for Linux: on Windows asyncio's socketpair connects
   to loopback, so a new event loop is refused unless loopback is declared.

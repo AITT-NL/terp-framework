@@ -72,6 +72,14 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **An app that installs the egress guard starts on the template's own commands** (#182,
+  ADR 0177). uvicorn's default loop tries `import uvloop` once it has imported the app, and the
+  guard refuses that import, before Python even looks for the module. Every uvicorn command the
+  template ships (both images, the workbench compose) and `terp dev` now pass `--loop asyncio`,
+  so adding `install_egress_guard(...)` to `app/main.py` needs no other edit. Before, such an app
+  was refused at start on every OS. `test_serving_event_loop.py` runs the template's production
+  command with the guard installed, and the same command without the flag, which the guard
+  refuses.
 - **`terp smoke` translates a mount against the checkout it runs in.** A tool that runs
   Compose from inside a container writes the Docker daemon's host path into `.env` under the
   root `workbench.json` declares as `env.sourceRoot` (`TERP_DEV_HOST_ROOT` by default), and
@@ -90,6 +98,11 @@ decision, 0001 onwards.
 
 ### Upgrade notes
 
+- **The template's uvicorn commands name their event loop.** The next re-render (`copier
+  update`) adds `--loop asyncio` to the `CMD` of `Dockerfile` and `Dockerfile.prod` and to the
+  `api` command of `docker-compose.yml`. An app that does not re-render and installs the egress
+  guard adds the flag to each uvicorn command by hand. A command an app wrote itself needs it
+  too. `terp dev` carries it from this release on.
 - **Lower the seed's exception count to 0.** An app whose `escape-hatch-budget.json` records
   `"arch-allow-no-hardcoded-credentials": 1` for the template's seed gets a seed without the
   marker on its next re-render, and its budget check then asks for the count to be lowered.
