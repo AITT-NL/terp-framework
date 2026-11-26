@@ -9,11 +9,14 @@ catalog — generated, so the listing cannot drift from what the app actually ru
 from __future__ import annotations
 
 import importlib
+import json
+import logging
 import pathlib
 import signal
 import sys
 import threading
 import tomllib
+import types
 from collections.abc import Iterator
 
 import pytest
@@ -401,6 +404,128 @@ def test_run_worker_command_without_the_outbox_capability_is_directive(
         run_worker_command(app_ref="jobs_worker_noext:build", app_root=tmp_path, max_cycles=1)
 
 
+class _WatchHeartbeat(_StopOnPause):
+    """The stop of :class:`_StopOnPause`, reading the heartbeat at each pause as a probe would."""
+
+    def __init__(self, signum: int, at: int, heartbeat: pathlib.Path) -> None:
+        super().__init__(signum, at)
+        self.heartbeat, self.seen = heartbeat, []
+
+    def wait(self, timeout: float | None = None) -> bool:
+        self.seen.append(json.loads(self.heartbeat.read_text(encoding="utf-8")))
+        return super().wait(timeout)
+
+
+_NO_JOBS_APP_MODULE = """\
+from terp.core import create_app
+
+
+def build():
+    return create_app([])
+"""
+
+
+@pytest.mark.parametrize(
+    ("source", "declared"),
+    [
+        (_NO_JOBS_APP_MODULE, None),
+        (_APP_MODULE, "its 1 declared job(s) run where its job queue runs them, inline"),
+        (_APP_MODULE, "its 1 declared job(s) run where its job queue runs them, on Celery"),
+    ],
+    ids=["no-jobs", "inline-jobs", "celery-jobs"],
+)
+def test_run_worker_command_forever_without_the_outbox_idles_until_stopped(
+    tmp_path: pathlib.Path,
+    worker_db: None,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    source: str,
+    declared: str | None,
+) -> None:
+    """ADR 0223: the production profile runs a worker in every app, so one with nothing to
+    drain must not exit. An exit under `restart: unless-stopped` is a restart loop, and
+    `docker compose up --wait` reads it as a failed deploy. It says why once, beats every
+    poll so its healthcheck stays green, and stops on the signal like the drain loop. An
+    app that declares jobs is told they run where its queue runs them."""
+    from terp.cli.heartbeat import worker_stale_after
+
+    module = f"jobs_worker_idle_{abs(hash(declared))}"
+    (tmp_path / f"{module}.py").write_text(source, encoding="utf-8")
+    sys.modules.pop(module, None)
+    monkeypatch.setitem(sys.modules, "terp.capabilities.outbox", None)
+    if declared is not None and "Celery" not in declared:  # the suite installs Celery
+        monkeypatch.setitem(sys.modules, "terp.capabilities.jobs_celery", None)
+    before = (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT))
+    heartbeat = tmp_path / "terp-worker.heartbeat"
+    stop = _WatchHeartbeat(signal.SIGTERM, at=2, heartbeat=heartbeat)
+    with caplog.at_level(logging.INFO, logger="terp.cli.jobs"):
+        message = run_worker_command(
+            app_ref=f"{module}:build",
+            app_root=tmp_path,
+            forever=True,
+            poll_seconds=2.5,
+            stop=stop,
+            heartbeat_path=heartbeat,
+        )
+    assert message == (
+        "outbox worker idled until stopped: terp-cap-outbox is not installed, "
+        "so there was no outbox to drain"
+    )
+    assert stop.pauses == [2.5, 2.5], "it waits a poll between beats, for as long as asked"
+    assert [beat["beats"] for beat in stop.seen] == [1, 2], "and beats before every wait"
+    assert {beat["role"] for beat in stop.seen} == {"worker"}
+    assert stop.seen[0]["stale_after"] == worker_stale_after(lease_seconds=30.0, poll_seconds=2.5)
+    assert (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT)) == before
+    assert not heartbeat.exists(), "the heartbeat goes with the process (ADR 0191)"
+    said = [record.getMessage() for record in caplog.records if record.name == "terp.cli.jobs"]
+    assert len(said) == 1, f"one line, not one per beat: {said!r}"
+    # The words template acceptance greps the container log for (test_production_boot).
+    assert said[0].startswith("terp jobs worker idles: "), said[0]
+    assert "terp-cap-outbox is not installed" in said[0], "why it idles"
+    assert "OutboxJobQueue" in said[0], "and what gives it work"
+    if declared is None:
+        assert "declared job" not in said[0]
+    else:
+        assert declared in said[0], said[0]
+
+
+class _BrokenCapability(types.ModuleType):
+    """An installed capability that fails to import: a dependency of its own is missing."""
+
+    def __init__(self, name: str, attribute: str) -> None:
+        super().__init__(name)
+        self.broken = attribute
+
+    def __getattr__(self, name: str) -> object:
+        if name == self.__dict__.get("broken"):
+            raise ModuleNotFoundError("No module named 'some_driver'", name="some_driver")
+        raise AttributeError(name)
+
+
+@pytest.mark.parametrize("forever", [True, False], ids=["forever", "single-drain"])
+def test_run_worker_command_raises_a_broken_outbox_as_it_is(
+    tmp_path: pathlib.Path, worker_db: None, monkeypatch: pytest.MonkeyPatch, forever: bool
+) -> None:
+    """Only the capability's own absence idles or refuses as "not installed": an installed
+    outbox whose own dependency is missing is an error the operator has to read."""
+    (tmp_path / "jobs_worker_broken.py").write_text(_NO_JOBS_APP_MODULE, encoding="utf-8")
+    sys.modules.pop("jobs_worker_broken", None)
+    monkeypatch.setitem(
+        sys.modules, "terp.capabilities.outbox", _BrokenCapability("terp.capabilities.outbox", "OutboxWorker")
+    )
+    stop = threading.Event()
+    stop.set()
+    with pytest.raises(ModuleNotFoundError, match="some_driver"):
+        run_worker_command(
+            app_ref="jobs_worker_broken:build",
+            app_root=tmp_path,
+            forever=forever,
+            max_cycles=1,
+            stop=stop,
+            heartbeat_path=tmp_path / "terp-worker.heartbeat",
+        )
+
+
 # --------------------------------------------------------------------------- #
 # terp jobs scheduler — run the in-process scheduler (ADR 0047/0048 CLI)
 # --------------------------------------------------------------------------- #
@@ -468,6 +593,151 @@ def test_run_scheduler_command_registers_and_starts(tmp_path: pathlib.Path) -> N
     assert fake.started
     assert fake.registered.names() == ("sync.customers.nightly",)  # type: ignore[attr-defined]
     assert "1 schedule(s) registered: sync.customers.nightly" in message
+
+
+def test_run_scheduler_command_with_no_schedule_and_no_engine_idles_until_stopped(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """ADR 0223: nothing declared and nothing to fire with is provably nothing to do, so the
+    scheduler the production profile always runs idles on its own beat and bound instead
+    of exiting into a restart loop."""
+    from terp.cli.heartbeat import SCHEDULER_BEAT_SECONDS, SCHEDULER_STALE_AFTER
+
+    (tmp_path / "jobs_sched_idle.py").write_text(_NO_JOBS_APP_MODULE, encoding="utf-8")
+    sys.modules.pop("jobs_sched_idle", None)
+    monkeypatch.setitem(sys.modules, "terp.capabilities.scheduler_apscheduler", None)
+    monkeypatch.setitem(sys.modules, "terp.capabilities.scheduler_celery_beat", None)
+    before = (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT))
+    heartbeat = tmp_path / "terp-scheduler.heartbeat"
+    stop = _WatchHeartbeat(signal.SIGINT, at=1, heartbeat=heartbeat)
+    with caplog.at_level(logging.INFO, logger="terp.cli.jobs"):
+        message = run_scheduler_command(
+            app_ref="jobs_sched_idle:build",
+            app_root=tmp_path,
+            heartbeat_path=heartbeat,
+            stop=stop,
+        )
+    assert message == (
+        "scheduler idled until stopped: no schedule declared and "
+        "terp-cap-scheduler-apscheduler is not installed"
+    )
+    assert stop.pauses == [SCHEDULER_BEAT_SECONDS]
+    assert stop.seen[0]["role"] == "scheduler"
+    assert stop.seen[0]["stale_after"] == SCHEDULER_STALE_AFTER
+    assert (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT)) == before
+    assert not heartbeat.exists()
+    said = [record.getMessage() for record in caplog.records if record.name == "terp.cli.jobs"]
+    assert len(said) == 1, said
+    # The words template acceptance greps the container log for (test_production_boot).
+    assert said[0].startswith("terp jobs scheduler idles: "), said[0]
+    assert "declares no schedule" in said[0]
+    assert "install terp-cap-scheduler-apscheduler" in said[0]
+
+
+@pytest.mark.parametrize(
+    ("name", "broken", "missing"),
+    [
+        (
+            "terp.capabilities.scheduler_apscheduler",
+            _BrokenCapability("terp.capabilities.scheduler_apscheduler", "ApschedulerScheduler"),
+            "some_driver",
+        ),
+        ("apscheduler.schedulers.blocking", None, "apscheduler.schedulers.blocking"),
+    ],
+    ids=["adapter-fails-to-import", "apscheduler-missing-under-the-adapter"],
+)
+def test_a_broken_scheduler_engine_is_raised_as_it_is(
+    monkeypatch: pytest.MonkeyPatch, name: str, broken: object, missing: str
+) -> None:
+    """An installed adapter that fails to import, or whose own APScheduler is missing, is
+    neither "not installed" (no idle) nor the directive refusal: only the adapter's own
+    absence is. The error itself reaches the operator."""
+    from terp.cli.jobs import _default_scheduler, _scheduler_engine_installed
+
+    monkeypatch.setitem(sys.modules, name, broken)
+    with pytest.raises(ModuleNotFoundError, match=missing):
+        _scheduler_engine_installed()
+    with pytest.raises(ModuleNotFoundError, match=missing):
+        _default_scheduler()
+
+
+@pytest.mark.parametrize(
+    "source", [_SCHEDULER_APP_MODULE, _NO_JOBS_APP_MODULE], ids=["schedules", "no-schedule"]
+)
+def test_run_scheduler_command_with_celery_beat_and_no_apscheduler_idles(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    source: str,
+) -> None:
+    """With the Celery beat capability as the app's engine, its schedules fire on beat, and
+    a Celery worker runs the ticks beat publishes: the `scheduler` the template's profile
+    runs idles instead of refusing into a restart loop, and names both processes. With no
+    schedule declared it asks for neither: there is nothing to fire."""
+    module = f"jobs_sched_beat_{source is _NO_JOBS_APP_MODULE}"
+    (tmp_path / f"{module}.py").write_text(source, encoding="utf-8")
+    sys.modules.pop(module, None)
+    monkeypatch.setitem(sys.modules, "terp.capabilities.scheduler_apscheduler", None)
+    heartbeat = tmp_path / "terp-scheduler.heartbeat"
+    stop = _WatchHeartbeat(signal.SIGTERM, at=1, heartbeat=heartbeat)
+    with caplog.at_level(logging.INFO, logger="terp.cli.jobs"):
+        message = run_scheduler_command(
+            app_ref=f"{module}:build", app_root=tmp_path, heartbeat_path=heartbeat, stop=stop
+        )
+    assert stop.seen[0]["role"] == "scheduler" and not heartbeat.exists()
+    said = [record.getMessage() for record in caplog.records if record.name == "terp.cli.jobs"]
+    assert len(said) == 1, said
+    assert said[0].startswith("terp jobs scheduler idles: "), said[0]
+    if source is _NO_JOBS_APP_MODULE:
+        assert message == (
+            "scheduler idled until stopped: no schedule declared and "
+            "terp-cap-scheduler-apscheduler is not installed"
+        )
+        assert "declares no schedule" in said[0] and "nothing to fire here" in said[0]
+        assert "Celery beat would fire any it declares" in said[0]
+        assert "celery -A" not in said[0], "nothing to run beat or a worker for"
+        return
+    assert message == (
+        "scheduler idled until stopped: terp-cap-scheduler-apscheduler is not installed, and "
+        "schedules fire on Celery beat"
+    )
+    assert "the schedules this app declares fire on Celery beat, not here" in said[0]
+    assert "`celery -A <your celery app> beat`" in said[0]
+    assert "a Celery worker for its ticks, `celery -A <your celery app> worker`" in said[0]
+    assert "`celery -A <your celery app> worker -B`" in said[0]
+
+
+def test_run_scheduler_command_with_a_schedule_and_no_engine_still_refuses(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Declared work and no engine to run it is the state that must stay loud (ADR 0223)."""
+    (tmp_path / "jobs_sched_noext.py").write_text(_SCHEDULER_APP_MODULE, encoding="utf-8")
+    sys.modules.pop("jobs_sched_noext", None)
+    monkeypatch.setitem(sys.modules, "terp.capabilities.scheduler_apscheduler", None)
+    monkeypatch.setitem(sys.modules, "terp.capabilities.scheduler_celery_beat", None)
+    heartbeat = tmp_path / "terp-scheduler.heartbeat"
+    with pytest.raises(SystemExit, match=r"terp-cli\[scheduler\]"):
+        run_scheduler_command(
+            app_ref="jobs_sched_noext:build", app_root=tmp_path, heartbeat_path=heartbeat
+        )
+    assert not heartbeat.exists(), "nothing vouches for a scheduler that did not start"
+
+
+def test_run_scheduler_command_with_no_schedule_and_the_engine_runs_the_engine(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The idle is only for an app with no engine: an installed one runs as before."""
+    (tmp_path / "jobs_sched_engine.py").write_text(_NO_JOBS_APP_MODULE, encoding="utf-8")
+    sys.modules.pop("jobs_sched_engine", None)
+    fake = _FakeScheduler()
+    monkeypatch.setattr("terp.cli.jobs._default_scheduler", lambda: fake)
+    message = run_scheduler_command(
+        app_ref="jobs_sched_engine:build",
+        app_root=tmp_path,
+        heartbeat_path=tmp_path / "terp-scheduler.heartbeat",
+    )
+    assert fake.started
+    assert message == "scheduler stopped; 0 schedule(s) registered: <none>"
 
 
 def test_default_scheduler_builds_an_apscheduler_scheduler() -> None:

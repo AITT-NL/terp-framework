@@ -1,6 +1,9 @@
 # ADR 0047 — The scheduler seam: typed `ScheduleDefinition`/`ScheduleCatalog` + `Scheduler` port (core)
 
-- Status: Accepted
+- Status: Accepted. Amended by [ADR 0223](0223-the-production-profile-runs-a-worker-and-a-scheduler-idle-until-there-is-work.md): a declared schedule is fired by a scheduler process
+  (`terp jobs scheduler` or Celery beat), which the template's production profile runs; the
+  external trigger of §3 no longer fires a declared schedule, but calls `terp jobs run <job>`
+  for work that declares none. The `terp jobs schedule` command §3 anticipated was not built.
 - Date: 2026-06-30
 - Phase: async/jobs design Phase 4 prerequisite (the working design doc's §11)
 - Relates to: ADR 0043 (the jobs seam — a schedule references a typed `JobDefinition` and

@@ -1541,7 +1541,7 @@ Background jobs (terp.core.enqueue + JobCatalog)
   an override. Cross-owner maintenance requires a reviewed maintenance-authority
   capability. If none is installed, stop and report the missing capability — never
   remove OwnedMixin or author a destructive owner-column migration.
-- Trigger a scheduled job from any cron / k8s CronJob / systemd or cloud timer:
+- Trigger a job from a cron outside the app, declaring no schedule (it would fire twice):
       terp jobs run sync.customers.pull --payload '{"source": "crm"}'
   Inspect the declared jobs:  terp jobs list   /   terp inspect jobs.
 - Declare a schedule (ScheduleDefinition: a cron + a catalog JobDefinition + a misfire
@@ -1570,10 +1570,10 @@ Background jobs (terp.core.enqueue + JobCatalog)
   (another worker takes it at once), and `terp jobs scheduler` lets its ticks in flight
   finish. A worker killed before that (the stop grace ran out) loses nothing: its job is
   redelivered once its lease lapses, so a handler must tolerate running twice. Each
-  process writes a heartbeat from its own loop, <tmp>/terp-worker.heartbeat or
-  terp-scheduler.heartbeat in its container, with the bound it may not outgrow
-  (worker: max(--lease-seconds, --poll-seconds) + 30s; scheduler: 60s). The generated
-  production profile checks it with a probe that reads the file; `terp guide deployment`.
+  process writes a heartbeat from its own loop, <tmp>/terp-<worker|scheduler>.heartbeat, with
+  the bound it may not outgrow (worker: max(--lease-seconds, --poll-seconds) + 30s; scheduler:
+  60s); the production profile probes it (`terp guide deployment`). With nothing to do (no
+  terp-cap-outbox; no schedule and no engine, or beat fires them) each logs why and idles.
 - On Celery, the Terp task acknowledges a message only after the job ran (acks_late,
   reject_on_worker_lost), so a killed worker's job is redelivered. Set
   worker_prefetch_multiplier=1, and on Redis a visibility_timeout above your longest job.
@@ -1609,11 +1609,11 @@ Durable post-commit delivery (outbox capability)
 - In production, refuse to boot on the in-process default:
       create_app(..., job_queue=OutboxJobQueue(),
                  require_durable_jobs=get_settings().is_production)
-- WATCH THAT SOMETHING IS ACTUALLY DRAINING IT. This is the failure mode worth wiring
-  an alert for, because every other surface is silent about it: if nobody runs the
-  worker, rows sit `pending` forever and the app looks healthy. The lease reaper cannot
-  help either -- it scans LAPSED claims, and work nobody claimed has no claim to lapse
-  -- so a queue with zero consumers and a queue with idle consumers are the same table.
+- WATCH THAT SOMETHING IS ACTUALLY DRAINING IT, and wire an alert for it. production-readiness
+  refuses a docker-compose.prod.yml with no worker for declared jobs (ADR 0223); events alone, a
+  worker that is down, or a deploy no such file drives are silent: rows sit `pending`. The
+  lease reaper cannot help -- it scans LAPSED claims, and work nobody claimed has none -- so
+  a queue with zero consumers and a queue with idle consumers are the same table.
       terp outbox backlog             # or --format json
   ...and, if you opt in, an endpoint a monitor can poll:
       create_app(..., expose_health_detail=True)
@@ -1755,7 +1755,7 @@ Realtime push (realtime capability)
   away and not otherwise, and uvicorn waits for in-flight tasks FOREVER unless told not
   to - so one subscribed browser tab means a reloader that never restarts and a container
   that stops only when the orchestrator kills it. Every invocation carries a bound:
-      uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 8
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --loop asyncio --timeout-graceful-shutdown 8
   The template and the example ship it (3s where --reload is on, since the reload loop
   pays it per edit; 8s in the images, under Compose's 10s default stop grace). terp dev
   carries 3s and takes --shutdown-timeout. Yours must be under whatever stops your

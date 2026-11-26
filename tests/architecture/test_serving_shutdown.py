@@ -55,6 +55,12 @@ _SEARCH_ROOTS = (
 
 _SEARCH_SUFFIXES = {".yml", ".yaml", ".jinja", ".py", ""}
 
+
+def _searched(path: pathlib.Path) -> bool:
+    """A file the grep reads: one of those suffixes, or any Dockerfile, whose suffix is its
+    variant (``Dockerfile.prod`` has ``.prod``) and so would otherwise go unread."""
+    return path.suffix in _SEARCH_SUFFIXES or path.name.startswith("Dockerfile")
+
 #: An argv that actually starts a server: the module name followed by an app reference, in either
 #: the exec-form list of a compose ``command:`` / Dockerfile ``CMD`` or a Python argv tuple.
 _INVOCATION = re.compile(r"""["']uvicorn["']\s*,\s*["'][\w.]+:\w+["']""")
@@ -155,7 +161,7 @@ def test_no_unbounded_uvicorn_invocation_anywhere() -> None:
     unbounded: list[str] = []
     for search_root in _SEARCH_ROOTS:
         for path in search_root.rglob("*"):
-            if not path.is_file() or path.suffix not in _SEARCH_SUFFIXES:
+            if not path.is_file() or not _searched(path):
                 continue
             if "node_modules" in path.parts or "__pycache__" in path.parts:
                 continue

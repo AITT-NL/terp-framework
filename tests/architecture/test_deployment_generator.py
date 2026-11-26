@@ -240,10 +240,16 @@ def test_a_template_dockerfile_off_its_render_says_where_a_digest_moves_and_how_
     assert "base-images.json" not in profile and "terp.arch.deployment.generator" in profile
 
 
+#: The units the seed mounts the files volume on under use_files: every unit that runs the
+#: app's code against stored files (ADR 0223). A job the worker or the scheduler runs that
+#: writes a file writes it to the shared volume, never to its own container's layer.
+_FILES_UNITS = ("api", "worker", "scheduler")
+
+
 def test_the_files_volume_is_rendered_only_where_the_answer_is_on() -> None:
-    """The use_files answer is the only difference: the volume, its mount on the api and
-    nothing else. Without the answer the profile mounts nothing at the storage
-    root, as the seed declares no volume."""
+    """The use_files answer is the only difference: the volume, its mount on the api, the
+    worker and the scheduler, and nothing else. Without the answer the profile mounts
+    nothing at the storage root, as the seed declares no volume."""
     without, _ = generate(_seed(), _SLUG, tables=published_tables(), frontend_lock=True)
     with_files, _ = generate(
         _seed(use_files=True), _SLUG, tables=published_tables(), frontend_lock=True
@@ -252,11 +258,16 @@ def test_the_files_volume_is_rendered_only_where_the_answer_is_on() -> None:
     assert without[FRONTEND_DOCKERFILE] == with_files[FRONTEND_DOCKERFILE]
     plain, files = _profile(without), _profile(with_files)
     assert files["volumes"] == {"db-data": None, "files-data": None}
-    assert files["services"]["api"]["volumes"] == [f"files-data:{APP_ROOT}/{MOUNT_PATH}"]
+    assert set(_FILES_UNITS) <= set(files["services"]), "every unit that mounts it is rendered"
     for name, service in files["services"].items():
-        if name != "api":
+        if name in _FILES_UNITS:
+            assert service["volumes"] == [f"files-data:{APP_ROOT}/{MOUNT_PATH}"], name
+            assert "volumes" not in plain["services"][name], name
+            assert {key: value for key, value in service.items() if key != "volumes"} == plain[
+                "services"
+            ][name], f"{name} changed with use_files beyond its mount"
+        else:
             assert service == plain["services"][name], f"{name} changed with use_files"
-    assert "volumes" not in plain["services"]["api"]
     assert plain["volumes"] == {"db-data": None}
 
 
@@ -271,7 +282,9 @@ def test_the_template_s_placeholder_is_the_project_name_a_render_uses() -> None:
         for frontend in (True, False):
             text = answer_files(profile, use_files, frontend=frontend)
             assert "{%" not in text and "{#" not in text, "the render holds no other Jinja"
-    assert profile.count("{%- if use_files %}") == 2, "the volume and its mount, nothing else"
+    assert profile.count("{%- if use_files %}") == 1 + len(_FILES_UNITS), (
+        "the volume and its mount on each unit that mounts it, nothing else"
+    )
     assert profile.count("{%- if frontend %}") == 1, "the web tier, nothing else"
     assert profile.count("{%- if not frontend %}") == 1, "the api unit's port, nothing else"
 

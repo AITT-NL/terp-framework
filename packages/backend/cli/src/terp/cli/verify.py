@@ -434,17 +434,16 @@ _DEPLOY_SAFETY = VerifyCheck(
     runner="deploy-safety",
 )
 
-# Runs beside deploy-safety and for the same reason, one layer in. That check reads
-# the deployment artifact for properties a declaration cannot excuse; this one reads
-# the declaration itself for the states the platform's own boot refuses. Both answer
-# "would this actually come up where it matters", which is the question a green gate
-# is otherwise silent about — and both cost a file read or an import, so they can run
-# in every profile including the cheapest.
+# Beside deploy-safety, one layer in: what the boot refuses, and a process for the declared
+# work in the profile and the installed engines (ADR 0223). Cheap, so in every profile.
 _PRODUCTION_READINESS = VerifyCheck(
     id="production-readiness",
     category="architecture",
     command="terp verify --only production-readiness",
-    scope=("control_plane/**/*.py",),
+    scope=(
+        "control_plane/**/*.py", "docker-compose.prod.yml", "compose.runtime-role.yml",
+        "pyproject.toml", "uv.lock",
+    ),
     runner="production-readiness",
 )
 
@@ -1496,7 +1495,7 @@ def _job_actor_arrives_from_the_environment(project_root: pathlib.Path) -> bool:
 
 
 def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
-    """Refuse a tree whose declared control plane cannot boot in production.
+    """Refuse a tree that cannot boot in production, or runs nothing for its declared work.
 
     Three of the platform's boot refusals are decided entirely by what the control
     plane declares — no environment, no database, no request. `create_app` raises
@@ -1518,9 +1517,9 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
     fail.
 
     Reads the *declared* plane and never builds the app, so it costs one module import
-    and can sit in every profile. The audit refusal is deliberately not among the
-    three: it turns on `create_app(audit_sink=...)`, a runtime argument this check
-    cannot see, and a check that pretended to cover it would be worse than the gap.
+    and a file read or two and can sit in every profile. The audit refusal is deliberately
+    not among the three: it turns on `create_app(audit_sink=...)`, a runtime argument this
+    check cannot see, and a check that pretended to cover it would be worse than the gap.
 
     That carve-out is no longer the only one, and the set is no longer folklore. Two
     capability constructors hold production-only refusals of the same class — the
@@ -1539,16 +1538,16 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
 
     The job-actor half is satisfied by a *declaration* as well as by a value, because
     ADR 0129 made `JOB_SYSTEM_ACTOR_ID` the conventional way the principal arrives and
-    the gate's own environment is the last place a production principal's id would be.
-    See `_job_actor_arrives_from_the_environment`.
+    the gate's own environment is the last place a production principal's id would be
+    (`_job_actor_arrives_from_the_environment`). The processes half: `background_services`.
     """
+    from terp.cli.background_services import declared_work_verdict
     from terp.core import ControlPlane
 
     if not (project_root / "control_plane").is_dir():
-        return (
-            0,
+        return 0, (
             f"{NOTE_PREFIX}no control_plane/ package - production readiness not "
-            "applicable (the authority surface every other terp command reads)",
+            "applicable (the authority surface every other terp command reads)"
         )
     root = str(project_root.resolve())
     restore = root not in sys.path
@@ -1584,8 +1583,9 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
             if not _job_actor_arrives_from_the_environment(project_root)
         ),
     ]
+    finish = declared_work_verdict(project_root, plane)
     if problems:
-        return 1, (
+        return finish(1, (
             "this app's control plane refuses a production boot:\n"
             + "".join(f"  {problem}\n" for problem in problems)
             + "Each of these raises BootError under ENVIRONMENT=production and keeps "
@@ -1595,8 +1595,8 @@ def _run_production_readiness(project_root: pathlib.Path) -> tuple[int, str]:
             "declared, not hard-coded: put JOB_SYSTEM_ACTOR_ID in "
             'environment.schema.json with "requiredIn": ["production"] and create_app '
             "will resolve it (ADR 0129, ADR 0180)."
-        )
-    return 0, "the declared control plane boots in production (security, passwords, jobs)"
+        ))
+    return finish(0, "the declared control plane boots in production (security, passwords, jobs)")
 
 
 def _run_routes_drift(root: pathlib.Path) -> tuple[int, str]:

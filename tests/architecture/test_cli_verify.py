@@ -17,7 +17,7 @@ import re
 import shlex
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import pytest
 
@@ -867,6 +867,634 @@ def test_an_uninmportable_control_plane_is_a_red(
     assert exit_code == 1
     assert "could not be imported" in output
     assert "the capability is not installed" in output
+
+
+# --------------------------------------------------------------------------- #
+# production-readiness: a process for the declared work (ADR 0223)
+# --------------------------------------------------------------------------- #
+#: The baseline plus one declared schedule, on the baseline's job.
+_SCHEDULED_PLANE = _READY_PLANE.replace(
+    "    JobDefinition,\n",
+    "    JobDefinition,\n    Misfire,\n    ScheduleCatalog,\n    ScheduleDefinition,\n",
+).replace(
+    "    jobs=JobCatalog([WORK]),\n",
+    "    jobs=JobCatalog([WORK]),\n"
+    "    schedules=ScheduleCatalog([ScheduleDefinition(\n"
+    '        name="nightly.run", job=WORK, cron="0 2 * * *", misfire=Misfire.SKIP\n'
+    "    )]),\n",
+)
+
+#: The baseline with nothing for a worker or a scheduler to do.
+_IDLE_PLANE = _READY_PLANE.replace("    jobs=JobCatalog([WORK]),\n", "")
+
+#: A profile with the services every app has and none that runs declared work.
+_PROFILE_WITHOUT_WORK = """\
+services:
+  db:
+    image: postgres:17
+  api:
+    image: app-backend
+"""
+
+_WORKER = """\
+  worker:
+    image: app-backend
+    command: ["terp", "jobs", "worker", "--forever"]
+"""
+
+_SCHEDULER = """\
+  scheduler:
+    image: app-backend
+    command: ["terp", "jobs", "scheduler"]
+"""
+
+_OUTBOX = "terp.capabilities.outbox"
+_CELERY_JOBS = "terp.capabilities.jobs_celery"
+_CELERY_BEAT = "terp.capabilities.scheduler_celery_beat"
+_APSCHEDULER = "terp.capabilities.scheduler_apscheduler"
+
+
+def _write_prod_profile(root: pathlib.Path, text: str) -> None:
+    (root / "docker-compose.prod.yml").write_text(text, encoding="utf-8")
+
+
+@pytest.fixture
+def engines(monkeypatch: pytest.MonkeyPatch) -> Callable[..., None]:
+    """Which engines the gate's environment installs: the suite's own installs them all.
+
+    Starts as the durable-queue app: terp-cap-outbox and the APScheduler engine.
+    """
+
+    def install(*modules: str) -> None:
+        monkeypatch.setattr(
+            "terp.cli.background_services.installed", lambda module: module in modules
+        )
+
+    install(_OUTBOX, _APSCHEDULER)
+    return install
+
+
+def test_the_engines_are_asked_of_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    from terp.cli.background_services import installed
+
+    assert installed(_OUTBOX)
+    assert not installed("terp_no_such_distribution.module"), "a missing parent is absence"
+    monkeypatch.setitem(sys.modules, _OUTBOX, None)
+    assert not installed(_OUTBOX)
+
+
+@pytest.mark.parametrize(
+    "profile",
+    [_PROFILE_WITHOUT_WORK, "services: {}\n"],
+    ids=["no-worker-service", "no-services-at-all"],
+)
+def test_a_declared_job_with_no_worker_in_the_profile_fails_the_gate(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None, engines: None, profile: str
+) -> None:
+    """The state #181 found: a healthy API, a green gate, and a job nothing drains.
+
+    Nothing refuses it at boot, so the failure says so rather than borrow the boot
+    refusals' closing sentence, names the work, and gives the direct remedy first.
+    """
+    _write_control_plane(tmp_path, _READY_PLANE)
+    _write_prod_profile(tmp_path, profile)
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert output.startswith("docker-compose.prod.yml would not run this app as declared")
+    assert "jobs: the control plane declares 1 job(s) (nightly.tick)" in output, output
+    assert (
+        "runs `terp jobs worker --forever`, so a job enqueued on the app's durable queue is "
+        "never run, and nothing at boot says so" in output
+    )
+    assert 'command: ["terp", "jobs", "worker", "--forever"]' in output
+    assert "an image's CMD is not read" in output
+    assert "copier update" in output and "uv run terp deployment render" in output
+    assert '"role": "worker"' in output
+    assert "BootError" not in output, "a missing service raises nothing at any boot"
+    assert "while this gate is green" not in output
+    assert "Celery" not in output, "no Celery engine is installed"
+    assert "schedules: " not in output, "no schedule is declared, so no scheduler is asked for"
+
+
+def test_a_declared_schedule_with_no_scheduler_in_the_profile_fails_the_gate(
+    tmp_path: pathlib.Path,
+    fresh_control_plane_import: None,
+    engines: Callable[..., None],
+) -> None:
+    engines(_OUTBOX, _APSCHEDULER, _CELERY_BEAT)
+    _write_control_plane(tmp_path, _SCHEDULED_PLANE)
+    _write_prod_profile(tmp_path, _PROFILE_WITHOUT_WORK + _WORKER)
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "schedules: the control plane declares 1 schedule(s) (nightly.run)" in output, output
+    assert "runs `terp jobs scheduler` or Celery beat, so no declared schedule ever fires" in output
+    assert 'command: ["terp", "jobs", "scheduler"]' in output and '"role": "scheduler"' in output
+    assert (
+        "Or run Celery beat as a service: `celery -A <your celery app> beat`, with a Celery "
+        "worker to run its ticks, `celery -A <your celery app> worker` (or both in one "
+        "service, `celery -A <your celery app> worker -B`)." in output
+    ), output
+    assert "jobs: " not in output, "the worker is there"
+
+
+_FORMS = {
+    "argument-list": 'command: ["terp", "jobs", "worker", "--forever"]',
+    "uv-run": 'command: ["uv", "run", "terp", "jobs", "worker", "--forever"]',
+    "entrypoint": 'entrypoint: ["terp"]\n    command: ["jobs", "worker", "--forever"]',
+    "shell-loop": 'command: sh -c "while true; do terp jobs worker; sleep 5; done"',
+    "shell-loop-list": (
+        'command: ["sh", "-c", "while true; do terp jobs worker --max-cycles 5; sleep 5; done"]'
+    ),
+    "path-qualified": 'command: ["/srv/.venv/bin/terp", "jobs", "worker", "--forever"]',
+    "restarted-drain": 'command: ["terp", "jobs", "worker"]\n    restart: unless-stopped',
+    "drain-under-a-restart-policy": (
+        'command: ["terp", "jobs", "worker"]\n    deploy:\n      restart_policy: {}'
+    ),
+    "celery-worker-with-beat": 'command: ["celery", "-A", "app.celery_app", "worker", "-B"]',
+}
+
+
+@pytest.mark.parametrize(
+    ("worker", "scheduler"),
+    [
+        *((form, 'command: ["terp", "jobs", "scheduler"]') for form in _FORMS.values()),
+        (_FORMS["celery-worker-with-beat"], 'command: ["sleep", "infinity"]'),
+        (
+            'command: ["celery", "-A", "app.celery_app", "worker"]',
+            'command: ["celery", "-A", "app.celery_app", "beat"]',
+        ),
+    ],
+    ids=[*_FORMS, "celery-worker-runs-beat", "celery-beat"],
+)
+def test_a_profile_that_runs_the_declared_work_passes(
+    tmp_path: pathlib.Path,
+    fresh_control_plane_import: None,
+    engines: Callable[..., None],
+    worker: str,
+    scheduler: str,
+) -> None:
+    """Every form that runs the work counts: the generated argument list, `uv run`, an
+    entrypoint, a shell loop older profiles wrapped around a single drain (read for its
+    words: what a shell really runs is a residual), a path-qualified executable, a drain
+    Compose restarts (`restart`, or a `restart_policy`, whose condition defaults to `any`),
+    and the Celery engines the jobs seam ships, where their capabilities are installed. A
+    green over any of them says what it judged."""
+    engines(_OUTBOX, _CELERY_JOBS, _APSCHEDULER, _CELERY_BEAT)
+    _write_control_plane(tmp_path, _SCHEDULED_PLANE)
+    _write_prod_profile(
+        tmp_path,
+        _PROFILE_WITHOUT_WORK
+        + f"  worker:\n    image: app-backend\n    {worker}\n"
+        + f"  scheduler:\n    image: app-backend\n    {scheduler}\n",
+    )
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 0, output
+    assert output.endswith("docker-compose.prod.yml runs the worker and the scheduler"), output
+
+
+@pytest.mark.parametrize(
+    "worker",
+    [
+        'command: ["terp", "jobs", "worker", "--forever"]\n    profiles: ["jobs"]',
+        'command: ["terp", "jobs", "worker", "--forever"]\n    deploy:\n      replicas: 0',
+        'command: ["terp", "jobs", "worker", "--forever"]\n    scale: 0',
+        'command: ["terp", "jobs", "worker"]',
+        'command: ["/srv/.venv/bin/terp", "jobs", "worker"]',
+        'command: ["terp", "jobs", "worker"]\n    restart: "no"',
+        "command: terp jobs worker",
+        'command: ["terp", "jobs", "worker"]\n    deploy:\n      restart_policy:\n'
+        "        condition: on-failure",
+        'command: ["terp", "jobs", "worker"]\n    restart: always\n    deploy:\n'
+        "      restart_policy:\n        condition: none",
+        "command: sh -c 'terp jobs worker --forever",
+    ],
+    ids=[
+        "profiles",
+        "replicas-0",
+        "scale-0",
+        "single-drain",
+        "path-qualified-drain",
+        "drain-no-restart",
+        "drain-string",
+        "drain-on-failure-policy",
+        "restart-policy-before-restart",
+        "string-compose-cannot-split",
+    ],
+)
+def test_a_service_a_plain_up_does_not_keep_running_is_no_worker(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None, engines: None, worker: str
+) -> None:
+    """A service under `profiles`, scaled to 0, a single drain nothing restarts after a clean
+    exit (`deploy.restart_policy` read before `restart`, as Compose reads them), or a string
+    command Compose cannot split runs no worker under `docker compose up`, however its
+    command reads."""
+    _write_control_plane(tmp_path, _READY_PLANE)
+    _write_prod_profile(
+        tmp_path, _PROFILE_WITHOUT_WORK + f"  worker:\n    image: app-backend\n    {worker}\n"
+    )
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "jobs: the control plane declares 1 job(s)" in output
+
+
+@pytest.mark.parametrize("profile", [_PROFILE_WITHOUT_WORK, None], ids=["profile", "no-profile"])
+def test_jobs_with_no_queue_engine_run_inline_and_need_no_worker(
+    tmp_path: pathlib.Path,
+    fresh_control_plane_import: None,
+    engines: Callable[..., None],
+    profile: str | None,
+) -> None:
+    """Neither terp-cap-outbox nor the Celery jobs capability installed: the default queue
+    runs each job where it is enqueued, so there is nothing for a worker to do."""
+    engines()
+    _write_control_plane(tmp_path, _READY_PLANE)
+    if profile is not None:
+        _write_prod_profile(tmp_path, profile)
+    assert _run_production_readiness(tmp_path) == (
+        0,
+        "the declared control plane boots in production (security, passwords, jobs)",
+    )
+
+
+_ONLY_CELERY_WORKER = [
+    "runs a Celery worker, so a job",
+    "Run a Celery worker as a service: `celery -A <your celery app> worker`.",
+]
+
+
+@pytest.mark.parametrize(
+    ("installed", "services", "said", "unsaid"),
+    [
+        (
+            (_CELERY_JOBS,),
+            _WORKER,
+            _ONLY_CELERY_WORKER,
+            ['command: ["terp"', "copier update", "`terp jobs worker --forever`"],
+        ),
+        (
+            (_CELERY_JOBS,),
+            '  beat:\n    image: app-backend\n    command: ["celery", "-A", "worker.celery", "beat"]\n',
+            _ONLY_CELERY_WORKER,
+            [],
+        ),
+        (
+            (_OUTBOX, _CELERY_JOBS),
+            "",
+            [
+                "runs `terp jobs worker --forever` or a Celery worker, so a job",
+                'command: ["terp", "jobs", "worker", "--forever"]',
+                "Or run a Celery worker as a service",
+            ],
+            [],
+        ),
+    ],
+    ids=["celery-only", "an-app-named-worker-runs-beat", "outbox-and-celery"],
+)
+def test_the_worker_asked_for_follows_the_installed_engine(
+    tmp_path: pathlib.Path,
+    fresh_control_plane_import: None,
+    engines: Callable[..., None],
+    installed: tuple[str, ...],
+    services: str,
+    said: list[str],
+    unsaid: list[str],
+) -> None:
+    """With only Celery installed, a Terp worker drains nothing: a Celery worker is asked
+    for, and the Terp service does not count. Nor does `celery -A worker.celery beat`: the
+    subcommand is read as a whole word, past the option's value."""
+    engines(*installed)
+    _write_control_plane(tmp_path, _READY_PLANE)
+    _write_prod_profile(tmp_path, _PROFILE_WITHOUT_WORK + services)
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    for fragment in said:
+        assert fragment in output, (fragment, output)
+    for fragment in unsaid:
+        assert fragment not in output, (fragment, output)
+
+
+def test_a_scheduler_without_its_engine_is_a_red(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None, engines: Callable[..., None]
+) -> None:
+    """`terp jobs scheduler` with a declared schedule and neither engine stops at start, and
+    a restart policy makes that a loop: the service is there, the schedules never fire."""
+    engines(_OUTBOX)
+    _write_control_plane(tmp_path, _SCHEDULED_PLANE)
+    _write_prod_profile(tmp_path, _PROFILE_WITHOUT_WORK + _WORKER + _SCHEDULER)
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert (
+        "schedules: docker-compose.prod.yml runs `terp jobs scheduler` for 1 declared "
+        "schedule(s) (nightly.run) and terp-cap-scheduler-apscheduler is not installed"
+    ) in output, output
+    assert "stops at start (and, under a restart policy, restarts in a loop)" in output
+    assert "`uv add terp-cap-scheduler-apscheduler`" in output
+    assert "jobs: " not in output
+
+
+_BEAT = """\
+  beat:
+    image: app-backend
+    command: ["celery", "-A", "app.celery_app", "beat"]
+"""
+
+_CELERY_WORKER = """\
+  celery-worker:
+    image: app-backend
+    command: ["celery", "-A", "app.celery_app", "worker"]
+"""
+
+
+@pytest.mark.parametrize(
+    ("installed", "services", "said", "unsaid"),
+    [
+        (
+            (_OUTBOX, _CELERY_BEAT),
+            _WORKER + _SCHEDULER,
+            [
+                "no service in docker-compose.prod.yml runs Celery beat, so no declared",
+                "Run Celery beat as a service: `celery -A <your celery app> beat`, with a "
+                "Celery worker to run its ticks, `celery -A <your celery app> worker`",
+            ],
+            ["stops at start", 'command: ["terp", "jobs", "scheduler"]', "uv add"],
+        ),
+        *(
+            (
+                (_OUTBOX, _CELERY_BEAT),
+                _WORKER + _SCHEDULER + beat,
+                [
+                    "schedules: docker-compose.prod.yml runs Celery beat for 1 declared "
+                    "schedule(s) (nightly.run) and no Celery worker, so nothing runs the ticks "
+                    "beat publishes, and nothing at boot says so",
+                    "`celery -A <your celery app> worker`, or run beat inside it, "
+                    "`celery -A <your celery app> worker -B`.",
+                ],
+                ["runs the worker and the scheduler"],
+            )
+            for beat in (
+                _BEAT,
+                _BEAT.replace('"app.celery_app"', '"worker.celery"'),
+                _BEAT.replace('"-A", "app.celery_app"', '"--app=worker.celery"'),
+            )
+        ),
+        (
+            (_OUTBOX, _CELERY_BEAT),
+            _WORKER + _SCHEDULER + _CELERY_WORKER.replace('"app.celery_app"', '"beat.app"'),
+            ["no service in docker-compose.prod.yml runs Celery beat, so no declared"],
+            [],
+        ),
+        ((_OUTBOX, _CELERY_BEAT), _WORKER + _SCHEDULER + _BEAT + _CELERY_WORKER, None, []),
+        (
+            (_OUTBOX, _CELERY_BEAT),
+            _WORKER
+            + _SCHEDULER
+            + '  celery:\n    image: app-backend\n    command: ["celery", "-A", "x", "worker", "-B"]\n',
+            None,
+            [],
+        ),
+        (
+            (_OUTBOX, _CELERY_BEAT),
+            _WORKER
+            + _SCHEDULER
+            + '  celery:\n    image: app-backend\n    command: sh -c "celery -A x worker --beat"\n',
+            None,
+            [],
+        ),
+        (
+            (_OUTBOX,),
+            _WORKER,
+            [
+                "runs `terp jobs scheduler`, so no declared schedule ever fires",
+                "Install terp-cap-scheduler-apscheduler (`uv add terp-cap-scheduler-apscheduler`),"
+                ' then add a service on the backend image with `command: ["terp", "jobs", '
+                '"scheduler"]`',
+            ],
+            ["Celery beat"],
+        ),
+        (
+            (_OUTBOX, _APSCHEDULER),
+            _WORKER + _BEAT,
+            ["runs `terp jobs scheduler`, so no declared schedule ever fires"],
+            ["Celery beat as a service"],
+        ),
+    ],
+    ids=[
+        "beat-installed-and-only-the-idle-scheduler",
+        "beat-runs-with-no-celery-worker-for-its-ticks",
+        "an-app-named-worker-runs-beat-alone",
+        "an-app-option-named-worker-runs-beat-alone",
+        "an-app-named-beat-runs-a-worker-alone",
+        "beat-and-a-celery-worker-run",
+        "a-worker-with-beat-inside-runs-both",
+        "a-shell-string-worker-with-beat-runs-both",
+        "neither-engine-and-no-scheduler",
+        "beat-runs-but-its-capability-is-not-installed",
+    ],
+)
+def test_the_scheduler_asked_for_follows_the_installed_engine(
+    tmp_path: pathlib.Path,
+    fresh_control_plane_import: None,
+    engines: Callable[..., None],
+    installed: tuple[str, ...],
+    services: str,
+    said: list[str] | None,
+    unsaid: list[str],
+) -> None:
+    """With only the Celery beat capability, the schedules fire on beat and the template's
+    `terp jobs scheduler` idles: beat is asked for, with a Celery worker to run the ticks it
+    publishes, and that scheduler neither counts nor reds. With neither engine, the remedy
+    starts with installing one, so following it ends green; a beat service counts only
+    where its capability is installed."""
+    engines(*installed)
+    _write_control_plane(tmp_path, _SCHEDULED_PLANE)
+    _write_prod_profile(tmp_path, _PROFILE_WITHOUT_WORK + services)
+    exit_code, output = _run_production_readiness(tmp_path)
+    if said is None:
+        assert exit_code == 0, output
+        assert output.endswith("runs the worker and the scheduler"), output
+        return
+    assert exit_code == 1, output
+    for fragment in said:
+        assert fragment in output, (fragment, output)
+    for fragment in unsaid:
+        assert fragment not in output, (fragment, output)
+
+
+def test_a_long_list_of_declared_work_is_capped(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None, engines: None
+) -> None:
+    _write_control_plane(
+        tmp_path,
+        _READY_PLANE.replace(
+            "    jobs=JobCatalog([WORK]),\n",
+            "    jobs=JobCatalog([WORK, *(JobDefinition(name=f'job.{index}', payload_schema=Tick,"
+            " handler=lambda context, payload: None) for index in range(6))]),\n",
+        ),
+    )
+    _write_prod_profile(tmp_path, _PROFILE_WITHOUT_WORK)
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "declares 7 job(s) (" in output and " and 2 more) and no service" in output, output
+
+
+_OVERLAY = """\
+services:
+  api:
+    environment:
+      DB_SCHEMA_LAYOUT: per-module
+  worker:
+    environment:
+      DB_SCHEMA_LAYOUT: per-module
+  scheduler:
+    environment:
+      DB_SCHEMA_LAYOUT: per-module
+"""
+
+
+@pytest.mark.parametrize(
+    ("profile", "overlay", "expected"),
+    [
+        (
+            _PROFILE_WITHOUT_WORK,
+            _OVERLAY,
+            "profile: compose.runtime-role.yml names `worker`, `scheduler`, which "
+            "docker-compose.prod.yml does not define, so Compose refuses the stack (service "
+            '"worker" has neither an image nor a build context specified)',
+        ),
+        (
+            _PROFILE_WITHOUT_WORK,
+            "services: [unclosed\n",
+            "profile: what compose.runtime-role.yml deploys cannot be established: "
+            "compose.runtime-role.yml is not readable YAML",
+        ),
+        (
+            # Compose's own override tag: the overlay drops its scheduler entry.
+            _PROFILE_WITHOUT_WORK + _WORKER,
+            _OVERLAY.replace(
+                "  scheduler:\n    environment:\n      DB_SCHEMA_LAYOUT: per-module\n",
+                "  scheduler: !reset null\n",
+            ),
+            None,
+        ),
+        (_PROFILE_WITHOUT_WORK + _WORKER + _SCHEDULER, _OVERLAY, None),
+    ],
+    ids=["names-what-the-profile-lacks", "unreadable", "reset-tag", "matches-the-profile"],
+)
+def test_the_runtime_role_overlay_names_only_services_the_profile_defines(
+    tmp_path: pathlib.Path,
+    fresh_control_plane_import: None,
+    engines: None,
+    profile: str,
+    overlay: str,
+    expected: str | None,
+) -> None:
+    """Asked whatever the plane declares: a generated build whose template update brought an
+    overlay naming a `worker` its own profile has not rendered yet is a stack Compose
+    refuses."""
+    _write_control_plane(tmp_path, _IDLE_PLANE)
+    _write_prod_profile(tmp_path, profile)
+    (tmp_path / "compose.runtime-role.yml").write_text(overlay, encoding="utf-8")
+    exit_code, output = _run_production_readiness(tmp_path)
+    if expected is None:
+        assert (exit_code, output) == (
+            0,
+            "the declared control plane boots in production (security, passwords, jobs)",
+        )
+        return
+    assert exit_code == 1, output
+    assert expected in output, output
+    if "names" in expected:
+        assert 'Under "build": "generated", declare the missing units' in output
+        assert "re-render the template (`copier update`), add the services" in output
+        assert (
+            "or point the overlay at your own service names and remove its entries for "
+            "services you do not run" in output
+        )
+
+
+def test_no_profile_leaves_the_process_half_to_the_deploy_tool_as_a_note(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None, engines: None
+) -> None:
+    """A project with no compose profile is deployed some other way (ADR 0184): not a red,
+    and not silence either, and still a verdict on the half that was judged."""
+    from terp.cli.verify import _applicable
+
+    _write_control_plane(tmp_path, _SCHEDULED_PLANE)
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 0, output
+    assert output.startswith(
+        "note: no docker-compose.prod.yml - whether a service runs the worker and the scheduler"
+    ), "shown in text mode"
+    assert "not judged" in output and "ADR 0184" in output
+    assert "boots in production" in output
+    assert _applicable(True, output), "the control-plane half was judged, so not 'not applicable'"
+
+
+def test_a_boot_refusal_keeps_the_note_that_the_profile_was_not_judged(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None, engines: None
+) -> None:
+    _write_control_plane(
+        tmp_path,
+        _READY_PLANE.replace(
+            '    job_system_actor_id=uuid.UUID("00000000-0000-0000-0000-00000000d0e5"),\n', ""
+        ),
+    )
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "refuses a production boot" in output
+    assert output.endswith("deploy tool's business (ADR 0184)"), output
+
+
+@pytest.mark.parametrize("profile", [_PROFILE_WITHOUT_WORK, None], ids=["profile", "no-profile"])
+def test_an_app_without_jobs_or_schedules_is_not_asked_for_a_process(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None, profile: str | None
+) -> None:
+    _write_control_plane(tmp_path, _IDLE_PLANE)
+    if profile is not None:
+        _write_prod_profile(tmp_path, profile)
+    assert _run_production_readiness(tmp_path) == (
+        0,
+        "the declared control plane boots in production (security, passwords, jobs)",
+    )
+
+
+def test_a_profile_that_does_not_parse_is_a_red(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None, engines: None
+) -> None:
+    """As in deploy-safety: nothing in it can be shown to run anything. A file that holds no
+    mapping is not a compose file either."""
+    _write_control_plane(tmp_path, _READY_PLANE)
+    _write_prod_profile(tmp_path, "services:\n  api: [unclosed\n")
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert (
+        "profile: what docker-compose.prod.yml deploys cannot be established: "
+        "docker-compose.prod.yml is not readable YAML" in output
+    ), output
+    _write_prod_profile(tmp_path, "")
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    assert "it holds no mapping" in output, output
+
+
+def test_a_boot_refusal_and_a_missing_service_each_keep_their_own_closing(
+    tmp_path: pathlib.Path, fresh_control_plane_import: None, engines: None
+) -> None:
+    """Both kinds in one run: the BootError sentence covers only the boot refusals."""
+    _write_control_plane(
+        tmp_path,
+        _READY_PLANE.replace(
+            '    job_system_actor_id=uuid.UUID("00000000-0000-0000-0000-00000000d0e5"),\n', ""
+        ),
+    )
+    _write_prod_profile(tmp_path, _PROFILE_WITHOUT_WORK)
+    exit_code, output = _run_production_readiness(tmp_path)
+    assert exit_code == 1, output
+    boot, _, profile = output.partition("docker-compose.prod.yml would not run this app")
+    assert "refuses a production boot" in boot and "BootError" in boot
+    assert "job_system_actor_id" in boot
+    assert "runs `terp jobs worker --forever`" in profile and "BootError" not in profile
+    assert "nothing at boot says so" in profile
 
 
 def _write_pyproject(path: pathlib.Path, body: str) -> None:

@@ -135,12 +135,12 @@ def test_a_system_package_resolves_against_the_table_it_is_given(tmp_path) -> No
 
 
 def test_a_mount_names_declared_units_and_a_path_inside_var() -> None:
-    mount = {"path": "var/files", "units": ["api", "worker"]}
+    mount = {"path": "var/files", "units": ["api", "monitor"]}
     _declared, findings = read(seed() | {"volumes": [{"id": "files", "mount": mount}]},
                                published_table())
     assert [finding.message for finding in findings] == [
-        'volumes[0].mount.units[1] "worker" is no declared unit (allowed: a declared unit\'s '
-        "id: api, db, migrate, web)"
+        'volumes[0].mount.units[1] "monitor" is no declared unit (allowed: a declared unit\'s '
+        "id: api, db, migrate, scheduler, web, worker)"
     ]
     for path in ("data", "var/../etc", "/srv/var/files"):
         bad = {"id": "files", "mount": {"path": path, "units": ["api"]}}
@@ -159,13 +159,9 @@ def _mounted_project(tmp_path: pathlib.Path, mount: dict, *, api: str, worker: s
     from tests.architecture.deployment_fixtures import profile, project
 
     raw = seed()
-    raw["units"].append({"id": "worker", "role": "worker", "dependsOn": ["db", "migrate"]})
     raw["volumes"] = [{"id": "files-data", "mount": mount}]
     services = profile()["services"]
-    worker_service = dict(services["api"], command=["terp", "jobs", "worker", "--forever"])
-    worker_service.pop("build", None)
-    worker_service.pop("healthcheck", None)
-    worker_service["volumes"] = [worker] if worker else []
+    worker_service = dict(services["worker"], volumes=[worker] if worker else [])
     data = profile(api=dict(services["api"], volumes=[api]), worker=worker_service)
     data["volumes"] = {"db-data": None, "files-data": None}
     return project(tmp_path, raw, data)
@@ -213,8 +209,8 @@ def test_a_render_in_a_git_work_tree_is_judged_by_git_too(tmp_path) -> None:
     assert generated(root).drift.notes == [] and _findings(root) == []
     (root / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
     assert _findings(root) == [
-        ".gitignore: git does not ignore .env, .app.env, .app.migrate.env, .app.api.env, and the "
-        "units deployment.json declares load them, so a commit can carry them (allowed: "
+        ".gitignore: git does not ignore .env, .app.env, .app.migrate.env, .app.api.env, "
+        ".app.worker.env, .app.scheduler.env, and the units deployment.json declares load them, so a commit can carry them (allowed: "
         ".gitignore patterns that cover .env, .app.env and each backend unit's .app.<id>.env)"
     ]
 
@@ -339,8 +335,8 @@ def test_an_environment_file_the_build_context_would_carry_is_refused(tmp_path) 
     assert _findings(root) == [
         ".dockerignore: .dockerignore line 2 '[unclosed' cannot be read: a character class that "
         "never closes (allowed: a pattern Docker's matcher reads)",
-        ".dockerignore: .dockerignore lets .app.env, .app.migrate.env, .app.api.env into the build "
-        "context, and the units deployment.json declares load them, so a `COPY . .` bakes them "
+        ".dockerignore: .dockerignore lets .app.env, .app.migrate.env, .app.api.env, "
+        ".app.worker.env, .app.scheduler.env into the build context, and the units deployment.json declares load them, so a `COPY . .` bakes them "
         "into an image layer (allowed: patterns that leave .env, .app.env and each backend unit's "
         ".app.<id>.env out of the build context, such as **/.env and **/.app.*.env)",
     ]

@@ -1821,6 +1821,8 @@ def test_the_deploy_declaration_is_seeded_by_copy_and_never_by_update() -> None:
             "migrate",
             "api",
             "web",
+            "worker",
+            "scheduler",
         ]
     workflow = yaml.safe_load(
         (_TEMPLATE.parent / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")

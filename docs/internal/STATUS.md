@@ -278,8 +278,8 @@ with `missing_jobs` boot-validating each schedule's job against the `JobCatalog`
 it flows through the active `JobQueue` and the context-binding runner; a user-less scheduled job
 runs as the configured system actor, its writes audited + stamped). `ControlPlane.schedules` +
 `create_app` boot-validation refuse a schedule that enqueues an undeclared / shadowed job. The
-safe default is the external trigger (any cron fires it), so a scheduled job works with zero
-scheduler infra; no module-authored schedule string exists, so the second layer is the boot check
+declared schedule is fired by a scheduler process, which the template's production profile runs
+(ADR 0223); a cron outside the app calls `terp jobs run` and declares no schedule; no module-authored schedule string exists, so the second layer is the boot check
 + the kernel gate (`test_scheduling.py`), not an AST rule. The vendored core mirror is refreshed
 byte-exact and `terp.core` stays at 100% coverage. The scheduler **engine adapters** then shipped
 (ADR 0048): `terp-cap-scheduler-apscheduler` (an in-process `BackgroundScheduler`) and
@@ -1614,8 +1614,8 @@ complete. Suggested next sequence (object-level authz now done, ADR 0029):
   `no_adhoc_background_runtime` rule keeping engines out of app code.
   **Scheduler seam shipped (ADR 0047):** the typed `terp.core.scheduling` port
   (`ScheduleDefinition` / `ScheduleCatalog` / `Scheduler` ABC / `trigger_schedule`,
-  boot-validated against the `JobCatalog`); the external-trigger default needs no scheduler
-  infra. **Scheduler adapters shipped (ADR 0048):** `terp-cap-scheduler-apscheduler` (in-process)
+  boot-validated against the `JobCatalog`); a declared schedule is fired by a scheduler
+  process (ADR 0223). **Scheduler adapters shipped (ADR 0048):** `terp-cap-scheduler-apscheduler` (in-process)
   + `terp-cap-scheduler-celery-beat` (a `beat_schedule` of tick tasks), both firing schedules
   through `trigger_schedule`. **Scheduler CLI shipped (ADR 0049):** `terp jobs scheduler` runs the
   in-process scheduler daemon (sibling to `terp jobs run` / `worker`). Deferred to later ADRs: the

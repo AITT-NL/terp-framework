@@ -155,6 +155,72 @@ services:
     logging: *container-logging
 {%- endif %}
 
+  # Drains the durable outbox until it is stopped (`terp jobs worker --forever`).
+  worker:
+    <<: *backend
+    command: ["terp", "jobs", "worker", "--forever"]
+    env_file:
+      - path: .app.env
+        required: false
+      - path: .app.worker.env
+        required: false
+    init: true
+    restart: unless-stopped
+{%- if use_files %}
+    # The files capability's storage root. The backend image makes it, owned by the
+    # user the image runs as, and Docker gives an empty named volume the owner of
+    # the directory it is mounted over, so that user can write the volume.
+    volumes:
+      - "files-data:/srv/var/files"
+{%- endif %}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Healthy while the heartbeat its loop writes is fresh (ADR 0191). The probe
+    # reads a file in the container, so it needs no HTTP, no database and no app.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json, os, sys, tempfile, time; beat = json.load(open(os.path.join(tempfile.gettempdir(), 'terp-' + sys.argv[1] + '.heartbeat'))); age = time.time() - beat['at']; print(json.dumps({'heartbeat': sys.argv[1], 'age_seconds': round(age, 1), 'stale_after_seconds': beat['stale_after']})); sys.exit(age > beat['stale_after'])", "worker"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
+
+  # Fires the declared schedules until it is stopped (`terp jobs scheduler`).
+  scheduler:
+    <<: *backend
+    command: ["terp", "jobs", "scheduler"]
+    env_file:
+      - path: .app.env
+        required: false
+      - path: .app.scheduler.env
+        required: false
+    init: true
+    restart: unless-stopped
+{%- if use_files %}
+    # The files capability's storage root. The backend image makes it, owned by the
+    # user the image runs as, and Docker gives an empty named volume the owner of
+    # the directory it is mounted over, so that user can write the volume.
+    volumes:
+      - "files-data:/srv/var/files"
+{%- endif %}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Healthy while the heartbeat its loop writes is fresh (ADR 0191). The probe
+    # reads a file in the container, so it needs no HTTP, no database and no app.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json, os, sys, tempfile, time; beat = json.load(open(os.path.join(tempfile.gettempdir(), 'terp-' + sys.argv[1] + '.heartbeat'))); age = time.time() - beat['at']; print(json.dumps({'heartbeat': sys.argv[1], 'age_seconds': round(age, 1), 'stale_after_seconds': beat['stale_after']})); sys.exit(age > beat['stale_after'])", "scheduler"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *container-logging
+
 volumes:
   db-data:
 {%- if use_files %}

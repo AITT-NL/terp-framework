@@ -51,7 +51,9 @@ def test_an_app_without_a_declaration_is_undeclared_and_passes(tmp_path) -> None
 def test_the_template_seed_is_readable(tmp_path) -> None:
     declared, findings = readable(project(tmp_path, seed()))
     assert findings == [] and isinstance(declared, Declaration)
-    assert [entry.id for entry in declared.units] == ["db", "migrate", "api", "web"]
+    assert [entry.id for entry in declared.units] == [
+        "db", "migrate", "api", "web", "worker", "scheduler"
+    ]
     assert declared.units[0].backup is not None and declared.units[0].stateful
 
 
@@ -270,7 +272,7 @@ def test_two_units_or_two_volumes_with_one_id_are_refused() -> None:
     raw["units"].append(copy.deepcopy(unit(raw, "web")))
     raw["volumes"] = [{"id": "files"}, {"id": "files"}]
     message = _refused(raw)
-    assert 'units[4].id "web" is the id of an earlier unit' in message
+    assert 'units[6].id "web" is the id of an earlier unit' in message
     assert 'volumes[1].id "files" is the id of an earlier volume' in message
 
 

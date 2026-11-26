@@ -61,9 +61,10 @@ x-backend: &backend
   # SCOPING A VARIABLE TO ONE SERVICE (a declaration's "services" field, ADR 0124)
   # is rendered into `.app.<service>.env`, and only the services that forward that
   # file see it — so a worker's credentials for a foreign system stop shipping to
-  # api, migrate and seed as well. There is no such service in this template, so
-  # there is nothing to scope yet; the trap is recorded here because this anchor is
-  # where an app adds one.
+  # api, migrate and seed as well. This workbench runs no worker or scheduler: the
+  # production profile runs both, each forwarding its own `.app.worker.env` /
+  # `.app.scheduler.env`. The trap is recorded here because this anchor is where an
+  # app adds one to the inner loop.
   #
   # YAML merge does NOT concatenate sequences. A service that writes its own
   # `env_file:` REPLACES this list rather than adding to it, so the shared
@@ -199,7 +200,9 @@ services:
     # --timeout-graceful-shutdown: a realtime stream ends when its client goes away and not
     # otherwise, and uvicorn waits for in-flight tasks forever by default, so one open tab
     # would hold every reload. Three seconds, because the reload loop pays it per edit.
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--timeout-graceful-shutdown", "3"]
+    # --loop asyncio: uvicorn[standard] brings uvloop on Linux and uvicorn would run on it,
+    # and the egress guard, which cannot see uvloop's sockets, refuses that (ADR 0177).
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--loop", "asyncio", "--reload", "--timeout-graceful-shutdown", "3"]
     environment:
       <<: *backend-env
       # Bind-mounted source can live on a filesystem without inotify (Docker

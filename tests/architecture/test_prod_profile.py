@@ -19,7 +19,7 @@ import tomllib
 import pytest
 import yaml
 
-from tests.architecture.deployment_fixtures import template_profile
+from tests.architecture.deployment_fixtures import seed, template_profile
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _PROD_COMPOSE = _REPO_ROOT / "apps" / "example" / "docker-compose.prod.yml"
@@ -30,6 +30,14 @@ _TEMPLATE_PROD_WEB_DOCKERFILE = _REPO_ROOT / "template" / "project" / "frontend"
 _NGINX_CONF = _REPO_ROOT / "apps" / "example" / "frontend" / "nginx.conf"
 _TEMPLATE_NGINX_CONF = _REPO_ROOT / "template" / "project" / "frontend" / "nginx.conf"
 _PROD_SMOKE_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "prod-smoke.yml"
+
+#: The two job units both production profiles always run (ADR 0223), with the command each
+#: runs: present whether or not the app declares a job or a schedule, idle when it does not.
+_JOB_COMMANDS = {
+    "worker": ["terp", "jobs", "worker", "--forever"],
+    "scheduler": ["terp", "jobs", "scheduler"],
+}
+_JOB_UNITS = tuple(_JOB_COMMANDS)
 
 
 def _prod_compose() -> dict:
@@ -66,6 +74,11 @@ def test_runtime_role_overlay_checks_the_login_before_starting_the_api(
     assert url.startswith("postgresql+psycopg://terp_rt:${TERP_RUNTIME_DB_PASSWORD:?")
     assert url.endswith(f"@db:5432/{database}")
     assert "POSTGRES_PASSWORD" not in url
+    # The job units run the app's code against the same tables as the api, so they read the
+    # same layout as the runtime role: the default layout is flat, and a worker left on it
+    # would look for its tables in a schema migrate never wrote.
+    for name in _JOB_UNITS:
+        assert services[name] == {"environment": api}, f"{name} connects as the api does"
     shell, flags, steps = migrate["command"]
     assert (shell, flags) == ("sh", "-ec")
     assert steps.splitlines() == [
@@ -133,7 +146,7 @@ def test_the_template_s_images_carry_a_required_per_release_tag() -> None:
     )
     assert RELEASE_TAG_VARIABLE == "TERP_RELEASE_TAG"
     assert template["x-backend"]["image"] == f"app-backend-prod:{RELEASE_TAG_SEAM}"
-    for name in ("migrate", "api"):
+    for name in ("migrate", "api", *_JOB_UNITS):
         assert services[name]["image"] == f"app-backend-prod:{RELEASE_TAG_SEAM}", name
     assert services["web"]["image"] == f"app-frontend-prod:{RELEASE_TAG_SEAM}"
 
@@ -173,9 +186,64 @@ def test_prod_api_waits_for_db_and_migrate() -> None:
         assert deps["migrate"]["condition"] == "service_completed_successfully"
 
 
+def test_both_profiles_run_a_worker_and_one_scheduler_on_the_backend_image() -> None:
+    """ADR 0223: the production profile always runs a worker and a scheduler, so an app that
+    declares a job or a schedule has the unit that runs it, and an app that declares neither
+    has two units that idle instead of exiting.
+
+    Each runs the backend image under an init, starts once the schema is at head, and is
+    healthy while the heartbeat its loop writes is fresh (ADR 0191), probed in the profile
+    itself: the example's image carries an HTTP probe for its api that a job unit must not
+    inherit, and the template's image carries none. The worker may run as several replicas,
+    so it pins no container name; the scheduler is exactly one, because a second fires every
+    schedule twice. The template's seed declares both, with the same cardinality."""
+    from terp.arch.deployment.generator import HEARTBEAT_PROBE
+
+    for data in _both_composes():
+        services = data["services"]
+        backend = services["api"]["image"]
+        for name, command in _JOB_COMMANDS.items():
+            service = services[name]
+            assert service["image"] == backend, f"{name} runs the backend image"
+            assert "build" not in service, f"{name} reuses the api's build, never its own"
+            assert service["command"] == command, name
+            assert service["init"] is True, f"{name} forwards the stop signal through an init"
+            assert service["depends_on"] == {
+                "db": {"condition": "service_healthy"},
+                "migrate": {"condition": "service_completed_successfully"},
+            }, f"{name} starts after the schema is at head"
+            assert service["logging"] == services["api"]["logging"], name
+            assert service["healthcheck"] == {
+                "test": ["CMD", "python", "-c", HEARTBEAT_PROBE, name],
+                "interval": "10s",
+                "timeout": "5s",
+                "retries": 3,
+                "start_period": "30s",
+            }, f"{name} is healthy while its heartbeat is fresh, never by an HTTP probe"
+            assert "ports" not in service, f"{name} serves nothing"
+        assert "container_name" not in services["worker"], "the worker may run as replicas"
+        scheduler = services["scheduler"]
+        assert scheduler.get("scale", 1) == 1, "exactly one scheduler"
+        assert (scheduler.get("deploy") or {}).get("replicas", 1) == 1, "exactly one scheduler"
+
+    for use_files in (False, True):
+        for frontend in (True, False):
+            units = {
+                entry["id"]: entry
+                for entry in seed(use_files=use_files, frontend=frontend)["units"]
+            }
+            assert units["worker"]["role"] == "worker"
+            assert units["worker"]["instances"] == "many"
+            assert units["scheduler"]["role"] == "scheduler"
+            assert units["scheduler"]["instances"] == "one"
+            for name in _JOB_UNITS:
+                assert units[name]["dependsOn"] == ["db", "migrate"], name
+                assert "command" not in units[name], f"{name} runs its role's own command"
+
+
 def test_prod_long_running_services_restart_and_healthcheck() -> None:
     for data in _both_composes():
-        for name in ("db", "api", "web"):
+        for name in ("db", "api", "web", *_JOB_UNITS):
             service = data["services"][name]
             assert service.get("restart") == "unless-stopped", f"{name} needs a restart policy"
             assert "healthcheck" in service, f"{name} needs a healthcheck"
@@ -206,6 +274,11 @@ def test_prod_backend_images_are_multistage_wheel_builds() -> None:
         ]
         assert not any("--reload" in line for line in code_lines)
         assert 'CMD ["uvicorn", "app.main:app"' in text
+        # uvicorn[standard] brings uvloop on Linux, uvicorn's default loop tries it, and the
+        # egress guard refuses that import (ADR 0177). test_serving_event_loop.py runs the
+        # template's command with the guard installed.
+        (cmd,) = [line for line in code_lines if line.startswith("CMD ")]
+        assert '"--loop", "asyncio"' in cmd, f"{path.name} must serve on asyncio, not uvloop"
     # The example's image serves only its api. The template's backs every backend unit, and
     # changed on purpose (ADR 0187): no HEALTHCHECK of its own, because a worker or a
     # scheduler that inherits an HTTP probe turns unhealthy and `docker compose up --wait`
@@ -348,7 +421,7 @@ def test_example_and_template_prod_profiles_share_a_topology() -> None:
     example = _prod_compose()["services"]
     for use_files in (False, True):
         template = _template_prod_compose(use_files=use_files)["services"]
-        assert set(example) == set(template) == {"db", "migrate", "api", "web"}
+        assert set(example) == set(template) == {"db", "migrate", "api", "web", *_JOB_UNITS}
 
 
 def test_with_files_the_api_keeps_them_in_a_volume_its_user_can_write() -> None:
@@ -364,12 +437,16 @@ def test_with_files_the_api_keeps_them_in_a_volume_its_user_can_write() -> None:
     acceptance."""
     with_files = _template_prod_compose(use_files=True)
     assert with_files["volumes"] == {"db-data": None, "files-data": None}
-    assert with_files["services"]["api"]["volumes"] == ["files-data:/srv/var/files"]
+    # A job the worker or the scheduler runs writes a file to the same volume as the api,
+    # never to its own container's layer (ADR 0223).
+    for name in ("api", *_JOB_UNITS):
+        assert with_files["services"][name]["volumes"] == ["files-data:/srv/var/files"], name
     for name in ("db", "migrate", "web"):
         mounts = with_files["services"][name].get("volumes") or []
         assert "files-data:/srv/var/files" not in mounts, name
     without = _template_prod_compose()
-    assert "volumes" not in without["services"]["api"]
+    for name in ("api", *_JOB_UNITS):
+        assert "volumes" not in without["services"][name], name
     assert without["volumes"] == {"db-data": None}
 
     dockerfile = _TEMPLATE_PROD_DOCKERFILE.read_text(encoding="utf-8")
@@ -393,7 +470,8 @@ def test_the_example_keeps_its_files_in_a_volume_and_the_smoke_stores_one() -> N
     address of the api it replaced."""
     example = _prod_compose()
     assert example["volumes"] == {"db-data": None, "files-data": None}
-    assert example["services"]["api"]["volumes"] == ["files-data:/srv/var/files"]
+    for name in ("api", *_JOB_UNITS):
+        assert example["services"][name]["volumes"] == ["files-data:/srv/var/files"], name
     for name in ("db", "migrate", "web"):
         assert "files-data:/srv/var/files" not in (example["services"][name].get("volumes") or [])
 
@@ -483,7 +561,7 @@ def test_prod_backend_forwards_app_declared_env() -> None:
     so a service an app added through the merge key still inherits it. The example app's
     profile is its own and keeps the single seam."""
     example, template = _prod_compose(), _template_prod_compose()
-    for name in ("migrate", "api"):
+    for name in ("migrate", "api", *_JOB_UNITS):
         assert example["services"][name].get("env_file") == _APP_ENV_SEAM, (
             f"{name} must read the optional .app.env (app-declared variables)"
         )
