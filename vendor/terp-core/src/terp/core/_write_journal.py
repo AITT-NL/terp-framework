@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 from sqlalchemy import event, inspect
@@ -14,6 +15,7 @@ from sqlmodel import Session
 
 from terp.core._service_writes import _MANAGED_INPUT_COLUMNS, _write_observers
 from terp.core.base_models import BaseTable
+from terp.core.base_service import _json_column_fields
 
 
 def _managed(state: InstanceState) -> frozenset[str]:
@@ -29,6 +31,22 @@ def _snapshot(value: Any) -> Any:
     return value
 
 
+class _JsonBoolean(Enum):
+    FALSE = False
+    TRUE = True
+
+
+def _json_snapshot(value: Any) -> Any:
+    # JSON booleans and numbers are distinct even though Python's True equals 1.
+    if isinstance(value, bool):
+        return _JsonBoolean(value)
+    if isinstance(value, dict):
+        return {key: _json_snapshot(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_snapshot(item) for item in value]
+    return _snapshot(value)
+
+
 @dataclass
 class _Change:
     state: InstanceState
@@ -42,11 +60,13 @@ class _Row:
     expected: dict[str, Any] = field(default_factory=dict)
     written: dict[str, Any] = field(default_factory=dict)
     accepted_action: str = ""
+    accepted_insert: bool = False
     inserted: bool = False
     deleted: bool = False
 
     def apply(self, change: _Change) -> None:
         if change.operation in ("save", "create", "append", "remove", "fields"):
+            self.accepted_insert |= change.operation in ("create", "append")
             if change.operation != "fields":
                 self.accepted_action = change.operation
             self.expected.update(change.values)
@@ -65,9 +85,9 @@ class _Row:
             return [] if self.accepted_action == "remove" or cancelled_insert else ["<delete>"]
         if self.accepted_action == "remove":
             return ["<delete>"]
-        if self.accepted_action in ("create", "append") and not self.inserted:
+        if self.accepted_insert and not self.inserted:
             return ["<insert>"]
-        if self.inserted and not self.accepted_action:
+        if self.inserted and not self.accepted_insert:
             return ["<insert>", *sorted(self.written)]
         return sorted(k for k, v in self.written.items() if v != self.expected.get(k, NO_VALUE))
 
@@ -133,8 +153,9 @@ class WriteJournal:
             operation = "create"
         columns = fields if operation == "fields" else (prop.key for prop in state.mapper.column_attrs)
         managed = _managed(state)
+        json_keys = _json_column_fields(state.class_)
         values = {
-            key: _snapshot(state.dict[key]) for key in columns
+            key: _json_snapshot(state.dict[key]) if key in json_keys else _snapshot(state.dict[key]) for key in columns
             if key in state.dict and key not in managed
         }
         # A hook may restore the database value before the first flush. SQLAlchemy
@@ -143,7 +164,11 @@ class WriteJournal:
         if state.has_identity:
             for key in values:
                 history = state.attrs[key].history
-                if history.has_changes():
+                if key in json_keys and key in state.committed_state:
+                    # The ORM may omit the UPDATE on Python equality. Keep the
+                    # original JSON so the commit must still match the saved value.
+                    previous[key] = _json_snapshot(state.committed_state[key])
+                elif history.has_changes():
                     previous[key] = _snapshot(history.deleted[0]) if history.deleted else NO_VALUE
         self._journal(session).append(_Change(state, operation, values, previous))
 
@@ -160,6 +185,7 @@ class WriteJournal:
             values, previous = {}, {}
             wrote_column = False
             managed = _managed(state)
+            json_keys = _json_column_fields(state.class_)
             for prop in state.mapper.column_attrs:
                 key = prop.key
                 history = state.attrs[key].history
@@ -167,8 +193,9 @@ class WriteJournal:
                     continue
                 wrote_column = True
                 if key not in managed:
-                    values[key] = _snapshot(state.dict.get(key, NO_VALUE))
-                    previous[key] = _snapshot(history.deleted[0]) if history.deleted else NO_VALUE
+                    snapshot = _json_snapshot if key in json_keys else _snapshot
+                    values[key] = snapshot(state.dict.get(key, NO_VALUE))
+                    previous[key] = snapshot(history.deleted[0]) if history.deleted else NO_VALUE
             if wrote_column or operation != "update":
                 journal.append(_Change(state, operation, values, previous))
 

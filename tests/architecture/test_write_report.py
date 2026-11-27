@@ -5,8 +5,9 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import JSON, Column, event
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import Field, Session, create_engine, select
 
 from terp.core import AuditAction, BaseSchema, BaseService, BaseTable, BaseUpdateSchema, testing
@@ -300,3 +301,47 @@ def test_an_accepted_delete_must_reach_the_database(engine, terp_validate_writes
             session.commit()
         session.rollback()
         assert session.exec(select(ReportLine.amount)).one() == 10
+
+
+def test_a_later_update_accounts_only_for_its_own_operation(engine, terp_validate_writes):
+    with Session(engine) as session, enter_write_unit():
+        row = ReportLine(amount=10)
+        session.add(row)
+        session.flush()
+        LineService().double(session, row)
+        with pytest.raises(UnvalidatedWriteError, match="<insert>"):
+            session.commit()
+        session.rollback()
+    with Session(engine) as reader:
+        assert reader.exec(select(ReportLine)).all() == []
+
+
+class ReportPayload(BaseTable, table=True):
+    __tablename__ = "test_write_report_payload"
+    data: dict = Field(sa_column=Column(JSON, nullable=False))
+
+
+class PayloadService(BaseService[ReportPayload, BaseSchema, BaseUpdateSchema]):
+    model = ReportPayload
+
+
+def test_the_saved_json_distinguishes_numbers_from_booleans(engine, terp_validate_writes):
+    class ChangeLabel(PayloadService):
+        def _after_write(self, session, entity, action):
+            entity.data = {"labels": [True]}
+
+    ReportPayload.__table__.create(engine)
+    with Session(engine) as session:
+        with pytest.raises(UnvalidatedWriteError, match="ReportPayload .*data"):
+            ChangeLabel()._save(session, ReportPayload(data={"labels": [1]}), AuditAction.CREATED)
+        assert session.exec(select(ReportPayload)).all() == []
+
+        row = PayloadService()._save(session, ReportPayload(data={"labels": [1]}), AuditAction.CREATED)
+        row.data = {"labels": [True]}
+        with pytest.raises(UnvalidatedWriteError, match="ReportPayload .*data"):
+            PayloadService()._save(session, row, AuditAction.UPDATED)
+        assert type(row.data["labels"][0]) is int
+        row.data = {"labels": [True]}
+        flag_modified(row, "data")
+        PayloadService()._save(session, row, AuditAction.UPDATED)
+        assert row.data["labels"][0] is True
