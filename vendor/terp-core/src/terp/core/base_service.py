@@ -35,7 +35,6 @@ from datetime import UTC, datetime
 from typing import Any, ClassVar, Generic, TypeVar
 
 from pydantic import BaseModel
-from sqlalchemy import JSON as SAJSON
 from sqlalchemy import ColumnElement, func
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import IntegrityError, StatementError
@@ -43,6 +42,7 @@ from sqlalchemy.orm.exc import StaleDataError as ORMStaleDataError
 from sqlmodel import Session, SQLModel, select
 from sqlmodel.sql.expression import SelectOfScalar
 
+from terp.core._orm_values import _json_column_fields, _preserve_json_types
 from terp.core._service_writes import _MANAGED_INPUT_COLUMNS
 from terp.core.audit import AuditAction, audit_actor_ctx, emit_audit
 from terp.core.base_models import (
@@ -93,29 +93,6 @@ UpdateT = TypeVar("UpdateT", bound=BaseUpdateSchema)
 def _utc_now() -> datetime:
     """UTC ``now`` provider for the soft-delete stamp (private so tests can patch it)."""
     return datetime.now(UTC)
-
-
-_JSON_COLUMN_FIELDS: dict[type, frozenset[str]] = {}
-
-
-def _json_column_fields(model: type[BaseTable]) -> frozenset[str]:
-    """Names of *model*'s columns whose database type is JSON (incl. Postgres JSONB).
-
-    The write chokepoint knows the column types, so it can dump exactly those fields
-    in pydantic's ``json`` mode instead of leaving every module to discover — from a
-    ``TypeError: Object of type UUID is not JSON serializable`` raised deep inside
-    ``flush`` — that a typed value object needs a ``PlainSerializer`` annotation.
-    """
-    cached = _JSON_COLUMN_FIELDS.get(model)
-    if cached is not None:
-        return cached
-    fields = frozenset(
-        column.key
-        for column in sa_inspect(model).columns
-        if isinstance(column.type, SAJSON)
-    )
-    _JSON_COLUMN_FIELDS[model] = fields
-    return fields
 
 
 # Every class-level declaration name any service base has claimed to consume (see
@@ -563,6 +540,8 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         with enter_write_unit() as outermost:
             try:
                 session.add(entity)
+                if state is not None and state.persistent:
+                    _preserve_json_types(state)
                 record_write(session, entity, "save")
                 held |= _personal_in_flight(session, entity)
                 emit_audit(

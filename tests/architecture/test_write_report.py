@@ -7,13 +7,12 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import JSON, Column, event
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import Field, Session, create_engine, select
 
 from terp.core import AuditAction, BaseSchema, BaseService, BaseTable, BaseUpdateSchema, testing
 from terp.core._commit_validation import UnvalidatedWriteError
 from terp.core._internal.session_guard import enter_write_unit, record_write
-from terp.core._write_journal import _snapshot
+from terp.core._orm_values import _snapshot
 from terp.core._write_report import WriteReport
 from terp.core.db import WriteGuardedSession
 
@@ -321,7 +320,15 @@ class ReportPayload(BaseTable, table=True):
     data: dict = Field(sa_column=Column(JSON, nullable=False))
 
 
-class PayloadService(BaseService[ReportPayload, BaseSchema, BaseUpdateSchema]):
+class PayloadCreate(BaseSchema):
+    data: dict
+
+
+class PayloadEdit(BaseUpdateSchema):
+    data: dict
+
+
+class PayloadService(BaseService[ReportPayload, PayloadCreate, PayloadEdit]):
     model = ReportPayload
 
 
@@ -333,15 +340,10 @@ def test_the_saved_json_distinguishes_numbers_from_booleans(engine, terp_validat
     ReportPayload.__table__.create(engine)
     with Session(engine) as session:
         with pytest.raises(UnvalidatedWriteError, match="ReportPayload .*data"):
-            ChangeLabel()._save(session, ReportPayload(data={"labels": [1]}), AuditAction.CREATED)
+            ChangeLabel().create(session, PayloadCreate(data={"labels": [1]}))
         assert session.exec(select(ReportPayload)).all() == []
 
-        row = PayloadService()._save(session, ReportPayload(data={"labels": [1]}), AuditAction.CREATED)
-        row.data = {"labels": [True]}
-        with pytest.raises(UnvalidatedWriteError, match="ReportPayload .*data"):
-            PayloadService()._save(session, row, AuditAction.UPDATED)
-        assert type(row.data["labels"][0]) is int
-        row.data = {"labels": [True]}
-        flag_modified(row, "data")
-        PayloadService()._save(session, row, AuditAction.UPDATED)
+        service = PayloadService()
+        row = service.create(session, PayloadCreate(data={"labels": [1]}))
+        row = service.update(session, row.id, PayloadEdit(version=row.version, data={"labels": [True]}))
         assert row.data["labels"][0] is True
