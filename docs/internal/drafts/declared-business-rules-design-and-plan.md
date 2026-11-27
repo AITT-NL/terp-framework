@@ -335,16 +335,22 @@ programs, so their shapes are published with it.
 
 ### 3.6 A legibility contract, not conformance
 
-Declaring rules is optional. An application that declares none passes every gate exactly as it
-does today; its rules are code, and a workbench says plainly that it cannot show them. The
-platform never decides whether a rule is right. It enforces truth about the application's own
-statement (ADR 0111 §1): a declared rule is enforced, pinned and shown.
+New applications and newly scaffolded modules default to declaration-first once phase 5
+ships. Authors declare row-local calculations, invariants and transitions wherever they
+fit. Custom decisions have an inventory entry pointing to their implementation. A team may
+explicitly choose selective declarations or code only. An upgrade preserves the behavior of
+existing modules. Every declared rule is enforced, pinned and shown (ADR 0111 §1).
+
+These checks run locally and apply to code from any authoring tool. For example, boot
+validation can name an unknown cost column before the service starts. If a margin formula
+omits a valid labour-cost column, an owner-confirmed example with a nonzero labour cost can
+catch the error, and the owner can read the formula change in `terp inspect`.
 
 Read against ADR 0006's quadruple:
 
-- the typed declaration with a safe default is `Rules`, whose absence changes nothing;
+- the typed declaration is `Rules`; a table without business rules needs no rule expression;
 - the fail-closed runtime half is §3.3, at the write, at the commit and at boot;
-- the escape is not to declare, which leaves the logic in code where it is today;
+- custom Python remains available, including as a tracked decision in a declaration-first module;
 - the build-time half is `no_manual_derived_writes`: a module that assigns a `Derived` column by
   hand contradicts its own declaration. Under ADR 0122 it is not added on analogy with
   `no_manual_actor_stamping`. It lands when an application shows a need for that diagnostic.
@@ -635,12 +641,19 @@ This phase establishes the transaction guarantees used by declared rules.
 
 ### Phase 5 — the decision set (the adoption proposal's third level)
 
-The [backend adoption proposal](backend-adoption-and-custom-code.md) lets a module name the
-decisions an owner reviews, including ones implemented in custom code. None of that was in a
-phase. That proposal's billing trial runs on a prototype. This phase builds the decision set for
-real, and only if the trial supports it.
+The [backend adoption proposal](backend-adoption-and-custom-code.md) makes declaration-first
+the default once modules can record, inspect and verify their business decisions. Use the
+billing trial to validate the authoring and review workflow before enabling the default.
 
 - [ ] The module-level declaration of a decision set, and its vocabulary in terp-spec.
+- [ ] Have the project template record the declaration-first default. Have the module
+      scaffold create the decision inventory and record its level. Support explicit selective
+      and code-only choices. Show the effective level in `terp inspect`.
+- [ ] Verify the default for a fresh project and for a module added to an older project.
+      Exercise a hand-written module inheriting a new project's default, a module with an
+      explicit override, and an existing module upgraded without adoption metadata.
+- [ ] Verify that a declaration-first inventory covers every declared rule. Removing the
+      quote margin from the inventory while its rule is active must report the missing ID.
 - [ ] `terp inspect` for a module that owns no tables, and decisions in `rules-surface.json`
       under the same ids as the schema view.
 - [ ] Custom entries: the named operation, the implementation symbol, and examples run through

@@ -1,7 +1,8 @@
 # Backend adoption and custom code
 
-**Proposed for discussion.** Code-only modules exist today. Selective business rules and
-declaration-first modules are proposals. The billing example below describes how they would work.
+**Proposed default.** Once the decision-set tooling ships, new applications and newly
+scaffolded backend modules start declaration-first. Existing modules keep their current
+behavior on upgrade. The billing example below illustrates the proposed inspection view.
 
 ## What a team chooses
 
@@ -14,9 +15,9 @@ architecture exemption. [Authoring model](../../decisions/0009-authoring-model-a
 
 | Adoption level | What the team authors | What the owner can inspect |
 | --- | --- | --- |
-| Code only | The team writes its domain logic in application modules. | The existing access and schema views. A pricing calculation in service code is reviewed in that code. |
+| **Declaration-first (default)** | List each business decision the owner needs to review. Use executable declarations wherever the rule language fits. Record custom Python under the same decision inventory. | The rule or custom implementation for each decision, its examples, and changes to what the owner can inspect. |
 | Selective business rules | Any mix of custom code and declared calculations, row constraints and status transitions. Terp enforces each declaration on the guarded write path. | Each declared rule, its inputs, and the changes to it. The view makes no completeness claim about the module. |
-| Declaration-first module | The team names a set of business decisions it wants an owner to review. For each it supplies either a rule or a reference to its custom implementation. | Every decision in that set, how it is implemented, and any change in what the owner can inspect. |
+| Code only | The team writes its domain logic in application modules. | The existing access and schema views. A pricing calculation in service code is reviewed in that code. |
 
 All three levels describe how a module is authored. None is a package profile. Every application
 runs the base profile at every level: core, auth, identity, users, groups, access and audit, the
@@ -26,10 +27,17 @@ set the template requires unconditionally.
 A team could use declaration-first billing, selective rules in purchasing, and a forecasting
 module written in Python in the same application. A declaration takes effect as soon as the
 application adopts it. A module-level setting cannot turn off a rule still attached to a table.
-Moving a module to code only therefore includes retiring or replacing its declarations. An
-application default can guide newly scaffolded modules. Existing modules opt in explicitly. A
-module's security obligations follow the operations it performs and the data it handles. Release
-assurance applies across all three choices.
+Moving a module to code only therefore includes retiring or replacing its declarations.
+
+A new project records declaration-first as its application default. A module inherits that
+choice unless it explicitly selects another level. The module scaffold records the chosen
+level and creates the decision inventory when declaration-first applies. In an older project
+with no recorded default, the scaffold also starts new modules declaration-first. Existing
+modules in that project retain their current behavior. A team can migrate them individually.
+Before changing an existing project's default, record explicit levels for modules that
+should keep their current level.
+The inspection view shows the effective level. Authorization, tenancy, audit and release
+assurance apply across all three choices.
 
 ## What declaration-first adds
 
@@ -48,6 +56,10 @@ question in the business-rules draft. A declared entry refers to the executable 
 custom entry names the public operation that uses it, the implementation symbol, and the worked
 examples that support its description. A rename preserves the decision ID. Duplicate IDs, two
 implementations claiming the same decision, and unresolved references are verification errors.
+In a declaration-first module, a missing inventory is a verification error. A new module
+with no business decisions can start with an explicit empty inventory. Each declared rule
+must appear by ID as the module grows. The owner reviews whether the inventory covers the
+business decisions made in custom code.
 
 The view says how far each line can be trusted:
 
@@ -166,8 +178,8 @@ with its own costs.
    its own author. Do not tell the owner which. Record how many the owner finds, and how fast,
    from the inspect output and from the code diff. Include a tableless module, a change to a
    custom helper, and complete removal of a module's review inventory. Exercise an existing
-   code-only app alongside it and complete the exit exercise. Use these results to decide
-   whether to adopt the third level and which checks should block a release. The trial runs on
-   a prototype of the decision set. Phase 5 of the plan builds it for real, and only if the
-   trial supports it.
+   code-only app alongside it and complete the exit exercise. Verify the default on a fresh
+   project, an explicit lower level, and an upgrade of an existing project. Use the trial to
+   refine diagnostics and decide which example checks should block a release before shipping
+   the declaration-first default in phase 5.
    [Business-rules implementation plan](declared-business-rules-design-and-plan.md#5-the-plan-in-phases-that-each-end-somewhere-shippable)
