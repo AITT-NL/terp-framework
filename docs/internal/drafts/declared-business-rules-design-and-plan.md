@@ -565,10 +565,11 @@ The owner confirmed these outcomes for ordinary service code and declared rules.
 
 This phase establishes the transaction guarantees used by declared rules.
 
-- [ ] Ship the prototyped `pytest --terp-report-writes` (§3.3). The observer reports the test, mapped
+- [x] Add `pytest --terp-report-writes` to the pytest plugin (§3.3). The observer reports the test, mapped
       model and changed columns for committed ORM writes outside a service save. It covers
       both plain SQLModel sessions and request sessions, including writes made by test
-      fixtures. Publishing the observer precedes enforcement.
+      fixtures. Its [transaction tests](../../../tests/architecture/test_write_report.py) cover
+      flushes, savepoints and rollback. Publishing the observer precedes enforcement.
 - [ ] Integrate the prototyped quote persistence checks on the request session. Check for one commit on create
       and partial update, then read the stored quote in a fresh session after each success
       or refusal.
