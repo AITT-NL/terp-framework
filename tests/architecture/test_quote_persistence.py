@@ -36,6 +36,7 @@ from terp.core import (
     enqueue,
 )
 from terp.core import db
+from terp.core._commit_validation import UnvalidatedWriteError
 from terp.core.db import WriteGuardedSession
 from terp.core.jobs import configure_jobs
 
@@ -53,7 +54,7 @@ from .quote_service_fixture import (
 
 
 @pytest.fixture
-def engine(terp_db_url, monkeypatch) -> Iterator[Engine]:
+def engine(terp_validate_writes, terp_db_url, monkeypatch) -> Iterator[Engine]:
     # The verification session must see what a new connection can read.
     engine = create_engine(terp_db_url, poolclass=NullPool)
     tables = [model.__table__ for model in (Quote, Grant, Group, GroupMember)]
@@ -188,11 +189,9 @@ def test_refused_create_commits_nothing(engine, service, changes, error):
 
 def test_historical_discount_can_be_left_alone_or_corrected(engine, service):
     # Existing data from before the ceiling, on its own connection before the request.
-    with Session(engine) as seed:
-        seed.add(
-            Quote(**_terms(discount_pct="30.00").model_dump(), margin=Decimal("40.10"))
-        )
-        seed.commit()
+    historical_terms = _terms(discount_pct="30.00").model_dump()
+    with engine.begin() as migration:
+        migration.execute(Quote.__table__.insert().values(**historical_terms, margin=Decimal("40.10")))
     historical = _stored(engine)
     assert historical is not None and historical.discount_pct == Decimal("30.00")
     edited = _edit(
@@ -249,9 +248,10 @@ def test_approving_reopening_and_ordering_use_their_respective_grants(engine, se
 
 
 @pytest.fixture
-def draft_for_repricing(engine, service, terp_events):
+def draft_for_repricing(engine, service, terp_events, terp_audit):
+    terp_audit(AuditPolicy.default(), sink=persist_audit)
     SQLModel.metadata.create_all(
-        engine, tables=[QuoteRevision.__table__, OutboxMessage.__table__]
+        engine, tables=[QuoteRevision.__table__, OutboxMessage.__table__, AuditEvent.__table__]
     )
     terp_events(EventCatalog([REPRICED]), dispatcher=outbox_event_dispatcher)
     return _create_draft(engine, service)
@@ -313,26 +313,38 @@ class _InterruptedRequest(RepricingService):
         _interrupt_after_flush(session)
 
 
+class _LateMarginRequest(RepricingService):
+    def _after_write(self, session, entity, action):
+        super()._after_write(session, entity, action)
+        entity.margin += Decimal("0.01")
+
+
 @contextmanager
-def _check_reprice(engine, draft, interrupt):
-    expectation = pytest.raises(RepriceInterrupted) if interrupt else nullcontext()
-    with _request(engine, commits=0 if interrupt else 1) as writer, expectation:
+def _check_reprice(engine, draft, outcome):
+    error = {"interrupt": RepriceInterrupted, "late-edit": UnvalidatedWriteError}.get(outcome)
+    expectation = pytest.raises(error) if error else nullcontext()
+    with _request(engine, commits=int(error is None)) as writer, expectation as caught:
         yield writer
-    if interrupt:
+    if outcome == "late-edit":
+        assert str(caught.value) == f"Unvalidated ORM write: {Quote.__module__}.Quote [margin]"
+    if error:
         assert _reprice_state(engine) == (draft.model_dump(), [], [])
     else:
         _assert_reprice_committed(engine, draft)
+    with Session(engine) as reader:
+        actions = sorted(reader.exec(select(AuditEvent.action)).all())
+        assert actions == (["created"] if error else ["created", "created", "updated"])
 
 
-@pytest.mark.parametrize("interrupt", [False, True], ids=["commit", "rollback"])
+@pytest.mark.parametrize("outcome", ["commit", "interrupt", "late-edit"])
 def test_request_commits_quote_revision_and_event_together(
-    engine, service, draft_for_repricing, interrupt
+    engine, service, draft_for_repricing, outcome
 ):
     draft = draft_for_repricing
-    repricer = (_InterruptedRequest if interrupt else RepricingService)(
-        service.principal
-    )
-    with _check_reprice(engine, draft, interrupt) as writer:
+    repricer = {
+        "commit": RepricingService, "interrupt": _InterruptedRequest, "late-edit": _LateMarginRequest,
+    }[outcome](service.principal)
+    with _check_reprice(engine, draft, outcome) as writer:
         repricer.update(
             writer,
             draft.id,
@@ -346,20 +358,22 @@ class RepriceCommand(BaseSchema):
     material_cost: Decimal
 
 
-@pytest.mark.parametrize("interrupt", [False, True], ids=["commit", "rollback"])
+@pytest.mark.parametrize("outcome", ["commit", "interrupt", "late-edit"])
 def test_job_owns_the_commit_after_the_nested_service_returns(
-    engine, service, draft_for_repricing, interrupt
+    engine, service, draft_for_repricing, outcome
 ):
     draft = draft_for_repricing
 
     def reprice(context, command):
-        RepricingService(service.principal).update(
+        quote = RepricingService(service.principal).update(
             context.session,
             command.quote_id,
             QuotePatch(version=command.version, material_cost=command.material_cost),
         )
-        if interrupt:
+        if outcome == "interrupt":
             _interrupt_after_flush(context.session)
+        if outcome == "late-edit":
+            quote.margin += Decimal("0.01")
 
     job = JobDefinition(
         name="quotes.reprice", payload_schema=RepriceCommand, handler=reprice
@@ -371,7 +385,7 @@ def test_job_owns_the_commit_after_the_nested_service_returns(
     command = RepriceCommand(
         quote_id=draft.id, version=draft.version, material_cost=Decimal("40.10")
     )
-    with _check_reprice(engine, draft, interrupt) as producer:
+    with _check_reprice(engine, draft, outcome) as producer:
         enqueue(producer, job=job, payload=command)
 
 
@@ -403,3 +417,27 @@ def test_competing_reprices_persist_only_the_winners_revision_and_event(
         # Both writers loaded the same version. The database rejected the losing update.
         assert isinstance(caught.value.__cause__, ORMStaleDataError)
     assert _reprice_state(engine) == committed
+
+
+def test_savepoint_release_defers_to_outer_validation_and_rollback(engine, service):
+    draft = _create_draft(engine, service)
+    with Session(engine) as session:
+        with session.begin_nested():
+            row = session.get(Quote, draft.id)
+            row.margin += Decimal("0.01")
+        # The first write occurred inside the savepoint. It must still be private.
+        assert _stored(engine).margin == draft.margin
+        with pytest.raises(UnvalidatedWriteError, match="Quote .*margin"):
+            session.commit()
+        row.margin = draft.margin
+        with pytest.raises(UnvalidatedWriteError):
+            session.commit()
+        session.rollback()
+        assert _stored(engine).model_dump() == draft.model_dump()
+        savepoint = session.begin_nested()
+        row.margin += Decimal("0.01")
+        session.flush()
+        savepoint.rollback()
+        session.commit()
+        service.update(session, draft.id, QuotePatch(version=draft.version, labour_cost=Decimal("20")))
+    assert _stored(engine).margin == Decimal("42.60")

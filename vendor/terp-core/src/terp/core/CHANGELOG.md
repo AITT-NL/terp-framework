@@ -14,9 +14,11 @@ decision, 0001 onwards.
 
 ### Added
 
-- `pytest --terp-report-writes` lists committed ORM changes made outside a service save,
-  grouped by test, mapped model and column. It covers plain SQLModel and request sessions
-  and includes writes from fixtures. See `terp guide testing` for the report’s scope.
+- `pytest --terp-report-writes` lists committed ORM changes outside an accepted service
+  or infrastructure write. `pytest --terp-validate-writes` refuses these commits. Request
+  the `terp_validate_writes` fixture to adopt the check one test at a time. Move ordinary
+  fixture writes through their service and save custom changes before commit. Reports name
+  models and columns. See `terp guide testing` and ADR 0015 for scope and migration.
 - **A refused start names every refusal at once** (ADR 0222). `create_app` asks its checks of
   an app's declarations together and raises what they found as one `BootError`: a public
   route's own policy, guarded module routes, declared operations, permissions, the shared

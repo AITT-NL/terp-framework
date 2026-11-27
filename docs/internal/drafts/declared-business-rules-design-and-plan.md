@@ -2,7 +2,7 @@
 
 > The declared-rules design is awaiting an ADR. This document also tracks implementation.
 >
-> Phase 2a tracks the pytest write observer and the executable quote persistence checks.
+> Phase 2a includes the pytest observer, opt-in ORM commit validation and quote persistence checks.
 >
 > The [backend adoption proposal](backend-adoption-and-custom-code.md) describes how teams can
 > mix these rules with custom Python and choose which decisions an owner reviews.
@@ -586,7 +586,7 @@ The owner confirmed these outcomes for ordinary service code and declared rules.
 This phase establishes the transaction guarantees used by declared rules.
 
 - [x] Add `pytest --terp-report-writes` to the pytest plugin (§3.3). The observer reports the test, mapped
-      model and changed columns for committed ORM writes outside a service save. It covers
+      model and changed columns for committed ORM writes outside an accepted write. It covers
       both plain SQLModel sessions and request sessions, including writes made by test
       fixtures. Its [transaction tests](../../../tests/architecture/test_write_report.py) cover
       flushes, savepoints and rollback. Publishing the observer precedes enforcement.
@@ -601,13 +601,14 @@ This phase establishes the transaction guarantees used by declared rules.
       competing updates on SQLite and PostgreSQL.
 - [x] Inventory [framework-managed writers and their participation in commit validation](commit-validation-writers.md).
 
-- [ ] The per-row validated snapshot and the check before the commit of every write unit, for
-      every table: in a request, in a job, and on a plain session a test hands to a service
-      (§3.3).
+- [x] Implement the per-row accepted snapshot and outer commit check for ORM writes (§3.3).
+      Exercise it with `pytest --terp-validate-writes` or the `terp_validate_writes` fixture
+      on request, job and plain SQLModel sessions. The quote cases include a late edit after
+      repricing and verify the quote, revision, audit and event from a fresh connection.
 - [ ] The release that refuses under test and in local development and warns elsewhere, then the
       release that refuses everywhere.
-- [ ] Update ADR 0015 with the transaction contract and publish migration guidance in the
-      changelog before enabling enforcement.
+- [x] Amend ADR 0015 with the ORM transaction contract and publish migration guidance for
+      opting into the check under pytest.
 
 - [ ] The example app's and the template's suites run against it, with what broke recorded.
 

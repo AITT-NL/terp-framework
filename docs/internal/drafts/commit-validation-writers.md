@@ -1,10 +1,10 @@
 # Who owns each database write?
 
-Phase 2a will validate the rows a service transaction commits. A quote update can legitimately
+Phase 2a validates the ORM rows a service transaction commits in opted-in tests. A quote update can legitimately
 write the quote, an audit entry and an outbox event together. Each writer can account for its
 own change. The transaction owner must still check the complete unit before committing it.
-This inventory covers the Python backend shipped by Terp and describes the proposed
-participation contract. The pytest observer already reports ORM writes. [Declared rules design](declared-business-rules-design-and-plan.md)
+This inventory covers the Python backend shipped by Terp and describes each writer’s
+participation. The pytest report and validator use the same accepted states. [Declared rules design](declared-business-rules-design-and-plan.md)
 
 ## Writers and transaction ownership
 
@@ -45,7 +45,8 @@ even though client input cannot set it. [Managed input columns](../../../package
 
 ## What the observer saw
 
-Running `pytest --terp-report-writes apps/example/tests` on SQLite passed 282 tests and
+Before the infrastructure writers recorded their own operations, running
+`pytest --terp-report-writes apps/example/tests` on SQLite passed 282 tests and
 observed 769 committed ORM write transactions. Of the 633 transactions with findings, 632
 had findings confined to framework models. One included a journal row inserted as test setup.
 The counts below are transactions with a finding for that model. A transaction can appear
@@ -65,10 +66,24 @@ write site determines which operation owns a row. For example, the shared user f
 inserts a user directly, while application user changes normally use a service. SQL
 statements, database referential actions and maintenance connections need their own evidence.
 
-For the next implementation slice, run the commit validator against the
-[quote transaction cases](../../../tests/architecture/test_quote_persistence.py). Check that
-a quote, its revision and its event commit together and leave their prior state intact
-after a refusal. Also exercise an independently durable journal and a conditional store
-write using the [webhook](../../../tests/architecture/test_webhooks.py),
+With the infrastructure writers participating, the same 282 example tests passed and
+the report counted 769 ORM write transactions. Of those, 136 still had findings.
+
+| Remaining operation | Transactions |
+| --- | ---: |
+| User insert | 124 |
+| User active-status change | 6 |
+| Refresh-token expiry change | 5 |
+| Journal fixture insert | 1 |
+
+The five expiry changes set up expired test data. No audit, outbox or webhook row
+appeared in the new findings. The remaining operations identify where to work before
+turning on refusal throughout the example suite.
+
+The [quote transaction cases](../../../tests/architecture/test_quote_persistence.py) use the validator
+on SQLite and PostgreSQL. A request or job that changes the accepted margin after the revision
+and event were staged rolls back those rows and its audit entries. The
+[webhook journal](../../../tests/architecture/test_webhooks.py),
 [sync custody](../../../tests/architecture/test_sync_custody.py) and
-[schedule](../../../tests/architecture/test_schedule_misfire.py) suites.
+[scheduler](../../../tests/architecture/test_scheduler_adapters.py) tests also exercise
+validation with an independently durable journal and with conditional store updates.

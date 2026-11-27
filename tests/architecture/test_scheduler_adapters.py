@@ -238,7 +238,9 @@ def test_apscheduler_runs_a_heartbeat_on_its_own_engine(session_factory) -> None
     assert beats == [1]
 
 
-def test_a_restarted_apscheduler_applies_each_schedule_s_misfire_policy(outbox_db) -> None:
+def test_a_restarted_apscheduler_applies_each_schedule_s_misfire_policy(
+    outbox_db, terp_validate_writes,
+) -> None:
     """ADR 0191's restart, on the adapter `terp jobs scheduler` runs: one scheduler fires
     at nine and stops; another, sharing only the database, starts at half past eleven."""
     job = _job()

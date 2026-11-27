@@ -29,7 +29,7 @@ from terp.capabilities.auth import (
     refresh_token_digests,
 )
 from terp.core import AuthenticationError, settings
-from terp.core._internal.session_guard import enter_write_unit  # arch-allow-no-internal-imports: rotating refresh-token session infra must ride the audited write unit; the scope primitive is _internal so app modules cannot open it
+from terp.core._internal.session_guard import enter_write_unit, record_write  # arch-allow-no-internal-imports: rotating refresh-token session infra must ride the audited write unit; the scope primitive is _internal so app modules cannot open it
 
 from terp.capabilities.identity.models import RefreshToken, User
 
@@ -129,6 +129,7 @@ class RefreshTokenService:
             if row.used_at is None:
                 row.used_at = now
                 session.add(row)  # arch-allow-mutations-emit-audit: refresh-token session infra (like the outbox) rides enter_write_unit, not BaseService — it is not a BaseTable domain aggregate
+                record_write(session, row, "fields", "used_at")
             new_raw = self._mint(
                 session, row.user_id, row.family_id, _as_utc(row.family_expires_at), now,
                 token_version,
@@ -186,6 +187,7 @@ class RefreshTokenService:
             ).all()
             for row in rows:
                 session.delete(row)  # arch-allow-mutations-emit-audit: retention purge of dead refresh-token session infra rows; rides enter_write_unit, not BaseService
+                record_write(session, row, "remove")
             self._commit_if_outermost(session, outermost)
         return len(rows)
 
@@ -211,16 +213,16 @@ class RefreshTokenService:
         expires_at = min(
             now + timedelta(seconds=settings.REFRESH_TOKEN_TTL_SECONDS), family_expires_at
         )
-        session.add(  # arch-allow-mutations-emit-audit: refresh-token session infra (like the outbox) rides enter_write_unit, not BaseService — it is not a BaseTable domain aggregate
-            RefreshToken(
-                user_id=user_id,
-                token_version=token_version,
-                family_id=family_id,
-                token_hash=refresh_token_digest(raw),
-                expires_at=expires_at,
-                family_expires_at=family_expires_at,
-            )
+        token = RefreshToken(
+            user_id=user_id,
+            token_version=token_version,
+            family_id=family_id,
+            token_hash=refresh_token_digest(raw),
+            expires_at=expires_at,
+            family_expires_at=family_expires_at,
         )
+        session.add(token)  # arch-allow-mutations-emit-audit: refresh-token session infra (like the outbox) rides enter_write_unit, not BaseService — it is not a BaseTable domain aggregate
+        record_write(session, token, "append")
         return raw
 
     @staticmethod
@@ -247,6 +249,7 @@ class RefreshTokenService:
         """Stamp *rows* revoked at *now* and stage them for the enclosing write unit."""
         for row in rows:
             row.revoked_at = now
+            record_write(session, row, "fields", "revoked_at")
         session.add_all(rows)  # arch-allow-mutations-emit-audit: refresh-token session infra revocation write; rides enter_write_unit, not BaseService
 
     @staticmethod

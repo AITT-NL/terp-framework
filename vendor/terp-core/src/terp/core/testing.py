@@ -97,6 +97,7 @@ __all__ = [
     "terp_pg_url",
     "terp_runtime_isolation",
     "terp_signing_key",
+    "terp_validate_writes",
 ]
 
 #: Where the PostgreSQL lane finds its server. Unset, the lane skips — an offline run
@@ -119,6 +120,7 @@ TERP_REQUIRE_POSTGRES_LANE_ENV = "TERP_REQUIRE_POSTGRES_LANE"
 # The query-counting helpers moved to `terp.core._query_count` when this module
 # crossed the 500-line cap; re-exported here because `terp.core.testing` is the
 # import path a test already knows and the split is an internal one.
+from terp.core._testing_writes import add_write_options, pytest_configure as pytest_configure, terp_validate_writes
 from terp.core._query_count import QueryLog, assert_max_queries, count_queries
 
 # The seed checksum lives in its own module for the same reason; it is a test helper
@@ -175,7 +177,6 @@ _STRICT_HELP = (
 )
 
 _REPORT_FLAG = "--terp-report-runtime-installs"
-_WRITE_REPORT_FLAG = "--terp-report-writes"
 _REPORT_HELP = (
     "After the run, report which tests installed which Terp runtime seam. Answers the "
     "question strict isolation cannot: a seam installed by every test in a package is "
@@ -191,19 +192,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addini(_STRICT_INI, help=_STRICT_HELP, type="bool", default=False)
     parser.addoption(_STRICT_FLAG, action="store_true", default=False, help=_STRICT_HELP)
     parser.addoption(_REPORT_FLAG, action="store_true", default=False, help=_REPORT_HELP)
-    parser.addoption(
-        _WRITE_REPORT_FLAG, action="store_true",
-        help="Report committed ORM rows and columns changed outside a Terp service save.",
-    )
-
-
-def pytest_configure(config: pytest.Config) -> None:
-    if config.getoption(_WRITE_REPORT_FLAG):
-        from terp.core._write_report import WriteReport
-
-        report = WriteReport()
-        config.pluginmanager.register(report)
-        config.add_cleanup(report.close)
+    add_write_options(parser)
 
 
 def _strict(config: pytest.Config) -> bool:

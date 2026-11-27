@@ -51,7 +51,7 @@ from sqlmodel import Session, col, select
 # scope kept under _internal so an app module cannot open it to wave a write past the
 # audit guard. The capability legitimately reaches it, like the audit sink reaches the
 # base of the write stack.
-from terp.core._internal.session_guard import enter_write_unit  # arch-allow-no-internal-imports: durable delivery infra must ride the audited write unit to append atomically with the business write; the scope primitive is _internal so app modules cannot open it
+from terp.core._internal.session_guard import enter_write_unit, record_write  # arch-allow-no-internal-imports: durable delivery infra must ride the audited write unit to append atomically with the business write; the scope primitive is _internal so app modules cannot open it
 
 from terp.capabilities.outbox.models import (
     STATUS_DEAD_LETTERED,
@@ -111,6 +111,7 @@ def append(session: Session, message: OutboxMessage) -> OutboxMessage:
     message.assert_within_column_bounds()
     with enter_write_unit() as outermost:
         session.add(message)  # arch-allow-mutations-emit-audit: append-only delivery infra at the base of the write stack (like the audit sink); OutboxMessage is not a BaseTable, so it cannot route through BaseService
+        record_write(session, message, "append")
         if outermost:
             session.commit()  # arch-allow-mutations-emit-audit: a standalone enqueue is its own durable unit; a nested enqueue defers to the outer BaseService commit
     return message
@@ -238,9 +239,9 @@ def settle_slot(
         if expected_fires is None:
             moved = session.get(ScheduleFire, name) is None
             if moved:
-                session.add(  # arch-allow-mutations-emit-audit: the scheduler's record of a settled slot, in the write unit of the outbox row it records - delivery bookkeeping, not a business mutation
-                    ScheduleFire(name=name, slot=slot, outcome=outcome, fires=1, recorded_at=now)
-                )
+                fire = ScheduleFire(name=name, slot=slot, outcome=outcome, fires=1, recorded_at=now)
+                session.add(fire)  # arch-allow-mutations-emit-audit: the scheduler's record of a settled slot, in the write unit of the outbox row it records - delivery bookkeeping, not a business mutation
+                record_write(session, fire, "append")
                 session.flush()  # arch-allow-mutations-emit-audit: surface a second scheduler's insert of the same record here, inside the unit, rather than at the commit
         else:
             result = session.execute(  # arch-allow-mutations-emit-audit: the compare-and-set that moves a schedule's record, in the write unit of the outbox row it records - delivery bookkeeping, not a business mutation

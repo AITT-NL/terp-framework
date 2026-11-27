@@ -46,7 +46,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Iterator
 from contextvars import ContextVar
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import Select, event
 from sqlalchemy import inspect as sa_inspect
@@ -54,6 +54,7 @@ from sqlalchemy.orm import ORMExecuteState, with_loader_criteria
 from sqlalchemy.sql.util import ClauseAdapter
 from sqlmodel import Session, SQLModel, select
 
+from terp.core._service_writes import _write_observers
 from terp.core.scoping import (
     _core_only_reads,
     _entities_in,
@@ -61,6 +62,16 @@ from terp.core.scoping import (
     _writes,
     apply_row_scope,
 )
+
+
+def record_write(
+    session: Session, entity: object, operation: Literal["save", "remove", "append", "fields"],
+    *fields: str,
+) -> None:
+    """Capture the row and operation accepted by the writer in this transaction."""
+    for observe in _write_observers:
+        observe(session, entity, operation, fields)
+
 
 # Dynamic-scope flag: True only while BaseService._save / _remove are persisting.
 # A ContextVar (not a session attribute) so the scope follows the call stack — the
@@ -467,4 +478,5 @@ __all__ = [
     "enter_write_unit",
     "forbid_session_writes",
     "read_only_request",
+    "record_write",
 ]

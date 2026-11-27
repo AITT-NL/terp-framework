@@ -43,7 +43,7 @@ from sqlalchemy.orm.exc import StaleDataError as ORMStaleDataError
 from sqlmodel import Session, SQLModel, select
 from sqlmodel.sql.expression import SelectOfScalar
 
-from terp.core._service_writes import _MANAGED_INPUT_COLUMNS, _observe_service_write
+from terp.core._service_writes import _MANAGED_INPUT_COLUMNS
 from terp.core.audit import AuditAction, audit_actor_ctx, emit_audit
 from terp.core.base_models import (
     ActorStampedMixin,
@@ -82,6 +82,7 @@ from terp.core.scoping import apply_row_scope
 from terp.core._internal.session_guard import (
     enter_write_unit,
     forbid_session_writes,
+    record_write,
 )
 
 ModelT = TypeVar("ModelT", bound=BaseTable)
@@ -547,8 +548,7 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
             try:
                 self._authorize_object_write(entity, action)
             except PermissionDeniedError:
-                # A bespoke service may have changed the entity before _save. A
-                # caught denial must not leave those changes for another commit.
+                # Expire pending edits by a custom service when authorization fails.
                 if state is not None and state.persistent and state.session is session:
                     session.expire(entity)
                 raise
@@ -563,7 +563,7 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         with enter_write_unit() as outermost:
             try:
                 session.add(entity)
-                _observe_service_write(session, entity, "save")
+                record_write(session, entity, "save")
                 held |= _personal_in_flight(session, entity)
                 emit_audit(
                     session,
@@ -633,7 +633,7 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
                 with forbid_session_writes():
                     self._after_write(session, entity, AuditAction.DELETED)
                 session.delete(entity)
-                _observe_service_write(session, entity, "remove")
+                record_write(session, entity, "remove")
                 held |= _personal_in_flight(session, entity)
                 if not outermost:
                     # Nested delete joins the outermost unit; flush now so

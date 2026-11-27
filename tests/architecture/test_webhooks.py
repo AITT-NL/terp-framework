@@ -480,7 +480,9 @@ def test_signed_delivery_metadata_cannot_be_relabelled(engine: Engine, header: s
     assert not hmac.compare_digest(signature, receiver_signature(headers, body + b" "))
 
 
-def test_failed_job_journals_delivery_without_committing_its_business_write(engine: Engine) -> None:
+def test_failed_job_journals_delivery_without_committing_its_business_write(
+    engine: Engine, terp_signing_key, terp_validate_writes,
+) -> None:
     from terp.core import BaseService
     from terp.core._internal.job_runtime import run_job
     from terp.capabilities.webhooks import deliver_webhook, WebhookDeliveryError
@@ -499,7 +501,12 @@ def test_failed_job_journals_delivery_without_committing_its_business_write(engi
     )
     configure_jobs(JobCatalog([job]))
     set_webhook_sender(_FakeSender(status_code=503))
-    sub_id = _add_subscription(engine, event=_DOC_CREATED.name)
+    with Session(engine) as setup:
+        sub_id = WebhookSubscriptionService().create(
+            setup, WebhookSubscriptionCreate(
+                target_url="https://8.8.8.8/hook", secret=_SECRET, event=_DOC_CREATED.name,
+            ),
+        ).id
     payload = WebhookDeliveryPayload(
         subscription_id=sub_id, delivery_id=uuid.uuid4(), event=_DOC_CREATED.name,
     )

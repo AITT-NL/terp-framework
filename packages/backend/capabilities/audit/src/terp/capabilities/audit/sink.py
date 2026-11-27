@@ -16,6 +16,7 @@ from __future__ import annotations
 from sqlmodel import Session
 
 from terp.core import AuditPolicy, AuditRecord, DurableAuditSink
+from terp.core._internal.session_guard import record_write  # arch-allow-no-internal-imports: register the audit store's exact ORM write
 
 from terp.capabilities.audit.models import AuditEvent
 
@@ -43,6 +44,7 @@ def _persist_audit(session: Session, record: AuditRecord, policy: AuditPolicy) -
         payload=dict(record.payload) if record.payload else None,
     )
     session.add(event)  # arch-allow-mutations-emit-audit: this IS the durable audit sink, the base of the write stack — it cannot route through BaseService
+    record_write(session, event, "append")
 
 
 persist_audit = DurableAuditSink("terp.capabilities.audit.persist_audit", _persist_audit)

@@ -112,3 +112,29 @@ early-warning.
   guard (H1), the non-overridable `base_query` scope predicate (H2), the
   `response_model`-not-a-table rule (H3), and first-class
   `create_app(..., middleware=/tenant_resolver=)` plus tenant-aware login (H7/H8).
+
+## Amendment — accepted ORM writes at the outer commit
+
+A service records the application-managed values it accepts for each row at `_save`,
+and its intended deletion at `_remove`. Custom Python services use the same methods.
+The durable audit sink, outbox, schedule ledger, leases, identity, sync and webhook
+stores record their own ORM operations. An append accounts for a new instance. A
+field update accounts for the named columns on the affected instance.
+
+The pytest plugin exposes this contract through `--terp-report-writes` and
+`--terp-validate-writes`. The `terp_validate_writes` fixture enables validation for a
+single test and the fixtures that depend on it. Install it before opening the session.
+The validator follows flushes on plain SQLModel sessions and request and job sessions.
+A savepoint release contributes to the outer journal. A rollback discards its journal.
+With SQLite's legacy transaction mode, starting a savepoint also starts the physical
+parent transaction when needed.
+
+At outer commit the validator compares the actual ORM writes with the last accepted
+values. A mismatch raises `UnvalidatedWriteError` with model and column names.
+The service or job owner rolls back the entire unit. A caller managing its own
+session must roll it back after a refusal. The refused transaction cannot be retried.
+Statement-based store operations, database referential actions and maintenance
+connections follow their existing contracts. See the [writer inventory](../internal/drafts/commit-validation-writers.md).
+
+This release makes validation available explicitly under pytest. The [rollout plan](../internal/drafts/declared-business-rules-design-and-plan.md#phase-2a--the-write-path-holds-every-row-it-commits)
+tracks compatibility and the later test, development and production defaults.
