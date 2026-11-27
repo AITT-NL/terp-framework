@@ -1935,6 +1935,54 @@ Theming and branding (design tokens, palettes, the brand mark)
   or the band keeps the shipped blue; a theme that wants a calmer band moves this one token
   and the tint the hub tiles share stays where it is.
 
+- TYPE AND SHAPE CARRY AN IDENTITY, not only colour (ADR 0223). They have roles, each
+  defaulting to the scale step its readers used before, so an app that sets none looks
+  exactly as it did:
+
+      --font-family-heading   the face of every title: a page, a section, a card, a
+                              dialog, the app's own name in the shell
+      --font-weight-heading   their weight (the sign-in title and an access screen's
+                              section titles keep their bold)
+      --radius-control        what a person presses or types into: buttons, fields, the
+                              navigation's items, the menu trigger
+      --radius-container      what holds content: cards, the table's frame, charts,
+                              figures, dialogs, popovers
+
+  Set a role to give its readers a value of their own. Move the step under it
+  (`--radius-md`, `--radius-lg`, `--font-family-sans`, `--font-weight-semibold`) to move
+  everything that reads that step, the roles included for as long as you leave them unset:
+
+      :root {
+        --font-family-heading: ui-serif, Georgia, "Times New Roman", serif;
+        --font-weight-heading: 500;
+        --radius-control: var(--radius-full);   /* pill-shaped buttons and fields */
+        --radius-container: var(--radius-sm);   /* nearly square cards */
+      }
+
+  A component of your own takes the same roles in its CSS Module (`font-family:
+  var(--font-family-heading)` on its title, `border-radius: var(--radius-container)` on
+  its frame), so it follows a house style the way the framework's own components do.
+
+  A FACE is a font stack. One the platform already has (`ui-serif`, `ui-rounded`,
+  `Georgia`, `system-ui`) needs nothing loaded. YOUR OWN TYPEFACE is a file the app serves
+  itself: put the .woff2 in `frontend/public/fonts/` and declare it in theme.css, above
+  the role that names it:
+
+      @font-face {
+        font-family: "Brand Sans";
+        src: url("/fonts/brand-sans.woff2") format("woff2");
+        font-weight: 400 700;
+        font-display: swap;
+      }
+      :root { --font-family-heading: "Brand Sans", var(--font-family-sans); }
+
+  The app's security policy admits fonts from its own origin only (`font-src 'self'`),
+  so a font service's stylesheet or file URL is refused in the browser: download the
+  file, and check that its licence lets you ship it. A house style can name a family but
+  never load one, because its values refuse `url(`; the file is each app's own reviewed
+  change. A lighter heading weight reads less firmly at small sizes and no contrast
+  pairing records that, so look at the headings in every shipped theme after changing it.
+
 - TO SHIP ON A PALETTE OTHER THAN midday, name it in the layout declaration — never by
   restyling one palette to imitate another:
 

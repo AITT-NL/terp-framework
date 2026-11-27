@@ -14,6 +14,19 @@ decision, 0001 onwards.
 
 ### Added
 
+- **Type and shape have roles, as colour does** (ADR 0223). `@terpjs/contract` publishes
+  `--font-family-heading`, `--font-weight-heading`, `--radius-control` and `--radius-container`,
+  and react-core reads them: every title takes the heading face and weight, every control a
+  person presses or types into the control corner, and every container that holds content the
+  container corner. Each defaults to a reference to the step it replaced (`var(--radius-md)` and
+  so on), so nothing renders differently, a house style that moved a step keeps moving
+  everything it moved, and setting a role in `house-style.css` or `theme.css` separates its
+  readers from the scale: a serif heading face, pill-shaped buttons beside square cards. The
+  token manifest now publishes a reference as the sheet declares it (`var(--radius-md)`), never
+  in the token source's own syntax. `terp guide theming` names the roles and the one way to ship
+  an app's own typeface under its `font-src 'self'` policy: a `.woff2` in
+  `frontend/public/fonts/` and an `@font-face` in `theme.css`.
+
 - `pytest --terp-report-writes` lists committed ORM changes made outside a service save,
   grouped by test, mapped model and column. It covers plain SQLModel and request sessions
   and includes writes from fixtures. See `terp guide testing` for the report’s scope.

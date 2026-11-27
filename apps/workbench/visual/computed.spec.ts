@@ -1973,3 +1973,98 @@ test("a chart's hidden table takes no room on the page", async ({ page }) => {
   }
   expect(heights.before).toBe(heights.after);
 });
+
+/** The resolved type and corner of the first element matching each selector. */
+async function typeAndCorners(page: import("@playwright/test").Page, selectors: string[]) {
+  return page.evaluate((list) => {
+    const out: Record<string, { family: string; weight: string; corner: string } | null> = {};
+    for (const css of list) {
+      const element = document.querySelector(css);
+      if (element === null) {
+        out[css] = null;
+        continue;
+      }
+      const style = getComputedStyle(element);
+      out[css] = {
+        family: style.fontFamily,
+        weight: style.fontWeight,
+        corner: style.borderTopLeftRadius,
+      };
+    }
+    return out;
+  }, selectors);
+}
+
+test("the type and shape roles resolve to the scale until a theme sets them, and each moves only its own readers (ADR 0223)", async ({
+  page,
+}) => {
+  // A role is a reference to a scale step, so this is the one place where "nothing renders
+  // differently" and "setting it reaches its readers" can both be read off the values the
+  // browser resolved rather than off the sheet's text. A role written as a value rather than a
+  // reference, a reader left on the step, or a role read by something it was not given to would
+  // each leave the baselines unchanged and show here.
+  //
+  // The overrides go on <html> as inline custom properties, which outrank the token sheet's
+  // :root exactly as an app's theme.css or a house style does.
+  await page.goto("/?theme=midday");
+  await page.locator("[data-specimen]").first().waitFor({ state: "visible" });
+  const button = '[data-terp="button"]';
+  const field = '[data-terp="input"]';
+  const card = '[data-terp="card"]';
+  const title = '[data-terp="card-title"]';
+  const heading = '[data-terp="heading"]';
+  const body = '[data-terp="text"]';
+  const badge = '[data-terp="badge"]';
+  const alert = '[data-terp="alert"]';
+  const watched = [button, field, card, title, heading, body, badge, alert];
+
+  const set = (properties: Record<string, string>) =>
+    page.evaluate((entries) => {
+      const root = document.documentElement;
+      for (const name of ["--radius-control", "--radius-container", "--font-family-heading", "--font-weight-heading", "--radius-md"]) {
+        root.style.removeProperty(name);
+      }
+      for (const [name, value] of Object.entries(entries)) root.style.setProperty(name, value);
+    }, properties);
+
+  // At rest: every reader resolves the step it read before the roles existed.
+  const rest = await typeAndCorners(page, watched);
+  for (const css of watched) expect(rest[css], `${css} is on the catalog page`).not.toBeNull();
+  expect(rest[button]!.corner).toBe("8px");
+  expect(rest[field]!.corner).toBe("8px");
+  expect(rest[card]!.corner).toBe("12px");
+  expect(rest[badge]!.corner).toBe("12px");
+  expect(rest[alert]!.corner).toBe("8px");
+  expect(rest[title]!.family).toBe(rest[body]!.family);
+  expect(rest[heading]!.family).toBe(rest[body]!.family);
+  expect(rest[title]!.weight).toBe("600");
+  expect(rest[heading]!.weight).toBe("600");
+
+  // Each role set: its readers move, and the scale's other readers and the body text do not.
+  await set({
+    "--radius-control": "999px",
+    "--radius-container": "0px",
+    "--font-family-heading": "serif",
+    "--font-weight-heading": "400",
+  });
+  const roles = await typeAndCorners(page, watched);
+  expect(roles[button]!.corner).toBe("999px");
+  expect(roles[field]!.corner).toBe("999px");
+  expect(roles[card]!.corner).toBe("0px");
+  expect(roles[badge]!.corner, "a badge is a label, and keeps its step").toBe("12px");
+  expect(roles[alert]!.corner, "a message keeps its step").toBe("8px");
+  expect(roles[title]!.family).toBe("serif");
+  expect(roles[heading]!.family).toBe("serif");
+  expect(roles[title]!.weight).toBe("400");
+  expect(roles[body]!.family, "body text keeps the body face").toBe(rest[body]!.family);
+  expect(roles[button]!.weight, "a control keeps its own weight").toBe(rest[button]!.weight);
+
+  // And with no role set, moving a step still moves the role that refers to it, at the root,
+  // which is where a house style declares it: a style written before the roles existed keeps
+  // working.
+  await set({ "--radius-md": "3px" });
+  const scale = await typeAndCorners(page, watched);
+  expect(scale[button]!.corner).toBe("3px");
+  expect(scale[alert]!.corner).toBe("3px");
+  expect(scale[card]!.corner).toBe("12px");
+});

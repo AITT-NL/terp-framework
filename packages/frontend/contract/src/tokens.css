@@ -142,6 +142,10 @@
   --font-letter-spacing-tight: -0.02em;
   --font-letter-spacing-base: 0;
   --font-letter-spacing-wide: 0.08em;
+  --radius-control: var(--radius-md);
+  --radius-container: var(--radius-lg);
+  --font-family-heading: var(--font-family-sans);
+  --font-weight-heading: var(--font-weight-semibold);
 }
 
 /* Twilight: an explicit choice via <html data-theme="twilight">.

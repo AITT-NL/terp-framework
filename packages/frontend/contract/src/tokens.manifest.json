@@ -916,6 +916,22 @@
       "themeable": false
     },
     {
+      "name": "--radius-control",
+      "category": "radius",
+      "values": {
+        "midday": "var(--radius-md)"
+      },
+      "themeable": false
+    },
+    {
+      "name": "--radius-container",
+      "category": "radius",
+      "values": {
+        "midday": "var(--radius-lg)"
+      },
+      "themeable": false
+    },
+    {
       "name": "--border-width-thin",
       "category": "borderWidth",
       "values": {
@@ -1156,6 +1172,14 @@
       "themeable": false
     },
     {
+      "name": "--font-family-heading",
+      "category": "font",
+      "values": {
+        "midday": "var(--font-family-sans)"
+      },
+      "themeable": false
+    },
+    {
       "name": "--font-size-xs",
       "category": "font",
       "values": {
@@ -1248,6 +1272,14 @@
       "category": "font",
       "values": {
         "midday": "700"
+      },
+      "themeable": false
+    },
+    {
+      "name": "--font-weight-heading",
+      "category": "font",
+      "values": {
+        "midday": "var(--font-weight-semibold)"
       },
       "themeable": false
     },

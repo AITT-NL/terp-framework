@@ -408,6 +408,26 @@ def test_the_theming_topic_says_the_backgrounds_move_as_a_set() -> None:
         assert token in text, f"terp guide theming must name {token} with its neighbours"
 
 
+def test_the_theming_topic_names_the_type_and_shape_roles() -> None:
+    """ADR 0223's roles are only a capability if the copy an agent reads says they exist.
+
+    The token manifest lists them, but nothing tells an author that a heading face or a
+    control's corner is a role rather than a step, and the guide is where an agent looks
+    when asked to make an app look like its organisation. The font recipe is held too: the
+    policy refuses a font from another origin, so the one route that works has to be the one
+    written down. Mutation: drop the paragraph, and this fails."""
+    text = guide("theming")
+    for token in (
+        "--font-family-heading",
+        "--font-weight-heading",
+        "--radius-control",
+        "--radius-container",
+    ):
+        assert token in text, f"terp guide theming must name the role {token}"
+    assert "frontend/public/fonts/" in text, "the guide must say where an app's own face lives"
+    assert "font-src 'self'" in text, "the guide must say why a font service's URL is refused"
+
+
 def test_the_theming_topic_names_every_palette_that_ships() -> None:
     """Asserted against THEMES, so a new palette is a failing test rather than a
     recipe that quietly stops listing it."""

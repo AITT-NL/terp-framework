@@ -2634,7 +2634,8 @@ describe("a workspace fills the height the shell leaves it (ADR 0179)", () => {
     const host = ruleBody('[data-terp="canvas-host"]');
     expect(host).toContain("background: var(--color-bg-surface)");
     expect(host).toContain("border: 1px solid var(--color-neutral-200)");
-    expect(host).toContain("border-radius: var(--radius-lg)");
+    // A container's corner (ADR 0223), which defaults to the lg step it read before.
+    expect(host).toContain("border-radius: var(--radius-container)");
     expect(host).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(/i);
   });
 

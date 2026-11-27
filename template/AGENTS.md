@@ -118,6 +118,10 @@ standard composition using the same content before making it the app's default.
    the language switch. To ship on a palette other than the default, name it as
    `defaultTheme` in `frontend/layout-contract.json` — do not restyle to imitate one, and
    do not also pass the bootstrap option, which is refused as one fact declared twice.
+   Type and shape have roles as colour does: a heading's face and weight and the corners
+   of controls and of containers are `--font-family-heading`, `--font-weight-heading`,
+   `--radius-control` and `--radius-container`, set in `frontend/src/theme.css`
+   (`uv run terp guide theming`).
 
 There are no lint modes: every violation is an error. The one governed opt-out is a
 justified `// terp-allow-<rule>: <reason>` marker on (or above) the violating line, whose

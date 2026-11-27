@@ -452,6 +452,13 @@ sentence some readers cannot read.
     name — `[data-theme="dark"]` no longer matches what the toggle writes). Never inline
     colours. An ink you move must still clear the WCAG ratio and the APCA floor of every
     surface it sits on; the token manifest publishes both (`uv run terp guide theming`).
+  - **Type and shape are roles, not only colour.** A heading's face and weight and the
+    corners of controls and of containers are `--font-family-heading`,
+    `--font-weight-heading`, `--radius-control` and `--radius-container`: set them in
+    `theme.css` to make the app look like its organisation, and read them in a component's
+    own CSS Module so it follows. The app's own typeface is a `.woff2` in
+    `frontend/public/fonts/` with an `@font-face` in `theme.css`; a font service's URL is
+    refused by the app's security policy.
   - **Never edit `frontend/src/house-style.css`.** It belongs to the organisation's styling
     tool, which rewrites it wholesale; edits there are the ones that vanish. To depart from
     the house style, declare the token in `theme.css` instead — that is the supported way,
