@@ -15,9 +15,13 @@ from terp.core import (
     BaseTable,
     BaseUpdateSchema,
     ConflictError,
+    EventDefinition,
+    OnDelete,
     Permission,
     Principal,
+    Ref,
     ValidationFailedError,
+    emit,
 )
 
 APPROVE = Permission("quotes.approve", EDITOR)
@@ -98,3 +102,33 @@ class QuoteService(BaseService[Quote, QuoteCreate, QuotePatch]):
         return super().update(
             session, entity_id, _PricedPatch(**patch, margin=proposed.margin)
         )
+
+
+class QuoteRevision(BaseTable, table=True):
+    __tablename__ = "test_quote_revision"
+    quote_id: UUID = Ref("test_quote_persistence.id", on_delete=OnDelete.CASCADE)
+    margin: Decimal = Field(max_digits=12, decimal_places=2)
+
+
+class RevisionDetails(BaseSchema):
+    quote_id: UUID
+    margin: Amount
+
+
+REPRICED = EventDefinition(name="quotes.repriced", payload_schema=RevisionDetails)
+
+
+class RevisionService(BaseService[QuoteRevision, RevisionDetails, BaseUpdateSchema]):
+    model = QuoteRevision
+    append_only = True
+
+    def _after_write(self, session, entity, action):
+        emit(session, event=REPRICED, payload=RevisionDetails.model_validate(entity))
+
+
+class RepricingService(QuoteService):
+    def _after_write(self, session, entity, action):
+        if action is AuditAction.UPDATED:
+            RevisionService().create(
+                session, RevisionDetails(quote_id=entity.id, margin=entity.margin)
+            )
