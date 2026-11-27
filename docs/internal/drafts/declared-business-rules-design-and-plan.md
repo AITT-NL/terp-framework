@@ -241,10 +241,11 @@ was given, and that helper.
 Adopting a rule on an existing numeric column that declares no precision needs a schema migration
 first. Boot names the column and says so.
 
-A derived value is rounded to its column's `decimal_places` before it is assigned and before any
-invariant reads it. Nothing rounds implicitly. Where a formula can produce more decimals than its
-column holds, the declaration states the rounding with an explicit `round`. Boot computes that
-for `+`, `−` and `×` from the operands' declared scales and assumes it for `÷`.
+If a formula can produce more decimal places than its column holds, boot requires an explicit
+`round` in the declaration. It infers scale for `+`, `−` and `×` from the operands and assumes
+division can produce excess places. The evaluator applies the declared rounding, checks that
+the result fits the target column, then assigns it before any dependent invariant reads it.
+Values already representable at the target scale can be assigned directly.
 
 The declaration is validated at boot, fail closed. A rule that names a column the table does not
 have, compares a string with a number, or requires a permission the module does not declare
@@ -274,8 +275,9 @@ it changes, and §3.8 gives them a command. [Reference deletion behavior](../../
 
 `terp inspect schema` gains, per table, a `rules` list: id, kind, the columns read and written,
 the expression or transition map, the owner sentence, the source, and a content hash. The
-executable identity covers the rule kind, column bindings, relevant types, evaluator semantics
-version and the normalized rule body. For a transition this includes its initial state,
+hash that identifies the approved revision covers the stable rule ID, owner sentence, optional
+source reference, rule kind, column bindings, relevant types, evaluator semantics version and
+normalized rule body. For a transition this includes its initial state,
 permitted moves and required permissions. Where a rule reads another derived value, retain
 the deciding rule versions together.
 Keep each release's pin so a historical write can be explained. The audit record of a write
@@ -604,7 +606,9 @@ This phase establishes the transaction guarantees used by declared rules.
       that names the column, both scales and the helper.
 - [ ] terp-cli: the `inspect schema` projection, `rules-surface.json` under `pinned`, a verify
       check that diffs it and words its refusal as §3.4 says, and `rules-approvals.json` with the
-      report of unapproved current hashes and retirements. Test removing the sole released rule
+      report of unapproved current hashes and retirements. Change only the owner sentence
+      and verify that the new revision needs approval even when its computed result is identical.
+      Test removing the sole released rule
       and its pin. Release must fail until an approval names its prior hash and retirement.
 - [ ] terp-cli: `terp rules check-data` (§3.8), including legacy numeric values outside the
       declared precision or scale.
