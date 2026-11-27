@@ -43,6 +43,7 @@ from sqlalchemy.orm.exc import StaleDataError as ORMStaleDataError
 from sqlmodel import Session, SQLModel, select
 from sqlmodel.sql.expression import SelectOfScalar
 
+from terp.core._service_writes import _MANAGED_INPUT_COLUMNS, _observe_service_write
 from terp.core.audit import AuditAction, audit_actor_ctx, emit_audit
 from terp.core.base_models import (
     ActorStampedMixin,
@@ -86,28 +87,6 @@ from terp.core._internal.session_guard import (
 ModelT = TypeVar("ModelT", bound=BaseTable)
 CreateT = TypeVar("CreateT", bound=SQLModel)
 UpdateT = TypeVar("UpdateT", bound=BaseUpdateSchema)
-
-# Framework-managed columns a client input must never set: BaseService assigns all
-# of these centrally (the primary key + audit timestamps + the OCC ``version`` +
-# the scope/actor/owner columns). ``create`` / ``update`` strip them from the inbound
-# payload so an over-wide schema (or a hand-built dict) can never over-post
-# (mass-assign) them -- e.g. forge ``owner_id`` to seize a record. The terp.arch
-# ``input_schemas_exclude_managed_columns`` rule is the build-time half of this
-# control; the two sets must stay in lockstep.
-_MANAGED_INPUT_COLUMNS: frozenset[str] = frozenset(
-    {
-        "id",
-        "created_at",
-        "updated_at",
-        "version",
-        "deleted_at",
-        "tenant_id",
-        "created_by_id",
-        "modified_by_id",
-        "owner_id",
-        "token_version",
-    }
-)
 
 
 def _utc_now() -> datetime:
@@ -584,6 +563,7 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
         with enter_write_unit() as outermost:
             try:
                 session.add(entity)
+                _observe_service_write(session, entity, "save")
                 held |= _personal_in_flight(session, entity)
                 emit_audit(
                     session,
@@ -653,6 +633,7 @@ class BaseService(Generic[ModelT, CreateT, UpdateT]):
                 with forbid_session_writes():
                     self._after_write(session, entity, AuditAction.DELETED)
                 session.delete(entity)
+                _observe_service_write(session, entity, "remove")
                 held |= _personal_in_flight(session, entity)
                 if not outermost:
                     # Nested delete joins the outermost unit; flush now so

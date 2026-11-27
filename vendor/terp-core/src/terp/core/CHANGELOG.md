@@ -14,6 +14,9 @@ decision, 0001 onwards.
 
 ### Added
 
+- `pytest --terp-report-writes` lists committed ORM changes made outside a service save,
+  grouped by test, mapped model and column. It covers plain SQLModel and request sessions
+  and includes writes from fixtures. See `terp guide testing` for the report’s scope.
 - **A refused start names every refusal at once** (ADR 0222). `create_app` asks its checks of
   an app's declarations together and raises what they found as one `BootError`: a public
   route's own policy, guarded module routes, declared operations, permissions, the shared
