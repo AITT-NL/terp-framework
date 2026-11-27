@@ -10,15 +10,16 @@ so a revoked session cannot refresh its way back in.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+from identity_fixtures import refresh_row
 from terp.capabilities.identity import RefreshToken, RefreshTokenService
 from terp.capabilities.users import UsersService
-from terp.core import Roles
+from terp.core import Roles, settings
 
 _COOKIE = "terp_refresh"
 
@@ -74,7 +75,6 @@ def test_refresh_with_an_unknown_cookie_is_unauthenticated(app_db: FastAPI) -> N
 def test_a_replayed_refresh_token_revokes_the_whole_family(
     app_db: FastAPI, make_user, monkeypatch, caplog
 ) -> None:
-    from terp.core import settings
 
     # Grace 0: any replay of a spent token is theft (no benign-race window in this test).
     monkeypatch.setattr(settings, "REFRESH_ROTATION_GRACE_SECONDS", 0)
@@ -182,61 +182,48 @@ def test_refresh_rechecks_the_subject_is_still_active(app_db: FastAPI, make_user
     # Simulate a race/partial wiring: the refresh token row is still live, but the subject
     # itself has gone inactive. `/refresh` must rebuild an ACTIVE principal from the store,
     # so it refuses instead of minting a fresh access token from a live cookie alone.
-    from terp.capabilities.identity import User
+    from identity_fixtures import FixtureUsers
 
-    user = db_session.get(User, uid)
-    assert user is not None
-    user.is_active = False
-    db_session.add(user)
-    db_session.commit()
+    inactive = FixtureUsers().deactivate_at_current_epoch(db_session, uid)
+    assert not inactive.is_active and inactive.token_version == 0
 
     assert client.post("/api/v1/auth/refresh").status_code == 401
 
 
 # --- service-level expiry (idle + absolute family cap) ----------------------- #
-def _row_for(session: Session, raw_digest_of: str) -> RefreshToken:
-    from terp.capabilities.auth import refresh_token_digest
-
-    row = session.exec(
-        select(RefreshToken).where(RefreshToken.token_hash == refresh_token_digest(raw_digest_of))
-    ).first()
-    assert row is not None
-    return row
-
-
-def test_rotate_refuses_an_idle_expired_token(db_session: Session) -> None:
+def test_rotate_refuses_an_idle_expired_token(db_session, make_user, advance_refresh_clock) -> None:
     service = RefreshTokenService()
-    raw = service.issue(db_session, uuid.uuid4())
-    row = _row_for(db_session, raw)
-    row.expires_at = datetime.now(UTC) - timedelta(seconds=1)  # idle window elapsed
-    db_session.add(row)
-    db_session.commit()
-
+    user_id = make_user("idle@example.test", "correct horse battery")
+    raw = service.issue(db_session, user_id)
+    row = refresh_row(db_session, raw)
+    now = advance_refresh_clock(settings.REFRESH_TOKEN_TTL_SECONDS)
+    assert row.expires_at.replace(tzinfo=UTC) == now < row.family_expires_at.replace(tzinfo=UTC)
     assert service.rotate(db_session, raw) is None
 
 
-def test_rotate_refuses_a_token_past_the_family_absolute_cap(db_session: Session) -> None:
+def test_rotate_refuses_a_token_at_the_family_absolute_cap(
+    db_session, make_user, advance_refresh_clock, monkeypatch,
+) -> None:
     service = RefreshTokenService()
-    raw = service.issue(db_session, uuid.uuid4())
-    row = _row_for(db_session, raw)
-    row.family_expires_at = datetime.now(UTC) - timedelta(seconds=1)  # absolute cap reached
-    db_session.add(row)
-    db_session.commit()
+    user_id = make_user("capped@example.test", "correct horse battery")
+    monkeypatch.setattr(settings, "REFRESH_FAMILY_TTL_SECONDS", 60)
+    raw = service.issue(db_session, user_id)
+    advance_refresh_clock(59)
+    successor = service.rotate(db_session, raw)
+    assert successor is not None
+    now = advance_refresh_clock(1)
+    row = refresh_row(db_session, successor.token)
+    assert row.expires_at.replace(tzinfo=UTC) == now == row.family_expires_at.replace(tzinfo=UTC)
+    assert service.rotate(db_session, successor.token) is None
 
-    assert service.rotate(db_session, raw) is None
 
-
-def test_purge_expired_deletes_only_dead_families(db_session: Session, make_user) -> None:
+def test_purge_expired_deletes_only_dead_families(db_session, make_user, advance_refresh_clock) -> None:
     service = RefreshTokenService()
     dead_raw = service.issue(db_session, uuid.uuid4())
+    dead_hash = refresh_row(db_session, dead_raw).token_hash
+    advance_refresh_clock(settings.REFRESH_FAMILY_TTL_SECONDS + 1)
     user_id = make_user("retained-family@example.test", "correct horse battery")
     live_raw = service.issue(db_session, user_id)
-
-    dead = _row_for(db_session, dead_raw)
-    dead.family_expires_at = datetime.now(UTC) - timedelta(seconds=1)
-    db_session.add(dead)
-    db_session.commit()
-    dead_hash = dead.token_hash
 
     assert service.purge_expired(db_session) == 1
 

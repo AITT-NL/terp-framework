@@ -10,72 +10,17 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from terp.capabilities.auth import create_access_token
 from terp.core import Roles
 
-# The shipped app uses the revocable principal provider (ADR 0031): every request
-# re-checks that the bearer's subject is a real, active user at the current token epoch,
-# so an acting principal needs a backing user row. We persist it with a LOW stored role
-# so the acting admin never counts toward the last-admin invariant these tests exercise —
-# authorization comes from the token rank, the admin count from the stored role, and the
-# two are deliberately independent in Terp.
-_backing_session: Session | None = None
 
-
-@pytest.fixture(autouse=True)
-def _bind_backing_session(db_session: Session):
-    global _backing_session
-    _backing_session = db_session
-    yield
-    _backing_session = None
-
-
-def _back(subject: uuid.UUID) -> None:
-    """Persist a minimal active (low-role) user for *subject* if not already present."""
-    from terp.capabilities.identity.models import User
-
-    assert _backing_session is not None
-    if _backing_session.get(User, subject) is None:
-        _backing_session.add(
-            User(
-                id=subject,
-                email=f"principal-{subject}@backing.test",
-                hashed_password="not-a-login-fixture",
-                role=int(Roles.VIEWER),
-                is_active=True,
-                token_version=0,
-            )
-        )
-        _backing_session.commit()
-
-
-def _client_as(app_db: FastAPI, role: Roles) -> TestClient:
-    subject = uuid.uuid4()
-    _back(subject)
-    token = create_access_token(subject=subject, role=role)
-    client = TestClient(app_db)
-    client.headers["Authorization"] = f"Bearer {token}"
-    return client
-
-
-def _client_for_subject(app_db: FastAPI, subject: str, role: Roles) -> TestClient:
-    _back(uuid.UUID(subject))
-    token = create_access_token(subject=uuid.UUID(subject), role=role)
-    client = TestClient(app_db)
-    client.headers["Authorization"] = f"Bearer {token}"
-    return client
-
-
-def test_users_router_is_discovered_and_lists_for_admin(app_db: FastAPI, make_user) -> None:
+def test_users_router_is_discovered_and_lists_for_admin(token_client, make_user) -> None:
     make_user("admin@example.com", "correct horse battery", Roles.ADMIN)
     make_user("viewer@example.com", "correct horse battery", Roles.VIEWER)
 
-    client = _client_as(app_db, Roles.ADMIN)
+    client = token_client(role=Roles.ADMIN)
     response = client.get("/api/v1/users/")
     assert response.status_code == 200, response.text
     body = response.json()
@@ -84,7 +29,7 @@ def test_users_router_is_discovered_and_lists_for_admin(app_db: FastAPI, make_us
     assert all("hashed_password" not in item for item in body["items"])
 
 
-def test_users_list_filters_by_email_substring(app_db: FastAPI, make_user) -> None:
+def test_users_list_filters_by_email_substring(token_client, make_user) -> None:
     """The directory lookup behind the admin member picker: `?email=` narrows the page.
 
     Case-insensitive substring match, so an admin resolves an account by typing part
@@ -93,7 +38,7 @@ def test_users_list_filters_by_email_substring(app_db: FastAPI, make_user) -> No
     make_user("finance.lead@example.com", "correct horse battery", Roles.EDITOR)
     make_user("ops.lead@example.com", "correct horse battery", Roles.EDITOR)
 
-    client = _client_as(app_db, Roles.ADMIN)
+    client = token_client(role=Roles.ADMIN)
     filtered = client.get("/api/v1/users/", params={"email": "FINANCE"})
     assert filtered.status_code == 200, filtered.text
     body = filtered.json()
@@ -103,7 +48,7 @@ def test_users_list_filters_by_email_substring(app_db: FastAPI, make_user) -> No
     assert client.get("/api/v1/users/", params={"email": "no-such"}).json()["total"] == 0
 
 
-def test_users_list_filters_by_status(app_db: FastAPI, make_user) -> None:
+def test_users_list_filters_by_status(token_client, make_user) -> None:
     """`?is_active=` narrows to active or deactivated accounts, and composes with `?email=`.
 
     It is how the admin hub counts its active accounts: one total for the filter, rather
@@ -111,7 +56,7 @@ def test_users_list_filters_by_status(app_db: FastAPI, make_user) -> None:
     """
     make_user("still.here@example.com", "correct horse battery", Roles.EDITOR)
     gone = make_user("long.gone@example.com", "correct horse battery", Roles.EDITOR)
-    client = _client_as(app_db, Roles.ADMIN)
+    client = token_client(role=Roles.ADMIN)
     assert client.post(f"/api/v1/users/{gone}/deactivate").status_code == 200
 
     deactivated = client.get("/api/v1/users/", params={"is_active": "false"}).json()
@@ -127,7 +72,7 @@ def test_users_list_filters_by_status(app_db: FastAPI, make_user) -> None:
     assert both["total"] == 0
 
 
-def test_users_email_filter_reads_an_underscore_as_itself(app_db: FastAPI, make_user) -> None:
+def test_users_email_filter_reads_an_underscore_as_itself(token_client, make_user) -> None:
     """A search for `a_b` finds `a_b`, not every address with one character between a and b.
 
     The filter is the declared literal-substring match; it used to pass the text to LIKE
@@ -135,7 +80,7 @@ def test_users_email_filter_reads_an_underscore_as_itself(app_db: FastAPI, make_
     """
     make_user("team_a@example.com", "correct horse battery", Roles.EDITOR)
     make_user("teamxa@example.com", "correct horse battery", Roles.EDITOR)
-    client = _client_as(app_db, Roles.ADMIN)
+    client = token_client(role=Roles.ADMIN)
     found = client.get("/api/v1/users/", params={"email": "team_a"}).json()
     assert [item["email"] for item in found["items"]] == ["team_a@example.com"]
 
@@ -150,16 +95,16 @@ def test_list_matching_is_the_declared_email_filter(db_session, make_user) -> No
     assert [row.email for row in rows] == ["billing.desk@example.com"]
 
 
-def test_users_router_denies_non_admin(app_db: FastAPI) -> None:
-    client = _client_as(app_db, Roles.VIEWER)
+def test_users_router_denies_non_admin(token_client) -> None:
+    client = token_client(role=Roles.VIEWER)
     assert client.get("/api/v1/users/").status_code == 403
     # Writes are admin-only too.
     denied = client.post("/api/v1/users/", json={"email": "x@y.z", "password": "pw"})
     assert denied.status_code == 403
 
 
-def test_admin_provisions_and_fetches_a_user(app_db: FastAPI) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+def test_admin_provisions_and_fetches_a_user(token_client) -> None:
+    admin = token_client(role=Roles.ADMIN)
     created = admin.post(
         "/api/v1/users/",
         json={"email": "new@example.com", "password": "correct horse battery", "role": int(Roles.EDITOR)},
@@ -176,8 +121,8 @@ def test_admin_provisions_and_fetches_a_user(app_db: FastAPI) -> None:
     assert fetched.json()["id"] == body["id"]
 
 
-def test_admin_can_provision_a_custom_role_rank(app_db: FastAPI) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+def test_admin_can_provision_a_custom_role_rank(token_client) -> None:
+    admin = token_client(role=Roles.ADMIN)
     created = admin.post(
         "/api/v1/users/",
         json={"email": "lead@example.com", "password": "correct horse battery", "role": 25},
@@ -189,8 +134,8 @@ def test_admin_can_provision_a_custom_role_rank(app_db: FastAPI) -> None:
     assert any(item["role"] == 25 for item in listed.json()["items"])
 
 
-def test_provisioning_rejects_a_weak_password(app_db: FastAPI) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+def test_provisioning_rejects_a_weak_password(token_client) -> None:
+    admin = token_client(role=Roles.ADMIN)
     # A short, common password is refused with the uniform WeakPasswordError envelope
     # (422, code=weak_password) before any user is created (PasswordPolicy, ADR 0032).
     weak = admin.post("/api/v1/users/", json={"email": "weak@example.com", "password": "pw"})
@@ -203,8 +148,8 @@ def test_provisioning_rejects_a_weak_password(app_db: FastAPI) -> None:
     assert strong.status_code == 201, strong.text
 
 
-def test_reset_password_rejects_a_weak_password(app_db: FastAPI) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+def test_reset_password_rejects_a_weak_password(token_client) -> None:
+    admin = token_client(role=Roles.ADMIN)
     created = admin.post(
         "/api/v1/users/",
         json={"email": "weakreset@example.com", "password": "correct horse battery"},
@@ -214,8 +159,8 @@ def test_reset_password_rejects_a_weak_password(app_db: FastAPI) -> None:
     assert weak.json()["code"] == "weak_password"
 
 
-def test_admin_updates_role_with_optimistic_concurrency(app_db: FastAPI) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+def test_admin_updates_role_with_optimistic_concurrency(token_client) -> None:
+    admin = token_client(role=Roles.ADMIN)
     created = admin.post(
         "/api/v1/users/", json={"email": "role@example.com", "password": "correct horse battery"}
     ).json()
@@ -231,9 +176,9 @@ def test_admin_updates_role_with_optimistic_concurrency(app_db: FastAPI) -> None
 
 
 def test_stale_admin_update_does_not_leave_token_epoch_dirty(
-    app_db: FastAPI, db_session: Session
+    token_client, db_session: Session
 ) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+    admin = token_client(role=Roles.ADMIN)
     created = admin.post(
         "/api/v1/users/", json={"email": "stale@example.com", "password": "correct horse battery"}
     ).json()
@@ -248,8 +193,8 @@ def test_stale_admin_update_does_not_leave_token_epoch_dirty(
     assert db_session.get(User, uuid.UUID(created["id"])).token_version == 0
 
 
-def test_admin_deactivates_then_reactivates(app_db: FastAPI) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+def test_admin_deactivates_then_reactivates(token_client) -> None:
+    admin = token_client(role=Roles.ADMIN)
     created = admin.post(
         "/api/v1/users/", json={"email": "toggle@example.com", "password": "correct horse battery"}
     ).json()
@@ -263,8 +208,8 @@ def test_admin_deactivates_then_reactivates(app_db: FastAPI) -> None:
     assert reactivated.json()["is_active"] is True
 
 
-def test_admin_resets_password(app_db: FastAPI, db_engine) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+def test_admin_resets_password(token_client, db_engine) -> None:
+    admin = token_client(role=Roles.ADMIN)
     created = admin.post(
         "/api/v1/users/", json={"email": "reset@example.com", "password": "correct horse battery old"}
     ).json()
@@ -283,8 +228,8 @@ def test_admin_resets_password(app_db: FastAPI, db_engine) -> None:
         assert service.authenticate(session, "reset@example.com", "correct horse battery old") is None
 
 
-def test_admin_writes_are_audited(app_db: FastAPI) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+def test_admin_writes_are_audited(token_client) -> None:
+    admin = token_client(role=Roles.ADMIN)
     created = admin.post(
         "/api/v1/users/", json={"email": "audit@example.com", "password": "correct horse battery"}
     ).json()
@@ -301,8 +246,8 @@ def test_admin_writes_are_audited(app_db: FastAPI) -> None:
     assert actions == {"created", "updated"}
 
 
-def test_provisioning_a_duplicate_email_conflicts(app_db: FastAPI) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+def test_provisioning_a_duplicate_email_conflicts(token_client) -> None:
+    admin = token_client(role=Roles.ADMIN)
     first = admin.post("/api/v1/users/", json={"email": "dup@example.com", "password": "correct horse battery"})
     assert first.status_code == 201, first.text
 
@@ -323,8 +268,8 @@ def _provision_admin(admin: TestClient, email: str) -> dict:
     return created.json()
 
 
-def test_cannot_deactivate_the_last_active_admin(app_db: FastAPI) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+def test_cannot_deactivate_the_last_active_admin(token_client) -> None:
+    admin = token_client(role=Roles.ADMIN)
     only_admin = _provision_admin(admin, "solo-admin@example.com")
 
     # Deactivating the only active admin would lock everyone out of the admin surface.
@@ -333,8 +278,8 @@ def test_cannot_deactivate_the_last_active_admin(app_db: FastAPI) -> None:
     assert refused.json()["code"] == "last_admin_protected"
 
 
-def test_cannot_demote_the_last_active_admin(app_db: FastAPI) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+def test_cannot_demote_the_last_active_admin(token_client) -> None:
+    admin = token_client(role=Roles.ADMIN)
     only_admin = _provision_admin(admin, "demote-me@example.com")
 
     refused = admin.patch(
@@ -345,8 +290,8 @@ def test_cannot_demote_the_last_active_admin(app_db: FastAPI) -> None:
     assert refused.json()["code"] == "last_admin_protected"
 
 
-def test_admin_actions_allowed_while_another_admin_remains(app_db: FastAPI) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+def test_admin_actions_allowed_while_another_admin_remains(token_client) -> None:
+    admin = token_client(role=Roles.ADMIN)
     first = _provision_admin(admin, "first-admin@example.com")
     second = _provision_admin(admin, "second-admin@example.com")
 
@@ -368,8 +313,8 @@ def test_admin_actions_allowed_while_another_admin_remains(app_db: FastAPI) -> N
     assert reactivated.status_code == 200, reactivated.text
 
 
-def test_can_deactivate_admin_when_another_admin_remains(app_db: FastAPI) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+def test_can_deactivate_admin_when_another_admin_remains(token_client) -> None:
+    admin = token_client(role=Roles.ADMIN)
     first = _provision_admin(admin, "a1@example.com")
     _provision_admin(admin, "a2@example.com")
 
@@ -379,23 +324,23 @@ def test_can_deactivate_admin_when_another_admin_remains(app_db: FastAPI) -> Non
     assert deactivated.json()["is_active"] is False
 
 
-def test_admin_cannot_deactivate_self_even_when_another_admin_remains(app_db: FastAPI) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+def test_admin_cannot_deactivate_self_even_when_another_admin_remains(token_client) -> None:
+    admin = token_client(role=Roles.ADMIN)
     self_admin = _provision_admin(admin, "self-off@example.com")
     _provision_admin(admin, "other-admin@example.com")
 
-    self_client = _client_for_subject(app_db, self_admin["id"], Roles.ADMIN)
+    self_client = token_client(subject=uuid.UUID(self_admin["id"]), role=Roles.ADMIN)
     refused = self_client.post(f"/api/v1/users/{self_admin['id']}/deactivate")
     assert refused.status_code == 409, refused.text
     assert refused.json()["code"] == "self_admin_action_protected"
 
 
-def test_admin_cannot_demote_self_even_when_another_admin_remains(app_db: FastAPI) -> None:
-    admin = _client_as(app_db, Roles.ADMIN)
+def test_admin_cannot_demote_self_even_when_another_admin_remains(token_client) -> None:
+    admin = token_client(role=Roles.ADMIN)
     self_admin = _provision_admin(admin, "self-demote@example.com")
     _provision_admin(admin, "other-admin-2@example.com")
 
-    self_client = _client_for_subject(app_db, self_admin["id"], Roles.ADMIN)
+    self_client = token_client(subject=uuid.UUID(self_admin["id"]), role=Roles.ADMIN)
     refused = self_client.patch(
         f"/api/v1/users/{self_admin['id']}",
         json={"role": int(Roles.VIEWER), "version": self_admin["version"]},

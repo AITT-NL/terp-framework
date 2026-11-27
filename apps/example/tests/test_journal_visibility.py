@@ -14,7 +14,7 @@ import uuid
 
 from terp.core import Principal, Roles
 
-from app.modules.journals.models import Journal
+from app.modules.journals.schemas import JournalCreate
 from app.modules.journals.service import JournalService
 
 
@@ -95,9 +95,10 @@ def test_unknown_visibility_value_never_widens_reads(client_factory, editor) -> 
 
 
 def test_unbound_actor_does_not_match_unowned_private_journals(db_session) -> None:
-    journal = Journal(title="System private", entry="x", visibility="private")
-    db_session.add(journal)
-    db_session.commit()
+    journal = JournalService().create(
+        db_session, JournalCreate(title="System private", entry="x", visibility="private")
+    )
+    assert journal.owner_id is None
 
     rows, total = JournalService().list(db_session, skip=0, limit=100)
     assert total == 0

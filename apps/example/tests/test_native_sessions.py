@@ -13,23 +13,24 @@ another family.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+from identity_fixtures import refresh_row
+
 from terp.capabilities.auth import (
     AUTH_OPERATIONS,
     AuthenticatedPrincipal,
     NativeClients,
     build_login_module,
-    refresh_token_digest,
 )
 from terp.capabilities.identity import IdentityService, RefreshToken, RefreshTokenService, User
 from terp.capabilities.users import UserAdminUpdate, UsersService
-from terp.core import ControlPlane, OperationCatalog, Roles, create_app, get_session
+from terp.core import ControlPlane, OperationCatalog, Roles, create_app, get_session, settings
 from terp.core._internal.session_guard import WriteGuardedSession
 
 _PASSWORD = "correct horse battery"
@@ -182,22 +183,24 @@ def test_an_unchanged_native_session_still_refreshes(db_engine, make_user) -> No
 # --- signing out with the refresh token alone -------------------------------- #
 @pytest.mark.parametrize("state", ["current", "spent", "expired"])
 def test_native_logout_revokes_its_family_without_issuing_or_revoking_others(
-    app_db: FastAPI, make_user, db_session: Session, state: str
+    app_db: FastAPI, make_user, db_session: Session, state: str, advance_refresh_clock
 ) -> None:
     make_user("native-logout@example.test", _PASSWORD)
     make_user("native-unrelated@example.test", _PASSWORD)
     phone = TestClient(app_db)
     raw = _sign_in(phone, "native-logout@example.test")
     successor = raw
+    if state == "expired":
+        advance_refresh_clock(1)  # Give the successor a later idle deadline.
     if state != "current":
         refreshed = phone.post(_REFRESH, json={"refresh_token": raw})
         assert refreshed.status_code == 200
         successor = refreshed.json()["refresh_token"]
     if state == "expired":
-        row = db_session.exec(select(RefreshToken).where(RefreshToken.token_hash == refresh_token_digest(raw))).one()
-        row.expires_at = datetime.now(UTC) - timedelta(minutes=1)
-        db_session.add(row)
-        db_session.commit()
+        now = advance_refresh_clock(settings.REFRESH_TOKEN_TTL_SECONDS - 1)
+        old = refresh_row(db_session, raw)
+        new = refresh_row(db_session, successor)
+        assert old.expires_at.replace(tzinfo=UTC) == now < new.expires_at.replace(tzinfo=UTC)
 
     second_device = _sign_in(TestClient(app_db), "native-logout@example.test")
     other_user = _sign_in(TestClient(app_db), "native-unrelated@example.test")

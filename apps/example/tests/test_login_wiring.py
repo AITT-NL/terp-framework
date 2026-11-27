@@ -19,6 +19,7 @@ from sqlalchemy import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
+from identity_fixtures import FixtureUsers
 from terp.capabilities.auth import (
     AUTH_LOGIN,
     NativeClients,
@@ -26,7 +27,7 @@ from terp.capabilities.auth import (
     decode_access_token,
     hash_password,
 )
-from terp.capabilities.identity import IdentityService, User
+from terp.capabilities.identity import IdentityService
 from terp.core import (
     ControlPlane,
     OperationCatalog,
@@ -57,11 +58,9 @@ def engine() -> Iterator[Engine]:
 
 
 def _make_user(session: Session, *, email: str, password: str, rank: int) -> uuid.UUID:
-    user = User(email=email, hashed_password=hash_password(password), role=rank)
-    session.add(user)
-    session.commit()
-    session.refresh(user)
-    return user.id
+    return FixtureUsers().create_subject(
+        session, email, rank=rank, password_hash=hash_password(password),
+    ).id
 
 
 # --- H7a: the role is resolved through the PermissionModel ------------------- #

@@ -8,7 +8,8 @@ access tokens via the auth capability.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import FastAPI
@@ -21,11 +22,39 @@ from terp.core import Principal, Roles, get_session
 from terp.core._internal.session_guard import WriteGuardedSession
 
 from terp.capabilities.auth import create_access_token
+from terp.capabilities.identity import User
 
 from app import auth as app_auth
 from app.auth import login_throttle
 from app.main import build
+from identity_fixtures import FixtureUsers
 
+
+@pytest.fixture(autouse=True)
+def _validate_example_writes(terp_validate_writes) -> None:
+    """Validate the example's test setup, requests and jobs together."""
+
+
+@pytest.fixture
+def advance_refresh_clock(monkeypatch) -> Callable[[int], datetime]:
+    """Advance only the refresh-token store's UTC clock."""
+    from terp.capabilities.identity import refresh
+
+    instant = datetime.now(UTC)
+
+    class RefreshClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant.astimezone(tz) if tz is not None else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr(refresh, "datetime", RefreshClock)
+
+    def advance(seconds: int) -> datetime:
+        nonlocal instant
+        instant += timedelta(seconds=seconds)
+        return instant
+
+    return advance
 
 
 @pytest.fixture(autouse=True)
@@ -121,21 +150,12 @@ def _ensure_backing_user(
     ``users`` tests exercise — authorization comes from the *token* rank, the admin count
     from the *stored* role, and the two are deliberately independent in Terp.
     """
-    from terp.capabilities.identity.models import User
-
-    if session.get(User, subject) is not None:
-        return
-    session.add(
-        User(
-            id=subject,
-            email=f"principal-{subject}@backing.test",
-            hashed_password="not-a-login-fixture",
-            role=int(store_role),
-            is_active=True,
-            token_version=0,
+    if session.get(User, subject) is None:
+        FixtureUsers().create_subject(
+            session, f"principal-{subject}@backing.test", subject=subject, rank=int(store_role),
+            password_hash="not-a-login-fixture",
         )
-    )
-    session.commit()
+
 
 
 @pytest.fixture

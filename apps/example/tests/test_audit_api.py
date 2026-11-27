@@ -63,7 +63,7 @@ def test_audit_list_is_paginated(client_factory, editor) -> None:
     for i in range(3):
         editor_client.post("/api/v1/notes/", json={"title": f"n{i}"})
 
-    page = _admin(client_factory).get("/api/v1/audit/", params={"limit": 2})
+    page = _admin(client_factory).get("/api/v1/audit/", params={"target_type": "Note", "limit": 2})
     assert page.status_code == 200
     body = page.json()
     assert body["total"] == 3
@@ -74,11 +74,14 @@ def test_audit_list_is_paginated(client_factory, editor) -> None:
 def test_activity_counts_a_mutation_on_todays_date_in_the_requested_zone(
     client_factory, editor
 ) -> None:
-    client_factory(editor).post("/api/v1/notes/", json={"title": "counted"})
+    writer = client_factory(editor)
+    admin = _admin(client_factory)
+    params = {"days": 7, "time_zone": "Europe/Amsterdam"}
+    before = admin.get("/api/v1/audit/activity", params=params).json()
+    created_before = next(item["count"] for item in before["by_action"] if item["action"] == "created")
 
-    response = _admin(client_factory).get(
-        "/api/v1/audit/activity", params={"days": 7, "time_zone": "Europe/Amsterdam"}
-    )
+    assert writer.post("/api/v1/notes/", json={"title": "counted"}).status_code == 201
+    response = admin.get("/api/v1/audit/activity", params=params)
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["time_zone"] == "Europe/Amsterdam"
@@ -87,7 +90,8 @@ def test_activity_counts_a_mutation_on_todays_date_in_the_requested_zone(
     # Oldest first, ending today, so the mutation just made is on the last day.
     assert body["days"][-1]["count"] >= 1
     assert body["total"] == sum(day["count"] for day in body["days"])
-    assert {"action": "created", "count": 1} in body["by_action"]
+    assert body["total"] == before["total"] + 1
+    assert {"action": "created", "count": created_before + 1} in body["by_action"]
     assert {"target_type": "Note", "count": 1} in body["by_target_type"]
 
 
