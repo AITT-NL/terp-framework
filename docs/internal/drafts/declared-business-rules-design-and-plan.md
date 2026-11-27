@@ -2,7 +2,7 @@
 
 > The declared-rules design is awaiting an ADR. This document also tracks implementation.
 >
-> The pytest write observer and quote persistence checks have been prototyped locally.
+> Phase 2a tracks the pytest write observer and the executable quote persistence checks.
 >
 > The [backend adoption proposal](backend-adoption-and-custom-code.md) describes how teams can
 > mix these rules with custom Python and choose which decisions an owner reviews.
@@ -570,9 +570,11 @@ This phase establishes the transaction guarantees used by declared rules.
       both plain SQLModel sessions and request sessions, including writes made by test
       fixtures. Its [transaction tests](../../../tests/architecture/test_write_report.py) cover
       flushes, savepoints and rollback. Publishing the observer precedes enforcement.
-- [ ] Integrate the prototyped quote persistence checks on the request session. Check for one commit on create
-      and partial update, then read the stored quote in a fresh session after each success
-      or refusal.
+
+- [x] Run the [quote persistence checks](../../../tests/architecture/test_quote_persistence.py)
+      through the request session on SQLite and PostgreSQL. Create and partial update each
+      commit once. After each success or refusal, read the complete quote and its version
+      on a fresh connection. A failed create leaves no quote.
 - [ ] Add operation-level regression tests for atomic persistence and rollback (ADR 0193).
 - [ ] Inventory framework-managed writers and document their participation in commit validation.
 
