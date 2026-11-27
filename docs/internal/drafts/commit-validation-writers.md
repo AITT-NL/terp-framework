@@ -76,9 +76,31 @@ the report counted 769 ORM write transactions. Of those, 136 still had findings.
 | Refresh-token expiry change | 5 |
 | Journal fixture insert | 1 |
 
-The five expiry changes set up expired test data. No audit, outbox or webhook row
-appeared in the new findings. The remaining operations identify where to work before
-turning on refusal throughout the example suite.
+The five expiry changes set up expired test data. These counts identified the fixtures
+to migrate before enabling refusal throughout the example suite.
+
+## Running the shipped examples with refusal enabled
+
+The example suite now requests `terp_validate_writes` for every test. The shared
+user setup saves synthetic identities through a test service. Admin changes and
+journal creation go through their ordinary services. Tests of an independently
+deactivated user preserve its token epoch and assert that precondition. Expiry
+tests advance the refresh store’s clock so the original credential can expire while
+its successor stays live. The audit tests count the note operations they exercise,
+including when provisioning the test actors also emits audit records.
+
+| Suite | Tests passed | Committed ORM write transactions | Findings |
+| --- | ---: | ---: | ---: |
+| Example application (SQLite) | 282 | 767 | 0 |
+| Default template (SQLite and PostgreSQL 17) | 8 | 0 | 0 |
+| Rendered reference application (SQLite and PostgreSQL 17) | 48 | 48 | 0 |
+
+Both renders used the local framework wheels. The blank template tests architecture
+and migration conformance. The reference overlay also exercises requests, jobs and
+their ORM writes. Template acceptance passes `--terp-validate-writes` when it tests
+each render. [Example fixtures](../../../apps/example/tests/conftest.py) ·
+[Reference tests](../../../apps/reference/overlay/tests) ·
+[Acceptance workflow](../../../.github/workflows/ci.yml)
 
 The [quote transaction cases](../../../tests/architecture/test_quote_persistence.py) use the validator
 on SQLite and PostgreSQL. A request or job that changes the accepted margin after the revision

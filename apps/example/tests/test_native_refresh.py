@@ -94,13 +94,10 @@ def test_native_refresh_rechecks_the_subject_is_still_active(app_db: FastAPI, ma
 
     # The token row is live but the subject went inactive without its sessions being revoked:
     # the rotation succeeds and the route must still refuse to mint from it.
-    from terp.capabilities.identity import User
+    from identity_fixtures import FixtureUsers
 
-    user = db_session.get(User, uid)
-    assert user is not None
-    user.is_active = False
-    db_session.add(user)
-    db_session.commit()
+    inactive = FixtureUsers().deactivate_at_current_epoch(db_session, uid)
+    assert not inactive.is_active and inactive.token_version == 0
     assert _refresh(app_db, token).status_code == 401
 
 

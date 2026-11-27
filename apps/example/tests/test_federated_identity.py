@@ -15,6 +15,8 @@ from collections.abc import Callable
 import pytest
 from sqlmodel import Session, select
 
+from identity_fixtures import FixtureUsers
+from terp.capabilities.users import UsersService
 from terp.core import Roles
 from terp.core.config import settings
 
@@ -30,12 +32,7 @@ _PASSWORD = "correct horse battery staple"  # noqa: S105 - test fixture
 
 
 def _make_sso_user(session: Session, email: str = "sso@acme.test") -> User:
-    """Persist an SSO-only user (no local password) directly for a test."""
-    user = User(email=email, hashed_password=None, role=int(Roles.VIEWER))
-    session.add(user)
-    session.commit()
-    session.refresh(user)
-    return user
+    return FixtureUsers().create_subject(session, email)
 
 
 # --------------------------------------------------------------------------- #
@@ -78,9 +75,7 @@ def test_a_deactivated_linked_user_is_refused(db_session: Session) -> None:
     service = FederatedIdentityService()
     user = _make_sso_user(db_session)
     service.link(db_session, user_id=user.id, issuer=_ISSUER, subject="sub-1")
-    user.is_active = False
-    db_session.add(user)
-    db_session.commit()
+    UsersService().set_active(db_session, user.id, active=False)
 
     assert (
         service.resolve_or_provision(
@@ -238,9 +233,7 @@ def test_a_pending_account_is_admitted_only_once_activated(db_session: Session) 
 
     stored = db_session.exec(select(User).where(User.email == "pending2@acme.test")).first()
     assert stored is not None
-    stored.is_active = True
-    db_session.add(stored)
-    db_session.commit()
+    UsersService().set_active(db_session, stored.id, active=True)
 
     admitted = service.resolve_or_provision(
         db_session,
@@ -275,9 +268,7 @@ def test_principal_for_federated_resolves_only_a_linked_active_user(
     principal = identity.principal_for_federated(db_session, _ISSUER, "sub-1")
     assert principal is not None and principal.id == user.id
 
-    user.is_active = False
-    db_session.add(user)
-    db_session.commit()
+    UsersService().set_active(db_session, user.id, active=False)
     assert identity.principal_for_federated(db_session, _ISSUER, "sub-1") is None
 
 
@@ -620,9 +611,7 @@ def test_a_linked_user_refusal_says_whether_the_user_is_gone_or_inactive(
 
     user = _make_sso_user(db_session, "former@acme.test")
     service.link(db_session, user_id=user.id, issuer=_ISSUER, subject="s-former")
-    user.is_active = False
-    db_session.add(user)
-    db_session.commit()
+    UsersService().set_active(db_session, user.id, active=False)
     inactive = _refused(caplog, db_session, service, subject="s-former", email=None)
     assert (inactive.federated_refusal, inactive.federated_user_id) == (
         "linked_user_inactive",

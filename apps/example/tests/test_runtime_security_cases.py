@@ -329,12 +329,11 @@ def test_case_accounts_enumeration(db_engine: Engine, db_session: Session, make_
     """``accounts.enumeration``: a request about an address answers alike, and does the same
     work, whatever the address."""
     make_user("active@example.com", _PASSWORD, Roles.EDITOR)
-    deactivated = db_session.get(User, make_user("gone@example.com", _PASSWORD, Roles.EDITOR))
-    assert deactivated is not None
-    deactivated.is_active = False
-    db_session.add(deactivated)
-    db_session.add(User(email="provider@example.com", hashed_password=None, role=int(Roles.VIEWER)))
-    db_session.commit()
+    from identity_fixtures import FixtureUsers
+
+    gone = make_user("gone@example.com", _PASSWORD, Roles.EDITOR)
+    FixtureUsers().set_active(db_session, gone, active=False)
+    FixtureUsers().create_subject(db_session, "provider@example.com")
     addresses = ("active@example.com", "gone@example.com", "provider@example.com", "new@example.com")
 
     with _accounts(db_engine) as stack:

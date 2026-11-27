@@ -537,6 +537,7 @@ jobs:
         working-directory: /tmp/acceptance-app
         env:
           UV_FIND_LINKS: /tmp/terp-wheels
+          TERP_TEST_POSTGRES_URL: postgresql+psycopg://postgres@localhost:${{ job.services.postgres.ports['5432'] }}/postgres
         run: |
           # Staged wheels reuse the release version and filename across commits.
           # Refresh the flat-index cache so this checkout's bytes are exercised.
@@ -546,7 +547,7 @@ jobs:
           # then held: a render whose own baseline does not match its surface fails.
           uv run terp inspect access --app app.main:build --format surface > authz-surface.json
           uv run terp verify --profile full --only authz-surface
-          uv run pytest
+          uv run pytest --terp-validate-writes
           # The delegated AppSec baseline must hold on rendered output (ADR 0085):
           # the in-project ratchet guards post-scaffold drift, this proves the
           # template as shipped passes its own baseline.
@@ -629,7 +630,7 @@ jobs:
           # platform has now written into the project: the template's own code, a
           # scaffolded module and a generated revision.
           uv run deptry .
-          uv run pytest
+          uv run pytest --terp-validate-writes
           # With the budget, which is the form the generated app itself uses. The bare
           # `terp check` fails closed the moment the app holds any `# arch-allow-*`
           # marker, so it asserts that a generated app may never take a governed
@@ -962,7 +963,7 @@ jobs:
           test "$changed" = ".copier-answers.yml deployment.json "
           grep -q '^deploy_build: generated$' .copier-answers.yml
           uv run terp verify --only generated
-          uv run pytest
+          uv run pytest --terp-validate-writes
           SECRET_KEY=acceptance-only-not-a-secret-0123456789 POSTGRES_PASSWORD=acceptance TERP_RUNTIME_DB_PASSWORD=runtime \
             TERP_RELEASE_TAG=acceptance docker compose -f docker-compose.prod.yml config -q
 

@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import uuid
 from contextvars import Context
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
+
+from identity_fixtures import refresh_row
 
 from terp.capabilities.auth import (
     AUTH_OPERATIONS, AuthenticatedPrincipal, build_login_module, decode_access_token,
@@ -18,7 +20,7 @@ from terp.capabilities.identity import IdentityService, RefreshToken, RefreshTok
 from terp.capabilities.users import UserAdminUpdate, UsersService
 from terp.core import (
     AuthenticationError, ControlPlane, ModuleSpec, OperationCatalog, Policy, Principal,
-    Roles, create_app, get_session,
+    Roles, create_app, get_session, settings,
 )
 from terp.core._internal.session_guard import WriteGuardedSession
 
@@ -141,14 +143,14 @@ def test_revocation_between_rotation_and_principal_resolution_refuses_refresh(db
         return result
 
     client = _client(db_engine, identity, refresh, rotator=rotate)
-    assert client.post("/api/v1/auth/login", json={
-        "email": "rotation@example.test", "password": _PASSWORD}).status_code == 200
     if legacy:
         with Session(db_engine) as session:
-            row = session.exec(select(RefreshToken)).one()
-            row.token_version = None  # A family that predates the additive migration.
-            session.add(row)
-            session.commit()
+            raw = refresh.issue(session, user_id)  # A family issued before epochs were supplied.
+            assert session.exec(select(RefreshToken)).one().token_version is None
+        client.cookies.set(_COOKIE, raw)
+    else:
+        assert client.post("/api/v1/auth/login", json={
+            "email": "rotation@example.test", "password": _PASSWORD}).status_code == 200
     assert client.post("/api/v1/auth/refresh").status_code == 401
 
 
@@ -209,7 +211,7 @@ def test_logout_with_an_unknown_cookie_is_idempotent(app_db):
 
 @pytest.mark.parametrize("state", ["current", "spent", "expired"])
 def test_cookie_only_logout_revokes_its_family_without_issuing_or_revoking_others(
-    app_db, make_user, db_session, state
+    app_db, make_user, db_session, state, advance_refresh_clock
 ):
     make_user("logout-family@example.test", _PASSWORD)
     make_user("unrelated@example.test", _PASSWORD)
@@ -222,15 +224,16 @@ def test_cookie_only_logout_revokes_its_family_without_issuing_or_revoking_other
 
     browser = login("logout-family@example.test")
     raw = browser.cookies[_COOKIE]
+    if state == "expired":
+        advance_refresh_clock(1)  # Give the successor a later idle deadline.
     if state != "current":
         assert browser.post("/api/v1/auth/refresh").status_code == 200
     successor = browser.cookies[_COOKIE]
     if state == "expired":
-        row = db_session.exec(select(RefreshToken).where(
-            RefreshToken.token_hash == refresh_token_digest(raw))).one()
-        row.expires_at = datetime.now(UTC) - timedelta(minutes=1)
-        db_session.add(row)
-        db_session.commit()
+        now = advance_refresh_clock(settings.REFRESH_TOKEN_TTL_SECONDS - 1)
+        old = refresh_row(db_session, raw)
+        new = refresh_row(db_session, successor)
+        assert old.expires_at.replace(tzinfo=UTC) == now < new.expires_at.replace(tzinfo=UTC)
 
     separate_family = login("logout-family@example.test")
     other_user = login("unrelated@example.test")

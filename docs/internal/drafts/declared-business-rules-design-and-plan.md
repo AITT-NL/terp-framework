@@ -610,7 +610,10 @@ This phase establishes the transaction guarantees used by declared rules.
 - [x] Amend ADR 0015 with the ORM transaction contract and publish migration guidance for
       opting into the check under pytest.
 
-- [ ] The example app's and the template's suites run against it, with what broke recorded.
+- [x] Run the example app and freshly rendered blank and reference project suites with
+      commit refusal enabled. The [writer inventory](commit-validation-writers.md#running-the-shipped-examples-with-refusal-enabled)
+      records the fixture changes, the audit assertions they affected and the results.
+      The example suite and template acceptance exercise this contract on future changes.
 
 ### Phase 2b — declared rules, core
 
