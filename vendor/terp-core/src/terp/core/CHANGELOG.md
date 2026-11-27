@@ -16,12 +16,15 @@ decision, 0001 onwards.
 
 - **Type and shape have roles, as colour does** (ADR 0223). `@terpjs/contract` publishes
   `--font-family-heading`, `--font-weight-heading`, `--radius-control` and `--radius-container`,
-  and react-core reads them: every title takes the heading face and weight, every control a
-  person presses or types into the control corner, and every container that holds content the
-  container corner. Each defaults to a reference to the step it replaced (`var(--radius-md)` and
-  so on), so nothing renders differently, a house style that moved a step keeps moving
-  everything it moved, and setting a role in `house-style.css` or `theme.css` separates its
-  readers from the scale: a serif heading face, pill-shaped buttons beside square cards. The
+  and react-core reads them: every title takes the heading face, and all but two (the sign-in
+  title and an access screen's section titles, which keep their bold) its weight; buttons,
+  fields, the menu trigger and the navigation's items take the control corner; cards, the
+  table's frame, charts, figures, dialogs and popovers take the container corner. Messages,
+  badges and the small parts keep their step. Each role defaults to a reference to the step it
+  replaced (`var(--radius-md)` and so on), so nothing renders differently, a house style that
+  moved a step keeps moving everything it moved, and setting a role in `house-style.css` or
+  `theme.css` separates its readers from the scale: a serif heading face, pill-shaped buttons
+  beside square cards. The
   token manifest now publishes a reference as the sheet declares it (`var(--radius-md)`), never
   in the token source's own syntax. `terp guide theming` names the roles and the one way to ship
   an app's own typeface under its `font-src 'self'` policy: a `.woff2` in

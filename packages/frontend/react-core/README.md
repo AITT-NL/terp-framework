@@ -33,15 +33,18 @@ also carries JSDoc, so your editor shows the same guidance inline. **Never deep-
   surface use needs a value dark enough to hold a white label and the ink use needs one light
   enough to read on a dark canvas, and there is no value satisfying both.
 - **Type and shape have roles, as colour does** (ADR 0223). Every title (a page's, a
-  section's, a card's, a dialog's, the app's name in the shell) reads `--font-family-heading`
-  and `--font-weight-heading`; every control a person presses or types into reads
-  `--radius-control`; every container that holds content (cards, the table's frame, charts,
-  figures, dialogs, popovers) reads `--radius-container`. Each defaults to a reference to the
-  step it replaced (`var(--font-family-sans)`, `var(--font-weight-semibold)`,
+  section's, a card's, a dialog's, the app's name in the shell) reads `--font-family-heading`,
+  and all but two (the sign-in title and an access screen's section titles, which keep their
+  bold) read `--font-weight-heading`. Buttons, fields, the menu trigger, the navigation's
+  items and the toolbar's, pager's and calendar's icon buttons read `--radius-control`; the
+  containers that hold content (cards, the table's frame, charts, figures, dialogs, popovers)
+  read `--radius-container`. Messages, badges and the small parts (tabs, menu items, options,
+  the icon buttons inside a field) keep their scale step. Each role defaults to a reference to
+  the step it replaced (`var(--font-family-sans)`, `var(--font-weight-semibold)`,
   `var(--radius-md)`, `var(--radius-lg)`), so nothing changes until a house style or the app's
-  `theme.css` sets one, and moving a step still moves every role left unset. A component of
-  the app's own reads the same roles in its CSS Module, so it follows the house as the
-  framework's components do.
+  `theme.css` sets one, and moving a step in `:root` still moves every role left unset. A
+  component of the app's own reads the same roles in its CSS Module, so it follows the house as
+  the framework's components do.
 - **Static user-facing text is cataloged** — use an `{id, message}` `UiText`
   descriptor for text props and `<Trans id message />` for JSX bodies. Plain strings are
   reserved for dynamic business data, identifiers and product names. The boundary lint

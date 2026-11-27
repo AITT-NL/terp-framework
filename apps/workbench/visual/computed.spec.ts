@@ -2067,4 +2067,14 @@ test("the type and shape roles resolve to the scale until a theme sets them, and
   expect(scale[button]!.corner).toBe("3px");
   expect(scale[alert]!.corner).toBe("3px");
   expect(scale[card]!.corner).toBe("12px");
+
+  // A role is resolved where it is declared, on the root, so a step declared again lower in the
+  // document moves what reads the step there and no longer a role's readers (ADR 0223 §2, and
+  // the guide says to set the role there too). <body> is below the root and holds everything.
+  await set({});
+  await page.evaluate(() => document.body.style.setProperty("--radius-md", "3px"));
+  const below = await typeAndCorners(page, watched);
+  await page.evaluate(() => document.body.style.removeProperty("--radius-md"));
+  expect(below[alert]!.corner, "a step's own reader follows it below the root").toBe("3px");
+  expect(below[button]!.corner, "a role keeps the value it resolved on the root").toBe("8px");
 });

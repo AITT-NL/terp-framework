@@ -25,12 +25,12 @@ and the ink, and every component follows. Type and shape never got that layer. W
 interface is recognised by, after its colours, is its headings and its corners, and in both the
 vocabulary offered a scale and nothing on top of it:
 
-- **One typeface.** `--font-family-sans` is set on the shell's roots and every heading inherits
-  it. A heading face distinct from body text, the commonest way a brand shows in an interface,
-  could not be declared.
-- **One weight for two jobs.** Headings, buttons, labels and the navigation share
-  `--font-weight-semibold`, so a lighter heading weight could not be set without thinning the
-  controls.
+- **One typeface.** `--font-family-sans` is set on the shell's roots and on the `heading`
+  component, and every other title inherits it. A heading face distinct from body text, the
+  commonest way a brand shows in an interface, could not be declared.
+- **One weight for two jobs.** Headings share `--font-weight-semibold` with badges, table
+  headers, a figure's value, a message's title, the active navigation item and the selected tab,
+  so a lighter heading weight could not be set without thinning all of those with it.
 - **A radius scale read step by step.** Buttons, fields, the navigation's items and the menu
   trigger read `--radius-md`; so do alerts, toasts, tiles and code blocks. Cards, the data
   frame, charts and dialogs read `--radius-lg`, and so does a badge. Moving `md` to give the
@@ -78,7 +78,13 @@ The defaults are `var()` references, not the values they resolve to, for three r
   set `--radius-lg: 0.25rem` for squarer cards before this existed still squares them, because
   the container role still points at `lg`.
 - **Setting a role is the one way to separate.** Until a role is set, its readers move with the
-  scale. The scale stays the instrument for moving everything at once.
+  scale as the root declares it. The scale stays the instrument for moving everything at once.
+
+A reference is resolved where it is declared, on the root. A step declared again lower in the
+document, which only an unlayered rule in `theme.css` can do (a component's CSS Module admits no
+custom property), moves the elements that read that step there and no longer a role's readers:
+a sub-tree that wants its controls or containers to differ sets the role there as well. Nothing
+in the framework declares a step below the root, and a house style declares every token on it.
 
 The manifest publishes a reference exactly as the sheet declares it (`var(--radius-md)`), so a
 consumer that scopes the shipped values onto an element, such as the Studio's preview, gets the
@@ -88,21 +94,25 @@ same cascade the app does.
 
 A role names one of the two shapes a shape language is made of. The rest keep their step:
 alerts, toasts, code blocks, tiles, list rows, skeletons, the selection bar, the brand box and a
-hub card's icon keep `md`; a badge keeps `lg`; the small controls inside another control (tabs,
-menu items, options, tokens, the tooltip, the icon buttons inside a field or a card) keep `sm`;
-avatars, meters and dots keep `full`. Moving the scale still moves all of them.
+hub card's icon keep `md`; a badge keeps `lg`; the small parts keep `sm`, such as a tab's top
+corners, menu items, a combobox's options and tokens, the tooltip, an inline link and the icon
+buttons inside a field, a card or a toast; avatars, meters and dots keep `full`. Moving the scale
+still moves all of them.
 
 Two headings keep their weight while taking the heading face. `login-title` is set bold, a step
-heavier than every other heading, and `admin-section-title` takes the browser's bold for an
-`h3`. Moving either to the heading weight would repaint the sign-in screen and the
+heavier than the headings that take the role, and `admin-section-title` takes the browser's bold
+for an `h3`. Moving either to the heading weight would repaint the sign-in screen and the
 access screen in every app today, which this decision does not do; both are recorded by name in
 `roles.test.ts`, so bringing them onto the role is a visible, re-baselined change rather than a
 drift.
 
 ### 4. A face is a font stack, and an app's own face is its own file
 
-A heading family is a font stack. One the platform already has (`ui-serif`, `ui-rounded`,
-`Georgia`, `system-ui`) needs nothing loaded. An app's own typeface is a same-origin file: the
+A heading family is a font stack, and the browser takes the first face in it that it finds. A
+stack of faces the reader's system may have needs nothing loaded, and it ends in a generic family
+(`serif`, `sans-serif`, `system-ui`) that every system resolves: `ui-serif` and `ui-rounded` exist
+only on some platforms, so `ui-serif, Georgia, "Times New Roman", serif` falls through to the next
+face where they do not. An app's own typeface is a same-origin file: the
 `.woff2` in `frontend/public/fonts/`, an `@font-face` in `theme.css` naming it by its path, and the
 role naming the family. The document's policy admits fonts from the app's own origin only
 (`font-src 'self'`, ADR 0104), so that route needs no change to it, and a font service's URL is
