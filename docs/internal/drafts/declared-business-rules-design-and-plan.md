@@ -575,7 +575,10 @@ This phase establishes the transaction guarantees used by declared rules.
       through the request session on SQLite and PostgreSQL. Create and partial update each
       commit once. After each success or refusal, read the complete quote and its version
       on a fresh connection. A failed create leaves no quote.
-- [ ] Add operation-level regression tests for atomic persistence and rollback (ADR 0193).
+- [x] Verify operation-level atomic persistence and rollback (ADR 0193). The
+      [quote transaction tests](../../../tests/architecture/test_quote_persistence.py) check
+      the quote, its revision and a pending event together after a request, a job and
+      competing updates on SQLite and PostgreSQL.
 - [ ] Inventory framework-managed writers and document their participation in commit validation.
 
 - [ ] The per-row validated snapshot and the check before the commit of every write unit, for
