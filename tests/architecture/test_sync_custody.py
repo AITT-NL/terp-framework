@@ -55,7 +55,7 @@ def _tables(engine):
 
 
 @pytest.fixture
-def custody():
+def custody(terp_validate_writes):
     clock = _LeaseClock()
     store = DatabaseLeaseStore(clock=clock)
     configure_leases(store)

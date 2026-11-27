@@ -1,18 +1,11 @@
-"""Managed columns and observation of accepted service writes."""
+"""Shared ORM write observation and the columns managed by Terp services."""
 
 from collections.abc import Callable
 
 from sqlmodel import Session
 
 
-# The pytest observer subscribes for the lifetime of a reporting run.
-_service_write_observers: list[Callable[[Session, object, str], None]] = []
-
-
-def _observe_service_write(session: Session, entity: object, operation: str) -> None:
-    for record in _service_write_observers:
-        record(session, entity, operation)
-
+_write_observers: list[Callable[[Session, object, str, tuple[str, ...]], None]] = []
 
 # Framework-managed columns a client input must never set: BaseService assigns all
 # of these centrally (the primary key + audit timestamps + the OCC ``version`` +

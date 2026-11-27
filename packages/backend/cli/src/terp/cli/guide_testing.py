@@ -151,14 +151,21 @@ two ids under a seam is a test installing what it needs; every id in a package u
 seam is a fixture installing it for them. Then make that installer NAMED and non-autouse,
 and let the tests that emit request it. The ones that then fail were the ones being carried.
 
-To find ORM writes committed outside a service save, run
+To find ORM commits with changes outside a service or framework writer, run
       uv run pytest --terp-report-writes
 The summary lists the test ID, mapped model and changed column names. It includes ORM
 writes made by fixtures and framework services on plain SQLModel and request sessions.
 It follows the outer session commit and discards rolled-back savepoints. Raw SQL and
 bulk statements are outside its scope. When the ORM writes an unloaded column and its
 prior value is unknown, the report includes the column even if the assignment was a no-op.
-A custom service method can call _save to record the row it intends to persist.
+To refuse those commits during a test run, use
+      uv run pytest --terp-validate-writes
+For one test or fixture, request the terp_validate_writes fixture before opening the
+writer session. A custom service method can call _save again after changing a row.
+A framework writer accounts for its specific insert, changed fields or delete. Move
+ordinary fixture writes through the service. Seed historical imports as migration data.
+A refusal names the model and columns. Service and job owners roll the transaction
+back. A caller that owns a plain session must roll it back before starting another unit.
 
 TWO FIXTURES, ONE SEAM. A seam holds one runtime, so the last install wins - and pytest
 decides "last" from the FIXTURE GRAPH, not from the order of your test's parameters. A tap

@@ -60,7 +60,7 @@ from terp.core import Lease, LeaseResource, LeaseStore, mark_durable_lease_store
 # _internal so an app module cannot open it to wave a write past the audit guard; delivery
 # and lease infrastructure legitimately reach it, like the audit sink at the base of the
 # write stack.
-from terp.core._internal.session_guard import enter_write_unit  # arch-allow-no-internal-imports: lease infra must ride the audited write unit to claim atomically with the business write; the scope primitive is _internal so app modules cannot open it
+from terp.core._internal.session_guard import enter_write_unit, record_write  # arch-allow-no-internal-imports: lease infra must ride the audited write unit to claim atomically with the business write; the scope primitive is _internal so app modules cannot open it
 
 from terp.capabilities.leases.models import ResourceLease
 
@@ -313,6 +313,7 @@ class DatabaseLeaseStore(LeaseStore):
             try:
                 with session.begin_nested():
                     session.add(row)  # arch-allow-mutations-emit-audit: first acquire of a resource creates its lease record — infra on the lease capability's own table, guarded by a SAVEPOINT so a raced insert cannot poison the caller's transaction
+                    record_write(session, row, "append")
             except IntegrityError:
                 return None
             if outermost:

@@ -20,7 +20,7 @@ from sqlmodel import Session
 # nested, standalone otherwise); the scope primitive is _internal so an app module cannot
 # open it to wave a write past the audit guard. This capability legitimately reaches it,
 # exactly like the audit sink / outbox store at the base of the write stack.
-from terp.core._internal.session_guard import enter_write_unit  # arch-allow-no-internal-imports: append-only delivery infra must ride the audited write unit; the scope primitive is _internal so app modules cannot open it
+from terp.core._internal.session_guard import enter_write_unit, record_write  # arch-allow-no-internal-imports: append-only delivery infra must ride the audited write unit; the scope primitive is _internal so app modules cannot open it
 from terp.core._internal.job_runtime import defer_after_job_transaction  # arch-allow-no-internal-imports: the infrastructure attempt journal must survive a failed job without committing its business writes
 
 from terp.capabilities.webhooks.models import WebhookDelivery
@@ -68,6 +68,7 @@ def record_delivery(
 def _persist_delivery(session: Session, delivery: WebhookDelivery) -> None:
     with enter_write_unit() as outermost:
         session.add(delivery)  # arch-allow-mutations-emit-audit: append-only delivery log at the base of the write stack (like the audit sink); WebhookDelivery is not a BaseTable, so it cannot route through BaseService
+        record_write(session, delivery, "append")
         if outermost:
             session.commit()  # arch-allow-mutations-emit-audit: a standalone delivery record is its own committed unit; a nested one defers to the outer BaseService commit
 

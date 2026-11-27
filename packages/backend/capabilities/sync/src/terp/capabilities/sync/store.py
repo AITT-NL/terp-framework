@@ -18,7 +18,7 @@ from sqlmodel import Session
 # The append-only sync log must ride the audited write unit to commit; the scope primitive is
 # _internal so an app module cannot open it to wave a write past the audit guard. This
 # capability legitimately reaches it, exactly like the audit sink / outbox / webhooks stores.
-from terp.core._internal.session_guard import enter_write_unit  # arch-allow-no-internal-imports: append-only sync log must ride the audited write unit; the scope primitive is _internal so app modules cannot open it
+from terp.core._internal.session_guard import enter_write_unit, record_write  # arch-allow-no-internal-imports: append-only sync log must ride the audited write unit; the scope primitive is _internal so app modules cannot open it
 
 from terp.capabilities.sync.models import SyncRecordLog
 
@@ -55,6 +55,7 @@ def record_sync_log(
     )
     with enter_write_unit() as outermost:
         session.add(log)  # arch-allow-mutations-emit-audit: append-only sync log at the base of the write stack (like the audit sink); SyncRecordLog is not a BaseTable, so it cannot route through BaseService
+        record_write(session, log, "append")
         if outermost:
             session.commit()  # arch-allow-mutations-emit-audit: a standalone log line is its own committed unit; a nested one defers to the outer BaseService commit
     return log
