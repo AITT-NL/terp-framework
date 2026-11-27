@@ -77,33 +77,36 @@ principal, so a ceiling of 10% for one role and 25% for another is code. Aggrega
 declared reference may come later, with their own evidence, because they bring concurrency with
 them: a child's write changes the parent's figure under optimistic concurrency control.
 
-### 3.2 A rule is data, not a function
+### 3.2 Reusable expressions and table declarations
 
 An expression is built from column references, literals, `+ − × ÷`, comparisons, a null test,
-`and`/`or`/`not`, `min`/`max` and an explicit `round(…, places)`. There are no Python callables,
-no function calls and no loops.
+`and`/`or`/`not`, `min`/`max` and an explicit `round(…, places)`. These operators form the
+complete grammar that the evaluator executes.
 
 A null test can express conditions such as “a cancelled quote states why” and “a draft
 quote has no order date.”
 
-A callable would be simpler to write and would cost every property this design exists for:
-`inspect` could not serialise it, a workbench could not render it, a checker could not find a
-contradiction in it, and §4.4 could not mutate it. The closed grammar is also what keeps this on
-the right side of ADR 0009: it cannot grow into a language, because there is no way to write a
-loop in it. The way out of it is code, not a bigger grammar.
+The closed grammar gives `inspect`, the workbench, the consistency checker and the mutation
+tests in §4.4 the same data to read. Calculations that need loops or external lookups can use
+ordinary service code under ADR 0009.
 
-An illustrative shape, not a fixed API:
+A developer can build an expression in an ordinary Python helper and return several named rules
+from one function. The helper receives symbolic inputs and runs when the model is defined.
+Terp stores the resulting expression tree. A table model supplies the first binding, with
+the input columns, the destination of a derived value and the write at which to evaluate it.
+The same formula can bind to different column names on another model. Each binding declares
+its own rule ID and is type-checked against its own columns at boot.
+
+The example illustrates the proposed API. Here the helper supplies the arithmetic, and the
+quote model attaches three independently inspectable rules.
 
 ```python
-class Quote(BaseTable, table=True):
-    status: str = Field(default="draft", max_length=20)
-    revenue: Decimal = Field(max_digits=12, decimal_places=2)
-    material_cost: Decimal = Field(max_digits=12, decimal_places=2)
-    labour_cost: Decimal = Field(max_digits=12, decimal_places=2)
-    discount_pct: Decimal = Field(max_digits=5, decimal_places=2)
-    margin: Decimal = Field(default=Decimal(0), max_digits=12, decimal_places=2)
+def net_margin(revenue, material, labour):
+    return revenue - material - labour
 
-    rules: ClassVar[Rules] = Rules(
+
+def quote_rules():
+    return Rules(
         Transitions(
             "quote.flow", column="status", initial="draft",
             moves={("draft", "approved"): APPROVE,
@@ -117,11 +120,27 @@ class Quote(BaseTable, table=True):
         ),
         Derived(
             "quote.margin", "margin",
-            col("revenue") - col("material_cost") - col("labour_cost"),
+            net_margin(col("revenue"), col("material_cost"), col("labour_cost")),
             says="The margin is the revenue minus material and labour cost.",
         ),
     )
+
+
+class Quote(BaseTable, table=True):
+    status: str = Field(default="draft", max_length=20)
+    revenue: Decimal = Field(max_digits=12, decimal_places=2)
+    material_cost: Decimal = Field(max_digits=12, decimal_places=2)
+    labour_cost: Decimal = Field(max_digits=12, decimal_places=2)
+    discount_pct: Decimal = Field(max_digits=5, decimal_places=2)
+    margin: Decimal = Field(default=Decimal(0), max_digits=12, decimal_places=2)
+
+    rules: ClassVar[Rules] = quote_rules()
 ```
+
+Inspect and approval use the bound formula (§3.4). Moving the same expression into a helper
+preserves the same inputs, output and approval hash. Changing the expression changes the hash.
+Operation-level bindings, such as an inspectable price preview before a quote exists, can be
+designed later. Today a preview can be implemented in custom Python.
 
 ### 3.3 Enforced where every write lands, in Python
 
@@ -161,8 +180,9 @@ called with plain SQLModel sessions. Phase 2a introduces it for all tables, ahea
 declarations. The design follows the per-row reference checks in
 [ADR 0178](../../decisions/0178-a-reference-written-must-point-at-a-row-its-writer-can-read.md).
 
-Inventory framework-managed writers and define how each participates. Use the observer to
-measure compatibility on existing applications before enabling enforcement.
+The [writer inventory](commit-validation-writers.md) records which operation owns each write
+and which transaction validates it. Use the observer to measure compatibility on existing
+applications before enabling enforcement.
 
 **It arrives in three steps, because it changes what existing code may do.**
 
@@ -579,7 +599,7 @@ This phase establishes the transaction guarantees used by declared rules.
       [quote transaction tests](../../../tests/architecture/test_quote_persistence.py) check
       the quote, its revision and a pending event together after a request, a job and
       competing updates on SQLite and PostgreSQL.
-- [ ] Inventory framework-managed writers and document their participation in commit validation.
+- [x] Inventory [framework-managed writers and their participation in commit validation](commit-validation-writers.md).
 
 - [ ] The per-row validated snapshot and the check before the commit of every write unit, for
       every table: in a request, in a job, and on a plain session a test hands to a service
@@ -601,7 +621,9 @@ This phase establishes the transaction guarantees used by declared rules.
       the `ValidationFailedError` envelope and an undeclared move as a `ConflictError`; boot
       validation of numeric declarations and derived columns in input schemas. Exercise the
       value bounds on API and custom service writes, and compare with `rules-surface.json` at
-      startup.
+      startup. Compare the bound expression, dependencies and approval hash for the same
+      declaration written inline and through a helper. Bind the helper to a second table
+      with different input column names and verify its own bindings in inspect.
 - [ ] Exercise soft-delete through the service with a 25% discount ceiling and the draft-only
       archive invariant from §3.3. Start with two historical quotes at 30%. Archiving the draft
       succeeds. In a fresh session, verify its deletion timestamp is set and its discount is
