@@ -186,11 +186,14 @@ function tokenProblems(rule, sheet) {
       sheet.report(child, sheet.says.property(child.prop));
       continue;
     }
-    if (child.important) {
+    // postcss flags only a literal !important; an escaped one (!\69 mportant) is the same
+    // priority to a browser, so the resolved value is read too.
+    const value = unescapeCss(child.value);
+    if (child.important || /!\s*important\s*$/i.test(value)) {
       sheet.report(child, sheet.says.important(child.prop));
       continue;
     }
-    const fetching = FETCHING.exec(unescapeCss(child.value));
+    const fetching = FETCHING.exec(value);
     if (fetching) sheet.report(child, sheet.says.fetching(child.prop, fetching[1].toLowerCase()));
   }
 }

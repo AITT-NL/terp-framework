@@ -798,6 +798,7 @@ describe("terpBoundaries", () => {
         '@font-face { font-family: "A"; src: url("\\\\\\\\evil.example.invalid/x.woff2"); }',
         '@font-face { font-family: "B"; src: url("/\\\\evil.example.invalid/x.woff2"); }',
         '@font-face { font-family: "C"; src: url(//evil.example.invalid/x.woff2); }',
+        ":root { --radius-md: 2px !\\69 mportant; }",
       ].join("\n"));
       expect(await sheetLines(code, "theme.css")).toEqual([
         expect.stringContaining("theme.css:1: --hero holds image-set()"),
@@ -806,6 +807,7 @@ describe("terpBoundaries", () => {
         expect.stringContaining("theme.css:4: \\\\evil.example.invalid/x.woff2 is not on the app's own origin"),
         expect.stringContaining("theme.css:5: /\\evil.example.invalid/x.woff2 is not on the app's own origin"),
         expect.stringContaining("theme.css:6: //evil.example.invalid/x.woff2 is not on the app's own origin"),
+        expect.stringContaining("theme.css:7: --radius-md carries !important"),
       ]);
 
       // The house style is read by the same grammar, but nobody edits it: its styling tool
