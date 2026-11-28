@@ -202,8 +202,16 @@ async function main() {
   // stylesheet must invalidate the same cached result as changing the JSX.
   // A repacked adapter can change the CSS policy without changing app sources.
   hash.update("\0").update(fs.readFileSync(new URL("./cssModules.js", import.meta.url)));
+  hash.update("\0").update(fs.readFileSync(new URL("./bootstrapSheets.js", import.meta.url)));
   for (const file of fs.globSync("src/**/*.module.css", { cwd }).sort()) {
     hash.update("\0").update(file).update("\0").update(fs.readFileSync(path.join(cwd, file)));
+  }
+  // The bootstrap's two token sheets are read from src/main.tsx the same way (ADR 0225): a
+  // change to one alone must not replay the bootstrap's cached verdict.
+  for (const file of ["src/house-style.css", "src/theme.css"]) {
+    const absolute = path.join(cwd, file);
+    hash.update("\0").update(file).update("\0")
+      .update(fs.existsSync(absolute) ? fs.readFileSync(absolute) : Buffer.from("<missing>"));
   }
   const declarationHash = hash.digest("hex").slice(0, 16);
   const eslint = new ESLint({

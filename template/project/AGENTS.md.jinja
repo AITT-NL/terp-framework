@@ -340,7 +340,8 @@ token-styled primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>
 `XMLHttpRequest` / `WebSocket` / `EventSource` / `sendBeacon`),
 no `style={}`, no `className` but a sibling CSS Module's own class, and no stylesheet but that
 module, imported statically (`src/main.tsx` alone imports the global token pipeline's three:
-`@terpjs/contract/tokens.css`, `./house-style.css` and `./theme.css`; a stylesheet loaded
+`@terpjs/contract/tokens.css`, `./house-style.css` and `./theme.css`, the last two read as token
+sheets, ADR 0225; a stylesheet loaded
 through `import()` is refused),
 modules that stay independent (no module imports a sibling, and no code outside the modules
 imports into one), in-app links via the router (no raw `<a href="/...">`),
@@ -467,7 +468,10 @@ sentence some readers cannot read.
     `--font-weight-heading`, `--radius-control` and `--radius-container`: set them in
     `theme.css` to make the app look like its organisation, and read them in a component's
     own CSS Module so it follows. The app's own typeface is a `.woff2` in
-    `frontend/public/fonts/` with an `@font-face` in `theme.css`; a font service's URL is
+    `frontend/public/fonts/` with an `@font-face` in `theme.css`. `theme.css` holds tokens and
+    that `@font-face` and nothing else: the lint refuses a rule there with its line, and a rule
+    no token can express goes in a stylesheet of your own, imported in `src/main.tsx` under a
+    justified `// terp-allow-no-style-imports: <reason>` marker. A font service's URL is
     refused by the app's security policy.
   - **Never edit `frontend/src/house-style.css`.** It belongs to the organisation's styling
     tool, which rewrites it wholesale; edits there are the ones that vanish. To depart from

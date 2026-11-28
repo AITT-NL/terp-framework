@@ -70,11 +70,13 @@ or a component's sibling `Name.module.css`, default-imported, read only as `clas
 on a native element, whose local classes, layout and type properties and paint the lint reads:
 ink `--color-fg-default` / `-muted` / `-subtle`, surfaces `--color-bg-canvas` / `-surface` /
 `-subtle`, `--color-border-*` borders, with ink and type only on an element that holds the app's
-own text, ADR 0217; `src/main.tsx` alone imports the token pipeline's three stylesheets), independent modules (no module imports a sibling, and no code
+own text, ADR 0217; `src/main.tsx` alone imports the token pipeline's three stylesheets, and
+`./house-style.css` and `./theme.css` hold tokens and same-origin `@font-face` only, ADR 0225), independent modules (no module imports a sibling, and no code
 outside the modules imports into one), in-app links via the router (no raw
 `<a href="/...">`), every routed view framed by a page archetype (refused at runtime
 otherwise), optional slot-typed layout contracts (ADR 0079: a checked-in
-`layout-contract.json` + `layoutContract` at bootstrap constrain each archetype's body
+`layout-contract.json`, which the bootstrap imports and passes as `layout` (declaring it a
+second way is refused), constrains each archetype's body
 slot to the contract's components, enforced by the `terp/layout-contract` lint half and
 a fail-closed runtime DOM check — recipe: `terp guide layouts`),
 `UiText` text props, no deep imports, and frontend security defaults

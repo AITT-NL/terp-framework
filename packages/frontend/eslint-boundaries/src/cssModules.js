@@ -3,6 +3,8 @@ import path from "node:path";
 
 import postcss from "postcss";
 
+import { BOOTSTRAP_SHEETS, inspectBootstrapSheet, isBootstrapFile } from "./bootstrapSheets.js";
+
 // A sibling file keeps the stylesheet in the component's module boundary. The name holds no
 // slash, so the file sits beside the component; dots are allowed (`Board.lanes.module.css`).
 export const localModuleSource = String.raw`\./[A-Za-z0-9_][A-Za-z0-9_.-]*\.module\.css`;
@@ -198,6 +200,15 @@ export const moduleImports = {
     return {
       "ImportDeclaration, ExportNamedDeclaration, ExportAllDeclaration"(node) {
         const source = node.source?.value;
+        // The bootstrap's own two sheets are token sheets (ADR 0225): read them, as a module's
+        // stylesheet is read, and report each line they hold that is not a token.
+        if (BOOTSTRAP_SHEETS.includes(source) && isBootstrapFile(context.physicalFilename, context.cwd)) {
+          const file = path.resolve(path.dirname(context.physicalFilename), source);
+          for (const detail of inspectBootstrapSheet(file)) {
+            context.report({ node, messageId: "stylesheetContent", data: { detail } });
+          }
+          return;
+        }
         if (!localModule.test(source)) return;
         const binding = node.specifiers?.[0];
         if (node.type !== "ImportDeclaration" || node.specifiers.length !== 1

@@ -20,6 +20,12 @@
  * `uv run terp guide theming` has the whole recipe, including which token names
  * exist and how to ship on a palette other than midday.
  *
+ * It declares tokens and nothing else: custom properties under :root or a
+ * palette's selector, and an @font-face for a typeface the app serves from
+ * frontend/public/fonts/. The boundary lint reads this file (ADR 0225), so a
+ * rule that restyles a component is refused here with its line. When no token
+ * can say what you need, the guide names the route for a rule of your own.
+ *
  * THIS FILE IS ALWAYS YOURS. No tool writes here. If your organisation manages
  * a house style, it is applied to `house-style.css` next door, which is
  * imported just before this file — so anything you declare here wins over it,

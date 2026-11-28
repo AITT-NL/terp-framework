@@ -717,6 +717,87 @@ describe("terpBoundaries", () => {
     expect(await lint(code, BOOTSTRAP_FILE)).toEqual([]);
   });
 
+  it("reads the bootstrap's own sheets as token sheets (ADR 0225)", async () => {
+    const src = path.dirname(BOOTSTRAP_FILE);
+    fs.mkdirSync(src, { recursive: true });
+    const theme = path.join(src, "theme.css");
+    const house = path.join(src, "house-style.css");
+    const code = 'import "@terpjs/contract/tokens.css";\nimport "./house-style.css";\nimport "./theme.css";\nexport {};';
+    const sheetLines = async (source, name) =>
+      (await lintMessages(source, BOOTSTRAP_FILE)).filter((text) => text.includes(`${name}:`));
+    try {
+      // Every shape Studio's house-style writer emits, and what an app's theme.css is for: tokens
+      // under :root and a palette's selectors, the platform-following palette inside its media
+      // group, and a typeface the app serves itself.
+      fs.writeFileSync(house, [
+        "/* Written by a styling tool. */",
+        ":root { --radius-md: 0.25rem; --font-family-heading: ui-serif, serif; }",
+        "[data-theme='midday'] { --color-brand-primary: #1d4ed8; }",
+        "@media (prefers-color-scheme: light) { :root:not([data-theme]) { --color-brand-primary: #1d4ed8; } }",
+        "[data-theme='evening'],\n[data-theme='dark'] { --color-brand-primary: #93c5fd; }",
+      ].join("\n"));
+      fs.writeFileSync(theme, [
+        '@font-face { font-family: "Brand Sans"; src: local("Brand Sans"), url("/fonts/brand.woff2") format("woff2"); font-display: swap; }',
+        ':root { --font-family-heading: "Brand Sans", system-ui, sans-serif; --radius-control: var(--radius-full); }',
+        '[data-theme="night"] { --color-brand-primary: #60a5fa; }',
+      ].join("\n"));
+      expect(await lintMessages(code, BOOTSTRAP_FILE)).toEqual([]);
+
+      // Each form a token sheet is not for, on its own line: the line, the cause and the remedy.
+      fs.writeFileSync(theme, [
+        ":root { --radius-control: 0; }",
+        '[data-terp="card"] { border-radius: 0; }',
+        ":root { color: red; }",
+        ":root { --radius-md: 2px !important; }",
+        ':root { --logo: url("/brand.svg"); }',
+        '@font-face { font-family: "X"; src: url("https://fonts.example.com/x.woff2"); }',
+        '@import url("other.css");',
+        ":root:not([data-theme]) { --radius-md: 2px; }",
+        "html { scrollbar-gutter: auto; }",
+        ":root { .nested { --x: 1; } }",
+      ].join("\n"));
+      const lines = await sheetLines(code, "theme.css");
+      expect(lines).toEqual([
+        expect.stringContaining('theme.css:2: [data-terp="card"] is not a selector this sheet may use'),
+        expect.stringContaining("theme.css:3: color is not a token"),
+        expect.stringContaining("theme.css:4: drop !important from --radius-md"),
+        expect.stringContaining("theme.css:5: --logo takes no url()"),
+        expect.stringContaining("theme.css:6: https://fonts.example.com/x.woff2 is not on the app's own origin"),
+        expect.stringContaining("theme.css:7: @import is refused here"),
+        expect.stringContaining("theme.css:8: :root:not([data-theme]) declares the palette that follows the viewer's platform"),
+        expect.stringContaining("theme.css:9: html is not a selector this sheet may use"),
+        expect.stringContaining("theme.css:10: a token rule holds declarations only"),
+      ]);
+      // A rule a token cannot express has a route, and the refusal names it.
+      expect(lines[0]).toContain("// terp-allow-no-style-imports: <reason>");
+      expect(lines[5]).toContain("// terp-allow-no-style-imports: <reason>");
+      expect(lines[4]).toContain("frontend/public/fonts/");
+      // A marker on the import governs that edge, never the lines behind it, as for a CSS Module.
+      const marked = code.replace('import "./theme.css";', '// terp-allow-no-style-imports: a reason\nimport "./theme.css";');
+      expect(await sheetLines(marked, "theme.css")).toHaveLength(lines.length);
+
+      // The house style is read by the same grammar, and a sheet that does not parse says where.
+      fs.writeFileSync(theme, ":root { --radius-md: 2px; }");
+      fs.writeFileSync(house, "body { margin: 0; }\n:root { --radius-md: 2px;");
+      expect(await sheetLines(code, "house-style.css")).toEqual([
+        expect.stringContaining("house-style.css:2:"),
+      ]);
+      fs.writeFileSync(house, "body { margin: 0; }");
+      expect(await sheetLines(code, "house-style.css")).toEqual([
+        expect.stringContaining("house-style.css:1: body is not a selector this sheet may use"),
+      ]);
+
+      // Only the bootstrap's own import is read: the same sheet imported elsewhere is refused as
+      // a path and nothing more.
+      const helper = path.join(src, "diagram.tsx");
+      fs.writeFileSync(path.join(src, "theme.css"), "body { margin: 0; }");
+      expect(await lint('import "./theme.css";\nexport {};', helper)).toEqual(["no-restricted-imports"]);
+    } finally {
+      fs.rmSync(theme, { force: true });
+      fs.rmSync(house, { force: true });
+    }
+  });
+
   it("refuses any other stylesheet in the bootstrap, a library's included", async () => {
     for (const source of ["some-diagram-lib/dist/style.css", "./app.css", "./theme.scss"]) {
       expect(await lint(`import "${source}";\nexport {};`, BOOTSTRAP_FILE)).toEqual([
@@ -858,7 +939,27 @@ describe("terpBoundaries", () => {
       .replace(/\{%-?[\s\S]*?-?%\}/g, "");
     expect(rendered).not.toContain("{{");
     expect(rendered).not.toContain("{%");
-    expect(await lintMessages(rendered, BOOTSTRAP_FILE)).toEqual([]);
+    // With the template's own two token sheets beside it, which the lint reads (ADR 0225): a
+    // template whose sheet held a rule would hand every new app a red first lint.
+    const src = path.dirname(BOOTSTRAP_FILE);
+    fs.mkdirSync(src, { recursive: true });
+    const sheets = ["theme.css", "house-style.css"];
+    for (const name of sheets) {
+      fs.copyFileSync(
+        fileURLToPath(new URL(`../../../../template/project/frontend/src/${name}`, import.meta.url)),
+        path.join(src, name),
+      );
+    }
+    try {
+      expect(await lintMessages(rendered, BOOTSTRAP_FILE)).toEqual([]);
+      // And the copies are what was read: a rule in one is refused from this bootstrap.
+      fs.appendFileSync(path.join(src, "theme.css"), "\nbody { margin: 0; }\n");
+      expect(await lintMessages(rendered, BOOTSTRAP_FILE)).toEqual([
+        expect.stringContaining("body is not a selector this sheet may use"),
+      ]);
+    } finally {
+      for (const name of sheets) fs.rmSync(path.join(src, name), { force: true });
+    }
   });
 
   it("suppresses a violation with a justified terp-allow marker on the line above", async () => {

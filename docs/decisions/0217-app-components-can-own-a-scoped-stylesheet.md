@@ -10,6 +10,10 @@
   cache), the `no-inline-styling` and `no-style-imports` corpus cases with their recorded
   residuals, and `packages/frontend/conformance/tests/control-fit.spec.ts`.
 - **Date:** 2026-11-19.
+- **Amended by:** [ADR 0225](0225-the-bootstrap-sheets-declare-tokens.md) (2026-11-28): the
+  bootstrap's `theme.css` and `house-style.css` are read as token sheets; the escape for a rule no
+  token can express is the import opt-out this ADR describes, and nothing about CSS Modules
+  changes.
 - **Amends:** [ADR 0059](0059-strict-frontend-boundary-and-escape-hatch-budget.md), which
   refused `className` and every app stylesheet;
   [ADR 0175](0175-the-frontend-boundary-does-not-stop-at-the-module-tree.md), whose bootstrap

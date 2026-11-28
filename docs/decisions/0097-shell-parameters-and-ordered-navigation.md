@@ -2,6 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-21
+- **Amended by:** [ADR 0225](0225-the-bootstrap-sheets-declare-tokens.md) (2026-11-28): turning
+  the scrollbar gutter off (§8) is a rule on `html`, not a token, so it goes in a stylesheet of the
+  app's own under the `no-style-imports` marker rather than in `theme.css`.
 - **Relates:** [ADR 0094](0094-attribute-keyed-styling.md) (the attribute-versus-inline line
   every new prop here is decided against), [ADR 0093](0093-semantic-token-layer-and-named-themes.md)
   (the token vocabulary the shell's geometry joins),

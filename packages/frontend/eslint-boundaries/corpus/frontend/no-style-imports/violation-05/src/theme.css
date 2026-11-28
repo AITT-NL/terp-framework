@@ -1,0 +1,7 @@
+:root {
+  --radius-control: var(--radius-full);
+}
+
+[data-terp="card"] {
+  border-radius: 0;
+}

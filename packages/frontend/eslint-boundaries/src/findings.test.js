@@ -292,6 +292,28 @@ describe("terp-boundaries-lint (the bin)", () => {
     // Two runs of the bin, each a full ESLint start: past vitest's 5 s default on a slow runner.
   }, 30_000);
 
+  it("rechecks the bootstrap when only one of its token sheets changes", () => {
+    const root = appRoot({
+      "package.json": '{ "type": "module" }',
+      "eslint.config.js": config,
+      "escape-hatch-budget.json": "{}",
+      "src/main.tsx": 'import "./house-style.css";\nimport "./theme.css";\nexport {};\n',
+      "src/house-style.css": ":root { --radius-md: 0.25rem; }",
+      "src/theme.css": "body { margin: 0 }",
+    });
+    // As for a CSS Module: the bootstrap's bytes do not change when its theme.css does, so
+    // without the sheet in the cache key a stored refusal would replay over a fixed sheet.
+    const refused = runBin(root);
+    expect(refused.status).toBe(1);
+    expect(new Set(JSON.parse(refused.stdout).findings.map(({ rule }) => rule))).toEqual(
+      new Set(["frontend/no-style-imports"]),
+    );
+    fs.writeFileSync(path.join(root, "src/theme.css"), ":root { --radius-md: 2px; }");
+    const fixed = runBin(root);
+    expect(fixed.status).toBe(0);
+    expect(JSON.parse(fixed.stdout).findings).toEqual([]);
+  }, 30_000);
+
   it("reports budget drift even when the boundary lint fails (both halves always run)", () => {
     // The regression the merged bin exists for: with `eslint . && terp-boundaries-budget`
     // a boundary violation short-circuited the ratchet, hiding budget drift from the run.

@@ -45,7 +45,8 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  * active / disabled / `:focus-visible` states all live in the injected react-core sheet,
  * matched on the `data-terp` / `data-variant` attributes set below (ADR 0094). So the
  * variant is a fact about the element rather than a style object chosen in here — which
- * is what a test should assert, and what an app's `theme.css` can restyle.
+ * is what a test should assert, and what an app can restyle: through the tokens its
+ * `theme.css` sets, or from a stylesheet of its own under the no-style-imports marker.
  *
  * `size`, `loading` and `fullWidth` are all closed sets, so all three are attributes with a
  * rule each (ADR 0094 §3). Two details about how they are stamped are deliberate:

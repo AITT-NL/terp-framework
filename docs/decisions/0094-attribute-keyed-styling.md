@@ -2,6 +2,10 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-18
+- **Amended by:** [ADR 0225](0225-the-bootstrap-sheets-declare-tokens.md) (2026-11-28): an app's
+  `theme.css` still wins the cascade, for the tokens it declares; restyling a framework rule from
+  it is refused, and the route for a rule no token can express is a stylesheet of the app's own
+  under the `no-style-imports` marker.
 - **Relates:** [ADR 0093](0093-semantic-token-layer-and-named-themes.md) (the token
   vocabulary these rules consume), [ADR 0079](0079-slot-typed-layout-contracts.md) (the
   `data-terp` markers the rules key on), and
