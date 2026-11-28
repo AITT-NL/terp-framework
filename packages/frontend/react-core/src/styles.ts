@@ -548,9 +548,24 @@ select[data-terp="input"] {
   -webkit-appearance: none;
   -moz-appearance: none;
 }
+/* A multi-line field wears the control corner up to the container's, and no rounder: a
+   pill (--radius-control: var(--radius-full)) suits a one-line field and a button, but on a
+   box of several lines it draws a stadium whose curved ends cut into the text. By default
+   the control corner is the smaller of the two, so the cap changes nothing until a style
+   rounds its controls past its containers. */
 textarea[data-terp="input"] {
   padding: var(--space-2) var(--space-3);
   line-height: 1.4;
+  border-radius: min(var(--radius-control), var(--radius-container));
+}
+/* A select that is a list box (multiple, or a size above one) is a box of several rows like the
+   textarea, so it is capped the same way; it opens no dropdown, so it draws no chevron and
+   reserves no room for one. */
+select[data-terp="input"][multiple],
+select[data-terp="input"][size]:not([size="0"]):not([size="1"]) {
+  padding: var(--space-1);
+  background-image: none;
+  border-radius: min(var(--radius-control), var(--radius-container));
 }
 
 /* Stack -------------------------------------------------------------------- */
@@ -4337,7 +4352,8 @@ input[data-terp="input"][role="combobox"] {
   gap: var(--space-1);
   padding: var(--space-1);
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
+  /* It wraps onto rows, so it is capped like a textarea's corner (see the text controls). */
+  border-radius: min(var(--radius-control), var(--radius-container));
   background: var(--color-neutral-0);
 }
 [data-terp="combobox-field"][data-multiple="true"] > [data-terp="input"] {
@@ -6141,8 +6157,8 @@ button[data-terp="input"][data-placeholder="true"] {
    matches, so nothing but !important could reach them. The resting look is a base rule
    now and the exported constants no longer exist.
 
-   The hover skips the active route (aria-current="page") so the brand-soft active
-   highlight is not washed out on hover, and that same attribute is what carries the
+   The hover skips the active route (aria-current="page") so the active route's fill and
+   rail (below) are not washed out on hover, and that same attribute is what carries the
    active look at all now that NAV_LINK_ACTIVE_STYLE is gone. It is not a shell attribute:
    every router sets it on the link it considers current, which is exactly the kind of
    reuse the breadcrumb case sanctions — the caller owns the element and the attribute, and

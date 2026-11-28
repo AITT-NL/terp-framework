@@ -33,7 +33,8 @@ decision, 0001 onwards.
   `--font-family-heading`, `--font-weight-heading`, `--radius-control` and `--radius-container`,
   and react-core reads them: every title takes the heading face, and all but two (the sign-in
   title and an access screen's section titles, which keep their bold) its weight; buttons,
-  fields, the menu trigger and the navigation's items take the control corner; cards, the
+  fields (a multi-line one, a textarea, a list-box select or a multiple combobox, up to the
+  container corner, so a pill never clips its text, ADR 0226), the menu trigger and the navigation's items take the control corner; cards, the
   table's frame, charts, figures, dialogs and popovers take the container corner. Messages,
   badges and the small parts keep their step. Each role defaults to a reference to the step it
   replaced (`var(--radius-md)` and so on), so nothing renders differently, a house style that
@@ -105,6 +106,11 @@ decision, 0001 onwards.
   `terp-cap-auth`, which counts it in its own budget (3 to 4).
 
 ### Fixed
+
+- **A list-box Select draws no dropdown chevron** (ADR 0226). A `Select` with `multiple`, or a
+  `size` above one, renders a list box, which opens no dropdown, but it took the one-line
+  select's chevron and the room reserved for it. It now draws neither: its padding is
+  `var(--space-1)` on every side, and its corner is capped like a textarea's.
 
 - **`terp smoke` translates a mount against the checkout it runs in.** A tool that runs
   Compose from inside a container writes the Docker daemon's host path into `.env` under the

@@ -11,6 +11,7 @@
     "visual": "playwright test",
     "visual:a11y": "playwright test visual/a11y.spec.ts",
     "visual:computed": "playwright test visual/computed.spec.ts",
+    "visual:directions": "playwright test visual/directions.spec.ts",
     "visual:keyboard": "playwright test visual/keyboard.spec.ts",
     "visual:screens": "playwright test visual/specimens.spec.ts",
     "visual:update": "playwright test --update-snapshots"
