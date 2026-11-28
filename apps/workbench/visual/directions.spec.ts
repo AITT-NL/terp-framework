@@ -74,7 +74,8 @@ for (const direction of REFERENCE_DIRECTIONS) {
       // every assertion below pass without the roles being read at all.
       expect(roles.control).not.toBe("8px");
 
-      for (const selector of ['[data-terp="button"]', 'input[data-terp="input"]', 'select[data-terp="input"]']) {
+      // A one-line select: a list box is a multi-line field, checked below.
+      for (const selector of ['[data-terp="button"]', 'input[data-terp="input"]', 'select[data-terp="input"]:not([multiple])']) {
         const found = await computed(page, selector, "border-top-left-radius");
         expect(found.length, selector).toBeGreaterThan(0);
         for (const { specimen, value } of found) expect(value, `${selector} in ${specimen}`).toBe(roles.control);
@@ -91,9 +92,24 @@ for (const direction of REFERENCE_DIRECTIONS) {
     test("a multi-line field is never rounder than a container, so its corners never cut into its text", async ({
       page,
     }) => {
+      // No specimen renders a list-box Select (a new one would need baselines on both platforms),
+      // so this renders the element Select renders with `multiple`, which its own test pins.
+      await page.evaluate(() => {
+        const list = document.createElement("select");
+        list.multiple = true;
+        list.setAttribute("data-terp", "input");
+        for (const name of ["Alpha option", "Beta option", "Gamma option", "Delta option"]) {
+          list.append(new Option(name));
+        }
+        document.querySelector("[data-specimen]")!.append(list);
+      });
       const roles = await resolvedRoles(page);
       const expected = `${Math.min(px(roles.control), px(roles.container))}px`;
-      for (const selector of ['textarea[data-terp="input"]', '[data-terp="combobox-field"][data-multiple="true"]']) {
+      for (const selector of [
+        'textarea[data-terp="input"]',
+        'select[data-terp="input"][multiple]',
+        '[data-terp="combobox-field"][data-multiple="true"]',
+      ]) {
         const found = await computed(page, selector, "border-top-left-radius");
         expect(found.length, selector).toBeGreaterThan(0);
         for (const { specimen, value } of found) {

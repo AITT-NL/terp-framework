@@ -50,18 +50,23 @@ across the whole catalog:
 
 - every button, input and select wears the control corner the direction resolves to;
 - every card, empty state and record card wears the container corner;
-- every multi-line field wears the smaller of the two;
+- every multi-line field (a textarea, a list-box select, a multiple Combobox) wears the smaller
+  of the two;
 - every page, card and empty-state title takes the heading face and weight.
 
 The expected values come from a probe that reads the same roles, so the test states the contract
-("a button wears the control corner, whatever it is") rather than a number per look. A component
-that reads a step where it should read its role passes every baseline and fails here. Screenshots
-of the three looks are for a person to look at, and are not recorded.
+("a button wears the control corner, whatever it is") rather than a number per look. It reads
+those components, not every reader of every role: one of them that drifts onto a step passes
+every baseline and fails here, and `roles.test.ts` holds the rest of the readers by name. No
+specimen renders a list-box select, and a new one would need baselines on both platforms, so the
+lane renders the element `Select` renders with `multiple` into the page. Screenshots of the three
+looks are for a person to look at, and are not recorded.
 
 ### 2. A multi-line field is never rounder than a container
 
-The Textarea and the multiple Combobox field take
-`min(var(--radius-control), var(--radius-container))`:
+The Textarea, a Select that is a list box (`multiple`, or a `size` above one) and the multiple
+Combobox field take `min(var(--radius-control), var(--radius-container))`. The list box also
+stops drawing the dropdown chevron, which it never had a dropdown for:
 
 - **The default is unchanged.** The control corner is the smaller of the two, so nothing renders
   differently.
@@ -84,7 +89,7 @@ per gap, not something to slip into a test change.
 | Chips that follow a pill-shaped field | `combobox-token` keeps `--radius-sm`, so a pill field holds square chips | A corner for the parts inside a control, derived from the control's |
 | A borderless card on a tinted surface | `card` paints `1px solid var(--color-neutral-200)`, and no role names a container's edge | An edge role for containers, measured like a pairing |
 | A button label's own voice | Its weight is a step, and no token gives case or tracking | Label roles for controls |
-| Another treatment for the active navigation item | Its brand-soft background is fixed; a bar or an underline cannot be chosen | A layout declaration key, as `navPlacement` is, rather than a token |
+| Another mark for the active navigation item | It is the sidebar accent fill, which `--color-sidebar-*` themes, plus a 2px inset rail in `--color-brand-primary` and semibold weight; the rail's form (an underline instead, its side, its width) and the weight cannot be chosen | A layout declaration key, as `navPlacement` is, rather than a token |
 | Density in more than two steps | `shell.density` is `comfortable` or `compact` | A third step, and what it does to every control height |
 
 ## Runtime
@@ -100,8 +105,9 @@ No rule changes, so there is nothing to classify. The lane tests the framework's
 
 ## Consequences
 
-- A component change that stops reading its role, or starts reading a step instead, fails under
-  at least one direction, as well as in `roles.test.ts`.
+- A change that moves one of the components the lane reads off its role, or onto a step, fails
+  under at least one direction as well as in `roles.test.ts`; a change to any other reader fails
+  in `roles.test.ts`.
 - ADR 0223's statement that every field wears the control corner now carries the cap, in the
   ADR's table, the theming guide, react-core's README and the CHANGELOG.
 - The gaps table is where the next vocabulary change starts.

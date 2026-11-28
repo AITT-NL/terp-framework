@@ -69,8 +69,9 @@ Theming and branding (design tokens, palettes, the brand mark)
       --font-weight-heading   their weight (the sign-in title and an access screen's
                               section titles keep their bold)
       --radius-control        what a person presses or types into: buttons, fields, the
-                              navigation's items, the menu trigger (a multi-line field
-                              takes it up to the container corner, and no rounder)
+                              navigation's items, the menu trigger (a multi-line field: a
+                              textarea, a list-box select or a multiple combobox, takes
+                              it up to the container corner, and no rounder)
       --radius-container      what holds content: cards, the table's frame, charts,
                               figures, dialogs, popovers
 

@@ -174,6 +174,7 @@ const CONTROLS = [
  */
 const MULTI_LINE_CONTROLS = [
   'textarea[data-terp="input"]',
+  'select[data-terp="input"][multiple], select[data-terp="input"][size]:not([size="0"]):not([size="1"])',
   '[data-terp="combobox-field"][data-multiple="true"]',
 ];
 const MULTI_LINE_CORNER = "min(var(--radius-control), var(--radius-container))";
@@ -286,11 +287,11 @@ describe("ADR 0223 — type and shape roles", () => {
     }
   });
 
-  it("gives every control the control corner, and nothing else reads it", () => {
+  it("gives every control the control corner, and nothing but those and the capped multi-line controls reads it", () => {
     expect(readersOf("--radius-control")).toEqual(sorted([...CONTROLS, ...MULTI_LINE_CONTROLS]));
   });
 
-  it("gives every container the container corner, and nothing else reads it", () => {
+  it("gives every container the container corner, and nothing but those and the capped multi-line controls reads it", () => {
     expect(readersOf("--radius-container")).toEqual(sorted([...CONTAINERS, ...MULTI_LINE_CONTROLS]));
   });
 

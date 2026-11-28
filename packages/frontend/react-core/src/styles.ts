@@ -558,6 +558,15 @@ textarea[data-terp="input"] {
   line-height: 1.4;
   border-radius: min(var(--radius-control), var(--radius-container));
 }
+/* A select that is a list box (multiple, or a size above one) is a box of several rows like the
+   textarea, so it is capped the same way; it opens no dropdown, so it draws no chevron and
+   reserves no room for one. */
+select[data-terp="input"][multiple],
+select[data-terp="input"][size]:not([size="0"]):not([size="1"]) {
+  padding: var(--space-1);
+  background-image: none;
+  border-radius: min(var(--radius-control), var(--radius-container));
+}
 
 /* Stack -------------------------------------------------------------------- */
 /* direction, gap and wrap are closed sets, so they are attributes with a rule
@@ -6148,8 +6157,8 @@ button[data-terp="input"][data-placeholder="true"] {
    matches, so nothing but !important could reach them. The resting look is a base rule
    now and the exported constants no longer exist.
 
-   The hover skips the active route (aria-current="page") so the brand-soft active
-   highlight is not washed out on hover, and that same attribute is what carries the
+   The hover skips the active route (aria-current="page") so the active route's fill and
+   rail (below) are not washed out on hover, and that same attribute is what carries the
    active look at all now that NAV_LINK_ACTIVE_STYLE is gone. It is not a shell attribute:
    every router sets it on the link it considers current, which is exactly the kind of
    reuse the breadcrumb case sanctions — the caller owns the element and the attribute, and

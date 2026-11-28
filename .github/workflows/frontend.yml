@@ -114,7 +114,7 @@ jobs:
   # any useful tolerance is worth, the `linux` set was recorded in
   # `mcr.microsoft.com/playwright:v1.65.1-noble`, and the runner shares Ubuntu's kernel with that
   # image but not its font packages, so comparing outside it would reduce the lane to noise on
-  # its first run. The other three compare no pixels; what they gain is the browser. The image
+  # its first run. The other four compare no pixels; what they gain is the browser. The image
   # carries the exact Chromium build for its tag, so no job runs `playwright install
   # --with-deps`, whose apt step usually took twenty seconds and once took eleven minutes.
   # `npm ci` runs inside the container, so `node_modules` is native to the image it runs in, and
@@ -181,14 +181,14 @@ jobs:
           path: apps/workbench/test-results/
           if-no-files-found: ignore
 
-  # The other three lanes, in one job because together they take about as long as one
+  # The other four lanes, in one job because together they take about as long as one
   # accessibility shard.
   #
   # The keyboard lane asserts where focus goes after a keystroke, which is a behaviour rather
   # than a picture, so there is nothing platform-specific to record. It also covers the one
   # repair in this area that a unit test cannot gate, since the failure depends on the browser
   # moving focus to <body> when the focused node is removed and jsdom does not. The computed
-  # lane reads values the other three cannot see at all: screenshots run with `animations:
+  # lane reads values no picture and no static tree can see: screenshots run with `animations:
   # "disabled"`, so every duration and easing in the sheet is invisible to them, and a `var()`
   # that fails to substitute inside a shorthand falls back to the property's initial value —
   # which paints identically at rest and kills the transition. The screenshot lane is the one

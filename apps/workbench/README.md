@@ -49,13 +49,14 @@ says. `N` below is `ALL_SPECIMENS.length`.
   `LINUX_ONLY` names are skipped rather than compared.
 - **keyboard** (`visual/keyboard.spec.ts`) — where a keystroke sends focus, which neither a
   resting screenshot nor a static tree can say. One test per property, not per specimen.
-- **computed** (`visual/computed.spec.ts`) — the resolved values the other three cannot see,
+- **computed** (`visual/computed.spec.ts`) — the resolved values no picture and no static tree can see,
   including every duration, easing and cursor that the screenshot lane's
   `animations: "disabled"` hides. One test per property.
 - **directions** (`visual/directions.spec.ts`) — the type and shape roles resolved under three
   reference looks that are not the default (`visual/reference-directions.ts`, ADR 0226), each
-  injected as an app's `theme.css` arrives: every control, container, multi-line field and title
-  reads its role, whatever the look sets it to. Three tests per look, and no baselines.
+  injected as an app's `theme.css` arrives: the buttons, fields, cards, empty states, record
+  cards and titles it reads each take their role, whatever the look sets it to, and every
+  multi-line field takes the capped corner. Three tests per look, and no baselines.
 
 Each `npm run visual:*` prints its own lane's total, and CI runs each lane as its own command
 (the accessibility lane as four shards, each printing its part), so the numbers are always one
@@ -438,7 +439,7 @@ the set in the same commit.
 
 Both sets are recorded at the Playwright version `package-lock.json` pins — the `linux` set in
 `mcr.microsoft.com/playwright:v<version>-noble`, which CI also runs the screenshot lane **inside**
-rather than on the bare runner (the other three lanes too, for the browser build the image
+rather than on the bare runner (the other four lanes too, for the browser build the image
 carries), and the `win32` set on a Windows machine with the matching browser installed.
 
 Naming a version here was itself a drift source: this paragraph said `v1.62.0` for the length of
