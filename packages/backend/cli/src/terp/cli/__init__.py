@@ -66,6 +66,7 @@ from terp.cli import (
     guide_migrations,
     guide_passwords,
     guide_testing,
+    guide_theming,
     guide_security,
 )
 from terp.cli.grants import (
@@ -1883,109 +1884,7 @@ Forms (react-core primitives)
   left unset, and its error belongs on the group, next to the question, not in a
   form-level ErrorState that never names which question was unanswered.
 """,
-    "theming": """\
-Theming and branding (design tokens, palettes, the brand mark)
-
-- Use the shared tokens for palette, typography and spacing. For a custom screen, use a
-  plain Page and import styles from "./Board.module.css". Apply className={styles.board}
-  and define .board in that file. Global stylesheets belong to the bootstrap token pipeline.
-- THE SHIPPED PALETTES, plus "system":
-      midday  twilight  evening  night  contrast
-  Named for the time of day they suit: midday is the light set, twilight a dimmed dark,
-  evening the slate dark, night the near-black dark. `contrast` is a high-contrast light
-  set. The active one is `data-theme` on <html>; the shell header's theme toggle offers all
-  five plus "system" (follow the viewer's own platform preference) and persists the choice.
-  `system` resolves to `night` when the platform asks for dark.
-  `light`, `dark` and `midnight` are the EARLIER names of midday, evening and night. They
-  are still accepted wherever a theme is named (defaultTheme, a stored choice, data-theme)
-  and resolve to the new name -- but the theme toggle now writes the new names, so a
-  selector in your own theme.css must use them: `[data-theme="dark"]` no longer matches.
-- TO CHANGE HOW YOUR APP LOOKS, redefine tokens in `frontend/src/theme.css`. It is
-  imported last and therefore wins the cascade. Declare only what you are changing;
-  everything else falls back to the framework's value.
-
-  The order is tokens.css, then house-style.css, then theme.css. The middle one belongs
-  to your organisation's styling tool, which rewrites it wholesale — never edit it. To
-  depart from a house style, declare the token in theme.css; nothing takes that back.
-
-      :root { --color-brand-primary: #2563eb; }
-      [data-theme="evening"] { --color-brand-primary: #60a5fa; }
-
-  Per palette, use that palette's selector. A token with no palette selector is
-  declared in `:root` and governs every palette at once — which is what you want for
-  spacing, corners and typography, and usually not what you want for a colour.
-- THE PAGE'S BACKGROUNDS MOVE AS A SET (ADR 0169). `--color-bg-canvas` is the page,
-  `--color-bg-subtle` the containers and chrome on it — boxed cards, hub tiles, the page
-  band — and `--color-bg-surface` where data is read: tables, and charts and figures as
-  they land. Every shipped palette declares all three, with subtle the midpoint of the
-  other two. A token in theme.css does not recompute another, so a theme that moves canvas
-  or surface redeclares subtle as well, usually as their midpoint; otherwise its containers
-  keep the shipped tone, between two rungs the app no longer has.
-
-      :root {
-        --color-bg-canvas: #e8eef8;
-        --color-bg-subtle: #f4f7fc;
-        --color-bg-surface: #ffffff;
-      }
-
-  The page's summary band — the figures under its title — sits on its own token,
-  `--color-bg-summary`, which every palette ships at its brand soft tint (night's a step
-  darker, so subtle text clears AA on it). It is a value of its own, not a reference: a theme
-  that moves `--color-brand-primary-soft` for a new brand moves `--color-bg-summary` with it,
-  or the band keeps the shipped blue; a theme that wants a calmer band moves this one token
-  and the tint the hub tiles share stays where it is.
-
-- TO SHIP ON A PALETTE OTHER THAN midday, name it in the layout declaration — never by
-  restyling one palette to imitate another:
-
-      frontend/layout-contract.json -> { "defaultTheme": "night" }
-
-  Legal values are the palettes named above, plus "system". Passing `defaultTheme` as a bootstrap
-  option as well is refused (terp guide layouts). Your organisation's styling tool may
-  seed this key; changing it here makes it yours and later rollouts leave it alone.
-
-  ONE more line for a palette that is dark. A person's own choice is read from
-  localStorage before the first paint by `frontend/public/theme-bootstrap.js`, which the
-  template wires into index.html — so a viewer who picks dark does not get a white flash
-  on reload. A DECLARED default is not a person's choice and that script leaves it alone,
-  so declare it on the document as well and the app opens in its own palette with no
-  flash either:
-
-      frontend/index.html -> <html lang="en" data-theme="night">
-
-  Both halves are the same fact, in the two places that can each answer at a different
-  moment: the attribute is there before anything runs, and the script overrides it only
-  for someone who has chosen otherwise.
-- THE BRAND MARK is a path, not JSX. Put the file in `frontend/public/` (Vite serves
-  that directory at the site root) and declare it:
-
-      "shell": { "brand": { "logo": "/logo.svg", "logoDark": "/logo-dark.svg" } }
-
-  `logoDark` is picked automatically under a dark palette — most company logos have
-  fixed colours and cannot survive one, and several of the shipped palettes are dark.
-  The shell sizes the mark itself, in a box of `--shell-brand-size`; move that token in
-  theme.css rather than scaling the image. An app that wants an inline SVG or a
-  component can still pass the `logo` bootstrap option instead — declaring both is
-  refused. The browser TAB mark is separate and cannot be declared: a browser reads it
-  from `index.html` before any app code runs, so edit the <link rel="icon"> there.
-- WHICH TOKENS EXIST is published, not guessed: @terpjs/contract ships
-  tokens.manifest.json (every token, its category, its per-palette values, and whether
-  a palette may vary it). Spacing, corners, typography, motion and z-index are
-  theme-INVARIANT by design — declare them once in `:root`. An app whose spacing
-  changed when someone switched palette is not what anyone means by a theme.
-- CONTRAST is measurable, so measure it. @terpjs/contract holds every pairing the shipped
-  palettes paint to two models (ADR 0170): the WCAG ratio, and APCA lightness contrast at
-  the level the text's reading asks for -- Lc 90 for body text, 75 for secondary text a
-  reader still has to take in (a label, a hint, a link, a badge), 60 for a count or a
-  position. The manifest publishes both: each of `textPairs` names its `reading`, and
-  `apca.minimumLc` the floors. If you override a foreground or a background, check its
-  pairings against both rather than trusting the eye: WCAG's ratio alone passes light text
-  on a dark ground that reads poorly. In module code the same split is `Text`'s tone:
-  `muted` for anything read, `subtle` only for what orients.
-- A CONTROL'S OUTLINE is `--color-border-strong`, held at 3:1 against the surfaces controls
-  sit on. Move that token to retune the edge of every input, select and secondary button;
-  `--color-neutral-300` is the scrollbar and disabled ink, not a border.
-""",
+    "theming": guide_theming.TOPIC,
     "layouts": """\
 Layout contracts (slot-typed layouts, ADR 0079)
 

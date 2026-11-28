@@ -239,6 +239,21 @@ function cssName(path) {
 }
 
 /**
+ * A source value as the stylesheet declares it.
+ *
+ * A token may name another by reference: ADR 0223's roles default to a step of their scale
+ * (`"{radius.md}"`), so a theme that moves the step moves the role with it until it sets the
+ * role itself. `outputReferences` emits that reference into the sheet as `var(--radius-md)`,
+ * and the manifest has to say the same, for two reasons. Its test holds every recorded value
+ * to the sheet's own declaration. And the source's `{…}` syntax is Style Dictionary's, which no
+ * consumer reads: a tool that scopes the shipped values onto an element, as the Studio's
+ * preview does, would be handed a declaration the browser drops.
+ */
+function cssValue(value) {
+  return String(value).replace(/\{([^{}]+)\}/g, (_, reference) => `var(${cssName(reference.split("."))})`);
+}
+
+/**
  * Every leaf `{ value }` in a token tree, as `[cssName, { value, category }]`.
  *
  * The category is the source tree's own top-level family, not a re-split of the CSS name:
@@ -247,7 +262,7 @@ function cssName(path) {
  */
 function flatten(node, path = []) {
   if (node && typeof node === "object" && "value" in node) {
-    return [[cssName(path), { value: String(node.value), category: path[0] }]];
+    return [[cssName(path), { value: cssValue(node.value), category: path[0] }]];
   }
   if (!node || typeof node !== "object") return [];
   return Object.entries(node).flatMap(([key, child]) => flatten(child, [...path, key]));

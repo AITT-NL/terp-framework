@@ -219,6 +219,38 @@ describe("token manifest", () => {
     }
   });
 
+  it("publishes a role as a reference to its scale step, spelled the way the sheet spells it", () => {
+    // ADR 0223's four roles default to the step their readers used before, by reference, so a
+    // theme that moves the step moves the role with it until it sets the role itself. The
+    // source writes a reference in Style Dictionary's own syntax, `{radius.md}`, which no
+    // consumer can read: scoped onto an element, as the Studio's preview scopes the shipped
+    // values, the browser drops it and the preview shows the inherited value instead.
+    const roles = {
+      "--font-family-heading": "var(--font-family-sans)",
+      "--font-weight-heading": "var(--font-weight-semibold)",
+      "--radius-control": "var(--radius-md)",
+      "--radius-container": "var(--radius-lg)",
+    };
+    for (const [name, reference] of Object.entries(roles)) {
+      const token = tokenByName.get(name);
+      expect(token, `${name} is not published`).toBeDefined();
+      expect(token.values, name).toEqual({ [registry.base]: reference });
+      // Theme-invariant, like every type and shape token: a per-theme control for it would
+      // let an app's corners change when someone switched palette.
+      expect(token.themeable, `${name} themeable`).toBe(false);
+    }
+    // And no value anywhere leaks the source's syntax, while every reference names a token
+    // the manifest itself publishes, so a consumer can resolve it from this file alone.
+    for (const token of manifest.tokens) {
+      for (const [theme, value] of Object.entries(token.values)) {
+        expect(value, `${token.name} in ${theme}`).not.toMatch(/[{}]/);
+        for (const [, target] of value.matchAll(/var\((--[a-z0-9-]+)\)/g)) {
+          expect(tokenByName.has(target), `${token.name} refers to ${target}`).toBe(true);
+        }
+      }
+    }
+  });
+
   it("says it is generated", () => {
     // The file is committed, so the next person to open it needs to know editing it is futile.
     expect(manifest.$comment).toContain("Generated");

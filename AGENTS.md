@@ -167,7 +167,11 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
 - **Design tokens, not inline colours**; user-facing text props are `UiText`. The accent is
   two tokens: `--color-brand-primary` is a filled surface carrying only
   `--color-brand-primary-contrast`, and `--color-fg-accent` is accent ink or a boundary on the
-  app's own surfaces. One token cannot serve both and reach AA in a dark theme.
+  app's own surfaces. One token cannot serve both and reach AA in a dark theme. Type and shape
+  have roles as well (ADR 0223): the titles, controls and containers it names read
+  `--font-family-heading` and `--font-weight-heading`, `--radius-control` and
+  `--radius-container` rather than the scale step behind them, and `roles.test.ts` in
+  react-core holds every reader, and everything still on a step, to exact lists.
 - **Localization is a checked contract** — app-authored `src/**` copy uses `{ id, message }`
   descriptors or `Trans`, every target entry lives in `frontend/i18n.json`, and adding a
   non-English locale includes a complete framework `TerpStrings` catalog. The lint and runtime

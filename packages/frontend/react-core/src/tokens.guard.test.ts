@@ -88,6 +88,16 @@ const UNREAD_TOKENS: Record<string, string[]> = {
   // missing, so the fix was to wire them. Tracked from now on.)
   "--shell-": [],
   "--color-sidebar-": [],
+  // The corners, tracked from the day ADR 0223 gave them roles: a theme's corner setting is
+  // only worth offering if something reads it. `xl` is the one step nothing has ever read --
+  // nothing said so until this family was tracked. It stays published, because deleting a
+  // token the manifest publishes is a contract change, and it stays here, so giving it a
+  // reader or deleting it is a recorded decision rather than drift.
+  "--radius-": ["--radius-xl"],
+  // The faces and the weights, read in full: the heading roles joined both families with their
+  // readers in the same change.
+  "--font-family-": [],
+  "--font-weight-": [],
   // The whole semantic colour layer, which the comment above admitted was untracked and then
   // left untracked. Booked at seventeen of the forty-eight published `--color-` tokens with no
   // `var()` reader anywhere in the sheet — the exact `--color-fg-on-brand` shape that comment

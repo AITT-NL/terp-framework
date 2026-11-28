@@ -76,6 +76,16 @@
  * is what lets an app override any framework rule without `!important` — the
  * restyling this phase exists to enable.
  *
+ * ## Roles
+ *
+ * A heading reads `--font-family-heading` and `--font-weight-heading`, a control
+ * `--radius-control` and a container `--radius-container`, never the scale step behind
+ * them (ADR 0223). Each role defaults to a reference to that step, so a theme that moves
+ * the scale still moves every reader, and a theme that sets a role separates its readers
+ * from the scale. Which rules read which role, and which still read `--radius-md` or
+ * `--radius-lg` directly, are exact lists in `roles.test.ts`: a new corner or a new title
+ * is a choice between a role and a step, recorded there.
+ *
  * ## Motion
  *
  * Every `transition` here names the published motion scale rather than a literal.
@@ -285,7 +295,7 @@ html {
   min-height: var(--density-control-min-height);
   padding: 0 var(--space-4);
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   box-sizing: border-box;
   cursor: pointer;
   white-space: normal;
@@ -507,7 +517,7 @@ html {
    makes. */
 [data-terp="input"] {
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   color: var(--color-neutral-900);
   background: var(--color-neutral-0);
   box-sizing: border-box;
@@ -1301,7 +1311,7 @@ textarea[data-terp="input"] {
   gap: var(--space-3);
   background: var(--color-bg-subtle);
   border: 1px solid var(--color-neutral-200);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
   padding: var(--space-4);
   min-width: 0;
 }
@@ -1372,11 +1382,17 @@ textarea[data-terp="input"] {
    Headings carry no colour: they inherit the page's ink, so a heading inside a tinted
    surface stays legible without a rule per surface. margin: 0 because the browser
    default fights the parent's gap, which is the same reason page-title and card-title
-   both declare it. */
+   both declare it.
+
+   They do carry a face and a weight of their own: --font-family-heading and
+   --font-weight-heading (ADR 0223), read here and by every other element that names a page,
+   a section, a dialog or the app. Both default to the body's face and the semibold step, so
+   a heading looks as it did until a house style or theme.css sets them; roles.test.ts holds
+   the exact list of readers. */
 [data-terp="heading"] {
   margin: 0;
-  font-family: var(--font-family-sans);
-  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-family-heading);
+  font-weight: var(--font-weight-heading);
   line-height: var(--font-line-height-tight);
   letter-spacing: var(--font-letter-spacing-tight);
 }
@@ -1517,8 +1533,9 @@ textarea[data-terp="input"] {
    heading was typographically indistinguishable from the prose underneath it. */
 [data-terp="card-title"] {
   margin: 0;
+  font-family: var(--font-family-heading);
   font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-heading);
   line-height: 1.3;
 }
 [data-terp="card-description"] {
@@ -1890,8 +1907,9 @@ textarea[data-terp="input"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--font-family-heading);
   font-size: var(--font-size-base);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-heading);
   color: var(--color-sidebar-fg);
   letter-spacing: 0;
 }
@@ -1963,7 +1981,7 @@ textarea[data-terp="input"] {
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   color: var(--color-sidebar-muted);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
@@ -2131,7 +2149,7 @@ textarea[data-terp="input"] {
   color: var(--color-neutral-700);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   cursor: pointer;
   font-family: var(--font-family-sans);
   font-size: var(--font-size-sm);
@@ -2458,8 +2476,9 @@ textarea[data-terp="input"] {
    above the crumb they hang off, in the same font at the same size. */
 [data-terp="page-title"] {
   margin: 0;
+  font-family: var(--font-family-heading);
   font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-heading);
   letter-spacing: 0;
   color: var(--color-neutral-900);
 }
@@ -2598,7 +2617,7 @@ textarea[data-terp="input"] {
   min-width: 0;
   padding: var(--space-5) var(--space-4);
   box-sizing: border-box;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
   background: var(--color-bg-summary);
   color: var(--color-fg-default);
 }
@@ -2763,7 +2782,7 @@ textarea[data-terp="input"] {
   max-width: 100%;
   min-height: var(--density-control-min-height);
   padding: 0 var(--space-2);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   box-sizing: border-box;
   color: var(--color-neutral-700);
   font-weight: var(--font-weight-medium);
@@ -2890,7 +2909,7 @@ html:has([data-terp="page-sequence"]) {
   overflow: clip;
   background: var(--color-bg-surface);
   border: 1px solid var(--color-neutral-200);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
 }
 /* The layer the canvas is drawn in, laid over the whole host, and the framework's own element.
    The host's height comes from flex growth inside a column that is only min-height tall, so a
@@ -2964,7 +2983,7 @@ html:has([data-terp="page-sequence"]) {
   padding: var(--space-6);
   background: var(--color-neutral-0);
   border: 1px solid var(--color-neutral-200);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
 }
 [data-terp="login-brand"] {
   display: flex;
@@ -2974,6 +2993,7 @@ html:has([data-terp="page-sequence"]) {
 }
 [data-terp="login-title"] {
   margin: 0;
+  font-family: var(--font-family-heading);
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-bold);
   letter-spacing: 0;
@@ -3029,7 +3049,7 @@ html:has([data-terp="page-sequence"]) {
   max-width: 32rem;
   background: var(--color-bg-subtle);
   border: 1px solid var(--color-neutral-200);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
 }
 /* The initials tile, once. This was two rules — profile-avatar and user-menu-avatar —
    of eleven declarations each, identical but for a width, a height and a font size,
@@ -3092,6 +3112,7 @@ html:has([data-terp="page-sequence"]) {
    the view it sits in. */
 [data-terp="admin-section-title"] {
   margin: 0;
+  font-family: var(--font-family-heading);
   font-size: var(--font-size-base);
 }
 
@@ -3173,7 +3194,7 @@ html:has([data-terp="page-sequence"]) {
   padding: var(--space-4);
   background: var(--color-bg-subtle);
   border: 1px solid var(--color-neutral-200);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
   color: var(--color-neutral-900);
   box-sizing: border-box;
   transition: border-color var(--motion-duration-fast) var(--motion-easing-standard);
@@ -3204,8 +3225,9 @@ html:has([data-terp="page-sequence"]) {
 }
 [data-terp="hubcard-title"] {
   color: var(--color-neutral-900);
+  font-family: var(--font-family-heading);
   font-size: var(--font-size-base);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-heading);
 }
 /* neutral-600 rather than fg-muted, and it is not the tinted-surface case: this text
    sits on the card's own neutral-0 and measures 7.58 / 7.94 / 7.50 / 7.60 / 18.42. */
@@ -3315,7 +3337,7 @@ html:has([data-terp="page-sequence"]) {
 [data-terp="dataview"][data-variant="full"] > [data-terp="dataview-skeleton"] {
   background: var(--color-bg-surface);
   border: 1px solid var(--color-neutral-200);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
 }
 /* The horizontal scroll container the reset's scrollbar comment already names. A
    marker rather than [data-terp="dataview"] > div, which also matches the toolbar.
@@ -3572,7 +3594,7 @@ input[data-terp="input"][type="password"]::-ms-reveal {
   padding: var(--space-1) var(--space-2);
   background: transparent;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   cursor: pointer;
   color: var(--color-fg-subtle);
 }
@@ -3625,10 +3647,10 @@ input[data-terp="input"][type="password"]::-ms-reveal {
    scroller alone. Keyed on the FULL variant: the embedded one has no frame, and a rounded
    header cell there would be a curve against nothing. */
 [data-terp="dataview"][data-variant="full"] [data-terp="dataview-table"] > thead > tr > th:first-child {
-  border-start-start-radius: var(--radius-lg);
+  border-start-start-radius: var(--radius-container);
 }
 [data-terp="dataview"][data-variant="full"] [data-terp="dataview-table"] > thead > tr > th:last-child {
-  border-start-end-radius: var(--radius-lg);
+  border-start-end-radius: var(--radius-container);
 }
 /* A column's declared track. A MINIMUM rather than a width, because a specified width is only a
    preference under table-layout: auto and the algorithm shrinks it to fit — which is why the pixel
@@ -3817,7 +3839,7 @@ th[data-terp="dataview-actions-cell"] > span {
   padding: var(--density-cell-pad-y) var(--density-cell-pad-x);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-neutral-200);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
 }
 [data-terp="dataview-card"][data-clickable="true"] {
   cursor: pointer;
@@ -3998,7 +4020,7 @@ th[data-terp="dataview-actions-cell"] > span {
   padding: var(--space-1) var(--space-2);
   background: var(--color-neutral-0);
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   cursor: pointer;
   color: var(--color-neutral-700);
 }
@@ -4031,7 +4053,7 @@ th[data-terp="dataview-actions-cell"] > span {
   padding: var(--space-1) var(--space-2);
   background: transparent;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   cursor: pointer;
   color: var(--color-neutral-700);
 }
@@ -4163,7 +4185,7 @@ th[data-terp="dataview-actions-cell"] > span {
   color: var(--color-fg-muted);
   background: var(--color-bg-surface);
   border: 1px dashed var(--color-neutral-300);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
 }
 /* Compact: a section's emptiness rather than the page's. Same frame and same words,
    laid out as a row — the glyph beside the text instead of above it — so two of
@@ -4190,8 +4212,9 @@ th[data-terp="dataview-actions-cell"] > span {
 [data-terp="empty-state-title"] {
   margin: 0;
   color: var(--color-neutral-900);
+  font-family: var(--font-family-heading);
   font-size: var(--font-size-base);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-heading);
 }
 [data-terp="empty-state-description"] {
   color: var(--color-fg-muted);
@@ -4208,7 +4231,7 @@ th[data-terp="dataview-actions-cell"] > span {
   color: var(--color-neutral-700);
   background: var(--color-status-danger-soft);
   border: 1px solid var(--color-status-danger);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
 }
 [data-terp="error-state-icon"] {
   color: var(--color-status-danger);
@@ -4217,8 +4240,9 @@ th[data-terp="dataview-actions-cell"] > span {
 [data-terp="error-state-title"] {
   margin: 0;
   color: var(--color-status-danger);
+  font-family: var(--font-family-heading);
   font-size: var(--font-size-base);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-heading);
 }
 [data-terp="error-state-description"] {
   color: var(--color-neutral-700);
@@ -4313,7 +4337,7 @@ input[data-terp="input"][role="combobox"] {
   gap: var(--space-1);
   padding: var(--space-1);
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   background: var(--color-neutral-0);
 }
 [data-terp="combobox-field"][data-multiple="true"] > [data-terp="input"] {
@@ -4397,7 +4421,7 @@ input[data-terp="input"][role="combobox"] {
   padding: var(--space-1);
   background: var(--color-neutral-0);
   border: 1px solid var(--color-neutral-200);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
   box-shadow: var(--shadow-lg);
 }
 [data-terp="combobox-option"] {
@@ -4454,7 +4478,7 @@ button[data-terp="input"][data-placeholder="true"] {
   width: 2rem;
   height: 2rem;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--color-neutral-700);
   cursor: pointer;
@@ -4502,7 +4526,7 @@ button[data-terp="input"][data-placeholder="true"] {
   line-height: 1.25;
   min-height: 2rem;
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--color-neutral-900);
   cursor: pointer;
@@ -4785,7 +4809,7 @@ button[data-terp="input"][data-placeholder="true"] {
   padding: var(--space-4);
   box-sizing: border-box;
   border: 1px solid var(--color-neutral-200);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
   background: var(--color-bg-surface);
   color: var(--color-fg-default);
 }
@@ -5126,8 +5150,9 @@ button[data-terp="input"][data-placeholder="true"] {
   gap: var(--space-2);
   margin: 0;
   color: var(--color-fg-default);
+  font-family: var(--font-family-heading);
   font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-heading);
   line-height: var(--font-line-height-snug);
 }
 [data-terp="dataview-count"] {
@@ -5187,7 +5212,7 @@ button[data-terp="input"][data-placeholder="true"] {
   padding: var(--space-4);
   box-sizing: border-box;
   border: 1px solid var(--color-neutral-200);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
   background: var(--color-bg-surface);
   color: var(--color-fg-default);
 }
@@ -5361,7 +5386,7 @@ button[data-terp="input"][data-placeholder="true"] {
 [data-terp="stat-group"] > [data-terp="stat"][data-headline] {
   margin-inline: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
   background: var(--color-brand-primary);
   box-shadow: none;
 }
@@ -5468,7 +5493,7 @@ button[data-terp="input"][data-placeholder="true"] {
   background: transparent;
   color: var(--color-neutral-700);
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   cursor: pointer;
   font-family: var(--font-family-sans);
   font-size: var(--font-size-sm);
@@ -5760,7 +5785,7 @@ button[data-terp="input"][data-placeholder="true"] {
   max-width: 26rem;
   padding: 0;
   border: 1px solid var(--color-neutral-200);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
   box-shadow: var(--shadow-lg);
   background: var(--color-neutral-0);
   color: var(--color-neutral-900);
@@ -5772,8 +5797,9 @@ button[data-terp="input"][data-placeholder="true"] {
 }
 [data-terp="dialog-title"] {
   margin: 0;
+  font-family: var(--font-family-heading);
   font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-heading);
   letter-spacing: 0;
   color: var(--color-neutral-900);
 }
@@ -5860,7 +5886,7 @@ button[data-terp="input"][data-placeholder="true"] {
   color: var(--color-neutral-900);
   background: var(--color-neutral-0);
   border: 1px solid var(--color-neutral-200);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-container);
   box-shadow: var(--shadow-lg);
 }
 }
@@ -6229,7 +6255,7 @@ button[data-terp="input"][data-placeholder="true"] {
   background: var(--color-neutral-0);
   color: var(--color-fg-accent);
   border: var(--border-width-thin) solid var(--color-fg-accent);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   font-family: var(--font-family-sans);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
