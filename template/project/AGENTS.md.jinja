@@ -317,10 +317,21 @@ Two boundaries are never autonomous agent decisions:
 {% if frontend -%}
 ## Frontend golden rules
 
+Start a frontend from its design brief, `frontend/DESIGN.md` (`uv run terp guide design`).
+While it still says "Status: not written yet", write it before you build or restyle a screen:
+who uses the app and for which tasks, each screen with its archetype, its one primary action
+and its headline figure, and the direction the app takes, stated as tokens in
+`frontend/src/theme.css` and keys in `frontend/layout-contract.json`. If the app has no screens
+yet, offer the person a short choice between two or three directions that suit the work; if it
+has screens, write down the direction they already have and ask the person before changing it.
+Record the direction and the reason in the brief, replace the status line with the date you
+wrote it, and change the brief in the same change as the screens whenever the design changes.
+
 Screens compose the **`@terpjs/react-core` component surface** — catalog in
 `node_modules/@terpjs/react-core/README.md`; data collections via `DataView`
 (`node_modules/@terpjs/react-core/src/dataview/README.md`); in-terminal recipes via
-`uv run terp guide frontend` / `uv run terp guide dataview` / `uv run terp guide forms`.
+`uv run terp guide design` / `uv run terp guide frontend` / `uv run terp guide dataview` /
+`uv run terp guide forms`.
 The boundary lint enforces, in every source file under `frontend/src/` and not only in
 `modules/` (a helper beside the modules is held exactly like one inside them):
 token-styled primitives only (no raw `<button>`/`<input>`/`<select>`/`<textarea>`/
@@ -388,16 +399,10 @@ No lint modes — every violation is an error. The governed opt-out is a justifi
 
 ### Composing a page
 
-Start a frontend from its design brief, `frontend/DESIGN.md` (`uv run terp guide design`).
-While it still says "Status: not written yet", write it before the first screen: who uses the
-app and for which tasks, each screen with its archetype, its one primary action and its
-headline figure, and the direction the app takes, stated as tokens in `frontend/src/theme.css`
-and keys in `frontend/layout-contract.json`. Offer the person a short choice between two or
-three directions that suit the work, record the one they pick and why in the brief, and only
-then build each screen to it from the standard components that serve its task. Change the
-brief in the same change as the screens whenever the design changes. Give an app-owned layout
-a specific job, such as putting a source document beside the decision that depends on it. Keep
-the platform's controls, readable measure, theme pairs and responsive defaults where they fit.
+Build each screen to the brief, from the standard components that serve its task. Give an
+app-owned layout a specific job, such as putting a source document beside the decision that
+depends on it. Keep the platform's controls, readable measure, theme pairs and responsive
+defaults where they fit.
 Apply scoped classes to native layout elements. Configure controls through their supported props.
 Check the rendered screen at desktop and mobile widths. Verify that the main action is easy
 to find and reach by keyboard, and measure text against its actual background in every shipped

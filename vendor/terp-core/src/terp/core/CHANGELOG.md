@@ -18,12 +18,15 @@ decision, 0001 onwards.
   with the line `Status: not written yet` and four sections: who uses the app, its screens
   (each with its archetype, its one primary action and its headline figure), the direction it
   takes, stated as tokens in `theme.css` and keys in `layout-contract.json`, and what it must
-  not look like. Copier seeds it once, like `theme.css`. The app's AGENTS.md now opens its
-  frontend section with the brief: write it before the first screen, offer the person two or
-  three directions, record the one they pick, and build each screen to it. `terp guide design`
-  is the recipe, including a review of the screens against the brief that is advice rather than
-  a gate. To keep two oversized files on their size records, the `layouts` topic moved to its
-  own module and the upgrade report's file lists to `scaffold_files.py`, both unchanged.
+  not look like. Copier seeds it once, like `theme.css`, and `terp upgrade --check` names it
+  among the files a re-render leaves alone. The app's AGENTS.md now opens its frontend section
+  with the brief: write it before building or restyling a screen, offer the person two or three
+  directions in an app with no screens yet (or write down the direction an app with screens
+  already has, and ask before changing it), record the choice, and build each screen to it.
+  `terp guide design` is the recipe, including a review of the screens against the brief that
+  is advice rather than a gate. To keep two oversized files on their size records, the
+  `layouts` topic moved unchanged to its own module, and the upgrade report's file lists to
+  `scaffold_files.py`.
 
 - **Type and shape have roles, as colour does** (ADR 0223). `@terpjs/contract` publishes
   `--font-family-heading`, `--font-weight-heading`, `--radius-control` and `--radius-container`,
@@ -129,6 +132,10 @@ decision, 0001 onwards.
   The template's `app/main.py` brings `migration_readiness` with the next re-render. The API's
   log names the packages behind and `terp migrate upgrade`; bringing the stack up again runs its
   `migrate` step too. No healthcheck waits on readiness, so nothing else waits with it.
+- **The next re-render adds `frontend/DESIGN.md`, still unwritten, to an app that has none**
+  (ADR 0224). Copier never overwrites a brief the app wrote; one that is missing comes back. The
+  app's agent then writes it from the screens the app already has, and asks before changing
+  their direction.
 
 ## 0.45.0 — 2026-11-24
 

@@ -413,14 +413,25 @@ def test_the_design_topic_teaches_the_brief_before_the_first_screen() -> None:
 
     An agent reaches it from the app's AGENTS.md, so the parts it has to act on are held
     here: where the brief lives and the line that says it is not written yet, its four
-    sections, the archetype a screen's job picks, the theming and layouts topics it leans
-    on, and that the review against the brief is advice rather than a gate. Mutation: drop
-    any of those from the topic, and this fails."""
+    sections, an archetype for every job (read from the layout contract, so the table cannot
+    lose a row or stay a release behind), what an app that already has screens does instead
+    of offering fresh directions, the theming and layouts topics it leans on, and that the
+    review against the brief is advice rather than a gate. Mutation: drop any of those from
+    the topic, and this fails."""
+    from tests.architecture.test_layout_archetypes import _shipped_archetypes
+
     text = guide("design")
     assert "frontend/DESIGN.md" in text, "the topic must say where the brief lives"
     assert "Status: not written yet" in text, "the topic must name the line a new brief carries"
     for section in ("Who uses it", "Screens", "Direction", "Not this"):
         assert section in text, f"terp guide design must name the brief's {section!r} section"
+    missing = sorted(name for name in _shipped_archetypes() if name not in text)
+    assert not missing, f"terp guide design must say which job each archetype serves; it omits {missing}"
+    flat = " ".join(text.split())
+    assert "An app that already has screens has a direction already" in flat, (
+        "the topic must say what an app with screens does: record its direction, ask before changing it"
+    )
+    assert "Replace the status line" in flat, "the topic must say how a written brief stops reading as unwritten"
     for topic in ("terp guide theming", "terp guide layouts"):
         assert topic in text, f"terp guide design must point at {topic}"
     assert "advice, not a gate" in text, "the review must say it is advice, not a control"

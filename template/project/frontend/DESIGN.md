@@ -2,9 +2,10 @@
 
 Status: not written yet
 
-Write this before the first screen, and keep it true: every screen is built against it, and a
-change to the design changes this file in the same diff. `uv run terp guide design` is the
-recipe.
+Write this before the first screen, or, in an app that already has screens, from the screens it
+has, and keep it true: every screen is built against it, and a change to the design changes this
+file in the same diff. When it is written, replace the status line above with the date you wrote
+it. `uv run terp guide design` is the recipe.
 
 ## Who uses it
 

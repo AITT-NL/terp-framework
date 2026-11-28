@@ -44,6 +44,9 @@ _ENUMERATING_DOCS = (
     # The repository's own briefing, which named four archetypes for releases after the other
     # four shipped, because this tuple did not hold it.
     "AGENTS.md",
+    # The design brief every new app is seeded with (ADR 0224): its agent reads the screen
+    # line's archetype list before the first screen, so a stale one briefs it on a subset.
+    "template/project/frontend/DESIGN.md",
 )
 
 

@@ -1,10 +1,10 @@
 """The scaffolding files a re-render leaves alone, and the build files the framework's
 generator owns, as ``terp upgrade --check`` reports them.
 
-Split out of ``version.py`` as they were, when that file (recorded in
-``packages/backend/OVERSIZED.json``) needed a line for the design brief the template now
-seeds; ``version.py`` imports both lists back, so ``version._APP_OWNED_SCAFFOLD_FILES``
-still names what it always did.
+Split out of ``version.py`` when that file (recorded in ``packages/backend/OVERSIZED.json``)
+needed a line for the design brief the template now seeds, and the app-owned list gained that
+brief in the same change (ADR 0224). ``version.py`` imports both lists back, so
+``version._APP_OWNED_SCAFFOLD_FILES`` still resolves where it always did.
 """
 
 from __future__ import annotations

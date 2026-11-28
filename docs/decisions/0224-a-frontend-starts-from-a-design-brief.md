@@ -1,13 +1,14 @@
 # 0224 — A frontend starts from a design brief
 
 - **Status:** Proposed on 2026-11-28. Held by `tests/architecture/test_cli_guide.py` (the
-  `design` topic names the brief, its sections and the review, and the theming and layouts
-  topics it leans on), `tests/architecture/test_template.py` (the template ships
-  `frontend/DESIGN.md` with its sections and its status line, copier seeds it once, and the
-  app's AGENTS.md sends the agent to it before the first screen),
-  `tests/architecture/test_cli_version.py` (the upgrade report lists it among the files a
-  re-render leaves alone) and `tests/architecture/test_docs_parity.py` (the delivered AGENTS.md
-  lists the topic).
+  `design` topic names the brief, its sections, an archetype for every job, what an app with
+  screens does, the review, and the theming and layouts topics it leans on),
+  `tests/architecture/test_template.py` (the template ships `frontend/DESIGN.md` with its
+  sections and its status line, copier seeds it once, and both copies of the app's AGENTS.md
+  open their frontend section with it), `tests/architecture/test_layout_archetypes.py` (the
+  brief's list of archetypes names them all), `tests/architecture/test_cli_version.py` (the
+  upgrade report lists it among the files a re-render leaves alone) and
+  `tests/architecture/test_docs_parity.py` (the delivered AGENTS.md lists the topic).
 - **Date:** 2026-11-28.
 - **Relates:** [ADR 0223](0223-type-and-shape-have-roles-as-colour-does.md) (the type and shape
   roles a direction is stated in), [ADR 0169](0169-a-page-is-composed-from-the-shape-of-its-data.md)
@@ -53,14 +54,17 @@ after the first render it is the app's own account of its screens and its look.
 
 ### 2. The agent writes the brief before the first screen, and asks before it builds
 
-The delivered AGENTS.md now opens the frontend section with the brief: while
-`frontend/DESIGN.md` still says it is not written, the agent writes it before any screen, offers
-the person a short choice between two or three directions that suit the work, records the one
-they pick with its reason, and then builds each screen to it from the standard components that
-serve its task. The checks
-that followed (desktop and phone widths, every shipped palette, the keyboard, controls that fit)
-are unchanged. `terp guide design` is the recipe: the brief's sections, an archetype per job,
-how hierarchy is rationed, why a direction is app-wide, and the review below.
+Both copies of the delivered AGENTS.md now open their frontend section with the brief, ahead
+of the component catalog and the lint's rules, because the instruction an agent meets first is
+the one it follows. While `frontend/DESIGN.md` still says it is not written, the agent writes it
+before it builds or restyles a screen. In an app with no screens yet it offers the person a
+short choice between two or three directions that suit the work; in an app that has screens it
+writes down the direction they already have and asks before changing it. It records the
+direction and the reason, replaces the status line with the date, and then builds each screen to
+the brief from the standard components that serve its task. The checks that followed (desktop
+and phone widths, every shipped palette, the keyboard, controls that fit) are unchanged.
+`terp guide design` is the recipe: the brief's sections, an archetype per job, how hierarchy is
+rationed, why a direction is app-wide, and the review below.
 
 ### 3. The review against the brief is advice, and says so
 
@@ -86,8 +90,11 @@ contrast gate, the layout contract, one headline per page).
 - An app generated from this template carries `frontend/DESIGN.md` from its first commit, and
   the agent's instructions send it there before anything else in the frontend.
 - `terp/cli/__init__.py` and `terp/cli/version.py` are on the shrink-only size record, so the
-  `layouts` topic moved to its own module and the upgrade report's two file lists to
-  `scaffold_files.py`, both unchanged, to make room for the topic and the new seeded file.
+  `layouts` topic moved unchanged to its own module, and the upgrade report's two file lists to
+  `scaffold_files.py`. The list of files the app owns gained `frontend/DESIGN.md`, so
+  `terp upgrade --check` now names the brief among the files a re-render leaves alone.
 - An app generated earlier gets the brief, still unwritten, on its next template update: copier
-  never overwrites the file, but it does create one it finds missing. Until then
-  `terp guide design` serves the app the same way.
+  never overwrites the file, but it does create one it finds missing. So does an app that
+  deleted its brief. Either way the app has screens, so its agent writes down the direction they
+  have rather than offering new ones. Until the update, `terp guide design` serves the app the
+  same way.
