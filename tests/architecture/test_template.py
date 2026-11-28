@@ -1877,3 +1877,55 @@ def test_the_agent_rulebook_and_readme_carry_the_generated_upgrade() -> None:
     readme = (_PROJECT / "README.md.jinja").read_text(encoding="utf-8")
     assert "{% if deploy_build == 'generated' %}uv run terp deployment render" in readme
     assert "A missed render turns `uv run terp verify --only generated` red." in readme
+
+
+def test_the_template_seeds_a_design_brief_the_agent_writes_first() -> None:
+    """ADR 0224: a frontend starts from frontend/DESIGN.md.
+
+    The template ships the brief with its four sections and the line that says it is not
+    written yet, and says how that line goes; copier seeds it once and never overwrites it,
+    because after the first render it is the app's own account of its screens and its look
+    (a brief that is missing, in an older app or a deleted one, comes back unwritten on the
+    next update); and both copies of the app's AGENTS.md open their frontend section with it,
+    including what an app that already has screens of its own does. The opening is the point: the
+    instruction an agent meets first is the one it follows, and the brief used to come 73
+    lines in. Mutation: drop the file, the skip entry, the instruction or the existing-app
+    clause, or move the paragraph down the section, and this fails."""
+    brief = (_PROJECT / "frontend" / "DESIGN.md").read_text(encoding="utf-8")
+    assert "Status: not written yet" in brief
+    for heading in ("## Who uses it", "## Screens", "## Direction", "## Not this"):
+        assert heading in brief, f"the template's brief has no {heading!r} section"
+    assert "uv run terp guide design" in brief
+    flat_brief = " ".join(brief.split())
+    assert "replace the status line" in flat_brief, "the brief must say how it stops reading as unwritten"
+    assert "the template's start page at `/` does not count" in flat_brief, (
+        "the brief must say the template's own page is not a screen the app has"
+    )
+
+    import yaml
+
+    config = yaml.safe_load((_TEMPLATE / "copier.yml").read_text(encoding="utf-8"))
+    assert "frontend/DESIGN.md" in config["_skip_if_exists"]
+
+    for copy in (_PROJECT / "AGENTS.md.jinja", _TEMPLATE / "AGENTS.md"):
+        text = copy.read_text(encoding="utf-8")
+        section = text.split("## Frontend golden rules", 1)[1].split("\n## ", 1)[0]
+        opening = " ".join(section.split("\n\n", 2)[1].split())
+        assert opening.startswith("Start a frontend from its design brief, `frontend/DESIGN.md`"), (
+            f"{copy.name}: the frontend section must open with the design brief, not {opening[:60]!r}"
+        )
+        for clause in (
+            "While it still says \"Status: not written yet\", write it before you build or restyle a screen",
+            # Every generated app has a start page, so the branch must not count it, or no
+            # new app would ever be offered a choice.
+            "If the app has no screens of its own yet (the template's start page at `/` does not count), "
+            "offer the person a short choice between two or three directions",
+            "if it has, write down the direction its screens already have and ask the person before changing it",
+            "replace the status line with the date",
+        ):
+            assert clause in opening, f"{copy.name}: the brief paragraph lost {clause!r}"
+    agents = " ".join((_PROJECT / "AGENTS.md.jinja").read_text(encoding="utf-8").split())
+    assert "`uv run terp guide design` / `uv run terp guide frontend`" in agents, (
+        "the frontend section's recipes must start with the design topic"
+    )
+

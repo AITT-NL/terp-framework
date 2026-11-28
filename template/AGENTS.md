@@ -45,6 +45,17 @@ fails closed with precise, fixable messages.
 
 ## Frontend golden rules (the boundary lint enforces these)
 
+Start a frontend from its design brief, `frontend/DESIGN.md` (`uv run terp guide design`).
+While it still says "Status: not written yet", write it before you build or restyle a screen:
+who uses the app and for which tasks, each screen with its archetype, its one primary action
+and its headline figure, and the direction the app takes, stated as tokens in
+`frontend/src/theme.css` and keys in `frontend/layout-contract.json`. If the app has no screens
+of its own yet (the template's start page at `/` does not count), offer the person a short choice
+between two or three directions that suit the work; if it has, write down the direction its
+screens already have and ask the person before changing it. Record the direction and the reason
+in the brief, replace the status line with the date you wrote it, and change the brief in the
+same change as the screens whenever the design changes.
+
 Screens compose the **`@terpjs/react-core` component surface** — the full catalog is in
 `node_modules/@terpjs/react-core/README.md` (bootstrap/providers, page archetypes
 `AppShell`/`Page`/`OverviewPage`/`DetailPage`/`HubPage`/`DashboardPage`/`FormPage`/`SettingsPage`/`SplitPage`/`WorkspacePage`, data via `DataView` +
@@ -54,13 +65,11 @@ Screens compose the **`@terpjs/react-core` component surface** — the full cata
 `DatePicker`/`DateRangePicker`, overlay primitives `Popover`/`Menu`, plus `Tabs`
 for in-page tab sets and `Markdown` for safe rich text).
 
-Start a frontend with the user's main task and the standard component that serves it.
-Use the existing app or house design as the baseline. Give an app-owned layout a specific
-job, such as putting a source document beside the decision that depends on it. Keep the
-platform's controls, readable measure, theme pairs and responsive defaults where they fit.
+Build each screen to the brief, from the standard components that serve its task. Give an
+app-owned layout a specific job, such as putting a source document beside the decision that
+depends on it. Keep the platform's controls, readable measure, theme pairs and responsive
+defaults where they fit.
 Apply scoped classes to native layout elements. Configure controls through their supported props.
-If two directions serve the task equally well and the preference matters, offer one short
-choice. When asked to choose, pick a direction and record the rationale in the app README.
 Check the rendered screen at desktop and mobile widths. Verify that the main action is easy
 to find and reach by keyboard, and measure text against its actual background in every shipped
 theme, including hover and focus. If an action disappears, check where keyboard focus lands.

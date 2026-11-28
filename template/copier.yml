@@ -56,6 +56,9 @@ _skip_if_exists:
   - frontend/src/theme.css
   - frontend/src/house-style.css
   - frontend/layout-contract.json
+  # The design brief (ADR 0224): seeded with its sections, then the app's own account
+  # of its screens and its look, which a re-render must never put back to the template's.
+  - frontend/DESIGN.md
 
 # Files a re-render must never CREATE. `_skip_if_exists` alone does not hold that: it only
 # stops copier overwriting a file that exists, and an update still creates one that is
