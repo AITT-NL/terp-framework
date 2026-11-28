@@ -50,10 +50,11 @@ While it still says "Status: not written yet", write it before you build or rest
 who uses the app and for which tasks, each screen with its archetype, its one primary action
 and its headline figure, and the direction the app takes, stated as tokens in
 `frontend/src/theme.css` and keys in `frontend/layout-contract.json`. If the app has no screens
-yet, offer the person a short choice between two or three directions that suit the work; if it
-has screens, write down the direction they already have and ask the person before changing it.
-Record the direction and the reason in the brief, replace the status line with the date you
-wrote it, and change the brief in the same change as the screens whenever the design changes.
+of its own yet (the template's start page at `/` does not count), offer the person a short choice
+between two or three directions that suit the work; if it has, write down the direction its
+screens already have and ask the person before changing it. Record the direction and the reason
+in the brief, replace the status line with the date you wrote it, and change the brief in the
+same change as the screens whenever the design changes.
 
 Screens compose the **`@terpjs/react-core` component surface** — the full catalog is in
 `node_modules/@terpjs/react-core/README.md` (bootstrap/providers, page archetypes

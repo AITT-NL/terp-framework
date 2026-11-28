@@ -57,9 +57,10 @@ after the first render it is the app's own account of its screens and its look.
 Both copies of the delivered AGENTS.md now open their frontend section with the brief, ahead
 of the component catalog and the lint's rules, because the instruction an agent meets first is
 the one it follows. While `frontend/DESIGN.md` still says it is not written, the agent writes it
-before it builds or restyles a screen. In an app with no screens yet it offers the person a
-short choice between two or three directions that suit the work; in an app that has screens it
-writes down the direction they already have and asks before changing it. It records the
+before it builds or restyles a screen. In an app with no screens of its own yet (the template's
+start page at `/` does not count, or every new app would qualify) it offers the person a short
+choice between two or three directions that suit the work; in an app that has screens of its
+own it writes down the direction they already have and asks before changing it. It records the
 direction and the reason, replaces the status line with the date, and then builds each screen to
 the brief from the standard components that serve its task. The checks that followed (desktop
 and phone widths, every shipped palette, the keyboard, controls that fit) are unchanged.
@@ -95,6 +96,6 @@ contrast gate, the layout contract, one headline per page).
   `terp upgrade --check` now names the brief among the files a re-render leaves alone.
 - An app generated earlier gets the brief, still unwritten, on its next template update: copier
   never overwrites the file, but it does create one it finds missing. So does an app that
-  deleted its brief. Either way the app has screens, so its agent writes down the direction they
+  deleted its brief. Either way the app has screens of its own, so its agent writes down the direction they
   have rather than offering new ones. Until the update, `terp guide design` serves the app the
   same way.

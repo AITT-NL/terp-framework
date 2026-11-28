@@ -27,9 +27,9 @@ Designing an app's screens (the brief, the direction, the review)
   Offer the person a short choice between two or three directions that suit the work (a
   console people work in all day is dense, square and quiet; a portal visited once a month
   is roomy, rounded and calm) and record the one they pick, with the reason, in the brief.
-  An app that already has screens has a direction already: write down the one it has, and
-  ask the person before changing it. Replace the status line with the date when the brief
-  is written. When the design changes, change the brief in the same change as the screens:
+  An app that already has screens of its own (the template's start page at / does not
+  count) has a direction already: write down the one its screens have, and ask the person
+  before changing it. Replace the status line with the date when the brief is written. When the design changes, change the brief in the same change as the screens:
   it is reviewed in the diff like the code.
 
 - FROM TASK TO SCREEN. A screen's archetype follows its job:

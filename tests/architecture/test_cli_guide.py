@@ -428,8 +428,8 @@ def test_the_design_topic_teaches_the_brief_before_the_first_screen() -> None:
     missing = sorted(name for name in _shipped_archetypes() if name not in text)
     assert not missing, f"terp guide design must say which job each archetype serves; it omits {missing}"
     flat = " ".join(text.split())
-    assert "An app that already has screens has a direction already" in flat, (
-        "the topic must say what an app with screens does: record its direction, ask before changing it"
+    assert "An app that already has screens of its own (the template's start page at / does not count)" in flat, (
+        "the topic must say what an app with screens does, and that the template's start page is not one"
     )
     assert "Replace the status line" in flat, "the topic must say how a written brief stops reading as unwritten"
     for topic in ("terp guide theming", "terp guide layouts"):

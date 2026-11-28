@@ -21,8 +21,9 @@ decision, 0001 onwards.
   not look like. Copier seeds it once, like `theme.css`, and `terp upgrade --check` names it
   among the files a re-render leaves alone. The app's AGENTS.md now opens its frontend section
   with the brief: write it before building or restyling a screen, offer the person two or three
-  directions in an app with no screens yet (or write down the direction an app with screens
-  already has, and ask before changing it), record the choice, and build each screen to it.
+  directions in an app with no screens of its own yet (the template's start page does not
+  count; an app with screens of its own writes down the direction they have, and asks before
+  changing it), record the choice, and build each screen to it.
   `terp guide design` is the recipe, including a review of the screens against the brief that
   is advice rather than a gate. To keep two oversized files on their size records, the
   `layouts` topic moved unchanged to its own module, and the upgrade report's file lists to
@@ -132,7 +133,7 @@ decision, 0001 onwards.
   The template's `app/main.py` brings `migration_readiness` with the next re-render. The API's
   log names the packages behind and `terp migrate upgrade`; bringing the stack up again runs its
   `migrate` step too. No healthcheck waits on readiness, so nothing else waits with it.
-- **The next re-render adds `frontend/DESIGN.md`, still unwritten, to an app that has none**
+- **The next re-render adds `frontend/DESIGN.md`, still unwritten, to an app with a frontend that has none**
   (ADR 0224). Copier never overwrites a brief the app wrote; one that is missing comes back. The
   app's agent then writes it from the screens the app already has, and asks before changing
   their direction.
