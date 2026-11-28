@@ -1,9 +1,9 @@
 # 0225 — The bootstrap's own sheets declare tokens, and nothing else
 
 - **Status:** Proposed on 2026-11-28. Held by `packages/frontend/eslint-boundaries/src/index.test.js`
-  ("reads the bootstrap's own sheets as token sheets (ADR 0225)", which pins each refusal's line,
-  cause and remedy, the shapes a styling tool writes, and that a marker on the import waives
-  nothing inside), `findings.test.js` ("rechecks the bootstrap when only one of its token sheets
+  ("reads the bootstrap's own sheets as token sheets (ADR 0225)", which pins each refused form's
+  line, cause and remedy in both sheets, the shapes a styling tool writes, the escaped and
+  backslashed forms a pattern would miss, and that a marker on the import waives nothing inside), `findings.test.js` ("rechecks the bootstrap when only one of its token sheets
   changes"), the `no-style-imports` corpus cases `violation-05` and `compliant-03`, and the rule's
   recorded residual. Amends [ADR 0094](0094-attribute-keyed-styling.md),
   [ADR 0097](0097-shell-parameters-and-ordered-navigation.md),
@@ -45,19 +45,35 @@ already. So the two sheets can be held to what they are for.
 When the bootstrap (`src/main.tsx` or `src/main.ts`) imports `./house-style.css` or `./theme.css`,
 the rule reads the file and admits:
 
-- **Tokens under the selectors a palette uses**: `:root`, `[data-theme='<palette>']` (any quoting,
-  alone or in a list with its earlier names), and `:root:not([data-theme])` inside an
-  `@media (prefers-color-scheme: …)` group, which is how a palette follows the viewer's platform.
-  Studio's house-style writer emits exactly these shapes, and the template's sheets are comments.
-- **Custom properties only** in those rules, without `!important` and without `url()`: no token
-  holds a file.
-- **`@font-face`**, with its descriptors only and a `src` on the app's own origin, so the policy's
-  `font-src 'self'` admits it: an app's own typeface is a file it serves (ADR 0223 §4).
-- **`@media` groups** of the above, and comments.
+- **Tokens under the selectors a palette uses**: `:root`, `[data-theme='<palette>']` (quoted, a
+  name of letters, digits and hyphens as a styling tool writes it, alone or in a list with its
+  earlier names), and `:root:not([data-theme])` inside an `@media (prefers-color-scheme: …)`
+  group, which is how a palette follows the viewer's platform. Studio's house-style writer emits
+  these shapes; the template's sheets are comments.
+- **Custom properties only** in those rules, without `!important` and without a function that
+  fetches (`url()`, `image-set()`, `image()`, `cross-fade()`, `src()`): no token holds a file.
+- **`@font-face`**, with its descriptors only, files named with `url()` and `local()`, and every
+  `url()` resolving to the app's own origin, so the policy's `font-src 'self'` admits it: an app's
+  own typeface is a file it serves (ADR 0223 §4).
+- **`@media` and `@supports` groups** of the above, and comments. `@supports` is there for a
+  token with a fallback, such as an `oklch()` brand colour where the browser reads it.
 
-Everything else is refused, each with its line and the remedy: another selector, a standard
-property, any other at-rule (`@import`, `@layer`, `@keyframes`), a nested rule. A sheet that is
-not there is the bundler's to refuse, and is not a finding.
+Every value is read with its CSS escapes resolved, and every font file's target is resolved
+against the app's origin, so `\75 rl(…)` is the `url(` it is to a browser and `url("/\\host/…")`
+is the other host it is; a check that matched the text would let both through.
+
+Everything else is refused, each with its line, its cause and the remedy for that cause: another
+selector or a standard property (the token that governs it, or a stylesheet under the marker), a
+fetching function in a token (a brand mark is `shell.brand`, a face an `@font-face`, another image
+a rule under the marker), `!important` (drop it), `@charset` (delete it), a nested rule (move it
+out), any other at-rule (a stylesheet under the marker). A sheet that is not there is the
+bundler's to refuse, and is not a finding.
+
+The remedy depends on who owns the file. The app edits `theme.css`. Nobody edits
+`house-style.css`: the styling tool overwrites it on the next apply, so a refusal there says to
+fix the house style in that tool and apply it again, and that an app departs from it with a token
+in `theme.css`. Studio's writer refuses a value with `!important`, a fetching function or a CSS
+escape before it ever writes one (terp-studio, alongside this change).
 
 ### 2. A correction to an existing rule, not a new one
 
@@ -75,7 +91,11 @@ leaves the file unread, and is counted against the escape-hatch budget and decid
 (ADR 0059). A marker on the `./theme.css` import waives nothing inside it, as a marker on a CSS
 Module's import waives nothing inside the module (ADR 0217): the import's form is always allowed,
 and the sheet's content is not the import's to waive. So nothing is forbidden outright, and
-nothing that was quiet stays quiet.
+nothing quiet is left in the bootstrap's two sheets.
+
+One quiet route stays outside this rule, and the rule records it as a residual rather than
+claiming it closed: a `<link rel="stylesheet">` in `frontend/index.html` to a file in `public/`.
+The rule reads the module graph from `src/`, and the document is not part of it.
 
 ## What it amends
 
@@ -106,5 +126,8 @@ browser whether or not this lint ran.
 - **It does not touch CSS Modules** or what they may paint.
 - **It does not read the third sheet.** `@terpjs/contract/tokens.css` is the framework's own and
   is read by the framework's tests.
-- **It does not touch the template's sheets.** Both ship as comments, and the template test that
-  lints the generated bootstrap clean holds them to this.
+- **It does not read `frontend/index.html`.** A stylesheet linked from the document is recorded
+  as the rule's residual, above.
+- **It changes nothing in the template's sheets but a comment.** Both ship as comments, and the
+  `theme.css` one now says what the file holds; the template test that lints the generated
+  bootstrap reads both and holds them clean.

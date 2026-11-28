@@ -43,8 +43,8 @@ Theming and branding (design tokens, palettes, the brand mark)
   theme.css and house-style.css DECLARE TOKENS AND NOTHING ELSE, and the boundary lint
   reads both from src/main.tsx (ADR 0225): custom properties under :root or a palette's
   [data-theme] selector (and :root:not([data-theme]) inside a prefers-color-scheme group),
-  @font-face for a face you serve yourself, and @media groups of those. A rule on a
-  component's marker, a property that is not a token, !important or a url() in a token is
+  @font-face for a face you serve yourself, and @media and @supports groups of those. A rule
+  on a component's marker, a property that is not a token, !important or a url() in a token is
   refused with its line. When no token can express what you need, put the rule in a
   stylesheet of your own and import it in src/main.tsx under a justified
   `// terp-allow-no-style-imports: <reason>` marker, which the escape-hatch budget counts.

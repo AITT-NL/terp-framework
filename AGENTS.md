@@ -210,7 +210,7 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   is the one file that imports global stylesheets, and only the token pipeline's three:
   `@terpjs/contract/tokens.css`, `./house-style.css` and `./theme.css`, and the lint reads the
   last two as token sheets (ADR 0225): custom properties under `:root` or a palette's selector,
-  `@font-face` on the app's own origin, `@media` groups of those, and nothing else. A rule no
+  `@font-face` on the app's own origin, `@media` and `@supports` groups of those, and nothing else. A rule no
   token can express goes in a stylesheet of the app's own under the `no-style-imports` marker.
   A stylesheet loaded through `import()` or `import.meta.glob` is refused like an imported one, and code outside the
   modules never imports from one (shared code is what modules depend on).

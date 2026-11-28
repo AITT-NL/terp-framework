@@ -24,7 +24,8 @@
       "a colour written other than as `#hex` in a string literal (`\"red\"`, `\"rgb(255, 0, 0)\"`, a `#hex` in a template literal) in app script is not recognised"
     ],
     "frontend/no-style-imports": [
-      "a token name in the bootstrap's two sheets is not checked against the token manifest: the sheet's form is held, not its vocabulary, so a misspelt token is admitted and sets nothing"
+      "a token name in the bootstrap's two sheets is not checked against the token manifest: the sheet's form is held, not its vocabulary, so a misspelt token is admitted and sets nothing",
+      "a stylesheet linked from frontend/index.html (a <link rel=\"stylesheet\"> to a file in public/) is not read: the rule reads the module graph from src/, and the document is not part of it; the policy's style-src 'self' admits such a file, so it is the one global sheet no marker counts"
     ],
     "frontend/timestamp-inputs-carry-their-offset": [
       "a type read from a name, a call or a member (`type={kind}`), a props object spread onto the element, `createElement`, and an input whose type is set through the DOM rather than in JSX, are not resolved to the local date-and-time control"
