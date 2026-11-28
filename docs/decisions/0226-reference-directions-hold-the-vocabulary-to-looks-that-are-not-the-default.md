@@ -65,11 +65,13 @@ looks are for a person to look at, and are not recorded.
 ### 2. A multi-line field is never rounder than a container
 
 The Textarea, a Select that is a list box (`multiple`, or a `size` above one) and the multiple
-Combobox field take `min(var(--radius-control), var(--radius-container))`. The list box also
-stops drawing the dropdown chevron, which it never had a dropdown for:
+Combobox field take `min(var(--radius-control), var(--radius-container))`:
 
-- **The default is unchanged.** The control corner is the smaller of the two, so nothing renders
-  differently.
+- **The default corner is unchanged.** The control corner is the smaller of the two, so no field's
+  corner moves until a style rounds its controls past its containers.
+- **A list box changes at rest, once.** It stops drawing the dropdown chevron it never had a
+  dropdown for, and the room the one-line select reserves for that chevron: its padding is
+  `var(--space-1)` on every side. The lane holds both.
 - **A pill direction** gets multi-line fields with its container's corner.
 - **ADR 0223's own example**, pill controls beside nearly square cards, gets nearly square
   textareas.

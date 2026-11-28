@@ -117,6 +117,13 @@ for (const direction of REFERENCE_DIRECTIONS) {
           expect(px(value), `${selector} in ${specimen}`).toBeLessThanOrEqual(px(roles.container));
         }
       }
+      // A list box opens no dropdown, so it draws no chevron and reserves no room for one.
+      const listBox = await page.evaluate(() => {
+        const style = getComputedStyle(document.querySelector('select[data-terp="input"][multiple]')!);
+        return { image: style.backgroundImage, left: style.paddingLeft, right: style.paddingRight };
+      });
+      expect(listBox.image).toBe("none");
+      expect(listBox.right).toBe(listBox.left);
     });
 
     test("every title takes the heading face, and the titles that follow the role its weight", async ({ page }) => {

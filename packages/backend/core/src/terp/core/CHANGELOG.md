@@ -107,6 +107,11 @@ decision, 0001 onwards.
 
 ### Fixed
 
+- **A list-box Select draws no dropdown chevron** (ADR 0226). A `Select` with `multiple`, or a
+  `size` above one, renders a list box, which opens no dropdown, but it took the one-line
+  select's chevron and the room reserved for it. It now draws neither: its padding is
+  `var(--space-1)` on every side, and its corner is capped like a textarea's.
+
 - **`terp smoke` translates a mount against the checkout it runs in.** A tool that runs
   Compose from inside a container writes the Docker daemon's host path into `.env` under the
   root `workbench.json` declares as `env.sourceRoot` (`TERP_DEV_HOST_ROOT` by default), and
