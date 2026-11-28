@@ -135,8 +135,9 @@ decision, 0001 onwards.
   `migrate` step too. No healthcheck waits on readiness, so nothing else waits with it.
 - **The next re-render adds `frontend/DESIGN.md`, still unwritten, to an app with a frontend that has none**
   (ADR 0224). Copier never overwrites a brief the app wrote; one that is missing comes back. The
-  app's agent then writes it from the screens the app already has, and asks before changing
-  their direction.
+  app's agent then writes it as for a new app: from the screens the app has of its own, asking
+  before changing their direction, or, where the template's start page is the only one, by
+  offering directions.
 
 ## 0.45.0 — 2026-11-24
 

@@ -48,8 +48,9 @@ The template ships `frontend/DESIGN.md` with four sections and the line
 A file rather than a declaration with a schema, because its readers are a person and an agent,
 not a program: nothing in the framework or the Studio parses it, and a schema for prose would be
 a contract with no consumer to hold it (ADR 0099's test). It sits in `frontend/`, beside the code
-it describes, so an app rendered without screens of its own never gets one, and it changes in
-the same diff as the screens. Copier seeds it once and never overwrites it, like `theme.css`:
+it describes, so an app rendered without a frontend
+([ADR 0202](0202-an-app-without-a-frontend-is-a-template-answer.md)) never gets one, and it
+changes in the same diff as the screens. Copier seeds it once and never overwrites it, like `theme.css`:
 after the first render it is the app's own account of its screens and its look.
 
 ### 2. The agent writes the brief before the first screen, and asks before it builds
@@ -96,6 +97,7 @@ contrast gate, the layout contract, one headline per page).
   `terp upgrade --check` now names the brief among the files a re-render leaves alone.
 - An app generated earlier gets the brief, still unwritten, on its next template update: copier
   never overwrites the file, but it does create one it finds missing. So does an app that
-  deleted its brief. Either way the app has screens of its own, so its agent writes down the direction they
-  have rather than offering new ones. Until the update, `terp guide design` serves the app the
-  same way.
+  deleted its brief. Its agent then follows the same instruction as a new app's: an app with
+  screens of its own has its direction written down from them, and one whose only page is the
+  template's start page is offered directions. Until the update, `terp guide design` serves
+  the app the same way.
