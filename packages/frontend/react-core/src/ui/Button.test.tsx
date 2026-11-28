@@ -58,8 +58,8 @@ describe("Button", () => {
     // The point of the prop: `style={{ width: "100%" }}` is the only other way there, and app
     // modules may not write it (ADR 0059) — so full width was a shape the framework could
     // produce and its consumers could not ask for. The absence of a style attribute is the
-    // half that matters, because an inline width would outrank the app theme.css that ADR 0094
-    // exists to empower.
+    // half that matters, because an inline width would outrank an app's own stylesheet, which
+    // ADR 0094 exists to empower.
     render(<Button fullWidth>Wide</Button>);
     const button = screen.getByRole("button", { name: "Wide" });
     expect(button).toHaveAttribute("data-full-width", "true");

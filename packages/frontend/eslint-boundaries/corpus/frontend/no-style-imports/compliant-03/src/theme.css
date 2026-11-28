@@ -1,0 +1,16 @@
+@font-face {
+  font-family: "Brand Serif";
+  src: url("/fonts/brand-serif.woff2") format("woff2");
+  font-display: swap;
+}
+
+:root {
+  --font-family-heading: "Brand Serif", ui-serif, Georgia, serif;
+  --font-weight-heading: var(--font-weight-medium);
+  --radius-control: var(--radius-full);
+  --radius-container: var(--radius-sm);
+}
+
+[data-theme="night"] {
+  --color-brand-primary: #60a5fa;
+}

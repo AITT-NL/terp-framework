@@ -8,7 +8,10 @@
   resolve to the scale until a theme sets them, and each moves only its own readers") and, for
   "nothing renders differently", the unchanged screenshot baselines. Amended by
   [ADR 0226](0226-reference-directions-hold-the-vocabulary-to-looks-that-are-not-the-default.md)
-  on 2026-11-28: a multi-line field takes the control corner up to the container corner.
+  on 2026-11-28: a multi-line field takes the control corner up to the container corner. Amended
+  by [ADR 0225](0225-the-bootstrap-sheets-declare-tokens.md) on 2026-11-28: a token sheet sets a
+  step under `:root` or a palette's selector only, so the caveat about a step declared again
+  below the root applies only to a stylesheet under the `no-style-imports` marker.
 - **Date:** 2026-11-27.
 - **Relates:** [ADR 0093](0093-semantic-token-layer-and-named-themes.md) (the semantic colour
   layer this gives type and shape), [ADR 0103](0103-the-ideology-one-pattern-enforced-escapable-by-proof.md)

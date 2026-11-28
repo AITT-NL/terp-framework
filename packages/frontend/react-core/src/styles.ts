@@ -11,8 +11,9 @@
  *
  * THIS SHEET CARRIES NO `!important`. It carried 35 at 0.7.0, and the count going
  * to zero is what the migration was for: every rule here is now beatable by an
- * app's unlayered `theme.css` without `!important` and without out-specifying
- * anything. A new escalation is therefore a claim that some element still styles
+ * app's own unlayered stylesheet without `!important` and without out-specifying
+ * anything (since ADR 0225 that is a sheet under the no-style-imports marker;
+ * `theme.css` sets tokens). A new escalation is therefore a claim that some element still styles
  * itself inline on the same property — state it, with the file, or do not add it.
  *
  * THE LEDGER IS EMPTY. No module declares a module-scope base style object any more,
@@ -44,8 +45,8 @@
  * like an enabled one.
  *
  * It runs the other way too, and that direction is quieter: an escalation kept
- * after its last inline consumer migrated still outranks the app `theme.css`
- * this phase exists to empower, and nothing renders differently to say so.
+ * after its last inline consumer migrated still outranks an app's own unlayered
+ * stylesheet, which this phase exists to empower, and nothing renders differently to say so.
  * `tab` was in that state until its rules were relaxed.
  *
  * ## Layers
@@ -72,9 +73,10 @@
  * both: unlayered author declarations beat layered ones regardless of
  * specificity. The density re-scoping must therefore stay unlayered, or the
  * contract's own unlayered `:root` token values would beat it and the compact
- * attribute would do nothing. And an app's `theme.css` is unlayered too, which
- * is what lets an app override any framework rule without `!important` — the
- * restyling this phase exists to enable.
+ * attribute would do nothing. And an app's own sheets are unlayered too: its
+ * `theme.css` overrides any token, and a stylesheet it imports under the
+ * no-style-imports marker (ADR 0225) any framework rule, without `!important` —
+ * the restyling this phase exists to enable.
  *
  * ## Roles
  *
@@ -253,7 +255,8 @@ body {
    cost is that a page which never scrolls is off true viewport centre by the gutter,
    most visibly on the sign-in screen, and that is the trade every app that reserves the
    gutter takes. It is layered, so an app that would rather have the jump can turn it off
-   from its own unlayered theme.css.
+   from an unlayered stylesheet of its own: a rule on html is not a token, so that sheet is
+   one imported under the no-style-imports marker (ADR 0225), not theme.css.
 
    This one moves pixels, which is why it is a deliberate line here rather than something
    to slip in beside a refactor: it narrows the content box of every scroll-free page. */
@@ -2345,8 +2348,8 @@ select[data-terp="input"][size]:not([size="0"]):not([size="1"]) {
    and the row would then be set by the title rather than by the floor, which is the defect
    the padding above was cut to end.
    --font-size-xl keeps two readers (heading[data-size="xl"], login-title), so the top of the
-   scale is still wired; an app that wants the masthead back redefines the marker from its own
-   unlayered theme.css, exactly as the retired comment here said.
+   scale is still wired; an app that wants the masthead back restyles the marker from an
+   unlayered stylesheet of its own, imported under the no-style-imports marker (ADR 0225).
 
    align-items: center rather than baseline, because the row mixes a heading, pill badges and
    a button cluster: baseline alignment lines up the text and leaves the pills sitting low.
@@ -6038,7 +6041,7 @@ button[data-terp="input"][data-placeholder="true"] {
    byte-identical to these two values, so unguarded an !important hover paints an
    inactive toggle exactly like the active one — and because the declaration is
    both layered and important, nothing could restore it: not a higher-specificity
-   author rule, not a later one, not an app's unlayered theme.css, which for
+   author rule, not a later one, not an app's own unlayered stylesheet, which for
    important declarations sorts BELOW every layer. The guard makes the two rules
    mutually exclusive rather than merely equal-valued; without it they weigh
    (0,3,0) against (0,4,0) in one layer with the !important on the wrong one, and
@@ -6588,8 +6591,8 @@ button[data-terp="input"][data-placeholder="true"] {
    six elements wear — so once it stopped carrying inline base styles there was
    nothing left for the rules to out-shout, and layer order is enough. Keeping
    !important past that point is the quiet failure: nothing renders differently,
-   the rule just silently outranks the app theme.css this phase exists to
-   empower. Both directions are pinned in styles.test.ts.
+   the rule just silently outranks an app's own unlayered stylesheet, which this
+   phase exists to empower. Both directions are pinned in styles.test.ts.
 
    The base declarations that used to sit up here — the item's transition and
    radius — have moved down to terp.base where they belong. They were here only

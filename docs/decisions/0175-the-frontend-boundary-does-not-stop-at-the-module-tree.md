@@ -10,7 +10,8 @@
   template's own bootstrap clean"), and by `budget.test.js` for the widened extensions.
 - **Amended by:** [ADR 0217](0217-app-components-can-own-a-scoped-stylesheet.md): an app
   component may also import its sibling CSS Module; the bootstrap stays the one file that
-  imports a global stylesheet.
+  imports a global stylesheet. [ADR 0225](0225-the-bootstrap-sheets-declare-tokens.md): of the
+  three it imports, the app's `theme.css` and the house style's sheet are read, as token sheets.
 - **Date:** 2026-10-06
 - **Relates:** [ADR 0136](0136-a-security-rule-does-not-stop-at-the-module-tree.md) (the same
   defect in the backend gate, closed there first), [ADR 0059](0059-strict-frontend-boundary-and-escape-hatch-budget.md)

@@ -301,7 +301,8 @@ describe("cascade structure", () => {
     // terp.motion sits above terp.base and terp.state. Retiring it also has a merit of its own:
     // the block sets `transition: none` for EVERY transition, including pure colour fades that
     // are not motion at all, so leaving it unoverridable was the over-broad choice. An app can
-    // now narrow it from theme.css, which is exactly the power this phase exists to hand over.
+    // now narrow it from a stylesheet of its own, which is exactly the power this phase exists
+    // to hand over.
     const motion = layerBody("terp.motion");
     expect(motion, "the reduced-motion override should still be declared").toContain(
       "transition: none",
@@ -319,7 +320,7 @@ describe("cascade structure", () => {
     //
     // What makes that unrecoverable rather than merely wrong is the escalation. For important
     // declarations the layer order reverses and unlayered styles sort last, so no author rule
-    // at any specificity — including an app's theme.css — can put the inactive colour back. The
+    // at any specificity — including an app's own unlayered sheet — can put the inactive colour back. The
     // fix is therefore a guard on the rule and not an override anywhere else.
     //
     // Invisible to all three lanes: the baselines capture the resting state, axe reads a static
@@ -1888,8 +1889,8 @@ describe("cascade structure", () => {
 
   it("carries no !important on a marker whose every consumer has migrated", () => {
     // The converse, so the escalation cannot outlive its reason. A rule left shouting after
-    // its last inline consumer is gone is invisible: it works, and it silently outranks the
-    // app theme.css that ADR 0094 exists to empower.
+    // its last inline consumer is gone is invisible: it works, and it silently outranks an
+    // app's own unlayered stylesheet, which ADR 0094 exists to empower.
     const state = layerBody("terp.state");
     for (const rule of [
       '[data-terp="input"]:hover',
@@ -1992,17 +1993,17 @@ describe("cascade structure", () => {
     // The reason both directions of this ledger are gated, recorded where the rules are.
     //
     // For NORMAL declarations an unlayered author rule beats a layered one whatever its
-    // specificity, which is what lets an app's theme.css override this sheet. For IMPORTANT
+    // specificity, which is what lets an app's own unlayered stylesheet override this sheet. For IMPORTANT
     // declarations the layer order REVERSES, and unlayered styles sort last — so a layered
     // !important beats an unlayered !important. Measured in a browser against the real sheet:
     // with the ring escalated, an unlayered rule lost both with and without !important; with it
     // retired, an unlayered rule wins either way.
     //
-    // So an escalation does not merely outrank theme.css. It makes that declaration
+    // So an escalation does not merely outrank an app's stylesheet. It makes that declaration
     // UNTHEMEABLE — there is no author-side override at all. That is why the count is the
     // phase's measurable and why retiring one is a feature rather than tidying.
     expect(css).toContain("@layer terp.reset, terp.base, terp.state, terp.motion;");
-    // ZERO. Every rule in this sheet is now beatable by an app's unlayered theme.css without
+    // ZERO. Every rule in this sheet is now beatable by an app's own unlayered stylesheet without
     // !important and without out-specifying anything, which is what the phase was for: an
     // escalation does not merely outrank an app's stylesheet, it makes that one declaration
     // unthemeable, because for important declarations the layer order reverses and unlayered

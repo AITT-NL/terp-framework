@@ -39,6 +39,15 @@ Theming and branding (design tokens, palettes, the brand mark)
   Per palette, use that palette's selector. A token with no palette selector is
   declared in `:root` and governs every palette at once — which is what you want for
   spacing, corners and typography, and usually not what you want for a colour.
+
+  theme.css and house-style.css DECLARE TOKENS AND NOTHING ELSE, and the boundary lint
+  reads both from src/main.tsx (ADR 0225): custom properties under :root or a palette's
+  [data-theme] selector (and :root:not([data-theme]) inside a prefers-color-scheme group),
+  @font-face for a face you serve yourself, and @media and @supports groups of those. A rule
+  on a component's marker, a property that is not a token, !important or a url() in a token is
+  refused with its line. When no token can express what you need, put the rule in a
+  stylesheet of your own and import it in src/main.tsx under a justified
+  `// terp-allow-no-style-imports: <reason>` marker, which the escape-hatch budget counts.
 - THE PAGE'S BACKGROUNDS MOVE AS A SET (ADR 0169). `--color-bg-canvas` is the page,
   `--color-bg-subtle` the containers and chrome on it — boxed cards, hub tiles, the page
   band — and `--color-bg-surface` where data is read: tables, and charts and figures as
@@ -78,8 +87,10 @@ Theming and branding (design tokens, palettes, the brand mark)
   Set a role to give its readers a value of their own. Move the step under it in `:root`
   (`--radius-md`, `--radius-lg`, `--font-family-sans`, `--font-weight-semibold`) to move
   everything that reads that step, the roles included for as long as you leave them unset.
-  A role is resolved on the root, so a step you declare again under a selector of your own
-  no longer reaches a role's readers there: set the role under that selector as well.
+  A role is resolved on the root, which is where theme.css declares everything: a step set
+  under :root or a palette's selector reaches the roles. (A step declared again below the
+  root, in a stylesheet under the marker, does not reach a role's readers there: set the
+  role there as well.)
 
       :root {
         --font-family-heading: ui-serif, Georgia, "Times New Roman", serif;

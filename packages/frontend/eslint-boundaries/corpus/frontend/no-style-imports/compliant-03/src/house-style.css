@@ -1,0 +1,20 @@
+/* Written by a styling tool: the base palette, its earlier name, and the palette that follows
+   the viewer's platform. */
+:root {
+  --radius-md: 0.25rem;
+}
+
+[data-theme='midday'] {
+  --color-brand-primary: #1d4ed8;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --color-brand-primary: #1d4ed8;
+  }
+}
+
+[data-theme='evening'],
+[data-theme='dark'] {
+  --color-brand-primary: #93c5fd;
+}

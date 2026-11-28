@@ -437,6 +437,16 @@ def test_the_design_topic_teaches_the_brief_before_the_first_screen() -> None:
     assert "advice, not a gate" in text, "the review must say it is advice, not a control"
 
 
+def test_the_theming_topic_says_the_token_sheets_hold_tokens_and_names_the_escape() -> None:
+    """ADR 0225: theme.css and house-style.css are read as token sheets. An author who meets the
+    refusal needs the guide to say what the sheets are for and where a rule no token can express
+    goes, or the refusal reads as a dead end and the marker as a secret. Mutation: drop either
+    sentence from the topic, and this fails."""
+    text = " ".join(guide("theming").split())
+    assert "DECLARE TOKENS AND NOTHING ELSE" in text, "the guide must say what the two sheets hold"
+    assert "// terp-allow-no-style-imports: <reason>" in text, "the guide must name the counted escape"
+
+
 def test_the_theming_topic_names_the_type_and_shape_roles() -> None:
     """ADR 0223's roles are only a capability if the copy an agent reads says they exist.
 

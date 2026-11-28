@@ -937,6 +937,10 @@ def test_the_scaffolded_theme_overlay_belongs_to_the_app() -> None:
     assert "terp guide theming" in overlay, (
         "theme.css should point at the recipe that is always available"
     )
+    # ADR 0225: it holds tokens, and says so before an author writes a rule the lint refuses.
+    flat = " ".join(overlay.split())
+    assert "It declares tokens and nothing else" in flat, "theme.css should say what it may hold"
+    assert "The boundary lint reads this file" in flat, "theme.css should say the lint reads it"
 
 
 def _document_location_block(config: str) -> str:

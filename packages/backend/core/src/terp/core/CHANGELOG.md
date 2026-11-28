@@ -93,6 +93,20 @@ decision, 0001 onwards.
 
 ### Changed
 
+- **An app's `theme.css` and the house style's sheet declare tokens, and the lint reads them**
+  (ADR 0225). `frontend/no-style-imports` read every CSS Module and neither of the bootstrap's
+  own sheets, so a rule there restyled a framework component with nothing checking its paint and
+  nothing to say when the marker it keyed on moved. It now reads `./house-style.css` and
+  `./theme.css` from `src/main.tsx` and admits what they are for: custom properties under
+  `:root` or a palette's `[data-theme]` selector (and `:root:not([data-theme])` inside a
+  `prefers-color-scheme` group), none of them fetching a file, `@font-face` with every source on
+  the app's own origin, and `@media` and `@supports` groups of those, read with their escapes
+  resolved. Anything else is refused with its line and the remedy for its cause (for the house
+  style's sheet, fixing the style in the tool that writes it); a marker on the import waives
+  nothing inside, as for a CSS Module. A rule no token can express goes in a
+  stylesheet of the app's own, imported in `src/main.tsx` under a justified
+  `// terp-allow-no-style-imports: <reason>` marker, which the escape-hatch budget counts.
+
 - **The access-record check says whose decision a widening is before it says how to record
   it.** `terp verify`'s `authz-surface` failure, and the refusal of an app that does not serve
   what `authz-surface.json` records (ADR 0212), now say that who can reach what is a person's to
@@ -139,6 +153,15 @@ decision, 0001 onwards.
   The template's `app/main.py` brings `migration_readiness` with the next re-render. The API's
   log names the packages behind and `terp migrate upgrade`; bringing the stack up again runs its
   `migrate` step too. No healthcheck waits on readiness, so nothing else waits with it.
+- **`theme.css` holds tokens only** (ADR 0225). Before the next lint, move out of it anything
+  else: a rule on a component's marker, on `html` (the scrollbar gutter) or on `body`, an
+  `@import`, an `@layer` or `@keyframes` block, and a token inside one of them. Put those in a
+  stylesheet of the app's own, imported in `src/main.tsx` under a justified
+  `// terp-allow-no-style-imports: <reason>` marker, and raise its count in
+  `escape-hatch-budget.json` by one. Drop `!important` from a token, and name a brand image as
+  `shell.brand` in `layout-contract.json` rather than as a `url()` token. Tokens under `:root` or
+  a palette's selector, `@media` and `@supports` groups of them, and an `@font-face` on the app's
+  own origin stay where they are.
 - **The next re-render adds `frontend/DESIGN.md`, still unwritten, to an app with a frontend that has none**
   (ADR 0224). Copier never overwrites a brief the app wrote; one that is missing comes back. The
   app's agent then writes it as for a new app: from the screens the app has of its own, asking

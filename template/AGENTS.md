@@ -130,7 +130,8 @@ standard composition using the same content before making it the app's default.
    Type and shape have roles as colour does: a heading's face and weight and the corners
    of controls and of containers are `--font-family-heading`, `--font-weight-heading`,
    `--radius-control` and `--radius-container`, set in `frontend/src/theme.css`
-   (`uv run terp guide theming`).
+   (`uv run terp guide theming`). `theme.css` declares tokens (and an `@font-face` for a face
+   the app serves) and nothing else; the lint reads it (ADR 0225).
 
 There are no lint modes: every violation is an error. The one governed opt-out is a
 justified `// terp-allow-<rule>: <reason>` marker on (or above) the violating line, whose
