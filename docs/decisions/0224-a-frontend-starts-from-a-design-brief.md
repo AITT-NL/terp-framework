@@ -49,7 +49,7 @@ A file rather than a declaration with a schema, because its readers are a person
 not a program: nothing in the framework or the Studio parses it, and a schema for prose would be
 a contract with no consumer to hold it (ADR 0099's test). It sits in `frontend/`, beside the code
 it describes, so an app rendered without a frontend
-([ADR 0202](0202-an-app-without-a-frontend-is-a-template-answer.md)) never gets one, and it
+([ADR 0202](0202-an-app-may-be-api-only.md)) never gets one, and it
 changes in the same diff as the screens. Copier seeds it once and never overwrites it, like `theme.css`:
 after the first render it is the app's own account of its screens and its look.
 
