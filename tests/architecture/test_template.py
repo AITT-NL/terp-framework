@@ -1877,3 +1877,28 @@ def test_the_agent_rulebook_and_readme_carry_the_generated_upgrade() -> None:
     readme = (_PROJECT / "README.md.jinja").read_text(encoding="utf-8")
     assert "{% if deploy_build == 'generated' %}uv run terp deployment render" in readme
     assert "A missed render turns `uv run terp verify --only generated` red." in readme
+
+
+def test_the_template_seeds_a_design_brief_the_agent_writes_first() -> None:
+    """ADR 0224: a frontend starts from frontend/DESIGN.md.
+
+    The template ships the brief with its four sections and the line that says it is not
+    written yet; copier seeds it once and never puts it back, because after the first render
+    it is the app's own account of its screens and its look; and the delivered AGENTS.md
+    sends the agent to it before the first screen. Mutation: drop the file, the skip entry
+    or the instruction, and this fails."""
+    brief = (_PROJECT / "frontend" / "DESIGN.md").read_text(encoding="utf-8")
+    assert "Status: not written yet" in brief
+    for heading in ("## Who uses it", "## Screens", "## Direction", "## Not this"):
+        assert heading in brief, f"the template's brief has no {heading!r} section"
+    assert "uv run terp guide design" in brief
+
+    import yaml
+
+    config = yaml.safe_load((_TEMPLATE / "copier.yml").read_text(encoding="utf-8"))
+    assert "frontend/DESIGN.md" in config["_skip_if_exists"]
+
+    agents = " ".join((_PROJECT / "AGENTS.md.jinja").read_text(encoding="utf-8").split())
+    assert "Start a frontend from its design brief, `frontend/DESIGN.md`" in agents
+    assert "While it still says \"Status: not written yet\", write it before the first screen" in agents
+

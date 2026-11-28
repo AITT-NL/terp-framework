@@ -10,9 +10,9 @@ from __future__ import annotations
 TOPIC = """\
 Designing an app's screens (the brief, the direction, the review)
 
-- THE BRIEF COMES FIRST. Before the first screen exists, write DESIGN.md at the root of the
-  app. The template ships it with its sections and the line "Status: not written yet", and
-  every screen after that is built against it:
+- THE BRIEF COMES FIRST. Before the first screen exists, write frontend/DESIGN.md. The
+  template ships it with its sections and the line "Status: not written yet", and every
+  screen after that is built against it:
 
       Who uses it    the people, and the two or three tasks they open the app for
       Screens        one line per screen: its route, its archetype, its one primary

@@ -211,8 +211,9 @@ in [packages/frontend/react-core/README.md](packages/frontend/react-core/README.
   `@terpjs/contract/tokens.css`, `./house-style.css` and `./theme.css`. A stylesheet loaded
   through `import()` or `import.meta.glob` is refused like an imported one, and code outside the
   modules never imports from one (shared code is what modules depend on).
-- **A layout of your own is checked where it breaks** — start from the user's main task and the
-  standard component that serves it, and give an app-owned layout a specific job. Check the
+- **A layout of your own is checked where it breaks** — start from the app's design brief
+  (`frontend/DESIGN.md`, ADR 0224) and the standard component that serves each screen's task,
+  and give an app-owned layout a specific job. Check the
   rendered screen at desktop and mobile widths and in every shipped theme, with the main action
   reachable by keyboard, and hold the task's inputs and buttons to
   `expectControlFitsHorizontally` from `@terpjs/conformance` at narrow widths: a page can fit

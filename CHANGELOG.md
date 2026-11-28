@@ -14,6 +14,17 @@ decision, 0001 onwards.
 
 ### Added
 
+- **A frontend starts from a design brief** (ADR 0224). The template ships `frontend/DESIGN.md`
+  with the line `Status: not written yet` and four sections: who uses the app, its screens
+  (each with its archetype, its one primary action and its headline figure), the direction it
+  takes, stated as tokens in `theme.css` and keys in `layout-contract.json`, and what it must
+  not look like. Copier seeds it once, like `theme.css`. The app's AGENTS.md now opens its
+  frontend section with the brief: write it before the first screen, offer the person two or
+  three directions, record the one they pick, and build each screen to it. `terp guide design`
+  is the recipe, including a review of the screens against the brief that is advice rather than
+  a gate. To keep two oversized files on their size records, the `layouts` topic moved to its
+  own module and the upgrade report's file lists to `scaffold_files.py`, both unchanged.
+
 - **Type and shape have roles, as colour does** (ADR 0223). `@terpjs/contract` publishes
   `--font-family-heading`, `--font-weight-heading`, `--radius-control` and `--radius-container`,
   and react-core reads them: every title takes the heading face, and all but two (the sign-in

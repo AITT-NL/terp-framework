@@ -408,6 +408,24 @@ def test_the_theming_topic_says_the_backgrounds_move_as_a_set() -> None:
         assert token in text, f"terp guide theming must name {token} with its neighbours"
 
 
+def test_the_design_topic_teaches_the_brief_before_the_first_screen() -> None:
+    """ADR 0224: a frontend starts from a design brief, and this topic is its recipe.
+
+    An agent reaches it from the app's AGENTS.md, so the parts it has to act on are held
+    here: where the brief lives and the line that says it is not written yet, its four
+    sections, the archetype a screen's job picks, the theming and layouts topics it leans
+    on, and that the review against the brief is advice rather than a gate. Mutation: drop
+    any of those from the topic, and this fails."""
+    text = guide("design")
+    assert "frontend/DESIGN.md" in text, "the topic must say where the brief lives"
+    assert "Status: not written yet" in text, "the topic must name the line a new brief carries"
+    for section in ("Who uses it", "Screens", "Direction", "Not this"):
+        assert section in text, f"terp guide design must name the brief's {section!r} section"
+    for topic in ("terp guide theming", "terp guide layouts"):
+        assert topic in text, f"terp guide design must point at {topic}"
+    assert "advice, not a gate" in text, "the review must say it is advice, not a control"
+
+
 def test_the_theming_topic_names_the_type_and_shape_roles() -> None:
     """ADR 0223's roles are only a capability if the copy an agent reads says they exist.
 
