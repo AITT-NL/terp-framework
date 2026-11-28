@@ -33,7 +33,8 @@ decision, 0001 onwards.
   `--font-family-heading`, `--font-weight-heading`, `--radius-control` and `--radius-container`,
   and react-core reads them: every title takes the heading face, and all but two (the sign-in
   title and an access screen's section titles, which keep their bold) its weight; buttons,
-  fields, the menu trigger and the navigation's items take the control corner; cards, the
+  fields (a multi-line one up to the container corner, so a pill never clips its text, ADR
+  0226), the menu trigger and the navigation's items take the control corner; cards, the
   table's frame, charts, figures, dialogs and popovers take the container corner. Messages,
   badges and the small parts keep their step. Each role defaults to a reference to the step it
   replaced (`var(--radius-md)` and so on), so nothing renders differently, a house style that

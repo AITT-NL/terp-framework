@@ -36,7 +36,9 @@ also carries JSDoc, so your editor shows the same guidance inline. **Never deep-
   section's, a card's, a dialog's, the app's name in the shell) reads `--font-family-heading`,
   and all but two (the sign-in title and an access screen's section titles, which keep their
   bold) read `--font-weight-heading`. Buttons, fields, the menu trigger, the navigation's
-  items and the toolbar's, pager's and calendar's icon buttons read `--radius-control`; the
+  items and the toolbar's, pager's and calendar's icon buttons read `--radius-control`, which a
+  multi-line field (a Textarea, a multiple Combobox) takes up to the container corner, so a pill
+  never clips its text (ADR 0226); the
   containers that hold content (cards, the table's frame, charts, figures, dialogs, popovers)
   read `--radius-container`. Messages, badges and the small parts (tabs, menu items, options,
   the icon buttons inside a field) keep their scale step. Each role defaults to a reference to

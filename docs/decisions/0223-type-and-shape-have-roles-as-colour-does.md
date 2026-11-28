@@ -6,7 +6,9 @@
   `packages/frontend/contract/src/tokens.manifest.test.js` (the manifest records a reference as
   the sheet declares it), `apps/workbench/visual/computed.spec.ts` ("the type and shape roles
   resolve to the scale until a theme sets them, and each moves only its own readers") and, for
-  "nothing renders differently", the unchanged screenshot baselines.
+  "nothing renders differently", the unchanged screenshot baselines. Amended by
+  [ADR 0226](0226-reference-directions-hold-the-vocabulary-to-looks-that-are-not-the-default.md)
+  on 2026-11-28: a multi-line field takes the control corner up to the container corner.
 - **Date:** 2026-11-27.
 - **Relates:** [ADR 0093](0093-semantic-token-layer-and-named-themes.md) (the semantic colour
   layer this gives type and shape), [ADR 0103](0103-the-ideology-one-pattern-enforced-escapable-by-proof.md)
@@ -55,7 +57,7 @@ defaults to a **reference** to the scale step its readers used before:
 |---|---|---|
 | `--font-family-heading` | `var(--font-family-sans)` | everything that names a page, a section, a dialog or the app: `heading`, `page-title`, `card-title`, `dialog-title`, `hubcard-title`, `empty-state-title`, `error-state-title`, `dataview-title`, `appshell-brand-title`, `login-title`, `admin-section-title` |
 | `--font-weight-heading` | `var(--font-weight-semibold)` | the same, except `login-title` and `admin-section-title` (below) |
-| `--radius-control` | `var(--radius-md)` | what a person presses or types into: `button`; `input`, which every field wears (Input, Select, Textarea, Combobox, DatePicker, DateTimeInput); the multiple combobox field; `menu-trigger`; the navigation's links; the icon buttons of the app header, the toolbar's layout switch, the pager and the calendar header; the inline row action; the sequence bar's links; a calendar day; the skip link |
+| `--radius-control` | `var(--radius-md)` | what a person presses or types into: `button`; `input`, which every field wears (Input, Select, Textarea, Combobox, DatePicker, DateTimeInput); the multiple combobox field (it and the Textarea up to the container corner, ADR 0226); `menu-trigger`; the navigation's links; the icon buttons of the app header, the toolbar's layout switch, the pager and the calendar header; the inline row action; the sequence bar's links; a calendar day; the skip link |
 | `--radius-container` | `var(--radius-lg)` | what holds content on the surface ladder: `card`, `page-summary`, `canvas-host`, `login-card`, `profile-card`, `hubcard-body`, the full DataView's frame and its header's corners, `dataview-card`, `empty-state`, `error-state`, the chart frames (`trend-chart`, `bar-chart`, `proportion-bar`), `stat` and the headline in a group, `dialog`, `popover-panel`, `combobox-list` |
 
 A role set by a house style or `theme.css` separates its readers from the scale:

@@ -11,17 +11,18 @@ a diff).
 
 ```bash
 npm run dev        # the workbench at http://localhost:5175
-npm run visual     # all four lanes at once — see the flake note before trusting a red run
+npm run visual     # all five lanes at once — see the flake note before trusting a red run
 npm run visual:screens  # one lane at a time, which is what CI does and what is reliable
 npm run visual:a11y
 npm run visual:keyboard
 npm run visual:computed
+npm run visual:directions
 npm run visual:update   # re-record the screenshots, after an intended change
 npm run typecheck
 ```
 
 `npm run visual` is the convenient command and **not** the trustworthy one on a busy
-machine: it starts all four lanes in one Playwright process, which is itself the
+machine: it starts all five lanes in one Playwright process, which is itself the
 contention condition described under "No retries" below. CI never runs it — the workflow
 runs each lane as its own command, on runners of their own, with the accessibility lane split
 across four of them by Playwright's `--shard`. Reach for the per-lane scripts when a result
@@ -51,6 +52,10 @@ says. `N` below is `ALL_SPECIMENS.length`.
 - **computed** (`visual/computed.spec.ts`) — the resolved values the other three cannot see,
   including every duration, easing and cursor that the screenshot lane's
   `animations: "disabled"` hides. One test per property.
+- **directions** (`visual/directions.spec.ts`) — the type and shape roles resolved under three
+  reference looks that are not the default (`visual/reference-directions.ts`, ADR 0226), each
+  injected as an app's `theme.css` arrives: every control, container, multi-line field and title
+  reads its role, whatever the look sets it to. Three tests per look, and no baselines.
 
 Each `npm run visual:*` prints its own lane's total, and CI runs each lane as its own command
 (the accessibility lane as four shards, each printing its part), so the numbers are always one
@@ -420,7 +425,7 @@ rasterisation and antialiasing differ between Windows and Linux by far more than
 tolerance that would still catch a real change, so a single shared set leaves whichever
 platform did not record it permanently red. Each platform records and compares its own.
 
-The `linux` set is complete, which is what lets all four lanes run in CI
+The `linux` set is complete, which is what lets every lane run in CI
 (`.github/workflows/frontend.yml`). The `win32` set is **not**, and the specimens it is missing
 are named in `LINUX_ONLY` in `visual/specimens.spec.ts`, skipped off linux, and held to the
 directory contents by a test there — because the default for a missing baseline is to *write* it

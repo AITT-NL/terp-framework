@@ -548,9 +548,15 @@ select[data-terp="input"] {
   -webkit-appearance: none;
   -moz-appearance: none;
 }
+/* A multi-line field wears the control corner up to the container's, and no rounder: a
+   pill (--radius-control: var(--radius-full)) suits a one-line field and a button, but on a
+   box of several lines it draws a stadium whose curved ends cut into the text. By default
+   the control corner is the smaller of the two, so the cap changes nothing until a style
+   rounds its controls past its containers. */
 textarea[data-terp="input"] {
   padding: var(--space-2) var(--space-3);
   line-height: 1.4;
+  border-radius: min(var(--radius-control), var(--radius-container));
 }
 
 /* Stack -------------------------------------------------------------------- */
@@ -4337,7 +4343,8 @@ input[data-terp="input"][role="combobox"] {
   gap: var(--space-1);
   padding: var(--space-1);
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
+  /* It wraps onto rows, so it is capped like a textarea's corner (see the text controls). */
+  border-radius: min(var(--radius-control), var(--radius-container));
   background: var(--color-neutral-0);
 }
 [data-terp="combobox-field"][data-multiple="true"] > [data-terp="input"] {

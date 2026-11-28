@@ -153,7 +153,6 @@ const NOT_HEADINGS: Record<string, string> = {
 const CONTROLS = [
   '[data-terp="button"]',
   '[data-terp="input"]',
-  '[data-terp="combobox-field"][data-multiple="true"]',
   '[data-terp="menu-trigger"]',
   '[data-terp="appshell-nav"] a',
   '[data-terp="appshell-header"] > [data-terp="iconbutton"], [data-terp="appshell-brand-row"] > [data-terp="iconbutton"]',
@@ -165,6 +164,19 @@ const CONTROLS = [
   '[data-terp="calendar-day"]',
   '[data-terp="appshell-skip-link"]:focus-visible',
 ];
+
+/**
+ * Controls of several lines, which wear the control corner up to the container corner and no
+ * rounder. A pill control corner suits a button and a one-line field, but on a box of several
+ * lines it draws a stadium whose ends cut into the text; the default control corner is the
+ * smaller of the two, so the cap is inert until a style rounds its controls past its
+ * containers. Each reads both roles, in exactly this form.
+ */
+const MULTI_LINE_CONTROLS = [
+  'textarea[data-terp="input"]',
+  '[data-terp="combobox-field"][data-multiple="true"]',
+];
+const MULTI_LINE_CORNER = "min(var(--radius-control), var(--radius-container))";
 
 /** What holds content on the surface ladder. */
 const CONTAINERS = [
@@ -275,11 +287,23 @@ describe("ADR 0223 — type and shape roles", () => {
   });
 
   it("gives every control the control corner, and nothing else reads it", () => {
-    expect(readersOf("--radius-control")).toEqual(sorted(CONTROLS));
+    expect(readersOf("--radius-control")).toEqual(sorted([...CONTROLS, ...MULTI_LINE_CONTROLS]));
   });
 
   it("gives every container the container corner, and nothing else reads it", () => {
-    expect(readersOf("--radius-container")).toEqual(sorted(CONTAINERS));
+    expect(readersOf("--radius-container")).toEqual(sorted([...CONTAINERS, ...MULTI_LINE_CONTROLS]));
+  });
+
+  it("caps a multi-line control's corner at the container's, so a pill never clips its text", () => {
+    for (const selector of MULTI_LINE_CONTROLS) {
+      const corners = rules
+        .filter((rule) => rule.selector === selector)
+        .flatMap((rule) => rule.declarations.filter(([property]) => property === "border-radius"));
+      expect(corners, selector).toEqual([["border-radius", MULTI_LINE_CORNER]]);
+    }
+    // Inert by default: the control corner's default step is the smaller one.
+    expect(rootValue("--radius-control")).toBe("var(--radius-md)");
+    expect(rootValue("--radius-container")).toBe("var(--radius-lg)");
   });
 
   it("records by name everything that still reads the md and lg steps directly", () => {

@@ -104,7 +104,7 @@ jobs:
 
   # The component workbench is the migration's replacement gate (ADR 0094): base styles moved
   # out of `style={}` and into the injected sheet, so the unit tests no longer assert paint and
-  # the rendered result is what has to be checked. It has four browser lanes, and they run as
+  # the rendered result is what has to be checked. It has five browser lanes, and they run as
   # separate commands — never one, because a single `playwright test` starts them in one worker
   # pool and that contention is what makes a red color-contrast result meaningless. Separate
   # runners, which is what the two jobs below are, take that contention away rather than add it.
@@ -218,6 +218,10 @@ jobs:
       - name: Computed — the resolved values disabled animations and a static tree cannot show
         working-directory: apps/workbench
         run: npx playwright test visual/computed.spec.ts --reporter=line
+
+      - name: Directions — the roles resolved under three looks that are not the default (ADR 0226)
+        working-directory: apps/workbench
+        run: npx playwright test visual/directions.spec.ts --reporter=line
 
       - name: Screenshots — every specimen against the committed linux baselines
         working-directory: apps/workbench

@@ -69,7 +69,8 @@ Theming and branding (design tokens, palettes, the brand mark)
       --font-weight-heading   their weight (the sign-in title and an access screen's
                               section titles keep their bold)
       --radius-control        what a person presses or types into: buttons, fields, the
-                              navigation's items, the menu trigger
+                              navigation's items, the menu trigger (a multi-line field
+                              takes it up to the container corner, and no rounder)
       --radius-container      what holds content: cards, the table's frame, charts,
                               figures, dialogs, popovers
 
@@ -82,7 +83,7 @@ Theming and branding (design tokens, palettes, the brand mark)
       :root {
         --font-family-heading: ui-serif, Georgia, "Times New Roman", serif;
         --font-weight-heading: 500;
-        --radius-control: var(--radius-full);   /* pill-shaped buttons and fields */
+        --radius-control: var(--radius-full);   /* pill-shaped buttons and one-line fields */
         --radius-container: var(--radius-sm);   /* nearly square cards */
       }
 
